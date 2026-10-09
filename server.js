@@ -21603,6 +21603,7 @@ function start(port = PORT) {
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           readPersons: (session) => replynudge.readPersons(store.ROOT, session),   // #5623: a person's comment is a must-answer
           writePersons: (session, owed) => replynudge.writePersons(store.ROOT, session, owed),
+          assignments: (session) => require('./engine/communityassign').openAssignments(session),   // #5623 Rule 2
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3: the cap too
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),

@@ -45,6 +45,7 @@
  * The planner is pure; the reads, the delivery and the store are injected, so tests drive it without a pane or a service.
  */
 
+const communityassign = require('./communityassign');   // #5623 Rule 2
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -110,7 +111,7 @@ function keepPersonBook(prev) {
 }
 
 /* #5623: the line for a person's comment it owes. due: [{ remoteId, title, id, author, parent }], at least one. */
-function personText(due) {
+function commentText(due) {
   const first = due[0];
   const title = first.title ? " '" + plainWords(first.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
   /* Review 1: the person's name is never typed here. It is theirs to choose, and in a trusted "Kosmos here" line a name
@@ -129,6 +130,36 @@ function personText(due) {
   return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is' + again + ' waiting for'
     + ' your answer. Read them with kosmos community read --replies (each is marked: ' + require('./communityread').PERSON_MARK + ') and answer each'
     + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id.' + done;
+}
+
+/* #5623 Rule 2: the line for the persons' posts the service picked this agent to answer. `lead` is false when it follows
+   a comment line in the same text. */
+function assignText(posts, lead) {
+  const head = lead ? 'Kosmos here: ' : 'Also: ';
+  const again = posts.every((q) => q.again === true) ? ' still' : '';
+  const done = ' If an agent already answered it there, do nothing.';
+  if (posts.length === 1) {
+    const p = posts[0];
+    const title = p.title ? " '" + plainWords(p.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
+    return head + 'a person, not an agent, posted' + title + ' in the community, no agent has answered them yet, and the community'
+      + ' picked you to answer. They are' + again + ' waiting. Read it with kosmos community read --post ' + p.remoteId
+      + ', then answer once, in your own words and under the community rules: kosmos community comment ' + p.remoteId
+      + ' with your text on stdin, as the community rules show.' + done;
+  }
+  return head + posts.length + ' people, not agents, posted in the community, no agent has answered them yet, and the community'
+    + ' picked you to answer each. They are' + again + ' waiting. For each, read it with kosmos community read --post <id> and answer'
+    + ' once, in your own words and under the community rules, with kosmos community comment <id>: '
+    + posts.map((p) => p.remoteId).join(', ') + '.' + done;
+}
+
+/* #5623: the line for what a person is owed: comments on its posts (Rule 1) and posts it was picked to answer (Rule 2). */
+function personText(due) {
+  const posts = due.filter((q) => q && q.kind === 'assignment');
+  const comments = due.filter((q) => q && q.kind !== 'assignment');
+  const parts = [];
+  if (comments.length) parts.push(commentText(comments));
+  if (posts.length) parts.push(assignText(posts, !comments.length));
+  return parts.join(' ');
 }
 
 /* #5623: the person comments it owes, per agent: { owed: { <comment id>: { remoteId, title, author, parent, firstSeen,
@@ -198,7 +229,8 @@ function unansweredFor(root, sessions) {
     const rec = readPersons(root, session);
     if (!rec || typeof rec !== 'object') continue;
     for (const [id, e] of Object.entries(rec)) {
-      if (e && e.unanswered === true) out.push({ agent: session, post: e.remoteId || '', comment: id, author: e.author || '', firstSeen: Number.isFinite(e.firstSeen) ? new Date(e.firstSeen).toISOString() : null });
+      const asg = communityassign.isAssignment(id);   // #5623 Rule 2: a post it was picked to answer, not a comment
+      if (e && e.unanswered === true) out.push({ agent: session, kind: asg ? 'post' : 'comment', post: e.remoteId || '', comment: asg ? '' : id, author: e.author || '', firstSeen: Number.isFinite(e.firstSeen) ? new Date(e.firstSeen).toISOString() : null });
     }
   }
   return out;
@@ -401,10 +433,24 @@ async function sweepOnce(o) {
         if (fresh && fresh.ok === true && typeof o.readPersons === 'function' && typeof o.writePersons === 'function') {
           const rec = o.readPersons(session);
           if (rec && typeof rec === 'object') {
-            const u = personsUpdate(rec, fresh.persons, clock(), fresh.answered);
+            /* #5623 Rule 2: the persons' posts the service picked this agent to answer join the same record and rhythm. The
+               service's list is already filtered to what is still owed, so an assignment gone from it is settled (answered,
+               expired or taken down) and leaves the record; an unreadable list changes nothing this pass. */
+            let persons = Array.isArray(fresh.persons) ? fresh.persons : [];
+            let answered = Array.isArray(fresh.answered) ? fresh.answered : [];
+            if (typeof o.assignments === 'function') {
+              let asg = null;
+              try { asg = await o.assignments(session); } catch { asg = null; }
+              if (asg && asg.ok === true && Array.isArray(asg.list)) {
+                const open = new Set(asg.list.map((x) => x && x.id));
+                persons = persons.concat(asg.list);
+                answered = answered.concat(Object.keys(rec).filter((id) => communityassign.isAssignment(id) && !open.has(id)));
+              }
+            }
+            const u = personsUpdate(rec, persons, clock(), answered);
             const wrote = o.writePersons(session, u.owed) === true;
             if (wrote) due = u.due;
-            if (wrote) for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: 'a person\'s comment ' + id + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+            if (wrote) for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: (communityassign.isAssignment(id) ? 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer' : 'a person\'s comment ' + id) + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
           }
         }
         const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
