@@ -227,10 +227,10 @@ const CONSENT_FILE = 'org-consent.json';
    rule decides what it takes. */
 const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
 /* #5534 (slice 2): whether the accepted words name the company policy, so the rollup may carry the version this Kosmos
-   applied and whether it refused one. The coordinator keeps the version exactly while its own words name "policy"
-   (CONSENT_NAMES_POLICY); the same whole word here. Read from the words each time, so words accepted before this
-   existed answer for themselves. */
-const NAMES_POLICY = /\bpolicy\b/i;
+   applied and whether it refused one. The line that names the VERSION, not any line with the word in it (review 5:
+   the update line mentions the policy too, and promises no version): the coordinator's CONSENT_NAMES_POLICY is pinned
+   to the same phrase. Read from the words each time, so words accepted before this existed answer for themselves. */
+const NAMES_POLICY = /\bversion of your company's policy\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
