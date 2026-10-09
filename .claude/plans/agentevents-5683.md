@@ -283,3 +283,13 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: after a Leave the ticks stop (isEnrolledHere), so the old queue stays on disk until the next enrollment resets
   it (nothing is ever sent from it); a file truncated and then grown past its old offset misses its new lines up to it;
   a file read before a collision resumes from its old offset (the millisecond filter keeps that from leaking).
+
+## Review 21 (sonnet), all fixed unless stated
+- One agent whose transcripts could not be listed ended every tick (silently): that agent is skipped and logged once;
+  a transcript folder that cannot be worked out in the collision check still reads nothing (it cannot be compared),
+  and is logged. Test.
+- The hidden-path hint's anchored pattern was tested on all hidden words joined (a later hidden word hid it): each
+  hidden word is tested on its own. Test.
+- Correction to review 14's note: a dropped base's own files (outside worlds/) are classed before the other agents'
+  folders; no known layout puts an agent folder there (the default world's workers sit outside the base), so this can
+  only over-claim, never hide.

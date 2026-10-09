@@ -840,3 +840,20 @@ test('#5683 r20: in a named world an agent\'s own file by absolute path is not t
   assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/App*/Kosmos/board.token' }, c), 'board-files', 'the hidden-path hint still works');
 });
 
+/* ---- review 21 ---- */
+
+test('#5683 r21: a hidden Kosmos path followed by another hidden word is still the board\'s', () => {
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosmos/* $X/y*' }, ctx()), 'board-files');
+});
+
+test('#5683 r21: one agent whose transcripts cannot be listed does not silence the others', async (t) => {
+  const { s, c } = await enrolled(t);
+  const read = [];
+  const src = { agents: () => ['bad', 'good'], everyAgent: () => ['bad', 'good'], guarded: () => true,
+    dirOf: (n) => '/w/' + n, transcriptDirsOf: (d) => ['/p' + d],
+    transcripts: async (d) => { if (d === '/w/bad') throw new Error('unreadable'); read.push(d); return []; } };
+  const r = await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.deepEqual(read, ['/w/good'], 'the other agent was not read');
+  assert.equal(r.because, null);
+});
+
