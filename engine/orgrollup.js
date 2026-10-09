@@ -458,20 +458,19 @@ async function tick(opts) {
   /* #5534: the policy version, and whether a bundle was refused, leave only under words that name the policy. Read as a
      create reads it (orgpolicy.refresh: the bundle on disk verified, the last good one kept; it may apply a newer
      bundle, as a create would, and reads the shared data folder, not o.root). Only this company's: a policy another
-     company left behind is not reported as this one's. A refusal counts when the bundle refused is not the one in
-     force (an expired copy of it is not something new) and is not this Kosmos failing to save it. A read that throws
-     leaves both fields out, so the company keeps what it had. Never throws. Not reported: refusals applyPolicy makes
-     before saving (an oversize bundle, another company's), which never reach the disk. */
+     company left behind is not reported as this one's. A refusal counts unless it is the policy in force merely
+     expired (orgpolicy `stale`, signature checked) or this Kosmos failing to save it (`local`). A read that throws
+     leaves both fields out, so the company keeps what it had. Never throws. Not reported, decided: refusals
+     applyPolicy makes before saving, a bundle over 64 KB or naming another company, which a working coordinator never
+     sends (it caps a policy at 16 KB and signs each company's own) and which never reach the disk. */
   delete g.policyVersion; delete g.policyRefused;
   if (accepted.policyConsented === true) {
     try {
       const op = o.orgpolicy || require('./orgpolicy');
       const pr = op.refresh();
       const mine = pr.applied && rec.org && pr.applied.org === rec.org.id ? pr.applied : null;
-      const waiting = typeof op.bundleInfo === 'function' ? op.bundleInfo() : null;
-      const sameAsInForce = !!(mine && waiting && waiting.org === mine.org && waiting.version === mine.version);
       g.policyVersion = mine ? mine.version : null;
-      g.policyRefused = !!pr.refused && pr.local !== true && !sameAsInForce;
+      g.policyRefused = !!pr.refused && pr.local !== true && pr.stale !== true;
     } catch { delete g.policyVersion; delete g.policyRefused; }
   }
   if (due && g.partial) {

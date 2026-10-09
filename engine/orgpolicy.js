@@ -104,7 +104,18 @@ function refresh({ now, pinned } = {}) {
   if (token === null) return { applied, refused: null };
   const key = pinned !== undefined ? pinned : readText(PINNED());
   const v = kst1.verify(token, key, TYP, now);
-  if (!v.ok) return { applied, refused: v.why };
+  if (!v.ok) {
+    /* #5534 slice 2: `stale` when the only fault is that the bundle in force has expired (its signature verifies, and
+       it is that same company, version and policy): not something new the company sent, so the rollup does not report
+       it as a refusal. Any other refusal, a same-version bundle with other words included, is reported. */
+    let stale = false;
+    if (applied && v.why === 'the token has expired') {
+      const old = kst1.verify(token, key, TYP, 0);
+      stale = !!(old.ok && old.payload.org === applied.org && old.payload.version === applied.version
+        && JSON.stringify(old.payload.policy) === JSON.stringify(applied.policy));
+    }
+    return { applied, refused: v.why, ...(stale ? { stale: true } : {}) };
+  }
   const p = v.payload;
   if (p.v !== 1 || typeof p.org !== 'string' || !p.org || !Number.isInteger(p.version) || p.version < 1 || !shapeOk(p.policy)) {
     return { applied, refused: 'the policy bundle is not one this Kosmos understands' };

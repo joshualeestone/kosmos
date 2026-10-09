@@ -803,7 +803,7 @@ test('#5534 slice 2: the policy version and a refusal leave only under accepted 
   const named = await send(NAMED, refusedNew);
   assert.deepEqual([named.policyVersion, named.policyRefused], [4, true], 'CONTROL: under words naming the policy, the version and the refusal are sent');
   // An expired copy of the policy in force is not a refusal of something new.
-  const expired = await send(NAMED, (org) => ({ refresh: () => ({ applied: { org, version: 4 }, refused: 'the token has expired' }), bundleInfo: () => ({ org, version: 4 }) }));
+  const expired = await send(NAMED, (org) => ({ refresh: () => ({ applied: { org, version: 4 }, refused: 'the token has expired', stale: true }) }));
   assert.deepEqual([expired.policyVersion, expired.policyRefused], [4, false], 'an expired copy of the applied policy was reported as a refusal');
   // This Kosmos failing to save is not the company's bundle refused.
   const local = await send(NAMED, (org) => ({ refresh: () => ({ applied: { org, version: 4 }, refused: 'the policy could not be saved: EACCES', local: true }), bundleInfo: () => ({ org, version: 5 }) }));
