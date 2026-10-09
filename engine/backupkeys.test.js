@@ -11,7 +11,7 @@ const nctx = { org: 'org1', member: 'acct1', epoch: '1', period: '2026-W41' };
 test('a member key wrapped to a recipient opens with that recipient and derives to the member public key', () => {
   const member = keys.newMemberKey(), escrow = hpkeKeyPair();
   const w = keys.wrapMemberKey(member.sk, escrow.pk, mctx);
-  assert.strictEqual(w.length, keys.WRAP_LEN);
+  assert.strictEqual(w.length, 4 + 32 + 32 + 16, 'magic, enc, the 32-byte secret, the tag');
   assert.ok(w.subarray(0, 4).equals(Buffer.from('KBK1')));
   const back = keys.unwrapMemberKey(escrow.sk, w, mctx, member.pk);
   assert.ok(back && back.equals(member.sk));
@@ -49,7 +49,7 @@ test('a naming key wrapped to the member public key opens with the member privat
   const member = keys.newMemberKey(), nk = keys.newNamingKey();
   assert.strictEqual(nk.length, 32);
   const w = keys.wrapNamingKey(nk, member.pk, nctx);
-  assert.strictEqual(w.length, keys.WRAP_LEN);
+  assert.strictEqual(w.length, 4 + 32 + 32 + 16, 'magic, enc, the 32-byte secret, the tag');
   assert.ok(w.subarray(0, 4).equals(Buffer.from('KBN1')));
   const back = keys.unwrapNamingKey(member.sk, w, nctx);
   assert.ok(back && back.equals(nk));
@@ -59,12 +59,12 @@ test('a naming key wrapped to the member public key opens with the member privat
   assert.strictEqual(keys.unwrapNamingKey(keys.newMemberKey().sk, w, nctx), null, 'another member key');
 });
 
-test('a member-key wrap never opens as a naming key, nor the reverse (magic, info and context are distinct)', () => {
+test('a member-key wrap never opens as a naming key, nor the reverse (the magic and the kind line differ)', () => {
   const member = keys.newMemberKey();
   // A member key wrapped to the member's own public key, opened as a naming key with the same ids.
   const mw = keys.wrapMemberKey(member.sk, member.pk, mctx);
   assert.strictEqual(keys.unwrapNamingKey(member.sk, mw, nctx), null);
-  // With the magic swapped, so only info and context separate them.
+  // With the magic swapped, so only the kind line in the associated data separates them (both share one info).
   const swapped = Buffer.concat([Buffer.from('KBN1'), mw.subarray(4)]);
   assert.strictEqual(keys.unwrapNamingKey(member.sk, swapped, nctx), null);
   const nw = keys.wrapNamingKey(keys.newNamingKey(), member.pk, nctx);
