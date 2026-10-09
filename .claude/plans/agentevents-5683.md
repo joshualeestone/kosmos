@@ -392,3 +392,19 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: a quoted command with no separator (sh -c "/usr/bin/tool arg") is still kept whole as a path and can read
   as system (it can only raise the class to system); "\$HOME/x" is read as home though bash prints it literally
   (over-claims); a hidden word with no board name in it (Kos*/b*) is kept but not classed board-files.
+
+## Review 31 (sonnet), all fixed unless stated
+- A backslash-newline (a line continuation, which bash deletes) was kept as a newline, so board.\<newline>token read
+  as other, quoted or not: it is dropped in both. Test.
+- Review 30's skip of a whole quoted command also skipped a quoted path through a folder with & or ; in its name
+  ("Tom & Jerry"), reading a token read as other: the word is skipped only when, whole, it is not the board's files or
+  the agent's config. Test.
+- Review 30's toBoard compared string prefixes, so ./star/worlds.json at the home folder read as the board's: the word's
+  segments, as globs, must match every segment of a board root; a segment with a variable keeps it. Test.
+
+## How each round is checked (written here so a restart does not have to reconstruct it)
+    node --test engine/agentevents-5683.test.js                     # the board file
+    node --test engine.*.test.js engine/agentevents-5683.test.js    # engine guards + board (260 at review 30)
+    bash tools/test-connector-verbs.sh                              # the connector caller list
+    git diff | grep '^+' | grep -cP '\x{2014}|&m[d]ash;|&#82[1]2;|\\u20[1]4'   # must print 0 (brackets keep it from matching itself)
+  Absolute paths when run by an agent. Every finding is probed red on the pre-fix file before its test is added.
