@@ -585,7 +585,7 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   // Idle 14h ago, long after the summary went stale: still stale (excused by nothing), now with when it went idle.
   const idle = show({ found: true, state: 'idle', at: at(840) });
   assert.equal(idle.m.summary.state, 'stale');
-  // 0.7.33 report: the line leads with what the member is doing now, not "older than the rhythm".
+  // 0.7.33 report: the line leads with the measured gap (written more than 4 hours before it went idle).
   assert.match(idle.text, /summary: last written more than 4 hours before it went idle \(summaries\/2026-09-28-07\.md, 33h 20m ago; idle since 14h 0m ago\)$/m);
   // A runner idleExcused leaves out (Codex reports idle only) gets the note too: it is the member's report, said as one.
   // Review 1: a runner that reports idle only can have worked since; its line says what it reported.
