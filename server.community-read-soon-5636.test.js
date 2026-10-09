@@ -83,7 +83,7 @@ test('#5636 F4: CONTROL, without soon=1 the same slow read waits and answers 200
   assert.match((await r.json()).text, /by writer in general/);
 });
 
-test('#5636 F4: soon=1 on a quick read answers 200 at once, and another reader\'s question is never shared', async () => {
+test('#5636 F4: soon=1 on a quick read answers 200 at once, and nothing is kept', async () => {
   slowService(1);
   const r = await readAs(sendertoken.mint('Reader').token, '?soon=1&channel=general');
   assert.equal(r.status, 200);
@@ -154,4 +154,22 @@ test('#5636 F4, Mac: a read still going after the last ask says so and to run it
   assert.equal(again.code, 0, again.out);
   assert.match(again.out, /by writer in general/);
   assert.equal(fetched, 1, 'running it again read the service again instead of taking the kept answer');
+});
+
+test('#5636 F4 review 1: two readers asking the same question get one read each, never each other\'s, and extras do not count', async (t) => {
+  const b2 = fleet.install([fleet.agent('Reader', { state: 'idle' }), fleet.agent('Other', { state: 'idle' })]);
+  t.after(() => { b2.restore(); board = fleet.install([fleet.agent('Reader', { state: 'idle' })]); });
+  slowService(1500);
+  const one = sendertoken.mint('Reader').token;
+  const two = sendertoken.mint('Other').token;
+  assert.equal((await readAs(one, '?soon=1&channel=general')).status, 202);
+  assert.equal((await readAs(two, '?soon=1&channel=general')).status, 202);
+  assert.equal(readjobs._size(), 2, 'two readers shared one read');
+  // A word the route does not read is not part of the question: no third read.
+  assert.equal((await readAs(one, '?soon=1&channel=general&x=1')).status, 202);
+  assert.equal(readjobs._size(), 2, 'a made-up parameter started another read');
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal((await readAs(one, '?soon=1&channel=general')).status, 200);
+  assert.equal((await readAs(two, '?soon=1&channel=general')).status, 200);
+  assert.equal(fetched, 2);
 });

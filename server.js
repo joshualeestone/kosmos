@@ -8969,9 +8969,12 @@ const server = http.createServer(async (req, res) => {
     const deliver = (run) => {
       const safe = () => run().catch(() => ({ status: 500, body: { error: 'we could not read the community just now' } }));
       if (!soon) { safe().then((a) => sendJson(res, a.status, a.body)); return; }
-      const asked = new URLSearchParams(q); asked.delete('soon'); asked.sort();
+      /* Review 1: keyed on the reader and only the words this route reads, so made-up extras cannot start reads. */
+      const asked = new URLSearchParams();
+      for (const k of ['channel', 'post', 'older', 'following', 'replies']) if (q.get(k) !== null) asked.set(k, q.get(k));
       require('./engine/readjobs').ask(String(reader.card.sessionName) + '\n' + asked.toString(), safe)
-        .then((a) => (a.done ? sendJson(res, a.value.status, a.value.body)
+        .then((a) => (a.done && !a.value ? sendJson(res, 500, { error: 'we could not read the community just now' })
+          : a.done ? sendJson(res, a.value.status, a.value.body)
           : sendJson(res, 202, { pending: true, retry_after_secs: 2, because: 'still reading the community; ask again' })));
     };
     /* #4774: `?following=1` is the reader's own Following feed. It is read AS the reader (the service needs the agent's

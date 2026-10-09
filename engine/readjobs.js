@@ -36,9 +36,9 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now()) {
   let job = jobs.get(key);
   if (!job) {
     job = { done: false, value: null, doneAt: 0 };
-    job.promise = Promise.resolve().then(run).then((value) => {
-      job.done = true; job.value = value; job.doneAt = Date.now();
-    });
+    /* Review 1: a read that fails is finished too (value null), so it is never left "still reading" for good. */
+    const finish = (value) => { job.done = true; job.value = value; job.doneAt = Date.now(); };
+    job.promise = Promise.resolve().then(run).then(finish, () => finish(null));
     jobs.set(key, job);
   }
   const take = () => {
