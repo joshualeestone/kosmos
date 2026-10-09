@@ -35,7 +35,7 @@ function world(answers) {
       calls.push([path, body]);
       const a = answers[path];
       if (!a) throw new Error('no answer for ' + path);
-      const [status, json] = a(body);
+      const [status, json] = await a(body);
       return { ok: status >= 200 && status < 300, status, json: async () => json };
     },
     AbortController: class { constructor() { this.signal = {}; } abort() {} },
@@ -55,8 +55,8 @@ function world(answers) {
     slice('async function plusSiPost(', 'async function plusSiPost('),
     slice('async function plusSiPostRaw', 'async function plusSiPostRaw'),
     slice('let PLUS_CO_EPOCH = 0;', 'async function plusCompanyFinish'),
-    'this.start = plusCompanyStart; this.finish = plusCompanyFinish; this.managed = plusCompanyManaged;',
-    'this.startOver = () => { PLUS_SI_EPOCH += 1; };',
+    'this.start = plusCompanyStart; this.finish = plusCompanyFinish; this.managed = plusCompanyManaged; this.text = plusCompanyText;',
+    'this.startOver = () => { PLUS_SI_EPOCH += 1; PLUS_CO_EPOCH += 1; };',
   ].join('\n'), ctx);
   return {
     ctx, el, calls, shown, opened,
@@ -244,4 +244,65 @@ test('kosmos#5651: a text-message account is texted and asked for that code; an 
     assert.deepEqual(w.calls.at(-1), ['/api/remote/company/complete', { name: 'neo-mac', second: '424242' }]);
     assert.equal(asked.length, 1, 'a finish with the code asked for another text');
   }
+});
+
+/** kosmos#5651 board review 1: a company setup at its second step, with the text request answered by `textAnswer`. */
+async function atSecondStep(textAnswer) {
+  const asked = [];
+  const w = world(Object.assign({}, START, {
+    '/api/remote/company/status': () => [200, { ready: true }],
+    '/api/remote/company/second-text': () => { asked.push(1); return textAnswer(asked.length); },
+    '/api/remote/company/complete': (b) => (b.second ? [200, { ok: true }]
+      : [400, { error: 'this account has a second step, so adding a computer to it needs that code too.' }]),
+  }));
+  w.el('plus-signin-email').value = 'neo@acme.test';
+  await w.ctx.start(w.el('plus-signin-company'));
+  await w.tick();
+  w.el('plus-si-company-name').value = 'neo-mac';
+  return { w, asked };
+}
+
+test('kosmos#5651 board review 1: Finish pressed again while the text is asked for asks once', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const { w, asked } = await atSecondStep(async () => { await held; return [200, { ok: true, sent: true, second: 'sms', sentTo: '4567' }]; });
+  const first = w.ctx.finish(w.el('plus-si-company-go'));
+  await new Promise((r) => setImmediate(r));
+  await w.ctx.finish(w.el('plus-si-company-go'));          // a double click while the request is out
+  release();
+  await first;
+  assert.equal(asked.length, 1, 'one refusal asked for two texts');
+  assert.match(w.line(), /phone ending 4567/);
+});
+
+test('kosmos#5651 board review 1: a failed request and a text that did not come can be asked again; a wait holds the button', async () => {
+  const answers = [
+    [400, { error: 'this computer could not reach the sign-in service' }],
+    [200, { ok: true, sent: true, second: 'sms', sentTo: null }],
+    [400, { error: 'a code was just texted; wait 42 seconds before asking for another' }],
+  ];
+  const { w, asked } = await atSecondStep((n) => answers[n - 1]);
+  await w.ctx.finish(w.el('plus-si-company-go'));
+  assert.equal(w.el('plus-si-company-resend').hidden, false, 'no way to ask again after a failed request');
+  await w.ctx.text('');                                    // Text me again
+  assert.equal(asked.length, 2);
+  assert.match(w.line(), /We texted a code to your phone\. Enter it/, 'the wording with no phone ending');
+  assert.equal(w.el('plus-si-company-resend').hidden, false, 'no way to ask again for a text that did not come');
+  await w.ctx.text('');
+  assert.match(w.line(), /wait 42 seconds/);
+  assert.equal(w.el('plus-si-company-resend').disabled, true, 'the button did not wait as the coordinator asked');
+});
+
+test('kosmos#5651 board review 1: a late answer for an older setup (a new company start meanwhile) changes nothing on screen', async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const { w } = await atSecondStep(async () => { await held; return [200, { ok: true, sent: true, second: 'sms', sentTo: '4567' }]; });
+  const pending = w.ctx.finish(w.el('plus-si-company-go'));
+  await new Promise((r) => setImmediate(r));
+  // A new company start (same sign-in, so the request itself is not stale): only the company epoch moves.
+  await w.ctx.start(w.el('plus-signin-company'));
+  const before = w.line();
+  release();
+  await pending;
+  assert.equal(w.line(), before, 'a late text answer wrote over a sign-in that was started over');
 });

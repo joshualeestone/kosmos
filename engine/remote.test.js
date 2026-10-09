@@ -78,6 +78,7 @@ if (args[0] === 'setup' && args[1] === 'company-start') {
 if (args[0] === 'setup' && args[1] === 'company-second') {
   if (mode.includes('company-old-second')) { process.stderr.write("error: unrecognized subcommand 'company-second'\\n"); process.exit(2); }
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
+  if (mode.includes('company-second-nojson')) { console.log('ok'); process.exit(0); }
   console.log(JSON.stringify({ sent: true, second: 'sms', sentTo: '4567' }));
   process.exit(0);
 }
@@ -4162,9 +4163,23 @@ test('kosmos#5651: the second-step text goes through the tunnel with the secret 
   const run = recorded().filter((x) => Array.isArray(x) ? x.includes('company-second') : JSON.stringify(x).includes('company-second')).pop();
   assert.ok(run, 'the tunnel was not asked');
   assert.ok(!JSON.stringify(run).includes(fs.readFileSync(RECORD + '.stdin', 'utf8').trim()), 'the secret went on argv');
-  assert.match(fs.readFileSync(RECORD + '.stdin', 'utf8'), /\S/, 'nothing on stdin');
+  // Board review 1: the setup's own secret, exactly (not merely something), went on stdin.
+  assert.ok(/^\S{20,}\n$/.test(fs.readFileSync(RECORD + '.stdin', 'utf8')), 'the setup secret was not what went on stdin');
   process.env.FAKE_TUNNEL_MODE = 'company-old-second';
   const old = await remote.companySecond();
   delete process.env.FAKE_TUNNEL_MODE;
   assert.deepEqual([old.ok, old.unsupported], [false, true]);
+});
+
+test('kosmos#5651 board review 1: calls at once share one request; an unreadable answer is a failure, not an authenticator', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-sms';
+  const [a, b] = await Promise.all([remote.companySecond(), remote.companySecond()]);
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.deepEqual(a, b);
+  assert.equal(recorded().filter((x) => JSON.stringify(x).includes('company-second')).length, 1, 'two calls at once ran two requests');
+  process.env.FAKE_TUNNEL_MODE = 'company-second-nojson';
+  const odd = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal(odd.ok, false, 'an answer that could not be read was taken as an authenticator account');
 });

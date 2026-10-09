@@ -18729,6 +18729,8 @@ window.kosmosMeasureScrollbarWidth();
           </div>
           <div class="frow">
             <button class="btn uprime" type="button" id="plus-si-company-go">Finish setting up</button>
+            <!-- kosmos#5651: a text that did not come, or a request that failed, can be asked for again. -->
+            <button class="btn" type="button" id="plus-si-company-resend" hidden>Text me again</button>
           </div>
         </div>
       </div>
@@ -48900,7 +48902,8 @@ document.getElementById('plus-si-register-go').addEventListener('click', () => {
    person new to Kosmos+ agreed to the terms on the approval page (slice 2c), so there is no terms step here. The
    setup's secret stays in the engine; nothing here carries it. */
 let PLUS_CO_EPOCH = 0;
-let PLUS_CO_REFUSED = '';   // review 3: the second-step code just refused, never sent again unchanged
+let PLUS_CO_REFUSED = '';
+let PLUS_CO_TEXTING = false;   // kosmos#5651 board review 1: a text request is out (Finish waits; asked once)   // review 3: the second-step code just refused, never sent again unchanged
 async function plusCompanyManaged() {
   let r = null;
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
@@ -48926,6 +48929,8 @@ async function plusCompanyStart(btn) {
   document.getElementById('plus-si-company-name').value = '';
   document.getElementById('plus-si-company-second').value = '';
   PLUS_CO_REFUSED = '';
+  PLUS_CO_TEXTING = false;
+  document.getElementById('plus-si-company-resend').hidden = true;
   plusSiShow('plus-si-company');
   plusSiMsg('Waiting for you to approve in your browser.');
   // Review 1: the engine opens it (the Mac app blocks a late window.open); say "opened" only when it did.
@@ -48958,6 +48963,50 @@ function plusCompanyPoll(epoch, siEpoch, interval) {
     }
     plusCompanyPoll(epoch, siEpoch, interval);
   }, interval * 1000);
+}
+/* kosmos#5651: ask the engine for the account's second-step text (the secret stays there). An older tunnel or
+   coordinator cannot: then the words say what still works. Review 3 (2b-ui): "Email me a code" is no way out where the
+   company requires its own sign-in, so it is never offered. Board review 1: one request at a time; a late answer for
+   an older setup or an abandoned sign-in is dropped; "Text me again" stays for a text that did not come. */
+async function plusCompanyText(lead) {
+  if (PLUS_CO_TEXTING) return;
+  PLUS_CO_TEXTING = true;
+  const epoch = PLUS_CO_EPOCH;
+  const resend = document.getElementById('plus-si-company-resend');
+  resend.disabled = true;
+  const t = await plusSiPost('/api/remote/company/second-text', {});
+  PLUS_CO_TEXTING = false;
+  if (t.stale || epoch !== PLUS_CO_EPOCH) return;
+  const label = document.getElementById('plus-si-company-second-label');
+  const sentInput = document.getElementById('plus-si-company-second');
+  resend.disabled = false;
+  if (t.ok && t.data.sent) {
+    label.textContent = 'The code we texted to your phone';
+    plusSiMsg(lead + (t.data.sentTo ? 'We texted a code to the phone ending ' + t.data.sentTo + '.' : 'We texted a code to your phone.')
+      + ' Enter it, then finish.');
+    resend.hidden = false;
+  } else if (t.ok) {
+    label.textContent = 'The code from your authenticator app';
+    plusSiMsg(lead + 'Enter the code from your authenticator app, then finish.');
+    resend.hidden = true;
+  } else if (/cannot send that text/i.test(String(t.because || ''))) {
+    label.textContent = 'The code from your second step';
+    plusSiMsg(lead + 'Enter the code from your authenticator app, then finish. If your second step is a text message, this version of Kosmos cannot send it yet: update Kosmos, or ask your company\'s Kosmos+ admin.');
+    resend.hidden = true;
+  } else {
+    // The coordinator's words (an outage, "wait N seconds", "all the texts this setup can send"). A wait holds the
+    // button that long; "all the texts" leaves the code the person has, or Start over.
+    label.textContent = 'The code from your second step';
+    const why = String(t.because || 'we could not ask for the text');
+    plusSiMsg(lead + why);
+    const wait = /wait (\d+) seconds/i.exec(why);
+    resend.hidden = /all the texts/i.test(why);
+    if (wait) {
+      resend.disabled = true;
+      setTimeout(() => { if (epoch === PLUS_CO_EPOCH) resend.disabled = false; }, Number(wait[1]) * 1000);
+    }
+  }
+  sentInput.focus();
 }
 async function plusCompanyFinish(btn) {
   const name = plusNameClean(document.getElementById('plus-si-company-name').value.trim()).replace(/-+$/, '');
@@ -48993,25 +49042,12 @@ async function plusCompanyFinish(btn) {
         sentInput.focus();
         return;
       }
-      // kosmos#5651: the first time, ask for the account's text (only a text-message step sends one). An older
-      // tunnel or coordinator cannot: then the words say what still works. Review 3: "Email me a code" is no way out
-      // where the company requires its own sign-in, so it is never offered.
-      const lead = takeover ? why + ' ' : '';
-      const t = await plusSiPost('/api/remote/company/second-text', {});
-      if (r.stale || t.stale) return;
+      // kosmos#5651: the first time, ask for the account's text (only a text-message step sends one). Review 1: Finish
+      // stays busy until the answer, so one refusal asks once.
       row.hidden = false;
-      if (t.ok && t.data.sent) {
-        label.textContent = 'The code we texted to your phone';
-        plusSiMsg(lead + 'We texted a code to the phone ending ' + (t.data.sentTo || '') + ': enter it, then finish.');
-      } else if (t.ok) {
-        label.textContent = 'The code from your authenticator app';
-        plusSiMsg(lead + 'Enter the code from your authenticator app, then finish.');
-      } else {
-        label.textContent = 'The code from your second step';
-        plusSiMsg(lead + (t.because && !/cannot send that text/i.test(t.because) ? t.because
-          : 'Enter the code from your authenticator app, then finish. If your second step is a text message, this version of Kosmos cannot send it yet: update Kosmos, or ask your company\'s Kosmos+ admin.'));
-      }
-      sentInput.focus();
+      btn.disabled = true;
+      await plusCompanyText(takeover ? why + ' ' : '');
+      btn.disabled = false;
       return;
     }
     if (/start again/i.test(why)) { PLUS_CO_EPOCH += 1; plusSiShow('plus-si-email'); plusSiMsg(why); return; }
@@ -49024,6 +49060,7 @@ async function plusCompanyFinish(btn) {
 }
 document.getElementById('plus-signin-company').addEventListener('click', (e) => plusCompanyStart(e.currentTarget));
 document.getElementById('plus-si-company-go').addEventListener('click', (e) => plusCompanyFinish(e.currentTarget));
+document.getElementById('plus-si-company-resend').addEventListener('click', () => plusCompanyText(''));
 // No read at load: showing the email step reads the profile (plusSiShow), which is when the button can matter.
 document.getElementById('plus-si-done-go').addEventListener('click', () => {
   PLUS_SI_LANDED = false;

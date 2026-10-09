@@ -1508,14 +1508,27 @@ async function companyStatusRun(c) {
 /* kosmos#5651: an approved setup asks for its account's second-step text before finishing. Answers
    { ok, sent, second, sentTo } (sent:false for an authenticator account or one with no second step), or a refusal in
    the coordinator's words. An older tunnel or coordinator answers unsupported, and the page keeps its old words. */
-async function companySecond() {
+let companySecondInFlight = null;   // board review 1: { c, run } so calls at once share one request (one text)
+function companySecond() {
   const c = companySetup;
-  if (companyExpired(c)) return { ok: false, because: 'that company sign-in has expired; start again' };
+  if (companyExpired(c)) return Promise.resolve({ ok: false, because: 'that company sign-in has expired; start again' });
+  if (companySecondInFlight && companySecondInFlight.c === c) return companySecondInFlight.run;
+  const run = companySecondRun(c).finally(() => { if (companySecondInFlight && companySecondInFlight.run === run) companySecondInFlight = null; });
+  companySecondInFlight = { c, run };
+  return run;
+}
+async function companySecondRun(c) {
   const r = await setupRun(['setup', 'company-second', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
-  if (olderTunnel(r) || (!r.ok && /\(404\)|not found/i.test(String(r.because || '')))) return { ok: false, unsupported: true, because: null };
+  // Board review 1: unsupported only when the tunnel does not know the verb, or the coordinator has no such route
+  // (a bare 404; a setup that is gone answers 401 in words).
+  if (olderTunnel(r) || (!r.ok && /\(404\)/.test(String(r.because || '')))) return { ok: false, unsupported: true, because: null };
   if (!r.ok) return { ok: false, because: r.because };
-  const a = (lastJsonLine(r.said) || {}).value || {};
-  return { ok: true, sent: a.sent === true, second: typeof a.second === 'string' ? a.second : null,
+  const got = lastJsonLine(r.said);
+  const a = got && got.value;
+  // Board review 1: an answer we cannot read is a failure, never "an authenticator account".
+  if (!a || typeof a.sent !== 'boolean') return { ok: false, because: 'Kosmos+ answered in a way this version cannot read; try again' };
+  if (a.retry === true) return { ok: false, because: 'the sign-in service is busy; wait a few seconds and try again' };
+  return { ok: true, sent: a.sent, second: typeof a.second === 'string' ? a.second : null,
     sentTo: typeof a.sentTo === 'string' ? a.sentTo : null };
 }
 
@@ -2868,7 +2881,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
