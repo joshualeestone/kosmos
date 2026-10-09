@@ -18,10 +18,17 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SANDBOX, 'claude');
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 'AGENT_WORKFORCE_GEMINI_HOME', 'GROK_HOME', 'AGENT_WORKFORCE_GROK_HOME']) delete process.env[v];
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true });
 
 const usage = require('./usage');
 const r = require('./orgrollup');
+const fleet = require('../test-support/fleet');
+/* A real card (fixture-discipline.test.js), with the model set on top: a fixture pane has no transcript to read it from. */
+function card(o) {
+  const b = fleet.install([fleet.agent(o.key, { displayName: o.name, state: o.state || 'idle' })], { strict: false });
+  try { return Object.assign({}, b.agents[0], { model: o.model === undefined ? null : o.model }); } finally { b.restore(); }
+}
 
 const TODAY = new Date().toISOString().slice(0, 10);
 const OTHER = 'claude-planted-other-session-model';
@@ -40,7 +47,7 @@ test('#5532 rollup review 1: usage from another session on this computer never r
 
   // The board's real sources, with only the parts that need a running board stood in.
   const src = Object.assign(r.defaultSources(), {
-    snapshot: () => ({ counts: {}, agents: [{ sessionName: 'leo', name: 'Leo', runner: 'claude', model: 'claude-opus-5-5', state: 'working', isNamedOurs: true }] }),
+    snapshot: () => ({ counts: {}, agents: [card({ key: 'leo', name: 'Leo', runner: 'claude', model: 'claude-opus-5-5', state: 'working' })] }),
     survey: () => ({ ok: true, agents: [] }),
     removed: () => [],
     projects: () => [],

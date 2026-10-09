@@ -6,7 +6,30 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const FLEET_SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'orgrollup-5532-'));
+process.on('exit', () => { try { fs.rmSync(FLEET_SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+process.env.AGENT_WORKFORCE_DATA = path.join(FLEET_SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_HOME = path.join(FLEET_SANDBOX, 'home');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(FLEET_SANDBOX, 'workers');
+const fleet = require('../test-support/fleet');
 const r = require('./orgrollup');
+
+/* Real cards, never hand-built (fixture-discipline.test.js): test-support/fleet runs the real snapshot(). Only `model` is
+   set on top (a fixture pane has no transcript to read it from; the rollup reads the RECORDED runner, never the
+   card's, so the pane runner stays the default), and `plant` puts CONTENT in every other text field the
+   real card carries, to prove none of it is sent. Sandboxed before anything reads its roots. */
+function card(o) {
+  const b = fleet.install([o.ours === false ? fleet.stranger(o.key, { state: o.state || 'idle' }) : fleet.agent(o.key, { displayName: o.name, state: o.state || 'idle' })], { strict: false });
+  try {
+    const c = Object.assign({}, b.agents[0], { model: o.model === undefined ? null : o.model });
+    if (o.plant) for (const k of Object.keys(c)) if (typeof c[k] === 'string' && !['name', 'sessionName', 'state', 'model', 'runner'].includes(k)) c[k] = o.plant;
+    if (o.noName) delete c.name;
+    return c;
+  } finally { b.restore(); }
+}
 
 const SECRET = 'sk-ant-PLANTED-SECRET-0123456789';
 const CONTENT = 'CHAT-AND-FILE-TEXT-MUST-NEVER-LEAVE-9876';   // planted only in fields that hold content, never a name
@@ -106,10 +129,10 @@ test('#5532: a full body at every bound is trimmed to the byte cap, newest usage
 function sources(over) {
   return Object.assign({
     snapshot: () => ({ counts: { unreadableLines: 0 }, agents: [
-      { sessionName: 'leo', name: 'Leo', runner: 'claude', model: 'claude-opus-5-5', state: 'working', isNamedOurs: true, task: CONTENT, because: CONTENT, target: CONTENT },
-      { sessionName: 'raph', name: 'Raph', runner: 'codex', model: 'gpt-5.1', state: 'needs_you', isNamedOurs: true, task: CONTENT },
-      { sessionName: 'stranger', name: 'Stranger', runner: 'claude', model: 'x', state: 'working', isNamedOurs: false },
-      { sessionName: 'gone1', name: 'Gone', runner: 'claude', model: 'x', state: 'working', isNamedOurs: true },
+      card({ key: 'leo', name: 'Leo', runner: 'claude', model: 'claude-opus-5-5', state: 'working', plant: CONTENT }),
+      card({ key: 'raph', name: 'Raph', runner: 'codex', model: 'gpt-5.1', state: 'needs_you', plant: CONTENT }),
+      card({ key: 'stranger', name: 'Stranger', runner: 'claude', model: 'x', state: 'working', ours: false }),
+      card({ key: 'gone1', name: 'Gone', runner: 'claude', model: 'x', state: 'working' }),
     ] }),
     survey: () => ({ ok: true, agents: [
       { name: 'april', shownAs: 'April', folder: '/Users/x/' + CONTENT, job: null, profile: true },
@@ -159,7 +182,7 @@ test('#5532 rollup review 2: a model string from a pane is sent only when it nam
 });
 
 test('#5532 gather: a partial pane read withholds the offline list (as /api/status does) and the body says truncated', async () => {
-  const g = await r.gather(sources({ snapshot: () => ({ counts: { unreadableLines: 1 }, agents: [{ sessionName: 'leo', name: 'Leo', runner: 'claude', model: 'm', state: 'working', isNamedOurs: true }] }) }));
+  const g = await r.gather(sources({ snapshot: () => ({ counts: { unreadableLines: 1 }, agents: [card({ key: 'leo', name: 'Leo', runner: 'claude', model: 'm', state: 'working' })] }) }));
   assert.deepEqual(g.agents.map((a) => a.name), ['Leo']);
   assert.equal(g.partial, true);
   assert.equal(r.build(Object.assign({ world: 'a'.repeat(32) }, g)).truncated, true);
@@ -167,9 +190,6 @@ test('#5532 gather: a partial pane read withholds the offline list (as /api/stat
   assert.equal(unreadableProjects.partial, true, 'unreadable projects were sent as "no projects"');
 });
 
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
 const oe = require('./orgenroll');
 
 /* What an accepted join leaves on disk: the company's served hash on the enrollment record, and the words shown,
@@ -230,12 +250,12 @@ test('#5532 sender: daily, then on change at most every 10 minutes, and an hour 
   assert.equal(res.sent, false, 'sent again with nothing due');
   // A status word flipping is NOT a change (review 3): no ten-minute activity timeline.
   const busy = sources({ snapshot: () => ({ counts: { unreadableLines: 0 }, agents: [
-    { sessionName: 'leo', name: 'Leo', runner: 'claude', model: 'claude-opus-5-5', state: 'idle', isNamedOurs: true },
-    { sessionName: 'raph', name: 'Raph', runner: 'codex', model: 'gpt-5.1', state: 'working', isNamedOurs: true },
+    card({ key: 'leo', name: 'Leo', runner: 'claude', model: 'claude-opus-5-5', state: 'idle' }),
+    card({ key: 'raph', name: 'Raph', runner: 'codex', model: 'gpt-5.1', state: 'working' }),
   ] }) });
   res = await r.tick({ root, remote: c, sources: busy, now: T0 + 30 * 60e3 });
   assert.equal(res.sent, false, 'a status flip alone was sent as a change');
-  const changed = sources({ snapshot: () => ({ counts: {}, agents: [{ sessionName: 'leo', name: 'Leo', runner: 'claude', model: 'm', state: 'idle', isNamedOurs: true }] }) });
+  const changed = sources({ snapshot: () => ({ counts: {}, agents: [card({ key: 'leo', name: 'Leo', runner: 'claude', model: 'm', state: 'idle' })] }) });
   res = await r.tick({ root, remote: c, sources: changed, now: T0 + 5 * 60e3 });
   assert.equal(res.sent, false, 'a change inside 10 minutes was sent');
   res = await r.tick({ root, remote: c, sources: changed, now: T0 + 11 * 60e3 });
@@ -281,7 +301,7 @@ test('#5532 rollup review 3: a leave that lands while the board is read stops th
 
 test('#5532 rollup review 3: a paneless card takes its recorded runner; an archived project is not reported', async () => {
   const g = await r.gather(sources({
-    snapshot: () => ({ counts: {}, agents: [{ sessionName: 'gem', name: 'Gem', model: 'gemini-2.5-flash', state: 'idle', isNamedOurs: true }] }),
+    snapshot: () => ({ counts: {}, agents: [card({ key: 'gem', name: 'Gem', model: 'gemini-2.5-flash', state: 'idle' })] }),
     survey: () => ({ ok: true, agents: [] }),
     projects: () => [{ name: 'Live', agents: ['gem'] }, { name: 'Old client work', agents: ['gem'], archived: true }],
   }));
@@ -303,7 +323,7 @@ test('#5532 rollup review 4: a new enrollment starts its timing fresh; a card wi
   fs.writeFileSync(path.join(root, oe.ENROLLMENT_FILE), JSON.stringify(rec));
   const again = await r.tick({ root, remote: c, sources: sources(), now: T0 + 2 * 60e3 });
   assert.equal(again.sent, true, 'a new enrollment inherited the old one\'s timing');
-  const g = await r.gather(sources({ snapshot: () => ({ counts: {}, agents: [{ sessionName: 'kosmos-w-leo', runner: 'claude', model: 'm', state: 'idle', isNamedOurs: true }] }), survey: () => ({ ok: true, agents: [] }) }));
+  const g = await r.gather(sources({ snapshot: () => ({ counts: {}, agents: [card({ key: 'kosmos-w-leo', runner: 'claude', model: 'm', state: 'idle', noName: true })] }), survey: () => ({ ok: true, agents: [] }) }));
   assert.equal(JSON.stringify(g).includes('kosmos-w-leo'), false, 'an internal session name was sent');
   assert.equal(g.partial, true);
 });
@@ -313,7 +333,7 @@ test('#5532 rollup review 5: an agent starting and stopping is not a change (no 
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root);
-  const running = sources({ snapshot: () => ({ counts: {}, agents: [{ sessionName: 'leo', name: 'Leo', runner: 'claude', model: 'claude-opus-5-5', state: 'working', isNamedOurs: true }] }),
+  const running = sources({ snapshot: () => ({ counts: {}, agents: [card({ key: 'leo', name: 'Leo', runner: 'claude', model: 'claude-opus-5-5', state: 'working' })] }),
     survey: () => ({ ok: true, agents: [{ name: 'leo', folder: true, job: true, profile: true }] }), recordedRunner: () => 'claude' });
   const stopped = sources({ snapshot: () => ({ counts: {}, agents: [] }),
     survey: () => ({ ok: true, agents: [{ name: 'leo', shownAs: 'Leo', folder: true, job: true, profile: true }] }), recordedRunner: () => 'claude' });
@@ -350,7 +370,7 @@ test('#5532 rollup review 5: last active is the day only; an agent whose runner 
   const b = r.build({ world: 'a'.repeat(32), lastActive: '2026-10-07T13:47:12.345Z' });
   assert.equal(b.lastActive, '2026-10-07T00:00:00.000Z');
   const g = await r.gather(sources({
-    snapshot: () => ({ counts: {}, agents: [{ sessionName: 'x', name: 'X', model: 'm', state: 'idle', isNamedOurs: true }] }),
+    snapshot: () => ({ counts: {}, agents: [card({ key: 'x', name: 'X', model: 'm', state: 'idle' })] }),
     survey: () => ({ ok: true, agents: [] }),
     recordedRunner: () => null,
   }));
@@ -442,7 +462,7 @@ test('#5532 rollup review 9: an agent whose provider is known only while it runs
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root);
-  const running = sources({ snapshot: () => ({ counts: {}, agents: [{ sessionName: 'adopted', name: 'Adopted', runner: 'claude', model: 'claude-opus-5-5', state: 'working', isNamedOurs: true }] }),
+  const running = sources({ snapshot: () => ({ counts: {}, agents: [card({ key: 'adopted', name: 'Adopted', runner: 'claude', model: 'claude-opus-5-5', state: 'working' })] }),
     survey: () => ({ ok: true, agents: [{ name: 'adopted', folder: true, job: null, profile: true }] }), recordedRunner: () => null });
   const stopped = sources({ snapshot: () => ({ counts: {}, agents: [] }),
     survey: () => ({ ok: true, agents: [{ name: 'adopted', shownAs: 'Adopted', folder: true, job: null, profile: true }] }), recordedRunner: () => null });
@@ -568,7 +588,7 @@ test('#5532 rollup review 16: every send carries the provider (the company keeps
   assert.equal(change.model, null); assert.equal(change.status, null);
   // The provider of a running card is the RECORDED one, never the pane's: it cannot move on start or stop.
   const g = await r.gather(sources({
-    snapshot: () => ({ counts: { unreadableLines: 0 }, agents: [{ sessionName: 'leo', name: 'Leo', runner: 'codex', model: 'gpt-5.1', state: 'working', isNamedOurs: true }] }),
+    snapshot: () => ({ counts: { unreadableLines: 0 }, agents: [card({ key: 'leo', name: 'Leo', runner: 'codex', model: 'gpt-5.1', state: 'working' })] }),
     survey: () => ({ ok: true, agents: [] }), removed: () => [],
     recordedRunner: (n) => (n === 'leo' ? 'claude' : null), providerOf: (runner) => ({ claude: 'anthropic', codex: 'openai' }[runner] || null) }));
   assert.equal(g.agents.find((a) => a.name === 'Leo').provider, 'anthropic', 'the running card\'s provider came from its pane, so it moves on start and stop');
@@ -710,7 +730,7 @@ test('#5532 rollup review 24: on a board over the size cap, agents starting and 
   const sessions = names.map((n, i) => 's' + i);
   const projects = Array.from({ length: 40 }, (_, p) => ({ id: 'p' + p, name: 'Project ' + p + ' ' + 'y'.repeat(100), agents: sessions.slice((p * 3) % 108, (p * 3) % 108 + 12) }));
   const running = (on) => sources({
-    snapshot: () => ({ counts: { unreadableLines: 0 }, agents: on ? sessions.map((s, i) => ({ sessionName: s, name: names[i], runner: 'claude', model: 'claude-opus-5-5', state: 'working', isNamedOurs: true })) : [] }),
+    snapshot: () => ({ counts: { unreadableLines: 0 }, agents: on ? sessions.map((s, i) => (card({ key: s, name: names[i], runner: 'claude', model: 'claude-opus-5-5', state: 'working' }))) : [] }),
     survey: () => ({ ok: true, agents: sessions.map((s, i) => ({ name: s, shownAs: names[i], folder: true, job: true, profile: true })) }),
     removed: () => [], projects: () => projects, lastActiveOf: () => null,
   });
