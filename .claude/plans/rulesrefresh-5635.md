@@ -13,7 +13,7 @@ A test proves that a changed template section reaches an existing agent's file. 
 
 ## F1 decisions (Angel)
 - **The consent rule was my own design for #539, not a ruling from Josh.** #539's body proposes "no instruction file changes without a person's click", and doctrine.js enforces it. Josh's 10-07 feedback asks for every Kosmos-written section to refresh live, the third report of the same staleness (#4890, #5297, now #5635). Recurrence is the tell: the click is not happening, so the person never gets the fix.
-- **Once per version per agent** (review 3). If a person puts the earlier rules back after the automatic update (the Instructions tab's previous version), that is their choice, and from then on only the click changes it.
+- **Once per BLOCK per agent** (review 3, re-keyed in review 4). The profile records the hash of the block last written (`doctrineWrote`), by this sweep or by a click. If a person puts the earlier rules back after that block was written, that is their choice, and only the click changes it from then on. Keyed on the block, not DOCTRINE_VERSION, because text fixes ship inside a version (doctrine-past.js has several rows for v21, v24 and v25), and a later fix must still arrive. The record is written before the file; it only suppresses, so a failed write costs one boot, never a second write over a restore.
 - **Decided (review 3, W3):** a span from a click before #4890 holds only the headings the agent lacked, beside its plain copy. It is not a whole block, so it stays on the per-agent dialog, as today. That is the safe direction, and no such span exists on this Mac's 22 instruction files. A per-version list of section hashes would let these be proven too; that is a follow-up if one is reported.
 - **The line that holds:** Kosmos rewrites without a click only text that is, byte for byte, a WHOLE earlier block (`wholeKnownBlock` for a span, `pastBlockIn` for a plain copy). Review round 1 showed `knownContent`'s per-section match also accepts a span with a section deleted or reordered, which is the person's edit, so that match no longer counts here. A person's words are never touched. That is the property #539 protected, and it survives. What goes is the click for text nobody but Kosmos wrote.
 - **Kept on the click:** a span the person edited (`edited`), and a file with no rules block (appending sections to a file Kosmos never wrote rules into is adding to the person's text).
@@ -52,3 +52,8 @@ That the test agents' stale text was a known earlier block. If the multi-model t
   - N4 fixed: "last reported starting".
   - N3 fixed: the plan's F2 line.
   - N2/N5 decided: positive arms use a synthetic table (the reviewer's replay covered the real one); an imported file's plain earlier block is updated, by the card's principle.
+- **Round 4 (sonnet):** 0 blockers.
+  - Q1 answered no: nothing but an unedited whole block is written without a click.
+  - W fixed: once-per-version would block a text fix inside the same version; now keyed on the block written.
+  - Conventions fixed: the record is written before the file, and the click records it too, so a restore after a click holds.
+  - NITs decided: doctrineVersion advanced by the auto write (harmless: it means "carries current rules"); boot logs for ambiguous files and conflicts are intended.
