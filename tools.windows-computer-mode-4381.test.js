@@ -361,7 +361,7 @@ static class ModeProbe
         Nav("https://checkout.stripe.com/", true, "http://127.0.0.1:27500/", KosmosLauncher.ConnectLink.Browser, "#5169: a CLICKED foreign link opens in the browser even from the board (the person chose it)");
         Board("http://127.0.0.1:27500/", false, 27500, KosmosLauncher.ConnectLink.InApp, "#5169: a run/both computer's OWN local board stays in-app, even unclicked");
         Board("http://127.0.0.1:27501/", false, 27500, KosmosLauncher.ConnectLink.Block, "#5169: a DIFFERENT local port is not this computer's board; refused unclicked");
-        Board("http://localhost:27500/?mode=run", false, 27500, KosmosLauncher.ConnectLink.InApp, "WINDOWS: localhost is the same board (IsBoardAddress, the address open-board.js may name)");
+        Board("http://localhost:27500/?mode=run", false, 27500, KosmosLauncher.ConnectLink.InApp, "WINDOWS: localhost is the same board to IsBoardAddress (wider than the Mac's one host; nothing names it today: the window and open-board.js both use 127.0.0.1)");
         Site("https://login.kosmosplus.com/signin", true, "#5169: the sign-in coordinator IS the Kosmos+ site");
         Site("https://josh.kosmosplus.com/", false, "#5169: a computer's board address is NOT the site (so a board page stays blocked)");
         Site("https://checkout.stripe.com/", false, "#5169: a foreign host is not the site");
