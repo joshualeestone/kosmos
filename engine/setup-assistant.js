@@ -1227,7 +1227,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
   // registry's own path there; its temp and lock names by the permission-layer .* glob only).
   const listFile = require('./sendertoken').tokenOnlyFile();
-  const guardRecord = guardStateFile(deps);
+  const guardRecord = guardStateDir(deps);
   // #4491 re-review (independent): the gate's list of worlds comes from the worlds registry, so the
   // registry (and its temp and lock names) is write-denied too, and every world's store gets a glob, so a world
   // added after this was written is covered as well. The `*` mid-path is the guide's rule shape (#4752, measured
@@ -1271,7 +1271,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...tokenPaths.map((p) => `Edit(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Edit(${ruleAbs(p)}.*)`),
     `Edit(${ruleAbs(listFile)})`,
-    `Edit(${ruleAbs(guardRecord)})`,   // #5668 review 1: the record the agent's page reads, so an agent cannot hide its notice
+    `Edit(${ruleAbs(guardRecord)}/**)`,   // #5668 review 1: the records the agents' pages read, so an agent cannot hide its notice
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
@@ -1321,37 +1321,43 @@ function tokenOnlySettingsRules(dir, deps = {}) {
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
    whole or past the sandbox size. Written by every guard run (board start, each launch through the supervisor, a
-   separate process, and creation); read by the board, never recomputed per request (a run scans the PATH). Two runs
-   at once can lose one line; the next run writes it again. */
-const GUARD_STATE_FILE = 'token-only-guard.json';
-function guardStateFile(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_FILE); }
+   separate process, and creation); read by the board, never recomputed per request (a run scans the PATH). One file
+   per agent in one folder (review 2): a run writes only its own agent's file, so two runs at once (the board and a
+   launch) cannot write an older copy over each other's line. */
+const GUARD_STATE_DIR = 'token-only-guard';
+function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
+function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
 function readGuardState(deps = {}) {
-  try {
-    const j = JSON.parse(fs.readFileSync(guardStateFile(deps), 'utf8'));
-    return j && j.agents && typeof j.agents === 'object' && !Array.isArray(j.agents) ? j.agents : {};
-  } catch { return {}; }
+  const out = {};
+  let names;
+  try { names = fs.readdirSync(guardStateDir(deps)); } catch { return out; }
+  for (const f of names) {
+    if (!f.endsWith('.json')) continue;
+    let name;
+    try { name = decodeURIComponent(f.slice(0, -5)); } catch { continue; }
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(guardStateDir(deps), f), 'utf8'));
+      if (j && typeof j === 'object' && !Array.isArray(j) && typeof j.ok === 'boolean') out[name] = j;
+    } catch { /* unreadable: as if never recorded */ }
+  }
+  return out;
 }
-function writeGuardState(agents, deps) {
-  const file = guardStateFile(deps);
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
-  fs.writeFileSync(tmp, JSON.stringify({ agents }, null, 2) + '\n', { mode: 0o600 });
-  try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
+function forgetGuardState(agentName, deps = {}) {
+  try { fs.unlinkSync(guardStateFileFor(agentName, deps)); } catch { /* none */ }
 }
 function pruneGuardState(keepNames, deps = {}) {
-  try {
-    const agents = readGuardState(deps);
-    const keep = new Set(keepNames);
-    const gone = Object.keys(agents).filter((n) => !keep.has(n));
-    if (!gone.length) return;
-    for (const n of gone) delete agents[n];
-    writeGuardState(agents, deps);
-  } catch { /* best effort: a stale line names an agent no longer listed, and the route shows only listed agents */ }
+  const keep = new Set(keepNames);
+  for (const n of Object.keys(readGuardState(deps))) if (!keep.has(n)) forgetGuardState(n, deps);
 }
 function recordGuardState(agentName, r, deps = {}) {
   try {
-    const agents = readGuardState(deps);
-    agents[agentName] = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
-    writeGuardState(agents, deps);
+    const dir = guardStateDir(deps);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = guardStateFileFor(agentName, deps);
+    const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
+    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
+    fs.writeFileSync(tmp, JSON.stringify(line, null, 2) + '\n', { mode: 0o600 });
+    try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
   } catch (e) { process.stderr.write(`#5668: the guard state for ${agentName} could not be recorded (${(e && e.code) || e})\n`); }
 }
 /* #5668 (Pete's step 3): the user-level settings file the agent's ACCOUNT reads also reaches its sandbox profile, so its
@@ -1609,6 +1615,7 @@ function refreshTokenOnlyGuards(deps = {}) {
     /* Review 11: never CREATE a folder for a listed name. A name can be listed before its agent is made, or stay
        listed after removal; guarding would make <name>/.claude, and an existing folder refuses creating that name. */
     const exists = dir ? (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })() : false;
+    if (!exists) forgetGuardState(name, deps);   // #5668 review 2: no folder, so no stale line for it on its page
     const g = exists ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no agent folder yet' };
     if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
   }
@@ -2153,7 +2160,7 @@ module.exports = {
   defaultHasConnectedAccount,
   seedSetupAssistant,
   readGuardState,
-  GUARD_STATE_FILE,
+  GUARD_STATE_DIR,
   SANDBOX_DENY_PREFIX_MAX,
   SANDBOX_DENY_RAW_MAX,
   sandboxDenySize,

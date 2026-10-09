@@ -7,7 +7,7 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 
 ## Plan
 1. engine/setup-assistant.js:
-   - a guard-state record `store.ROOT/token-only-guard.json` `{ agents: { <name>: { ok, because?, warning?, at } } }`, written atomically (temp + rename);
+   - a guard-state record per agent, `store.ROOT/token-only-guard/<name>.json` `{ ok, because?, warning?, at }`, written atomically (temp + rename) (review 2: one file per agent, not one shared file);
    - written for every agent `refreshTokenOnlyGuards` guards (board start, and each launch through the supervisor, a separate process) and at creation;
    - read by the board, never recomputed per request (a refresh scans the PATH).
 2. The size count adds the agent's account's user-level settings file:
@@ -45,3 +45,11 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 - **Stale lines.** The board-start refresh drops lines for agents no longer listed; a launch refresh (one agent) does not.
 - The default account's file comes from `trust.defaultAgentSettings`, the one derivation of it.
 - The browser check renders the combined case: not whole and past the size.
+
+## Review 2 (Sonnet) and what changed
+- **The shared record could lose a not-whole line.** It was updated by read-modify-write with no lock, so a launch running beside the board could write an older copy back. The line it would drop is the one that says the guard is not whole, and the page would then show nothing, which reads as guarded. It is now one file per agent in `token-only-guard/`: a run writes only its own agent's file. The folder is Edit-denied (`/**`) and sandbox write-denied. The test shows the shape (another agent's line survives a write), not a staged race.
+- **A listed agent with no folder now has its line removed**, so no stale state shows if it comes back.
+- Not changed:
+  - other rule kinds (Write, Bash) are not counted, as sandboxDenySize documents;
+  - the reason text is the person's own machine's paths, shown on their own board;
+  - the route reads two small files per poll.

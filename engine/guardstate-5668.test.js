@@ -25,7 +25,8 @@ const store = require('./store');
 fs.mkdirSync(store.ROOT, { recursive: true });
 function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
 const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [] };
-const stateFile = () => path.join(store.ROOT, setup.GUARD_STATE_FILE);
+const stateDir = () => path.join(store.ROOT, setup.GUARD_STATE_DIR);
+const stateFile = (name) => path.join(stateDir(), encodeURIComponent(name) + '.json');
 const quiet = (fn) => { const real = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = real; } };
 // A user-level settings file whose deny list alone passes the measured ceiling (distinct paths, '//abs' spelling).
 function bigAccount(name) {
@@ -56,7 +57,7 @@ test('#5668: each guard run records its result for that agent (ok, the reason, t
   assert.equal(w.ok, true); assert.ok(w.warning, JSON.stringify(w));
   rec = setup.readGuardState();
   assert.equal(rec['gs-ok'].warning, w.warning);
-  assert.equal(fs.statSync(stateFile()).mode & 0o777, 0o600, 'the record is not private to its owner');
+  assert.equal(fs.statSync(stateFile('gs-ok')).mode & 0o777, 0o600, 'the record is not private to its owner');
 });
 
 test('#5668 (Pete\'s step 3): the account\'s user-level settings file counts toward the size; the default account is ~/.claude', () => {
@@ -99,8 +100,10 @@ test('#5668: the board-start refresh records each listed agent it guards', () =>
 });
 
 test('#5668: an unreadable or wrong-shaped record reads as none, and the next run writes a fresh one', () => {
-  for (const bad of ['{nope', '[]', '{"agents":[1]}']) {
-    fs.writeFileSync(stateFile(), bad);
+  fs.rmSync(stateDir(), { recursive: true, force: true });
+  fs.mkdirSync(stateDir(), { recursive: true });
+  for (const bad of ['{nope', '[]', '{"ok":"yes"}']) {
+    fs.writeFileSync(stateFile('gs-bad'), bad);
     assert.deepEqual(setup.readGuardState(), {}, bad);
   }
   const empty = path.join(SANDBOX, 'accounts', 'fresh');
@@ -130,10 +133,10 @@ test('#5668 review 1: the record is denied to the agent in both layers, so it ca
   const dir = agentDir('gs-protect');
   setup.guardTokenOnlyFolder(dir, 'gs-protect', { ...BASE, accountConfigDir: null });
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
-  const rec = stateFile();
+  const rec = stateDir();
   const ruleAbs = (p) => '//' + String(p).replace(/^\/+/, '');
   const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
-  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(rec)})`), 'the record is not denied to the file tools');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(rec)}/**)`), 'the records are not denied to the file tools');
   assert.ok(s.sandbox.filesystem.denyWrite.includes(real(rec)), 'the record is not denied to the sandboxed shell');
   // CONTROL: the token-only list beside it is denied the same way.
   const sendertoken = require('./sendertoken');
@@ -143,7 +146,9 @@ test('#5668 review 1: the record is denied to the agent in both layers, so it ca
 test('#5668 review 1: the board-start refresh drops lines for agents no longer listed; a launch refresh does not', () => {
   const sendertoken = require('./sendertoken');
   const dir = agentDir('gs-keep');
-  fs.writeFileSync(stateFile(), JSON.stringify({ agents: { 'gs-gone': { ok: false, because: 'old', at: 't' }, 'gs-keep': { ok: true, at: 't' } } }));
+  fs.mkdirSync(stateDir(), { recursive: true });
+  fs.writeFileSync(stateFile('gs-gone'), JSON.stringify({ ok: false, because: 'old', at: 't' }));
+  fs.writeFileSync(stateFile('gs-keep'), JSON.stringify({ ok: true, at: 't' }));
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-keep'] }) + '\n');
   quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, accountConfigDir: null, workerDir: () => dir, only: 'gs-keep' }));
   assert.ok(setup.readGuardState()['gs-gone'], 'a launch refresh (one agent) pruned another agent\'s line');
@@ -158,4 +163,24 @@ test('#5668 review 1: creation names the account it creates the agent on (its la
   const call = src.split('\n').find((l) => /guardTokenOnlyFolder\(workerDir\(name\), name, \{/.test(l) && !/^\s*(\/\/|\*)/.test(l));
   assert.ok(call, 'CONTROL: the creation guard call is found');
   assert.match(call, /accountConfigDir: configDir\b/, 'creation does not pass the account it is creating on');
+});
+
+test('#5668 review 2: each agent\'s line is its own file (a run writes only its own agent\'s, so it cannot write an older copy over another\'s), and a listed agent with no folder has none', () => {
+  const sendertoken = require('./sendertoken');
+  const empty = path.join(SANDBOX, 'accounts', 'race');
+  fs.mkdirSync(empty, { recursive: true });
+  // Sequential, so this shows the shape (one file each, another's line untouched), not a staged race.
+  setup.guardTokenOnlyFolder(agentDir('gs-a'), 'gs-a', { ...BASE, runner: 'codex', runnerOf: () => 'codex', accountConfigDir: empty });
+  const before = setup.readGuardState();
+  setup.guardTokenOnlyFolder(agentDir('gs-b'), 'gs-b', { ...BASE, accountConfigDir: empty });
+  assert.equal(before['gs-b'], undefined, 'CONTROL: gs-b was not recorded before');
+  const after = setup.readGuardState();
+  assert.equal(after['gs-a'].ok, false, 'another agent\'s not-whole line was lost');
+  assert.equal(after['gs-b'].ok, true);
+  // gs-a stays listed but its folder is gone: its line goes, so no stale state shows if it comes back.
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-a', 'gs-b'] }) + '\n');
+  fs.rmSync(path.join(SANDBOX, 'workers', 'gs-a'), { recursive: true });
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, accountConfigDir: empty, workerDir: (n) => path.join(SANDBOX, 'workers', n), only: 'gs-a' }));
+  assert.equal(setup.readGuardState()['gs-a'], undefined, 'a listed agent with no folder kept its old line');
+  assert.ok(setup.readGuardState()['gs-b'], 'CONTROL: the other agent\'s line stays');
 });

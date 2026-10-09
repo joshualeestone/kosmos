@@ -41,11 +41,16 @@ async function cards() {
   for (const a of (await r.json()).agents || []) by[a.sessionName] = a;
   return by;
 }
-function record(agents) { fs.writeFileSync(path.join(store.ROOT, setup.GUARD_STATE_FILE), JSON.stringify({ agents })); }
+function record(agents) {
+  const d = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.rmSync(d, { recursive: true, force: true });
+  fs.mkdirSync(d, { recursive: true });
+  for (const [name, line] of Object.entries(agents)) fs.writeFileSync(path.join(d, encodeURIComponent(name) + '.json'), JSON.stringify(line));
+}
 
 test('#5668: the route carries tokenGuard for a listed agent with a record, and nothing for one not listed', async (t) => {
   const b = fleet.install([fleet.agent('Tok', { state: 'idle' }), fleet.agent('Warned', { state: 'idle' }), fleet.agent('Good', { state: 'idle' }), fleet.agent('NoRec', { state: 'idle' }), fleet.agent('Plain', { state: 'idle' })]);
-  t.after(() => { b.restore(); fs.rmSync(sendertoken.tokenOnlyFile(), { force: true }); fs.rmSync(path.join(store.ROOT, setup.GUARD_STATE_FILE), { force: true }); });
+  t.after(() => { b.restore(); fs.rmSync(sendertoken.tokenOnlyFile(), { force: true }); fs.rmSync(path.join(store.ROOT, setup.GUARD_STATE_DIR), { recursive: true, force: true }); });
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['Tok', 'Warned', 'Good', 'NoRec'] }));
   const at = '2026-10-09T11:00:00.000Z';
   record({
@@ -65,7 +70,7 @@ test('#5668: the route carries tokenGuard for a listed agent with a record, and 
 
 test('#5668: a whole guard past the size is state warning on the route', async (t) => {
   const b = fleet.install([fleet.agent('Big', { state: 'idle' })]);
-  t.after(() => { b.restore(); fs.rmSync(sendertoken.tokenOnlyFile(), { force: true }); fs.rmSync(path.join(store.ROOT, setup.GUARD_STATE_FILE), { force: true }); });
+  t.after(() => { b.restore(); fs.rmSync(sendertoken.tokenOnlyFile(), { force: true }); fs.rmSync(path.join(store.ROOT, setup.GUARD_STATE_DIR), { recursive: true, force: true }); });
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['Big'] }));
   record({ Big: { ok: true, warning: 'past', at: 't' } });
   assert.deepEqual((await cards()).Big.tokenGuard, { state: 'warning', warning: 'past', at: 't' });

@@ -43,7 +43,12 @@ function chk(ok, label, extra) {
 }
 
 const BECAUSE = 'the PATH this agent starts with has an entry Kosmos could not cover (/opt/odd)';
-const record = (agents) => fs.writeFileSync(path.join(store.ROOT, setup.GUARD_STATE_FILE), JSON.stringify({ agents }));
+function record(agents) {
+  const d = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.rmSync(d, { recursive: true, force: true });
+  fs.mkdirSync(d, { recursive: true });
+  for (const [name, line] of Object.entries(agents)) fs.writeFileSync(path.join(d, encodeURIComponent(name) + '.json'), JSON.stringify(line));
+}
 const AT = new Date().toISOString();
 
 async function notice(page, shown) {
