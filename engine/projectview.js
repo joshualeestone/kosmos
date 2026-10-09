@@ -208,6 +208,25 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
   return { ...summary, state: 'quiet', quietKind, quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
 }
 
+/* kosmos#5635 F2 (Josh's multi-model feedback on 0.7.27): every member of a project with no open work read "older than
+   the 4-hour rhythm", 16 hours to 2 days, so the line could not tell idle from overdue. idleExcused and quietExcused
+   above only RE-LABEL a summary they can prove was current when the work stopped, and both leave cases out on purpose
+   (a runner that reports idle only, a project that never had a task, work outside any task). For what is still stale,
+   this adds the one fact that tells the two apart, without claiming more: the member is idle now, and since when (its
+   latest idle or started report, never an operator's clear). Any runner: it is the member's report, said as a report,
+   and the state stays 'stale'. */
+function idleNoted(summary, member, readReport, nowMs) {
+  if (!summary || summary.state !== 'stale') return summary;
+  if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
+  let rep = null;
+  try { rep = readReport(member.sessionName); } catch { rep = null; }
+  if (!rep || rep.found !== true || (rep.state !== 'idle' && rep.state !== 'started') || rep.by === 'operator') return summary;
+  const at = Date.parse(rep.at);
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (!Number.isFinite(at) || at > now) return summary;
+  return { ...summary, idleKind: rep.state === 'started' ? 'started' : 'idle', idleSince: new Date(at).toISOString(), idleMinutes: Math.max(0, Math.round((now - at) / 60000)) };
+}
+
 /**
  * The payload for one project, from a projects.list() entry (already described against the roster).
  * @param {object} p      one element of projects.list(roster)
@@ -258,7 +277,7 @@ function overviewOf(p, roster, o) {
          derived from that name reported as this member's summary. */
       /* Round 2: only a live pane that is NOT this member (a stranger holding the name) is kept off its folder. A
          member that is not running is still this member, and its last summary is exactly what a PM checks. */
-      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : quietExcused(idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now), m, p.tasks, opts.now, allProjects),
+      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : idleNoted(quietExcused(idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now), m, p.tasks, opts.now, allProjects), m, readReport, opts.now),
     };
   });
   return {
@@ -366,7 +385,9 @@ function renderList(payload) {
 
 const SUMMARY_WORDS = {
   current: (s) => 'current (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
-  stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
+  /* #5635 F2: a stale summary of a member idle now says so, so idle reads differently from overdue (idleNoted). */
+  stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes)
+    + (Number.isFinite(s.idleMinutes) ? (s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')',
   // #4581 N10: the rhythm is while working; this one was current when the member went idle.
   idle: (s) => s.idleKind === 'started'
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
