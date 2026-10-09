@@ -158,6 +158,9 @@ abs_path_only() {
   for _e in $1; do
     case "$_e" in /*) ;; *) continue ;; esac
     if [ -n "$_own" ]; then
+      # Review 6: an entry the guard cannot name exactly goes too: one with a character the permission rules read as a
+      # pattern (its file-tool rule is left out), or a . or .. segment (resolved differently here and in the guard).
+      case "$_e" in *[\*\?\[\]\(\)\{\}\!\\]*|*/./*|*/../*|*/.|*/..) continue ;; esac
       _r="$(_phys_or_leaf "${_e%/}")"; [ -n "$_r" ] || _r="${_e%/}"   # unresolvable: compare as written
       case "$_r/" in "$_ownp"/*) continue ;; esac
       case "$_ownp/" in "${_r%/}"/*) continue ;; esac

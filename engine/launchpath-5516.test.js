@@ -135,6 +135,9 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   const sib = own + '-sibling';
   assert.equal(run(`/a:${own}:${inside}/:${path.join(own, 'not-made-yet')}:${link}:${sib}`, own), `/a:${sib}`, 'the agent folder, inside it (made or not yet), or a link into it stayed on the PATH');
   assert.equal(run(`/a:${own}:${sib}`), `/a:${own}:${sib}`, 'with no folder given, nothing extra should go');
+  // Review 6: with the folder given, an entry with a rule-pattern character or a . or .. segment goes too; a dotted name
+  // that is not a segment stays (CONTROL).
+  assert.equal(run('/a:/x/App (Beta)/bin:/x/b*:/x/./b:/x/y/../b:/x/..:/x/.hidden:/x/..y', own), '/a:/x/.hidden:/x/..y', 'an entry the guard cannot name exactly stayed');
   // Review 5: an ancestor goes too, and a not-yet entry spelled through a link into the folder.
   const viaLink = path.join(path.dirname(own), 'lp-own-path-top');
   try { fs.symlinkSync(own, viaLink); } catch {}

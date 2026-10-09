@@ -79,3 +79,14 @@ rest of the guard is still written.
     grows. Pruning needs a record of which rules were launch rules that the agent itself cannot edit; a follow-up card.
   - NOT CHANGED: boardkeychain-4491.test.js does not pin the launch folders (it is the base branch's file; the real
     fixed list has no pattern characters).
+- Round 6 (sonnet): 0 BLOCKER, 3 WARNING, 3 NIT.
+  - FIXED: the supervisor also drops, from the pane PATH, an entry with a character the permission rules read as a
+    pattern (its file-tool rule is left out, so only the shell layer would cover it) and an entry with a . or .. segment
+    (resolved differently by the shell and the guard). A dotted name that is not a segment stays (control). Each part
+    has a mutation that makes the test fail.
+  - DECIDED, residuals added to the card's list (class-only): a folder whose PATH program links into a folder with a
+    pattern character keeps only the shell layer (the guard says it is not whole, at launch and at create, where it
+    refuses); and replacing an ANCESTOR of a covered folder is not stopped, since ancestors are deliberately not denied.
+    "Covered" means the folder's contents, not that its path cannot change.
+  - NOT CHANGED (nits): source-text wiring checks, case-insensitive volumes, the deny-list growth follow-up (all
+    recorded above).
