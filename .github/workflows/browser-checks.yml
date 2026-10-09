@@ -163,9 +163,12 @@ jobs:
     # a hung run + further allowlist growth, without clipping an honest slow one. (The
     # FULL page-check suite never runs in this job; it runs at the cut's 3b and nightly
     # in browser-checks-full.yml, #2518.)
-    # #4119: 60, up from 40, for the checks the diff selects on top of the allowlist. Their
-    # measured cost is on the #4119 card.
-    timeout-minutes: 60
+    # #4119: 60, up from 40, for the checks the diff selects on top of the allowlist (cost on the #4119
+    # card); 120, up from 60 (2026-10-08), because a page diff touching widely shared functions
+    # (openDetail, showTab, PJ_CURRENT) selected 146 checks and #5634's run was cut at 60:27 with 185
+    # passed and 0 failed. A cut-off run gives the PR no verdict, so the selected checks never report.
+    # The worst case is every check selected, which is the nightly full step: 84 to 94 min (10-03 to 10-08).
+    timeout-minutes: 120
     steps:
       # #4119: full history, so the selection step below can diff the PR against its merge
       # base (base.sha...HEAD). A shallow clone has no merge base and the diff would fail.

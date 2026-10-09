@@ -458,3 +458,57 @@ test('#5531 follow-up: a company\'s stated empty backed-up list reaches the scre
   const listed = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
   assert.equal(listed.json.consent.backsUpNone, false);
 });
+
+test('#5531 follow-up: a joined Kosmos with no consent recorded reviews the words and accepts them with no code, through the real routes', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const consent = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['your messages'] };
+  const sent = [];
+  remote.macRequest = async (method, route, body) => {
+    sent.push({ route, body });
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: ACME, role: 'member', consent, consentHash: 'cd'.repeat(32), enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: ACME, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    return { ok: true, data: { ok: true } };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  // Not the work Kosmos: the review is refused and the company is not asked.
+  const no = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
+  assert.equal(no.json.ok, false, JSON.stringify(no.json));
+  assert.equal(sent.length, 0, 'a Kosmos with no record asked its company');
+  // A record with no consent recorded here (as refresh re-adopts one).
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z' }));
+  assert.equal(oe.mayReport(), false, 'CONTROL: it may not report yet');
+  const pv = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
+  assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
+  assert.equal(pv.json.review, true);
+  assert.deepEqual(pv.json.org, { name: 'Acme', slug: 'acme' }, 'the page got more than the company\'s name and slug');
+  assert.ok(typeof pv.json.ticket === 'string' && pv.json.ticket, 'no ticket for the review');
+  const ok = await call('/api/org/enroll', { body: { accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(ok.json.ok, true, JSON.stringify(ok.json));
+  const body = sent.filter((x) => x.route === oe.ROUTES.enroll).pop().body;
+  assert.equal(body.code, undefined, 'accepting sent a code');
+  assert.equal(body.consentHash, 'cd'.repeat(32), 'accepting did not send the company\'s hash');
+  assert.equal(oe.mayReport(), true, 'accepting the words did not let this Kosmos report');
+});
+
+test('#5531 follow-up review 3: a review\'s lost Accept through the real routes records nothing (the ticket carries the review)', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const consent = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['your messages'] };
+  remote.macRequest = async (method, route) => {
+    // The company keeps naming this world here (it did before Accept was pressed), and the Accept's answer is lost.
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: ACME, role: 'member', consent, consentHash: 'ef'.repeat(32), enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    if (route === oe.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z' }));
+  const pv = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
+  assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
+  const r = await call('/api/org/enroll', { body: { accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(r.json.ok, false, 'a lost Accept was taken as accepted: ' + JSON.stringify(r.json));
+  assert.match(r.json.because, /press Accept again/);
+  assert.equal(oe.mayReport(), false, 'a lost Accept let this Kosmos report');
+});

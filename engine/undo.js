@@ -16,7 +16,10 @@
  *   - overwrite without saving the current version first;
  *   - touch a file changed or deleted after the task closed, or one with no copy;
  *   - keep copies of anything but a Kosmos agent's own sessions (never the person's own Claude sessions);
- *   - act on its own: plan() lists, the person chooses, apply() redoes the plan and does only what is chosen and safe.
+ *   - act on its own: plan() lists, the person chooses, apply() redoes the plan and does only what is chosen and safe;
+ *   - copy, restore or move a file the token-only guard protects (#4491: board.token, sender tokens, the token-only list,
+ *     the worlds registry, account settings, a token-only agent's .claude, undo's own stores): 'credential' at keep,
+ *     'protected' at plan and apply, and 'cannot-check' when that set cannot be worked out.
  * A file whose history the copies cannot vouch for is marked, not offered as "before this task": the switch turned on
  * after the agent began, the same agent's other task overlapping, another agent's edit meanwhile.
  *
@@ -106,7 +109,8 @@ function ownerOf(cwd, session, now) {
   return null;
 }
 let lastSweep = 0;
-function resetForTests() { sessionsCache = { at: 0, byAgent: new Map(), folders: new Map() }; lastSweep = 0; }
+function resetForTests() {
+  setCache = { at: 0, key: '', set: null }; sessionsCache = { at: 0, byAgent: new Map(), folders: new Map() }; lastSweep = 0; }
 
 /* ---- the index: one line per copy kept ---- */
 function readIndex() {
@@ -124,11 +128,97 @@ function readIndex() {
   return out;
 }
 
+/* Undefined on win32 (#1732 fs-const-platform-flag): captured here and ORed in undefined-safe. keep's lstat link refusal
+   before the open, and credentialVerdict's identity check on the OPENED file (device and inode against every credential
+   file), refuse a swapped link or another file on every platform; the kernel flags are a second guard where they
+   exist (O_NOFOLLOW closes the swap between that lstat and the open). */
+const NOFOLLOW = fs.constants.O_NOFOLLOW;
+const NONBLOCK = fs.constants.O_NONBLOCK;
+
+/* #4491 (post-rebase review): the board reads (keep) and writes (restore) files for an agent, so it must refuse what
+   the token-only guard protects (setup-assistant.boardCredentialPaths): a copy of a credential would hand it to an
+   agent whose shell cannot read it, and a restore of a guarded file could roll the guard back. 'protected' by name
+   (board.token and its temp names, any case), by place (inside a protected folder, judged on the REAL folder, so a
+   link with another name does not get past; a registry temp or lock name, or an account home's settings file, made
+   later), or by identity on disk (the same device and inode as a protected file: a hard link under another name).
+   'unknown' when the protected set cannot be worked out: the caller says it could not check (never "protected", which
+   would mislabel ordinary files). Otherwise null. Case is ignored in comparisons (macOS and Windows disks ignore it; on
+   Linux that refuses a name differing only in case). A drive reporting inode 0 gets name and place checks only.
+   `cred` is the set worked out once by a caller that checks many paths (plan, apply). */
+function credentialVerdict(abs, st, cred) {
+  try {
+    if (/^\.?board\.token(\..*)?$/i.test(path.basename(abs))) return 'protected';
+    let c = cred;
+    if (!c) { c = cachedSet(); if (!c) return 'unknown'; }
+    const realOf = (q) => { try { return fs.realpathSync.native(q); } catch { return null; } };
+    const lc = (q) => String(q).toLowerCase();
+    const parentReal = realOf(path.dirname(abs));
+    const real = parentReal ? path.join(parentReal, path.basename(abs)) : abs;
+    const base = path.basename(abs);
+    const same = (a, b) => a !== null && b !== null && lc(a) === lc(b);
+    if (c.regDir && c.regBase && lc(base).startsWith(lc('.' + c.regBase + '.')) && (same(parentReal, realOf(c.regDir)) || same(path.dirname(abs), c.regDir))) return 'protected';
+    if (/^settings(\.local)?\.json$/i.test(base) && /^\.claude(-.*)?$/i.test(path.basename(path.dirname(real)))
+      && (same(realOf(path.dirname(path.dirname(real))), realOf(c.home)) || same(path.dirname(path.dirname(abs)), c.home))) return 'protected';
+    const files = c.files.slice();
+    const inside = (d) => { const dr = realOf(d) || d; return [[real, dr], [abs, d]].some(([x, y]) => lc(x) === lc(y) || lc(x).startsWith(lc(y) + path.sep)); };
+    for (const d of (c.placeOnly || [])) if (inside(d)) return 'protected';
+    for (const d of c.dirs) {
+      if (inside(d)) return 'protected';
+      /* Its FILES join the identity list (a hard link under another name); folders cannot be hard links (review 8). */
+      try { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (!e.isDirectory()) files.push(path.join(d, e.name)); } catch { /* no such folder */ }
+    }
+    for (const f of files) {
+      if (lc(abs) === lc(f) || lc(real) === lc(f) || lc(real) === lc(realOf(f) || f)) return 'protected';
+      if (st && st.ino) { try { const x = fs.statSync(f); if (x.ino && x.dev === st.dev && x.ino === st.ino) return 'protected'; } catch { /* absent */ } }
+    }
+    return null;
+  } catch { return 'unknown'; }
+}
+/* #4491 reviews 5 and 6: at the write, the target's folder must still be the one recorded (or, with none recorded, the
+   folder it is named by) and the target must not be protected: a folder swapped for a link into a guarded folder since
+   plan() would otherwise land the file there. Throws with the reason the person sees: 'protected', 'cannot-check', or
+   'moved'. apply calls it before anything is written and again right before the rename; what is left is the window
+   between the last check and the rename itself (named in the plan). */
+function folderStillSafe(target, rec, protectedSet) {
+  let dirNow = '';
+  try { dirNow = fs.realpathSync(path.dirname(target)); } catch { dirNow = ''; }
+  const verdict = protectedSet ? credentialVerdict(path.join(dirNow || path.dirname(target), path.basename(target)), null, protectedSet) : 'unknown';
+  if (verdict) throw Object.assign(new Error('refused at the write'), { undoWhy: verdict === 'unknown' ? 'cannot-check' : 'protected' });
+  const expected = rec && rec.dirReal ? rec.dirReal : path.dirname(target);
+  if (!dirNow || dirNow !== expected) throw Object.assign(new Error('the folder changed before the write'), { undoWhy: 'moved' });
+}
+let beforeWrite = () => {};
+function _setBeforeWriteForTests(f) { beforeWrite = typeof f === 'function' ? f : () => {}; }
+
+let cannotCheckNow = false;   // the last keep's state, so the log says when it starts AND when it ends
+function isCredential(abs, st, cred) { return credentialVerdict(abs, st, cred) !== null; }
+/* Worked out once for a caller that checks many paths; null when it cannot be (each check then says 'unknown'). */
+function credentialSet() { try { return require('./setup-assistant').boardCredentialPaths(); } catch { return null; } }
+/* Review 12: keep runs before every agent edit, so the set is reused for SET_TTL_MS rather than worked out each time.
+   The set's file and folder lists can be up to 2 s old (a world store or sender token made in that window is caught
+   only by name until then); a change to the token-only list itself is seen at once (it is the cache key, with its
+   path), up to a disk that keeps times only to the second. A failure is never cached. */
+const SET_TTL_MS = 2000;
+let setCache = { at: 0, key: '', set: null };
+function cachedSet() {
+  const now = Date.now();
+  // The token-only list decides which folders are protected: any change to it (or it breaking) is seen at once.
+  let listFile = '';
+  try { listFile = require('./sendertoken').tokenOnlyFile(); } catch { listFile = ''; }
+  let key = listFile + '|absent';
+  try { const st = fs.statSync(listFile); key = listFile + '|' + st.size + ':' + st.mtimeMs + ':' + st.ino; } catch { /* absent */ }
+  if (setCache.set && setCache.key === key && now - setCache.at < SET_TTL_MS) return setCache.set;
+  const set = credentialSet();
+  setCache = set ? { at: now, key, set } : { at: 0, key: '', set: null };
+  return set;
+}
+
 /**
  * Keep a copy of `file` as it is now, just before an edit. Never throws. { kept, because? }. A missing file is
  * recorded as not existing (an undo then moves the created file aside). Not kept: switch off, a path that is not
  * absolute or carries control characters, a session or folder that is not a Kosmos agent's, a link, a folder, a file
- * over MAX_BYTES.
+ * over MAX_BYTES, a file the token-only guard protects ('credential'), and anything while that set cannot be worked
+ * out ('cannot-check').
  */
 function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null } = {}) {
   try {
@@ -147,17 +237,50 @@ function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null }
       if (!mine) return { kept: false, because: 'not-yours' };
     }
     const abs = path.resolve(file);
+    /* #4491 review: ONE open, without following a final link, and every check and the read on that open file, so the
+       path cannot be swapped (for a link or another file) between the check and the read. */
+    let fd = null;
     let st = null;
-    try { st = fs.lstatSync(abs); } catch (err) { if (err.code !== 'ENOENT') return { kept: false, because: 'unreadable' }; }
-    if (st && st.isSymbolicLink()) return { kept: false, because: 'link' };
-    if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
-    if (st && st.size > MAX_BYTES) return { kept: false, because: 'too-large' };
+    /* A link or anything but a plain file is refused BEFORE it is opened (opening a device can do something). */
+    try {
+      const l = fs.lstatSync(abs);
+      if (l.isSymbolicLink()) return { kept: false, because: 'link' };
+      if (!l.isFile()) return { kept: false, because: 'not-a-file' };
+    } catch { /* absent: the open says so */ }
+    try { fd = fs.openSync(abs, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0)); }
+    catch (err) {
+      if (err.code === 'ELOOP' || err.code === 'EMLINK') return { kept: false, because: 'link' };
+      if (err.code !== 'ENOENT') return { kept: false, because: 'unreadable' };
+    }
+    try {
+      if (fd !== null) st = fs.fstatSync(fd);
+      const verdict = credentialVerdict(abs, st);
+      /* Review 6: a failure here stops every undo copy, so the log says when it starts and when it ends. */
+      if ((verdict === 'unknown') !== cannotCheckNow) {
+        cannotCheckNow = verdict === 'unknown';
+        console.error(cannotCheckNow
+          ? 'undo: Kosmos could not work out which files it must not copy (a protected-file list or folder could not be read), so no undo copies are kept until it can'
+          : 'undo: Kosmos can check again which files it must not copy; undo copies are being kept again');
+      }
+      if (verdict) return { kept: false, because: verdict === 'unknown' ? 'cannot-check' : 'credential' };
+      if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
+      if (st && st.size > MAX_BYTES) return { kept: false, because: 'too-large' };
+      return keepOpen(abs, fd, st, { cwd, session, now, who });
+    } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+  } catch {
+    return { kept: false, because: 'failed' };
+  }
+}
+
+/* The rest of keep, on the file keep opened (fd null: the file does not exist yet). */
+function keepOpen(abs, fd, st, { cwd, session, now, who }) {
+  try {
     let dirReal = '';
     try { dirReal = fs.realpathSync(path.dirname(abs)); } catch { dirReal = ''; }
     mkdirPrivate(blobsDir());
     let hash = null;
     if (st) {
-      const buf = fs.readFileSync(abs);
+      const buf = fs.readFileSync(fd);   // the file checked above, never the path again
       hash = sha(buf);
       const blob = path.join(blobsDir(), hash);
       if (!fs.existsSync(blob)) { fs.writeFileSync(blob + '.tmp', buf, { mode: 0o600 }); fs.renameSync(blob + '.tmp', blob); }
@@ -230,7 +353,8 @@ const CHOOSABLE = new Set(['shared', 'other-task', 'incomplete']);
  * action: 'restore'|'move-aside', copyId, ok, why? }] }. `ok` false says why: not choosable ('not-a-file', 'moved',
  * 'gone', 'changed-since', 'copy-missing'), or choosable with care (CHOOSABLE). Reading only.
  */
-function plan(projectId, task, { now = Date.now() } = {}) {
+function plan(projectId, task, { now = Date.now(), cred } = {}) {
+  const protectedSet = cred !== undefined ? cred : credentialSet();   // once per plan, not per file
   const receipt = require('./receipt');
   const closedIso = receipt.closedAtOf(task);
   const closedAt = Date.parse(closedIso);
@@ -267,7 +391,10 @@ function plan(projectId, task, { now = Date.now() } = {}) {
     let dirReal = '';
     try { dirReal = fs.realpathSync(path.dirname(p)); } catch { dirReal = ''; }
     const flag = (why) => { if (entry.ok) { entry.ok = false; entry.why = why; } };
-    if (cur.kind === 'other') flag('not-a-file');
+    // #4491 review: a credential or a Claude settings file is never restored or moved, whatever its record says.
+    const verdict = protectedSet ? credentialVerdict(p, cur.st || null, protectedSet) : 'unknown';
+    if (verdict) flag(verdict === 'unknown' ? 'cannot-check' : 'protected');
+    else if (cur.kind === 'other') flag('not-a-file');
     /* No folder recorded (the file was created in a folder that did not exist yet): its folder must still be exactly
        the path it was named by, not a link to somewhere else (review 2). */
     else if (rec.dirReal ? (dirReal && dirReal !== rec.dirReal) : (dirReal && dirReal !== path.dirname(p))) flag('moved');
@@ -303,7 +430,8 @@ function moveAside(from, to) {
  */
 function apply(projectId, task, paths, { now = Date.now() } = {}) {
   if (!read().on) return { done: [], skipped: [], because: 'off' };
-  const p = plan(projectId, task, { now });
+  const protectedSet = credentialSet();   // once per undo, not per file
+  const p = plan(projectId, task, { now, cred: protectedSet });
   if (!p.ready) return { done: [], skipped: [], because: p.because };
   const chosen = new Set(Array.isArray(paths) ? paths : []);
   const byId = new Map(readIndex().map((r) => [r.id, r]));
@@ -314,14 +442,22 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
   for (const f of p.files) {
     if (!chosen.has(f.path)) continue;
     if (!f.ok && !CHOOSABLE.has(f.why)) { skipped.push({ path: f.path, why: f.why }); continue; }
+    let atWrite = null;
+    try { atWrite = fs.lstatSync(f.path); } catch { atWrite = null; }
+    const verdictNow = protectedSet ? credentialVerdict(f.path, atWrite, protectedSet) : 'unknown';   // again, with its identity now
+    if (verdictNow) { skipped.push({ path: f.path, why: verdictNow === 'unknown' ? 'cannot-check' : 'protected' }); continue; }
     const rec = byId.get(f.copyId);
     const cur = nowIs(f.path);
     if (!rec || cur.kind === 'other') { skipped.push({ path: f.path, why: 'not-a-file' }); continue; }
     try {
+      beforeWrite(f.path, 'start');                        // tests only: change the world at exactly this point
+      folderStillSafe(f.path, rec, protectedSet);          // before anything is written or saved aside (review 6)
       mkdirPrivate(savedIn);
       const keepAs = path.join(savedIn, sha(Buffer.from(f.path)).slice(0, 16) + '-' + path.basename(f.path));
       if (f.action === 'move-aside') {
         if (cur.kind !== 'file') { skipped.push({ path: f.path, why: 'gone' }); continue; }
+        beforeWrite(f.path, 'move');                       // tests only
+        folderStillSafe(f.path, rec, protectedSet);       // again right before the move (review 19), as restore does
         moveAside(f.path, keepAs);                         // the created file, moved aside: never deleted
       } else {
         /* The kept copy must still be what was kept, and the current version must be saved whole, before anything is
@@ -333,23 +469,30 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
           if (sha(fs.readFileSync(f.path)) !== sha(fs.readFileSync(keepAs))) throw new Error('save differs');
         }
         const tmp = path.join(path.dirname(f.path), '.kosmos-undo-' + crypto.randomBytes(6).toString('hex'));
+        /* The temp's REAL place, taken before it is written: a folder swapped afterwards must not stop it being
+           removed from where it really is (review 7). */
+        let tmpReal = tmp;
+        try { tmpReal = path.join(fs.realpathSync(path.dirname(tmp)), path.basename(tmp)); } catch { tmpReal = tmp; }
         try {
           fs.copyFileSync(blobPath, tmp, fs.constants.COPYFILE_EXCL);
           if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
+          beforeWrite(f.path, 'rename');                   // tests only
+          folderStillSafe(f.path, rec, protectedSet);       // again right before the rename (review 6)
           fs.renameSync(tmp, f.path);                      // replaces the entry itself: never writes through a link
         } catch (err) {
-          try { fs.unlinkSync(tmp); } catch { /* not made */ }   // never leave the old content beside the file (review 2)
+          try { fs.unlinkSync(tmpReal); } catch { /* not made */ }   // never leave the old content beside the file (review 2)
           throw err;
         }
       }
       fs.writeFileSync(keepAs + '.json', JSON.stringify({ path: f.path, action: f.action, project: projectId, task: task.number }), { mode: 0o600 });
       done.push(f.path);
-    } catch {
-      skipped.push({ path: f.path, why: 'failed' });
+    } catch (err) {
+      skipped.push({ path: f.path, why: (err && err.undoWhy) || 'failed' });
     }
   }
   if (done.length) taskchat.record(projectId, task.number, { kind: 'undone', files: done.length });
   return { done, skipped, savedIn: done.length ? savedIn : null };
 }
 
-module.exports = { read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
+module.exports = {
+  isCredential, credentialVerdict, _setBeforeWriteForTests, read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };

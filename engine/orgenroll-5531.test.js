@@ -988,3 +988,100 @@ test('#5531 follow-up: backsUpNone is set only when the company SENT an empty ba
   const listed = org.cleanConsent(Object.assign({}, base, { backsUp: ['agent folders'] }));
   assert.equal(org.consentHash(listed), require('node:crypto').createHash('sha256').update(JSON.stringify([['reports', listed.reports], ['backsUp', listed.backsUp], ['readers', listed.readers], ['never', listed.never]])).digest('hex'));
 });
+
+test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and accepting them with no code lets it report', async (t) => {
+  const { a, b } = sandbox(t);
+  const state = {};
+  const fr = fakeRemote(state);
+  const SERVED = 'ab'.repeat(32);   // the company's own hash of its words (contract v1.4)
+  // Status with the consent, as the coordinator serves it to a member.
+  const withConsent = (over) => ({ macRequest: async (m, route, body) => {
+    const r = await fr.macRequest(m, route, body);
+    return route === org.ROUTES.status && r.ok && r.data.member ? { ok: true, data: Object.assign({}, r.data, { consent: CONSENT, consentHash: SERVED }, over || {}) } : r; } });
+  // A review's Accept on a Kosmos with no record here (it went while the words were open) is refused BEFORE sending,
+  // whatever the company would answer: never a move on review words, never a new world id (reviews 4 and 5).
+  for (const answer of [{ ok: false, because: 'the tunnel program did not answer in time' },
+    { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'x', thisComputer: true } } }]) {
+    const asked = [];
+    const bare = await org.enroll(null, true, { root: b, review: true, consentHash: SERVED, orgId: ORG.id, remote: { macRequest: async (m, route) => { asked.push(route); return answer; } } });
+    assert.equal(bare.ok, false, 'a review with no record here went through: ' + JSON.stringify(bare));
+    assert.equal(bare.code, 'org_not_here');
+    assert.deepEqual(asked, [], 'a review with no record here sent ' + JSON.stringify(asked));
+    assert.equal(fs.existsSync(path.join(b, org.WORLD_ID_FILE)), false, 'a review with no record here made a world id');
+    assert.equal(org.isEnrolledHere({ root: b }), false);
+  }
+  // Not enrolled here: nothing to review, and the company is not asked.
+  const before = fr.sent.length;
+  const none = await org.reviewHere({ root: b, remote: withConsent() });
+  assert.equal(none.ok, false, JSON.stringify(none));
+  assert.equal(fr.sent.length, before, 'a Kosmos with no record asked the company');
+  // A record with no consent recorded here (as refresh re-adopts one): enrolled, may not report.
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fr });
+  assert.equal(org.mayReport({ root: a }), false, 'CONTROL: no consent recorded, so it may not report');
+  const joinedAt = '2026-10-01T00:00:00.000Z';
+  fs.writeFileSync(path.join(a, org.ENROLLMENT_FILE), JSON.stringify(Object.assign(org.readEnrollment({ root: a }), { enrolledAt: joinedAt })));
+  const r = await org.reviewHere({ root: a, remote: withConsent() });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.review, true); assert.equal(r.move, true);
+  assert.deepEqual(r.org, ORG);
+  assert.deepEqual(r.consent.reports, org.cleanConsent(CONSENT).reports);
+  // Another company's words are never shown as this record's (the account moved companies since).
+  const other = await org.reviewHere({ root: a, remote: withConsent({ org: { id: 'org_2', name: 'Other', slug: 'other' } }) });
+  assert.equal(other.ok, false, 'another company\'s consent was offered for this record: ' + JSON.stringify(other));
+  // Named elsewhere: not this world's words to accept.
+  const elsewhere = await org.reviewHere({ root: a, remote: withConsent({ enrolled: { computer: 'c9', world: 'f'.repeat(32), thisComputer: false } }) });
+  assert.equal(elsewhere.ok, false, 'a world the company does not name here was offered a review');
+  assert.equal(r.served, SERVED, 'the review does not carry the company\'s hash, so accepting could not record the words there');
+  // No hash the board can echo: accepting could not make it report, so it is not offered (review 1).
+  const noHash = await org.reviewHere({ root: a, remote: withConsent({ consentHash: undefined }) });
+  assert.equal(noHash.ok, false, 'a review with no served hash was offered: ' + JSON.stringify(noHash));
+  // A lost answer to Accept: "here" was already true, so it proves nothing; nothing is recorded, and status is not asked.
+  const lost = [];
+  const lostAnswer = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => { lost.push(route);
+    return route === org.ROUTES.enroll ? { ok: false, because: 'the tunnel program did not answer in time' } : withConsent().macRequest(m, route); } } });
+  assert.equal(lostAnswer.ok, false, 'a lost Accept was taken as accepted: ' + JSON.stringify(lostAnswer));
+  assert.match(lostAnswer.because, /press Accept again/);
+  assert.equal(org.mayReport({ root: a }), false, 'a lost Accept let this Kosmos report');
+  assert.deepEqual(lost, [org.ROUTES.enroll], 'a lost Accept asked the company and trusted a "here" that was true before');
+  // Every refusal of a review's Accept is said in review words: never a code to type, never "Nothing was joined" (review 2).
+  for (const [ans, want] of [
+    [{ ok: false, because: '409 {"because":"org_consent_changed"}' }, /changed what it asks.*Press Review what your company sees/],
+    [{ ok: false, because: '403 {"because":"org_not_member"}' }, /no longer in it\. Nothing changed/],
+    [{ ok: false, because: '400 {"because":"org_bad_world"}' }, /did not take the acceptance.*Press Review what your company sees/],
+    [{ ok: false, notSent: true, because: 'not connected' }, /Nothing was sent; press Accept again/]]) {
+    const refused = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => (route === org.ROUTES.enroll ? ans : withConsent().macRequest(m, route)) } });
+    assert.equal(refused.ok, false, JSON.stringify(refused));
+    assert.match(refused.because, want, JSON.stringify(ans));
+    assert.doesNotMatch(refused.because, /join code|Nothing was joined|Join again/, 'a review was told about a code or a join: ' + refused.because);
+    assert.equal(org.mayReport({ root: a }), false, 'a refused Accept let this Kosmos report');
+  }
+  // Accepting: enroll with NO code and the company's hash. It records them, so it may report.
+  const sent = fr.sent.length;
+  const ok = await org.enroll(null, true, { root: a, remote: fr, consentHash: r.served, orgId: r.org.id, review: true });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  const body = fr.sent.slice(sent).find((x) => x.route === org.ROUTES.enroll).body;
+  assert.equal(body.code, undefined, 'accepting sent a code');
+  assert.equal(body.consentHash, SERVED, 'accepting did not send the company\'s hash, so the company records no accepted words');
+  assert.equal(org.readEnrollment({ root: a }).enrolledAt, joinedAt, 'accepting the words reset the date this Kosmos joined');
+  assert.equal(org.mayReport({ root: a }), true, 'accepting the words did not let this Kosmos report');
+  assert.equal(org.isEnrolledHere({ root: a }), true);
+  // Now it reports: a review is refused by the engine itself, not only hidden by the page (review 3).
+  const again = await org.reviewHere({ root: a, remote: withConsent() });
+  assert.equal(again.ok, false, 'a Kosmos that reports was offered a review: ' + JSON.stringify(again));
+});
+
+test('#5532 with #5531 a0: a review carries the salt the company serves, so its Accept pins a computer print as a join does', async (t) => {
+  const { a } = sandbox(t);
+  const fr = fakeRemote({});
+  const SALT = 'cd'.repeat(16);
+  const withSalt = (salt) => ({ macRequest: async (m, route, body) => {
+    const r = await fr.macRequest(m, route, body);
+    return route === org.ROUTES.status && r.ok && r.data.member ? { ok: true, data: Object.assign({}, r.data, { consent: CONSENT, consentHash: 'ab'.repeat(32) }, salt ? { computerSalt: salt } : {}) } : r;
+  } });
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fr });
+  const r = await org.reviewHere({ root: a, remote: withSalt(SALT) });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.salt, SALT, 'the review did not carry the served salt, so its Accept would pin no print');
+  // CONTROL: a company that serves no salt gives none.
+  assert.equal((await org.reviewHere({ root: a, remote: withSalt(null) })).salt, null);
+});

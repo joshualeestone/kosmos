@@ -587,6 +587,19 @@ if [ -z "$adopt" ]; then
         ' "$_eng/sendertoken.js" "$_roster" 2>/dev/null || true)" = "1" ]; then
         SECRET_ENV+=("KOSMOS_AGENT_TOKEN_ONLY=1")
         _LAUNCH_TOKEN_ONLY=1   # for Antigravity's launch-time report too, beside _LAUNCH_TOKEN
+        # #4491 review 22: write (or confirm) its guard now, before it starts, so an agent listed after the board
+        # started is not run unguarded until the next board start. Unchanged guards are not rewritten. A guard that
+        # cannot be written is said in this log; the launch goes on, as the switch's other failures do.
+        if [ -f "$_eng/setup-assistant.js" ]; then
+          "$NODE_BIN" -e '
+            try {
+              const out = require(process.argv[1]).refreshTokenOnlyGuards({ only: process.argv[2] });
+              for (const u of out.unguarded) process.stderr.write("#4491: " + u.name + " is listed token-only but is NOT guarded: " + u.because + "\n");
+            } catch (e) { process.stderr.write("#4491: the token-only guard could not be checked at launch: " + ((e && e.message) || e) + "\n"); }
+          ' "$_eng/setup-assistant.js" "$_roster" || true
+        else
+          echo "#4491: $_roster is listed token-only but its guard could not be checked at launch (no setup-assistant.js)" >&2
+        fi
       fi
       # Kept only in this shell for Antigravity's one launch-time status report.
       _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"

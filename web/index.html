@@ -13115,6 +13115,9 @@ window.kosmosMeasureScrollbarWidth();
          simply the wrong name. What the reader needs is that the old version
          still exists, not what it is called. -->
     <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost. <button class="linkish" id="d-instr-prev-load" type="button">Put the previous version in the box</button></div>
+    <!-- kosmos#5581: the agent as one file (its name and its saved instructions), for another Kosmos to import with
+         "import my existing agent". Shown only when there is a saved, non-empty file to put in it. -->
+    <div class="fpath" id="d-instr-export" hidden>Keep or share this agent as one file, with its name and saved instructions. Another Kosmos can bring it in. <a class="linkish" id="d-instr-export-link" href="#" download>Download this agent</a></div>
     <div class="fmsg" id="d-instr-msg" role="status" aria-live="polite"></div>
     <!-- #4406: while the box loads it says so with the loading mark, never an empty box; a failed load offers a retry. -->
     <p class="dhint" id="d-instr-loading" role="status" aria-live="polite" hidden style="margin:6px 0 0;"><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> Loading instructions…</p>
@@ -18938,7 +18941,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
-          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
+          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-review" hidden>Review what your company sees</button><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
           <div id="plus-org-leave-ask" hidden>
             <p class="fhint" id="plus-org-leave-sure"></p>
             <div class="frow">
@@ -40101,15 +40104,15 @@ function usageCharts4Html(series, totals, grandTotal) {
 const USAGE_MODEL_PRICES = {
   // id: { in, out, cw, cr }  -- $ per MILLION tokens
   // opus-5-5 in/out/cr are the published Anthropic rates. cr is $0.20 = 0.05x input,
-  // a real break from the 0.1x the other Claude tiers use (like fable-5-1) -- do not
+  // a real break from the 0.1x most other Claude tiers use (sonnet-5-5 shares it, fable-5-1 is 0.025x) -- do not
   // "correct" it to 0.40. cw is the standard 1.25x input 5-minute write, as every row.
   'claude-opus-5-5': { in: 4, out: 20, cw: 5.00, cr: 0.20 },
   'claude-opus-5': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
   'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
-  // sonnet-5-5 (#4439): the same tier as sonnet-5, tier_2_10 in Claude Code 2.1.284's model
-  // catalog (input 2, output 10, 5-minute write 2.5, cache read 0.2). That catalog gives
-  // opus-5-5 exactly the published rates above, which is why it is trusted here.
-  'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
+  // sonnet-5-5 (#4439, cache read corrected by #5627): input 2, output 10, 5-minute write 2.5 as sonnet-5, but cache
+  // hits at 0.10, which is 0.05x of input, the same multiplier as opus-5-5 (published Anthropic pricing, read 2026-10-08).
+  // The 0.20 first used here came from the Claude Code 2.1.284 tier_2_10 catalog entry, which the published price overrides.
+  'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.10 },
   'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
   // #5626: claude-haiku-5-5 at the published Anthropic base rates (platform.claude.com pricing, 2026-10-08): input 0.10,
@@ -41352,9 +41355,14 @@ function setWritesOffered(a, tied) {
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add', 'd-instr-export']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
+    }
+    const exLink = document.getElementById('d-instr-export-link');   // #5581: the last agent's file is not this card's
+    if (exLink) {
+      if (document.activeElement === exLink) { const m = document.getElementById('d-instr-msg'); if (m) { m.tabIndex = -1; m.focus(); } }
+      exLink.setAttribute('href', '#');
     }
     const personal = document.getElementById('d-instr-personal');   // #4446: emptied too, not only hidden
     if (personal) personal.textContent = '';
@@ -41668,6 +41676,36 @@ async function instrAddAct(sessionName, act, note, buttons) {
   }
   loadInstructions(sessionName);
 }
+/* kosmos#5581: "Download this agent". The download starts in the person's click (the link itself), and beside it the
+   page asks the same route with ?check=1, as kplusDownload does: a refusal is said on the panel's message line instead
+   of left to the browser. The address is written out here so the route test can read it (#3957). */
+let INSTR_EXPORT_LATEST = null;   // the last click's ticket: an older look's answer never lands on a newer click
+document.addEventListener('click', (e) => {
+  const link = e.target && e.target.closest && e.target.closest('#d-instr-export-link');
+  if (!link) return;
+  if ((link.getAttribute('href') || '#') === '#' || !CURRENT || !CURRENT.sessionName) { e.preventDefault(); return; }
+  const forAgent = CURRENT.sessionName;
+  const forLoad = INSTR_LOAD;   // the same agent reloaded since the click is a different panel (as Save checks)
+  const ticket = {};
+  INSTR_EXPORT_LATEST = ticket;
+  const msg = document.getElementById('d-instr-msg');
+  if (msg) msg.textContent = '';
+  fetch('/api/agent/' + encodeURIComponent(forAgent) + '/export?check=1', { cache: 'no-store' }).then(async (res) => {
+    if (res.ok || INSTR_EXPORT_LATEST !== ticket || INSTR_LOAD !== forLoad || !CURRENT || CURRENT.sessionName !== forAgent) return;
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.because || b.error)) || ''; } catch { said = ''; }
+    if (msg) msg.textContent = 'Not downloaded: ' + (asSentence(said) || 'That agent could not be put in a file.');
+  }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+});
+/* Offer the row when there is a saved, non-empty file to put in it (the engine refuses an empty or missing one, and a
+   link that answers a refusal is a broken promise). Painted on a load and after a Save. */
+function paintInstrExport(sessionName, has) {
+  const ex = document.getElementById('d-instr-export');
+  const link = document.getElementById('d-instr-export-link');
+  if (!ex || !link) return;
+  link.setAttribute('href', has ? '/api/agent/' + encodeURIComponent(sessionName) + '/export' : '#');
+  ex.hidden = !has;
+}
 async function loadInstructions(sessionName) {
   const mine = ++INSTR_LOAD;
   INSTR_EPOCH += 1;
@@ -41706,6 +41744,10 @@ async function loadInstructions(sessionName) {
   // failed load showed "the version before your last save is kept" about an
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
+  { const ex = document.getElementById('d-instr-export');   // #5581: the last agent's file is not this one's
+    if (ex.contains(document.activeElement)) { const m = document.getElementById('d-instr-msg'); m.tabIndex = -1; m.focus(); }
+    ex.hidden = true;
+    document.getElementById('d-instr-export-link').setAttribute('href', '#'); }
   paintPersonalInstr(null);   // #4446: the last agent's sentence is not this one's
   renderStale(null);
   /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
@@ -41756,6 +41798,9 @@ async function loadInstructions(sessionName) {
     // knows about is half a safety net, and this is the screen where someone
     // is about to replace an agent's entire boot file.
     document.getElementById('d-instr-prev').hidden = !data.hasPrevious;
+    /* #5581: the export carries the SAVED file, so it is offered only when there is one with something in it (the
+       engine refuses an empty or missing one, and a link that answers a refusal is a broken promise). */
+    paintInstrExport(sessionName, !!data.exists && !!String(data.text || '').trim());
     // Only claim editability when it is a file this screen can actually
     // save to (the sentence about an agent with no folder would be false).
     // The PATH itself is not shown -- pack ruling, Josh 2026-08-17.
@@ -42331,6 +42376,7 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     // moment it matters most.
     document.getElementById('d-instr-prev').hidden =
       !(data.keptPrevious || (data.unchanged && data.hasPrevious));
+    paintInstrExport(forAgent, !!text.trim());   // #5581: a first save makes something to download
     // Re-derive rather than assume: saving makes the file newer than the
     // session, so this is exactly when the stale state becomes true.
     renderStale(data.staleness);
@@ -47385,7 +47431,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while the person is reading a consent or a call is out. */
 var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
-function plusOrgMaybe() {
+function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
   if (PLUS_ORG.busy || PLUS_ORG.preview) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
@@ -47394,7 +47440,7 @@ function plusOrgMaybe() {
     PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
-    if (j && (j.enrolled === true) !== was) msg.textContent = '';
+    if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
@@ -47427,7 +47473,12 @@ function plusOrgPaint() {
   const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
   document.getElementById('plus-org-title').hidden = !full;
-  document.getElementById('plus-org-in').hidden = !here;
+  document.getElementById('plus-org-in').hidden = !here || !!PLUS_ORG.preview;   // a review's consent shows in place of the joined view
+  // #5531 follow-up: a Kosmos whose words were not accepted on this computer can read and accept them without leaving.
+  // Not for a Kosmos whose words ARE accepted and that only waits for this computer's identity (#5532 review 29): the
+  // engine refuses that review as already reporting.
+  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false && st.reportingWait !== 'print');
+  document.getElementById('plus-org-join').textContent = PLUS_ORG.preview && PLUS_ORG.preview.review ? 'Accept' : 'Join with this Kosmos';
   document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
@@ -47477,6 +47528,11 @@ async function plusOrgJoin() {
   PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
   if (!r.ok) {
     msg.textContent = r.because || 'Joining did not go through.';
+    // A review has no code to check again: its way back is the Review button (orgreview review 1).
+    if (p.review && r.code === 'org_ticket') msg.textContent = 'These words were open too long. Press Review what your company sees to read them again.';
+    // A review refused with a reason points at the Review button, so the joined view (and that button) comes back.
+    // The view is read back too (review 7): a refusal like org_not_here means the joined view above it is no longer true.
+    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
     // A code that is used, expired, or for another company will not work on a second press: back to the code field.
     // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
     if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending', 'org_consent_changed'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
@@ -47488,11 +47544,36 @@ async function plusOrgJoin() {
   PLUS_ORG.at = Date.now();
   msg.textContent = '';
   plusOrgPaint();
+  // An accepted review: whether this Kosmos now reports is the engine's answer, not a copy of its rule (review 6).
+  if (p.review) { PLUS_ORG.at = 0; plusOrgMaybe(); }
 }
 function plusOrgNotNow() {
+  const review = !!(PLUS_ORG.preview && PLUS_ORG.preview.review);
   PLUS_ORG.preview = null;
-  document.getElementById('plus-org-msg').textContent = 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
+  document.getElementById('plus-org-msg').textContent = review ? 'Nothing changed on this computer.' : 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
   plusOrgPaint();
+}
+/* #5531 follow-up: the words of the company this Kosmos already is the work Kosmos for. Accepting goes through Join with
+   no code (the coordinator records it as accepting again); nothing binds until then. */
+async function plusOrgReview() {
+  const msg = document.getElementById('plus-org-msg');
+  if (PLUS_ORG.busy) return;
+  msg.textContent = '';
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('preview', { review: true });
+  PLUS_ORG.busy = false;
+  // A refusal can mean the state moved (another screen accepted: "already reports"), so read it back, keeping the line (review 9).
+  if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
+  PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
+  document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. Accept it so this Kosmos can report:';
+  plusOrgList('plus-org-reports', r.consent.reports);
+  // The same words as a code's consent (orgreview review 11): a stated empty list says so, as the hash records it.
+  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
+  plusOrgList('plus-org-readers', r.consent.readers);
+  plusOrgList('plus-org-never', r.consent.never);
+  plusOrgLeaveArm(false);
+  plusOrgPaint();
+  document.getElementById('plus-org-join').focus();
 }
 function plusOrgLeaveArm(on) {
   const st = PLUS_ORG.state || {};
@@ -47529,6 +47610,7 @@ document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if
 document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
 document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
+document.getElementById('plus-org-review').addEventListener('click', plusOrgReview);
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
 document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
@@ -60797,6 +60879,8 @@ const TKU_WHY = {
   'not-a-file': 'no longer a plain file here: left as it is',
   moved: 'its folder has moved: left as it is',
   'copy-missing': 'its copy is missing: left as it is',
+  protected: 'a protected settings or key file: left as it is',
+  'cannot-check': 'Kosmos could not check whether it may change this file: left as it is',
 };
 function tkUndoListHtml(plan) {
   const files = Array.isArray(plan && plan.files) ? plan.files : [];

@@ -4992,7 +4992,12 @@ const server = http.createServer(async (req, res) => {
      (sent, refused with reason classes, withheld, deleted, taken down with the moderator's
      reason). Board-token gated like the moderation queue above; carries no keys. */
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses() }); }   // #4373 part B: comments too
+    try {
+      // #5623: and the persons left unanswered after the board told the agent PERSON_TELLS times.
+      let unanswered = [];
+      try { unanswered = replynudge.unansweredFor(store.ROOT, (safeRoster() || []).map((c) => c && c.sessionName).filter(Boolean)); } catch { unanswered = []; }
+      sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses(), unanswered });
+    }   // #4373 part B: comments too; #5623: and unanswered persons
     catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
     return;
   }
@@ -9716,7 +9721,9 @@ const server = http.createServer(async (req, res) => {
         const oe = require('./engine/orgenroll');
         let r;
         if (pathname === '/api/org/preview') {
-          r = await oe.preview(body.code);
+          // #5531 follow-up: { review: true } shows the words of the company this Kosmos already reports to, so a record
+          // with no consent recorded here can accept them without leaving (accepted through enroll with no code).
+          r = body.review === true ? await oe.reviewHere() : await oe.preview(body.code);
           /* A one-time ticket bound to WHAT was previewed: this code, or a member's move (no code). Enroll must carry
              the same ticket and the same code, so a join is always for the company whose consent was fetched. It is
              exactly as strong as isViaScreen, the board's check for every person-only setting: a caller that passes
@@ -9729,6 +9736,7 @@ const server = http.createServer(async (req, res) => {
               consentHash: r.served || null,
               consent: r.consent,   // #5532: the words shown, remembered by their hash so the rollup sends only the accepted report lines
               computerSalt: r.salt || null,   // #5532 (v1.5): the salt the join's computer print is made with
+              review: r.review === true,   // a review's Accept: a lost answer is never taken as accepted (orgreview review 1)
               orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
             r.ticket = ORG_TICKET.value;
             if (!r.served) console.error('orgenroll: no consent hash to echo (none served, malformed, or for words cleaned before showing); a join records none, and this Kosmos will not report');
@@ -9746,7 +9754,7 @@ const server = http.createServer(async (req, res) => {
           }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt } : undefined);
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true } : undefined);
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
           if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
@@ -9763,7 +9771,7 @@ const server = http.createServer(async (req, res) => {
         /* The page gets the company's name and slug, never the world id or org id. */
         /* What the page may see, by name (review 12): a field added to the engine's answer later is not sent by default. */
         if (r && typeof r === 'object') {
-          const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'ticket', 'role', 'consent', 'enrolledAt'];
+          const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'review', 'ticket', 'role', 'consent', 'enrolledAt'];
           const out = {};
           for (const k of keep) if (k in r) out[k] = r[k];
           if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug };
@@ -16756,6 +16764,36 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#5581: the agent as one portable file (the export half of #1652; the import half is the create form's "import
+     my existing agent"). Read-only, guarded exactly as the instructions GET above (the same text, plus its name and
+     provider hint), and answered as a download. Refused with the engine's sentence when there is nothing to share. */
+  const agentExport = pathname.match(/^\/api\/agent\/([^/]+)\/export$/);
+  if (agentExport && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* Refused the way the board's other downloads are (refuseDownload): the browser's own download gets 204 and
+       nothing to save, and the page's ?check=1 look, made beside the click, gets the sentence to show. */
+    const name = decodeSegment(agentExport[1]);
+    if (name === null || !knownAgent(name)) { refuseDownload(req, res, 'no agent by that name', 404); return; }
+    let out;
+    try { out = agentfile.exportAgent(name, { store, instructions }); } catch { out = null; }
+    // A read that failed is the board's problem, said plainly (the engine's message can carry a path).
+    if (!out || (!out.ok && /could not read/.test(String(out.because || '')))) {
+      refuseDownload(req, res, 'that agent could not be put in a file', 500); return;
+    }
+    if (!out.ok) { refuseDownload(req, res, out.because, 409); return; }
+    if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+    const body = Buffer.from(out.text, 'utf8');
+    const fname = String(out.filename);
+    res.writeHead(200, {
+      'content-type': 'text/markdown; charset=utf-8', 'content-length': body.length, 'x-content-type-options': 'nosniff',
+      // The same two names sendFileDownload gives: an ASCII fallback, then the exact one as RFC 5987.
+      'content-disposition': 'attachment; filename="' + fname.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
+        + encodeURIComponent(fname).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
+      'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
+    });
+    res.end(req.method === 'HEAD' ? undefined : body);
+    return;
+  }
+
   /* kosmos#5293: an agent PROPOSES an addition to another agent's instructions; the PERSON applies it on that agent's
      page. The propose route is an agent's (it names the asker the way /api/msg names a sender: the agent token, else
      the caller's pane, never a name the caller types). Apply, Dismiss and Undo are the person's: they refuse an agent
@@ -21255,6 +21293,10 @@ function start(port = PORT) {
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
       try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
+      /* #4491: a token-only agent (agent-token-only.json, slice 9) gets its board.token deny + sandbox guard
+         once at start, so a pilot listed before this shipped is guarded without a re-create; warns if the
+         root-owned managed belt is absent. */
+      try { setupAssistant.refreshTokenOnlyGuards(); } catch { /* best-effort */ }
       /* #3769: the keys this board holds, so the guide's words are masked by value too (engine/knownsecrets.js).
          Loaded now and every five minutes, so a key pasted later is known within that time. */
       const loadKnownSecrets = () => {
@@ -21471,6 +21513,8 @@ function start(port = PORT) {
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },   // review 15
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
+          readPersons: (session) => replynudge.readPersons(store.ROOT, session),   // #5623: a person's comment is a must-answer
+          writePersons: (session, owed) => replynudge.writePersons(store.ROOT, session, owed),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3: the cap too
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),

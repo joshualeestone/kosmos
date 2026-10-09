@@ -2,7 +2,8 @@
 # #5589: tools/site-autodeploy.sh publishes the site when its main moves, and only then.
 # A real git origin and clone in a temp dir; the deploy, the process list, the served marker (a
 # file:// URL) and the cut checkout's dist/ are all local, so nothing here reaches Vercel or the
-# network or reads this machine's processes.
+# network. Tests 26, 28 and 32 read this machine's real process table (a leftover fetch helper; deploy
+# group identity via ps).
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 AD="$REPO/tools/site-autodeploy.sh"
@@ -49,6 +50,7 @@ tick
 # 3) main unchanged: no deploy.
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 1 ]; } && pass "main unchanged: no deploy" || bad "redeployed an unchanged main (deploys=$(ndeploys))"
+printf '%s' "$OUT" | command grep -q "No such file" && bad "a quiet tick printed a missing-file error: $OUT" || pass "a quiet tick prints no error for the state files it has not made yet"
 
 # 4) a version pruned in the cut checkout is pruned here too; a non-versioned file here is kept.
 H2=$(advance two)
@@ -73,7 +75,7 @@ tick
 H2c=$(advance two-c)
 printf 'stuck\n' > "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"
 rcs=""; for i in 1 2 3 4 5; do tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00011 ] && [ ! -e "$ST/parked" ]; } && pass "a mirrored tarball that never matches goes red from the 4th tick on, unparked" || bad "checksum alarm sequence '$rcs' (want 00011)"
+{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "red already reported"; } && pass "a mirrored tarball that never matches goes red on the 4th tick, then says so green (no email storm), unparked" || bad "checksum alarm sequence '$rcs' (want 00010)"
 cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; tick
 
 # 5) no source for the older downloads: parked before any deploy (deploying would take them off the site).
@@ -139,7 +141,7 @@ DEPLOY_RC=1 tick
 DEPLOY_RC=1 tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = 8 ] && [ "$(cat "$ST/parked")" = "$H7" ]; } && pass "a second failure on the same sha parks it" || bad "second failure (rc=$RC, deploys=$(ndeploys))"
 tick
-{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "FAIL (parked): site main"; } && pass "a parked sha is not retried, and every tick on it stays red and says why" || bad "parked tick (deploys=$(ndeploys)) $OUT"
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported): parked: site main" && printf '%s' "$OUT" | grep -q "red already reported"; } && pass "a parked sha is not retried; its ticks say why, green after the park's own red (no email storm)" || bad "parked tick (deploys=$(ndeploys)) $OUT"
 H8=$(advance eight)
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 9 ] && [ "$(cat "$ST/last-deployed")" = "$H8" ] && [ ! -e "$ST/failures" ]; } \
@@ -149,7 +151,7 @@ tick
 #    the 4th in a row for one sha turns the run red once; a success clears the count.
 H9=$(advance nine)
 rcs=""; for i in 1 2 3 4 5; do DEPLOY_RC=75 tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00011 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 14 ]; } && pass "75 is retried every tick; from the 4th in a row each tick is red" || bad "75 sequence '$rcs' (want 00011), deploys=$(ndeploys)"
+{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 14 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported)"; } && pass "75 is retried every tick; red on the 4th in a row, then green with a note" || bad "75 sequence '$rcs' (want 00010), deploys=$(ndeploys)"
 tick
 { [ "$RC" = 0 ] && [ ! -e "$ST/retries" ] && [ "$(cat "$ST/last-deployed")" = "$H9" ]; } && pass "a success after 75s deploys and clears the count" || bad "after 75s (rc=$RC)"
 
@@ -172,7 +174,9 @@ tick
 touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick
 { [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q "no heartbeat for over an hour"; } && pass "a lock held with no heartbeat for over an hour goes red" || bad "wedged lock stayed green (rc=$RC)"
-kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
+tick
+{ [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported)"; } && pass "the wedged lock's next tick is reported, not red again" || bad "wedged repeat (rc=$RC) $OUT"
+kill "$live" 2>/dev/null; wait "$live" 2>/dev/null; live=""   # never signal a recycled pid from the EXIT trap
 rm -f "$ST/lock/pid"
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n10" ] && [ -d "$ST/lock" ]; } && pass "a fresh lock with no pid yet is treated as held" || bad "fresh pid-less lock taken over"
@@ -205,8 +209,8 @@ mkdir -p "$T/work/dist"; printf '{"version":"0.7.99"}\n' > "$T/work/dist/latest-
 git -C "$T/work" add dist/latest-staging.json; git -C "$T/work" commit -q -m ptr; git -C "$T/work" push -q origin main
 H14=$(git -C "$T/work" rev-parse HEAD)
 rcs=""; for i in 1 2 3 4 5; do tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00011 ] && [ "$(ndeploys)" = "$nb" ] && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "release pointer move"; } \
-  && pass "a release pointer on main that live does not serve is never published; red from the 4th tick, not parked" || bad "pointer move (rcs=$rcs, deploys=$(ndeploys)) $OUT"
+{ [ "$rcs" = 00010 ] && [ "$(ndeploys)" = "$nb" ] && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "release pointer move"; } \
+  && pass "a release pointer on main that live does not serve is never published; red on the 4th tick, not parked" || bad "pointer move (rcs=$rcs, deploys=$(ndeploys)) $OUT"
 cp "$T/work/dist/latest-staging.json" "$SERVED/dist/latest-staging.json"
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = $((nb + 1)) ]; } && pass "once live serves the same pointer bytes (a promote's deploy landed), it clears itself and deploys" || bad "equal pointer held the deploy (rc=$RC)"
@@ -242,6 +246,245 @@ printf 'tar 0.7.100\n' > "$CUTDIST/kosmos-0.7.100-arm64.tar.gz"; printf '%s  x\n
 H18=$(advance eighteen); tick
 { [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ] && printf '%s' "$OUT" | grep -q "newer than any release pointer"; } \
   && pass "a build newer than every release pointer on main (0.7.100 > 0.7.99) is not mirrored; 0.7.21 is" || bad "unreleased build mirrored: $(ls "$T/site/dist" | tr '\n' ' ')"
+
+# 19) red once per sha and cause per DAY, one record per sha and cause (reported.d/<sha>-<cause>).
+H19=$(advance nineteen)
+mkdir -p "$ST/reported.d"
+echo "$H19" > "$ST/parked"; printf '%s rc=1 x\n' "$H19" > "$ST/last-failure"
+echo "$(( $(date +%s) - 90000 ))" > "$ST/reported.d/$H19-parked"
+tick; r1=$RC; tick; r2=$RC
+{ [ "$r1" = 1 ] && [ "$r2" = 0 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported)"; } \
+  && pass "a red reported over a day ago is red again, then green with STILL FAILING" || bad "day-old report (r1=$r1 r2=$r2)"
+echo garbage > "$ST/reported.d/$H19-parked"; tick
+[ "$RC" = 1 ] && pass "a damaged report time is treated as never reported (red)" || bad "damaged report time (rc=$RC)"
+# A leading zero with an 8 or 9 is not a number to bash (octal): it must count as never reported too,
+# not abort the tick (which also exits 1, so the record being rewritten is what tells them apart).
+echo 0899999999 > "$ST/reported.d/$H19-parked"; tick
+rec=$(cat "$ST/reported.d/$H19-parked" 2>/dev/null)
+{ [ "$RC" = 1 ] && [ "$rec" != 0899999999 ] && ! printf '%s' "$OUT" | grep -q "value too great"; } && pass "a report time with a leading zero counts as never reported, not an abort" || bad "leading-zero report time (rc=$RC rec=$rec) $OUT"
+rm -f "$ST/parked"; rm -rf "$ST/reported.d"
+
+# 20) two causes taking turns on one sha (a checksum mismatch, then the live site moving, then again):
+#     each is red once, after which neither re-arms the other (one record per cause, not one slot).
+H20=$(advance twenty)
+echo "$H20 9" > "$ST/retries"
+seq20=""
+printf 'bad\n' > "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; tick; seq20="$seq20$RC"
+cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; DEPLOY_RC=75 tick; seq20="$seq20$RC"
+printf 'bad\n' > "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; tick; seq20="$seq20$RC"
+cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; DEPLOY_RC=75 tick; seq20="$seq20$RC"
+[ "$seq20" = 1100 ] && pass "alternating causes on one sha: each red once, then both quiet" || bad "alternating causes sequence '$seq20' (want 1100)"
+tick; rm -f "$ST/retries"
+[ ! -d "$ST/reported.d" ] && pass "a successful deploy clears every report" || bad "reports survived a deploy: $(ls "$ST/reported.d")"
+
+# 21) the origin cannot be fetched: red, then green (reported). A fetch that comes and goes does NOT
+#     re-arm its red after each good tick (that would be an email per flap); the record lasts its day.
+git -C "$T/site" remote set-url origin "$T/no-such-origin.git"
+tick; f1=$RC; tick; f2=$RC
+git -C "$T/site" remote set-url origin "$T/origin.git"; tick; f3=$RC
+git -C "$T/site" remote set-url origin "$T/no-such-origin.git"; tick; f4=$RC
+# ...and once its day is over, the next failure is red again.
+echo "$(( $(date +%s) - 90000 ))" > "$ST/reported.d/none-fetch"; tick; f5=$RC
+git -C "$T/site" remote set-url origin "$T/origin.git"
+{ [ "$f1" = 1 ] && [ "$f2" = 0 ] && [ "$f3" = 0 ] && [ "$f4" = 0 ] && [ "$f5" = 1 ]; } \
+  && pass "fetch outage: red, then reported; a flapping fetch stays reported; red again after a day" || bad "fetch sequence $f1$f2$f3$f4$f5 (want 10001)"
+
+# 22) a deploy that hangs is stopped at its limit, with its children. It is a FAILURE (it may have
+#     published before hanging), not a retry: red, retried once, then parked; never blessed as live.
+H22=$(advance twentytwo); rm -f "$ST/retries" "$ST/failures"
+HANGPID="$T/hang.pid"
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
+hp=$(cat "$HANGPID" 2>/dev/null); sleep 1
+{ [ "$RC" = 1 ] && [ -n "$hp" ] && ! kill -0 "$hp" 2>/dev/null && grep -q "^$H22 rc=124 " "$ST/last-failure" && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "past its 2s limit"; } \
+  && pass "a hung deploy is stopped with its child and counted as a failure (rc 124), not parked yet" || { bad "hung deploy (rc=$RC, child $hp alive=$(kill -0 "$hp" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp" ] && kill "$hp" 2>/dev/null; }
+printf 'kosmos-release-export\ncommit=%s\n' "$H22" > "$SERVED/.kosmos-release-export"   # as if it published, then hung
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
+hp=$(cat "$HANGPID" 2>/dev/null); sleep 1; [ -n "$hp" ] && kill -0 "$hp" 2>/dev/null && kill "$hp"
+{ [ "$RC" = 1 ] && [ "$(cat "$ST/parked" 2>/dev/null)" = "$H22" ] && [ "$(cat "$ST/last-deployed")" != "$H22" ]; } \
+  && pass "a second hang parks the sha, and a marker naming it does not bless it as deployed" || bad "second hang (rc=$RC, parked=$(cat "$ST/parked" 2>/dev/null))"
+rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
+
+# 23) the tick itself is killed mid-deploy (the runner cancels the job): its deploy group goes with it.
+H23=$(advance twentythree); HANG2="$T/hang2.pid"
+KOSMOS_AUTODEPLOY_DEPLOY='echo started-23; sleep 300 & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
+# Signal only once the tick has said it is deploying (its traps are set by then), not on the child alone.
+for i in $(seq 1 100); do [ -s "$HANG2" ] && command grep -q "deploying site main" "$T/tick23.out" && break; sleep 0.1; done; sleep 0.3
+kill -TERM "$tick23"; wait "$tick23" 2>/dev/null; sleep 1
+hp2=$(cat "$HANG2" 2>/dev/null)
+{ [ -n "$hp2" ] && ! kill -0 "$hp2" 2>/dev/null && [ ! -e "$ST/lock" ] && command grep -q "^started-23" "$ST/log"; } && pass "a tick killed mid-deploy takes its deploy's children with it, keeps its output in the log, and frees the lock" \
+  || { bad "killed tick left its deploy (child $hp2 alive=$(kill -0 "$hp2" 2>/dev/null && echo yes || echo no), lock=$([ -e "$ST/lock" ] && echo held || echo free))"; [ -n "$hp2" ] && kill "$hp2" 2>/dev/null; }
+# ...and it recorded a FAILURE (it may have published before the kill), so a marker naming the sha on
+# the next tick does not get it recorded as deployed.
+{ grep -q "^$H23 rc=143 " "$ST/last-failure" && grep -q "^$H23 1$" "$ST/failures"; } && pass "a killed tick records a failure (rc 143) for its sha" || bad "killed tick recorded no failure: $(cat "$ST/last-failure" "$ST/failures" 2>/dev/null)"
+printf 'kosmos-release-export\ncommit=%s\n' "$H23" > "$SERVED/.kosmos-release-export"
+KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
+[ "$(cat "$ST/last-deployed")" != "$H23" ] && pass "after a killed deploy, a marker naming the sha does not bless it" || bad "killed deploy's sha blessed as deployed"
+rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
+
+# 23b) records are per sha: a record for an OLD sha does not quiet the same cause on a new one.
+#      The old record is written by the script itself (a real red on the old sha), so the key it uses is the
+#      one under test.
+H23a=$(advance twentythreea); echo "$H23a" > "$ST/parked"; printf '%s rc=1 x\n' "$H23a" > "$ST/last-failure"; tick; o23=$RC
+H23b=$(advance twentythreeb); echo "$H23b" > "$ST/parked"; printf '%s rc=1 x\n' "$H23b" > "$ST/last-failure"; tick
+[ "$o23" = 1 ] && [ "$RC" = 1 ] && pass "a record for an older sha does not quiet the same cause on a new sha" || bad "per-sha key (rc=$RC) $OUT"
+rm -f "$ST/parked"; rm -rf "$ST/reported.d"
+
+# 23c) a damaged deploy.pid (pgid 0: this tick's own group if signalled) is removed unread, never used.
+printf '0 %s x\n' "$H23b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+H23c=$(advance twentythreec); tick
+{ [ "$RC" = 0 ] && [ ! -e "$ST/deploy.pid" ] && printf '%s' "$OUT" | grep -q "damaged .*deploy.pid" && [ "$(cat "$ST/last-deployed")" = "$H23c" ]; } \
+  && pass "a damaged deploy.pid (pgid 0) is removed unread and the tick goes on" || bad "damaged deploy.pid (rc=$RC) $OUT"
+
+# 24) a report time in the future (a clock step, a hand edit) counts as never reported: red.
+H24=$(advance twentyfour); mkdir -p "$ST/reported.d"; echo "$H24" > "$ST/parked"; printf '%s rc=1 x\n' "$H24" > "$ST/last-failure"
+echo "$(( $(date +%s) + 86400 ))" > "$ST/reported.d/$H24-parked"; tick
+[ "$RC" = 1 ] && pass "a future report time counts as never reported (red)" || bad "future report time stayed green (rc=$RC)"
+rm -f "$ST/parked"; rm -rf "$ST/reported.d"
+
+# 25) each remaining cause reports under its own name at the alarm: red once, then reported green.
+#     (A timeout is a failure, not a retry cause: test 22.)
+#     (noref is not reproduced: a fetch of main always restores origin/main in a real clone.)
+H25=$(advance twentyfive)
+# unread: the live pointers cannot be read at all (nothing listens on port 9).
+echo "$H25 9" > "$ST/retries"
+KOSMOS_SITE_URL=http://127.0.0.1:9 tick; u1=$RC; OUTU=$OUT; KOSMOS_SITE_URL=http://127.0.0.1:9 tick; u2=$RC
+{ [ "$u1" = 1 ] && [ "$u2" = 0 ] && printf '%s' "$OUTU" | grep -q "could not read the live latest.json" && [ -e "$ST/reported.d/$H25-unread" ]; } \
+  && pass "unread: red once at the alarm under its own cause, then reported" || bad "unread cause (u1=$u1 u2=$u2) $OUTU"
+# mirror: the copy into the job's dist/ fails.
+printf 'tar 0.7.22\n' > "$CUTDIST/kosmos-0.7.22-arm64.tar.gz"   # something new to copy (below the 0.7.99 ceiling)
+printf '%s  x\n' "$(shasum -a 256 "$CUTDIST/kosmos-0.7.22-arm64.tar.gz" | cut -c1-64)" > "$CUTDIST/kosmos-0.7.22-arm64.tar.gz.sha256"
+# (A read-only destination does not do it: rsync -a resets the folder's mode from the source first.)
+chmod 000 "$CUTDIST/kosmos-0.7.22-arm64.tar.gz"   # unreadable at the source: the copy fails
+echo "$H25 9" > "$ST/retries"
+tick; c1=$RC; OUTC=$OUT; tick; c2=$RC; chmod 644 "$CUTDIST/kosmos-0.7.22-arm64.tar.gz"
+rm -f "$CUTDIST/kosmos-0.7.22-arm64.tar.gz" "$CUTDIST/kosmos-0.7.22-arm64.tar.gz.sha256"
+{ [ "$c1" = 1 ] && [ "$c2" = 0 ] && printf '%s' "$OUTC" | grep -q "could not mirror" && [ -e "$ST/reported.d/$H25-mirror" ]; } \
+  && pass "mirror: red once at the alarm under its own cause, then reported" || bad "mirror cause (c1=$c1 c2=$c2) $OUTC"
+rm -f "$ST/retries"; tick
+# wedged re-arm: a wedge reported, the lock freed (a tick takes it), then a NEW wedge is red at once.
+mkdir "$ST/lock"; sleep 300 & w1=$!; echo "$w1" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+tick; r1=$RC; kill "$w1" 2>/dev/null; wait "$w1" 2>/dev/null
+echo 999999 > "$ST/lock/pid"; tick   # takes over the dead lock: the wedge record clears
+mkdir "$ST/lock"; sleep 300 & w2=$!; echo "$w2" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
+{ [ "$r1" = 1 ] && [ "$r2" = 1 ]; } && pass "wedged: after the lock is taken again, a new wedge is red at once" || bad "wedged re-arm (r1=$r1 r2=$r2)"
+
+# 26) a fetch that hangs is stopped at its limit with its whole process group, and is red_once fetch.
+#     (ext:: runs a command as the remote; the sleep's length is unique to this run, so it can be looked
+#     for afterwards without counting another run's.)
+Z26="$(( 4000 + $$ % 900 )).$RANDOM$RANDOM"   # a fractional length: no two runs pick the same one
+git -C "$T/site" config protocol.ext.allow always
+git -C "$T/site" remote set-url origin "ext::sleep $Z26"
+t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
+left=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$")   # ps names it /bin/sleep (measured)
+git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config --unset protocol.ext.allow
+{ [ "$RC" = 1 ] && [ "$el" -lt 10 ] && [ "$left" = 0 ] && printf '%s' "$OUT" | grep -q "could not fetch"; } \
+  && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
+# (No cleanup kill on a failure: this is a shared user, and a pattern kill reaches other people's
+#  processes. A leftover sleep ends by itself within 82 minutes.)
+tick   # a good tick (the fetch record stays: see test 21)
+# Control: the count above can see a leftover (a sleep of the same length, started here, is counted).
+/bin/sleep "$Z26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
+[ "$seen" -ge 1 ] && pass "the leftover count sees a sleep of that length (control)" || bad "the leftover count cannot see a sleep (it counted $seen)"
+
+# 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel
+#     escalates) does not cut the failure record out.
+H27=$(advance twentyseven); HANG27="$T/hang27.pid"; rm -f "$ST/failures" "$ST/last-failure"
+KOSMOS_AUTODEPLOY_DEPLOY='trap "" TERM; echo started-27; sleep 300 & echo $! > '"$HANG27"'; wait' bash "$AD" > "$T/tick27.out" 2>&1 & tick27=$!
+for i in $(seq 1 100); do [ -s "$HANG27" ] && command grep -q "deploying site main" "$T/tick27.out" && break; sleep 0.1; done; sleep 0.3
+kill -TERM "$tick27"; sleep 1; kill -TERM "$tick27" 2>/dev/null; wait "$tick27" 2>/dev/null; sleep 1
+hp27=$(cat "$HANG27" 2>/dev/null)
+{ grep -q "^$H27 rc=143 " "$ST/last-failure" 2>/dev/null && [ -n "$hp27" ] && ! kill -0 "$hp27" 2>/dev/null && [ ! -e "$ST/lock" ]; } \
+  && pass "a second signal during the stop neither loses the failure record nor leaves the deploy running" \
+  || { bad "second signal (last-failure: $(cat "$ST/last-failure" 2>/dev/null); child alive=$(kill -0 "$hp27" 2>/dev/null && echo yes || echo no))"; [ -n "$hp27" ] && kill -KILL "$hp27" 2>/dev/null; }
+rm -f "$ST/failures" "$ST/parked"; rm -rf "$ST/reported.d" "$ST/lock"
+
+# 28) a tick killed OUTRIGHT (SIGKILL: no EXIT trap) leaves its deploy running in its own group. The
+#     next tick finds it from deploy.pid and waits; once it is past 1200 s it is stopped and counted
+#     as a failure (it may have published).
+H28=$(advance twentyeight); HANG28="$T/hang28.pid"
+KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG28"'; wait' bash "$AD" > "$T/tick28.out" 2>&1 & tick28=$!
+for i in $(seq 1 100); do [ -s "$HANG28" ] && [ -s "$ST/deploy.pid" ] && break; sleep 0.1; done; sleep 0.3
+kill -KILL "$tick28"; wait "$tick28" 2>/dev/null; hp28=$(cat "$HANG28" 2>/dev/null)
+n28=$(ndeploys); tick
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n28" ] && kill -0 "$hp28" 2>/dev/null && printf '%s' "$OUT" | grep -q "is still running; this tick waits"; } \
+  && pass "an orphaned deploy from a killed tick is found, and the next tick waits for it" || bad "orphan wait (rc=$RC) $OUT"
+touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+printf 'kosmos-release-export\ncommit=%s\n' "$H28" > "$SERVED/.kosmos-release-export"   # as if it published
+KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick; sleep 1
+{ ! kill -0 "$hp28" 2>/dev/null && [ ! -e "$ST/deploy.pid" ] && [ "$(cat "$ST/last-deployed")" != "$H28" ] && printf '%s' "$OUT" | grep -q "stopped the deploy of" && printf '%s' "$OUT" | grep -q "recorded as a failure"; } \
+  && pass "past 1200 s the orphan is stopped and counted a failure; a marker naming its sha does not bless it" \
+  || { bad "orphan stop (alive=$(kill -0 "$hp28" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp28" ] && kill "$hp28" 2>/dev/null; }
+# A pid in deploy.pid whose start time does not match (a reused pid) is not touched.
+sleep 300 & other=$!; printf '%s %s %s\n' "$other" "$H28" "Mon_Jan_1_00:00:00_2001" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
+kill -0 "$other" 2>/dev/null && pass "a reused pid in deploy.pid (start time differs) is never signalled" || bad "signalled a process that was not the deploy"
+kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
+rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
+
+# 29) a deploy whose leader exits leaving a child running in its group: the child is stopped.
+H29=$(advance twentynine); HANG29="$T/hang29.pid"
+KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG29"'; exit 0' tick; sleep 1; hp29=$(cat "$HANG29" 2>/dev/null)
+{ [ "$RC" = 0 ] && [ -n "$hp29" ] && ! kill -0 "$hp29" 2>/dev/null && printf '%s' "$OUT" | grep -q "left processes running"; } \
+  && pass "a child left running in the deploy's group after it exits is stopped" || { bad "lingering child (rc=$RC alive=$(kill -0 "$hp29" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp29" ] && kill "$hp29" 2>/dev/null; }
+
+# 30) the green run's ::warning:: annotation is escaped: a % in a path in the message is %25, so it can
+#     never be read as a workflow-command escape. (A state folder with a % in its name.)
+ST30="$T/st%41te"; mkdir -p "$ST30"; H30=$(git -C "$T/origin.git" rev-parse main)
+echo "$H30" > "$ST30/parked"; printf '%s rc=1 x\n' "$H30" > "$ST30/last-failure"
+KOSMOS_AUTODEPLOY_STATE="$ST30" tick; a1=$RC; KOSMOS_AUTODEPLOY_STATE="$ST30" tick
+ann30=$(printf '%s\n' "$OUT" | command grep '^::warning::')
+{ [ "$a1" = 1 ] && [ "$RC" = 0 ] && printf '%s' "$ann30" | command grep -q 'st%2541te' && ! printf '%s' "$ann30" | command grep -q 'st%41te'; } \
+  && pass "the ::warning:: annotation escapes % in its message" || bad "annotation not escaped (a1=$a1 rc=$RC): $ann30"
+
+# 31) a deploy limit with a leading zero (or 0) falls back to the default instead of being read as 3 s
+#     (or as no time at all): a 4 s deploy under "03" and under "0" succeeds.
+H31=$(advance thirtyone)
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=03 KOSMOS_AUTODEPLOY_DEPLOY='sleep 4; exit 0' tick; l1=$RC
+H31b=$(advance thirtyoneb)
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=0 KOSMOS_AUTODEPLOY_DEPLOY='sleep 4; exit 0' tick; l2=$RC
+{ [ "$l1" = 0 ] && [ "$l2" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H31b" ]; } \
+  && pass "a deploy limit of 03 or 0 falls back to the default" || bad "deploy limit fallback (03 -> $l1, 0 -> $l2) $OUT"
+
+# 32) deploy.pid identity. (a) the leader is alive but the file has NO start time: not ours, never
+#     signalled. (b) the leader has exited but its group still has a member: ours, stopped and counted.
+set -m; sleep 300 & own32=$!; set +m
+printf '%s %s \n' "$own32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+tick
+kill -0 "$own32" 2>/dev/null && pass "a deploy.pid with no start time never signals a live leader" || bad "signalled a leader it could not identify"
+kill "$own32" 2>/dev/null; wait "$own32" 2>/dev/null
+M32="$T/member32.pid"
+set -m; sh -c 'sleep 300 & echo $! > '"$M32"'; exit 0' & lead32=$!; set +m; wait "$lead32" 2>/dev/null
+for i in $(seq 1 50); do [ -s "$M32" ] && break; sleep 0.1; done; m32=$(cat "$M32")
+printf '%s %s Mon_Jan_1_00:00:00_2001\n' "$lead32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+tick; sleep 1
+{ ! kill -0 "$m32" 2>/dev/null && printf '%s' "$OUT" | grep -q "stopped the deploy of"; } \
+  && pass "a deploy group whose leader exited is still found by its members, stopped and counted" \
+  || { bad "leaderless group (member alive=$(kill -0 "$m32" 2>/dev/null && echo yes || echo no)) $OUT"; kill "$m32" 2>/dev/null; }
+rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
+
+# 33) a build above the ceiling ALREADY in this dist/ AND still in the source (so the rsync exclude both skips it and protects it from --delete) is
+#     removed before the deploy; one at the ceiling stays.
+printf 'stale\n' > "$T/site/dist/kosmos-0.7.100-arm64.tar.gz"; printf 'x  y\n' > "$T/site/dist/kosmos-0.7.100-arm64.tar.gz.sha256"
+H33=$(advance thirtythree); tick
+{ [ "$RC" = 0 ] && [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz" ] && [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz.sha256" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ] && [ "$(cat "$ST/last-deployed")" = "$H33" ]; } \
+  && pass "a too-new build already in this dist/ is removed before the deploy" || bad "too-new build left in dist (rc=$RC): $(ls "$T/site/dist" | tr '\n' ' ')"
+
+# 34) a release pointer on main with no readable version (split across lines) parks instead of
+#     mirroring with no ceiling.
+cp "$T/work/dist/latest-staging.json" "$T/ptr34.keep"
+printf '{\n  "version":\n    "0.7.99"\n}\n' > "$T/work/dist/latest-staging.json"; git -C "$T/work" commit -q -am ptr34; git -C "$T/work" push -q origin main
+tick
+{ [ "$RC" = 1 ] && [ -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q 'has no "version"'; } && pass "a pointer with no readable version parks instead of mirroring unbounded" || bad "unreadable pointer version (rc=$RC) $OUT"
+cp "$T/ptr34.keep" "$T/work/dist/latest-staging.json"; git -C "$T/work" commit -q -am ptr34-back; git -C "$T/work" push -q origin main
+tick; rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
+
+# 35) a process list that cannot be read fails CLOSED: nothing deploys, red once, then reported.
+H35=$(advance thirtyfive); n35=$(ndeploys)
+KOSMOS_AUTODEPLOY_PS="printf ''" tick; p1=$RC; OUTP=$OUT; KOSMOS_AUTODEPLOY_PS="false" tick; p2=$RC
+{ [ "$p1" = 1 ] && [ "$p2" = 0 ] && [ "$(ndeploys)" = "$n35" ] && printf '%s' "$OUTP" | grep -q "could not read the process list"; } \
+  && pass "an unreadable process list never deploys: red once, then reported" || bad "unreadable ps (p1=$p1 p2=$p2 deploys $n35 -> $(ndeploys)) $OUTP"
+tick; [ "$(cat "$ST/last-deployed")" = "$H35" ] && pass "with the process list readable again, it deploys (control)" || bad "no deploy after ps recovered"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?

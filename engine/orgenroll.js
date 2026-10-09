@@ -339,6 +339,36 @@ async function preview(code, opts) {
   return { ok: true, org, role, consent, served: servedHash(r.data), salt: servedSalt(r.data) };
 }
 
+/* #5531 follow-up: the consent words for the company this Kosmos is ALREADY the work Kosmos for, so a record with no
+   consent recorded here (one re-adopted by refresh, or rebuilt after an undo) can accept them without leaving. Binds
+   nothing: accepting goes through enroll with no code, which the coordinator records as a re-acceptance of the same
+   world. Answered only while the company names THIS world here, for the company on this board's own record. */
+async function reviewHere(opts) {
+  const rec = readEnrollment(opts);
+  if (!rec || !isEnrolledHere(opts)) return { ok: false, because: 'This Kosmos is not your work Kosmos, so there is nothing to review here.' };
+  // Only for a Kosmos that sends nothing (orgreview review 3): one that reports has its words on record, and the plan
+  // rejects a second path to the same state. The page hides the button too; this is the engine's own refusal.
+  if (mayReport(opts)) return { ok: false, because: 'This Kosmos already reports to your company on the words it accepted here.' };
+  const st = await signed('POST', ROUTES.status, {}, opts);
+  if (!st.ok) return { ok: false, because: 'Your company could not be asked through Kosmos+ just now. Try again in a minute.' };
+  const d = st.data;
+  const org = d && d.member === true ? cleanOrg(d.org) : null;
+  const role = d ? cleanRole(d.role) : null;
+  const consent = d ? cleanConsent(d.consent) : null;
+  // The words must be this record's company's, for this world: never another company's consent shown as this one's.
+  if (!org || !rec.org || org.id !== rec.org.id || statusVerdict(d, readWorldId(opts)) !== 'here') {
+    return { ok: false, because: 'Your company does not name this Kosmos as your work Kosmos right now, so there is nothing to accept here.' };
+  }
+  if (!role || !consent) return { ok: false, because: 'Your company\'s answer was not complete. Try again in a minute.' };
+  /* Accepting records the words on the company's side only when the enroll carries the hash it served (contract v1.4;
+     a codeless enroll records exactly the hash sent). With none to echo, Accept could not make this Kosmos report, so
+     it is not offered (review 1). */
+  const served = servedHash(d);
+  if (!served) return { ok: false, because: 'Your company\'s words could not be confirmed on this computer, so they cannot be accepted here yet. Try again later.' };
+  // #5532: the salt the company serves for the computer print rides the review too, so an Accept pins a print as a join does.
+  return { ok: true, move: true, review: true, org, role, consent, served, salt: servedSalt(d) };
+}
+
 /* enroll, leave and refresh read and write the same record: one at a time, so the daily pass can never act on a
    record a leave has just cleared and is about to restore (or the reverse). */
 let queue = Promise.resolve();
@@ -364,6 +394,12 @@ async function undoFirstJoin(lead, opts) {
 async function enroll(code, accepted, opts) { return oneAtATime(() => enrollNow(code, accepted, opts)); }
 async function enrollNow(code, accepted, opts) {
   if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
+  /* A review's Accept is for a Kosmos already enrolled HERE. If its record went while the words were open (another
+     Kosmos took the enrollment and a refresh cleared it), the person read review words, never move words: refuse
+     BEFORE anything is sent or any id is made (reviews 4 and 5), never fall through into a move. */
+  const held = readEnrollment(opts);
+  const asReview = !!(opts && opts.review === true && code == null);
+  if (asReview && !(held && held.world === readWorldId(opts))) return { ok: false, code: 'org_not_here', because: 'This Kosmos is no longer your work Kosmos, so nothing was sent.' };
   const world = worldId(opts);
   if (!world) return { ok: false, because: "This Kosmos's data folder cannot be written, so nothing was sent." };
   const body = { world, accepted: true };
@@ -397,6 +433,20 @@ async function enrollNow(code, accepted, opts) {
      Kosmos stops". The page checks the code again, and the preview then shows the move wording (review 15). */
   if (!r.ok && body.code && codeOf(r.because) === 'org_already_member') {
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
+  }
+  /* A review's Accept (this world already named here before it was pressed) is never a join, so none of the join words
+     below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and points at Accept or at the
+     Review button, never at a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
+     "here" was true either way, so nothing is recorded; accepting again is harmless. */
+  const review = asReview;   // no code, so always a move; checked against this world's record before sending (above)
+  if (!r.ok && review) {
+    const c = codeOf(r.because);
+    if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed what it asks of this Kosmos since you read it. Nothing changed here. Press Review what your company sees to read the new words.' };
+    // No longer in that company: a Review would be refused too, so do not send the person there (review 3).
+    if (c === 'org_not_member' || c === 'org_other_org') return { ok: false, code: c, because: 'Your company says this account is no longer in it. Nothing changed on this computer.' };
+    if (c) return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer. Press Review what your company sees to try again.' };
+    if (r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; press Accept again in a minute.' };
+    return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; press Accept again in a minute.' };
   }
   const secretCode = typeof code === 'string' ? code.trim() : null;
   // A move refused because the words changed: no code was typed, so say how to see them again (consenthash review 2).
@@ -441,10 +491,13 @@ async function enrollNow(code, accepted, opts) {
   const otherOrg = !!(org && opts && typeof opts.orgId === 'string' && opts.orgId && org.id !== opts.orgId);
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
+    if (review) return { ok: false, because: 'Your company did not confirm this Kosmos, so nothing changed. Press Accept again in a minute.' };
     if (move) return { ok: false, because: NOCONFIRM + ' Press Join again in a minute.' };
     return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint }));
   }
-  const rec = { org, role, world, enrolledAt: new Date().toISOString() };
+  // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
+  const prior = review ? held : null;
+  const rec = { org, role, world, enrolledAt: prior && prior.world === world && typeof prior.enrolledAt === 'string' ? prior.enrolledAt : new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   /* A print sent and NOT pinned (rollup review 16): the company says the salt is not the one on record, or its binding
      write failed, so this computer's reports would not match whatever print it holds. The join stands, but its words
@@ -464,6 +517,7 @@ async function enrollNow(code, accepted, opts) {
          Leave (review 12). A FIRST join is undone with a leave. A MOVE is not: the person was a member before, and a
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
+      if (review) return { ok: false, because: NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder, then press Accept again.' };
       if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Join again.' };
       return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint }));
     }
@@ -770,5 +824,5 @@ async function refreshNow(opts) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint,
+  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
 };
