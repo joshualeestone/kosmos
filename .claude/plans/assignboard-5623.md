@@ -117,3 +117,14 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   nothing either way); deleted. The client test still pins that a 404 or any non-200 is unreadable.
 - Fixed (NITs): stale "it would settle every assignment" messages; the client header names the never-told expiry;
   `asked`'s doc says it may over-report; `isPost` in unansweredFor; the as-built heading.
+
+## Review 9 (sonnet)
+- Fixed (WARNINGs): the docs said a `kind: 'post'` row means the window passed; an assignment is also marked unanswered
+  after PERSON_TELLS tells, as a comment is (both docs now say both ways). A post answered after it expired stayed
+  unanswered on the board for 14 days: the service now reports such a closure as 'answered' (the service half's review
+  23), so the board settles it.
+- Fixed (NITs): the block test renders blockBody() instead of grepping source; the client header and the `asked` doc
+  rewritten and split.
+- Left (NITs): no test for the 3-tell mark on an assignment, more than ASSIGNMENTS_MAX rows, or a thrown read (all go
+  through paths tested for comments or by the unreadable arm); a plain "a person posted this" in a name is cosmetic
+  (the trusted form is parenthesised, which a name cannot forge).

@@ -7,16 +7,16 @@
  *                                                       assigned_at }], settled: [{ post_id, reason }] }
  *   POST /agents/me/assignments/seen   (agent bearer)  { post_ids }  204: the agent was told about these
  *
- * `settled` is the agent's assignments closed in the service's SETTLED_FOR (14 days, the board's PERSONS_KEPT_MS, so an
- * answer never ages out of it before the board's entry would) and why: 'answered' and 'gone' settle the board's record;
- * 'expired' (the window passed with no agent's answer) keeps it, marked unanswered, so /api/community/sent shows the
- * person nobody answered (unless no tell ever reached the agent: then it goes). A post missing from both lists is unknown and kept (review 2 of the board half).
+ * What settles the board's record is `settled` alone: the agent's closures in the service's SETTLED_FOR (14 days, the
+ * board's PERSONS_KEPT_MS, so an answer cannot age out of it first), each with a reason:
+ *   'answered', 'gone'  the entry goes;
+ *   'expired'           the window passed with no agent's answer: the entry stays, marked unanswered, so
+ *                       /api/community/sent shows the person nobody answered (it goes if no tell ever reached the
+ *                       agent; the service reports a post answered after it expired as 'answered').
+ * The open list says what is still owed, never what was settled: a post missing from both lists is unknown and kept.
  * The service counts an agent as silent only on asks it was TOLD about, which the board reports through /seen after a
- * line was PLACED for the agent (never on a read alone, nor on an unconfirmed line).
- *
- * The service's list is filtered to what is still owed (the post public, inside the answer window, no agent's answer
- * yet). It is NOT the record of what was settled: only `settled` is (review 2), and a post missing from both is kept.
- * The reply nudge (replynudge.js) tells the agent through its person path, with the same once-then-hourly rhythm.
+ * line was PLACED for the agent (never on a read alone, nor on an unconfirmed line). The reply nudge (replynudge.js)
+ * tells the agent through its person path, with the same once-then-hourly rhythm.
  *
  * Never registers an agent (an agent with no community account cannot have been picked) and never throws.
  */
@@ -27,9 +27,10 @@ const SETTLED_MAX = 500;      // 14 days of one agent's closures (at most OPEN_M
 const ASSIGNMENTS_MAX = 20;     // more than the service gives one agent at once (its OPEN_MAX is 5)
 
 /** { ok: true, asked?, list: [{ id, remoteId, title, kind, author: '', parent: '' }], settled: { [id]: reason } } or
-    { ok: false, asked?, because }. `id` is ASSIGNED_PREFIX + post id; `asked` is false when no request was sent (it may be true for one that was not, which costs one pacing gap). */
+    { ok: false, asked?, because }. `id` is ASSIGNED_PREFIX + post id.
+    `asked` (for the nudge's pacing gap) is false only when certainly nothing was sent; missing, it is taken as true,
+    which at worst costs one extra gap. */
 async function openAssignments(agentKey) {
-  // `asked`: whether a request reached the service (for the nudge's pacing gap); false when nothing was sent.
   let r;
   // Required here, not at load: replynudge loads this module, and communitysend's own load must not ride on it.
   try { r = await require('./communitysend').agentCall(agentKey, 'GET', '/agents/me/assignments', { register: false }); }

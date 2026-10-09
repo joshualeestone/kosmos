@@ -43,8 +43,9 @@
  * unanswered person (readPersons / writePersons, one record per agent). See the PERSON_* constants and personsUpdate.
  * Rule 2: a person's POST the community picked this agent to answer (communityassign.openAssignments, `o.assignments`)
  * joins the same record under the key "a:<post id>", told the same way; it leaves the record when the service reports
- * it settled 'answered' or 'gone', or 'expired' before any tell reached the agent; an expired one that was told stays,
- * marked unanswered; an unlisted one is unknown and kept; any entry ages out after PERSONS_KEPT_MS unseen.
+ * it settled 'answered' or 'gone', or 'expired' before any tell reached the agent; it is marked unanswered after
+ * PERSON_TELLS tells (as a comment is) or when it expired after a tell; an unlisted one is unknown and kept; any entry
+ * ages out after PERSONS_KEPT_MS unseen.
  *
  * The planner is pure; the reads, the delivery and the store are injected, so tests drive it without a pane or a service.
  */
@@ -229,8 +230,8 @@ function personsUpdate(owed0, persons, now, answered) {
   return { owed, due, unanswered };
 }
 
-/* #5623: the persons still unanswered (a comment after PERSON_TELLS tells, or a post it was picked for whose answer
-   window passed, after however many tells), across the given agents, for /api/community/sent.
+/* #5623: the persons still unanswered (a comment, or a post it was picked to answer, after PERSON_TELLS tells; or such
+   a post whose answer window passed after at least one tell), across the given agents, for /api/community/sent.
    [{ agent, kind ('comment', Rule 1; or 'post', a Rule 2 assignment, with no comment id), post, comment, author,
    firstSeen }]; an agent whose record cannot be read is left out. */
 function unansweredFor(root, sessions) {
