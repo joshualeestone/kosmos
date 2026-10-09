@@ -13,8 +13,9 @@
  *                So Codex gives FILES, not a folder: a snapshot root would carry every other agent's sessions.
  *
  * Only session folders and session files are returned, never a provider's whole folder: those hold sign-ins
- * (.credentials.json, oauth_creds.json, auth.json) beside the sessions. A session folder whose real path is outside its
- * provider's folder (a symlink to ~ or to another agent's folder) is not returned.
+ * (.credentials.json, oauth_creds.json, auth.json) beside the sessions. A session folder that is a link, or sits under
+ * one below the provider's folder (to ~, to another agent's folder, to the whole projects folder), is not returned; what
+ * is returned is the folder's real path, so the snapshot walks the folder that was checked.
  *
  * One limit, the provider's own: Claude's flattening is many-to-one (`workers/a-b`, `workers/a.b` and `workers/a/b` share
  * one projects folder), so "only this agent's" holds while no two agents' folders differ only in punctuation; the caller
@@ -39,12 +40,17 @@ const codexsession = require('./codexsession');
 const ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');   // engine/status.js's rule for a Claude project folder
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
-// p's real path, if it is a folder inside within's real path (never the same folder); else null.
-function realInside(p, within) {
+// The real path of `<base>/<rest...>`, only if it is exactly that folder: no part below base is a link (so a session folder
+// can never be a link to another agent's folder, to the provider's whole projects folder, or out of it), and it is a
+// folder. base itself may be a link (a config folder kept elsewhere). Else null.
+function exactFolder(base, ...rest) {
   try {
-    const rp = fs.realpathSync(p), rw = fs.realpathSync(within);
-    const rel = path.relative(rw, rp);
-    return isDir(rp) && rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rp : null;
+    let at = fs.realpathSync(base);
+    for (const part of rest) {
+      at = path.join(at, part);
+      if (fs.lstatSync(at).isSymbolicLink()) return null;
+    }
+    return isDir(at) ? at : null;   // no part below base is a link, so `at` is the real path
   } catch { return null; }
 }
 const idOf = (p) => { try { const st = fs.statSync(p, { bigint: true }); return `${st.dev}:${st.ino}`; } catch { return null; } };
@@ -56,12 +62,11 @@ function claudeFolders(agentDir, claudeRoots) {
   (Array.isArray(claudeRoots) ? claudeRoots : []).forEach((root, i) => {
     if (typeof root !== 'string' || !path.isAbsolute(root)) return;
     for (const [tag, flat] of spellings) {
-      const p = path.join(root, 'projects', flat);
-      const real = realInside(p, root);
+      const real = exactFolder(root, 'projects', flat);
       const id = real ? idOf(real) : null;
       // The name comes from WHICH root and WHICH spelling, never from how many were found, so one transcript keeps one
       // stored path from snapshot to snapshot.
-      if (id && !seen.has(id)) { seen.add(id); out.push({ suffix: `${i ? `-${i + 1}` : ''}${tag}`, path: p }); }
+      if (id && !seen.has(id)) { seen.add(id); out.push({ suffix: `${i ? `-${i + 1}` : ''}${tag}`, path: real }); }
     }
   });
   return out;
@@ -77,8 +82,7 @@ function geminiFolder(agentDir, geminiHome) {
     if (trust.canonicalOnDisk(cwd) !== want) continue;
     // The slug becomes a folder name under tmp/: one plain segment only, never a path out of it.
     if (typeof slug !== 'string' || !slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) return null;
-    const p = path.join(geminiHome, 'tmp', slug, 'chats');
-    return realInside(p, path.join(geminiHome, 'tmp')) ? p : null;
+    return exactFolder(path.join(geminiHome, 'tmp'), slug, 'chats');
   }
   return null;
 }
