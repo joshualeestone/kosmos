@@ -15,6 +15,8 @@
  *   C7 turning it off stops what is playing and nothing more is read; the state is remembered per conversation
  *   C8 the project room, drawn by the real paintRoom: off reads nothing, on reads a new agent post, a guest's is not read
  *   C10 an agent's first reply in an EMPTY direct thread is read (review 1)
+ *   C8b a guest from outside is drawn and not read (review 3)
+ *   C10b a thread with only another agent's row is not read, on open or on the next poll (review 3)
  *   C11 going to another agent and back does not read what arrived meanwhile (review 1)
  *   C12 a hidden window reads nothing, and nothing it missed is read late when it shows again (review 1)
  *   C12b hiding the window while a message is read stops it (review 1)
@@ -171,8 +173,13 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     rr = [...rr, post('r3', 'april', 'Room news with the mode on.')];
     await room(rr);
     const onSaid = await spoken(page);
+    chk(offSaid === '' && /Room news with the mode on/.test(onSaid) && !/backlog|mode off/.test(onSaid), 'C8 the room, through paintRoom: off reads nothing, on reads the new agent post', JSON.stringify({ offSaid, onSaid }));
+    // C8b (review 3): a guest from outside posts with the mode on: drawn, and not read.
+    await resetSpoken(page);
+    rr = [...rr, { kind: 'external', id: 'r4', from: 'A guest', text: 'Words from outside.', at: new Date().toISOString() }];
+    await room(rr);
     const hasExt = await page.evaluate(() => document.querySelectorAll('#pj-room .msg.ext').length);
-    chk(offSaid === '' && /Room news with the mode on/.test(onSaid) && !/backlog|mode off/.test(onSaid), 'C8 the room, through paintRoom: off reads nothing, on reads the new agent post', JSON.stringify({ offSaid, onSaid, hasExt }));
+    chk(hasExt > 0 && !/Words from outside/.test(await spoken(page)), 'C8b a guest from outside is drawn and not read', JSON.stringify({ hasExt, said: await spoken(page) }));
     await page.click('#pj-conv');   // off again for the room
     await page.evaluate(() => {
       PJ_CURRENT = null;
@@ -191,6 +198,17 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await page.evaluate(() => paintTalk('june', 'June'));
     await page.waitForTimeout(150);
     chk(/My very first reply/.test(await spoken(page)), 'C10 an agent\'s first reply in an empty thread is read', await spoken(page));
+
+    // C10b (review 3): a thread with only ANOTHER agent's row, polled twice: nothing is read.
+    await resetSpoken(page);
+    await page.evaluate(() => { CURRENT = { sessionName: 'kai', name: 'Kai' }; localStorage.setItem('kosmos.convmode', JSON.stringify({ 'dm:april': true, 'dm:kai': true })); CONV.on = null; });
+    const other = [{ from: 'june', at: at(25), text: 'June passing a note to Kai.' }];
+    for (let i = 0; i < 2; i++) {
+      await page.evaluate((m) => { window.__fx = { messages: m }; }, other);
+      await page.evaluate(() => paintTalk('kai', 'Kai'));
+      await page.waitForTimeout(120);
+    }
+    chk(!/passing a note/.test(await spoken(page)), 'C10b another agent\'s row in a thread is not read on open or on the next poll', await spoken(page));
 
     // C11: away to june, april posts meanwhile, back to april: not read.
     await resetSpoken(page);
