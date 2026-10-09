@@ -18941,7 +18941,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
-          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
+          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-review" hidden>Review what your company sees</button><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
           <div id="plus-org-leave-ask" hidden>
             <p class="fhint" id="plus-org-leave-sure"></p>
             <div class="frow">
@@ -47431,7 +47431,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while the person is reading a consent or a call is out. */
 var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
-function plusOrgMaybe() {
+function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
   if (PLUS_ORG.busy || PLUS_ORG.preview) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
@@ -47440,7 +47440,7 @@ function plusOrgMaybe() {
     PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
-    if (j && (j.enrolled === true) !== was) msg.textContent = '';
+    if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
@@ -47473,7 +47473,10 @@ function plusOrgPaint() {
   const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
   document.getElementById('plus-org-title').hidden = !full;
-  document.getElementById('plus-org-in').hidden = !here;
+  document.getElementById('plus-org-in').hidden = !here || !!PLUS_ORG.preview;   // a review's consent shows in place of the joined view
+  // #5531 follow-up: a Kosmos whose words were not accepted on this computer can read and accept them without leaving.
+  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false);
+  document.getElementById('plus-org-join').textContent = PLUS_ORG.preview && PLUS_ORG.preview.review ? 'Accept' : 'Join with this Kosmos';
   document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
@@ -47523,6 +47526,11 @@ async function plusOrgJoin() {
   PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
   if (!r.ok) {
     msg.textContent = r.because || 'Joining did not go through.';
+    // A review has no code to check again: its way back is the Review button (orgreview review 1).
+    if (p.review && r.code === 'org_ticket') msg.textContent = 'These words were open too long. Press Review what your company sees to read them again.';
+    // A review refused with a reason points at the Review button, so the joined view (and that button) comes back.
+    // The view is read back too (review 7): a refusal like org_not_here means the joined view above it is no longer true.
+    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
     // A code that is used, expired, or for another company will not work on a second press: back to the code field.
     // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
     if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending', 'org_consent_changed'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
@@ -47534,11 +47542,36 @@ async function plusOrgJoin() {
   PLUS_ORG.at = Date.now();
   msg.textContent = '';
   plusOrgPaint();
+  // An accepted review: whether this Kosmos now reports is the engine's answer, not a copy of its rule (review 6).
+  if (p.review) { PLUS_ORG.at = 0; plusOrgMaybe(); }
 }
 function plusOrgNotNow() {
+  const review = !!(PLUS_ORG.preview && PLUS_ORG.preview.review);
   PLUS_ORG.preview = null;
-  document.getElementById('plus-org-msg').textContent = 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
+  document.getElementById('plus-org-msg').textContent = review ? 'Nothing changed on this computer.' : 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
   plusOrgPaint();
+}
+/* #5531 follow-up: the words of the company this Kosmos already is the work Kosmos for. Accepting goes through Join with
+   no code (the coordinator records it as accepting again); nothing binds until then. */
+async function plusOrgReview() {
+  const msg = document.getElementById('plus-org-msg');
+  if (PLUS_ORG.busy) return;
+  msg.textContent = '';
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('preview', { review: true });
+  PLUS_ORG.busy = false;
+  // A refusal can mean the state moved (another screen accepted: "already reports"), so read it back, keeping the line (review 9).
+  if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
+  PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
+  document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. Accept it so this Kosmos can report:';
+  plusOrgList('plus-org-reports', r.consent.reports);
+  // The same words as a code's consent (orgreview review 11): a stated empty list says so, as the hash records it.
+  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
+  plusOrgList('plus-org-readers', r.consent.readers);
+  plusOrgList('plus-org-never', r.consent.never);
+  plusOrgLeaveArm(false);
+  plusOrgPaint();
+  document.getElementById('plus-org-join').focus();
 }
 function plusOrgLeaveArm(on) {
   const st = PLUS_ORG.state || {};
@@ -47575,6 +47608,7 @@ document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if
 document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
 document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
+document.getElementById('plus-org-review').addEventListener('click', plusOrgReview);
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
 document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit

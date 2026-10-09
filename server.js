@@ -9717,7 +9717,9 @@ const server = http.createServer(async (req, res) => {
         const oe = require('./engine/orgenroll');
         let r;
         if (pathname === '/api/org/preview') {
-          r = await oe.preview(body.code);
+          // #5531 follow-up: { review: true } shows the words of the company this Kosmos already reports to, so a record
+          // with no consent recorded here can accept them without leaving (accepted through enroll with no code).
+          r = body.review === true ? await oe.reviewHere() : await oe.preview(body.code);
           /* A one-time ticket bound to WHAT was previewed: this code, or a member's move (no code). Enroll must carry
              the same ticket and the same code, so a join is always for the company whose consent was fetched. It is
              exactly as strong as isViaScreen, the board's check for every person-only setting: a caller that passes
@@ -9728,6 +9730,7 @@ const server = http.createServer(async (req, res) => {
               // with the enrollment. None served (or a malformed one): nothing is recorded, so mayReport fails closed
               // rather than report on words the company cannot match (consenthash review 2).
               consentHash: r.served || null,
+              review: r.review === true,   // a review's Accept: a lost answer is never taken as accepted (orgreview review 1)
               orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
             r.ticket = ORG_TICKET.value;
             if (!r.served) console.error('orgenroll: no consent hash to echo (none served, malformed, or for words cleaned before showing); a join records none, and this Kosmos will not report');
@@ -9745,7 +9748,7 @@ const server = http.createServer(async (req, res) => {
           }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, orgId: spent.orgId } : undefined);
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, orgId: spent.orgId, review: spent.review === true } : undefined);
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
           if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
@@ -9762,7 +9765,7 @@ const server = http.createServer(async (req, res) => {
         /* The page gets the company's name and slug, never the world id or org id. */
         /* What the page may see, by name (review 12): a field added to the engine's answer later is not sent by default. */
         if (r && typeof r === 'object') {
-          const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'ticket', 'role', 'consent', 'enrolledAt'];
+          const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'review', 'ticket', 'role', 'consent', 'enrolledAt'];
           const out = {};
           for (const k of keep) if (k in r) out[k] = r[k];
           if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug };
