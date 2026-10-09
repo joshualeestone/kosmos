@@ -719,7 +719,8 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    each LINK TO A FILE on the way is named to the file tools. Sources: the pane PATH the supervisor passes
    (KOSMOS_GUARD_PANE_PATH), this process's own PATH, the plist's fixed folders, and KOSMOS_GUARD_RUN_DIRS and
    KOSMOS_GUARD_CONFIG_DIRS from the supervisor.
-   Review 9: every path is followed one name at a time, so the folder holding a link anywhere along it is covered too.
+   Every path is followed one name at a time (review 9), so a link anywhere along it is seen; a link to a FOLDER on
+   the way gets no rule (scanLaunch says why).
    NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
    inside scripts, what shell startup adds to PATH, a link held in an ancestor of the agent folder (such as /var in /),
    replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
@@ -727,8 +728,8 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    Returned in `unsafe` (the guard then says it is not whole): an empty or relative pane entry; a folder that is the
    agent's own, inside it or above it; a program or link folder that resolves there; a folder that could not be listed;
    a folder past the scan cap; a link chain too long or unreadable; a launch input whose place could not be worked
-   out; a program leading into, or a link held in, a folder that is or holds a shared one (below the agent folder); a
-   dotfile's link that cannot be named; and, later, a rule the permission syntax cannot carry. */
+   out; a folder whose contents run that is or holds a shared one; a link to a folder held in a temp folder (where the
+   agent's shell can write); and, later, a rule the permission syntax cannot carry. */
 const LAUNCH_PATH_FIXED = ['/opt/homebrew/bin', '/usr/local/bin'];
 // Review 5: the folder the installed supervisor runs from (create.supervisorPath(), what launchd and the pane start), which
 // also holds the engine pointer and the bridges. Not this source tree's bin, which nothing runs in an install.
