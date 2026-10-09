@@ -22,6 +22,8 @@ const TOKEN = 'ab'.repeat(32);
 const LISTED = { tasks: [
   { number: 1, projectId: 'p5152', sentence: 'Ship the page', doneWhen: ['it is live', 'the  person\nhas seen it'] },
   { number: 2, projectId: 'p5152', sentence: 'No checks yet', doneWhen: null },
+  { number: 3, projectId: 'p5152', sentence: 'An agent set these', doneWhen: ['tests pass'], doneWhenBy: 'mara "the" builder' },
+  { number: 4, projectId: 'p5152', sentence: 'The person set these', doneWhen: ['I have read it'], doneWhenByPerson: true, doneWhenBy: 'ignored' },
 ] };
 
 const homes = [];
@@ -160,6 +162,9 @@ test('install/kosmos: task list prints each task\'s checks on its one line, and 
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /^\[1\] Ship the page \[done when: 1\) it is live 2\) the person has seen it\]$/m);
     assert.match(r.out, /^\[2\] No checks yet$/m, 'a task with no checks printed a done-when, or the list changed shape');
+    // Review 2: who set them; an agent's name is quoted as [added by] quotes one (its double quotes become single).
+    assert.match(r.out, /^\[3\] An agent set these \[done when, set by mara 'the' builder: 1\) tests pass\]$/m);
+    assert.match(r.out, /^\[4\] The person set these \[done when, set by the person: 1\) I have read it\]$/m);
   });
 });
 
@@ -189,6 +194,8 @@ test('Windows CLI: task list prints the checks as install/kosmos does', async ()
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^\[1\] Ship the page \[done when: 1\) it is live 2\) the person has seen it\]$/m);
   assert.match(r.out, /^\[2\] No checks yet$/m);
+  assert.match(r.out, /^\[3\] An agent set these \[done when, set by mara 'the' builder: 1\) tests pass\]$/m);
+  assert.match(r.out, /^\[4\] The person set these \[done when, set by the person: 1\) I have read it\]$/m);
 });
 
 test('both help texts name the new verb and option', async () => {

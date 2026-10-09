@@ -86,9 +86,10 @@ function doneWhenProblem(doneWhen) {
   if (doneWhen.length > DONE_WHEN_MAX) return `a task holds up to ${DONE_WHEN_MAX} done-when checks`;
   for (const c of doneWhen) {
     if (typeof c !== 'string' || !c.trim()) return 'each done-when check has to say something';
-    /* One line, and nothing a terminal acts on: every control character, and the Unicode line and paragraph breaks
-       (review round 1: kosmos task list prints a check as it is stored). */
-    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(c)) return 'each done-when check has to be one line of plain text';
+    /* One line, and nothing a terminal acts on or that makes it show other words than are stored: every control
+       character, the Unicode line and paragraph breaks (review round 1), and the direction overrides and invisible
+       characters (review round 2: kosmos task list prints a check as it is stored). */
+    if (/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/.test(c)) return 'each done-when check has to be one line of plain text';
     if (c.trim().length > DONE_CHECK_MAX) return `each done-when check has to be ${DONE_CHECK_MAX} characters or fewer`;
   }
   return null;
@@ -285,8 +286,10 @@ function create(projectId, { sentence, detail, who, parent, doneWhen, made: orig
       // #5152: what finished means for this task, as checks, or null.
       doneWhen: doneWhenValue(doneWhen),
     };
-    /* #5152 review 1: checks the person wrote on the screen are theirs (setDoneWhen keeps them from other callers). */
+    /* #5152 review 1: checks the person wrote on the screen are theirs (setDoneWhen keeps them from other callers).
+       Review 2: an agent's are marked with its name, so the agent the task goes to can see who set its bar. */
     if (made.doneWhen && made.addedVia === 'screen') made.doneWhenByPerson = true;
+    else if (made.doneWhen && made.addedVia === 'process' && made.addedBy) made.doneWhenBy = made.addedBy;
     return {
       ...p,
       taskCounter: number,
@@ -920,8 +923,13 @@ function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {})
     const before = Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
     didChange = JSON.stringify(before) !== JSON.stringify(next);
     changed = { ...t, doneWhen: next };
-    /* Whose they are now: the person's when the person set them, nobody's once cleared or set by an agent. */
-    if (person && next) changed.doneWhenByPerson = true; else delete changed.doneWhenByPerson;
+    /* Whose they are now: the person's when the person set them (even the same list an agent wrote: saving it is the
+       person adopting it, recorded by the mark and not as a transcript row, since the checks did not change); the
+       agent's name when an agent set them (review 2, for kosmos task list); nobody's once cleared. */
+    delete changed.doneWhenByPerson;
+    delete changed.doneWhenBy;
+    if (next && person) changed.doneWhenByPerson = true;
+    else if (next && by) changed.doneWhenBy = by;
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
