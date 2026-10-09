@@ -495,7 +495,24 @@ test('#4787: a due repeating task is nudged with its due run and the record verb
   assert.equal(due.length, 1, 'fixture: the due repeating task is not open work');
   assert.ok(typeof due[0].dueWords === 'string' && due[0].dueWords, 'the due run is not named: ' + JSON.stringify(due[0]));
   const text = nudge.nudgeText(due[0]);
-  assert.match(text, /Its scheduled run \([^)]+\) has not been reported: run it now, then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
+  const tr = require('./taskrepeat');
+  const t3 = proj({ number: 3, sentence: 'Hourly check', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: hourAgo, createdAt: hourAgo })[0].tasks[0];
+  const latest = tr.latestAtOrBefore(t3.repeat, tr.dueSlot(t3), Date.now());
+  assert.equal(due[0].dueWords, tr.whenWords(latest), 'the line does not name the latest due run');
+  assert.match(text, /has not been reported: run it now, then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
+  // Review 1: after a long gap, the LATEST due run, with "and earlier ones" (the reviewer's line names the latest too).
+  const longAgo = new Date(now - 72 * 3600 * 1000).toISOString();
+  const gap = { number: 6, sentence: 'Long gap', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: longAgo, createdAt: longAgo, lastRunAt: longAgo };
+  const g = nudge.openParts('ag', proj(gap))[0];
+  assert.equal(g.dueWords, tr.whenWords(tr.latestAtOrBefore(gap.repeat, tr.dueSlot(gap), Date.now())), 'after a gap the line names an old run, not the latest');
+  assert.notEqual(g.dueWords, tr.whenWords(tr.dueSlot(gap)), 'CONTROL: the oldest unrun slot reads differently');
+  assert.match(nudge.nudgeText(g), /\), and earlier ones, has not been reported/);
+  // Review 1: no usable project id: placeholders, never a command missing its arguments.
+  assert.match(nudge.nudgeText(Object.assign({}, due[0], { projectId: '..' })), /kosmos task ran <project-id> <task-number> \(add --unchanged/);
+  // Review 1: a repeating task with no slot to name (a run stamped in the future) is open work with the plain line.
+  const skew = nudge.openParts('ag', proj({ number: 7, sentence: 'Skewed', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: hourAgo, lastRunAt: new Date(now + 3600 * 1000).toISOString() }));
+  assert.equal(skew.length, 1, 'fixture: a future-stamped run is open work');
+  assert.doesNotMatch(nudge.nudgeText(skew[0]), /scheduled run/, 'a run with no slot to name was given one');
   const plain = nudge.nudgeText(nudge.openParts('ag', proj({ number: 4, sentence: 'Plain', who: 'ag' }))[0]);
   assert.doesNotMatch(plain, /scheduled run/, 'CONTROL: a plain task\'s line changed');
   assert.match(plain, /in Repeats\. Pick it up/, 'CONTROL: the plain line lost its shape');
