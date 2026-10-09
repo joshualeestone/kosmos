@@ -155,6 +155,10 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   const X = binDir('x');
   for (const d of ['App (Beta)/bin', 'b*', 'b', 'y', '.hidden', '..y']) fs.mkdirSync(path.join(X, d), { recursive: true });
   assert.equal(run([A, `${X}/App (Beta)/bin`, `${X}/b*`, `${X}/./b`, `${X}/y/../b`, `${X}/..`, `${X}/.hidden`, `${X}/..y`].join(':'), own), `${A}:${X}/.hidden:${X}/..y`, 'an entry the guard cannot name exactly stayed');
+  // Review 9: an entry written through a link inside the agent folder that points out of it goes too.
+  const outOfOwn = binDir('sh-out-of-own');
+  try { fs.symlinkSync(outOfOwn, path.join(own, 'outlink')); } catch {}
+  assert.equal(run(`${A}:${path.join(own, 'outlink')}:${outOfOwn}`, own), `${A}:${outOfOwn}`, 'an entry written through a link in the agent folder stayed');
   // Review 5: an ancestor goes too.
   assert.equal(run(`${A}:${path.dirname(own)}:${sib}`, own), `${A}:${sib}`, 'an ancestor stayed');
   // The pane AND the guard are given its result.
@@ -348,4 +352,46 @@ test('#5516 review 8: the claude and tmux folders the supervisor passes are cove
   // CONTROL: without the variable, neither is named.
   const r2 = setup.launchPathDirs(agentDir('lp-run'), { ...PIN, ownProgramDirs: undefined, panePath: '/usr/bin', ownPath: '' });
   assert.ok(!r2.dirs.includes(realOr(cl)));
+});
+
+test('#5516 review 9: a launch input whose place cannot be worked out is said, not silently left out', () => {
+  const base = { ...PIN, ownProgramDirs: undefined, launchFiles: undefined, panePath: '/usr/bin', ownPath: '' };
+  const r = setup.launchPathDirs(agentDir('lp-missed'), { ...base, launchLookups: { browserToolDir: () => null } });
+  assert.ok(r.unsafe.some((u) => u.includes('the browser tool')), JSON.stringify(r.unsafe));
+  const r2 = setup.launchPathDirs(agentDir('lp-missed'), { ...base, launchLookups: { permissionSettingsFile: () => null } });
+  assert.ok(r2.unsafe.some((u) => u.includes('the permission settings file')), JSON.stringify(r2.unsafe));
+  // CONTROL: with every lookup answering, nothing is said about them.
+  const r3 = setup.launchPathDirs(agentDir('lp-missed'), base);
+  assert.ok(!r3.unsafe.some((u) => u.includes('could not be worked out')), JSON.stringify(r3.unsafe));
+});
+
+test('#5516 review 9: a link along a path is followed one name at a time; the folder holding it is covered, or reported when it is the agent\'s own', () => {
+  // A program whose link target passes through a folder link in the MIDDLE (an "opt"-style layout).
+  const pd = binDir('mid-path');
+  const cellar = binDir('mid-cellar/tool/1.0/bin');
+  fs.writeFileSync(path.join(cellar, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
+  const opt = binDir('mid-opt');
+  fs.symlinkSync(path.join(SANDBOX, 'bins', 'mid-cellar', 'tool', '1.0'), path.join(opt, 'tool'));
+  fs.symlinkSync(path.join(opt, 'tool', 'bin', 'tool'), path.join(pd, 'tool'));
+  const r = setup.launchPathDirs(agentDir('lp-mid'), { ...PIN, panePath: pd, ownPath: '' });
+  assert.ok(r.dirs.includes(realOr(opt)), 'the folder holding the middle link was not covered: ' + JSON.stringify(r.dirs));
+  assert.ok(r.dirs.includes(realOr(cellar)), JSON.stringify(r.dirs));
+  // A PATH entry written THROUGH a link inside the agent folder that points out of it: reported, not covered as whole.
+  const dir = agentDir('lp-through');
+  const outside = binDir('through-out');
+  fs.symlinkSync(outside, path.join(dir, 'tools'));
+  const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: path.join(dir, 'tools'), ownPath: '' });
+  assert.ok(r2.unsafe.includes(path.join(dir, 'tools')), JSON.stringify(r2));
+  // CONTROL: the same folder given by its own path is coverable.
+  assert.deepEqual(setup.launchPathDirs(dir, { ...PIN, panePath: outside, ownPath: '' }).unsafe, []);
+  // A PROGRAM on a clean PATH folder whose link target passes through a link inside the agent folder: reported.
+  const pd3 = binDir('through-prog');
+  fs.writeFileSync(path.join(outside, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(dir, 'tools', 'tool'), path.join(pd3, 'tool'));
+  const r3 = setup.launchPathDirs(dir, { ...PIN, panePath: pd3, ownPath: '' });
+  assert.ok(r3.unsafe.includes(path.join(realOr(pd3), 'tool')), JSON.stringify(r3));
+  // A file named on PATH runs nothing: not reported (CONTROL for the could-not-be-listed note).
+  const f = path.join(SANDBOX, 'bins', 'a-file');
+  fs.writeFileSync(f, '');
+  assert.deepEqual(setup.launchPathDirs(dir, { ...PIN, panePath: f, ownPath: '' }).unsafe, []);
 });

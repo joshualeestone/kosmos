@@ -149,9 +149,9 @@ _phys_dir() {
   cd -P "$1" 2>/dev/null && pwd || true
 }
 abs_path_only() {
-  local _out="" _e _r _own="" _ownp="" _old_ifs="$IFS" _noglob=""
+  local _out="" _e _r _w _own="" _ownp="" _ownw="" _old_ifs="$IFS" _noglob=""
   case "$-" in *f*) _noglob=1 ;; esac   # review 8: put noglob back as it was
-  if [ -n "${2:-}" ]; then _own="${2%/}"; _ownp="$(_phys_dir "$_own")"; [ -n "$_ownp" ] || _ownp="$_own"; _ownp="$(printf '%s' "$_ownp" | tr '[:upper:]' '[:lower:]')"; fi
+  if [ -n "${2:-}" ]; then _own="${2%/}"; _ownp="$(_phys_dir "$_own")"; [ -n "$_ownp" ] || _ownp="$_own"; _ownp="$(printf '%s' "$_ownp" | tr '[:upper:]' '[:lower:]')"; _ownw="$(printf '%s' "$_own" | tr '[:upper:]' '[:lower:]')"; fi
   IFS=':'; set -f
   for _e in $1; do
     case "$_e" in /*) ;; *) continue ;; esac
@@ -164,8 +164,12 @@ abs_path_only() {
       [ -d "$_e" ] || continue
       _r="$(_phys_dir "${_e%/}")"; [ -n "$_r" ] || _r="${_e%/}"   # unresolvable: compare as written
       _r="$(printf '%s' "$_r" | tr '[:upper:]' '[:lower:]')"
-      case "$_r/" in "$_ownp"/*) continue ;; esac
-      case "$_ownp/" in "${_r%/}"/*) continue ;; esac
+      # Review 9: as written too (a link inside the agent folder that points out of it), against both spellings of it.
+      _w="$(printf '%s' "${_e%/}" | tr '[:upper:]' '[:lower:]')"
+      case "$_r/" in "$_ownp"/*|"$_ownw"/*) continue ;; esac
+      case "$_w/" in "$_ownp"/*|"$_ownw"/*) continue ;; esac
+      case "$_ownp/" in "${_r%/}"/*|"${_w%/}"/*) continue ;; esac
+      case "$_ownw/" in "${_r%/}"/*|"${_w%/}"/*) continue ;; esac
     fi
     _out="${_out:+$_out:}$_e"
   done

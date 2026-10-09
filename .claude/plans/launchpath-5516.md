@@ -114,3 +114,22 @@ rest of the guard is still written.
   - FIXED (nits): the helper is named for what it does (_phys_dir), and the caller's noglob is put back as it was
     (tested both ways).
   - NOT CHANGED (nit): a PATH folder past the scan cap refuses token-only creation (decided in round 5).
+- Round 9 (opus): 1 BLOCKER, 4 WARNING, 6 NIT.
+  - FIXED (BLOCKER) and FIXED (W, middle links): every path the guard depends on is followed one name at a time. The
+    folder holding a link ANYWHERE along it (not only at its end) is covered, and when that folder is inside the agent's
+    own, the guard says it cannot cover it. That closes a PATH entry written through a link inside the agent folder, and
+    the "opt"-style layout where a program's target passes through a folder link. The supervisor also drops an entry
+    whose written path is inside the agent folder. Tests with controls; each part has a mutation that fails. A link held
+    in an ANCESTOR of the agent folder (a system link such as /var in /) is the recorded ancestor residual: never denied.
+  - FIXED: a launch input whose place cannot be worked out (the installed supervisor, the browser tool, the settings
+    file) is said, so the guard is not whole, rather than silently left out. Test with a control.
+  - FIXED (nit): a file named on PATH (ENOTDIR) is skipped like a missing folder, not reported. Test.
+  - DECIDED, residual: a PROGRAM whose chain is uncoverable (it lands in or passes through the agent folder) stays on
+    the pane PATH; the supervisor drops whole entries only. The guard says it is not whole at launch (logged) and at
+    create (refused). Rejected for now: having the guard return the entries to drop, which reorders the launch.
+  - DECIDED, a later part of #5516 (named in the header and here): programs named in Claude's own config files (MCP
+    servers in .claude.json or .mcp.json, hooks named by settings, plugins, the status line). Only the settings files
+    themselves are denied today.
+  - NOT CHANGED (nits): tr versus toLowerCase on non-ASCII names (they can only disagree toward "not whole"); the
+    supervisor's WORKDIR versus create's workerDir (both fail safe if they differ); the unpinned first test checks the
+    real fixed list's rules only.

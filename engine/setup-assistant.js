@@ -716,8 +716,11 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    path (this install's engine and bin, the installed supervisor's folder, node's folder, and the browser tool's tree,
    review 7); and the files the claude launch names by path (the permission settings file, review 7). Sources: the pane
    PATH the supervisor passes (KOSMOS_GUARD_PANE_PATH), this process's own PATH, and the plist's fixed folders.
+   Review 9: every path is followed one name at a time, so the folder holding a link anywhere along it is covered too.
    NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
-   inside scripts, what shell startup adds to PATH, and replacing an ancestor of a covered folder.
+   inside scripts, what shell startup adds to PATH, a link held in an ancestor of the agent folder (such as /var in /),
+   replacing an ancestor of a covered folder, and programs named in Claude's own config files (MCP servers, hooks,
+   plugins, the status line), which are a later part of #5516.
    Returned in `unsafe` (the guard then says it is not whole): an empty or relative pane entry; a folder that is the
    agent's own, inside it or above it; a program that resolves there; a folder that could not be listed; a folder past
    the scan cap. */
@@ -742,8 +745,12 @@ function launchPathDirs(agentDir, deps = {}) {
   const max = deps.linkScanMax || LINK_SCAN_MAX;
   const own = realOrLeaf(agentDir);
   const fixed = Array.isArray(deps.launchFixed) ? deps.launchFixed : LAUNCH_PATH_FIXED;
-  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), installedSupervisorDir(), path.dirname(process.execPath), browserToolDir(), ...supervisorRunDirs()].filter(Boolean);
-  const fileList = deps.launchFiles || [permissionSettingsFile()].filter(Boolean);
+  // Review 9: a launch input whose place could not be worked out is said (the guard is then not whole), never dropped.
+  const missed = [];
+  const look = Object.assign({ installedSupervisorDir, browserToolDir, permissionSettingsFile }, deps.launchLookups);   // a test seam
+  const need = (what, v) => { if (!v) missed.push(`(${what}: its place could not be worked out)`); return v; };
+  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), need('the installed supervisor', look.installedSupervisorDir()), path.dirname(process.execPath), need('the browser tool', look.browserToolDir()), ...supervisorRunDirs()].filter(Boolean);
+  const fileList = deps.launchFiles || [need('the permission settings file', look.permissionSettingsFile())].filter(Boolean);
   const plat = deps.platform || process.platform;
   /* Review 2 and 8: refreshTokenOnlyGuards passes one Map for its whole pass. The SCAN (which folders, and the program
      each name resolves into) is the same for every agent, so it is cached without the agent folder and done once per
@@ -757,15 +764,20 @@ function launchPathDirs(agentDir, deps = {}) {
   // not-yet entry keeps the case it was typed in); that only ever reports more as uncoverable.
   const fold = plat === 'darwin' || plat === 'win32' ? (x) => x.toLowerCase() : (x) => x;
   const ownF = fold(own);
-  const uncoverable = (real) => {
-    const r = fold(real);
-    return r === ownF || r.startsWith(ownF + path.sep) || ownF.startsWith(r === path.sep ? r : r + path.sep);
-  };
+  const rel = (r, o) => r === o || r.startsWith(o + path.sep) || o.startsWith(r === path.sep ? r : r + path.sep);
+  const uncoverable = (real) => rel(fold(real), ownF);
+  const inOwn = (r) => r === ownF || r.startsWith(ownF + path.sep);
   const dirs = [];
   const aliases = [];
-  const unsafe = [...scan.unsafe];
+  const unsafe = [...missed, ...scan.unsafe];
   for (const c of scan.cands) {
-    if (uncoverable(c.real)) { unsafe.push(c.shown); continue; }
+    if (c.holder) {
+      /* A folder holding a link on the way: inside the agent folder it is the agent's to change, so it cannot be covered
+         (review 9). ABOVE it (a system link such as /var in /) is the recorded ancestor residual: never denied. */
+      const r = fold(c.real);
+      if (inOwn(r)) { unsafe.push(c.shown); continue; }
+      if (rel(r, ownF)) continue;
+    } else if (uncoverable(c.real)) { unsafe.push(c.shown); continue; }
     if (!dirs.includes(c.real)) dirs.push(c.real);
     if (c.written && c.written !== c.real && !aliases.includes(c.written)) aliases.push(c.written);
   }
@@ -782,16 +794,53 @@ function launchPathDirs(agentDir, deps = {}) {
 function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
   const cands = [];
   const unsafe = [];
-  // Review 8: one realpath per folder, not one per program (nearly every program sits in the folder being scanned).
-  const real = new Map();
-  const realDir = (d) => { if (!real.has(d)) real.set(d, realOrLeaf(d)); return real.get(d); };
+  /* Review 9: a path is resolved one name at a time, so a link ANYWHERE along it (not only at its end) is seen: the
+     folder holding that link decides where the path leads, so it is covered too (or, if it is the agent's own, the
+     guard says it cannot cover it). `holders` keeps, for each path, the folders holding the links passed through.
+     Review 8: memoized per path, so a folder scanned once is not walked again for each program in it. */
+  const walked = new Map();
+  const lst = new Map();
+  const lstatOf = (q) => { if (!lst.has(q)) { let st = null; try { st = fs.lstatSync(q); } catch { /* not there */ } lst.set(q, st); } return lst.get(q); };
+  const walk = (q, depth) => {
+    const abs = path.resolve(q);
+    if (walked.has(abs)) return walked.get(abs);
+    let cur = path.parse(abs).root;
+    const holders = [];
+    let bad = null;
+    for (const part of abs.slice(cur.length).split(path.sep).filter(Boolean)) {
+      const nxt = path.join(cur, part);
+      const st = lstatOf(nxt);
+      if (st && st.isSymbolicLink()) {
+        if (depth >= LINK_HOPS_MAX) { bad = 'a link chain too long to follow'; cur = nxt; continue; }
+        holders.push(cur);
+        let t;
+        try { t = fs.readlinkSync(nxt); } catch { bad = 'a link that could not be read'; cur = nxt; continue; }
+        const w = walk(path.resolve(cur, t), depth + 1);
+        holders.push(...w.holders);
+        if (w.bad) bad = w.bad;
+        cur = w.real;
+      } else cur = nxt;
+    }
+    const out = { real: cur, holders, bad };
+    walked.set(abs, out);
+    return out;
+  };
+  // Every folder a path depends on: where it leads, and each folder holding a link on the way.
+  const push = (q, shown, written) => {
+    const w = walk(q, 0);
+    if (w.bad) unsafe.push(`${shown} (${w.bad})`);
+    cands.push({ real: w.real, shown, written });
+    for (const h of w.holders) cands.push({ real: h, shown, holder: true });
+    return w.real;
+  };
+  const realDir = (d) => walk(d, 0).real;
   // Review 5: each covered folder's spelling as written (a link, /var for /private/var), so the file-tool rules can name
   // both and do not depend on how Claude Code matches a linked path. The sandbox layer gets the resolved one.
   const add = (e, strict) => {
     if (!e || !path.isAbsolute(e)) { if (strict) unsafe.push(e === '' ? '(an empty entry)' : e); return; }
     // realOrLeaf (review 3): an entry not created yet is still resolved through a symlinked parent, so the agent-folder
     // check cannot fail open and the sandbox gets the spelling it matches (/private/var, not /var).
-    cands.push({ real: realDir(e), shown: e, written: path.resolve(e) });
+    push(e, e, path.resolve(e));
   };
   for (const e of fixed) add(e, true);
   /* Review 3 (W3b): what the supervisor starts by ABSOLUTE path from folders that may be off the pane PATH: the engine
@@ -806,13 +855,14 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
   // Review 7: the folder each hop of a program's link chain sits in, to the end of the chain, whether or not the last
   // target exists yet (a dangling link runs whatever is later made there).
   const scanned = new Set();
-  for (const { real: d } of [...cands]) {
-    if (scanned.has(d)) continue;
+  for (const { real: d, holder } of [...cands]) {
+    if (holder || scanned.has(d)) continue;   // a folder holding a link is covered, not scanned for programs
     scanned.add(d);
     let names = [];
     try { names = fs.readdirSync(d); } catch (e) {
       // Review 7: a folder that is missing has nothing to run; one that cannot be listed still runs its programs by name.
-      if (!(e && e.code === 'ENOENT')) unsafe.push(`${d} (could not be listed: ${(e && e.code) || e})`);
+      // (A file named on PATH, ENOTDIR, runs nothing either.)
+      if (!(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'))) unsafe.push(`${d} (could not be listed: ${(e && e.code) || e})`);
       continue;
     }
     if (names.length > max) { unsafe.push(`${d} (more than ${max} entries; the rest were not checked, and which ones is not known)`); names = names.slice(0, max); }
@@ -821,9 +871,9 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
       let p = shown;
       for (let hop = 0; ; hop++) {
         let st;
-        try { st = fs.lstatSync(p); } catch { cands.push({ real: realDir(path.dirname(p)), shown }); break; }   // dangling: the folder it names
+        try { st = fs.lstatSync(p); } catch { push(path.dirname(p), shown); break; }   // dangling: the folder it names
         if (st.isDirectory()) break;   // a folder, not a program (its own name is not run)
-        cands.push({ real: realDir(path.dirname(p)), shown });   // a program, or a link hop, sits here
+        push(path.dirname(p), shown);   // a program, or a link hop, sits here
         if (!st.isSymbolicLink()) break;
         if (hop >= LINK_HOPS_MAX) { unsafe.push(`${shown} (a link chain too long to follow)`); break; }
         let t;
@@ -832,7 +882,7 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
       }
     }
   }
-  const files = fileList.map((f) => ({ real: realOrLeaf(f), shown: f }));
+  const files = fileList.map((f) => ({ real: path.join(push(path.dirname(f), f), path.basename(f)), shown: f }));
   return { cands, unsafe, files };
 }
 /*
