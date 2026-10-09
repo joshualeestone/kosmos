@@ -417,7 +417,9 @@ test('the temp path is never the same twice, observed rather than argued', () =>
    *
    * 🔑 It matters because `wx` refuses whatever is sitting at the name, and a
    * crash between create and rename leaves one behind. With a repeating name
-   * that is a permanent wedge; with a unique one the leftover is inert.
+   * that is a permanent wedge; with a unique one the leftover is inert (and since
+   * #5434 slice 6 it is also reaped on the next save of that file, once its writer is dead:
+   * see saveConfig in trust.js).
    * #5434 slice 6: the module now saves through securewrite, which creates its temp with
    * `fs.openSync(tmp, 'wx', mode)`, so the temps are observed there, not on writeFileSync.
    */
@@ -489,7 +491,7 @@ test('taking back never reports success about a config it could not read', () =>
   assert.match(r.because, /shaped/);
 });
 
-test('a file planted at the path the module is ABOUT to write is refused, not written through, and left alone', () => {
+test('a file planted at the temp path the module is ABOUT to write is not written through or removed, and the save moves to a fresh name', () => {
   /**
    * 🛑 THE `wx` FLAG'S OWN TEST, and nothing in this file had one. The unique
    * name means no fixture can guess the path, so the path is taken from the

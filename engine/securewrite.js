@@ -4,7 +4,8 @@
  * ONE writer for a file that holds a secret, so the ORDER cannot be got wrong
  * at the next call site.
  * (#5434: it also writes a person's own config files, the provider settings and hook files, for its
- * flush-before-rename; those callers pass the file's existing mode, or null for the umask default.)
+ * flush-before-rename; those callers pass the file's existing mode, null for the umask default, or an
+ * explicit mode for a file they create, as trust.js passes 0600.)
  *
  * 🛑 THE DEFECT THIS EXISTS TO MAKE UNREACHABLE, measured rather than assumed:
  *
