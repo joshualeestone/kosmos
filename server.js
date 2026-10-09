@@ -20713,6 +20713,9 @@ const ORG_ROLLUP_TICK_MS = 5 * 60 * 1000;
 let ORG_ROLLUP_RUNNING = false;
 function orgRollupTick() {
   if (ORG_ROLLUP_RUNNING) return;   // one at a time: a slow read must not start a second send
+  // Rollup review 28: a send to the company is a real side effect, so it waits for live execution like the board's other
+  // background sweeps; a test or a board that never turned it on sends nothing, enrolled fixture or not.
+  if (!liveExecution.liveExecutionAllowed()) return;
   try {
     if (!require('./engine/orgenroll').isEnrolledHere()) return;   // not the work Kosmos: nothing is read or sent
     ORG_ROLLUP_RUNNING = true;

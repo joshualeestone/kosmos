@@ -380,3 +380,7 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - The second Mortals run found tools/test-connector-verbs.sh pins the mac-request callers: orgrollup.js is re-decided
   there (an old connector refuses the rollup route; the rollup only sends for a Kosmos already enrolled, which needs
   a new connector; nothing that works today breaks).
+- Review 28: the rollup tick sends a signed request to the company, a real side effect, so it now waits for live
+  execution like the board's other background sweeps (a test, or a board that never turned it on, sends nothing even
+  with an enrolled fixture). Pinned by a source check that the gate comes before the send; the mutation fails.
+  Not changed here: main's orgEnrollRefresh (from #5531) has the same shape; noted on #5531 for a follow-up.

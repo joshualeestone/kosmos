@@ -412,6 +412,11 @@ test('#5532 rollup review 24: start() arms the rollup tick, and the joined view 
   const body = start.slice(0, start.indexOf('\n}\n'));
   assert.match(body, /setTimeout\(orgRollupTick, /, 'start() never runs the first rollup');
   assert.match(body, /setInterval\(orgRollupTick, ORG_ROLLUP_TICK_MS\)/, 'start() never runs the rollup on its tick');
+  // Review 28: the tick sends only under live execution, checked before anything is read or sent.
+  const serverSrc = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const fn = serverSrc.slice(serverSrc.indexOf('function orgRollupTick()'), serverSrc.indexOf('\n}\n', serverSrc.indexOf('function orgRollupTick()')));
+  const gate = fn.indexOf('if (!liveExecution.liveExecutionAllowed()) return;');
+  assert.ok(gate > 0 && gate < fn.indexOf("require('./engine/orgrollup').tick()"), 'the rollup tick is not gated on live execution before it sends');
   // The route: words remembered, but the rollup's own state says it waits for a print: not "reports".
   const rollup = require('./engine/orgrollup');
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
