@@ -2,8 +2,9 @@
 /**
  * #5534 (Enterprise E0.5): the company policy an enrolled board applies. Design on the card (agreed with the E0.1 and
  * E0.2 owners): the coordinator signs each org's policy as a KST1 token of `typ: org_policy` with its own key, the
- * key every Kosmos+ Mac already pins; the tunnel fetches it on its Mac-signed org-status call and writes it to
- * `org_policy.kst` in its state folder; this module verifies it AGAIN (the file is on disk, so it is not trusted) and
+ * key every Kosmos+ Mac already pins; the coordinator serves it on the board's Mac-signed org-status answer, and the
+ * board's enrollment refresh (engine/orgenroll.js applyPolicy, on start, daily and right after a join) writes it to
+ * `org_policy.kst` in the tunnel's state folder; this module verifies it AGAIN (the file is on disk, so it is not trusted) and
  * keeps the last good one in force when a new one is refused.
  *
  * Payload (v1): { typ: 'org_policy', v: 1, org, version, iat, exp, policy: { providers_allowed, models_allowed,

@@ -650,7 +650,8 @@ async function settleUnknownJoin(unsure, opts) {
     try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
     setStopped(null, opts);
     setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now (review 35)
-    return { ok: true, enrolled: true, member: true, ...rec };
+    const policy = applyPolicy(d.policy, opts, org.id);   // #5534 review 1: the settled join's answer carries the policy too
+    return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
   }
   if (verdict === 'notHere' && !unsure.move && namesThisWorld(d, world)) {
     // The join's own salt, company and whether it sent a print, from the marker (review 17), so the undo carries the print.
@@ -829,7 +830,7 @@ async function refreshNow(opts) {
   let saved = true;
   try { writeEnrollment(rec, opts); } catch { saved = false; /* keep the old record; the next refresh tries again */ }
   // Review 1: a policy only once the enrollment it belongs to is on record here, or a later stop would never clear it.
-  const policy = saved ? applyPolicy(d.policy, opts) : null;
+  const policy = saved ? applyPolicy(d.policy, opts, org.id) : null;
   return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
 }
 
@@ -838,12 +839,18 @@ async function refreshNow(opts) {
    AGAIN against the pinned coordinator key and refuses a forged, tampered, expired or older one, keeping the last good
    one in force. { version, refused } or null when the answer carried no policy. Never throws: a policy that cannot be
    saved or applied leaves the enrollment as it is, and the next refresh (on start and daily) tries again. */
-function applyPolicy(token, opts) {
+function applyPolicy(token, opts, orgId) {
   if (typeof token !== 'string' || !token || token.length > 64 * 1024) return null;
   const orgpolicy = (opts && opts.orgpolicy) || require('./orgpolicy');
+  // Review 1: a bundle for another company than the one this answer names is not saved (a coordinator mix-up).
+  if (orgId) {
+    let named = null;
+    try { named = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString('utf8')).org; } catch { named = null; }
+    if (named !== orgId) return { version: null, refused: 'the policy names another company than this answer' };
+  }
   try {
     const file = orgpolicy.BUNDLE();
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const tmp = file + '.' + process.pid + '.tmp';
     try { fs.writeFileSync(tmp, token, { mode: 0o600 }); fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
     const r = orgpolicy.refresh();

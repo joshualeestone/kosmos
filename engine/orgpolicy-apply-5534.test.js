@@ -109,3 +109,13 @@ test('#5534 review 1: when this Kosmos stops being enrolled, the company policy 
   assert.equal(fs.existsSync(orgpolicy.BUNDLE()), false, 'the bundle outlived the enrollment');
   assert.equal(create.policyAllows('openai', null).ok !== false, true, 'a former member is still held to the policy');
 });
+
+test('#5534 review 1: a policy naming another company than the answer is not saved', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  const r = await org.refresh({ root, remote: coordinatorServing(root, sign(bundle({ org: 'org_2' }))) });
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.policy.refused, 'the policy names another company than this answer');
+  assert.equal(fs.existsSync(orgpolicy.BUNDLE()), false, 'another company\'s bundle was saved');
+  assert.equal(create.policyAllows('openai', null).ok !== false, true);
+});
