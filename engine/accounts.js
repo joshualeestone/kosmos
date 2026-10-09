@@ -837,17 +837,15 @@ function clearDefaultIdentity() {
   /* Two-space indent + trailing newline: the shape Claude Code itself writes, so
      a human diff of `.claude.json` after this stays legible. Only `oauthAccount`
      is gone; every other key round-trips unchanged.
-     🛑 ATOMIC temp+rename, matching every other JSON-config write in this engine
-     (worlds.js, remove.js, discover.js). A direct writeFileSync on `.claude.json`
-     -- routinely MBs of `projects`/state -- issues multiple write() syscalls, so a
-     crash/kill/power-loss mid-write would TRUNCATE exactly the unrelated config this
-     clear exists to preserve. rename() is atomic: a crash leaves the original file
-     intact and only a stray `.tmp` behind. The catch handles a JS-level failure;
-     the rename handles the process-level one the promise in this docblock is about.
+     🛑 ATOMIC temp+rename, never an in-place write. A direct writeFileSync on
+     `.claude.json` -- routinely MBs of `projects`/state -- issues multiple write()
+     syscalls, so a crash/kill/power-loss mid-write would TRUNCATE exactly the
+     unrelated config this clear exists to preserve. A rename alone is not enough
+     either: unflushed, a crash can leave the file at full length but zero-filled
+     (#5431). How it is done now is in the #5434 comment below.
      ⚠️ PRESERVE THE MODE. A fresh temp adopts the umask, so a mode-600 `.claude.json`
      (it can hold a token) would silently widen to 644 -- the atomic-write idiom's
-     known permission-discard trap. stat the original, write the temp, chmod it back,
-     then rename. */
+     known permission-discard trap. The original's mode is read and passed on. */
   try {
     let mode = 0o600;
     try { mode = fs.statSync(cfg).mode & 0o777; } catch { /* keep the 600 default */ }
