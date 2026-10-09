@@ -151,7 +151,8 @@ function makeOpener(dir) {
   const out = path.join(dir, 'opened.txt');
   if (process.platform !== 'win32') {
     const stub = path.join(dir, 'opener.sh');
-    fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s' "$1" > ${JSON.stringify(out)}\n`);
+    // Write then rename, so a reader never sees a half-written or empty file (#5710).
+    fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s' "$1" > ${JSON.stringify(out + '.part')} && mv ${JSON.stringify(out + '.part')} ${JSON.stringify(out)}\n`);
     fs.chmodSync(stub, 0o755);
     return stub;
   }
@@ -160,7 +161,8 @@ function makeOpener(dir) {
   const src = path.join(dir, 'Opener.cs');
   const stub = path.join(dir, 'opener.exe');
   fs.writeFileSync(src, 'class Opener { static void Main(string[] a) { System.IO.File.WriteAllText('
-    + JSON.stringify(out) + ', a.Length > 0 ? a[0] : ""); } }\n');
+    + JSON.stringify(out + '.part') + ', a.Length > 0 ? a[0] : ""); System.IO.File.Move('
+    + JSON.stringify(out + '.part') + ', ' + JSON.stringify(out) + '); } }\n');
   const built = require('node:child_process').spawnSync(csc, ['/nologo', '/target:exe', '/out:' + stub, src], { encoding: 'utf8', windowsHide: true });
   assert.equal(built.status, 0, 'the stand-in opener did not compile: ' + built.stdout + built.stderr);
   return stub;
@@ -365,9 +367,12 @@ test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url
     assert.equal(stdout.trim(), `http://127.0.0.1:${port}`, 'stdout was not the plain url');
     assert.doesNotMatch(stdout, /boot=/, 'the single-use nonce leaked into stdout');
     // The opener (a detached grandchild) receives the NONCED url. It may lag the
-    // subprocess exit, so poll briefly rather than reading once and racing.
+    // subprocess exit, so wait for its receipt: the stub renames the file into place
+    // only once it is written. #5710: a 4 s window was too short under the full
+    // suite's load. The deadline only bounds a failure; a pass returns on receipt.
     let opened = '';
-    for (let i = 0; i < 40 && !opened; i++) { try { opened = fs.readFileSync(out, 'utf8'); } catch (_e) { /* not yet */ } if (!opened) await napms(100); }
+    const deadline = Date.now() + 30000;
+    while (!opened && Date.now() < deadline) { try { opened = fs.readFileSync(out, 'utf8'); } catch (_e) { /* not yet */ } if (!opened) await napms(50); }
     assert.match(opened, new RegExp(`^http://127\\.0\\.0\\.1:${port}/\\?boot=[0-9a-f]+$`), 'the opener did not receive the nonced url');
   } finally { server.close(); }
 });
