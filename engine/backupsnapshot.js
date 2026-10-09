@@ -305,13 +305,23 @@ function rootsOf(input) {
     if (!pathDecision(`${r.name}/x`).include) return `the root name ${r.name} is one the backup never stores`;
     names.push(r.name);
   }
-  // Sorted by name, so the files (and the manifest) come out in one order whatever order the caller lists the roots in.
-  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude })).sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+  // So the files (and the manifest) come out in one order, sorted by stored path, whatever order the caller lists them in.
+  // Sorted by name + '/', which is the order of the stored paths they start (by name alone, `data-old` would follow
+  // `data`, while `data-old/x` sorts before `data/x`).
+  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
 }
 
 /* Every root's listing, merged: each file carries its root's real path and its path inside it (rel), and its stored
    path is prefixed with the root's name. A root inside another (by real path) is refused: its files would be stored
    twice. The file limit counts every root together. Returns the merged listing, or why not (a sentence). */
+/* The last folders of a root's real path, as a prefix ('Users/me/.claude/'): enough for any deny rule anchored on a
+   parent folder (the deepest, .config/gh/, needs two). Three, so a rule never sees more of the path than it needs. */
+const NEAR_SEGMENTS = 3;
+function nearOf(real) {
+  const segs = real.split(path.sep).filter(Boolean);
+  return segs.length ? segs.slice(-NEAR_SEGMENTS).join('/') + '/' : '';
+}
+
 async function listRoots(roots, fs) {
   const reals = [], ids = [];
   for (const r of roots) {
@@ -344,9 +354,15 @@ async function listRoots(roots, fs) {
       // The walk judged the path inside the root; restore judges the stored one, which is longer by the name.
       const problem = roots[i].name ? pathProblem(stored) : null;
       if (problem) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push({ path: stored, why: `restore would refuse it: ${problem}` }); else out.skippedExtra++; continue; }
-      out.files.push(Object.assign({}, f, { rel: f.path, path: stored, rootReal: reals[i] }));
+      // The deny-list judged the path inside the root, so a rule anchored on a parent folder (.claude/.credentials.json,
+      // .gemini/oauth_creds.json, .ssh/) never fired when the root IS that folder. Judged again with the root's own last
+      // folders in front, the way the file sits on disk; readListed does the same on the real path.
+      const near = nearOf(reals[i]);
+      const d = pathDecision(near + f.path);
+      if (!d.include) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push({ path: stored, why: d.why }); else out.skippedExtra++; continue; }
+      out.files.push(Object.assign({}, f, { rel: f.path, path: stored, rootReal: reals[i], near }));
     }
-    for (const x of got.skipped) out.skipped.push(Object.assign({}, x, { path: pre(roots[i].name, x.path) }));
+    for (const x of got.skipped) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push(Object.assign({}, x, { path: pre(roots[i].name, x.path) })); else out.skippedExtra++; }
     out.skippedExtra += got.skippedExtra;
     out.over = got.over;
   }
@@ -376,6 +392,7 @@ function readListed(fs, rootReal, f, maxFile) {
     const relReal = path.relative(rootReal, real).split(path.sep).join('/');
     const d = denied(relReal);
     if (!d.include) return { why: d.why };
+    if (f.near) { const dn = pathDecision(f.near + relReal); if (!dn.include) return { why: dn.why }; }
     const size = Number(st.size);
     if (size > maxFile) return { why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` };
     // One byte more than allowed: filling it means the file grew past maxFile after the size check.

@@ -1222,7 +1222,7 @@ test('#5686: roots that cannot be used are refused before anything is read or up
       // Review 1: nesting by the folders' identity, not their spelling.
       [[{ name: 'one', path: w.roots.data }, { name: 'two', path: w.roots.data }], /same folder/],
       [[{ name: 'one', path: w.roots.data }, { name: 'two', path: w.roots.data + '/' }], /same folder/],
-      [[{ name: 'all', path: w.base }, { name: 'link', path: path.join(w.base, 'link-to-data') }], /inside the root all|inside the root link/],
+      [[{ name: 'all', path: w.base }, { name: 'link', path: path.join(w.base, 'link-to-data') }], /the root link is inside the root all/],
       [[{ name: 'workers', path: w.roots.workers }, { name: 'linked', path: path.join(other, 'to-data') }, { name: 'data', path: w.roots.data }], /same folder/],
       [[], /1 to 64/],
     ];
@@ -1281,9 +1281,40 @@ test('#5686 review 2: the stored order does not depend on the order the roots ar
       return bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes).files.map((f) => f.path);
     };
     const a = { name: 'data', path: w.roots.data }, b = { name: 'workers', path: w.roots.workers }, c = { name: 'projects', path: w.roots.projects };
-    const one = await order([a, b, c]);
-    assert.deepEqual(await order([c, b, a]), one);
+    // data-old: '-' sorts below '/', so sorting roots by name alone would put data/... before data-old/...
+    const d = { name: 'data-old', path: path.join(w.base, 'old') };
+    fs.mkdirSync(d.path); fs.writeFileSync(path.join(d.path, 'x.md'), 'old\n');
+    const one = await order([a, b, c, d]);
+    assert.deepEqual(await order([d, c, b, a]), one);
     assert.deepEqual(one, [...one].sort(), 'sorted by stored path');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 3: a root that IS a provider or credential folder keeps its parent-anchored deny rules', async () => {
+  const w = threeRoots(), k = keys(), st = store();
+  try {
+    const claude = path.join(w.base, 'home', '.claude'), gemini = path.join(w.base, 'home', '.gemini'), ssh = path.join(w.base, 'home', '.ssh');
+    for (const d of [claude, gemini, ssh]) fs.mkdirSync(path.join(d, 'projects'), { recursive: true });
+    fs.writeFileSync(path.join(claude, '.credentials.json'), '{"x":1}\n');
+    fs.writeFileSync(path.join(claude, 'projects', 'session.jsonl'), '{"m":"hello"}\n');
+    fs.writeFileSync(path.join(gemini, 'oauth_creds.json'), '{"x":1}\n');
+    fs.writeFileSync(path.join(ssh, 'config'), 'Host x\n');
+    // Every file opened, to show the walk refuses these by name BEFORE anything is opened (the read's own check is only
+    // the second line).
+    const opened = [];
+    const realFs = require('fs');
+    const watchFs = Object.assign({}, realFs, { openSync: (p, ...x) => { opened.push(String(p)); return realFs.openSync(p, ...x); } });
+    watchFs.realpathSync = realFs.realpathSync; watchFs.constants = realFs.constants;
+    const r = await takeRoots(k, [{ name: 'sessions/claude', path: claude }, { name: 'sessions/gemini', path: gemini }, { name: 'keys', path: ssh }], st, { fs: watchFs });
+    assert.equal(r.ok, true, r.because);
+    assert.deepEqual(opened.filter((p) => /credentials|oauth_creds|\.ssh/.test(p)), [], 'never opened');
+    assert.ok(opened.some((p) => p.endsWith('session.jsonl')), 'CONTROL: the session file was opened');
+    const { sink, opened: man } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.deepEqual([...sink.committed.keys()], ['sessions/claude/projects/session.jsonl'], 'only the session is stored');
+    const why = Object.fromEntries(man.skipped.map((x) => [x.path, x.why]));
+    assert.match(why['sessions/claude/.credentials.json'], /sign-in/);
+    assert.match(why['sessions/gemini/oauth_creds.json'], /sign-in/);
+    assert.match(why['keys/config'], /credential folder/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
