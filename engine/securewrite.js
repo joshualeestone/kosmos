@@ -121,8 +121,8 @@ const { threadId: THREAD } = require('node:worker_threads');
 
 /* 🔑 pid ALONE IS NOT ENOUGH AND THIS REPO HAS PAID FOR LEARNING IT TWICE.
    (`trust.js` learned it first, at a `tempPath` of its own that it dropped when it moved onto
-   this writer in #5434 slice 6.) A process that dies between create and rename leaves the temp behind, and the next process to draw that
-   pid hits `wx` -> EEXIST FOREVER. Measured on #1776: one planted stale temp
+   this writer in #5434 slice 6.) A process that dies between create and rename leaves the
+   temp behind, and the next process to draw that pid hits `wx` -> EEXIST FOREVER. Measured on #1776: one planted stale temp
    sent every later write down the in-place fallback, permanently, with no
    signal. With the start time and a counter a leftover is inert, because
    nothing ever asks for that name again. */
