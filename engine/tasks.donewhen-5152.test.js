@@ -63,6 +63,9 @@ test('create REFUSES checks over the limits and stores no task (the dangerous-an
     [['two\nlines'], /one line/],
     [['two\u2028lines'], /one line/],
     [['bell\u0007'], /one line/],
+    [['looks \u202eright'], /one line/],
+    [['hidden\u200bword'], /one line/],
+    [['isolate\u2066x\u2069'], /one line/],
     [['x'.repeat(tasks.DONE_CHECK_MAX + 1)], /characters or fewer/],
   ];
   for (const [doneWhen, why] of bad) {
@@ -164,4 +167,19 @@ test('ownership follows who wrote them: an agent\'s checks are open to the perso
   assert.equal(byScreen.doneWhenByPerson, true, 'checks added on the screen were not the person\'s');
   assert.throws(() => tasks.setDoneWhen(id, byScreen.number, ['d'], { by: 'mara' }), (e) => e.status === 403);
   assert.equal(tasks.create(id, { sentence: 'Person, no checks' }).doneWhenByPerson, undefined, 'a task with no checks was marked');
+});
+
+test('review 2: who set the checks is kept for the list: the agent by name, the person by mark, nobody once cleared', () => {
+  const id = freshProject();
+  const added = tasks.create(id, { sentence: 'Agent adds', doneWhen: ['a'], made: { via: 'process', by: 'mara' } });
+  assert.equal(added.doneWhenBy, 'mara');
+  const n = added.number;
+  assert.equal(tasks.setDoneWhen(id, n, ['b'], { by: 'otto' }).doneWhenBy, 'otto', 'the agent that changed them is not named');
+  const mine = tasks.setDoneWhen(id, n, ['b'], { person: true });   // the same list: the person adopts it
+  assert.equal(mine.doneWhenByPerson, true);
+  assert.equal(mine.doneWhenBy, undefined, 'the person\'s checks still name an agent');
+  const cleared = tasks.setDoneWhen(id, n, null, { person: true });
+  assert.equal(cleared.doneWhenByPerson, undefined);
+  assert.equal(cleared.doneWhenBy, undefined);
+  assert.equal(tasks.setDoneWhen(id, n, ['c']).doneWhenBy, undefined, 'a write nobody named named somebody');
 });

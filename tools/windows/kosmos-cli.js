@@ -768,8 +768,10 @@ async function taskList(ctx, args) {
     const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).some((n) => key(n) !== '' && key(n) === key(x.addedBy))) ? ' [added by ' + q(x.addedBy) + ']' : '';
     /* kosmos#4787 review 3, as install/kosmos: a repeating task says so, with its next run in the board's words. */
     const rep = !x.isClosed && x.repeatWords ? ' [repeats ' + one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : '') + ']' : '';
-    /* #5152, as install/kosmos: what finished means for it, so an agent can read its checks back. */
-    const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? ' [done when: ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + one(c)).join(' ') + ']' : '';
+    /* #5152, as install/kosmos: what finished means for it, so an agent can read its checks back, and who set them
+       (review 2): the person, or the agent named, as [added by] names who added the task. */
+    const setBy = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
+    const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? ' [done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + one(c)).join(' ') + ']' : '';
     ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids + rep + dw);
   }
   return 0;
