@@ -315,7 +315,8 @@ test('a grant in another bucket than the index\'s is a stale index: drop it, kee
     const first = await take(k, w.root, st1);
     assert.equal(first.ok, true, first.because);
     fs.writeFileSync(path.join(w.root, 'agents', 'a', 'notes.md'), 'changed\n');
-    const st2 = store({ bucket: 'bucket2/' });
+    // Its own key names: two test stores both count from k1, and real keys never repeat across grants.
+    const st2 = store({ bucket: 'bucket2/', keyFor: (key) => key.replace(/\/k(\d+)$/, '/b2k$1') });
     const r = await take(k, w.root, st2, { input: { index: first.added, bucket: first.bucket } });
     assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.equal(r.retryLater, undefined, 'not a retry: the same index fails again');
     assert.equal(r.bucket, 'bucket2/');
@@ -664,5 +665,20 @@ test('an index chunk whose lock ends before this snapshot\'s manifest would is s
     const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), { key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: NOW + 10 * 86400 * 1000 }]]), bucket: 'bucket/' } });
     assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.match(r.because, /ends before/);
     assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a second run in the period, reusing what the first stored, is not refused by the allowance check', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const first = await take(k, w.root, st);
+    assert.equal(first.ok, true, first.because);
+    // Pad the index to a realistic period's worth (10,000 earlier chunks): the check must still pass.
+    const idx = new Map(first.added);
+    for (let i = 0; idx.size < 10000; i++) idx.set(i.toString(16).padStart(64, '0'), { key: `o1/acct1/1/${PERIOD}/x${i}`, lockedUntilMs: LOCK });
+    const k2 = Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { snapshot: 's2' }) });
+    const r = await take(k2, w.root, st, { input: { index: idx, bucket: first.bucket } });
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.uploaded, 0, 'nothing changed, nothing uploaded');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
