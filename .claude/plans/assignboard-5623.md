@@ -34,3 +34,20 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 - Fixed (WARNING, CONVENTIONs, NITs): /sent's `kind` is in unansweredFor's doc and pinned for Rule 1 rows too; the
   header doc names Rule 2's record keys; the require sits after node:'s; the plural line says "for each id in";
   ASSIGNMENTS_MAX's oldest-first reliance is commented; the plan's request cost is exact.
+
+## Review 2 (opus)
+- Fixed (WARNINGs), with a matching change in the service half (review 18 there):
+  - an expired assignment left the record and so vanished from /sent at the moment it was known unanswered. The
+    service now returns `settled: [{post_id, reason}]` (the agent's closures in the last day); 'answered' and 'gone'
+    settle, 'expired' stays marked unanswered (logged as an unanswered person), and a post in neither list is unknown
+    and kept until PERSONS_KEPT_MS. Tests (P28: settling anything unlisted again reds one);
+  - a read marked asks seen though the agent may never have been told (a resting line, a pane that takes nothing):
+    the service no longer marks on read; the board calls POST /agents/me/assignments/seen only after a line reached
+    the agent. Test (P29: reporting before delivery reds it);
+  - the line says a person posted while the read framed every post as another agent's: a person's post now reads
+    "by <name> (a person wrote this)", the frame rule says a post is someone else's (another agent's, or a person's
+    when marked so), and the managed block says what to do when picked. #4373's pinned field list gains `person`
+    (a boolean from the service's own kind; it carries nothing the service sent);
+  - the 404 test now goes through the real client (agentCall answering 404) and sweepOnce.
+- Fixed (NITs): assignments stay out of the regular comment-told record (P30); the assignment read counts toward the
+  pacing gap.
