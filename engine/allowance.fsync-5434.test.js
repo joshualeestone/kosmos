@@ -117,6 +117,8 @@ for (const [name, write] of WRITERS) {
     const dir = scratch(t);
     const file = path.join(dir, name === 'statusline.record' ? statusline.FILE : allowance.CALIBRATION_FILE);
     const own = file + '.kosmos-2147483646-t0-1-1.tmp';
+    // pid 2147483646 is chosen because it cannot be live (a dead writer): do not change it to process.pid, which would
+    // test the same-process rule instead
     const other = path.join(dir, 'settings.json.kosmos-2147483646-t0-1-1.tmp');   // the provider's own file's temp
     fs.writeFileSync(own, 'x');
     fs.writeFileSync(other, 'x');
@@ -151,6 +153,6 @@ test('#5434: the calibration and the reading are still the same JSON (no change 
   assert.equal(raw, JSON.stringify(got) + '\n', 'the calibration file is not the estimate as before');
   statusline.record(dir, { usedPct: 45, resetsAt: FUTURE }, 5);
   const w = fs.readFileSync(path.join(dir, statusline.FILE), 'utf8');
-  assert.deepEqual(Object.keys(JSON.parse(w)), ['usedPct', 'resetsAt', 'at', 'history']);
-  assert.ok(w.endsWith('}\n'), 'the reading\'s trailing newline changed');
+  const expected = { usedPct: 45, resetsAt: FUTURE, at: 5, history: [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE], [5, 45, FUTURE]] };
+  assert.equal(w, JSON.stringify(expected) + '\n', 'the reading is not stored as before');
 });
