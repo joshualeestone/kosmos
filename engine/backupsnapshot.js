@@ -183,7 +183,9 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
   const pause = yielder();
   // only (#5686): the paths to keep, in a folder shared with others' files. Anything else, and every folder leading to
   // none of them, is passed over in silence: never counted against maxFiles, never named in skipped.
-  const keep = Array.isArray(only) ? new Set(only.map((x) => collisionKey(x))) : null;
+  // Exact paths, not restore's collision reading: in a folder shared with others, a name differing only in case would be
+  // someone else's file.
+  const keep = Array.isArray(only) ? new Set(only) : null;
   const toward = new Set();
   if (keep) for (const k of keep) { const segs = k.split('/'); for (let i = 1; i < segs.length; i++) toward.add(segs.slice(0, i).join('/')); }
   // Folders the caller leaves out (review 34: a large dependency tree could otherwise make every snapshot tooLarge),
@@ -219,7 +221,7 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
       if (over) return;
       await pause();   // per entry: one flat folder can hold hundreds of thousands
       const r = rel ? `${rel}/${name}` : name;
-      if (keep && !keep.has(collisionKey(r)) && !toward.has(collisionKey(r))) continue;
+      if (keep && !keep.has(r) && !toward.has(r)) continue;
       // Recorded under the masked name: the skipped list leaves the Mac too.
       const masked = nameMasked(name);
       // And a token split across folder boundaries: secretmask does not read a token across '/', so
@@ -365,11 +367,22 @@ async function listRoots(roots, fs) {
     for (;;) {
       let id;
       try { const st = fs.statSync(at, { bigint: true }); id = `${st.dev}:${st.ino}`; } catch { id = null; }
-      const j = ids.findIndex((x, k) => k !== i && x === id);
+      // The same folder is allowed for roots that each keep only named files (every agent's Codex rollouts share one
+      // sessions folder; two agents' Claude folders can be one): each takes only its own. A root inside another is not.
+      const j = ids.findIndex((x, k) => k !== i && x === id && !(at === reals[i] && reals[k] === reals[i] && roots[i].only && roots[k].only));
       if (j >= 0) return `the root ${roots[i].name} is inside the root ${roots[j].name}, or is the same folder, so its files would be stored twice`;
       const up = path.dirname(at);
       if (up === at) break;
       at = up;
+    }
+  }
+  // Roots sharing one folder must not name the same file: it would be stored twice, under two agents.
+  const claimed = new Map();
+  for (let i = 0; i < reals.length; i++) {
+    for (const rel of roots[i].only || []) {
+      const key = `${ids[i]}\0${rel}`;
+      if (claimed.has(key)) return `the roots ${claimed.get(key)} and ${roots[i].name} both name one file in the same folder`;
+      claimed.set(key, roots[i].name);
     }
   }
   const out = { files: [], skipped: gone.slice(0, MAX_SKIPPED), skippedExtra: Math.max(0, gone.length - MAX_SKIPPED), over: false };
