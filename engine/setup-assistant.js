@@ -730,19 +730,28 @@ function browserToolDir() { try { return require('./agentbrowser').homeDir(); } 
 function permissionSettingsFile() { try { return require('./agentpermission').settingsPath(); } catch { return null; } }
 const LINK_SCAN_MAX = 4000;
 const LINK_HOPS_MAX = 40;
+// Review 8: the folders of the claude and tmux programs the supervisor starts by absolute path (from the plist), which
+// it passes here, so they are covered whether or not they are on the PATH.
+function supervisorRunDirs() {
+  const v = process.env.KOSMOS_GUARD_RUN_DIRS;
+  return typeof v === 'string' && v ? v.split(path.delimiter) : [];
+}
 function launchPathDirs(agentDir, deps = {}) {
   const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
   const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
   const max = deps.linkScanMax || LINK_SCAN_MAX;
   const own = realOrLeaf(agentDir);
-  // Review 2: refreshTokenOnlyGuards passes one Map for its whole pass, so a PATH is scanned once, not once per agent.
-  const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
   const fixed = Array.isArray(deps.launchFixed) ? deps.launchFixed : LAUNCH_PATH_FIXED;
-  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), installedSupervisorDir(), path.dirname(process.execPath), browserToolDir()].filter(Boolean);
+  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), installedSupervisorDir(), path.dirname(process.execPath), browserToolDir(), ...supervisorRunDirs()].filter(Boolean);
   const fileList = deps.launchFiles || [permissionSettingsFile()].filter(Boolean);
   const plat = deps.platform || process.platform;
-  const key = JSON.stringify([pane, ownPath, own, max, fixed, ownProgs, fileList, plat]);
-  if (cache && cache.has(key)) return cache.get(key);
+  /* Review 2 and 8: refreshTokenOnlyGuards passes one Map for its whole pass. The SCAN (which folders, and the program
+     each name resolves into) is the same for every agent, so it is cached without the agent folder and done once per
+     pass; only the agent-folder check below runs per agent. */
+  const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
+  const key = JSON.stringify([pane, ownPath, max, fixed, ownProgs, fileList]);
+  let scan = cache ? cache.get(key) : undefined;
+  if (!scan) { scan = scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }); if (cache) cache.set(key, scan); }
   // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
   // folder) cannot be covered. Review 7: compared without case on macOS and Windows, whose disks usually ignore it (a
   // not-yet entry keeps the case it was typed in); that only ever reports more as uncoverable.
@@ -753,25 +762,42 @@ function launchPathDirs(agentDir, deps = {}) {
     return r === ownF || r.startsWith(ownF + path.sep) || ownF.startsWith(r === path.sep ? r : r + path.sep);
   };
   const dirs = [];
-  const unsafe = [];
-  // Review 5: each covered folder's spellings as written (a link, /var for /private/var), so the file-tool rules can name
-  // both and do not depend on how Claude Code matches a linked path. The sandbox layer gets the resolved one.
   const aliases = [];
+  const unsafe = [...scan.unsafe];
+  for (const c of scan.cands) {
+    if (uncoverable(c.real)) { unsafe.push(c.shown); continue; }
+    if (!dirs.includes(c.real)) dirs.push(c.real);
+    if (c.written && c.written !== c.real && !aliases.includes(c.written)) aliases.push(c.written);
+  }
+  const files = [];
+  for (const f of scan.files) {
+    const r = fold(f.real);
+    if (r === ownF || r.startsWith(ownF + path.sep)) { unsafe.push(f.shown); continue; }   // a file in the agent's own folder
+    if (!files.includes(f.real)) files.push(f.real);
+  }
+  return { dirs, aliases, files, unsafe: [...new Set(unsafe)] };
+}
+/* The agent-independent half of launchPathDirs: every candidate folder in order, as { real, shown, written }, and what
+   cannot be covered whatever the agent (an empty or relative pane entry, an unlistable folder, the scan cap). */
+function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
+  const cands = [];
+  const unsafe = [];
+  // Review 8: one realpath per folder, not one per program (nearly every program sits in the folder being scanned).
+  const real = new Map();
+  const realDir = (d) => { if (!real.has(d)) real.set(d, realOrLeaf(d)); return real.get(d); };
+  // Review 5: each covered folder's spelling as written (a link, /var for /private/var), so the file-tool rules can name
+  // both and do not depend on how Claude Code matches a linked path. The sandbox layer gets the resolved one.
   const add = (e, strict) => {
     if (!e || !path.isAbsolute(e)) { if (strict) unsafe.push(e === '' ? '(an empty entry)' : e); return; }
     // realOrLeaf (review 3): an entry not created yet is still resolved through a symlinked parent, so the agent-folder
     // check cannot fail open and the sandbox gets the spelling it matches (/private/var, not /var).
-    const real = realOrLeaf(e);
-    if (uncoverable(real)) { unsafe.push(e); return; }
-    if (!dirs.includes(real)) dirs.push(real);
-    const w = path.resolve(e);
-    if (w !== real && !aliases.includes(w)) aliases.push(w);
+    cands.push({ real: realDir(e), shown: e, written: path.resolve(e) });
   };
   for (const e of fixed) add(e, true);
   /* Review 3 (W3b): what the supervisor starts by ABSOLUTE path from folders that may be off the pane PATH: the engine
-     scripts and the supervisor itself (this install's engine and bin), and node (this process's own binary). The
-     guard runs from the same install, so these are its own folders. Claude's and tmux's folders come from the plist's PATH
-     (this process's own PATH at a launch refresh). */
+     scripts and the supervisor itself (this install's engine and bin, and the installed supervisor's folder), node (this
+     process's own binary), the browser tool's tree, and claude's and tmux's folders (review 8, passed by the
+     supervisor). The guard runs from the same install, so most of these are its own folders. */
   for (const e of ownProgs) add(e, true);
   // The pane's PATH is held strictly. This process's own (review 2) skips empty and relative entries quietly; an absolute
   // one that cannot be covered is still reported.
@@ -779,12 +805,10 @@ function launchPathDirs(agentDir, deps = {}) {
   if (typeof ownPath === 'string') for (const e of ownPath.split(path.delimiter)) add(e, false);
   // Review 7: the folder each hop of a program's link chain sits in, to the end of the chain, whether or not the last
   // target exists yet (a dangling link runs whatever is later made there).
-  const cover = (folder, shown) => {
-    const real = realOrLeaf(folder);
-    if (uncoverable(real)) { unsafe.push(shown); return; }
-    if (!dirs.includes(real)) dirs.push(real);
-  };
-  for (const d of [...dirs]) {
+  const scanned = new Set();
+  for (const { real: d } of [...cands]) {
+    if (scanned.has(d)) continue;
+    scanned.add(d);
     let names = [];
     try { names = fs.readdirSync(d); } catch (e) {
       // Review 7: a folder that is missing has nothing to run; one that cannot be listed still runs its programs by name.
@@ -797,27 +821,19 @@ function launchPathDirs(agentDir, deps = {}) {
       let p = shown;
       for (let hop = 0; ; hop++) {
         let st;
-        try { st = fs.lstatSync(p); } catch { cover(path.dirname(p), shown); break; }   // dangling: the folder it names
+        try { st = fs.lstatSync(p); } catch { cands.push({ real: realDir(path.dirname(p)), shown }); break; }   // dangling: the folder it names
         if (st.isDirectory()) break;   // a folder, not a program (its own name is not run)
-        cover(path.dirname(p), shown);   // a program, or a link hop, sits here
+        cands.push({ real: realDir(path.dirname(p)), shown });   // a program, or a link hop, sits here
         if (!st.isSymbolicLink()) break;
         if (hop >= LINK_HOPS_MAX) { unsafe.push(`${shown} (a link chain too long to follow)`); break; }
         let t;
         try { t = fs.readlinkSync(p); } catch { unsafe.push(`${shown} (a link that could not be read)`); break; }
-        p = path.resolve(realOrLeaf(path.dirname(p)), t);
+        p = path.resolve(realDir(path.dirname(p)), t);
       }
     }
   }
-  const files = [];
-  for (const f of fileList) {
-    const real = realOrLeaf(f);
-    const r = fold(real);
-    if (r === ownF || r.startsWith(ownF + path.sep)) { unsafe.push(f); continue; }   // a file in the agent's own folder
-    if (!files.includes(real)) files.push(real);
-  }
-  const value = { dirs, aliases, files, unsafe: [...new Set(unsafe)] };
-  if (cache) cache.set(key, value);
-  return value;
+  const files = fileList.map((f) => ({ real: realOrLeaf(f), shown: f }));
+  return { cands, unsafe, files };
 }
 /*
  * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in

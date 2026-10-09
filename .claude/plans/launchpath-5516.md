@@ -102,3 +102,15 @@ rest of the guard is still written.
   - Each fix has a mutation that makes a test fail (10 mutations, all red).
   - NOT CHANGED (nits): an agent folder of `/` (not a real layout); `set +f` restored unconditionally (runs in a
     subshell); a source checkout without the report hook script (development only).
+- Round 8 (sonnet): 0 BLOCKER, 4 WARNING, 3 NIT.
+  - FIXED: the claude and tmux programs the supervisor starts by absolute path (from the plist) have their folders
+    passed to the guard (KOSMOS_GUARD_RUN_DIRS) and covered, on the PATH or not; a link there is followed like any
+    other. Test with a control; a mutation of either side fails.
+  - FIXED: the PATH scan is cached once per refresh pass for ALL agents (it no longer includes the agent folder in its
+    key); only the agent-folder check runs per agent, and it never writes into the shared scan. One realpath per
+    folder, not per program. Tests (a second agent, and an agent with its own notes) fail under each mutation.
+  - FIXED: a test checks that no later line gives a claude pane a second PATH key (the one later PATH line is limited
+    to codex, gemini and grok).
+  - FIXED (nits): the helper is named for what it does (_phys_dir), and the caller's noglob is put back as it was
+    (tested both ways).
+  - NOT CHANGED (nit): a PATH folder past the scan cap refuses token-only creation (decided in round 5).

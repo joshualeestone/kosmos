@@ -144,13 +144,14 @@ _kosmos_supervisor_tmux() {
 # and never globbed; the system default when nothing absolute is left. Tested by engine/launchpath-5516.test.js.
 # Review 4: given the agent's folder as $2, an entry that is that folder, inside it or above it (as written, or once
 # resolved) goes too: the guard cannot deny those (it would deny the agent's own folder), so they must not be on the
-# PATH at all. The physical spelling, links resolved (review 7: only folders that exist reach it).
-_phys_or_leaf() {
+# PATH at all. _phys_dir: an existing folder's spelling with links resolved (empty if it cannot be entered).
+_phys_dir() {
   cd -P "$1" 2>/dev/null && pwd || true
 }
 abs_path_only() {
-  local _out="" _e _r _own="" _ownp="" _old_ifs="$IFS"
-  if [ -n "${2:-}" ]; then _own="${2%/}"; _ownp="$(_phys_or_leaf "$_own")"; [ -n "$_ownp" ] || _ownp="$_own"; _ownp="$(printf '%s' "$_ownp" | tr '[:upper:]' '[:lower:]')"; fi
+  local _out="" _e _r _own="" _ownp="" _old_ifs="$IFS" _noglob=""
+  case "$-" in *f*) _noglob=1 ;; esac   # review 8: put noglob back as it was
+  if [ -n "${2:-}" ]; then _own="${2%/}"; _ownp="$(_phys_dir "$_own")"; [ -n "$_ownp" ] || _ownp="$_own"; _ownp="$(printf '%s' "$_ownp" | tr '[:upper:]' '[:lower:]')"; fi
   IFS=':'; set -f
   for _e in $1; do
     case "$_e" in /*) ;; *) continue ;; esac
@@ -161,14 +162,14 @@ abs_path_only() {
       # Review 7: a folder not made yet goes (the guard is written again at the next start, when it exists), and the
       # comparison ignores letter case, as the guard does on macOS (dropping more is the safe direction).
       [ -d "$_e" ] || continue
-      _r="$(_phys_or_leaf "${_e%/}")"; [ -n "$_r" ] || _r="${_e%/}"   # unresolvable: compare as written
+      _r="$(_phys_dir "${_e%/}")"; [ -n "$_r" ] || _r="${_e%/}"   # unresolvable: compare as written
       _r="$(printf '%s' "$_r" | tr '[:upper:]' '[:lower:]')"
       case "$_r/" in "$_ownp"/*) continue ;; esac
       case "$_ownp/" in "${_r%/}"/*) continue ;; esac
     fi
     _out="${_out:+$_out:}$_e"
   done
-  set +f; IFS="$_old_ifs"
+  [ -n "$_noglob" ] || set +f; IFS="$_old_ifs"
   printf '%s' "${_out:-/usr/bin:/bin:/usr/sbin:/sbin}"
 }
 LOG="${5:-}"
@@ -629,7 +630,8 @@ if [ -z "$adopt" ]; then
           _guard_path="$(abs_path_only "$_guard_path" "$WORKDIR")"
           # Review 5: only for claude, the one runner the guard covers; the others keep their own PATH line (one key).
           [ "$RUNNER" = claude ] && PANE_ENV+=(-e "PATH=$_guard_path")
-          KOSMOS_GUARD_PANE_PATH="$_guard_path" "$NODE_BIN" -e '
+          # Review 8: and the folders of claude and tmux, which this script starts by absolute path (from the plist).
+          KOSMOS_GUARD_PANE_PATH="$_guard_path" KOSMOS_GUARD_RUN_DIRS="$(dirname "$CLAUDE"):$(dirname "$TMUX_BIN")" "$NODE_BIN" -e '
             try {
               const out = require(process.argv[1]).refreshTokenOnlyGuards({ only: process.argv[2] });
               for (const u of out.unguarded) process.stderr.write("#4491: " + u.name + " is listed token-only but is NOT guarded: " + u.because + "\n");
