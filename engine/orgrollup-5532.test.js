@@ -798,7 +798,7 @@ test('#5534 slice 2: the policy version and a refusal leave only under accepted 
     return sent.body;
   };
   const refusedNew = (org) => ({ refresh: () => ({ applied: { org, version: 4 }, refused: 'the signature does not match' })});
-  const without = await send(['agent names, the AI provider and model each uses'], refusedNew);
+  const without = await send(['agent names, the AI provider and model each uses', "an update when your agents, their providers, your projects, or your company's policy on this Kosmos change"], refusedNew);
   assert.equal('policyVersion' in without || 'policyRefused' in without, false, 'the policy left under words that do not name it');
   const named = await send(NAMED, refusedNew);
   assert.deepEqual([named.policyVersion, named.policyRefused], [4, true], 'CONTROL: under words naming the policy, the version and the refusal are sent');
@@ -823,7 +823,10 @@ test('#5534 slice 2: a newly applied policy is a change, and a board without it 
   const sig = (x) => r.signature(r.build(Object.assign({ reason: 'change' }, base, x)));
   assert.notEqual(sig({ policyVersion: 3, policyRefused: false }), sig({ policyVersion: 4, policyRefused: false }), 'a new policy version was not a change');
   assert.notEqual(sig({ policyVersion: 4, policyRefused: false }), sig({ policyVersion: 4, policyRefused: true }), 'a refusal was not a change');
-  assert.equal(sig({}), sig({}), 'premise');
+  // Without the fields the signature is the one every board had before (names and projects only).
+  const crypto = require('node:crypto');
+  const before = crypto.createHash('sha256').update(JSON.stringify([['Leo'], []])).digest('hex');
+  assert.equal(sig({}), before, 'a board whose words do not name the policy got a new signature');
 });
 
 test('#5534 slice 2 review 3: a read that fails after a send repeats what was sent, so a passing fault is not a change', async (t) => {

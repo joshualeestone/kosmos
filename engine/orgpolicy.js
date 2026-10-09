@@ -95,7 +95,8 @@ function shapeOk(p) {
 
 /**
  * Read the tunnel's bundle and apply it if it verifies. Never throws. Returns what is in force:
- * { applied: <record or null>, refused: <why or null> }. A missing bundle with nothing applied is "no policy".
+ * { applied: <record or null>, refused: <why or null>, stale?: true (the policy in force merely expired), local?: true
+ * (a fault on this computer: no pinned key, or the record could not be saved) }. A missing bundle with nothing applied is "no policy".
  * `now` and `pinned` are for tests.
  */
 function refresh({ now, pinned } = {}) {
@@ -199,6 +200,7 @@ function appliedOrg() { const a = readApplied(); return a && typeof a.org === 's
 /** The company the bundle on disk names, unverified (review 5: a mix-up check before it is applied), or null. */
 function bundleOrg() { const b = bundleInfo(); return b ? b.org : null; }
 
+
 /** The company and version the bundle on disk names, unverified, or null. bundleOrg's reader. */
 function bundleInfo() {
   const t = readText(BUNDLE());
@@ -224,4 +226,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, inForce, allows, clear, appliedOrg, bundleOrg, bundleInfo, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, inForce, allows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

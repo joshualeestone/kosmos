@@ -463,7 +463,8 @@ async function tick(opts) {
      key). A read that throws sends what was last sent (review 3: leaving them out would change the signature and
      send twice for a passing fault), or nothing when none was; the company keeps what it had. Never throws. Not reported, decided: refusals
      applyPolicy makes before saving, a bundle over 64 KB or naming another company, which a working coordinator never
-     sends (it caps a policy at 16 KB and signs each company's own) and which never reach the disk. */
+     sends (it caps a policy at 16 KB and signs each company's own) and which never reach the disk. Known limit
+     (review 5): a newer bundle left unapplied by a failed save, then expired a week later, reads as a refusal. */
   delete g.policyVersion; delete g.policyRefused;
   if (accepted.policyConsented === true) {
     try {
