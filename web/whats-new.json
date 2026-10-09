@@ -2,19 +2,19 @@
   "version": "0.7.32",
   "highlights": [
     {
-      "icon": "list",
+      "icon": "swarm",
       "title": "Take an agent with you as one file",
       "line": "On an agent's Instructions panel, Download this agent saves its name and saved instructions as one file another Kosmos can bring in."
     },
     {
       "icon": "tasks",
       "title": "Tasks can say what done means",
-      "line": "An agent can give a task up to three checks for what finished means, and the task's history shows each one and who set it."
+      "line": "An agent can give a task up to three checks for what finished means, and the task's history shows them."
     },
     {
-      "icon": "tasks",
+      "icon": "list",
       "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new fold into one row, and its card says when something last changed."
+      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed."
     },
     {
       "icon": "chat",
@@ -24,7 +24,7 @@
     {
       "icon": "spark",
       "title": "Sonnet 5.5 usage at its real price",
-      "line": "Usage now counts Claude Sonnet 5.5's cached reading at its published price, half what Kosmos showed before."
+      "line": "Usage now prices Claude Sonnet 5.5's cache reads at the published rate, half the rate Kosmos used before."
     }
   ]
 }
