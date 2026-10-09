@@ -43,3 +43,20 @@ rest of the guard is still written.
       while leaving the "change a library a program loads" class to a later part. It should be named on the card
       (class-only).
 
+- Round 4 (sonnet): 0 BLOCKER, 4 WARNING, 4 NIT.
+  - FIXED (W4a): a PATH entry that is the agent's own folder or inside it (as written, not made yet, or through a link)
+    is now removed from the pane PATH by the supervisor, so "cannot cover" no longer means "writable and on the PATH".
+    Tests with controls (a same-prefix sibling stays; no folder given removes nothing). Each of the two checks has a
+    mutation that makes the test fail.
+  - DECIDED, residuals of the same class as round 3's (recorded, not fixed here):
+    - folders a shell's startup adds to PATH after the pane starts (rc files, version-manager shims, activation hooks):
+      the guard covers the PATH the pane starts with, as its comments say;
+    - an interpreter named on a covered script's first line, and programs a covered script calls by absolute path,
+      when those folders are not on the PATH.
+    Rejected: following every script's interpreter line and callees. It is a parser for every script language, and it
+    still could not see paths built at run time. Weakest premise: as round 3.
+  - FIXED (W4d): the scan-cap note says the unchecked entries are unknown, not "the first N".
+  - FIXED (nit): the per-pass cache key includes the own-program folders.
+  - NOT CHANGED (nits): case-insensitive volumes (fails toward over-denying, not a leak); the pane PATH is cleaned for
+    every token-only agent (harmless; other runners return "unsupported"); the wiring checks read the source text
+    (abs_path_only itself is executed).

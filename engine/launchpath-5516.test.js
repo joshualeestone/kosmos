@@ -119,11 +119,21 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   const sup = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
   const m = sup.match(/\nabs_path_only\(\) \{\n[\s\S]*?\n\}\n/);
   assert.ok(m, 'abs_path_only is not defined in the supervisor');
-  const run = (input) => require('child_process').execFileSync('/bin/bash', ['-c', m[0] + '\nabs_path_only "$1"', 'x', input], { encoding: 'utf8' });
+  const run = (input, own) => require('child_process').execFileSync('/bin/bash', ['-c', m[0] + '\nabs_path_only "$1" "$2"', 'x', input, own || ''], { encoding: 'utf8' });
   assert.equal(run('/a::rel:/b c:.:/d*'), '/a:/b c:/d*', 'empty, relative and dot entries go; spaces and a * stay literal');
   assert.equal(run('rel:.:'), '/usr/bin:/bin:/usr/sbin:/sbin', 'nothing absolute left: the system default');
+  // Review 4: the agent's own folder and folders inside it go too, as written and through a link; a sibling with the
+  // same prefix stays (CONTROL), and without the folder argument nothing extra goes (CONTROL).
+  const own = agentDir('lp-own-path');
+  const inside = path.join(own, 'bin');
+  fs.mkdirSync(inside, { recursive: true });
+  const link = path.join(path.dirname(own), 'lp-own-path-link');
+  try { fs.symlinkSync(inside, link); } catch {}
+  const sib = own + '-sibling';
+  assert.equal(run(`/a:${own}:${inside}/:${path.join(own, 'not-made-yet')}:${link}:${sib}`, own), `/a:${sib}`, 'the agent folder, inside it (made or not yet), or a link into it stayed on the PATH');
+  assert.equal(run(`/a:${own}:${sib}`), `/a:${own}:${sib}`, 'with no folder given, nothing extra should go');
   // The pane AND the guard are given its result.
-  const i = sup.indexOf('_guard_path="$(abs_path_only "$_guard_path")"');
+  const i = sup.indexOf('_guard_path="$(abs_path_only "$_guard_path" "$WORKDIR")"');
   assert.ok(i > 0, 'the pane PATH is not cleaned');
   const block = sup.slice(i, sup.indexOf('unset _guard_path', i));
   assert.match(block, /PANE_ENV\+=\(-e "PATH=\$_guard_path"\)/, 'the pane is not given the cleaned PATH');

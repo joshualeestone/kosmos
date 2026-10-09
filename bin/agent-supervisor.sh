@@ -142,10 +142,21 @@ _kosmos_supervisor_tmux() {
 }
 # #5516: a PATH with only its absolute entries (empty and relative ones mean "the current folder"), split on ':' alone
 # and never globbed; the system default when nothing absolute is left. Tested by engine/launchpath-5516.test.js.
+# Review 4: given the agent's folder as $2, an entry that is that folder or inside it (as written, or once resolved)
+# goes too: the agent can write there, and the guard cannot deny its own folder, so it must not be on the PATH at all.
 abs_path_only() {
-  local _out="" _e _old_ifs="$IFS"
+  local _out="" _e _r _own="" _ownp="" _old_ifs="$IFS"
+  if [ -n "${2:-}" ]; then _own="${2%/}"; _ownp="$(cd -P "$2" 2>/dev/null && pwd || true)"; fi
   IFS=':'; set -f
-  for _e in $1; do case "$_e" in /*) _out="${_out:+$_out:}$_e" ;; esac; done
+  for _e in $1; do
+    case "$_e" in /*) ;; *) continue ;; esac
+    if [ -n "$_own" ]; then
+      _r="$(cd -P "$_e" 2>/dev/null && pwd || true)"
+      case "${_e%/}/" in "$_own"/*) continue ;; esac
+      if [ -n "$_ownp" ] && [ -n "$_r" ]; then case "$_r/" in "$_ownp"/*) continue ;; esac; fi
+    fi
+    _out="${_out:+$_out:}$_e"
+  done
   set +f; IFS="$_old_ifs"
   printf '%s' "${_out:-/usr/bin:/bin:/usr/sbin:/sbin}"
 }
@@ -604,7 +615,7 @@ if [ -z "$adopt" ]; then
           # the pane AND to the guard, so the guard covers exactly the folders the pane uses.
           _guard_path="$("$TMUX_BIN" show-environment -g PATH 2>/dev/null || true)"
           case "$_guard_path" in PATH=?*) _guard_path="${_guard_path#PATH=}" ;; *) _guard_path="$PATH" ;; esac
-          _guard_path="$(abs_path_only "$_guard_path")"
+          _guard_path="$(abs_path_only "$_guard_path" "$WORKDIR")"
           # (The codex/gemini/grok PATH append below does not apply: the token-only guard is Claude-only.)
           PANE_ENV+=(-e "PATH=$_guard_path")
           KOSMOS_GUARD_PANE_PATH="$_guard_path" "$NODE_BIN" -e '

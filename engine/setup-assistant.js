@@ -743,7 +743,7 @@ function launchPathDirs(agentDir, deps = {}) {
   const own = realOrLeaf(agentDir);
   // Review 2: refreshTokenOnlyGuards passes one Map for its whole pass, so a PATH is scanned once, not once per agent.
   const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
-  const key = JSON.stringify([pane, ownPath, own, max]);
+  const key = JSON.stringify([pane, ownPath, own, max, deps.ownProgramDirs || null]);
   if (cache && cache.has(key)) return cache.get(key);
   // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
   // folder) cannot be covered.
@@ -769,7 +769,7 @@ function launchPathDirs(agentDir, deps = {}) {
   for (const d of [...dirs]) {
     let names = [];
     try { names = fs.readdirSync(d); } catch { continue; }
-    if (names.length > max) { unsafe.push(`${d} (more than ${max} entries; only the first ${max} were checked)`); names = names.slice(0, max); }
+    if (names.length > max) { unsafe.push(`${d} (more than ${max} entries; the rest were not checked, and which ones is not known)`); names = names.slice(0, max); }
     for (const n of names) {
       let real;
       try { real = fs.realpathSync.native(path.join(d, n)); if (fs.statSync(real).isDirectory()) continue; } catch { continue; }
