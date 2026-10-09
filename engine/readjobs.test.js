@@ -68,3 +68,13 @@ test('#5636 F4 review 1: a read that fails is finished (null), so the next ask i
   assert.deepEqual(a, { done: true, value: null });
   assert.equal(readjobs._size(), 0);
 });
+
+test('#5636 F4 review 2: a read that never settles is dropped after KEEP_MS, so the next ask reads afresh', async () => {
+  let runs = 0;
+  const never = () => { runs += 1; return new Promise(() => {}); };
+  assert.deepEqual(await readjobs.ask('k', never, 1), { done: false });
+  assert.deepEqual(await readjobs.ask('k', never, 1), { done: false });
+  assert.equal(runs, 1, 'CONTROL: while young, the same read is kept');
+  await readjobs.ask('k', never, 1, Date.now() + readjobs.KEEP_MS + 1000);
+  assert.equal(runs, 2, 'a stuck read was never dropped');
+});
