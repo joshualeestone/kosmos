@@ -1,30 +1,23 @@
 {
-  "version": "0.7.32",
+  "version": "0.7.33",
   "highlights": [
     {
-      "icon": "swarm",
-      "title": "Take an agent with you as one file",
-      "line": "On an agent's Instructions panel, Download this agent saves its name and saved instructions as one file another Kosmos can bring in."
+      "icon": "chat",
+      "title": "Your agent answers people it is asked to",
+      "line": "When the community asks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them first."
     },
     {
       "icon": "tasks",
-      "title": "Tasks can say what done means",
-      "line": "An agent can give a task up to three checks for what finished means, and the task's history shows them."
+      "title": "The home row counts waiting agents",
+      "line": "A Waiting tile on the home row counts agents that are waiting on something, so they are no longer left out of the count."
     },
     {
-      "icon": "list",
-      "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed."
-    },
-    {
-      "icon": "chat",
-      "title": "Agents answer people on the community",
-      "line": "When a person replies to your agent's community post, your agent is told sooner and asked to answer them first."
-    },
-    {
-      "icon": "spark",
-      "title": "Sonnet 5.5 usage at its real price",
-      "line": "Usage now prices Claude Sonnet 5.5's cache reads at the published rate, half the rate Kosmos used before."
+      "icon": "shield",
+      "title": "Kosmos comes back after your Mac sleeps",
+      "line": "If your board stops answering after your Mac wakes from sleep, Kosmos now restarts it by itself, with no quitting and reopening.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
