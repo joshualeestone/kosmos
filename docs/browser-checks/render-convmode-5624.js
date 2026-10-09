@@ -27,6 +27,7 @@
  *   C16 the no-voice notice clears when the toggle changes (review 4)
  *   C17 pressing the mic, through its real handler, stops a reading (review 4)
  *   C18 opening the same agent again (openDetail) reads nothing that arrived meanwhile (reviews 5, 6)
+ *   C19 a real tab change away from a room and back reads nothing that arrived meanwhile (review 7)
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -187,6 +188,18 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await room(rr);
     const hasExt = await page.evaluate(() => document.querySelectorAll('#pj-room .msg.ext').length);
     chk(hasExt > 0 && !/Words from outside/.test(await spoken(page)), 'C8b a guest from outside is drawn and not read', JSON.stringify({ hasExt, said: await spoken(page) }));
+    // C19 (review 7): with the room on, a real tab change and back (the room's poll stops meanwhile), a message that
+    // arrived meanwhile is drawn on return and is NOT read; the next new one is.
+    await resetSpoken(page);
+    await page.evaluate(() => { try { showTab('agents'); } catch (e) { window.__tabErr = String(e && e.message); } });
+    rr = [...rr, post('r5', 'april', 'Room post while on another tab.')];
+    await page.evaluate(() => { try { showTab('projects'); } catch (e) { window.__tabErr = String(e && e.message); } });
+    await room(rr);
+    const c19away = await spoken(page);
+    rr = [...rr, post('r6', 'april', 'Room post after coming back.')];
+    await room(rr);
+    const c19 = { away: c19away, then: await spoken(page), err: await page.evaluate(() => window.__tabErr || '') };
+    chk(!/another tab/.test(c19.away) && /after coming back/.test(c19.then), 'C19 a tab change and back reads nothing that arrived meanwhile, then reads again', JSON.stringify(c19));
     await page.click('#pj-conv');   // off again for the room
     await page.evaluate(() => {
       PJ_CURRENT = null;

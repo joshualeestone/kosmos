@@ -24677,6 +24677,9 @@ function syncUrl() {
 }
 
 function showTab(tab) {
+  // #5624 review 7: a real tab change leaves any conversation on screen (showTab also re-runs on a layout re-check with
+  // the same tab, which must not count).
+  if (URL_TAB !== tab && typeof convPause === 'function') convPause();
   URL_TAB = tab;
   const btn = document.querySelector('.tab[data-tab="' + tab + '"]');
   document.querySelectorAll('.tab').forEach((t) => {
@@ -38796,10 +38799,6 @@ function paintDetailState(card) {
 }
 
 function openDetail(sessionName, section, fromProject) {
-  /* #5624 review 6: opening an agent (again) is first sight for conversation mode: the thread's poll stopped while it
-     was not on screen, so what arrived meanwhile is not read late. An explicit mark, not a clock (review 6: a slow
-     poll must never skip a message the person is watching for). */
-  if (typeof convPause === 'function') convPause();
   // #3050: opening ANY agent - INCLUDING one no longer in LAST (removed while its
   // Update reload was in flight), which is why this precedes the `if (!a) return`
   // below - clears a stranded update-in-progress indicator. The Update button's
@@ -38812,6 +38811,11 @@ function openDetail(sessionName, section, fromProject) {
   document.getElementById('d-instr').placeholder = '';
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
+  /* #5624 review 6: opening an agent (again) is first sight for conversation mode: the thread's poll stopped while it
+     was not on screen, so what arrived meanwhile is not read late. An explicit mark, not a clock (a slow poll must
+     never skip a message the person is watching for). Review 7: below the early return, so a deep link waiting for
+     its agent cannot re-mark the room the person is in. */
+  if (typeof convPause === 'function') convPause();
   /* #2574: remember a project origin (a member click passes PJ_CURRENT) so
      detail-back returns to the project; every existing caller passes no 3rd
      arg -> null -> the unchanged All-agents back. */
@@ -57881,6 +57885,10 @@ let PJ_THREAD_GEN = 0;
 let PJ_NAV_GEN = 0;
 
 function pjView(which) {
+  /* #5624 review 7: leaving the room for another project view (tasks, settings, docs) stops its poll, so it is marked
+     on the way out and the next draw is first sight. Nothing draws while the person is away, so a leave mark cannot
+     skip a message they are watching for. */
+  if (PJ_VIEW === 'one' && which !== 'one' && typeof convPause === 'function') convPause();
   for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }

@@ -86,3 +86,12 @@ it off stops it. The state is visible on the button and remembered per conversat
     (empty thread, first reply) passes again.
   - NIT: the 3 s no-voice fallback was checked and does not misfire. NIT (kept): the room's empty case has no arm; the
     room always reaches convFollow, so it has no seeding rule to test.
+- **Round 7 (opus, blind):** 0 BLOCKER, 1 WARNING, 2 NIT. Fixed:
+  - WARNING: ways back into a room that skip openProject (a tab change and back; leaving tasks, settings or docs)
+    still read the newest message late. Now a conversation is also marked on the way OUT: pjView leaving 'one', and a
+    real showTab change (not the layout re-check with the same tab). Nothing draws while the person is away, so a
+    leave mark cannot skip a message they are watching for. C19: RED on the round 6 head, green now.
+  - NIT (fixed): openDetail's mark moved below its `if (!a) return`, so a deep link still waiting for its agent cannot
+    re-mark the room the person is in.
+  - NIT (kept, said here): clicking the agent already on screen re-marks its thread, so a message that arrived after
+    the last poll and before that click is not read. Only on the person's own click; rare.
