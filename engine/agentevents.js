@@ -96,20 +96,25 @@ function targetClass(tool, input, ctx) {
     let url = false;
     let rsync = false;
     const look = (words, depth) => {
-      for (const { w, first } of words) {
+      let wrapped = false;   // the word before was a wrapper (sudo, env, timeout...): this one is the program (review 11)
+      for (const { w, first: f0 } of words) {
+        let first = f0 || wrapped;
+        if (wrapped && (/^-/.test(w) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || /^\d+[smhd]?$/.test(w))) continue;   // its options, K=V, a duration
+        wrapped = false;
+        if (first && /^(sudo|env|timeout|nice|nohup|command|xargs|time|exec|doas)$/.test(path.basename(w))) { wrapped = true; continue; }
         if (first) {
           /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
              URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
           const prog = path.basename(w);
           if (/^(ssh|scp|sftp|nc|ncat)$/.test(prog)) { net = true; url = true; }
-          else if (/^(curl|wget)$/.test(prog)) net = true;
+          else if (/^(curl|wget|git)$/.test(prog)) net = true;   // git with a URL (push, clone, fetch to it)
           else if (prog === 'rsync') rsync = true;
           continue;   // the program run, not what it was aimed at (review 8)
         }
         if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) { url = true; continue; }
         if (rsync && /^([^\s/@]+@)?[A-Za-z0-9.-]+::?[^\s]*$/.test(w) && !w.startsWith('/')) { net = true; url = true; }
         if (depth === 0 && /\s/.test(w)) look(shellWords(w), 1);
-        let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^@/, '');
+        let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^-[A-Za-z](?=[/~.])/, '').replace(/^@/, '');   // -C/dir too
         v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
         if (/^\/dev\//.test(v)) continue;   // a redirect to /dev/null is not a target (review 8)
         /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
@@ -349,7 +354,10 @@ async function tick(opts) {
       const every = src.everyAgent();
       if (!Array.isArray(every)) return { sent: 0, because: 'the agent list could not be read; nothing changed' };
       const flat = (d) => new Set((src.transcriptDirsOf ? src.transcriptDirsOf(d) : []));
-      const others = every.filter((n) => !names.includes(n)).map((n) => src.dirOf(n)).filter(Boolean).map(flat);
+      /* An agent whose folder cannot be resolved cannot be compared (review 11): that is unreadable too, not "no clash". */
+      const otherDirs = every.filter((n) => !names.includes(n)).map((n) => src.dirOf(n));
+      if (otherDirs.some((d) => !d)) return { sent: 0, because: 'an agent\'s folder could not be resolved; nothing changed' };
+      const others = otherDirs.map(flat);
       for (const [n, d] of [...dirs]) {
         if (!d) continue;
         const mine = flat(d);
