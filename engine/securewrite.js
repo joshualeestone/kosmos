@@ -4,7 +4,8 @@
  * ONE writer for a file that holds a secret, so the ORDER cannot be got wrong
  * at the next call site.
  * (#5434: it also writes a person's own config files, the provider settings and hook files, for its
- * flush-before-rename; those callers pass the file's existing mode, or null for the umask default.)
+ * flush-before-rename; those callers pass the file's existing mode, null for the umask default, or an
+ * explicit mode for a file they create, as trust.js passes 0600.)
  *
  * 🛑 THE DEFECT THIS EXISTS TO MAKE UNREACHABLE, measured rather than assumed:
  *
@@ -43,8 +44,9 @@
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
  * have. The three token-door call sites catch it directly; `sendertoken.writeTokens`
  * does NOT, and relies on `mint` and `retire` catching one level up, which is true at
- * one remove and worth knowing before you check the call site and find nothing. `trust.js` and `create.js`
- * carry older variants of the same pattern and are the precedent for it.
+ * one remove and worth knowing before you check the call site and find nothing. `create.js` carries an
+ * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
+ * moved it onto this writer).
  */
 
 const fs = require('node:fs');
@@ -64,8 +66,9 @@ const { threadId: THREAD } = require('node:worker_threads');
    weak half: the temp is 0600, owner-only, exactly the protection the credential
    file sitting legitimately beside it has, so a permissions objection can be waved
    away and the reviewer would be right.
-   (For a config-file caller, #5434 slice 3, the temp is created at the file's own mode or the
-   umask default instead; its content is a person's settings, not a secret.)
+   (For a config-file caller, #5434 slice 3, the temp is created at the file's own mode, the
+   umask default, or an explicit mode for a file the caller creates (trust.js, 0600) instead; its
+   content is a person's settings, not a secret.)
 
    🛑 THE REAL PROBLEM IS THAT A SECRET OUTLIVES ITS OWN REVOCATION. `forget()`
    unlinks `FILE` and nothing else, so a stale temp holds the OLD token past a
@@ -118,9 +121,9 @@ const { threadId: THREAD } = require('node:worker_threads');
    history for those callers; a temp whose dead writer's pid is now reused is still left. */
 
 /* 🔑 pid ALONE IS NOT ENOUGH AND THIS REPO HAS PAID FOR LEARNING IT TWICE.
-   `trust.js` documents it at its own `tempPath`: a process that dies between
-   create and rename leaves the temp behind, and the next process to draw that
-   pid hits `wx` -> EEXIST FOREVER. Measured on #1776: one planted stale temp
+   (`trust.js` learned it first, at a `tempPath` of its own that it dropped when it moved onto
+   this writer in #5434 slice 6.) A process that dies between create and rename leaves the
+   temp behind, and the next process to draw that pid hits `wx` -> EEXIST FOREVER. Measured on #1776: one planted stale temp
    sent every later write down the in-place fallback, permanently, with no
    signal. With the start time and a counter a leftover is inert, because
    nothing ever asks for that name again. */
@@ -574,8 +577,8 @@ function writeSecret(file, data, mode, opts) {
 }
 
 /* `tempPath` is deliberately NOT exported. It has no consumer outside this module,
-   and `engine/trust.js` keeps its equivalent private for the same reason: a name
-   generator is an implementation detail of the writer, and exporting it invites a
+   and it is why `engine/trust.js` dropped its own name generator and saves through this
+   writer (#5434 slice 6): a name generator is an implementation detail of the writer, and exporting it invites a
    caller to build a temp path the writer will not clean up. */
 // tempWriterGone is a predicate, not a name generator, so it cannot be used to make temps the writer will not clean
 module.exports = { writeSecret, secureDir, refuseSymlinkTarget, reapDeadTempsOf, tempWriterGone };

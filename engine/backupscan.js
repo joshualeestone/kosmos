@@ -5,8 +5,8 @@
  * recorded by name, never stored unchecked.
  *
  *  1. By path: a deny-list of credential-shaped paths (env files, keys and keystores, provider and tool auth
- *     files, cloud and package-manager credentials, Terraform state, Kosmos's own secrets folder, git internals,
- *     browser profile stores), and compressed containers, whose contents cannot be scanned.
+ *     files, cloud and package-manager credentials, Terraform state, Kosmos's own secrets folder and key and token
+ *     stores, git internals, browser profile stores), and compressed containers, whose contents cannot be scanned.
  *  2. By content: the scan, reusing engine/secretmask.js (the hardened detector the setup guide relies on),
  *     never a second set of patterns.
  *     - Compressed bytes (zip, gzip, zlib, bzip2, xz, zstd, 7z, a git pack, a PDF with Flate streams) are skipped
@@ -41,6 +41,72 @@ const CONFIGISH = '(json|ya?ml|toml|ini|txt|conf|cfg|xml|properties|csv)';
 // Credential-shaped paths, matched case-insensitively on a forward-slash relative path.
 // Templates hold placeholders, not secrets: kept (the final content check still runs on them).
 const TEMPLATE = /\.(example|sample|template|dist)$/i;
+// #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
+// inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
+// supervisor's launch secrets (bin/agent-supervisor.sh), each agent's Kosmos+ community key (engine/communitysend.js
+// keysFile), this board's sealing key and room keys (engine/fedseal.js), the Mac's tunnel signing keys (mac_key,
+// engine/remote.js; install_key, the connector: kosmos-relay crates/tunnel/src/assistant.rs), the phone notify-only
+// token (engine/phonenotify.js) and a provider account's API key file (claudeaccounts, geminiaccounts, grokaccounts).
+// 🔑 The content scan stores several of these as they are (measured: mac_key, phone-notify.json), so the NAME is the
+// only defence, and a copy under a name a writer, editor or Finder gives it must be denied too. So each store name
+// is matched as a TOKEN anywhere in a file name, in ANY folder: bounded on both sides by the start or end of the
+// name or by a character that is not an ASCII letter or digit (STORE_NAME; a non-ASCII letter counts as a boundary,
+// which only over-skips). That denies `.mac_key.tmp-9`, `mac_key copy`,
+// `#board.token#` and `remote copy/mac_key`, while `keyboard.tokens.csv` or `imac_keyboard.md` are ordinary. A store
+// FOLDER is matched the same way, as a token in a folder name (`sendertokens.bak/`, `old sendertokens/`,
+// `communitysend copy/`), and in a community folder any file named with the token `keys` is a key file
+// (`keys.json`, `keys.bak.json`). Cost, on the safe side: a person's own file or folder whose name holds one of these
+// store names as a whole token (`mac_key-notes.md`, `chats/mac_key-chat.jsonl`, a project's own `communitysend/keys.json`,
+// a keys file under any folder named with the token such as `projects/communitysend-notes/keys.json`, a person's
+// `projects/undo/blobs/README.md` or `src/undo-stack/blobs/a.js`, any `phone-notify.*` file such as `src/phone-notify.js`,
+// and a `pairing.*` file directly in a folder named with the token `remote`, such as `src/remote/pairing.ts`). A digit
+// run glued onto the FRONT of a store name (`2mac_key`) is not a copy shape any writer makes, and is not covered.
+// A run of digits glued onto the name counts as a copy too (`mac_key2`, `undo2/`).
+const TOKEN = (name) => `([^/]*[^a-z0-9/])?${name}\\d*([^a-z0-9/][^/]*)?`;
+const STORE_NAME = (name) => new RegExp(`(^|\\/)${TOKEN(name)}$`, 'i');
+const STORE_FOLDER = (name) => new RegExp(`(^|\\/)${TOKEN(name)}\\/`, 'i');
+/* Two tests rather than one pattern with `(.*\/)?` in it, which is quadratic on a path repeating the folder. (Each
+   TOKEN pattern is quadratic within one long segment; pathDecision refuses a segment over MAX_SEGMENT first.) */
+const COMMUNITY_DIR = STORE_FOLDER('communitysend');
+const KEYS_FILE = STORE_NAME('keys');
+const PAIRING_FILE = STORE_NAME('pairing');
+const REMOTE_DIR = new RegExp(`(^|\\/)${TOKEN('remote')}\\/$`, 'i');
+const KOSMOS_STORES = [
+  [STORE_FOLDER('sendertokens'), 'Kosmos agent tokens'],
+  [STORE_FOLDER('launch-secrets'), 'Kosmos launch secrets'],
+  [{ test: (p) => COMMUNITY_DIR.test(p) && KEYS_FILE.test(p) }, 'Kosmos+ community agent keys'],
+  [STORE_NAME('fed-seal-(key|rooms)'), 'Kosmos room sealing keys'],
+  [STORE_NAME('board\\.token'), 'Kosmos board token'],
+  [STORE_NAME('(mac_key|install_key)'), 'Kosmos Mac signing key'],
+  [STORE_NAME('phone-notify'), 'Kosmos phone notify token'],
+  [STORE_NAME('\\.?kosmos-[a-z0-9]+-apikey'), 'provider API key'],
+  // engine/undo.js keeps a copy of every file an agent edits, under a hash (undo/blobs/<sha256>) or behind a hash prefix
+  // (undo-saved/<stamp>/<sha16>-<name>), so no name rule can see a key or .env inside. The files themselves are backed
+  // up at their own paths; the cost is that a version the person undid is not in the backup.
+  [new RegExp(`(^|\\/)${TOKEN('undo')}\\/blobs\\/`, 'i'), 'Kosmos undo copies (the files are backed up at their own paths)'],
+  // undo's in-place temp beside the file it restores (engine/undo.js), which briefly holds the old version.
+  [STORE_NAME('\\.kosmos-undo-[0-9a-z]+'), 'Kosmos undo copies (the files are backed up at their own paths)'],
+  // Kosmos's other key files, so they too are judged before the template exemption: the tunnel's TLS key and its
+  // device key (DER binary, which the content scan cannot read), and the Windows channel's key folder (engine/win32channel.js).
+  // The generic .key rule already denies them under their own names; this adds `tls.key.example` and the like.
+  [STORE_NAME('signin-device\\.key'), 'Kosmos Mac signing key'],
+  [STORE_NAME('tls\\.key'), 'Kosmos tunnel TLS key'],
+  // The connector's pairing state (kosmos-relay crates/tunnel/src/pairing.rs, pairing.json): during a pairing round it
+  // holds this computer's own nonce before it is revealed, which is what keeps the comparison honest. (pending.json
+  // is kept: its match codes are shown on both screens, are only meaningful during that round, and authorise nothing.)
+  // Narrower than the other stores: only directly inside a folder
+  // named with the token `remote` (the connector's state folder; one moved by AGENT_WORKFORCE_TUNNEL_STATE under another
+  // name is not covered). Two linear tests, as for the community keys. The connector's other files are kept: account
+  // (the verified account name, not the signed token), peers.json (public keys), devices.json, mac_id.
+  [{ test: (p) => PAIRING_FILE.test(p) && REMOTE_DIR.test(p.slice(0, p.lastIndexOf('/') + 1)) }, 'Kosmos pairing state'],
+  // Kosmos's secrets folder (tokendoor's env/, githubdevice's and cloudflare's tokens), copied or renamed like any other
+  // store. Keyed on what is inside it too, so a person's own trade-secrets/ folder of notes is kept, except an env/
+  // subfolder in it or a github or cloudflare token file directly in it.
+  [new RegExp(`(^|\\/)${TOKEN('secrets')}\\/(env\\/|(github|cloudflare)\\.token)`, 'i'), 'Kosmos secrets folder'],
+  [STORE_FOLDER('win32-channel'), 'Kosmos Windows channel keys'],
+  [STORE_FOLDER('undo-saved'), 'Kosmos undo copies (the files are backed up at their own paths)'],
+];
+
 const DENY = [
   [/(^|\/)\.env(\.[^/]*)?$/i, 'environment file'],
   [/(^|\/)\.envrc$/i, 'environment file'],
@@ -54,8 +120,15 @@ const DENY = [
   [/(^|\/)\.git\//i, 'git internals (objects and packs carry every committed secret; config carries remote tokens)'],
   [/(^|\/)\.git$/i, 'git internals'],
   [/(^|\/)\.config\/(gh|gcloud|hub|rclone|op|doctl)\//i, 'tool auth folder'],
-  [/(^|\/)\.claude\/\.credentials\.json$/i, 'provider sign-in'],
-  [/(^|\/)\.(codex|gemini|grok)\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
+  // An extra account's ~/.claude-<label>, and a forgotten one renamed .removed-claude-<label> (engine/accounts.js), which
+  // keeps its sign-in file.
+  [/(^|\/)\.(removed-)?claude(-[^/]*)?\/\.credentials\.json$/i, 'provider sign-in'],
+  [/(^|\/)\.(removed-)?(codex|gemini|grok)(-[^/]*)?\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
+  // Codex keeps MCP OAuth refresh tokens in $CODEX_HOME/.credentials.json where no keyring is available, and Kosmos
+  // puts each Codex agent's home in its data root (engine/codexruntime.js, codex-homes/<session>); Gemini keeps MCP
+  // tokens in mcp-oauth-tokens.json. A dotted .credentials.json is a credential wherever it sits.
+  [/(^|\/)\.credentials\.json$/i, 'provider sign-in'],
+  [/(^|\/)mcp-oauth-tokens[^/]*\.json$/i, 'provider sign-in'],
   [new RegExp(`(^|\\/)(credentials?|secrets?|tokens?|auth)(\\.[a-z0-9]+)*\\.${CONFIGISH}$`, 'i'), 'credential-named config file'],
   [/(^|\/)(credentials?|secrets?)$/i, 'credential-named file'],
   [/(^|\/)client_secret[^/]*\.json$/i, 'OAuth client secret'],
@@ -69,9 +142,59 @@ function pathDecision(rel) {
   if (typeof rel !== 'string' || !rel || rel.includes('\0')) return { include: false, why: 'unusable path' };
   const p = rel.split(path.sep).join('/');
   if (p.startsWith('/') || p.split('/').includes('..')) return { include: false, why: 'path outside the work Kosmos' };
+  // A deliberately loose cap, far above any real file name (filesystems stop at 255 characters or bytes), so it never
+  // refuses a legal name in any script. Refused before any pattern runs, so a hostile segment cannot make the token
+  // patterns below take more than bounded time.
+  if (p.split('/').some((seg) => seg.length > MAX_SEGMENT)) return { include: false, why: 'a name too long to check' };
+  // Kosmos's own stores are judged BEFORE the template exemption (so are Kosmos's secrets/env/ and its github and
+  // cloudflare token files, by the secrets-folder store rule; a template of any other file in a secrets/ folder is
+  // still kept by the exemption): `mac_key.example` or `board.token.sample` is a copy
+  // of a key the content scan cannot see, never a template.
+  for (const [re, why] of KOSMOS_STORES) if (re.test(p)) return { include: false, why };
   if (TEMPLATE.test(p)) return { include: true };
   for (const [re, why] of DENY) if (re.test(p)) return { include: false, why };
+  const origins = tempOrigins(p);
+  if (origins === null) return { include: false, why: 'a temp or backup copy with a name too long to check' };
+  for (const origin of origins) {
+    for (const [re, why] of DENY) if (re.test(origin)) return { include: false, why: `${why} (a temp copy being written)` };
+  }
   return { include: true };
+}
+
+/* #5686 review 3: a writer's temp copy is named AROUND the file it replaces, so a rule anchored on the end of the
+   name never sees it: `.tls.key.tmp` (the connector's atomic writes), `auth.json.kosmos-<pid>-t<n>-...tmp`
+   (engine/securewrite.js), `signin-device.key.new-<pid>-<hex>`, an editor's `.id_rsa.swp` or `id_rsa~`, a download's
+   `id_rsa (1)`. So a COPY-SHAPED name (see COPY_SHAPED) is also judged as every name it could be a copy of: each
+   leading run of it up to a '.', '-', '_', '~' or space, with and without a leading dot. A tail after the ending (a pid,
+   a random suffix, glued on or after a separator: `.tmp-k3j9z`, `.tmpk3j9z`, `.bak2`) is accepted when it carries a
+   digit anywhere, so `secrets.new-approach.md` is ordinary.
+   What this does NOT cover, said so nobody reads it as complete: a copy whose ending is not in COPY_SHAPED, and a copy
+   named IN FRONT of its origin (emacs `#id_rsa#` and `.#id_rsa`, `tmp-id_rsa`), and a tail with no digit in it
+   (`.tmp-abcxyz`; a digit anywhere in the tail is enough, so `.new-4711-abcdef` counts). For Kosmos's own stores the token and
+   folder rules above (STORE_NAME, STORE_FOLDER) need none of this; for other credentials the content scan and the final raw check
+   stand behind it (a PEM key, for one, is found by its content whatever the file is called).
+   Over-skip, on the safe side: an origin is judged by EVERY deny rule, so a copy of ordinary work whose name starts
+   like a denied one is skipped too, even when the uncopied name would be kept (secrets_plan.tmp,
+   cookies-recipe.md.tmp, .git-blame.bak, server.key.md.bak although server.key.md is kept).
+   Bounded (review 4, review 7): the tail repeats only after a separator, so COPY_SHAPED cannot backtrack
+   exponentially, and pathDecision refuses a segment over MAX_SEGMENT (a loose cap, above any real name) first.
+   A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
+   tried and a hostile name cannot make the scan quadratic. (Filesystems cap a name in bytes, not characters; this caps
+   the work, and a real name over it is rare and skipped on the safe side.) */
+const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)(?:(?=[-._0-9a-z]*\d)[0-9a-z]*([-._][0-9a-z]+)*)?|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
+const MAX_COPY_NAME = 255;
+const MAX_SEGMENT = 1020;
+function tempOrigins(p) {
+  const cut = p.lastIndexOf('/') + 1;
+  const dir = p.slice(0, cut);
+  const base = p.slice(cut);
+  if (!COPY_SHAPED.test(base)) return [];
+  if ([...base].length > MAX_COPY_NAME) return null;
+  const out = new Set();
+  for (const b of base.startsWith('.') ? [base, base.slice(1)] : [base]) {
+    for (let i = 1; i < b.length; i++) if ('.-_~ '.includes(b[i])) out.add(dir + b.slice(0, i));
+  }
+  return [...out];
 }
 
 /** True when realPath (symlinks already resolved) is root itself or inside it. Both absolute. */

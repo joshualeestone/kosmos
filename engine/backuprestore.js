@@ -243,5 +243,8 @@ function shrinkWarning(older, newer, { files = 0.5, bytes = 0.5 } = {}) {
 module.exports = {
   restoreSnapshot,
   SHORT_NAME_RE,  // shared with engine/restoresink.js's path backstop, so the two cannot drift
+  pathProblem,    // shared with engine/backupsnapshot.js, so a backup never stores a path restore refuses
+  collisionKey,   // likewise, for two paths restore would refuse as colliding
+  collidingPaths, // likewise: the walker checks what it keeps against restore's own rule
   shrinkWarning,
 };

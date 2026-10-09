@@ -12,6 +12,126 @@ const KEY = 'sk-ant-api03-' + 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0';
 const GH = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
 const PEM = '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACDDummyDummyDummyDummyDummyDummyDummyDummyAAAA\n-----END OPENSSH PRIVATE KEY-----';
 
+test('#5686 deny-list: Kosmos credential stores in the data root are skipped by name, under a world prefix too', () => {
+  for (const p of ['Kosmos/sendertokens/a.json', 'Kosmos/sendertokens/a.json.tmp-60291', 'worlds/w1/Kosmos/sendertokens/b.json',
+    'sendertokens/a.json', 'Kosmos/launch-secrets/agent-secrets.Ab12Cd', 'worlds/w1/launch-secrets/agent-secrets.Ab12Cd',
+    'Kosmos/communitysend/234a7f2dbb0a/keys.json', 'worlds/w1/Kosmos/communitysend/234a7f2dbb0a/keys.json',
+    'Kosmos/communitysend/234a7f2dbb0a/keys.json.0a1b2c3d4e5f.tmp', 'Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json',
+    'worlds/w1/Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json.4711.0a1b2c3d4e5f.tmp', 'Kosmos/remote/mac_key',
+    'worlds/w1/Kosmos/remote/mac_key', 'remote/mac_key', 'Kosmos/remote/phone-notify.json', 'Kosmos/remote/phone-notify.json.a1b2.tmp',
+    'acct/.kosmos-claude-apikey', 'acct/.kosmos-gemini-apikey', 'workers/a/.cfg/.kosmos-grok-apikey']) {
+    assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
+  }
+  for (const p of ['Kosmos/communitysend/234a7f2dbb0a/sent.json', 'Kosmos/chats/direct..mikey.json', 'Kosmos/messages.jsonl',
+    'Kosmos/task-chats/a.task-7.jsonl', 'Kosmos/agent-token-only.json', 'projects/site/keys.json', 'notes/launch-secrets.md',
+    'Kosmos/fed-seal-notes.md', 'projects/site/keys.jsonc.md',
+    'Kosmos/remote/mac_id', 'Kosmos/remote/pending.json', 'Kosmos/remote/tls.crt', 'projects/site/remote/notes.md', 'docs/kosmos-apikey-howto.md']) {
+    assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a conversation or ordinary work and is kept`);
+  }
+});
+
+test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, whatever shape the writer names it', () => {
+  for (const p of ['Kosmos/remote/install_key', 'worlds/w1/Kosmos/remote/install_key', 'Kosmos/remote/.mac_key.tmp',
+    'Kosmos/remote/.install_key.tmp', 'Kosmos/remote/.tls.key.tmp', 'Kosmos/remote/.signin-device.key.tmp',
+    'Kosmos/remote/signin-device.key.new-4711-0a1b2c', 'Kosmos/.board.token.4711.primary.tmp',
+    'Kosmos/board.token.kosmos-1-t0-2-3.tmp', 'acct/auth.json.kosmos-1-t0-2-3.tmp', 'Kosmos/win32-channel/a.key.tmp',
+    'agents/a/.env.kosmos-9-t1-2-3.tmp', 'Kosmos/fed-seal-key.json.4711.0a1b2c3d4e5f.tmp', 'worlds/w1/Kosmos/remote/.mac_key.tmp',
+    'Kosmos/remote/mac_key-123.tmp', 'x/id_rsa-new.tmp', 'Kosmos/remote/mac_key~', 'Kosmos/remote/.mac_key.swp',
+    'keys/server.key.bak', 'keys/server.key_old.tmp', 'w/' + 'a.'.repeat(200) + 'tmp',
+    // review 5: copy shapes of Kosmos stores (matched anywhere in the name) and of other credentials (COPY_SHAPED)
+    'Kosmos/board.token.tmp-123', 'Kosmos/remote/.mac_key.tmp-9', 'Kosmos/remote/signin-device.key.tmp-9',
+    'Kosmos/remote/tls.key.4711.new', 'Kosmos/remote/mac_key copy', 'Kosmos/remote/..mac_key.tmp', 'Kosmos/remote/#mac_key#',
+    'Kosmos/.#board.token', 'Kosmos/#board.token#', 'Kosmos/#fed-seal-key.json#', 'Kosmos/communitysend/ab/#keys.json#', 'acct/#.kosmos-grok-apikey#', 'Kosmos/communitysend/ab/.keys.json.tmp-7', 'Kosmos/fed-seal-rooms.json.save',
+    'acct/.kosmos-claude-apikey.1', 'x/id_rsa (1)', 'x/id_rsa.backup', 'x/id_rsa.save', 'x/id_rsa.part', 'x/id_rsa.temp',
+    'x/id_rsa.prev', 'keys/tls.key.1', 'x/.env.tmp.4711', 'x/id_rsa.tmp-k3j9z', 'x/id_rsa.tmp1', 'x/id_rsa 2', 'x/id_rsa.bak2',
+    // review 6: a Kosmos store is never lifted by the template exemption
+    'Kosmos/remote/mac_key.example', 'Kosmos/board.token.sample', 'Kosmos/fed-seal-key.json.template',
+    // the documented over-skip: a copy is judged by its leading runs, so this is skipped though server.key.md is kept
+    'x/server.key.md.bak',
+    // review 7: a copied, renamed or moved store folder, and the store files outside their usual folder
+    'Kosmos/remote copy/mac_key', 'Kosmos/remote.bak/mac_key', 'Kosmos/remote 2/install_key', 'Kosmos/sendertokens copy/a.json',
+    'Kosmos/sendertokens.bak/a.json', 'Kosmos/launch-secrets.old/agent-secrets.Ab12Cd', 'Kosmos/communitysend copy/ab/keys.json',
+    'Kosmos/communitysend/keys.json', 'Kosmos/communitysend/ab/old/keys.json', 'Kosmos/mac_key', 'Kosmos/phone-notify.json',
+    'Kosmos/remote copy/signin-device.key', 'acct/.claude-work/.credentials.json',
+    // review 8: a store folder copied with its name in front, a keys backup named before .json, other account dirs,
+    // and the documented over-skip of a project's own communitysend/keys.json
+    'old sendertokens/a.json', 'x/.sendertokens/a.json', 'Kosmos/communitysend/ep/keys.bak.json',
+    'a/.gemini-work/oauth_creds.json', 'a/.codex-2/auth.json', 'projects/x/communitysend/keys.json',
+    // review 9: a staging tail whose random hex is letters only; undo's copies under a hash or a hash prefix
+    'Kosmos/remote/signin-device.key.new-4711-abcdef', 'x/tls.key.new-12-fe', 'Kosmos/undo/blobs/' + 'a1'.repeat(32),
+    'Kosmos/undo-saved/20261009T1200/0123456789abcdef-id_rsa', 'Kosmos/undo-saved/s/0123456789abcdef-.npmrc',
+    'worlds/w1/Kosmos/undo/blobs/' + 'b2'.repeat(32), 'Kosmos/undo copy/blobs/' + 'c3'.repeat(32), 'Kosmos/undo.old/blobs/x',
+    'agents/a/.kosmos-undo-0a1b2c3d',
+    // review 11: Kosmos's other key files are judged before the template exemption too
+    'Kosmos/remote/signin-device.key.example', 'Kosmos/remote/tls.key.sample', 'Kosmos/win32-channel/a.key.dist',
+    // review 12: digits glued onto a store name
+    'x/mac_key2', 'x/board.token2', 'x/phone-notify2.json', 'x/fed-seal-key2.json', 'x/.kosmos-gemini-apikey2', 'x/sendertokens2/a',
+    'x/communitysend/keys2.json', 'x/undo2/blobs/a',
+    // review 13: Kosmos's secrets folder copied or renamed; an underscore tail
+    'Kosmos/secrets copy/env/OPENAI_API_KEY', 'Kosmos/secrets.bak/env/X', 'Kosmos/old secrets/github.token', 'Kosmos/secrets2/env/X',
+    'x/id_rsa.tmp_1',
+    // review 14: the connector's pairing state; the secrets-folder rule runs before the template exemption
+    'Kosmos/remote/pairing.json', 'Kosmos/remote/.pairing.json.tmp', 'Kosmos/secrets/github.token.example',
+    // review 15: a forgotten account's folder keeps its sign-in
+    'acct/.removed-claude-work/.credentials.json', 'acct/.removed-gemini-x/oauth_creds.json', 'acct/.removed-claude-work-2/.credentials.json',
+    // review 16: a random tail glued straight onto the ending
+    'x/id_rsa.tmp1a', 'x/id_rsa.tmpk3j9z', 'x/id_rsa.bak2x',
+    // review 17: MCP OAuth tokens in a Codex home Kosmos keeps in its data root, and Gemini's
+    'Kosmos/codex-homes/angel/.credentials.json', 'Kosmos/codex-homes/angel/.credentials.json.kosmos-1-t0-2-3.tmp',
+    'acct/.gemini-x/mcp-oauth-tokens.json', 'notes/trade-secrets/env/plan.md']) {
+    assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
+  }
+  for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
+    'Kosmos/remote/.pending.json.tmp', 'Kosmos/.chats.tmp', 'projects/site/build.new-version.md', 'agents/a/keys.md.tmp',
+    'agents/a/.tmp', 'agents/a/a..b.tmp', 'agents/a/secrets.md', 'agents/a/server.key.md', 'agents/a/id_rsa.md',
+    'agents/a/notes~', 'agents/a/report-final.bak', 'w/' + 'a'.repeat(250) + '.md',
+    'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'agents/a/.env.example', 'notes/secrets.tmp-abcxyz.md',
+    'notes/keyboard.tokens.csv', 'notes/billboard.token-ideas.md', 'projects/site/remote/api.keys.md',
+    'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md',
+    'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/undo/blobs.md', 'notes/mac_keyboard2.md', 'notes/trade-secrets/plan.md', 'notes/trade-secrets/env.md', 'Kosmos/remote/account', 'Kosmos/remote/peers.json',
+    'Kosmos/remote/devices.json', 'projects/site/pairing.json', 'Kosmos/remote/old/pairing.json',
+    'acct/.removed-claude-notes/readme.md', 'agents/a/secrets.new-approach', 'x/2mac_key', 'Kosmos/codex-homes/angel/sessions/2026/10/09/rollout-x.jsonl',
+    'Kosmos/codex-homes/angel/config.toml', 'notes/plan.template', 'notes/id_rsa.temperature.md', 'Kosmos/secrets/readme.example', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
+  }
+});
+
+test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially (the old tail took 1.6 s at 32 characters)', () => {
+  const t0 = process.hrtime.bigint();
+  for (const end of ['.tmp', '.bak', '.new']) bs.pathDecision('w/a' + end + '1'.repeat(28) + '!');
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 500, `took ${ms} ms (exponential backtracking takes seconds here; the fixed pattern takes well under 1 ms)`);
+  const t1 = process.hrtime.bigint();
+  bs.pathDecision('communitysend/'.repeat(15000) + 'x');   // 210 KB: a quadratic community pattern took 7 s here
+  const ms1 = Number(process.hrtime.bigint() - t1) / 1e6;
+  assert.ok(ms1 < 1000, `a path repeating communitysend/ took ${ms1} ms`);
+  const t2 = process.hrtime.bigint();
+  for (const seg of ['mac_key-', 'board.token-', '-kosmos-a-apikey', 'sendertokens-']) {
+    assert.equal(bs.pathDecision('w/' + seg.repeat(32000) + '/x').include, false, 'a segment longer than any name is refused');
+  }
+  const ms2 = Number(process.hrtime.bigint() - t2) / 1e6;
+  assert.ok(ms2 < 1000, `long single segments took ${ms2} ms (uncapped token patterns took 2 to 17 s each)`);
+  const t3 = process.hrtime.bigint();
+  const pair = 'remote-'.repeat(145) + '/' + 'pairing-'.repeat(127) + '/';
+  bs.pathDecision('w/' + pair.repeat(500) + 'x');   // about 1 MB: a joined two-token pattern took 3.5 s on it
+  const ms3 = Number(process.hrtime.bigint() - t3) / 1e6;
+  assert.ok(ms3 < 1000, `remote/pairing segment pairs took ${ms3} ms`);
+  assert.equal(bs.pathDecision('w/' + 'a'.repeat(1017) + '.md').include, true, 'CONTROL: a 1020-character name, at the loose cap, is judged, not refused');
+  assert.equal(bs.pathDecision('w/' + 'a'.repeat(1018) + '.md').include, false, 'one character over is refused');
+});
+
+test('#5686 review 4: a copy-shaped name too long for a filesystem is skipped, not widened (uncapped, 100000 dots exhausts the heap)', () => {
+  for (const n of [1000, 100000]) assert.equal(bs.pathDecision('w/' + '.'.repeat(n) + 'tmp').include, false);
+  assert.equal(bs.pathDecision('w/' + 'a-'.repeat(120) + '.tmp').include, true, 'CONTROL: a 244-character temp of ordinary work is kept');
+});
+
+test('#5686: the premise for name rules on Kosmos stores holds: the content scan stores a mac_key-shaped file as it is', () => {
+  // A raw 32-byte key, base64url, as kosmos-relay writes mac_key and install_key. If the content scan ever learns to
+  // catch it, this goes red and the name rules' comment needs its premise restated.
+  const r = bs.scanFile('notes/a.txt', Buffer.from('A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0u_w'));
+  assert.equal(r.action, 'store', 'the content scan does not recognise a bare base64url key');
+});
+
 test('#5535 deny-list: credential-shaped paths are skipped by name; ordinary work files are not', () => {
   for (const p of ['.env', 'agents/a/.env.local', 'keys/server.pem', 'x/id_ed25519', 'x/id_rsa.pub', 'home/.ssh/config',
     '.npmrc', 'proj/.git/config', '.config/gh/hosts.yml', 'agents/b/.claude/.credentials.json', '.codex/auth.json',

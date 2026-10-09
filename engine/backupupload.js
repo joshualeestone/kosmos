@@ -485,7 +485,7 @@ async function askSigned(macRequest, route, makeBody, parse) {
       let p;
       try { p = parse(r.data); } catch (err) { p = { ok: false, because: `the grant answer could not be read: ${(err && err.message) || err}` }; }
       // An answer we refuse still spent the grant's allowance (and, for a manifest, left a recorded hash).
-      return p.ok ? p : { ok: false, out: { because: p.because, grantSpent: true } };
+      return p.ok ? p : { ok: false, out: Object.assign({ because: p.because, grantSpent: true }, p.otherBucket ? { otherBucket: true } : {}) };
     }
     const because = (r && r.because) || 'Kosmos+ did not answer';
     const { status, code } = refusalOf(because);
@@ -510,7 +510,8 @@ function parseManifestGrant(data, bytes, runPrefix) {
   if (!data.upload || typeof data.upload !== 'object' || Array.isArray(data.upload)) return { ok: false, because: 'the manifest grant answer has no upload' };
   const c = checkOne(data.upload, 'the manifest upload', bytes, manifestBind(bytes), expiresAtMs, httpForTests);
   if (!c.ok) return c;
-  if (c.prefix !== runPrefix) return { ok: false, because: `the manifest grant names another bucket (${c.prefix}) than its chunks' (${runPrefix})` };
+  // otherBucket: the caller's chunks are in a bucket the coordinator no longer grants to (a walker's index is stale).
+  if (c.prefix !== runPrefix) return { ok: false, otherBucket: true, because: `the manifest grant names another bucket (${c.prefix}) than its chunks' (${runPrefix})` };
   return { ok: true, expiresAtMs, lifetimeMs: c.expiresS * 1000, upload: Object.assign(c.upload, { retainMs: c.retainMs }) };
 }
 

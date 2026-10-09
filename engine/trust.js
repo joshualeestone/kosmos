@@ -41,6 +41,7 @@ const path = require('node:path');
 // ~/.claude.json / settings.json concurrently. The public wrappers below serialize
 // each writer with the fleet's mkdir-atomic file lock, keyed per TARGET FILE.
 const { withFileLock } = require('./filelock');
+const securewrite = require('./securewrite');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
    the sandbox seam: a caller setting `AGENT_WORKFORCE_HOME` AFTER requiring
@@ -204,33 +205,35 @@ function withWriteLock(target, inner) {
 }
 
 /**
- * A temp path that is OURS, not a predictable one.
+ * Save a Claude Code config or settings file this module rewrote (#5434 slice 6).
  *
- * ⚠️ THE FIXED NAME `<config>.kosmos.new` HAD TWO PROBLEMS AND ONLY ONE FIX.
- * `wx` closes the symlink route — a link sitting at that predictable path would
- * otherwise receive the whole config, account details included, and the rename
- * would make the config itself that link. But `wx` also means anything already
- * sitting there REFUSES the write, and we cannot tell another writer's in-flight
- * file from litter a crash left behind. Clearing it breaks the other writer;
- * leaving it wedges this feature permanently.
- *
- * 🔑 A unique name removes the choice. Nothing else is sitting at it, so `wx`
- * only fails for a planted file, and a planted file is one we must NOT delete.
- *
- * ⚠️ AND THE CLOCK IS IN THE NAME, not just the pid. With `pid-seq` alone, a
- * process that died between create and rename left `…-1.new` behind, and the
- * next process to draw that pid refused at seq 1 FOREVER — a permanent wedge
- * from one crash, which is worse than the case the unique name was introduced
- * to avoid. With the start time in it, a leftover is inert: nothing ever asks
- * for that name again.
- *
- * ⚠️ SO A CRASH CAN LEAVE ONE STRAY FILE AND NOTHING EVER REMOVES IT. Said
- * plainly rather than implied: the alternative is deleting files at a path we
- * cannot prove is ours, which is the harm every guard in here is pointed at.
+ * Through securewrite.writeSecret, which carries every guard the old inline writers had:
+ * - a temp name that is OURS (pid, thread, start time, sequence), created `wx`, so a symlink
+ *   planted at it is refused rather than followed, and a file planted at the name an attempt creates is
+ *   never unlinked (the unlink is gated on that attempt having created it);
+ * - born at the preserved mode and then set to it on the fd, for umask exactness. That set is best effort
+ *   now (the old chmod's failure refused the save); a temp it misses is still never looser than the
+ *   preserved mode, because it was created at that mode less the umask;
+ * - an atomic rename, never an in-place rewrite (`atomicOnly`), so a failed save leaves the old file.
+ * and adds what they lacked: the temp is flushed before the rename and the folder after it, so a
+ * crash cannot leave the file at full length but zero-filled (#5431). `ownTempsOnly`: this is the
+ * person's own folder, so only THIS file's dead temps are reaped, never a folder-wide sweep.
+ * ⚠️ THAT REAP IS THE ONE NEW DELETE PATH in the person's folder (their home folder, for the default
+ * account): a file beside the target whose name has securewrite's exact temp shape for THIS file and
+ * whose writer's pid is dead is unlinked, a planted one included (a link is unlinked, never followed).
+ * The old writers deleted nothing they had not created. It narrows, not retires, "a crash can leave a
+ * stray file": old-named `.new` temps are never reaped, nor is a temp whose dead writer's pid was reused.
+ * The mode stays the callers' `st.mode & 0o7777` on every platform, as the old writers carried it; on
+ * Windows that is only the read-only bit, so a read-only file is refused as before (now after three
+ * attempts). store.js passes no mode there; aligning the two is left for its own change.
+ * Returns false on any failure; the callers turn that into their own refusal.
  */
-let SEQ = 0;
-const STARTED = Date.now();
-const tempPath = (target) => `${target}.kosmos-${process.pid}-${STARTED}-${++SEQ}.new`;
+function saveConfig(target, data, prevMode) {
+  try {
+    securewrite.writeSecret(target, JSON.stringify(data, null, 2) + '\n', prevMode, { atomicOnly: true, ownTempsOnly: true });
+    return true;
+  } catch { return false; }
+}
 
 /**
  * @param {string} dir absolute path of a folder KOSMOS CREATED. The caller
@@ -454,39 +457,14 @@ function trustFolderInner(dir, opts) {
   // parent first, the same call preacceptBypass makes before its own create. A
   // no-op when the dir already exists.
   if (madeFile) { try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* exists, or the write reports it */ } }
-  const tmp = tempPath(target);
-  try {
-    // Born at the preserved mode rather than chmodded into it: this file holds
-    // account details and sits at 600. A window where it is world-readable is
-    // not acceptable even if the chmod that follows would close it.
-    // ⚠️ `wx`, and this repo has already paid for learning why: the DEFAULT
-    // flag FOLLOWS A SYMLINK, so a link at the temp path would receive the
-    // whole config — account details included — at a path somebody else chose,
-    // and the rename would then make the config itself that link. `wx` fails
-    // instead of following. Same fix, same reasoning, as
-    // `engine/instructions.js`'s boot-file write.
-    // ⚠️ THE NAME BEING UNIQUE IS NOT A SUBSTITUTE FOR IT. `pid-starttime-seq`
-    // is not secret — a local attacker can read both — so the flag is what
-    // closes the route; the unique name only stops us colliding with ourselves.
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { flag: 'wx', mode: prevMode });
-    // ⚠️ MODE IS THE ONLY THING CARRIED OVER, said plainly rather than left to
-    // read as "permissions are preserved": `rename` replaces the inode, so
-    // macOS ACLs, extended attributes, `chflags` and any hard link to the file
-    // do not survive. Nothing here restores them and no test covers them.
-    // ⚠️ AND THE CHMOD AFTER STILL RUNS, for umask exactness — `mode` on the
-    // create is masked by the umask, so a file that must come back at 600 on a
-    // machine with a loose umask needs this line. It is not belt and braces.
-    fs.chmodSync(tmp, prevMode);
-    fs.renameSync(tmp, target);
-  } catch (err) {
-    // ⚠️ NEVER UNLINK A TEMP FILE WE DID NOT CREATE. Nothing else uses this
-    // naming scheme, so an EEXIST here means a file somebody PLANTED at a path
-    // we were about to write — the exact case `wx` exists to refuse. Removing
-    // it would be this code deleting a file it cannot prove anything about, on
-    // behalf of a write it is already refusing to do.
-    if (!err || err.code !== 'EEXIST') {
-      try { fs.unlinkSync(tmp); } catch { /* nothing to clean up */ }
-    }
+  // #5434 slice 6: through securewrite, which keeps every guard this writer had (a unique temp
+  // name created `wx`, so a symlink planted at it is refused, never followed; born at the preserved
+  // mode, then the mode set on the fd for umask exactness; a file planted at an attempt's own temp name
+  // is never unlinked; see saveConfig for the one reap it adds) and adds
+  // the flush before the rename and the folder flush after it, so a crash cannot leave this file at
+  // full length but zero-filled (#5431). MODE IS STILL THE ONLY THING CARRIED OVER: the rename
+  // replaces the inode, so ACLs, extended attributes, chflags and hard links do not survive.
+  if (!saveConfig(target, data, prevMode)) {
     return { ok: false, because: 'we could not write to their config file' };
   }
 
@@ -615,20 +593,7 @@ function forgetFolderInner(dir, displaced, madeEntry) {
   // destroying a record it found. The caller knows which it was.
   if (madeEntry === true && Object.keys(entry).length === 0) delete data.projects[key];
 
-  const tmp = tempPath(target);
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { flag: 'wx', mode: prevMode });
-    fs.chmodSync(tmp, prevMode);
-    fs.renameSync(tmp, target);
-  } catch (err) {
-    // ⚠️ NEVER UNLINK A TEMP FILE WE DID NOT CREATE. Nothing else uses this
-    // naming scheme, so an EEXIST here means a file somebody PLANTED at a path
-    // we were about to write — the exact case `wx` exists to refuse. Removing
-    // it would be this code deleting a file it cannot prove anything about, on
-    // behalf of a write it is already refusing to do.
-    if (!err || err.code !== 'EEXIST') {
-      try { fs.unlinkSync(tmp); } catch { /* nothing to clean up */ }
-    }
+  if (!saveConfig(target, data, prevMode)) {   // #5434 slice 6: flushed; see saveConfig
     return { ok: false, because: 'we could not write to their config file' };
   }
   return { ok: true, already: false };
@@ -665,23 +630,18 @@ function readRecord() {
     return err && err.code === 'ENOENT' ? {} : null;
   }
 }
-/* The same unique-name + wx discipline the config writer above documents:
-   a fixed tmp path shared by two racing processes is the lost-update and
-   torn-file pair, in the one file whose corruption silently disables
-   recording. */
-let recSeq = 0;
-function recTemp() {
-  recSeq += 1;
-  return RECORD() + '.' + process.pid + '.' + Date.now() + '.' + recSeq + '.tmp';
-}
+/* #5434 slice 6: the record goes through securewrite too, the same way store.js saves Kosmos's own
+   files: a unique temp created `wx` (two racing processes never share one), flushed before the rename
+   and the folder after it, a failed save leaving the old record. Kosmos owns this folder, so it is not
+   `ownTempsOnly`. A new record takes the umask default, as before. An existing record now keeps its
+   mode (not on Windows), the store.js rule; the old unmoded temp reset it to the umask default on
+   every save. Throws on failure, as before: the callers catch it. The bytes are unchanged (no
+   trailing newline). */
 function writeRecordFile(data) {
   fs.mkdirSync(path.dirname(RECORD()), { recursive: true });
-  const tmp = recTemp();
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { flag: 'wx' });
-  /* The other half of the config writer's discipline: a failed rename
-     must not strand its uniquely named tmp forever. */
-  try { fs.renameSync(tmp, RECORD()); }
-  catch (err) { try { fs.unlinkSync(tmp); } catch { /* the write failed louder */ } throw err; }
+  let mode = null;
+  if (process.platform !== 'win32') { try { mode = fs.statSync(RECORD()).mode & 0o777; } catch { mode = null; } }
+  securewrite.writeSecret(RECORD(), JSON.stringify(data, null, 2), mode, { atomicOnly: true, umaskDefault: true });
 }
 // #3088: serialise the record's read-modify-write on RECORD() (its own file, so a
 // separate lock from the config's). Lower-frequency than trustFolder (create/rollback,
@@ -838,13 +798,7 @@ function preacceptBypassInner(configDir, agentDefaultAccount) {
   // trustFolder documents (a concurrent whole-file save can drop this). The rename is atomic,
   // so the file is never half-written; "never corrupt" is not "never lost".
   try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* exists, or the write reports it */ }
-  const tmp = tempPath(target);
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { flag: 'wx', mode: prevMode });
-    fs.chmodSync(tmp, prevMode);   // umask exactness, as trustFolder
-    fs.renameSync(tmp, target);
-  } catch (err) {
-    if (!err || err.code !== 'EEXIST') { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+  if (!saveConfig(target, data, prevMode)) {   // #5434 slice 6: flushed; see saveConfig
     return { ok: false, because: 'we could not write to their settings file' };
   }
 
@@ -881,7 +835,7 @@ function preacceptBypassInner(configDir, agentDefaultAccount) {
  * the SAME .claude.json trustFolder writes, so it locks on the same target (configTarget) --
  * the two serialise cleanly rather than lost-updating each other. Same safety otherwise:
  * refuse a symlink, refuse a non-object shape, merge (never replace) so trustFolder's projects
- * and the person's other config survive, preserve mode, atomic `wx` write.
+ * and the person's other config survive, preserve mode, saved through saveConfig (#5434 slice 6).
  *
  * @param {string|null} configDir the ACCOUNT's config dir (null = this process's own).
  * @param {boolean} agentDefaultAccount the agent runs on the DEFAULT account (reads ~/.claude.json).
@@ -941,13 +895,7 @@ function preacceptOnboardingInner(configDir, agentDefaultAccount) {
   // trustFolder / preacceptBypass document (a concurrent whole-file save can drop this). The
   // rename is atomic, so the file is never half-written; "never corrupt" is not "never lost".
   try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* exists, or the write reports it */ }
-  const tmp = tempPath(target);
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { flag: 'wx', mode: prevMode });
-    fs.chmodSync(tmp, prevMode);   // umask exactness, as trustFolder / preacceptBypass
-    fs.renameSync(tmp, target);
-  } catch (err) {
-    if (!err || err.code !== 'EEXIST') { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+  if (!saveConfig(target, data, prevMode)) {   // #5434 slice 6: flushed; see saveConfig
     return { ok: false, because: 'we could not write to their config file' };
   }
 

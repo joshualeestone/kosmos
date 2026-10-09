@@ -941,6 +941,8 @@ test('a manifest grant naming another bucket than its chunks is refused before a
     const r = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { bucket: 's3.us-east-1.amazonaws.com/other/' }));
     assert.strictEqual(r.ok, false);
     assert.match(r.because, /another bucket/);
+    assert.strictEqual(r.otherBucket, true, 'marked, so a caller can tell its chunks are in a bucket no longer granted to');
+    assert.strictEqual(r.grantSpent, true);
     assert.strictEqual(b.puts, 0);
   } finally { await b.close(); }
 });
