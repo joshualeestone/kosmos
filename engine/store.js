@@ -730,10 +730,10 @@ function stripIdentity(profile) {
    leaves the old file as it was. These folders are Kosmos's own, so any provably dead writer temp there is reaped. */
 // (statSync follows a link: a linked file passes its target's mode, and the rename replaces the link with a regular
 // file, as the old write-then-rename did)
-function modeOf(file) { try { return fs.statSync(file).mode & 0o7777; } catch { return null; } }
+function modeOf(file) { try { return fs.statSync(file).mode & 0o777; } catch { return null; } }
 /* securewrite is required at CALL time, never at load: the kosmos CLI's board_token() requires store.js by itself
    (and a test copies store.js alone into a minimal KOSMOS_HOME, cli.task-2662.test.js), so a load-time require of a
-   sibling module breaks reading the store's ROOT there. */
+   sibling module would break loading it there. */
 function securewrite() { return require('./securewrite'); }
 function saveFlushed(file, data) {
   securewrite().writeSecret(file, data, modeOf(file), { atomicOnly: true, umaskDefault: true });
