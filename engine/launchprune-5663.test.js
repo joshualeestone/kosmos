@@ -288,3 +288,22 @@ test('#5663 review 8: a launch whose PATH is empty (no absolute entry) is not a 
   setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, panePath: binDir('emptypane/other/bin') });
   assert.ok(!readSettings(dir).permissions.deny.includes(rv), 'CONTROL: a launch with a real PATH did not prune');
 });
+
+test('#5663 review 9: a folder a launch denied while it was absent is never recorded, so a later launch without it on the PATH keeps it', () => {
+  const dir = agentDir('lp-absent');
+  const v = binDir('absentlaunch/tool/bin');
+  const x = path.join(SANDBOX, 'bins', 'absentlaunch', 'not-installed-yet', 'bin');   // e.g. a tool folder before install
+  setup.guardTokenOnlyFolder(dir, 'lp-absent', { ...BASE, panePath: [v, x].join(path.delimiter) });
+  const s1 = readSettings(dir);
+  const before = s1.permissions.deny.filter((r) => r.includes('not-installed-yet'));
+  const beforeW = s1.sandbox.filesystem.denyWrite.filter((p) => p.includes('not-installed-yet'));
+  assert.ok(before.length > 0 && beforeW.length > 0, 'CONTROL: the absent folder was denied at the launch');
+  const rec = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), 'utf8'));
+  assert.ok(![...rec.deny, ...rec.denyWrite].some((e) => e.includes('not-installed-yet')), 'an absent path was recorded: ' + JSON.stringify(rec));
+  assert.ok(rec.deny.includes(dirRule(v)), 'CONTROL: a present launch folder is recorded');
+  // The tmux server's PATH changes: the next launch does not have it.
+  setup.guardTokenOnlyFolder(dir, 'lp-absent', { ...BASE, panePath: v });
+  const s2 = readSettings(dir);
+  for (const r of before) assert.ok(s2.permissions.deny.includes(r), 'a launch pruned a folder denied while absent: ' + r);
+  for (const p of beforeW) assert.ok(s2.sandbox.filesystem.denyWrite.includes(p), 'a launch pruned a sandbox entry denied while absent: ' + p);
+});

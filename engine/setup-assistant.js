@@ -1363,8 +1363,13 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        next launch would see it as not current and gone, and prune it. So a launch prunes only what a launch wrote.
        It is read and written without a lock, so two refreshes at once can lose an entry; that entry is then never pruned
        (kept, not dropped). */
-    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? launchDenyNow : [])])];
-    const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...(rules.launchKnown ? launchWritesNow : [])])];
+    /* Review 9: and only a path that EXISTS now is recorded. The pane PATH is the tmux server's global PATH, which is not
+       stable between launches, so a folder denied while absent on purpose (what is later made there would run) could
+       leave one launch's PATH, be pruned, and be planted during that session. Never recorded, it is never pruned; a
+       removed version existed when it was recorded, so the upgrade case is unchanged. */
+    const present = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
+    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? [...launchDenyNow].filter((r) => present(ruleTarget(r))) : [])])];
+    const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...(rules.launchKnown ? launchWritesNow.filter(present) : [])])];
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
     const deny = [...new Set([...had, ...rules.deny])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so

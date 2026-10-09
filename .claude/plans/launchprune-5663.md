@@ -5,7 +5,7 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 
 ## Built (current, after reviews 1 and 2)
 - engine/setup-assistant.js:
-  - A record of the launch rules the guard wrote at an agent's launch, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what this launch wrote. A board start never adds to it.
+  - A record of the launch rules the guard wrote at an agent's launch, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what this launch wrote and that exists on disk. A board start never adds to it.
   - Pruning is done only by an agent launch, which is the refresh that carries the pane PATH. It drops a recorded launch entry that is not current AND whose path is gone from disk. This happens in both layers. Every other rule merges as before.
   - The ceiling, macOS only, counts every path that reaches the sandbox profile: both sandbox lists, plus the targets of the Edit and Read deny rules, each counted once. Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and whole, and it returns a `warning` (also written to stderr), never a refusal. The warning is given beside an uncovered-PATH reason, not instead of it.
 - engine/launchprune-5663.test.js.
@@ -14,7 +14,7 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - No record (a guard written before this) prunes nothing; the record starts at the next refresh. Launch rules themselves arrived with #5516 part 1 (#5660, merged 2026-10-09 03:03), so the only unrecorded launch rules are those written by a board running main between that merge and this one. No migration (review 5): a guess at which old rules were launch-shaped could drop a rule the guard did not write, and the leftover is bounded to one version per tool.
 - A rule the person also wrote that equals one the guard wrote for launch is pruned with it when its path is gone. Accepted: such a rule names a path that no longer exists.
 - The record is read and written without a lock. Two refreshes at once can lose a recorded entry. That entry is then never pruned: kept, not dropped. Accepted, because the failure direction is safe.
-- Only a launch records, so a launch prunes only what a launch wrote. A board start's launch rules come from its own inputs (its PATH, its XDG_CONFIG_HOME), are never recorded, and so are never pruned. Pruning assumes every launch passes the same launch inputs (the supervisor always does). A launch rule for a path that is deliberately denied while absent stays current at every launch, so it is not pruned.
+- Only a launch records, so a launch prunes only what a launch wrote. A board start's launch rules come from its own inputs (its PATH, its XDG_CONFIG_HOME), are never recorded, and so are never pruned. Launch inputs are NOT stable: the pane PATH is the tmux server's global PATH (review 9). So the record holds only paths that existed when they were recorded. A path denied while absent on purpose is never recorded, and is never pruned, whichever launch drops it.
 - Plan file name: the PR hook requires `.claude/plans/<branch>.md`. CLAUDE.md's timestamped name is not used here, as on every kosmos branch.
 
 ## Review 1 (Opus) and what changed
@@ -81,3 +81,9 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
   - **The size warning repeats in the board log at every board start** for an agent over the ceiling. That is acceptable for a state that blocks the agent's shell.
   - **No "Where to Find Things" row.** No files, commands or directories moved, and the token-only guard has no row today.
   - **The use-strict guard stays in this PR.** It guards the defect this branch introduced and fixed (review 3). Its known false-red shape is named in the test header.
+
+## Review 9 (Opus) and what changed
+
+- The absent-on-purpose class from review 7 reached launch inputs too. The pane PATH is the tmux server's global PATH, so a folder like a tool's bin before it is installed could be on one launch's PATH and not the next. It would then be pruned, a program planted there during that session, and the program would run at the following launch. Now only a path that exists at record time is recorded. A removed version existed when it was recorded, so the upgrade case still prunes. Test: an absent launch folder is not recorded and survives a launch without it. Both mutations go red.
+- The plan's premise sentence is replaced: launch inputs are not stable.
+- Not changed: the record's Edit rule uses the agent folder's unresolved spelling, like the existing settings-file Edit rules. The sandbox's whole-folder deny on `.claude` is what protects it in every spelling.
