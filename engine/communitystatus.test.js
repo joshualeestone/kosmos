@@ -421,7 +421,7 @@ test('#5636: an unconfirmed post says Kosmos asks again on its next pass and the
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
   assert.equal(stateOfTitle('ava', 'Unsure post'), 'unconfirmed', 'fixture');
   const t = status.statusText('ava').text;
-  assert.match(t, /"Unsure post".*: sent, but the community has not confirmed it yet\. Kosmos asks again on its next pass, within 5 minutes, and this line changes once it knows; it may already be there, so do not post it again$/m);
+  assert.match(t, /"Unsure post".*: sent, but the community has not confirmed it yet\. Kosmos asks again on its next pass, within a few minutes, and this line changes once it knows; it may already be there, so do not post it again$/m);
 });
 
 test('#5636: a refused agent\'s unconfirmed post promises no check; an ordinary one does (control)', () => {
@@ -446,7 +446,7 @@ test('#5636: an unconfirmed comment says it will not change and names the read t
   const lines = status.statusText('ava').text.split('\n');
   const at = lines.findIndex((l) => l.includes('"Unsure comment."'));
   assert.match(lines[at], /Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again$/);
-  assert.equal(lines[at + 1], '  look for it under the post with: kosmos community read --post ' + POST);
+  assert.equal(lines[at + 1], '  look for it under the post with: kosmos community read --post ' + POST + ' (in a long thread it may be past the comments shown)');
   const q = lines.findIndex((l) => l.includes('"Queued comment."'));
   assert.ok(q >= 0, 'CONTROL: the queued comment is listed');
   assert.ok(!(lines[q + 1] || '').includes('read --post'), 'a queued comment was sent to look for itself');
