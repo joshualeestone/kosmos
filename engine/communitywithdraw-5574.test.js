@@ -49,8 +49,13 @@ function backend() {
       if (req.method === 'POST' && req.url === '/posts') {
         if (!a) return send(401, { detail: 'invalid or expired token' });
         const id = crypto.randomUUID();
-        st.posts.push({ id, agent: a.id });
+        st.posts.push({ id, agent: a.id, title: body && body.title, body: body && body.body, channel: body && body.channel, sub_channel: (body && body.sub_channel) || null });
         return send(201, { id });
+      }
+      // #5636: the agent's own posts, as kosmos-community answers them, so an unanswered send can be settled.
+      if (req.method === 'GET' && req.url === '/agents/me/posts') {
+        if (!a) return send(401, { detail: 'invalid or expired token' });
+        return send(200, st.posts.filter((x) => x.agent === a.id));
       }
       const pd = /^\/posts\/([^/]+)$/.exec(req.url);
       if (req.method === 'DELETE' && pd) {
@@ -261,22 +266,46 @@ test('review 1: a new agent given a removed agent\'s name cannot take back the o
   assert.equal(cs.withdrawFor('ava', 'comment', mine.id).ok, true, 'CONTROL: its own queued comment is taken back');
 });
 
-test('review 3: with no live registration, neither a sent post nor an unanswered one is "taken back"', () => {
+test('review 3: with no live registration, a sent post is not "taken back"; #5636: an unanswered one is, and says what it cannot reach', () => {
   const sent = post('ava', 'Sent');
   const lost = post('ava', 'Lost');
   writeJson(cs._paths.sentFile(), {
     [sent.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID() },
     [lost.id]: { state: 'pending', attempted: true, agent: 'ava' },
   });
-  writeJson(cs._paths.keysFile(), { ava: { registering: { at: '2026-10-08T00:00:00Z' }, name: 'ava' } });   // no apiKey
-  for (const p of [sent, lost]) {
-    const r = cs.withdrawFor('ava', 'post', p.id);
-    assert.equal(r.notEligible, true, JSON.stringify(r));
-    assert.match(r.because, /no longer holds the registration/);
-  }
   writeJson(cs._paths.keysFile(), { ava: { refused: true, name: 'ava' } });
-  assert.match(cs.withdrawFor('ava', 'post', lost.id).because, /refused this agent/, 'an unanswered post from a refused agent too');
-  assert.deepEqual(readJson(cs._paths.deletesFile()), {});
+  assert.match(cs.withdrawFor('ava', 'post', lost.id).because, /refused this agent/, 'an unanswered post from a refused agent is not taken back');
+  assert.deepEqual(readJson(cs._paths.deletesFile()), {}, 'nothing recorded for a refused agent');
+  writeJson(cs._paths.keysFile(), { ava: { registering: { at: '2026-10-08T00:00:00Z' }, name: 'ava' } });   // no apiKey
+  const s1 = cs.withdrawFor('ava', 'post', sent.id);
+  assert.equal(s1.notEligible, true, JSON.stringify(s1));
+  assert.match(s1.because, /no longer holds the registration/);
+  // #5636 follow-up: a new key would settle the unanswered post as never sent and send it again, so it is taken back.
+  const l1 = cs.withdrawFor('ava', 'post', lost.id);
+  assert.equal(l1.ok, true, JSON.stringify(l1));
+  assert.equal(l1.state, 'unconfirmed_keyless');
+  assert.deepEqual(Object.keys(readJson(cs._paths.deletesFile())), [lost.id], 'only the unanswered post is recorded');
+});
+
+/* #5636 follow-up: the take-back holds when a key comes back, measured: without it the post is resent under the new
+   account (the second public copy the agent was told it could not take back); with it, it is not. */
+test('#5636: an unanswered post taken back with no key is not resent when a new key arrives; CONTROL: one not taken back is', async () => {
+  await on();
+  const mine = post('ava', 'Ava lost');
+  const ctl = post('bo', 'Bo lost');
+  writeJson(cs._paths.sentFile(), {
+    [mine.id]: { state: 'pending', attempted: true, agent: 'ava' },
+    [ctl.id]: { state: 'pending', attempted: true, agent: 'bo' },
+  });
+  writeJson(cs._paths.keysFile(), {});   // both keys lost
+  const r = cs.withdrawFor('ava', 'post', mine.id);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.state, 'unconfirmed_keyless');
+  await cs.sweep();
+  await cs.sweep();
+  const titles = be.st.seen.filter((x) => x.method === 'POST' && x.url === '/posts').map((x) => x.body.title);
+  assert.ok(titles.includes('Bo lost'), 'CONTROL: a post not taken back is resent once a new key is registered: ' + JSON.stringify(titles));
+  assert.ok(!titles.includes('Ava lost'), 'the post taken back was sent again: ' + JSON.stringify(titles));
 });
 
 test('review 3: a comment already held back answers as done on a retry, and a moderator-removed post as already down', async () => {

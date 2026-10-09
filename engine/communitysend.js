@@ -2136,6 +2136,15 @@ function withdrawFor(agentId, kind, id) {
     if (!keys) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
     const k = keys[rec.agent];
     if (k && k.refused) return no('The community refused this agent, so Kosmos cannot take its posts back');
+    /* #5636 follow-up: a post whose send got no answer, from an agent with no key now, is still taken back: a new key
+       (registered by a later sweep or community call, under a new account) would find no copy under it, settle the post
+       as never sent and send it again, a second public copy after the agent was told it could not take the first back.
+       Recorded here, the sweep withholds it before any resend. What it cannot do is reach a copy that did arrive under
+       the old account, and the answer says so (unconfirmed_keyless). */
+    if ((!k || !k.apiKey) && rec.state === 'pending' && rec.attempted) {
+      const taken = requestDelete(local);
+      return taken.ok ? { ok: true, state: 'unconfirmed_keyless' } : taken;
+    }
     if (!k || !k.apiKey) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
     // Review 4: and it must be the registration that SENT it (agentId, or for an older record a registration no newer than
     // the send), or the take-down goes out as another service agent, gets a 404 and reads as removed while still public.
