@@ -59,7 +59,8 @@ const TEMPLATE = /\.(example|sample|template|dist)$/i;
 // store names as a whole token (`mac_key-notes.md`, `chats/mac_key-chat.jsonl`, a project's own `communitysend/keys.json`,
 // a keys file under any folder named with the token such as `projects/communitysend-notes/keys.json`, a person's
 // `projects/undo/blobs/README.md` or `src/undo-stack/blobs/a.js`, any `phone-notify.*` file such as `src/phone-notify.js`,
-// and a `pairing.*` file directly in a folder named `remote`, such as `src/remote/pairing.ts`).
+// and a `pairing.*` file directly in a folder named with the token `remote`, such as `src/remote/pairing.ts`). A digit
+// run glued onto the FRONT of a store name (`2mac_key`) is not a copy shape any writer makes, and is not covered.
 // A run of digits glued onto the name counts as a copy too (`mac_key2`, `undo2/`).
 const TOKEN = (name) => `([^/]*[^a-z0-9/])?${name}\\d*([^a-z0-9/][^/]*)?`;
 const STORE_NAME = (name) => new RegExp(`(^|\\/)${TOKEN(name)}$`, 'i');
@@ -91,7 +92,9 @@ const KOSMOS_STORES = [
   [STORE_NAME('signin-device\\.key'), 'Kosmos Mac signing key'],
   [STORE_NAME('tls\\.key'), 'Kosmos tunnel TLS key'],
   // The connector's pairing state (kosmos-relay crates/tunnel/src/pairing.rs, pairing.json): during a pairing round it
-  // holds this computer's nonce and the comparison code. Narrower than the other stores: only directly inside a folder
+  // holds this computer's own nonce before it is revealed, which is what keeps the comparison honest. (pending.json
+  // is kept: its match codes are shown on both screens, are only meaningful during that round, and authorise nothing.)
+  // Narrower than the other stores: only directly inside a folder
   // named with the token `remote` (the connector's state folder; one moved by AGENT_WORKFORCE_TUNNEL_STATE under another
   // name is not covered). Two linear tests, as for the community keys. The connector's other files are kept: account
   // (the verified account name, not the signed token), peers.json (public keys), devices.json, mac_id.
