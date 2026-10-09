@@ -111,6 +111,11 @@ test('#5686: a session folder that is a link, or sits under one below the provid
     fs.rmSync(flat, { recursive: true }); fs.symlinkSync(w.base, flat);
     const chats = path.join(w.gemini, 'tmp', 'mikey-slug', 'chats');
     fs.rmSync(chats, { recursive: true }); fs.symlinkSync(w.other, chats);
+    // Review 9: Gemini's tmp/ folder itself a link (its slug and chats under it are real).
+    const realTmp = path.join(w.base, 'elsewhere-tmp');
+    fs.renameSync(path.join(w.gemini, 'tmp'), realTmp); fs.symlinkSync(realTmp, path.join(w.gemini, 'tmp'));
+    fs.rmSync(path.join(realTmp, 'mikey-slug', 'chats'), { recursive: true, force: true }); fs.mkdirSync(path.join(realTmp, 'mikey-slug', 'chats'));
+    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', geminiHome: w.gemini }), [], 'a linked tmp/ is refused');
     const codexSessions = path.join(w.codex, 'sessions');
     fs.renameSync(codexSessions, codexSessions + '-real'); fs.symlinkSync(codexSessions + '-real', codexSessions);
     assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude], geminiHome: w.gemini, codexHome: w.codex }), []);
