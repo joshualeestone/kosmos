@@ -79,3 +79,15 @@ run against the module before its review's change; the plan records which failed
 - Restore's own pathProblem, collisionKey and collidingPaths decide what is stored.
 - Nothing is uploaded unless the finished manifest and the week's allowance are sure to fit.
 - Every new test was run against the module before its change.
+
+## Final Ledger
+
+### Round 40 (sonnet), the converging round, as recorded above
+[WARNING] engine/backupsnapshot.js - No ceiling on a granted chunk's lock. Already enforced by uploadChunks' checkOne: a chunk grant's lock must be 29 to 39 days from its signed start (backupupload.js line 220). No change; deduplicated as already handled.
+[NIT] engine/backupsnapshot.js - A comment wording. Noted.
+[NIT] engine/backupsnapshot.js - A performance note. Noted.
+[STRENGTH] - Restore's own pathProblem, collisionKey and collidingPaths decide what is stored.
+[STRENGTH] - Nothing is uploaded unless the finished manifest and the week's allowance are sure to fit.
+
+### Round 39 (opus)
+[BLOCKER] engine/backupsnapshot.js - secretmask over large text ran in the board's process (measured). FIXED: 64 MB per-file and 4 MB text caps.
