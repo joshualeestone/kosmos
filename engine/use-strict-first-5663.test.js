@@ -15,9 +15,10 @@ const { execFileSync } = require('child_process');
 const REPO = path.join(__dirname, '..');
 
 function misplaced(text) {
-  if (!/^'use strict';/m.test(text)) return false;
+  // Either quote, with or without the semicolon (review 4).
+  if (!/^(['"])use strict\1;?\s*$/m.test(text)) return false;
   const rest = text.replace(/^#!.*\n/, '').replace(/^(\s|\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)*/, '');
-  return !rest.startsWith("'use strict'");
+  return !/^(['"])use strict\1/.test(rest);
 }
 
 test('#5663: a file that says \'use strict\' says it first', () => {
@@ -31,5 +32,7 @@ test('#5663: CONTROL, the check sees a misplaced directive and passes a first on
   assert.equal(misplaced("const x = 1;\n'use strict';\n"), true);
   assert.equal(misplaced("/* a */\nconst x = 1; /* b */\n'use strict';\n"), true);
   assert.equal(misplaced("#!/usr/bin/env node\n// note\n/* block\n */\n'use strict';\nconst x = 1;\n"), false);
+  assert.equal(misplaced('const x = 1;\n"use strict"\n'), true);
+  assert.equal(misplaced('"use strict";\nconst x = 1;\n'), false);
   assert.equal(misplaced('const x = 1;\n'), false);
 });

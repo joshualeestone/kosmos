@@ -95,13 +95,14 @@ test('#5663: the record cannot be rewritten by the agent: it is denied to the fi
   assert.ok(j.deny.length > 0 && j.denyWrite.length > 0, JSON.stringify(j));
 });
 
-test('#5663: a sandbox layer past the measured ceiling says the guard is not whole, and the guard is still written', () => {
+test('#5663: a sandbox layer past the measured ceiling is a warning (the guard is whole and written), never a refusal', () => {
   const dir = agentDir('lp-ceiling');
   const many = [];
   for (let i = 0; i < 1400; i++) many.push(binDir(`ceiling/pkg${i}/1.${i}/bin`));
   const r = setup.guardTokenOnlyFolder(dir, 'lp-ceiling', { ...BASE, panePath: many.join(path.delimiter) });
-  assert.equal(r.ok, false, JSON.stringify(r).slice(0, 200));
-  assert.match(r.because, /denied paths \(\d+ distinct characters, \d+ in all\) are past/);
+  // Review 4: a warning, never a refusal (creation refuses on ok:false, and the limits are fitted to measurements).
+  assert.equal(r.ok, true, JSON.stringify(r).slice(0, 200));
+  assert.match(r.warning, /denied paths \(\d+ distinct characters, \d+ in all\) are past/);
   assert.ok(readSettings(dir).sandbox.filesystem.denyWrite.length > 1000, 'the guard was not written');
   // CONTROL: the same agent with a handful of folders is whole.
   assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
@@ -145,11 +146,11 @@ test('#5663 review 2: the ceiling is a macOS check, and its reason is said besid
   fs.mkdirSync(path.join(mac, '.claude'), { recursive: true });
   fs.writeFileSync(settingsFile(mac), JSON.stringify({ sandbox: { filesystem: { denyWrite: huge } } }));
   const rm = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE });
-  assert.equal(rm.ok, false); assert.match(rm.because, /denied paths/);
+  assert.equal(rm.ok, true); assert.match(rm.warning, /denied paths/);
   // Both reasons at once: past the ceiling AND a PATH entry it could not cover.
   const both = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE, panePath: 'relative/bin' });
   assert.equal(both.ok, false);
-  assert.match(both.because, /could not cover/); assert.match(both.because, /denied paths/);
+  assert.match(both.because, /could not cover/); assert.match(both.warning, /denied paths/);
 });
 
 test('#5663: a launch path not current but still on disk is kept; once it is gone it is pruned, even in a folder that stays', () => {
@@ -215,7 +216,7 @@ test('#5663: the ceiling counts the Edit and Read deny paths too, by distinct pr
   assert.equal(P, 40 * 1024);
   assert.deepEqual(withPaths(['/Q' + 'q'.repeat(P - z.prefixes - 1)]), { ok: true }, 'at exactly the prefix limit');
   const over = withPaths(['/Q' + 'q'.repeat(P - z.prefixes)]);
-  assert.equal(over.ok, false); assert.match(over.because, new RegExp(`\\(${P + 1} distinct characters`));
+  assert.equal(over.ok, true); assert.match(over.warning, new RegExp(`\\(${P + 1} distinct characters`));
   // Raw: many long paths that share all but their last few characters (they cost little in prefixes).
   const R = setup.SANDBOX_DENY_RAW_MAX;
   assert.equal(R, 160 * 1024);
@@ -230,6 +231,6 @@ test('#5663: the ceiling counts the Edit and Read deny paths too, by distinct pr
   };
   assert.deepEqual(withPaths(rawSet(0)), { ok: true }, 'at exactly the raw limit');
   const overRaw = withPaths(rawSet(1));
-  assert.equal(overRaw.ok, false); assert.match(overRaw.because, new RegExp(`, ${R + 1} in all\\)`));
-  assert.ok(Number(/\((\d+) distinct/.exec(overRaw.because)[1]) < P, 'CONTROL: the raw arm turned it, not the prefix arm');
+  assert.equal(overRaw.ok, true); assert.match(overRaw.warning, new RegExp(`, ${R + 1} in all\\)`));
+  assert.ok(Number(/\((\d+) distinct/.exec(overRaw.warning)[1]) < P, 'CONTROL: the raw arm turned it, not the prefix arm');
 });

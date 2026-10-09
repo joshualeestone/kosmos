@@ -1,13 +1,13 @@
 # launchprune-5663: the token-only guard prunes launch rules of removed tool versions, and says when its deny paths pass a measured sandbox ceiling (kosmos#5663)
 
 ## Finished looks like
-An agent launch after an upgrade leaves no rule for the removed version folder or file, in either layer. The person's own rules and the rest of the guard are untouched. A guard whose denied paths would pass a measured sandbox ceiling says it is not whole.
+An agent launch after an upgrade leaves no rule for the removed version folder or file, in either layer. The person's own rules and the rest of the guard are untouched. A guard whose denied paths would pass a measured sandbox ceiling says so as a warning.
 
 ## Built (current, after reviews 1 and 2)
 - engine/setup-assistant.js:
   - A record of the launch rules the guard wrote, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what is current.
   - Pruning is done only by an agent launch, which is the refresh that carries the pane PATH. It drops a recorded launch entry that is not current AND whose path is gone from disk. This happens in both layers. Every other rule merges as before.
-  - The ceiling, macOS only, counts every path that reaches the sandbox profile: both sandbox lists, plus the targets of the Edit and Read deny rules, each counted once. Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and says it is not whole. That reason is given beside an uncovered-PATH reason, not instead of it.
+  - The ceiling, macOS only, counts every path that reaches the sandbox profile: both sandbox lists, plus the targets of the Edit and Read deny rules, each counted once. Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and whole, and it returns a `warning` (also written to stderr), never a refusal. The warning is given beside an uncovered-PATH reason, not instead of it.
 - engine/launchprune-5663.test.js.
 
 ## Decided
@@ -41,3 +41,10 @@ An agent launch after an upgrade leaves no rule for the removed version folder o
 - Review 2's block move put the #5663 code above `'use strict'`, which turned the whole module into sloppy mode silently. The code is moved back above the token-only doc comment, and `'use strict'` is line 1 again. Class guard: `engine/use-strict-first-5663.test.js`. Every tracked .js file that says 'use strict' must say it first (1,902 files; all pass), with a control that the check sees a misplaced directive. Proven red by prepending a statement to setup-assistant.js.
 - A version kept as one file in a folder that stays (`versions/<n>`) was never pruned, because the parent always existed. Now that only a launch prunes, the parent-folder condition protected nothing the launch gate does not, so it is dropped: a path that is not current and is gone is pruned. A test covers that layout.
 - Nits taken: the size-limit comment now sits on its check; a record rule that cannot be written is said on stderr; the current launch writes are a Set.
+
+## Review 4 (Sonnet) and what changed
+
+- The size ceiling returned `ok:false`, and agent creation refuses on `ok:false`. So an estimate fitted to eight measurements could stop a person creating a token-only agent. The guard is whole either way (the token is denied); the risk is that the shell may not run. It is now `ok:true` with a `warning`, written to stderr as well. Decided: a warning, not a refusal. What would change it: a measured profile under the limits that still fails.
+- A record rule that cannot be written (a pattern character in the agent's folder path) now marks the guard not whole, as reviews 16 and 17 rule for any dropped self-protection rule. It is not separately testable: the same folder path already drops the guard's other rules.
+- The use-strict guard now also sees a double-quoted directive, and one with no semicolon.
+- Not taken: `ruleTarget` counts a `.*` tmp glob as literal characters. That over-counts slightly, in the safe direction.

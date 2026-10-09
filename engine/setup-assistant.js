@@ -1261,7 +1261,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const launchRecord = path.join(settingsDir, LAUNCH_RECORD_FILE);
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
-  else process.stderr.write(`#5663: ${launchRecord} has a character the permission rules cannot carry; the file tools are not denied it\n`);
+  else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
   return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: !!launch.paneKnown };
 }
 
@@ -1405,13 +1405,17 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     if (!writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
     // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
     // never a reason to write nothing.
-    const notWhole = [];
-    if (rules.launchUnsafe && rules.launchUnsafe.length) notWhole.push('the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place');
-    // #5663: the sandbox profile has size limits (SANDBOX_DENY_PREFIX_MAX); past them the guard says it is not whole.
+    /* #5663: the sandbox profile has size limits (SANDBOX_DENY_PREFIX_MAX). Past them the guard is still whole (the token
+       is denied), but the agent's shell may not run, so it is said as a warning, never a refusal: the limits are fitted
+       to measurements (review 4), and a refusal would stop an agent being created on an estimate. It is said beside
+       an uncovered PATH entry, not instead of it. */
     const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny) : null;
-    if (sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)) notWhole.push(`its ${sz.paths} denied paths (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`);
-    if (notWhole.length) return { ok: false, because: notWhole.join('; and ') };
-    return { ok: true };
+    const warning = sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)
+      ? `its ${sz.paths} denied paths (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
+      : null;
+    if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
+    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };
+    return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
   }
