@@ -332,3 +332,8 @@ reads. Anything that cannot be covered makes the guard say it is not whole, and 
   - NOT CHANGED (nits): a file LINK at hop 1 or later whose own name has a pattern character is said, not given the
     folder fallback (rare; fails safe); a failure of the token-only probe in the supervisor skips the launch-time
     refresh without a line (the board's last guard stands).
+- Round 24 (sonnet): CONVERGED. 0 BLOCKER, 1 WARNING (not new: the accumulation follow-up), 2 NIT (recorded before).
+  - Folded into the follow-up: deny lists only grow, so the follow-up card must bound the SANDBOX layer too, not just
+    the file tools: about 100 bytes per versioned PATH folder, against the measured 64 KB profile limit (roughly 600
+    folders away today). A cheap first step is to say "not whole" or log when the merged list nears a threshold.
+- Converged at round 24. Next: when #5122 merges, rebase onto main, then Mortals, the proof and the PR (class-only text).
