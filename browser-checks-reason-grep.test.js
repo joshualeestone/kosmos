@@ -357,6 +357,7 @@ const SITE_COUNTS = {
   'render-conn-top-3708.js': [1, 1],
   'render-connect-skip.js': [1, 0],
   'render-connlost-reconnect-3410.js': [2, 1],
+  'render-convmode-5624.js': [1, 0],
   'render-create-form.js': [1, 0],
   'render-create-made.js': [1, 0],
   'render-create-openai-model-2140.js': [1, 1],
