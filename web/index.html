@@ -40101,15 +40101,15 @@ function usageCharts4Html(series, totals, grandTotal) {
 const USAGE_MODEL_PRICES = {
   // id: { in, out, cw, cr }  -- $ per MILLION tokens
   // opus-5-5 in/out/cr are the published Anthropic rates. cr is $0.20 = 0.05x input,
-  // a real break from the 0.1x the other Claude tiers use (like fable-5-1) -- do not
+  // a real break from the 0.1x most other Claude tiers use (sonnet-5-5 shares it, fable-5-1 is 0.025x) -- do not
   // "correct" it to 0.40. cw is the standard 1.25x input 5-minute write, as every row.
   'claude-opus-5-5': { in: 4, out: 20, cw: 5.00, cr: 0.20 },
   'claude-opus-5': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
   'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
-  // sonnet-5-5 (#4439): the same tier as sonnet-5, tier_2_10 in Claude Code 2.1.284's model
-  // catalog (input 2, output 10, 5-minute write 2.5, cache read 0.2). That catalog gives
-  // opus-5-5 exactly the published rates above, which is why it is trusted here.
-  'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
+  // sonnet-5-5 (#4439, cache read corrected by #5627): input 2, output 10, 5-minute write 2.5 as sonnet-5, but cache
+  // hits at 0.10, which is 0.05x of input, the same multiplier as opus-5-5 (published Anthropic pricing, read 2026-10-08).
+  // The 0.20 first used here came from the Claude Code 2.1.284 tier_2_10 catalog entry, which the published price overrides.
+  'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.10 },
   'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
   // #5626: claude-haiku-5-5 at the published Anthropic base rates (platform.claude.com pricing, 2026-10-08): input 0.10,
