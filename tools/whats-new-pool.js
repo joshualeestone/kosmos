@@ -133,12 +133,14 @@ function main(argv) {
     }
     const out = opt(argv, 'out', whatsnew.FILE);
     fs.writeFileSync(out, JSON.stringify(obj, null, 2) + '\n');
-    process.stdout.write(path.relative(process.cwd(), out) + ': ' + obj.highlights.length + ' highlight(s) for ' + version
+    const rel = path.relative(process.cwd(), out);
+    process.stdout.write((rel.startsWith('..') ? out : rel) + ': ' + obj.highlights.length + ' highlight(s) for ' + version
       + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n'
       + 'The pool says the last PROD release was ' + (pool.lastProd || 'not recorded') + '. If a newer version reached prod, first'
       + ' run, ON an up-to-date MAIN (main\'s pool, never a release checkout\'s):'
       + ' node tools/whats-new-pool.js shown <that version> --promoted --from-history, then commit release/whats-new-pool.json to main.'
       + ' Otherwise prod users see its highlights again.\n'
+      + 'Eligible means not yet shown to PROD users, so people who ran staging builds since ' + (pool.lastProd || 'then') + ' may see some of these again (#5711).\n'
       + 'Edit titles and lines in release/whats-new-pool.json and build again, never in the built file: `shown` matches by title.\n');
     return 0;
   }
