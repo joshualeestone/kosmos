@@ -1442,3 +1442,13 @@ test('a chunk run refused before asking for any grant says grantSpent: false', a
   const r = await up.uploadChunks({ macRequest: async () => { asked++; return { ok: false, because: 'x' }; }, fetch, sleep: async () => {} }, [{ name: 'n', object: Buffer.alloc(10) }]);
   assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, false); assert.strictEqual(asked, 0);
 });
+
+test('a refusal of the FIRST manifest grant\'s answer does not claim an earlier grant ran out (but still says grantSpent)', async () => {
+  const b = await bucket();
+  try {
+    const r = await up.uploadManifest(deps(manifestCoordinator(b, { tamper: (d) => { d.expires_at = 'not a time'; } })), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, true);
+    assert.match(r.because, /^the manifest grant answer has no readable expires_at/);
+    assert.doesNotMatch(r.because, /earlier manifest grant/);
+  } finally { await b.close(); }
+});
