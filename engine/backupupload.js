@@ -7,14 +7,14 @@
  *   -> { epoch, period, retain_until, expires_at, uploads: [{ key, url, headers }] }, one upload per chunk, in order.
  *      expires_at and retain_until are ISO-8601 UTC strings ("2026-10-08T18:15:00Z").
  *
- * Each upload is a presigned PUT. Its query signature covers content-length, content-md5, host, if-none-match and
- * the two lock headers (six, all required here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are
+ * Each upload is a presigned PUT. Its query signature covers content-length, the digest header (content-md5 for a
+ * chunk, x-amz-checksum-sha256 for a manifest), host, if-none-match and the two lock headers (six, all required here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are
  * NOT in it). Measured on #5535: a matching body 200, a different body 400 BadDigest, a dropped signed header 403, a
  * second PUT 412. Keys are random per upload (two new ids), and each url's path ends with its key.
  *
  * What this module owns, and what it does not:
- *  - Before a single byte leaves, every grant must bind OUR bytes: the MD5 in its headers is the one we asked for, a
- *    Content-Length (if listed) is the chunk's length, X-Amz-SignedHeaders covers those six headers, If-None-Match is
+ *  - Before a single byte leaves, every grant must bind OUR bytes: the digest in its headers (MD5 for a chunk, SHA-256
+ *    for a manifest) is the one we asked for, a Content-Length (if listed) is the object's length, X-Amz-SignedHeaders covers those six headers, If-None-Match is
  *    `*`, the url carries exactly SigV4's six query parameters and a signed time that agrees with expires_at, its host
  *    is an AWS S3 endpoint (path-style or virtual-hosted, never a website endpoint), the url is https and carries the upload's own key, and no url or key
  *    repeats. A coordinator bug cannot make the Mac write something other than what it sealed.
@@ -520,6 +520,9 @@ function ownerOf(key) {
    may still have spent a grant (the coordinator takes the allowance before it answers, so a lost answer can cost
    one). Never throws.
    outlastsChunks is NOT a retry-later: the caller must upload the old chunks again first, never retry the same call.
+   A backup must therefore finish (manifest included) in the period its chunks were granted in, or its chunks must be
+   granted on that period's last day: the coordinator moves only last-day grants to the next period's date, so a
+   manifest after Monday 00:00 UTC naming earlier chunks is refused, and those chunks must be uploaded again.
    It comes with grantSpent: false when refused before any grant (this Mac's clock already showed it), or true when
    refused as the grant arrived: that spent one of the period's 50 manifest grants and left the coordinator a
    recorded hash that was never stored.
