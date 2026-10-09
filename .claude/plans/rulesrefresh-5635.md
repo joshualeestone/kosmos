@@ -4,7 +4,7 @@ From Josh's multi-model feedback on 0.7.27 (2026-10-07), filed by Splinter. Card
 
 ## Finished looks like
 **F1.** At board start, every agent of ours whose working-rules text is Kosmos's own text that nobody edited is brought to the current rules with no click, and the running agent is told to read the section again. That covers both kinds of copy:
-- a managed span whose content is a known earlier block (doctrine `knownContent`);
+- a managed span whose content is, byte for byte, a whole earlier block (`wholeKnownBlock`);
 - a plain, unedited copy of an earlier block (doctrine `pastBlockIn`).
 
 A test proves that a changed template section reaches an existing agent's file. Rules a person edited, files without the rules, and an agent whose person said Not now to this version are left for the click, as today.
@@ -82,3 +82,12 @@ That the test agents' stale text was a known earlier block. If the multi-model t
   - W2: the span-offset arithmetic had no test. Now a copy-before-span case (red when the shift is removed, by mutation) and a copy, span, typed-copy case.
   - CONVENTION fixed: a current copy beside an old one also waits for the click.
   - NITs fixed: lstat for the folder (a dangling link is reported); the stacked comments merged.
+- **Round 9 (opus):** 0 blockers.
+  - Card's main case confirmed against real history: 33 earlier blocks x 5 shapes, 165 of 165 update with the shipped table. The 5 Kosmos-born real files update, the 17 hand-made are left, and echo's diff touches only its rules.
+  - W fixed: round 8's current-copy check read a span holding today's block as a second copy. It now looks outside the span; arm tested, red by mutation.
+  - Conventions fixed: plan line 7 (wholeKnownBlock); the docstring lists everything that still needs the click.
+  - NITs fixed:
+    - an old span plus today's copy outside it waits;
+    - the fleet message now says why a copy is left;
+    - constraint 3 cross-references the third writer;
+    - the endsWith guard is marked defence in depth.
