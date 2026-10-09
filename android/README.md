@@ -96,8 +96,7 @@ PATH += platform-tools
 Installed: cmdline-tools, platform-tools 37.0.1 (`adb`), build-tools 35.0.0,
 platforms android-35 and android-36 (compileSdk is 36; android-35 remains for the
 Robolectric unit tests, which are pinned to API 35). There is **no system Gradle and no
-Android Studio** by
-design, which is why this project ships the Gradle wrapper.
+Android Studio** by design, which is why this project ships the Gradle wrapper.
 
 ## Build status: verified green (with a JDK 21), and the JDK-26 catch
 

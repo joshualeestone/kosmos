@@ -92,6 +92,8 @@ dependencies {
     // Plain JVM tests for the address rule (AddressChoice has no Android types).
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'androidx.test:core:1.6.1'
-    // 4.14 is the first release with Android 15 / API 35 support.
+    // 4.14 is the first release with Android 15 / API 35 support. It does NOT support
+    // API 36, so the unit tests are pinned to API 35 in
+    // src/test/resources/robolectric.properties (removed after the upgrade in #5700).
     testImplementation 'org.robolectric:robolectric:4.14.1'
 }

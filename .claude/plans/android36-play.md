@@ -27,7 +27,7 @@ Bumping `targetSdk`/`compileSdk` to 36 has test and CI consequences that the ini
 
 ## Suppress-flag decision (for the PR note)
 
-`android.suppressUnsupportedCompileSdk=36` is acceptable as a short-term measure here: no app code uses an API 36 feature, and the app is a thin TWA launcher. The clean long-term fix is to upgrade AGP and Gradle to a version that officially supports `compileSdk 36`, which should follow as its own card rather than being bundled into this urgent compliance bump.
+`android.suppressUnsupportedCompileSdk=36` is acceptable as a short-term measure here: no app code uses an API 36 feature, and the app is a thin TWA launcher. The clean long-term fix is to upgrade AGP and Gradle to a version that officially supports `compileSdk 36`, which follows as its own card (#5700) rather than being bundled into this urgent compliance bump. #5700 also covers upgrading Robolectric so the API-35 unit-test pin can be removed.
 
 ## Finished looks like
 
