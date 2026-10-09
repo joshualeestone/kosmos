@@ -57,7 +57,7 @@ function complete() {
   fs.mkdirSync(path.dirname(FLAG), { recursive: true });
   // #5434 slice 19: flushed before the rename; a failed save removes its own temp (the half-written-file worry the
   // old code handled by hand) and throws, as before.
-  require('./store').saveFlushed(FLAG, `${JSON.stringify({ completedAt: new Date().toISOString() }, null, 2)}\n`);
+  store.saveFlushed(FLAG, `${JSON.stringify({ completedAt: new Date().toISOString() }, null, 2)}\n`);
   /**
    * ⚠️ THIS IS WEAKER THAN "we read it back and it is there", and the route
    * above it should not claim otherwise. `seen()` deliberately answers
