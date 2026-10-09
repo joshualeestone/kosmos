@@ -7,6 +7,9 @@ const { hpkeKeyPair, hpkeSeal } = require('./hpke');
 
 const mctx = { org: 'org1', member: 'acct1', epoch: '1' };
 const nctx = { org: 'org1', member: 'acct1', epoch: '1', period: '2026-W41' };
+// The id namingKeyId gives, computed here for ANY bytes (so a forged 31- or 33-byte secret has its own matching id,
+// and its refusal must come from the length check, not from an id mismatch).
+const idOf = (b) => require('node:crypto').createHash('sha256').update(Buffer.from('kosmos-backup v1 naming-key-id\0')).update(b).digest().subarray(0, 16).toString('hex');
 
 test('a member key wrapped to a recipient opens with that recipient and derives to the member public key', () => {
   const member = keys.newMemberKey(), escrow = hpkeKeyPair();
@@ -51,23 +54,27 @@ test('a naming key wrapped to the member public key opens with the member privat
   const w = keys.wrapNamingKey(nk, member.pk, nctx);
   assert.strictEqual(w.length, 4 + 32 + 32 + 16, 'magic, enc, the 32-byte secret, the tag');
   assert.ok(w.subarray(0, 4).equals(Buffer.from('KBN1')));
-  const back = keys.unwrapNamingKey(member.sk, w, nctx);
+  const back = keys.unwrapNamingKey(member.sk, w, nctx, keys.namingKeyId(nk));
   assert.ok(back && back.equals(nk));
   for (const k of Object.keys(nctx)) {
-    assert.strictEqual(keys.unwrapNamingKey(member.sk, w, Object.assign({}, nctx, { [k]: nctx[k] + 'x' })), null, k);
+    assert.strictEqual(keys.unwrapNamingKey(member.sk, w, Object.assign({}, nctx, { [k]: nctx[k] + 'x' }), keys.namingKeyId(nk)), null, k);
   }
-  assert.strictEqual(keys.unwrapNamingKey(keys.newMemberKey().sk, w, nctx), null, 'another member key');
+  assert.strictEqual(keys.unwrapNamingKey(keys.newMemberKey().sk, w, nctx, keys.namingKeyId(nk)), null, 'another member key');
+  // The id is REQUIRED and must be this key's: another key's id, no id, or a malformed one refuses.
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, w, nctx, keys.namingKeyId(keys.newNamingKey())), null, 'another id');
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, w, nctx), null, 'no id');
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, w, nctx, keys.namingKeyId(nk).toUpperCase()), null, 'upper-case id');
 });
 
 test('a member-key wrap never opens as a naming key, nor the reverse (the magic and the kind line differ)', () => {
   const member = keys.newMemberKey();
   // A member key wrapped to the member's own public key, opened as a naming key with the same ids.
   const mw = keys.wrapMemberKey(member.sk, member.pk, mctx);
-  assert.strictEqual(keys.unwrapNamingKey(member.sk, mw, nctx), null);
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, mw, nctx, keys.namingKeyId(member.sk)), null);
   // With the magic swapped: the associated data still differs (the kind line, and the naming key's period field),
   // and both kinds share one HPKE info.
   const swapped = Buffer.concat([Buffer.from('KBN1'), mw.subarray(4)]);
-  assert.strictEqual(keys.unwrapNamingKey(member.sk, swapped, nctx), null);
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, swapped, nctx, keys.namingKeyId(member.sk)), null);
   const nw = keys.wrapNamingKey(keys.newNamingKey(), member.pk, nctx);
   assert.strictEqual(keys.unwrapMemberKey(member.sk, Buffer.concat([Buffer.from('KBK1'), nw.subarray(4)]), mctx, member.pk), null);
   // CONTROL: the member-key wrap to its own public key does open as a member key.
@@ -77,22 +84,23 @@ test('a member-key wrap never opens as a naming key, nor the reverse (the magic 
 test('a tampered byte anywhere, a truncated or padded wrap, and non-bytes all refuse with null, never a throw', () => {
   const member = keys.newMemberKey(), r = hpkeKeyPair();
   const w = keys.wrapMemberKey(member.sk, r.pk, mctx);
-  const nw = keys.wrapNamingKey(keys.newNamingKey(), member.pk, nctx);
-  assert.ok(keys.unwrapNamingKey(member.sk, nw, nctx), 'CONTROL: the untampered naming wrap opens');
+  const nk = keys.newNamingKey(), nid = keys.namingKeyId(nk);
+  const nw = keys.wrapNamingKey(nk, member.pk, nctx);
+  assert.ok(keys.unwrapNamingKey(member.sk, nw, nctx, nid), 'CONTROL: the untampered naming wrap opens');
   for (let i = 0; i < w.length; i++) {
     const t = Buffer.from(w); t[i] ^= 0x01;
     assert.strictEqual(keys.unwrapMemberKey(r.sk, t, mctx, member.pk), null, `member wrap byte ${i}`);
     const tn = Buffer.from(nw); tn[i] ^= 0x01;
-    assert.strictEqual(keys.unwrapNamingKey(member.sk, tn, nctx), null, `naming wrap byte ${i}`);
+    assert.strictEqual(keys.unwrapNamingKey(member.sk, tn, nctx, nid), null, `naming wrap byte ${i}`);
   }
   for (const bad of [w.subarray(0, w.length - 1), Buffer.concat([w, Buffer.alloc(1)]), Buffer.alloc(0), 'KBK1', null, undefined, 42, {}]) {
     assert.strictEqual(keys.unwrapMemberKey(r.sk, bad, mctx, member.pk), null);
-    assert.strictEqual(keys.unwrapNamingKey(member.sk, bad, nctx), null);
+    assert.strictEqual(keys.unwrapNamingKey(member.sk, bad, nctx, nid), null);
   }
   // A bad recipient key or context on unwrap is also null, not a throw.
   assert.strictEqual(keys.unwrapMemberKey(Buffer.alloc(31), w, mctx, member.pk), null);
   assert.strictEqual(keys.unwrapMemberKey(r.sk, w, { org: 'o' }, member.pk), null);
-  assert.strictEqual(keys.unwrapNamingKey(member.sk, keys.wrapNamingKey(keys.newNamingKey(), member.pk, nctx), { org: 'o' }), null);
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, nw, { org: 'o' }, nid), null);
 });
 
 test('wrap throws on a caller mistake: key sizes, a bad context, a non-canonical recipient key', () => {
@@ -141,12 +149,14 @@ test('wraps are not authenticated, so a FORGED wrap (made by anyone with the pub
   const other = keys.newMemberKey();
   assert.strictEqual(keys.unwrapMemberKey(escrow.sk, forge('KBK1', escrow.pk, keys.memberContextBytes(mctx), other.sk), mctx, member.pk), null);
   // A forged wrap of a secret that is not 32 bytes: refused for both kinds.
-  assert.strictEqual(keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), Buffer.alloc(31, 7)), nctx), null);
-  assert.strictEqual(keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), Buffer.alloc(33, 7)), nctx), null);
-  // CONTROL: a forged naming-key wrap of 32 bytes DOES open (nothing can tell it from a real one): the defence is
-  // that chunk names then fail to verify on restore, not this function.
-  const fake = Buffer.alloc(32, 9);
-  const got = keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), fake), nctx);
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), Buffer.alloc(31, 7)), nctx, idOf(Buffer.alloc(31, 7))), null);
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), Buffer.alloc(33, 7)), nctx, idOf(Buffer.alloc(33, 7))), null);
+  // A forged naming-key wrap of 32 bytes opens only if the caller asks for THAT key's id: the signed manifest records
+  // the real key's id, so the forgery is refused (CONTROL: asked for by its own id, it does open).
+  const fake = Buffer.alloc(32, 9), real = keys.newNamingKey();
+  const fw = forge('KBN1', member.pk, keys.namingContextBytes(nctx), fake);
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, fw, nctx, keys.namingKeyId(real)), null);
+  const got = keys.unwrapNamingKey(member.sk, fw, nctx, keys.namingKeyId(fake));
   assert.ok(got && got.equals(fake));
 });
 
@@ -181,7 +191,7 @@ test('namingKeyId names one naming key: stable, distinct per key, pinned, and re
   // Restore picks among a period's wraps by id: two keys in one period, each found by its id.
   const member = keys.newMemberKey(), a = keys.newNamingKey(), b = keys.newNamingKey();
   const wraps = [a, b].map((k) => keys.wrapNamingKey(k, member.pk, nctx));
-  const byId = (id) => wraps.map((w) => keys.unwrapNamingKey(member.sk, w, nctx)).find((k) => k && keys.namingKeyId(k) === id);
+  const byId = (id) => wraps.map((w) => keys.unwrapNamingKey(member.sk, w, nctx, id)).find(Boolean);
   assert.ok(byId(keys.namingKeyId(b)).equals(b)); assert.ok(byId(keys.namingKeyId(a)).equals(a));
 });
 
