@@ -69,9 +69,8 @@ function recordSent(session, now = Date.now()) {
     for (const [k, v] of Object.entries(all)) { const keep = v.filter((t) => now - t < SENT_KEEP_MS); if (keep.length) out[k] = keep; }
     out[session] = [...(out[session] || []), now];
     fs.mkdirSync(path.dirname(sentFile()), { recursive: true });
-    const tmp = sentFile() + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(out) + '\n');
-    fs.renameSync(tmp, sentFile());
+    // #5434 slice 23: flushed before the rename
+    require('./store').saveFlushed(sentFile(), JSON.stringify(out) + '\n');
     return true;
   } catch { return false; }
 }
@@ -105,9 +104,8 @@ function readOwed() {
 function writeOwed(owed) {
   try {
     fs.mkdirSync(path.dirname(file()), { recursive: true });
-    const tmp = file() + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(owed) + '\n');
-    fs.renameSync(tmp, file());
+    // #5434 slice 23: flushed before the rename
+    require('./store').saveFlushed(file(), JSON.stringify(owed) + '\n');
     return true;
   } catch { return false; }
 }
