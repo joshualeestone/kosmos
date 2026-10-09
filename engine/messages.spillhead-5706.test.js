@@ -19,10 +19,11 @@ test('#5706: a first sentence that ends within 200 characters is the head, whole
 test('#5706: no sentence end within 200 characters: cut at a whole word, with an ellipsis', () => {
   const text = 'the lease detail '.repeat(80);
   const r = spillHead(text);
-  assert.ok(r.head.endsWith('detail…') || r.head.endsWith('lease…') || r.head.endsWith('the…'), r.head);
+  assert.ok(r.head.endsWith('\u2026'), r.head);
   assert.ok(r.head.length <= 201, r.head.length);
-  assert.ok(!/\s…$/.test(r.head), 'a space before the ellipsis: ' + JSON.stringify(r.head));
-  // CONTROL: the old head cut mid-word; this one ends on a word of the text.
+  assert.ok(!/\s\u2026$/.test(r.head), 'a space before the ellipsis: ' + JSON.stringify(r.head));
+  // The old head was text.slice(0, 200), which cuts a word in two here; this one ends on a whole word.
+  assert.ok(/\S$/.test(text.slice(0, 200)) && /\S/.test(text.charAt(200)), 'CONTROL: this text really does cut mid-word at 200');
   const lastWord = r.head.slice(0, -1).split(' ').pop();
   assert.ok(['the', 'lease', 'detail'].includes(lastWord), lastWord);
 });
@@ -31,11 +32,41 @@ test('#5706: a very short first sentence ("Hi.") is not the summary; the opening
   const text = 'Hi. ' + 'Here is the whole plan for the quarter, step by step '.repeat(30);
   const r = spillHead(text);
   assert.ok(r.head.startsWith('Hi. Here is the whole plan'), r.head);
-  assert.ok(r.head.endsWith('…'), r.head);
+  assert.ok(r.head.endsWith('\u2026'), r.head);
 });
 
 test('#5706: one unbroken run of 200+ characters is cut at 200, never empty', () => {
   const r = spillHead('x'.repeat(900));
-  assert.equal(r.head, 'x'.repeat(200) + '…');
+  assert.equal(r.head, 'x'.repeat(200) + '\u2026');
   assert.equal(r.words, 1);
+});
+
+test('#5706 review 1: a list number or an abbreviation is not a sentence end, so the head is not a fragment passed off as whole', () => {
+  for (const text of [
+    'Summary of the changes in this PR: 1. The first change to the build. 2. The second. ' + 'More. '.repeat(150),
+    'We need the tools for the job, e.g. A hammer and a saw are on the list for later. ' + 'More. '.repeat(150),
+    'I met with the landlord at 3 p.m. Then we walked through the whole flat together. ' + 'More. '.repeat(150),
+  ]) {
+    const r = spillHead(text);
+    assert.ok(!/(?:\b1\.|e\.g\.|p\.m\.)$/.test(r.head), 'a fragment read as a sentence: ' + r.head);
+  }
+  // CONTROL: a real sentence after such a word is still found.
+  assert.equal(spillHead('I met with the landlord at 3 p.m. Then we walked through the whole flat. Next. ' + 'More. '.repeat(150)).head,
+    'I met with the landlord at 3 p.m. Then we walked through the whole flat.');
+});
+
+test('#5706 review 1: a full stop at the 200th character inside a word (v3.5) is not a sentence end', () => {
+  const lead = 'z'.repeat(150) + ' ' + 'y'.repeat(45) + ' v3';   // the "." of "v3.5" is the 200th character
+  const text = lead + '.5 next ' + 'word '.repeat(200);
+  assert.equal(text.indexOf('.'), 199, 'CONTROL: the full stop sits at index 199');
+  const r = spillHead(text);
+  assert.ok(r.head.endsWith('\u2026'), r.head.slice(-20));
+  assert.ok(!r.head.endsWith('v3.'), r.head.slice(-20));
+});
+
+test('#5706 review 1: a slice that already ends on a whole word keeps it, and a trailing comma is dropped', () => {
+  const r = spillHead('abcd '.repeat(40) + 'efgh, ' + 'more '.repeat(200));
+  assert.equal(r.head, 'abcd '.repeat(40).trim() + '\u2026');
+  const comma = spillHead('a'.repeat(150) + ' ' + 'b'.repeat(40) + ', ' + 'c'.repeat(300));
+  assert.ok(!/,\u2026$/.test(comma.head), comma.head.slice(-10));
 });
