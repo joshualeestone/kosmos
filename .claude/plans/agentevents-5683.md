@@ -218,3 +218,12 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   shared deny list and the sandbox text match. Recorded on the card.
 - Stated: each tick runs register.survey and the config-roots lookups (on the enrolled board, every five minutes);
   the case-folding tests run on darwin only.
+
+## Review 15 (sonnet), all fixed unless stated
+- In a named world the dropped default-world base still holds its own board files directly (board.token, undo.json, the
+  worlds registry): a path directly under such a base, outside its worlds/ folder, is board-files. Test.
+- A tick yields to the event loop after each transcript (the read and parse are synchronous).
+- A first tick a minute after start (server.js), as the rollup has, so a session started right after joining is not
+  skipped to its end for want of a tick.
+- readState's fallback returns every field.
+- Stated: the call map keeps a bounded map per transcript seen, freed when the file is gone.

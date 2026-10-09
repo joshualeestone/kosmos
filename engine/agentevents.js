@@ -191,6 +191,12 @@ function pathClass(p0, ctx) {
     return [fold('.claude'), fold('CLAUDE.md'), fold('.mcp.json'), fold('AGENTS.md')].includes(rest[0]) ? 'agent-config' : 'other';
   }
   if (board.some(under)) return 'board-files';
+  /* A base dropped above still holds the default world's own board files directly (board.token, undo.json, the worlds
+     registry: review 15); only its worlds/ folder holds the named worlds, whose stores are listed on their own. */
+  for (const r of [ctx.boardRoot, ...(ctx.boardRoots || [])]) {
+    if (!r || !agentIn(r) || !under(r)) continue;
+    if (path.relative(fold(r), fold(p)).split(path.sep)[0] !== 'worlds') return 'board-files';
+  }
   if ((ctx.otherAgentDirs || []).some(under)) return 'other-agent';
   if ((ctx.configRoots || []).some(under)) return 'agent-config';   // the account's Claude config folders (review 13)
   if (under(home)) return 'home';
@@ -277,7 +283,7 @@ function readState(root) {
     return { offsets: obj(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
       withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
-  } catch { return { offsets: {}, pending: [], listed: {}, enrolledAs: null, since: null, failAt: null }; }
+  } catch { return { offsets: {}, pending: [], listed: {}, withdrawn: false, collided: [], sendMax: null, enrolledAs: null, since: null, failAt: null }; }
 }
 
 function writeState(root, st) {   // whole or not at all; owner-only
@@ -449,6 +455,7 @@ async function tick(opts) {
         }
         while (calls.size > CALLS_MAX) calls.delete(calls.keys().next().value);
         CALLS.set(file, calls);
+        await new Promise((r) => setImmediate(r));   // review 15: the read and parse are synchronous; let the board breathe
       }
     }
     /* A transcript that is gone keeps no offset (review 1: the state file would grow, and each tick opens every one). */
