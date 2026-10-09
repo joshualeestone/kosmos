@@ -152,3 +152,12 @@ for (const W of WRITERS) {
     for (const t of temps.values()) assert.equal(fs.existsSync(t), false, 'a temp it created was left behind: ' + t);
   });
 }
+
+test('#5434 .agents/hooks.json (ensureHooks): a new hooks.json is 0644, whatever the umask', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+  const workdir = fresh('work');
+  const prev = process.umask(0o077);
+  let r;
+  try { r = agyhooks.ensureHooks(workdir, '/usr/local/bin/node', path.join(SANDBOX, 'bridge.js')); } finally { process.umask(prev); }
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(fs.statSync(path.join(workdir, '.agents', 'hooks.json')).mode & 0o777, 0o644, 'a new hooks.json did not get 0644');
+});
