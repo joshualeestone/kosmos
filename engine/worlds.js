@@ -125,9 +125,8 @@ function readRegistry(base) {
    so a concurrent reader sees the old file or the new one, never a partial. */
 function writeRegistry(base, reg) {
   fs.mkdirSync(base, { recursive: true });
-  const tmp = path.join(base, `.${REGISTRY_FILE}.${process.pid}.tmp`);
-  fs.writeFileSync(tmp, JSON.stringify(reg, null, 2) + '\n');
-  fs.renameSync(tmp, registryPath(base));
+  // #5434 slice 17: store.saveFlushed (securewrite: flushed before the rename, the folder after on POSIX; a unique temp; the existing mode kept), so a crash cannot leave it at full length but zero-filled (#5431).
+  require('./store').saveFlushed(registryPath(base), JSON.stringify(reg, null, 2) + '\n');
 }
 
 /* #2935: the user-facing switcher list drops hidden worlds. `readRegistry` deliberately keeps them
