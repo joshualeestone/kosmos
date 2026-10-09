@@ -5,8 +5,23 @@ const assert = require('node:assert/strict');
 const pluginreach = require('./pluginreach');
 const {
   reachFrom, reachForAgent,
-  REACHES, SEPARATE_ACCOUNT, CODEX_ISOLATED, NOT_APPLICABLE, UNKNOWN,
+  agentPluginReach, folderPluginSet, codexPersonPresence, gateOnEvidence, _resetCache,
+  REACHES, SEPARATE_ACCOUNT, CODEX_ISOLATED, NOT_APPLICABLE, UNKNOWN, NO_EVIDENCE,
 } = pluginreach;
+
+// #5309 slice 2 evidence-gate tests use a fake fs that serves a fixed file map and COUNTS reads/stats,
+// so a test can prove the mtime cache stops a second poll from re-reading unchanged files.
+function fakeFs(files, mtimes) {
+  const counts = { read: 0, stat: 0, readdir: 0 };
+  const enoent = (m) => { const e = new Error(m); e.code = 'ENOENT'; return e; };
+  const fs = {
+    counts,
+    readFileSync(p) { counts.read++; if (!(p in files)) throw enoent('read ' + p); if (files[p] instanceof Error) throw files[p]; return files[p]; },
+    statSync(p) { counts.stat++; if (!(p in mtimes)) throw enoent('stat ' + p); return { mtimeMs: mtimes[p] }; },
+    readdirSync(p) { counts.readdir++; if (!(p in files)) throw enoent('readdir ' + p); const v = files[p]; if (v instanceof Error) throw v; return v; },
+  };
+  return fs;
+}
 
 const HOME = '/Users/person/.claude';
 
@@ -223,4 +238,157 @@ test('#5309 p2 resolver: worldId is threaded UNCHANGED to readJob (named-world s
   seen = 'UNSET';
   reachForAgent('zed', undefined, spy);
   assert.equal(seen, undefined);
+});
+
+// ---------- #5309 slice 2: the evidence gate ----------
+
+test('#5309 p2 evidence: folderPluginSet unions enabledPlugins (settings.json) + mcpServers (top + per-project)', () => {
+  _resetCache();
+  const fs = fakeFs({
+    '/h/settings.json': JSON.stringify({ enabledPlugins: { 'crm@acme': true, 'notes@x': false } }),
+    '/h/.claude.json': JSON.stringify({ mcpServers: { tickets: {} }, projects: { '/p': { mcpServers: { calendar: {} } } } }),
+  }, { '/h/settings.json': 1, '/h/.claude.json': 1 });
+  const r = folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });
+  assert.equal(r.readable, true);
+  assert.deepEqual([...r.ids].sort(), ['calendar', 'crm@acme', 'notes@x', 'tickets']);
+});
+
+test('#5309 p2 evidence: enabledPlugins as an ARRAY is also read (shape-tolerant)', () => {
+  _resetCache();
+  const fs = fakeFs({ '/h/settings.json': JSON.stringify({ enabledPlugins: ['a@m', 'b@m'] }), '/h/.claude.json': '{}' },
+    { '/h/settings.json': 1, '/h/.claude.json': 1 });
+  assert.deepEqual([...folderPluginSet('/h/settings.json', '/h/.claude.json', { fs }).ids].sort(), ['a@m', 'b@m']);
+});
+
+test('#5309 p2 evidence: a MISSING file is readable-empty (a home enabled nothing), not UNKNOWN', () => {
+  _resetCache();
+  const fs = fakeFs({}, {}); // both files ENOENT
+  const r = folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });
+  assert.equal(r.readable, true);
+  assert.equal(r.ids.size, 0);
+});
+
+test('#5309 p2 evidence: invalid JSON is NOT readable (-> UNKNOWN upstream), never a silent empty set', () => {
+  _resetCache();
+  const fs = fakeFs({ '/h/settings.json': '{not json', '/h/.claude.json': '{}' }, { '/h/settings.json': 1, '/h/.claude.json': 1 });
+  assert.equal(folderPluginSet('/h/settings.json', '/h/.claude.json', { fs }).readable, false);
+});
+
+test('#5309 p2 evidence: folderPluginSet does NOT re-read on unchanged mtime, and DOES re-read when mtime changes', () => {
+  _resetCache();
+  const files = { '/h/settings.json': JSON.stringify({ enabledPlugins: { 'a@m': true } }), '/h/.claude.json': '{}' };
+  const mtimes = { '/h/settings.json': 10, '/h/.claude.json': 10 };
+  const fs = fakeFs(files, mtimes);
+  folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });
+  const afterFirst = fs.counts.read;
+  folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });   // unchanged mtime
+  assert.equal(fs.counts.read, afterFirst, 'second call with unchanged mtime must not readFileSync again');
+  mtimes['/h/settings.json'] = 11;                                   // the file changed
+  folderPluginSet('/h/settings.json', '/h/.claude.json', { fs });
+  assert.ok(fs.counts.read > afterFirst, 'a changed mtime MUST trigger a re-read (cache is not stale-blind)');
+});
+
+test('#5309 p2 evidence: codexPersonPresence detects an [mcp_servers] header OR a non-empty plugins dir', () => {
+  _resetCache();
+  const fsMcp = fakeFs({ '/c/config.toml': '[mcp_servers.foo]\ncommand="x"\n' }, { '/c/config.toml': 1, '/c/plugins': 1 });
+  assert.deepEqual(codexPersonPresence('/c', { fs: fsMcp }), { present: true, readable: true });
+  _resetCache();
+  const fsPlug = fakeFs({ '/c/plugins': ['some-plugin'] }, { '/c/config.toml': 1, '/c/plugins': 1 });
+  assert.deepEqual(codexPersonPresence('/c', { fs: fsPlug }), { present: true, readable: true });
+});
+
+test('#5309 p2 evidence: an empty Codex home is readable + NOT present; a non-absolute home is NOT readable', () => {
+  _resetCache();
+  const fsEmpty = fakeFs({}, {}); // config.toml + plugins both ENOENT
+  assert.deepEqual(codexPersonPresence('/c', { fs: fsEmpty }), { present: false, readable: true });
+  assert.equal(codexPersonPresence('relative/.codex', { fs: fsEmpty }).readable, false);
+});
+
+test('#5309 p2 evidence: a non-ENOENT read error on Codex config is NOT readable (-> UNKNOWN, fail silent)', () => {
+  _resetCache();
+  const eacces = new Error('eacces'); eacces.code = 'EACCES';
+  const fs = fakeFs({ '/c/config.toml': eacces }, { '/c/config.toml': 1, '/c/plugins': 1 });
+  assert.equal(codexPersonPresence('/c', { fs }).readable, false);
+});
+
+test('#5309 p2 gate (pure): reaches:true and reaches:null pass through the gate unchanged', () => {
+  assert.deepEqual(gateOnEvidence({ reaches: true, reason: REACHES }, {}), { reaches: true, reason: REACHES });
+  assert.deepEqual(gateOnEvidence({ reaches: null, reason: NOT_APPLICABLE }, {}), { reaches: null, reason: NOT_APPLICABLE });
+});
+
+test('#5309 p2 gate (pure): separate-account fires ONLY when the person has ids the agent lacks', () => {
+  const reach = { reaches: false, reason: SEPARATE_ACCOUNT, folder: '/a' };
+  const person = { ids: new Set(['crm@acme', 'tickets']), readable: true };
+  // agent lacks both -> fire, listing what is missing
+  assert.deepEqual(gateOnEvidence(reach, { personSet: person, agentSet: { ids: new Set(), readable: true } }),
+    { reaches: false, reason: SEPARATE_ACCOUNT, folder: '/a', missing: ['crm@acme', 'tickets'] });
+  // agent has both -> nothing missing -> NO_EVIDENCE (renders nothing)
+  assert.deepEqual(gateOnEvidence(reach, { personSet: person, agentSet: { ids: new Set(['crm@acme', 'tickets']), readable: true } }),
+    { reaches: null, reason: NO_EVIDENCE });
+});
+
+test('#5309 p2 gate (pure): an unreadable person OR agent set is UNKNOWN, never a guessed warning', () => {
+  const reach = { reaches: false, reason: SEPARATE_ACCOUNT, folder: '/a' };
+  const ok = { ids: new Set(['x']), readable: true };
+  assert.deepEqual(gateOnEvidence(reach, { personSet: { ids: new Set(), readable: false }, agentSet: ok }), { reaches: null, reason: UNKNOWN });
+  assert.deepEqual(gateOnEvidence(reach, { personSet: ok, agentSet: { ids: new Set(), readable: false } }), { reaches: null, reason: UNKNOWN });
+});
+
+test('#5309 p2 gate (pure): Codex fires on presence, is NO_EVIDENCE when empty, UNKNOWN when unreadable', () => {
+  const reach = { reaches: false, reason: CODEX_ISOLATED };
+  assert.deepEqual(gateOnEvidence(reach, { codex: { present: true, readable: true } }), { reaches: false, reason: CODEX_ISOLATED });
+  assert.deepEqual(gateOnEvidence(reach, { codex: { present: false, readable: true } }), { reaches: null, reason: NO_EVIDENCE });
+  assert.deepEqual(gateOnEvidence(reach, { codex: { present: false, readable: false } }), { reaches: null, reason: UNKNOWN });
+});
+
+test('#5309 p2 integration: agentPluginReach fires for a separate-account agent missing the person plugins', () => {
+  _resetCache();
+  const fs = fakeFs({
+    '/person/.claude/settings.json': JSON.stringify({ enabledPlugins: { 'crm@acme': true } }),
+    '/person/.claude.json': JSON.stringify({ mcpServers: { tickets: {} } }),
+    '/agent/settings.json': '{}', '/agent/.claude.json': '{}',
+  }, { '/person/.claude/settings.json': 1, '/person/.claude.json': 1, '/agent/settings.json': 1, '/agent/.claude.json': 1 });
+  const r = agentPluginReach({ runner: 'claude', agentClaudeDir: '/agent', personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json' }, { fs });
+  assert.equal(r.reaches, false);
+  assert.equal(r.reason, SEPARATE_ACCOUNT);
+  assert.deepEqual(r.missing.sort(), ['crm@acme', 'tickets']);
+});
+
+test('#5309 p2 integration: a default-account agent reaches (true) and reads NO evidence files', () => {
+  _resetCache();
+  const fs = fakeFs({}, {});
+  const r = agentPluginReach({ runner: 'claude', agentClaudeDir: null, personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json' }, { fs });
+  assert.deepEqual(r, { reaches: true, reason: REACHES });
+  assert.equal(fs.counts.read, 0, 'a reaches:true needs no evidence read');
+});
+
+test('#5309 p2 integration: READ-COUNT - a second status read re-reads nothing when mtimes are unchanged (Liu Kang #5309)', () => {
+  _resetCache();
+  const files = {
+    '/person/.claude/settings.json': JSON.stringify({ enabledPlugins: { 'crm@acme': true } }),
+    '/person/.claude.json': '{}', '/agent/settings.json': '{}', '/agent/.claude.json': '{}',
+  };
+  const mtimes = { '/person/.claude/settings.json': 1, '/person/.claude.json': 1, '/agent/settings.json': 1, '/agent/.claude.json': 1 };
+  const fs = fakeFs(files, mtimes);
+  const input = { runner: 'claude', agentClaudeDir: '/agent', personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json' };
+  agentPluginReach(input, { fs });                       // poll 1
+  const afterPoll1 = fs.counts.read;
+  assert.ok(afterPoll1 > 0, 'poll 1 reads the evidence files');
+  agentPluginReach(input, { fs });                       // poll 2, nothing changed
+  assert.equal(fs.counts.read, afterPoll1, 'poll 2 must not re-read any unchanged file');
+  // CONTROL: the cache is not vacuously passing - touching a file makes poll 3 read again.
+  mtimes['/person/.claude/settings.json'] = 2;
+  agentPluginReach(input, { fs });                       // poll 3
+  assert.ok(fs.counts.read > afterPoll1, 'a changed file MUST be re-read on the next poll');
+});
+
+test('#5309 p2 integration: Codex agent fires on person Codex presence, renders nothing when empty', () => {
+  _resetCache();
+  const fsPresent = fakeFs({ '/person/.codex/config.toml': '[mcp_servers.foo]\n' }, { '/person/.codex/config.toml': 1, '/person/.codex/plugins': 1 });
+  assert.deepEqual(agentPluginReach({ runner: 'codex', agentClaudeDir: null, personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json', personCodexHome: '/person/.codex' }, { fs: fsPresent }),
+    { reaches: false, reason: CODEX_ISOLATED });
+  _resetCache();
+  const fsEmpty = fakeFs({}, {});
+  assert.deepEqual(agentPluginReach({ runner: 'codex', agentClaudeDir: null, personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json', personCodexHome: '/person/.codex' }, { fs: fsEmpty }),
+    { reaches: null, reason: NO_EVIDENCE });
 });
