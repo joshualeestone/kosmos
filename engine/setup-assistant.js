@@ -46,6 +46,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const store = require('./store');
 const accounts = require('./accounts');
 const create = require('./create');
@@ -887,7 +888,7 @@ function launchPathDirs(agentDir, deps = {}) {
   const said = [...new Set(unsafe)];
   const UNSAFE_SHOWN = 40;
   if (said.length > UNSAFE_SHOWN) said.splice(UNSAFE_SHOWN, said.length - UNSAFE_SHOWN, `(and ${said.length - UNSAFE_SHOWN} more)`);
-  return { dirs, aliases, files, linkNames, unsafe: said, paneKnown: pane !== undefined };
+  return { dirs, aliases, files, linkNames, unsafe: said, paneKnown: typeof pane === 'string' && pane.split(path.delimiter).some((d) => path.isAbsolute(d)) };   // review 8: an empty PATH is not a launch's inputs
 }
 /* The agent-independent half of launchPathDirs: every candidate folder in order, as { real, shown, written }, and what
    cannot be covered whatever the agent (an empty or relative pane entry, an unlistable folder, the scan cap). */
@@ -1083,6 +1084,7 @@ const LAUNCH_RECORD_FILE = 'kosmos-launch-rules.json';
    - the profile is passed on a command line: 248,670 raw path bytes failed with E2BIG, 223,734 ran.
    The ceilings below sit under both with a margin; past either, the guard may still run, but Kosmos can no longer say
    it will. */
+// FITTED to the measured sets above with a margin, not derived from how the profile is compiled (review 8).
 const SANDBOX_DENY_PREFIX_MAX = 40 * 1024;
 const SANDBOX_DENY_RAW_MAX = 160 * 1024;
 // A rule's path, for the rule shapes this guard writes (a path with a pattern character is never written, #4491 review 14).
@@ -1143,7 +1145,7 @@ function writeLaunchRecord(file, rec) {
     let old = null;
     try { old = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
     if (old === text) return true;
-    const tmp = `${file}.${process.pid}.${require('crypto').randomBytes(4).toString('hex')}.new`;   // review 6: two refreshes in one process
+    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;   // review 6: two refreshes in one process
     fs.writeFileSync(tmp, text, { mode: 0o600 });
     try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
     return true;

@@ -71,3 +71,13 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - The record is written before the local-settings clean, so a throw there cannot leave this refresh's rules unrecorded.
 - Not taken: settings.json's own temp name (`<pid>.new`) is unchanged. It is existing code from #4491 review 24, not this card.
 - Not taken: the use-strict detector anchors on an unindented directive line, so a function-level (indented) one is not flagged. An unindented directive line inside a template literal would be a false red; none exists.
+
+## Review 8 (Sonnet) and what changed
+
+- A launch whose pane PATH is empty, or has no absolute entry, counted as a launch's inputs and could prune. Now a launch prunes only when its PATH has at least one absolute entry. Test: an empty, a bare-delimiter and a relative-only PATH prune nothing, with a control that a real PATH does. The old gate goes red.
+- `crypto` is required with the module's other requires. The ceilings are labeled as fitted, not derived.
+- Decided, not changed:
+  - **Upgrade window.** A path absent only for a moment at the launch, such as an in-place version swap, is pruned. If it comes back on that launch's PATH it is current at the next launch and is written again. If it does not, the agent does not start from it. The exposure is one session for a path recreated mid-session and not on the launching PATH.
+  - **The size warning repeats in the board log at every board start** for an agent over the ceiling. That is acceptable for a state that blocks the agent's shell.
+  - **No "Where to Find Things" row.** No files, commands or directories moved, and the token-only guard has no row today.
+  - **The use-strict guard stays in this PR.** It guards the defect this branch introduced and fixed (review 3). Its known false-red shape is named in the test header.

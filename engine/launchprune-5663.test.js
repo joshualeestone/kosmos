@@ -271,3 +271,20 @@ test('#5663 review 7: a launch never prunes what only a board start wrote (an ab
   for (const r of before) assert.ok(s2.permissions.deny.includes(r), 'a launch pruned what only the board start wrote: ' + r);
   for (const x of beforeW) assert.ok(s2.sandbox.filesystem.denyWrite.includes(x), 'a launch pruned a board-start sandbox entry: ' + x);
 });
+
+test('#5663 review 8: a launch whose PATH is empty (no absolute entry) is not a launch\'s inputs, so it prunes nothing', () => {
+  const dir = agentDir('lp-emptypane');
+  const v = binDir('emptypane/1.0/bin');
+  setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, panePath: v });
+  const rv = dirRule(v);
+  const wv = realOr(v);
+  fs.rmSync(path.join(SANDBOX, 'bins', 'emptypane', '1.0'), { recursive: true });
+  for (const pane of ['', path.delimiter, 'relative/bin']) {
+    setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, panePath: pane });
+    const s = readSettings(dir);
+    assert.ok(s.permissions.deny.includes(rv) && s.sandbox.filesystem.denyWrite.includes(wv), 'pruned on a PATH with no absolute entry: ' + JSON.stringify(pane));
+  }
+  // CONTROL: a real launch PATH prunes it.
+  setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, panePath: binDir('emptypane/other/bin') });
+  assert.ok(!readSettings(dir).permissions.deny.includes(rv), 'CONTROL: a launch with a real PATH did not prune');
+});
