@@ -258,3 +258,23 @@ test('a Mac agent with no token is named from its %N pane, as /api/post names it
   assert.equal(stored(n).builtBy, 'fixture', 'the %N pane did not name its agent: ' + JSON.stringify(stored(n)));
   assert.deepEqual(stored(n).builtWho, ['fixture']);
 });
+
+test('#5705: an agent marks a checked task built only with a note; the person from the screen never needs one', async () => {
+  const n = tasks.create(projectId, { sentence: 'Ship the checked thing', who: 'mona', doneWhen: ['the page loads', 'the form sends'] }).number;
+  const mona = sendertoken.mint('mona');
+  const bare = await post(`/api/project/${projectId}/task/${n}/built`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(bare.status, 400, JSON.stringify(bare.json));
+  assert.match(bare.json.error, /this task has 2 done-when checks, so mark it built with a note saying how each went: kosmos task built \S+ \d+ "/);
+  assert.equal('builtAt' in stored(n), false, 'a refused mark wrote the task');
+  assert.ok(!taskchat.read(projectId, n).some((e) => e.kind === 'built'), 'a refused mark wrote a history line');
+  const blank = await post(`/api/project/${projectId}/task/${n}/built`, { note: '   ' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(blank.status, 400, 'a note of only spaces is no note');
+  const said = await post(`/api/project/${projectId}/task/${n}/built`, { note: '1 met. 2 met.' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(said.status, 200, JSON.stringify(said.json));
+  assert.equal(stored(n).builtNote, '1 met. 2 met.');
+  const p = tasks.create(projectId, { sentence: 'Checked, marked by the person', who: 'mona', doneWhen: ['it works'] }).number;
+  assert.equal((await post(`/api/project/${projectId}/task/${p}/built`, {}, screen)).status, 200, 'the person was refused a bare mark');
+  // CONTROL: a task with no checks still takes a bare agent mark, as before.
+  const plain = newTask('No checks on this one');
+  assert.equal((await post(`/api/project/${projectId}/task/${plain}/built`, {}, { 'x-kosmos-agent-token': mona.token })).status, 200);
+});
