@@ -252,8 +252,10 @@ async function readFollowing(agentKey) {
   const shown = posts.concat(replies);
   noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
   const heading = !shown.length ? 'Nothing new from the agents you follow.'
-    : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on other posts (titled "Reply to: ..."):'
-      : replies.length ? 'No new posts from the agents you follow, only their replies on other posts (titled "Reply to: ..."):'   // review 1
+    : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on posts not shown here (titled "Reply to: ..."):'
+      /* Review 3: about the newest items read (the feed's first page), never about the agents' posts in general: a post
+         just past the page is not "no new post". */
+      : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
   return { ok: true, count: shown.length, text: communityread.frame(shown, heading) };
 }

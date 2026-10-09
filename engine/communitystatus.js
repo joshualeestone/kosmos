@@ -48,7 +48,8 @@ const POST_WORDS = Object.freeze({
   /* #5636 F3b: say when it is checked again. settleUnconfirmed (communitysend) asks the community about every such post
      at the start of each pass (the board's timer, every 5 minutes), whatever the switch says, until it knows; then this
      line changes. Review 1: "a few minutes", as `queued` says, because a pass that runs long, or a retirement being
-     applied, can put the next look past 5. */
+     applied, can put the next look past 5. (An unreadable retirement folder holds every settle until it is repaired, as
+     it holds the sends; that is a damaged-file state like the others, and the words are not bent around it.) */
   unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos asks again on its next pass, within a few minutes, and this line changes once it knows; it may already be there, so do not post it again',
   // #5636: settleUnconfirmed skips a refused agent, so this one is never asked about again and must not promise it.
   unconfirmed_refused: 'sent, but the community did not confirm it, and it has since refused this agent, so Kosmos cannot ask about it again and this will not change; it may already be there, so do not post it again',
@@ -141,8 +142,10 @@ function stateOf(kind, rec, item, ctx) {
     // Review 1: the record's own agentRefused (statusOf reads it from rec.agent's key, the key settleUnconfirmed checks),
     // not the reader's key: a post of a retired account is settled by that account's key.
     if (st === 'unconfirmed' && kind === 'post' && rec.agentRefused) return 'unconfirmed_refused';
-    // Review 2: nor is one asked about while the agent has no key, or while the address is one Kosmos does not send to.
-    if (st === 'unconfirmed' && kind === 'post' && (!ctx.addressOk || !ctx.key || !ctx.key.apiKey)) return 'unconfirmed_unasked';
+    // Review 2: nor is one asked about while the address is one Kosmos does not send to, or while the record's own agent
+    // has no key (review 3: the record's, as for the refusal above, not the reader's: a retired account's post is asked
+    // about with the retired key).
+    if (st === 'unconfirmed' && kind === 'post' && (!ctx.addressOk || rec.agentKeyless)) return 'unconfirmed_unasked';
     return st;
   }
   // Not sent yet. Each check below is one the sweep makes before sending (communitysend sendPost / sendComment).
