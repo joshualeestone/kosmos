@@ -364,3 +364,16 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - RECORDED: change detection is NARROWER than the consent line ("when your agents, their providers, or your projects
   change"): names and projects only (review 9), so a provider change alone sends nothing until the daily.
 
+
+## After merging main (2026-10-08 evening)
+- Mortals full suite found the rollup tests hand-built 16 agent cards (fixture-discipline). They now take real cards from
+  test-support/fleet; only the model is set on top, and content is planted in every text field and null content field
+  a real card carries.
+- Review 26 (after the merge) found a real defect the hand-built cards had hidden: a real card ALWAYS has a name (the
+  tmux session name when no display name is recorded, with nameDerived false), so the "no shown name" guard could
+  never fire and a world-prefixed session name would be sent. gather now skips such a card and marks the send partial.
+  The offline list still sends a stopped agent's folder name when it has no display name (that is the name the board
+  shows, not a session name).
+- The second Mortals run found tools/test-connector-verbs.sh pins the mac-request callers: orgrollup.js is re-decided
+  there (an old connector refuses the rollup route; the rollup only sends for a Kosmos already enrolled, which needs
+  a new connector; nothing that works today breaks).

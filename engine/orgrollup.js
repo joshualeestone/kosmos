@@ -272,7 +272,9 @@ async function gather(src) {
   };
   for (const a of (snap.agents || [])) {
     if (!a || a.isNamedOurs === false || gone.has(a.sessionName)) continue;
-    if (!a.name) { out.partial = true; continue; }   // no shown name: never send the internal session name (review 4)
+    /* No shown name: never send the internal session name (review 4). A real card always carries a name, the session
+       name when nothing was recorded, and says so with nameDerived false (review 26), so that is the test. */
+    if (!a.name || a.nameDerived === false) { out.partial = true; continue; }
     seen.add(a.sessionName);
     nameOf.set(a.sessionName, a.name);
     /* The RECORDED runner, as the offline path reads it, never the pane's (rollup review 16): one source whether the agent

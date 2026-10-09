@@ -20,13 +20,17 @@ const r = require('./orgrollup');
 /* Real cards, never hand-built (fixture-discipline.test.js): test-support/fleet runs the real snapshot(). Only `model` is
    set on top (a fixture pane has no transcript to read it from; the rollup reads the RECORDED runner, never the
    card's, so the pane runner stays the default), and `plant` puts CONTENT in every other text field the
-   real card carries, to prove none of it is sent. Sandboxed before anything reads its roots. */
+   real card carries and in its null content fields (task, waiting and the like), to prove none of it is sent. Sandboxed before anything reads its roots. */
 function card(o) {
-  const b = fleet.install([o.ours === false ? fleet.stranger(o.key, { state: o.state || 'idle' }) : fleet.agent(o.key, { displayName: o.name, state: o.state || 'idle' })], { strict: false });
+  // No `name`: no display name is recorded, so the real card carries the session name with nameDerived false.
+  const b = fleet.install([o.ours === false ? fleet.stranger(o.key, { state: o.state || 'idle' }) : fleet.agent(o.key, o.name ? { displayName: o.name, state: o.state || 'idle' } : { state: o.state || 'idle' })], { strict: false });
   try {
     const c = Object.assign({}, b.agents[0], { model: o.model === undefined ? null : o.model });
-    if (o.plant) for (const k of Object.keys(c)) if (typeof c[k] === 'string' && !['name', 'sessionName', 'state', 'model', 'runner'].includes(k)) c[k] = o.plant;
-    if (o.noName) delete c.name;
+    if (o.plant) {
+      for (const k of Object.keys(c)) if (typeof c[k] === 'string' && !['name', 'sessionName', 'state', 'model', 'runner'].includes(k)) c[k] = o.plant;
+      // And the content fields a real card leaves null here (review 26), so a future read of one is caught too.
+      for (const k of ['task', 'stateEvidence', 'waiting', 'role', 'stateProject', 'modelName']) if (k in c) c[k] = o.plant;
+    }
     return c;
   } finally { b.restore(); }
 }
@@ -323,7 +327,7 @@ test('#5532 rollup review 4: a new enrollment starts its timing fresh; a card wi
   fs.writeFileSync(path.join(root, oe.ENROLLMENT_FILE), JSON.stringify(rec));
   const again = await r.tick({ root, remote: c, sources: sources(), now: T0 + 2 * 60e3 });
   assert.equal(again.sent, true, 'a new enrollment inherited the old one\'s timing');
-  const g = await r.gather(sources({ snapshot: () => ({ counts: {}, agents: [card({ key: 'kosmos-w-leo', runner: 'claude', model: 'm', state: 'idle', noName: true })] }), survey: () => ({ ok: true, agents: [] }) }));
+  const g = await r.gather(sources({ snapshot: () => ({ counts: {}, agents: [card({ key: 'kosmos-w-leo', runner: 'claude', model: 'm', state: 'idle' })] }), survey: () => ({ ok: true, agents: [] }) }));
   assert.equal(JSON.stringify(g).includes('kosmos-w-leo'), false, 'an internal session name was sent');
   assert.equal(g.partial, true);
 });
