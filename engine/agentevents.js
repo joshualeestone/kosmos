@@ -45,8 +45,8 @@ const SEND_PAST_MS = PAST_MS - 3600 * 1000;   // an hour short of 7 days, so a q
    for an "Operation not permitted" (only a shell result carries it here; review 5), and target 'other'. Bounded per
    file. */
 const CALLS = new Map();
-let TURN = 0;
-const UNGUARDED_SAID = new Set();   // said once per agent per process (review 17: never silent)   // which agent is read first this tick (review 5), kept in memory
+let TURN = 0;   // which agent is read first this tick (review 5), kept in memory
+const UNGUARDED_SAID = new Set();   // said once per agent per process (review 17: never silent)
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
 const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
@@ -93,6 +93,7 @@ function resultText(c) {
 function targetClass(tool, input, ctx) {
   if (tool === 'WebFetch' || tool === 'WebSearch') return 'network-host';
   const paths = [];
+  const hidden = [];   // path words a glob, a variable or a substitution hides (review 19)
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
   if (tool === 'Bash' && input && typeof input.command === 'string') {
     /* Every path-like word in the command (reviews 3, 4, 6 and 9), split as a shell splits: quotes and backslash-escaped
@@ -130,6 +131,7 @@ function targetClass(tool, input, ctx) {
         let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^-[A-Za-z](?=[/~.])/, '').replace(/^@/, '');   // -C/dir too
         v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
         if (/^\/dev\//.test(v)) continue;   // a redirect to /dev/null is not a target (review 8)
+        if (/[*?$`]/.test(v)) hidden.push(v);
         /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
            space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
         if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) paths.push(v);
@@ -148,9 +150,11 @@ function targetClass(tool, input, ctx) {
   }
   /* A path a glob, a variable or a substitution hides cannot be resolved (review 19): when the command names the board
      token or Kosmos's own folder, or the agent's config, that is the class. */
-  if (tool === 'Bash' && input && typeof input.command === 'string') {
-    const cmd = input.command.slice(0, 4096);
-    const board = /board\.token|Application Support\/Kosmos|agent-token-only\.json|worlds\.json/i.test(cmd);
+  /* Only the words that could not be resolved are looked at (review 20: the whole command matched a named world's own
+     agent folders, which sit under Application Support/Kosmos, and relabelled an agent's own files as the board's). */
+  if (hidden.length) {
+    const cmd = hidden.join(' ');
+    const board = /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(cmd);
     const config = /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(cmd);
     if (board && RANK.indexOf('board-files') < RANK.indexOf(best)) best = 'board-files';
     else if (config && RANK.indexOf('agent-config') < RANK.indexOf(best)) best = 'agent-config';
