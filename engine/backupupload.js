@@ -623,7 +623,9 @@ async function uploadManifestInner(deps, bytes, o, st) {
     if (ownerOf(up.key) !== owner) return { ok: false, grantSpent: true, because: `the manifest grant's key is not under its chunks' path (${owner}/); nothing was sent (this grant's allowance is spent)` };
     if (up.retainMs > floor) return { ok: false, outlastsChunks: true, grantSpent: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
     const deadline = asked + g.lifetimeMs - 10 * 1000;
-    let troubled = false, preOnly = false, cleanRanOut = false;
+    // reached: an attempt on this grant got past connecting (S3 answered, or the request may have left). Until then,
+    // S3 has seen nothing from this grant, so its first answer being "expired" is the clock case below.
+    let troubled = false, preOnly = false, cleanRanOut = false, reached = false;
     for (let attempt = 0; ; attempt++) {
       // Out of time after only pre-connect failures: the bucket cannot be reached, and a new grant could not reach it
       // either, so no re-grant (below). Unlike S3 answering "expired" (next arm), which proves the bucket answers.
@@ -637,15 +639,15 @@ async function uploadManifestInner(deps, bytes, o, st) {
       const r = await putOne(fetchFn, up, bytes, troubled, timeoutMs);
       if (r.kind === 'stored' || r.kind === 'present') return { ok: true, key: up.key, sha256, lockedUntilMs: up.retainMs };
       if (r.kind === 'expired') {
-        // S3 checks expiry when a request ARRIVES, and a PUT is only started before the deadline: "expired" on the very
-        // first attempt means S3's clock and the coordinator's disagree by more than the window. A new grant would hit
+        // S3 checks expiry when a request ARRIVES, and a PUT is only started before the deadline: "expired" on the
+        // first attempt that REACHED S3 (earlier ones only failed to connect) means S3's clock and the coordinator's disagree by more than the window. A new grant would hit
         // the same wall (and the chunk worker, at 200,000 grants a week, may re-grant; manifests are 50).
-        if (attempt === 0) return { ok: false, retryLater: true, grantSpent: true, because: 'S3 said the manifest grant had expired on the first attempt: its clock and the coordinator\'s disagree; try again later' };
+        if (!reached) return { ok: false, retryLater: true, grantSpent: true, because: 'S3 said the manifest grant had expired on the first attempt that reached it: its clock and the coordinator\'s disagree; try again later' };
         cleanRanOut = !troubled; break;
       }
       if (r.kind === 'refused') return Object.assign({ ok: false, grantSpent: true, because: `the bucket refused the manifest (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that` }, troubled ? { unsure: [{ key: up.key }] } : {});
       // The chunk worker in uploadInner carries the same rules: change both together.
-      if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; st.unsureKey = up.key; }
+      if (r.preconnect) { preOnly = true; } else { reached = true; if (!r.nothingCommitted) { troubled = true; st.unsureKey = up.key; } }
       await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
     }
     // A write that may have landed is never followed by a new grant (a second locked manifest): try again later.
