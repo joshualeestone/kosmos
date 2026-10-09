@@ -1431,3 +1431,49 @@ test('#5683 r41: find\'s leading options, grep\'s pattern options and value-taki
     assert.equal(ae.targetClass('Bash', { command: cmd }, c), want, cmd);
   }
 });
+
+/* ---- review 42 ---- */
+
+test('#5683 r42: a token read after 64 path words, or two shells deep, is still the board\'s', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  const many = Array.from({ length: 64 }, (_, i) => 'd/f' + i).join(' ');
+  for (const cmd of [
+    'cat ' + many + ' ~/Library/Application\\ Support/Kosmos/board.token',
+    'for f in ' + many + '; do :; done; cat ~/Library/Application\\ Support/Kosmos/board.token',
+    'bash -c "sh -c \'cat ~/Library/Application\\\\ Support/Kosmos/board.token\'"',
+    'echo $(cat $(echo ~)/Library/Application\\ Support/Kosmos/board.token)',
+  ]) assert.equal(ae.targetClass('Bash', { command: cmd }, c), 'board-files', cmd.slice(0, 80));
+  assert.equal(ae.targetClass('Bash', { command: 'cat ' + many }, c), 'other');
+  assert.equal(ae.targetClass('Bash', { command: 'cat /Users/ann/.kosmos/board.token' }, c), 'home');   // review 1: resolvable, by the real roots
+});
+
+test('#5683 r42: deeply nested substitutions and quotes are linear', () => {
+  /* An intermediate version of the review-42 fix looked at every $( at every depth and ran past a minute here. The
+     work is synchronous, so a test timeout cannot interrupt it: it runs in a child that is killed after 20 s. */
+  const { spawnSync } = require('node:child_process');
+  const script = `const ae = require(${JSON.stringify(path.join(__dirname, 'agentevents.js'))});
+    const c = { agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos', boardRoots: [], otherAgentDirs: [] };
+    for (const cmd of ['echo ' + '$(a '.repeat(1300) + ')'.repeat(1300), 'echo ' + '$(a b) '.repeat(500), ('bash -c "sh -c \\\\"a $(b c) d\\\\"" ').repeat(100)]) ae.targetClass('Bash', { command: cmd.slice(0, 4096) }, c);`;
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, ['-e', script], { timeout: 20000, encoding: 'utf8', env: process.env });
+  assert.equal(r.signal, null, 'nested substitutions did not finish in 20 s');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(Date.now() - t0 < 20000);
+});
+
+test('#5683 r42: a stop on a state that cannot be read now is carried to the next tick', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  const file = path.join(s.root, 'agent-events.json');
+  const good = fs.readFileSync(file);
+  fs.writeFileSync(file, '{"torn');   // unreadable at the moment of the stop
+  const hash = oe.readEnrollment({ root: s.root }).consentHash;
+  assert.equal(await oe.consentWithdrawn({ root: s.root }, hash), true);
+  fs.writeFileSync(file, good);   // readable again, still saying "reporting"
+  append(s.file, use('torn', 'Bash', { command: 'x' }), result('torn', DENIED('x'), true));
+  accept(s.root);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.equal(refs.includes('torn'), false, 'a refusal from a stop on an unreadable state was sent');
+});

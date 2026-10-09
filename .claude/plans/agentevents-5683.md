@@ -554,3 +554,17 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: a stop lost by a process crash in the instant between the record write and its mark is not recovered for a
   record rewritten without words (a Leave retries and re-marks); a cd inside ( ) or after || moves where later walks
   start (over-claims only).
+
+## Review 42 (opus), all fixed unless stated
+- A token read after 64 path words was never looked at (the word scan stopped), and a shell's script inside another
+  shell's (bash -c "sh -c '...'") was not split. Inner scripts and substitutions are now split up to three deep, and a
+  scan that stops early runs the board token's exact-name search over the whole command (review 1's rule, that a
+  resolvable path is classed by the real roots, still holds when the scan is complete). Test, red on the pre-fix file.
+- markWithdrawn on a state that exists but cannot be read at that moment carries the stop (UNWRITTEN_STOP), as a failed
+  write does. Test, red on the pre-fix file.
+- What I got wrong in flight: (1) the first version kept passing depth 1 to every inner split, so nothing ever reached
+  depth 2, and declared the scan flag inside the Bash block though it was read outside it (a ReferenceError at run time
+  that node --check cannot see); both caught before commit. (2) Allowing nesting made the substitution loop look at
+  every $( at every depth: the fourth power of the length, past a minute on 2,600 characters. Only the outermost at each
+  depth are looked at now. (3) I first guarded that with a node:test timeout, which cannot interrupt synchronous code
+  (the suite would hang, not fail); the input now runs in a child killed after 20 s, red on the slow loop.

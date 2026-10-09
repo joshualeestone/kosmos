@@ -104,6 +104,7 @@ function targetClass(tool, input, ctx) {
   /* Folders a command walks down through (review 38: grep -r, find, the Grep tool). A walk from a folder that holds a
      board root reaches the board's files, as a glob that can match one does (review 33). */
   const trees = [];
+  let incomplete = false;   // the word scan stopped early: the exact-name search below covers the whole command (review 42)
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
   if (tool === 'Grep') trees.push(input && typeof input.path === 'string' && input.path ? input.path : (ctx.agentDir || ''));   // (resolved below)
   if (tool === 'Bash' && input && typeof input.command === 'string') {
@@ -178,15 +179,18 @@ function targetClass(tool, input, ctx) {
            program, not a target). Anywhere else it is ONE argument, so one path, whatever it holds ("R & D", "Tom &
            Jerry"); it is also split, which can only find more. */
         /* The inside of each $( ... ) is a command of its own (review 36). */
-        if (depth === 0 && w.includes('$(')) {
-          for (let i = w.indexOf('$('); i >= 0; i = w.indexOf('$(', i + 2)) {
+        if (depth < 3 && w.includes('$(')) {   // nested up to three deep (review 42)
+          /* Only the outermost substitutions at this depth; the ones nested inside are the next depth's (review 42: looking
+             at every $( at every depth was the fourth power of the length, a minute on 2,600 characters). */
+          for (let i = w.indexOf('$('); i >= 0; ) {
             let d = 0; let j = i + 1;
             for (; j < w.length; j++) { if (w[j] === '(') d++; else if (w[j] === ')' && --d === 0) break; }
-            { const sv = cur; look(shellWords(w.slice(i + 2, j)), 1); cur = sv; }   // the outer command stays current
+            { const sv = cur; look(shellWords(w.slice(i + 2, j)), depth + 1); cur = sv; }   // the outer command stays current
+            i = j < w.length ? w.indexOf('$(', j + 1) : -1;
           }
         }
-        if (depth === 0 && /\s/.test(w)) {
-          { const sv = cur; look(shellWords(w), 1); cur = sv; }
+        if (depth < 3 && /\s/.test(w)) {   // a shell's script inside another's is split too (review 42: bash -c "sh -c '...'")
+          { const sv = cur; look(shellWords(w), depth + 1); cur = sv; }
           if ((/^(sh|bash|zsh|dash|ksh|fish|su)$/.test(prog) && /^-[A-Za-z]*c$/.test(prev)) || prog === 'eval') continue;
         }
         /* --x=value and NAME=value (export T=..., review 36) both name their value. */
@@ -212,7 +216,7 @@ function targetClass(tool, input, ctx) {
           }
           else if (!notTree && !(prog === 'find' && cur.sawOpt)) cur.words.push(v);
         }
-        if (paths.length >= 64) return;
+        if (paths.length >= 64) { incomplete = true; return; }   // the rest is not read word by word (review 42)
       }
     };
     look(shellWords(input.command.slice(0, 4096)), 0);
@@ -380,8 +384,8 @@ function targetClass(tool, input, ctx) {
   }
   /* The first 4096 characters are classed word by word; past them, the board token's exact file name anywhere in the
      command still counts (review 25: padding a command past the limit hid a token read). One linear search. */
-  if (tool === 'Bash' && input && typeof input.command === 'string' && input.command.length > 4096 &&
-      RANK.indexOf('board-files') < RANK.indexOf(best) && /(^|[\/\s'"])(board\.token|agent-token-only\.json)(['"\s;|&)]|$)/.test(input.command.slice(4096 - 64, 1024 * 1024))) {
+  if (tool === 'Bash' && input && typeof input.command === 'string' && (input.command.length > 4096 || incomplete) &&
+      RANK.indexOf('board-files') < RANK.indexOf(best) && /(^|[\/\s'"])(board\.token|agent-token-only\.json)(['"\s;|&)]|$)/.test(input.command.slice(incomplete ? 0 : 4096 - 64, 1024 * 1024))) {
     best = 'board-files';
   }
   /* A walk from a folder at or above a board root reaches the board's files (review 38). */
@@ -576,6 +580,10 @@ let UNWRITTEN_STOP = false;
 function markWithdrawn(root0) {
   STOPS++;
   const root = root0 || require('./store').ROOT;
+  /* A state that exists but cannot be read now (a passing EMFILE, a torn file) cannot say whether it was reporting, so
+     the stop is carried to the next tick as if its write had failed (review 42). A missing state never reported. */
+  try { JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8')); }
+  catch (e) { if (!e || e.code !== 'ENOENT') UNWRITTEN_STOP = true; return; }
   const w = readState(root);
   /* stops counts every stop, so a tick that read while one happened can see it even after the same record came back
      (review 39). */
