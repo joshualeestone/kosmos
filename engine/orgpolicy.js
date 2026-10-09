@@ -58,7 +58,7 @@ function readApplied() {
 function writeApplied(rec) {
   const file = APPLIED();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  // #5434 slice 15: through securewrite.writeSecret (flushed before the rename, the folder after; a unique `wx` temp; exact 0600), so a crash cannot leave it at full length but zero-filled (#5431). atomicOnly: a failed save leaves the old file.
+  // #5434 slice 15: through securewrite.writeSecret (flushed before the rename, the folder after on POSIX; a unique `wx` temp; exact 0600), so a crash cannot leave it at full length but zero-filled (#5431). atomicOnly: a failed save leaves the old file.
   require('./securewrite').writeSecret(file, JSON.stringify(rec, null, 2) + '\n', 0o600, { atomicOnly: true });
 }
 

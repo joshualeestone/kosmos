@@ -21,6 +21,7 @@ process.env.AGENT_WORKFORCE_DATA = tmp('secrets-fsync-data-');
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = tmp('secrets-fsync-tunnel-');
 process.env.HOME = tmp('secrets-fsync-home-');
 test.after(() => { for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true }); });
+test.after(() => { try { require('./phonenotify').setAvailableForTests(false); } catch { /* best effort */ } });
 
 const orgenroll = require('./orgenroll');
 const orgpolicy = require('./orgpolicy');
@@ -116,4 +117,24 @@ test('#5434 phone notifications state: a failed flush answers the refusal and le
   assert.ok(events.some((e) => e[0] === 'fsync' && tempOf(file)(e[1] || '')), 'the temp was never flushed, so this tests nothing');
   assert.deepEqual(out, { ok: false, because: 'we could not save that setting' });
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'a save whose flush failed changed the file');
+});
+
+test('#5434 orgpolicy applied record: a failed flush refuses the apply and leaves the record in force', async () => {
+  placeBundle();
+  assert.ok(orgpolicy.refresh({ now: NOW, pinned: PINNED }).applied, 'setup: no record in force');
+  const before = fs.readFileSync(orgpolicy.APPLIED(), 'utf8');
+  placeBundle();   // a newer version, so the next refresh writes
+  const { events, out } = await recording(() => orgpolicy.refresh({ now: NOW, pinned: PINNED }), tempOf(orgpolicy.APPLIED()));
+  assert.ok(events.some((e) => e[0] === 'fsync' && tempOf(orgpolicy.APPLIED())(e[1] || '')), 'the temp was never flushed, so this tests nothing');
+  assert.equal(fs.readFileSync(orgpolicy.APPLIED(), 'utf8'), before, 'a policy whose flush failed replaced the one in force');
+  assert.ok(out && out.refused, 'the failed save was not reported: ' + JSON.stringify(out));
+});
+
+test('#5434 phone notifications: an old fixed temp (it can hold the token) is removed after a good save', async () => {
+  phonenotify.setAvailableForTests(true);
+  const file = path.join(remote.stateDir(), 'phone-notify.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file + '.tmp', 'left by the old writer', { mode: 0o600 });
+  assert.deepEqual(await phonenotify.turnOff(), { ok: true });
+  assert.equal(fs.existsSync(file + '.tmp'), false, 'the old temp was left');
 });
