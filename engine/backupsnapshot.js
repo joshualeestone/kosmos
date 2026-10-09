@@ -279,9 +279,59 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
   return { files: out, skipped, skippedExtra, over };
 }
 
+/* #5686: a snapshot may cover several named roots, because a world's work is not under one folder: the default world
+   keeps its data, its agents and its projects in three places, and an agent's own sessions live in its provider's
+   folder. input.roots is [{ name, path, exclude? }]; each root is walked with every rule a single root gets, and its
+   files are stored as `<name>/<path in the root>`, so restore puts each back under its name. input.root (one folder,
+   paths stored as they are) still works, alone. Returns the roots, or why they cannot be used (a sentence). */
+const ROOT_NAME = /^[a-z0-9][a-z0-9-]{0,31}(\/[a-z0-9][a-z0-9-]{0,31}){0,3}$/;
+const MAX_ROOTS = 64;
+function rootsOf(input) {
+  if (input.roots === undefined) {
+    if (typeof input.root !== 'string' || !path.isAbsolute(input.root)) return 'the work Kosmos folder must be an absolute path';
+    return [{ name: '', path: input.root, exclude: input.exclude }];
+  }
+  if (input.root !== undefined || input.exclude !== undefined) return 'give roots (each with its own exclude), or one root, not both';
+  if (!Array.isArray(input.roots) || !input.roots.length || input.roots.length > MAX_ROOTS) return `roots must be a list of 1 to ${MAX_ROOTS} folders`;
+  const names = [];
+  for (const r of input.roots) {
+    if (!r || typeof r.name !== 'string' || !ROOT_NAME.test(r.name)) return 'each root needs a name of lowercase letters, digits and hyphens, up to four parts joined by /';
+    if (typeof r.path !== 'string' || !path.isAbsolute(r.path)) return `the root ${r.name} must be an absolute path`;
+    // One name inside another (`sessions` and `sessions/claude`) would let two roots write the same restored path.
+    if (names.some((n) => n === r.name || n.startsWith(r.name + '/') || r.name.startsWith(n + '/'))) return `the root name ${r.name} repeats or contains another root's name`;
+    names.push(r.name);
+  }
+  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude }));
+}
+
+/* Every root's listing, merged: each file carries its root's real path and its path inside it (rel), and its stored
+   path is prefixed with the root's name. A root inside another (by real path) is refused: its files would be stored
+   twice. The file limit counts every root together. Returns the merged listing, or why not (a sentence). */
+async function listRoots(roots, fs) {
+  const reals = [];
+  for (const r of roots) {
+    try { reals.push(fs.realpathSync(r.path)); } catch { return r.name ? `the root ${r.name} could not be read` : 'the work Kosmos folder could not be read'; }
+  }
+  for (let i = 0; i < reals.length; i++) {
+    for (let j = 0; j < reals.length; j++) {
+      if (i !== j && insideWorkKosmos(reals[i], reals[j])) return `the root ${roots[i].name} is inside the root ${roots[j].name}, so its files would be stored twice`;
+    }
+  }
+  const out = { files: [], skipped: [], skippedExtra: 0, over: false };
+  const pre = (name, p) => (name ? `${name}/${p}` : p);
+  for (let i = 0; i < roots.length && !out.over; i++) {
+    const got = await listFiles(reals[i], fs, { exclude: roots[i].exclude, maxFiles: MAX_FILES - out.files.length });
+    for (const f of got.files) out.files.push(Object.assign({}, f, { rel: f.path, path: pre(roots[i].name, f.path), rootReal: reals[i] }));
+    for (const x of got.skipped) out.skipped.push(Object.assign({}, x, { path: pre(roots[i].name, x.path) }));
+    out.skippedExtra += got.skippedExtra;
+    out.over = got.over;
+  }
+  return out;
+}
+
 /* Read the file the walk found, or say why not: { buf } or { why }. One open, no final link followed, never blocking. */
 function readListed(fs, rootReal, f, maxFile) {
-  const abs = path.join(rootReal, f.path);
+  const abs = path.join(rootReal, f.rel);
   const c = fs.constants || nodeFs.constants;
   // O_NOCTTY: a terminal device swapped in is refused by the fstat check below, and must not become ours first.
   const flags = c.O_RDONLY | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0) | (c.O_NOCTTY || 0);
@@ -341,9 +391,12 @@ function upperBound(f, maxFile) {
 
 /**
  * Take one snapshot.
- *   input: { root, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude? }
+ *   input: { root | roots, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude? }
  *     exclude      folders to leave out, as '/'-separated paths relative to root (each named once in skipped)
  *     root         the work Kosmos folder (absolute)
+ *     roots        instead of root (and exclude): [{ name, path, exclude? }], several folders, each stored under its
+ *                  name (lowercase letters, digits, hyphens; up to four parts joined by '/'; none inside another, by
+ *                  name or by real path). See rootsOf.
  *     memberPk     the member's backup public key (32 bytes), namingKey this period's naming key (32 bytes) and
  *                  namingKeyId its id (backupkeys namingKeyId), deviceKey the device's Ed25519 private KeyObject
  *     ctx          the manifest context { org, member, epoch, period, snapshot }; period must be periodOf(now)
@@ -378,7 +431,7 @@ async function takeSnapshot(input, deps) {
 }
 
 async function snapshotInner(input, deps, added, state, fail) {
-  const { root, memberPk, namingKey, namingKeyId, deviceKey, ctx } = input;
+  const { memberPk, namingKey, namingKeyId, deviceKey, ctx } = input;
   const now = deps.now || Date.now;
   const fs = deps.fs || nodeFs;
   const putChunks = deps.uploadChunks || uploadChunks;
@@ -386,7 +439,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   const pos = (n, dflt) => (Number.isSafeInteger(n) && n > 0 ? n : dflt);
   const batchBytes = pos(deps.batchBytes, BATCH_BYTES), maxFile = pos(deps.maxFile, MAX_FILE), maxText = pos(deps.maxText, MAX_TEXT);
   const budget = pos(deps.maxManifestJson, MANIFEST_JSON_BUDGET);
-  if (typeof root !== 'string' || !path.isAbsolute(root)) return fail('the work Kosmos folder must be an absolute path');
+  const roots = rootsOf(input);
+  if (typeof roots === 'string') return fail(roots);
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
   // The id the manifest records must be THIS naming key's: restore matches it against the naming key it
   // unwraps, so a stale id (last period's) would lock in a manifest that can never be opened.
@@ -438,9 +492,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (owners.size > 1) return fail('the index names chunks under more than one account', { staleIndex: true });
   let owner = owners.size ? [...owners][0] : null;
 
-  let rootReal;
-  try { rootReal = fs.realpathSync(root); } catch { return fail('the work Kosmos folder could not be read'); }
-  const listed = await listFiles(rootReal, fs, { exclude: input.exclude });
+  const listed = await listRoots(roots, fs);
+  if (typeof listed === 'string') return fail(listed);
   const pause = yielder();
   if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, { tooLarge: true });
   // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit:
@@ -545,7 +598,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     // the read was stored past its reserve).
     if (f.size > maxFile) { skip({ path: f.path, why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` }); continue; }
     await pause();
-    const got = readListed(fs, rootReal, f, maxFile);
+    const got = readListed(fs, f.rootReal, f, maxFile);
     if (!got.buf) { skip({ path: f.path, why: got.why }); continue; }
     // Grown since the walk: its reserve was sized from the walk's size, and it is being written to.
     if (got.buf.length > f.size) { skip({ path: f.path, why: 'it grew while the snapshot was taken' }); continue; }
