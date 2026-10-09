@@ -225,8 +225,9 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
          existing file keeps its mode (not on Windows), a new one takes the umask default; a failed save leaves the old
          file; in the provider's folder only this file's own dead temps are reaped. A failed save is not an error here
          (the estimate is returned either way, as before). */
-      // (no mode carried on Windows, where a mode is only the read-only bit; reporthook.readSettings carries it
-      // everywhere: do not "align" this to that)
+      // (no mode carried on Windows, where a mode is only the read-only bit. reporthook.readSettings carries the mode
+      // on every platform, so a read-only settings.json there makes its temp read-only too; making this match it would
+      // bring that failure here, so do not)
       let mode = null;
       if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
       try { require('./securewrite').writeSecret(file, JSON.stringify(next) + '\n', mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); }

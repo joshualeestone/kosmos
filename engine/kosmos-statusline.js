@@ -81,7 +81,9 @@ function record(dir, reading, now) {
      securewrite, required only when there is something to write (this runs on every repaint and must stay cheap and
      must never show an error). In the provider's folder, only this file's own dead temps are reaped (ownTempsOnly).
      An existing file keeps its mode (not on Windows, where a mode is only the read-only bit); a new one takes the umask
-     default. Should securewrite not load, the unflushed write below still records the reading. */
+     default. Should securewrite be missing (a copy outside the app folder, a half-swapped engine folder), the
+     unflushed write below still records the reading; a save through it that fails returns false, and the reading is
+     recorded on its next forward move. */
   let securewrite = null;
   try { securewrite = require('./securewrite'); } catch { securewrite = null; }
   if (securewrite) {
