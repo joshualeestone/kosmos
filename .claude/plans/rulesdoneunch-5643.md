@@ -9,23 +9,29 @@ The working rules' "Put the work on a task first" section tells agents to:
 DOCTRINE_VERSION 26 is logged; the fingerprint and doctrine-past rows are updated. It is measured with claude -p before merge.
 It depends on #5639 (--done, done-when) and #5646 (--unchanged) being on main: rebase onto both before the PR, because a parity test checks that every option the rules name exists.
 
-## Measured (claude -p --setting-sources project,local, --permission-mode bypassPermissions; stand-in kosmos logging argv per argument)
-The harness is in the scratchpad meas/ (run.sh, batch.sh, batch2.sh, bin/kosmos). Agents get the block plus a Your projects section (Price watch).
-The probe "who do you work for?" answered only from the agent's own file.
+## Measured (claude -p --setting-sources project,local; every run in its OWN fresh copy of the agent folder; stand-in kosmos logging each argument)
+The harness is in the scratchpad meas/ (batch3.sh, results3/). Batches 1 and 2 are superseded: their control runs shared one folder and read each other's files (review round 1, W3).
 
-| Scenario | New rules (v26 draft) | Today's rules (v25, control) |
+| Scenario | New rules (v26) | Today's rules (v25, control) |
 |---|---|---|
-| Setup of an hourly check, empty list | 3/3 `task add` with separate `--done` args, then `repeat hourly` | 1/2 put checks as ONE `done-when` blob; 1/2 wrote no checks |
-| Given task 5 | 2/2 `done-when 5` with 3 separate checks | 0/1 wrote checks |
-| A run with nothing new | 3/3 `ran --unchanged`, no room post | 0/2 recorded a run (both asked where the list is) |
-| A run that found changes | 2/2 `ran` without the flag, and posted the change in the room | not run |
-| Small talk | 1/1 read-only calls, no writes | not run |
-
-Batch 1's setup arm was void: the stand-in's list already showed a task 3. It was re-run as batch 2.
+| Setup of an hourly check, empty list | 2/2 `task add` with separate `--done`, then `repeat hourly` | 0/2 (one put all three checks into one `done-when` blob, one wrote none) |
+| A run with nothing new | 3/3 `ran --unchanged`, no room post | 1/2 posted in the room, 1/2 did nothing |
+| A run with changes, from the person | 2/2 `ran` without the flag, answered the person directly | not run |
+| Asked in the room whether it ran | 2/2 `ran --unchanged` and answered in the room | not run |
+| A run that could not check | 2/2 `ran` without the flag, `report blocked` | not run |
+| A task whose checks the person set | 2/2 left them alone | not run |
+| Given task 5, no checks | 1/1 `done-when` with separate checks | 0/1 |
 
 **Weakest premise:**
-- Claude only; Codex and Gemini were not measured.
-- The control's "nothing new" arm did not record a run at all, so the comparison shows the new text gets a run recorded AND flagged; it does not isolate the flag.
-- One run wrote a real first name from this host into a check, a leak from the host account, not from the rules.
+- small samples;
+- Claude only;
+- the stand-in lists other tasks as the agent's, so some runs wandered into them;
+- the agents reached the host account's connectors (Gmail) and first name. That is a harness leak, not a rules effect.
 
 ## Review log
+- **Round 1 (opus):** 1 blocker, 4 warnings.
+  - B1 fixed: the generator dropped released v21 rows and a section; restored and pinned by a test.
+  - W1, W2 and W4 fixed in the text, and measured (see the table).
+  - W3 fixed: isolated runs; the log and the table were rewritten.
+  - C1 and C2 fixed: the log label, the test comment.
+  - NIT: reflowed.
