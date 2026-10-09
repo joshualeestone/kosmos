@@ -369,11 +369,14 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - Mortals full suite found the rollup tests hand-built 16 agent cards (fixture-discipline). They now take real cards from
   test-support/fleet; only the model is set on top, and content is planted in every text field and null content field
   a real card carries.
-- Review 26 (after the merge) found a real defect the hand-built cards had hidden: a real card ALWAYS has a name (the
-  tmux session name when no display name is recorded, with nameDerived false), so the "no shown name" guard could
-  never fire and a world-prefixed session name would be sent. gather now skips such a card and marks the send partial.
-  The offline list still sends a stopped agent's folder name when it has no display name (that is the name the board
-  shows, not a session name).
+- Review 26 (after the merge) said a real card always has a name (the session name, nameDerived false, when no
+  display name is recorded) and that this name could be internal; gather then skipped such cards. Review 27 showed
+  that was WRONG twice over: the skipped agent still went out through the offline list (it was not in `seen`), and one
+  unnamed agent made every send partial, so no change send ever went again. And the premise was false: no session name
+  carries a world prefix; the fallback is the agent's own name, the one the board shows and the offline list sends.
+  DECIDED (one rule for both paths): the rollup sends the name the board shows. Every card's session name goes into
+  `seen`, as /api/status builds it, so a running agent is never listed again as stopped. A card with no name at all
+  (defensive) is not sent and the send says partial. Tested with an unmodified real card and its survey row.
 - The second Mortals run found tools/test-connector-verbs.sh pins the mac-request callers: orgrollup.js is re-decided
   there (an old connector refuses the rollup route; the rollup only sends for a Kosmos already enrolled, which needs
   a new connector; nothing that works today breaks).

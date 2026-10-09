@@ -271,11 +271,17 @@ async function gather(src) {
     if (at && (!latest || Date.parse(at) > Date.parse(latest))) latest = at;
   };
   for (const a of (snap.agents || [])) {
-    if (!a || a.isNamedOurs === false || gone.has(a.sessionName)) continue;
-    /* No shown name: never send the internal session name (review 4). A real card always carries a name, the session
-       name when nothing was recorded, and says so with nameDerived false (review 26), so that is the test. */
-    if (!a.name || a.nameDerived === false) { out.partial = true; continue; }
-    seen.add(a.sessionName);
+    if (!a) continue;
+    /* Every card's session name is seen, kept or not (review 27), as /api/status builds its own list from every card,
+       so a running agent is never listed again below as stopped. */
+    if (a.sessionName) seen.add(a.sessionName);
+    if (a.isNamedOurs === false || gone.has(a.sessionName)) continue;
+    /* The name the board shows (review 27): the recorded display name, or the agent's own name when none was recorded
+       (nameDerived false), which is the name the offline list below sends for the same agent stopped. Review 26 had
+       skipped those on the premise of an internal session name; no such name exists (the fallback is the agent's own
+       name), and the skip leaked through the offline list and made every send partial. A card with no name at all
+       stays defensive: never sent, and the send says it is partial (review 4). */
+    if (!a.name) { out.partial = true; continue; }
     nameOf.set(a.sessionName, a.name);
     /* The RECORDED runner, as the offline path reads it, never the pane's (rollup review 16): one source whether the agent
        runs or not, so its provider does not change when it starts or stops, and every send can carry it (the company

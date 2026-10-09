@@ -314,7 +314,7 @@ test('#5532 rollup review 3: a paneless card takes its recorded runner; an archi
   assert.equal(r.providerOfModel('my-codex-notes'), null, 'codex matched mid-string');
 });
 
-test('#5532 rollup review 4: a new enrollment starts its timing fresh; a card with no shown name is not sent by session name', async (t) => {
+test('#5532 rollup review 4 and 27: a new enrollment starts its timing fresh; an agent with no display name is sent once, by the name the board shows', async (t) => {
   const root = world(t);
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
@@ -327,9 +327,17 @@ test('#5532 rollup review 4: a new enrollment starts its timing fresh; a card wi
   fs.writeFileSync(path.join(root, oe.ENROLLMENT_FILE), JSON.stringify(rec));
   const again = await r.tick({ root, remote: c, sources: sources(), now: T0 + 2 * 60e3 });
   assert.equal(again.sent, true, 'a new enrollment inherited the old one\'s timing');
-  const g = await r.gather(sources({ snapshot: () => ({ counts: {}, agents: [card({ key: 'kosmos-w-leo', runner: 'claude', model: 'm', state: 'idle' })] }), survey: () => ({ ok: true, agents: [] }) }));
-  assert.equal(JSON.stringify(g).includes('kosmos-w-leo'), false, 'an internal session name was sent');
-  assert.equal(g.partial, true);
+  // Review 27: a real card for an agent with no recorded display name carries its own name (nameDerived false). It is
+  // the name the board shows and the one the offline list sends for it stopped, so it is sent, once, as running, and
+  // the send is not partial. Its survey row is present (as it is for every agent with a folder): never listed again.
+  const unnamed = card({ key: 'nameless', model: 'm', state: 'idle' });   // a key no other test gives a name
+  assert.equal(unnamed.nameDerived, false, 'CONTROL: the fixture is an agent with no recorded display name');
+  const g = await r.gather(sources({ snapshot: () => ({ counts: {}, agents: [unnamed] }),
+    survey: () => ({ ok: true, agents: [{ name: 'nameless', folder: true, job: true, profile: true }] }) }));
+  const rows = g.agents.filter((a) => a.name === 'nameless');
+  assert.equal(rows.length, 1, 'a running agent was also listed as stopped: ' + JSON.stringify(g.agents));
+  assert.equal(rows[0].state, 'idle');
+  assert.equal(g.partial, false, 'an agent with no display name made the send partial');
 });
 
 test('#5532 rollup review 5: an agent starting and stopping is not a change (no record of when this person runs agents)', async (t) => {
