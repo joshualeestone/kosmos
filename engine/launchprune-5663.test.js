@@ -1,10 +1,12 @@
 'use strict';
 require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+delete process.env.KOSMOS_GUARD_PANE_PATH;   // a board start: no pane PATH unless a test passes one
 
 /*
- * #5663: the token-only guard REPLACES its launch rules on each refresh (they only grew before, so every upgrade of an
- * installed tool added versioned paths for good), and its sandbox layer has a ceiling (measured: a profile past 64 KB
- * of data makes every sandboxed command fail). Asserts the config written, as launchpath-5516.test.js does.
+ * #5663: the token-only guard prunes launch rules it wrote whose paths are gone (they only grew before, so every upgrade
+ * of an installed tool added versioned paths for good), and says when its deny paths pass a ceiling (measured: Claude
+ * Code puts the Edit deny rules in the sandbox profile too, and a profile past 64 KB of data makes every sandboxed
+ * command fail). Asserts the config written, as launchpath-5516.test.js does.
  */
 
 const test = require('node:test');
@@ -44,7 +46,8 @@ test('#5663: an upgrade replaces the old versioned folder in both layers; the pe
   fs.writeFileSync(settingsFile(dir), JSON.stringify(s1, null, 2));
   const tokenRules = s1.permissions.deny.filter((r) => /board\.token/.test(r));
   assert.ok(tokenRules.length > 0, 'CONTROL: the rest of the guard is there to keep');
-  // The tool is upgraded: the PATH now names 2.0.
+  // The tool is upgraded: the PATH now names 2.0, and 1.0's folder is gone from disk (its parent too).
+  fs.rmSync(path.join(SANDBOX, 'bins', 'tool', '1.0'), { recursive: true });
   assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-upgrade', { ...BASE, panePath: v2 }), { ok: true });
   const s2 = readSettings(dir);
   assert.ok(!s2.permissions.deny.includes(dirRule(v1)), 'the old version\'s folder rule was kept for good');
@@ -61,11 +64,13 @@ test('#5663: with no record (a guard written before this change), nothing is pru
   assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, panePath: v1 }), { ok: true });
   // As a guard written before this change: no record on disk.
   fs.rmSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), { force: true });
-  setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, panePath: v2 });
+  fs.rmSync(path.join(SANDBOX, 'bins', 'old', '1.0'), { recursive: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, panePath: v2 }), { ok: true });
   assert.ok(readSettings(dir).permissions.deny.includes(dirRule(v1)), 'with no record, a rule was pruned it cannot know the guard wrote');
   // From now on the record exists, so the next upgrade prunes 2.0.
   const v3 = binDir('old/3.0/bin');
-  setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, panePath: v3 });
+  fs.rmSync(path.join(SANDBOX, 'bins', 'old', '2.0'), { recursive: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, panePath: v3 }), { ok: true });
   const s = readSettings(dir);
   assert.ok(!s.permissions.deny.includes(dirRule(v2)) && s.permissions.deny.includes(dirRule(v3)));
 });
@@ -89,8 +94,79 @@ test('#5663: a sandbox layer past the measured ceiling says the guard is not who
   for (let i = 0; i < 1400; i++) many.push(binDir(`ceiling/pkg${i}/1.${i}/bin`));
   const r = setup.guardTokenOnlyFolder(dir, 'lp-ceiling', { ...BASE, panePath: many.join(path.delimiter) });
   assert.equal(r.ok, false, JSON.stringify(r).slice(0, 200));
-  assert.match(r.because, /sandbox rules are \d+ bytes/);
+  assert.match(r.because, /denied paths \(\d+ distinct characters, \d+ in all\) are past/);
   assert.ok(readSettings(dir).sandbox.filesystem.denyWrite.length > 1000, 'the guard was not written');
   // CONTROL: the same agent with a handful of folders is whole.
   assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
+});
+
+test('#5663 review 1: a refresh with no launch inputs (the board\'s own start) keeps what a launch wrote, in both layers and in the record', () => {
+  const dir = agentDir('lp-callers');
+  const v = binDir('callers/1.0/bin');
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE, panePath: v }), { ok: true });
+  // The board's start: no pane PATH, so no launch rules are current.
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE }), { ok: true });
+  const s = readSettings(dir);
+  assert.ok(s.permissions.deny.includes(dirRule(v)) && s.sandbox.filesystem.denyWrite.includes(realOr(v)), 'a board-start refresh pruned what the launch wrote');
+  const rec = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), 'utf8'));
+  assert.ok(rec.deny.includes(dirRule(v)) && rec.denyWrite.includes(realOr(v)), 'the record forgot what the launch wrote: ' + JSON.stringify(rec));
+  // CONTROL: once the folder is gone, the next refresh (any caller) prunes it.
+  fs.rmSync(path.join(SANDBOX, 'bins', 'callers', '1.0'), { recursive: true });
+  setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE });
+  const s2 = readSettings(dir);
+  assert.ok(!s2.permissions.deny.includes(dirRule(v)) && !s2.sandbox.filesystem.denyWrite.includes(realOr(v)), 'a gone folder was not pruned');
+});
+
+test('#5663: a launch path not current but still on disk (or whose parent is) is kept; a corrupt record prunes nothing', () => {
+  const dir = agentDir('lp-keep');
+  const a = binDir('keep/a/bin');
+  const b = binDir('keep/b/bin');
+  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: [a, b].join(path.delimiter) });
+  // A narrower launch: b is no longer on the PATH but is still on disk.
+  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: a });
+  assert.ok(readSettings(dir).permissions.deny.includes(dirRule(b)), 'a folder still on disk was pruned');
+  // b's leaf goes, its parent stays: kept (a moved or relinked folder, not a removed version).
+  fs.rmSync(b, { recursive: true });
+  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: a });
+  assert.ok(readSettings(dir).permissions.deny.includes(dirRule(b)), 'pruned while its parent folder is still there');
+  // A corrupt record: nothing is pruned, even a gone path.
+  fs.rmSync(path.join(SANDBOX, 'bins', 'keep', 'b'), { recursive: true });
+  for (const bad of ['{not json', '[]', '{"deny":"x","denyWrite":7}']) {
+    fs.writeFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), bad);
+    assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: a }), { ok: true });
+    assert.ok(readSettings(dir).permissions.deny.includes(dirRule(b)), 'a corrupt record pruned a rule: ' + bad);
+  }
+});
+
+test('#5663: the ceiling counts the Edit and Read deny paths too, by distinct prefix and by raw length, and turns at exactly each limit', () => {
+  // Counting: both sandbox lists and the Edit/Read rule targets, each path once; a path adds what it does not share with
+  // the one sorted before it.
+  assert.deepEqual(setup.sandboxDenySize({ denyWrite: ['/ab/c', '/ab/d'] }, ['Edit(//ab/c/**)', 'Read(//x)', 'Bash(rm:*)']), { paths: 3, raw: 12, prefixes: 7 });
+  const dir = agentDir('lp-edge');
+  setup.guardTokenOnlyFolder(dir, 'lp-edge', { ...BASE });
+  const s0 = readSettings(dir);
+  const z = setup.sandboxDenySize(s0.sandbox.filesystem, s0.permissions.deny);
+  // '/Q...' sorts between paths that share only '/', so a path of length n adds n - 1 distinct characters and n raw.
+  const withPaths = (ps) => { const t = readSettings(dir); t.permissions.deny = t.permissions.deny.filter((r) => !r.startsWith('Edit(//Q')).concat(ps.map((x) => `Edit(/${x})`)); fs.writeFileSync(settingsFile(dir), JSON.stringify(t)); return setup.guardTokenOnlyFolder(dir, 'lp-edge', { ...BASE }); };
+  const P = setup.SANDBOX_DENY_PREFIX_MAX;
+  assert.equal(P, 40 * 1024);
+  assert.deepEqual(withPaths(['/Q' + 'q'.repeat(P - z.prefixes - 1)]), { ok: true }, 'at exactly the prefix limit');
+  const over = withPaths(['/Q' + 'q'.repeat(P - z.prefixes)]);
+  assert.equal(over.ok, false); assert.match(over.because, new RegExp(`\\(${P + 1} distinct characters`));
+  // Raw: many long paths that share all but their last few characters (they cost little in prefixes).
+  const R = setup.SANDBOX_DENY_RAW_MAX;
+  assert.equal(R, 160 * 1024);
+  const rawSet = (extra) => {
+    const need = R - z.raw + extra;
+    const ps = [];
+    const stem = '/Q' + 'q'.repeat(993) + '/';
+    let left = need;
+    for (let i = 0; left >= 2000; i++, left -= 1000) ps.push(stem + String(i).padStart(4, '0'));
+    ps.push(stem + 'z'.repeat(left - stem.length));
+    return ps;
+  };
+  assert.deepEqual(withPaths(rawSet(0)), { ok: true }, 'at exactly the raw limit');
+  const overRaw = withPaths(rawSet(1));
+  assert.equal(overRaw.ok, false); assert.match(overRaw.because, new RegExp(`, ${R + 1} in all\\)`));
+  assert.ok(Number(/\((\d+) distinct/.exec(overRaw.because)[1]) < P, 'CONTROL: the raw arm turned it, not the prefix arm');
 });

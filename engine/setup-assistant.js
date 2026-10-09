@@ -1091,13 +1091,47 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
  */
 /* #5663: the launch-rule record, and the sandbox layer's ceiling. */
 const LAUNCH_RECORD_FILE = 'kosmos-launch-rules.json';
-/* MEASURED (sandbox-exec on macOS): a profile past 65,535 bytes of data is refused and every command fails; 500 deny
-   paths already added about 38 ms per command. The rules Claude Code builds from denyRead and denyWrite are counted
-   here as each path plus 40 bytes of rule text, and kept well under the limit. */
-const SANDBOX_DENY_BYTES_MAX = 48 * 1024;
-function sandboxDenyBytes(fsb) {
-  const all = [...((fsb && fsb.denyRead) || []), ...((fsb && fsb.denyWrite) || [])];
-  return all.reduce((n, x) => n + Buffer.byteLength(String(x)) + 40, 0);
+/* MEASURED (claude -p with a sandbox on, 2026-10-09): Claude Code puts the Edit and Read deny rules into the sandbox profile
+   too, not only sandbox.filesystem (a shell write to an Edit-denied file was refused), and two limits then stop EVERY
+   sandboxed command:
+   - sandbox-exec refuses a profile past 65,535 bytes of compiled data. The compiled size follows the paths' distinct
+     prefixes (paths sharing a long prefix cost little), not their raw bytes: every set that ran had at most 34,216
+     distinct prefix characters (4,312 paths built from this machine's PATH had 33,636), every set that failed had at
+     least 51,816 (which compiled to 65,766 bytes).
+   - the profile is passed on a command line: 248,670 raw path bytes failed with E2BIG, 223,734 ran.
+   The ceilings below sit under both with a margin; past either, the guard may still run, but Kosmos can no longer say
+   it will. */
+const SANDBOX_DENY_PREFIX_MAX = 40 * 1024;
+const SANDBOX_DENY_RAW_MAX = 160 * 1024;
+function ruleTarget(r) {
+  const m = /^(?:Edit|Read)\(\/\/(.*?)(?:\/\*\*)?\)$/.exec(String(r));
+  return m ? '/' + m[1] : null;
+}
+/* The paths that reach the profile (both sandbox lists, and the targets of the Edit and Read deny rules), each counted
+   once: their raw length, and their distinct prefixes (sorted, each path adds what it does not share with the one
+   before it). */
+function sandboxDenySize(fsb, deny) {
+  const paths = [...new Set([...((fsb && fsb.denyRead) || []), ...((fsb && fsb.denyWrite) || []), ...(deny || []).map(ruleTarget).filter(Boolean)].map(String))].sort();
+  let raw = 0;
+  let prefixes = 0;
+  let prev = '';
+  for (const x of paths) {
+    let i = 0;
+    while (i < x.length && i < prev.length && x[i] === prev[i]) i++;
+    raw += x.length;
+    prefixes += x.length - i;
+    prev = x;
+  }
+  return { paths: paths.length, raw, prefixes };
+}
+/* #5663 review 1: a refresh does not always have the launch inputs (the board's own start has no pane PATH), so "not a
+   launch rule now" alone would let one caller prune what another wrote. A recorded entry is pruned only when it is not
+   current AND neither its path nor its parent folder exists any more (an upgraded tool's removed version folder); a
+   path that cannot be read is kept. */
+function launchPathGone(p) {
+  if (typeof p !== 'string' || !p.startsWith('/')) return false;
+  const exists = (x) => { try { fs.lstatSync(x); return true; } catch (e) { return !(e && e.code === 'ENOENT'); } };
+  return !exists(p) && !exists(path.dirname(p));
 }
 function readLaunchRecord(file) {
   const none = { deny: [], denyWrite: [] };
@@ -1115,7 +1149,7 @@ function writeLaunchRecord(file, rec) {
     if (old === text) return true;
     const tmp = `${file}.${process.pid}.new`;
     fs.writeFileSync(tmp, text, { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
     return true;
   } catch { return false; }
 }
@@ -1302,8 +1336,11 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     const prev = readLaunchRecord(rules.launchRecord);
     const launchDenyNow = new Set(rules.launchRules || []);
     const launchWritesNow = [...(rules.launchDirs || []), ...(rules.launchFiles || [])];
-    const stale = new Set(prev.deny.filter((r) => !launchDenyNow.has(r)));
-    const staleWrites = new Set(prev.denyWrite.filter((x) => !launchWritesNow.includes(x)));
+    const stale = new Set(prev.deny.filter((r) => !launchDenyNow.has(r) && launchPathGone(ruleTarget(r))));
+    const staleWrites = new Set(prev.denyWrite.filter((x) => !launchWritesNow.includes(x) && launchPathGone(x)));
+    // The record is a union: what was recorded and not pruned, and what is current, so no caller erases another's.
+    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...launchDenyNow])];
+    const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...launchWritesNow])];
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
     const deny = [...new Set([...had, ...rules.deny])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
@@ -1360,11 +1397,11 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     // #5663: what this refresh wrote for launch coverage, for the next refresh to replace. A record that cannot be
     // written leaves this refresh's rules in place (nothing is lost; the next refresh only cannot prune them): said.
-    if (!writeLaunchRecord(rules.launchRecord, { deny: [...launchDenyNow], denyWrite: launchWritesNow })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
+    if (!writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
     // #5663: the sandbox profile has a size limit (measured: past 64 KB of data every sandboxed command fails), so a
     // guard whose shell layer passes the ceiling says it is not whole rather than leaving the agent unable to run.
-    const sbBytes = next.sandbox ? sandboxDenyBytes(next.sandbox.filesystem) : 0;
-    if (sbBytes > SANDBOX_DENY_BYTES_MAX) return { ok: false, because: `its sandbox rules are ${sbBytes} bytes, past the ${SANDBOX_DENY_BYTES_MAX} the sandbox can safely take; the guard is written but may stop the agent's shell` };
+    const sz = next.sandbox ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny) : null;
+    if (sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)) return { ok: false, because: `its ${sz.paths} denied paths (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell` };
     // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
     // never a reason to write nothing.
     if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place' };
@@ -1987,4 +2024,7 @@ module.exports = {
   markSetupAssistantSeeded,
   defaultHasConnectedAccount,
   seedSetupAssistant,
+  SANDBOX_DENY_PREFIX_MAX,
+  SANDBOX_DENY_RAW_MAX,
+  sandboxDenySize,
 };
