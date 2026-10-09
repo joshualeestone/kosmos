@@ -447,14 +447,15 @@ test('saving a picture never leaves a moment with no picture, and a stray file i
   await cs.sweep();
   const dir = path.dirname(store.avatarPath('ava'));
   // A replacement of another type: the new file is in place before the old one goes.
-  // Look for a picture at the moment the new bytes are written: an unlink-then-write save has none then.
-  const realWrite = fs.writeFileSync;
+  // Look for a picture at the moment the new bytes are written: an unlink-then-write save has none then. (#5434: the
+  // save opens its temp with 'wx' through securewrite, so the moment is that open.)
+  const realOpen = fs.openSync;
   let seenAtWrite;
-  fs.writeFileSync = (f, ...rest) => {
-    if (String(f).startsWith(dir + path.sep) && seenAtWrite === undefined) seenAtWrite = store.avatarLookup('ava').file;
-    return realWrite(f, ...rest);
+  fs.openSync = (f, flags, ...rest) => {
+    if (flags === 'wx' && String(f).startsWith(dir + path.sep) && seenAtWrite === undefined) seenAtWrite = store.avatarLookup('ava').file;
+    return realOpen.call(fs, f, flags, ...rest);
   };
-  try { store.saveAvatar('ava', 'image/jpeg', JPEG); } finally { fs.writeFileSync = realWrite; }
+  try { store.saveAvatar('ava', 'image/jpeg', JPEG); } finally { fs.openSync = realOpen; }
   assert.ok(seenAtWrite, 'there was a moment with no picture');
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), [], 'a temporary file was left behind');
   await cs.sweep();
@@ -625,10 +626,11 @@ test('#5302 saveRefitAvatar: a stale version writes nothing; otherwise the origi
   assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith(store.safeKey('kos') + '.')).length, 2);
   // A keep that fails writes nothing.
   store.saveAvatar('kos', 'image/gif', GIF); bump(20);
-  const real = fs.copyFileSync;
-  fs.copyFileSync = () => { throw new Error('disk full'); };
+  // (#5434: the original is kept through securewrite, whose temp is written with writeSync)
+  const real = fs.writeSync;
+  fs.writeSync = () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); };
   try { assert.throws(() => store.saveRefitAvatar('kos', 'image/png', png(6), store.avatarVersion('kos')), /disk full/); }
-  finally { fs.copyFileSync = real; }
+  finally { fs.writeSync = real; }
   assert.ok(fs.readFileSync(store.avatarPath('kos')).equals(GIF), 'a failed keep still overwrote the picture');
   assert.ok(!fs.readdirSync(dir).some((f) => f.endsWith('.tmp')), 'a failed copy left a temporary file');
   // Removing the picture takes its originals.

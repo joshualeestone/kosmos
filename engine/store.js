@@ -519,8 +519,7 @@ function keepAvatarOriginal(name) {
   const size = fs.statSync(file).size;
   const dest = path.join(originalsDir(), safeKey(name) + '.' + avatarVersion(name) + '-' + size + path.extname(file).toLowerCase());
   if (fs.existsSync(dest)) return dest;
-  const tmp = path.join(originalsDir(), '.' + safeKey(name) + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
-  try { fs.copyFileSync(file, tmp); fs.renameSync(tmp, dest); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* never written */ } throw e; }
+  saveFlushed(dest, fs.readFileSync(file));   // #5434: flushed before the rename, so a crash never leaves a zeroed original
   return dest;
 }
 /* kosmos#5302: the page's refit of an older picture. Refused (code CHANGED) when the picture is not the version the page
@@ -630,16 +629,10 @@ function saveAvatar(name, contentType, buffer) {
   const existing = avatarPath(name);
   const dest = path.join(avatarsDir(), key + ext);
   /* #4885: written beside, then renamed into place, so there is never a moment with no picture or half of one (the
-     community sender reads this folder every sweep, and "no picture" there takes the public one down). The temporary
-     name starts with a dot, so it is never anybody's picture. */
-  const tmp = path.join(avatarsDir(), '.' + key + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
-  try {
-    fs.writeFileSync(tmp, buffer);
-    fs.renameSync(tmp, dest);
-  } catch (e) {
-    try { fs.unlinkSync(tmp); } catch { /* never written */ }
-    throw e;
-  }
+     community sender reads this folder every sweep, and "no picture" there takes the public one down). #5434: flushed
+     before the rename. The temporary name is `<key>.<ext>.kosmos-...tmp`, which the lookup (`<key>.<ext>` only)
+     never takes for a picture. */
+  saveFlushed(dest, buffer);
   // Replace rather than accumulate: one avatar per agent, and an old .png
   // left beside a new .jpg would win or lose by directory order.
   // The new picture is already in place, so a failure here is not a failed save. On a disk that ignores case (the
@@ -714,6 +707,15 @@ function stripIdentity(profile) {
   return profile;
 }
 
+/* #5434 slice 4: every store.js save goes through securewrite.writeSecret, so the bytes are flushed to disk before
+   the rename makes them the file (a crash otherwise can leave it at full length, zero-filled; #5431). An existing
+   file keeps its mode; a new one takes the umask default, as writeFileSync gave. atomicOnly: a failed save throws and
+   leaves the old file as it was. These folders are Kosmos's own, so any provably dead writer temp there is reaped. */
+function modeOf(file) { try { return fs.statSync(file).mode & 0o7777; } catch { return null; } }
+function saveFlushed(file, data) {
+  require('./securewrite').writeSecret(file, data, modeOf(file), { atomicOnly: true, umaskDefault: true });
+}
+
 function writeProfile(name, patch) {
   ensure(profilesDir());
   const had = readProfile(name);
@@ -745,11 +747,9 @@ function writeProfile(name, patch) {
     next.id = crypto.randomBytes(6).toString('hex');
     next.idInstall = install;
   }
-  // Write-then-rename, so an interrupted write cannot leave a half-written
+  // Write-then-rename (flushed first), so an interrupted write cannot leave a half-written or zero-filled
   // file that parses as an empty profile and silently loses someone's edits.
-  const tmp = profilePath(name) + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, profilePath(name));
+  saveFlushed(profilePath(name), JSON.stringify(next, null, 2));
   return next;
 }
 
@@ -808,9 +808,7 @@ function writeSettingsIfReadable(patch) {
 function mergeSettingsInto(had, patch) {
   ensure(root());
   const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
-  const tmp = settingsPath() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, settingsPath());
+  saveFlushed(settingsPath(), JSON.stringify(next, null, 2));
   return next;
 }
 
