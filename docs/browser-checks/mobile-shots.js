@@ -484,6 +484,9 @@ const SCREENS = [
   } },
   /* #5531: Your company, a join code checked: the consent before anything binds. */
   { name: 'plus-org-consent', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
+    // A computer with no company sees one line first (10-08): open it the person's way.
+    await page.waitForSelector('#plus-org-open', { state: 'visible', timeout: 10000 });
+    await page.click('#plus-org-open');
     await page.waitForSelector('#plus-org-code', { state: 'visible', timeout: 10000 });
     await page.fill('#plus-org-code', 'NW-JOIN-4821');
     await page.click('#plus-org-check');
