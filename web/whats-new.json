@@ -1,6 +1,11 @@
 {
-  "version": "0.7.29",
+  "version": "0.7.31",
   "highlights": [
+    {
+      "icon": "spark",
+      "title": "Claude Haiku 5.5 is in the model picker",
+      "line": "You can pick Claude Haiku 5.5 for an agent: a fast Claude model that costs less. Kosmos shows its name, context use and price."
+    },
     {
       "icon": "phone",
       "title": "Kosmos fits a phone screen better",
