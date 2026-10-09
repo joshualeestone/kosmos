@@ -594,9 +594,9 @@ async function uploadManifestInner(deps, bytes, o, st) {
   const owners = new Set([...avoid].map(ownerOf));
   if (owners.has(null) || owners.size !== 1) return { ok: false, grantSpent: false, because: "the manifest's chunk keys are not all under one <org>/<account> path" };
   const owner = [...owners][0];
-  // Plus the clockSkew hour: near Monday 00:00 UTC a Mac clock slightly behind the coordinator's would pass here and be
-  // locked to the next period after the grant, spending one of the 50 manifest grants on a refusal.
-  if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS + 60 * 60 * 1000) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
+  // No clock margin here (deliberately; see the plan): one would refuse every correct manifest in a period's last hour.
+  // The residual is a Mac clock slightly behind the coordinator's at Monday 00:00 UTC, refused after the grant instead.
+  if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
   const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
@@ -607,7 +607,7 @@ async function uploadManifestInner(deps, bytes, o, st) {
       (d) => parseManifestGrant(d, bytes, o.bucket));
     if (g.out && g.out.grantSpent) st.granted = true;
     // A re-grant request that fails still follows a grant that answered: that one's allowance is spent.
-    if (!g.ok) return Object.assign({ ok: false }, g.out, st.granted ? { grantSpent: true } : {});
+    if (!g.ok) return Object.assign({ ok: false }, g.out, st.granted ? { grantSpent: true, because: `an earlier manifest grant ran out with nothing stored, then ${g.out.because}` } : {});
     st.granted = true;
     const skew = clockSkew(now(), g.expiresAtMs);
     if (skew) return { ok: false, because: skew, grantSpent: true };

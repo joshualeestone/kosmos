@@ -1118,17 +1118,18 @@ test('a refused manifest PUT names the key as unsure only when an earlier attemp
   }
 });
 
-test('the pre-grant floor counts the grant window AND the clock hour: each is the only thing refusing one case, with no grant', async () => {
+test('the pre-grant floor counts the grant window: chunks locked until now + 30 days + 10 minutes are refused with no grant; + 30 days + 30 minutes asks (no clock margin: a correct manifest in a period\'s last hour)', async () => {
   const b = await bucket();
   try {
     const mc = manifestCoordinator(b);
-    // now + 30 d + 70 min: refused only because of the 15-minute grant window (30 d + 60 min + 15 min > it).
-    // now + 30 d + 30 min: refused only because of the clock hour (30 d + 15 min < it < 30 d + 75 min).
-    for (const extra of [70, 30]) {
-      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 30 * DAY + extra * 60 * 1000) }));
-      assert.strictEqual(r.ok, false, String(extra)); assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(r.grantSpent, false);
-    }
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 30 * DAY + 10 * 60 * 1000) }));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(r.grantSpent, false);
     assert.strictEqual(mc.bodies.length, 0);
+    // CONTROL: 30 days + 30 minutes is what a chunk granted earlier in a period ending 15 minutes from now carries;
+    // its manifest is valid, so a grant is asked for (the stub then locks it 33 days out and the post-grant check
+    // refuses; only "was a grant asked" is the point here).
+    await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 30 * DAY + 30 * 60 * 1000) }));
+    assert.strictEqual(mc.bodies.length, 1);
   } finally { await b.close(); }
 });
 
@@ -1309,6 +1310,7 @@ test('a re-grant request that fails after a grant ran out cleanly still says gra
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
     assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'backup_quota');
     assert.strictEqual(r.grantSpent, true);
+    assert.match(r.because, /^an earlier manifest grant ran out with nothing stored, then refused/);
     assert.strictEqual(n, 2);
   } finally { await b.close(); }
 });
