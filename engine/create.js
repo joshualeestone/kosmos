@@ -2709,8 +2709,8 @@ trust_level = "trusted"
   try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
   /* #5434 slice 7: saved through securewrite, so the temp is flushed before the rename and the folder
      after it, and a crash cannot leave the config at full length but zero-filled (#5431). It keeps
-     what this writer had: the temp is BORN at `mode` (#1797: no window where the whole config sits
-     world-readable) and the mode is then set on the fd, best effort. It adds what this writer lacked:
+     what this writer had: the temp is born no looser than `mode` (created at `mode` less the umask,
+     #1797: no window where the whole config sits world-readable), then set to `mode` on the fd, best effort. It adds what this writer lacked:
      the temp is created `wx` under a unique name (the old fixed `.tmp-<pid>` followed a link planted
      there), and only a temp this save created is ever unlinked.
      The old reason for keeping this off securewrite (#1797: its "nothing legitimately symlinks this"
@@ -2722,7 +2722,7 @@ trust_level = "trusted"
      are not reaped. */
   try {
     require('./securewrite').writeSecret(cfg, next, mode, { atomicOnly: true, ownTempsOnly: true });
-  } catch (e) {
+  } catch {
     return { ok: false, removed: false, because: 'we could not update the codex config' };
   }
   // #2129/#5: if the OTHER spelling's block was present but hand-edited, we removed

@@ -6448,8 +6448,11 @@ test('#1797: the temp is created private, not merely tightened a line later', WI
      from the chmod, neutralize chmodSync and read the end mode: with the mode
      passed on create the config is private; without it, the chmod being a no-op,
      nothing tightens it. Same shape as securewrite's "the create mode is
-     load-bearing when the chmod is a no-op". Revert the `{ mode }` on the
-     writeFileSync and this goes red.
+     load-bearing when the chmod is a no-op".
+     #5434 slice 7: the config is now saved through securewrite, which creates the temp with
+     `fs.openSync(tmp, 'wx', mode)` and then sets the mode with `fs.fchmodSync` on the fd, never
+     `fs.chmodSync`. So BOTH are neutralized here: create the temp without its mode (`'wx', 0o666`)
+     and this goes red.
      ⚠️ UMASK IS PINNED to 0022, deliberately: the window only exists under a
      permissive umask (under 0077 a plain write already lands 0600 and the defect
      cannot manifest), so pinning makes the discrimination deterministic on any
@@ -6461,8 +6464,10 @@ test('#1797: the temp is created private, not merely tightened a line later', WI
   assert.equal(fs.statSync(cfg).mode & 0o777, 0o600, 'the fixture must start private');
 
   const realChmod = fs.chmodSync;
+  const realFchmod = fs.fchmodSync;
   const realUmask = process.umask(0o022);
   fs.chmodSync = () => {}; // a mount where chmod is a no-op: only the create mode survives
+  fs.fchmodSync = () => {}; // and on the fd, where securewrite sets it (#5434 slice 7)
   let got;
   try {
     /* CONTROL, in the same pinned-umask + no-op-chmod harness: a plain unmoded
@@ -6473,7 +6478,7 @@ test('#1797: the temp is created private, not merely tightened a line later', WI
     assert.equal(fs.statSync(probe).mode & 0o777, 0o644,
       'the harness cannot see a loose write, so this proves nothing about the config below');
     got = create.forgetCodexFolder(dir, home);
-  } finally { fs.chmodSync = realChmod; process.umask(realUmask); }
+  } finally { fs.chmodSync = realChmod; fs.fchmodSync = realFchmod; process.umask(realUmask); }
   assert.equal(got.removed, true, 'it has to rewrite the file, or the create mode was never exercised');
   assert.equal(fs.statSync(cfg).mode & 0o777, 0o600,
     'with the chmod neutralized the config came out loose, so the temp was created world-readable and only the chmod was hiding it');
