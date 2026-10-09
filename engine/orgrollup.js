@@ -369,6 +369,21 @@ function signature(body) {
  * last send is CHANGE_MIN_MS old), unless a failure was within RETRY_AFTER_FAIL_MS. Never throws.
  * opts: { root, remote, sources, now } (tests); the board passes nothing.
  */
+/* The print-wait note, where the joined view reads it (review 18): /api/org must not say this Kosmos reports while its
+   rollup waits for a print. It belongs to:
+   - this enrollment (enrolledAs, review 19);
+   - the words it waits under (printWaitHash, review 32), so new words accepted start afresh, and it is rewritten when
+     the words changed (review 33);
+   - its reason (printWaitWhy, review 34): 'later' is a read that will retry, 'error' a print that cannot be made.
+   Writing it drops a partial-read hold, which belongs to one day's daily (reviews 24, 35). */
+function notePrintWait(root, st, enrolledAs, rec, why, now) {
+  const hash = rec.consentHash || null;
+  if (st.printWaitAt && st.printWaitHash === hash && st.printWaitWhy === why) return;
+  const w = Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: hash, printWaitWhy: why });
+  delete w.partialSince;
+  writeState(root, w);
+}
+
 async function tick(opts) {
   const o = opts || {};
   const oe = require('./orgenroll');
@@ -392,7 +407,7 @@ async function tick(opts) {
      "waiting after a failure" or "nothing due" until the clock caught up, days of silence with no signal. */
   /* And anything that is not a sane time at all (rollup review 19): a string, NaN, or a number outside [0, now] from a
      cut-off or hand-edited file would make toISOString() throw on every tick, silently and for good. */
-  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt', 'partialSince']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
+  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt', 'partialSince', 'tryAt']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
   /* A failure's wait belongs to the words it was sent under (rollup review 31): once the person accepts new words (a
      review's Accept keeps the enrollment), the wait no longer applies, so the screen's "reports to it" is true at once. */
   if (st.failAt && st.failHash !== (rec.consentHash || null)) delete st.failAt;
@@ -418,16 +433,13 @@ async function tick(opts) {
   /* The print first (rollup review 16): while it must wait, nothing can go, so the board is not read either. */
   const pf = oe.reportPrint(eo);
   if (pf.send === 'later' || pf.send === 'error') {
-    // Said where the joined view reads it (review 18): it must not claim this Kosmos reports while it waits for a print.
-    // Tied to the words it waits under too (rollup review 32), as a failure's wait is: new words accepted start afresh.
-    // Rewritten when the words changed too (rollup review 33): a note kept from other words would read as no wait.
-    // And why (rollup review 34): a read that will retry ('later') is not a print that cannot be made at all ('error').
-    const why = pf.send === 'error' ? 'error' : 'later';
-    // A partial hold belongs to one day's daily (review 24); one kept across a long print wait would skip the next hold (review 35).
-    if (!st.printWaitAt || st.printWaitHash !== (rec.consentHash || null) || st.printWaitWhy !== why) { const w = Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: rec.consentHash || null, printWaitWhy: why }); delete w.partialSince; writeState(root, w); }
+    notePrintWait(root, st, enrolledAs, rec, pf.send === 'error' ? 'error' : 'later', now);
     return { sent: false, because: 'this computer could not be read yet' };
   }
-  if (st.printWaitAt) { delete st.printWaitAt; delete st.printWaitWhy; writeState(root, Object.assign({}, st, { enrolledAs })); }   // readable again
+  if (st.printWaitAt) {   // readable again
+    delete st.printWaitAt; delete st.printWaitWhy; delete st.printWaitHash;
+    writeState(root, Object.assign({}, st, { enrolledAs }));
+  }
   const g = await gather(o.sources);
   /* Usage leaves only under a consent that named it (review 8): a reader added to the sources later cannot turn it on
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name

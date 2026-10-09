@@ -424,3 +424,6 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - Review 35: the Review prompt for words that ask for no reports says "Accept what it asks now" (not "so this Kosmos
   can report", which Accept would not do); a partial-read hold does not survive a print wait; README and CLAUDE.md say
   /api/org reads the rollup's state and gives reportingWait.
+- Review 36: the print-wait rule is one named helper (notePrintWait) instead of one long line; tryAt is clamped with
+  the other saved times; printWaitHash is cleared with the note. Kept as decided: the change-detection board read every
+  five minutes once ten minutes have passed (the cost of change sends).
