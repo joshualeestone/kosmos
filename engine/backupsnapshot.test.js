@@ -1105,3 +1105,14 @@ test('exclude matches as restore compares names: "./deps" and "Deps" both leave 
     }
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a hard-linked tree is skipped in the walk, so it cannot count toward the file ceiling', async () => {
+  const w = workKosmos();
+  try {
+    fs.mkdirSync(path.join(w.root, 'store')); fs.mkdirSync(path.join(w.root, 'nm'));
+    for (let i = 0; i < 30; i++) { fs.writeFileSync(path.join(w.root, 'store', `p${i}`), String(i)); fs.linkSync(path.join(w.root, 'store', `p${i}`), path.join(w.root, 'nm', `p${i}`)); }
+    const l = await snap.listFiles(w.root, fs, { maxFiles: 10 });
+    assert.equal(l.over, false, 'sixty hard-linked files passed a ceiling of ten: they were counted');
+    assert.equal(l.skipped.filter((x) => /more than one name/.test(x.why)).length, 60);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
