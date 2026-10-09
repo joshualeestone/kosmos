@@ -100,7 +100,8 @@ function periodOf(ms) {
   // ISO week-numbering year: the year of the Thursday of that week.
   const thursday = new Date(start + 3 * DAY_MS);
   const year = thursday.getUTCFullYear();
-  const week = 1 + Math.floor((thursday - Date.UTC(year, 0, 1)) / WEEK_MS);
+  const jan1 = new Date(0); jan1.setUTCFullYear(year, 0, 1);   // not Date.UTC, which reads years 0 to 99 as 1900 on
+  const week = 1 + Math.floor((thursday - jan1) / WEEK_MS);
   return `${year}-W${String(week).padStart(2, '0')}`;
 }
 
@@ -530,13 +531,18 @@ async function snapshotInner(input, deps, added, state, fail) {
     // outlastsChunks: the index's chunks lock out too soon for this manifest (a period passed): they cannot be named.
     return fail(`the manifest could not be uploaded: ${(m && m.because) || 'no answer'}`, Object.assign({},
       m && m.retryLater ? { retryLater: true } : {}, m && m.unsure ? { unsure: m.unsure } : {},
-      m && m.outlastsChunks ? Object.assign({ staleIndex: true }, periodOf(tEnd) !== ctx.period ? { newPeriod: true } : {}) : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
+      m && m.outlastsChunks ? Object.assign({ staleIndex: true }, periodOf(tEnd) !== ctx.period ? { newPeriod: true } : {}) : {},
+      // The coordinator now grants to another bucket than the index's (review 23): with every chunk reused, nothing was
+      // uploaded to show it, and each retry would spend a manifest grant. Drop the index.
+      m && m.otherBucket && index.size ? { staleIndex: true } : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
   }
   // The manifest's key must be this context's (review 19): Monday 00:00 UTC can pass between the check above and the
   // coordinator signing the grant, and uploadManifest checks only the owner. A key in another period files the manifest
   // where a restore looking it up by period cannot open it; said, not hidden (it is stored and locked either way).
   const mk = keyProblem(m.key, ctx) || (owner && ownerOf(m.key) !== owner ? 'under another account path' : null);
-  if (mk) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
+  // newPeriod only when the period is what differs (review 23); another org or a malformed key is a plain failure.
+  if (mk && mk.startsWith('in period')) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
+  if (mk) return fail(`the manifest was stored under a key that is not this snapshot's (${mk})`, { grantSpent: true });
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 

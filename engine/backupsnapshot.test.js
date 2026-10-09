@@ -900,3 +900,16 @@ test('two grants in one run naming different buckets, with no index, fail withou
     assert.equal(r.bucket, 'bucket2/');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('with every chunk reused, a manifest grant in another bucket is a stale index (nothing uploaded to show it)', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const first = await take(k, w.root, st);
+    assert.equal(first.ok, true, first.because);
+    const k2 = Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { snapshot: 's2' }) });
+    const st2 = store({ manifestAnswer: { ok: false, otherBucket: true, grantSpent: true, because: 'the manifest grant names another bucket' } });
+    const r = await take(k2, w.root, st2, { input: { index: first.added, bucket: first.bucket } });
+    assert.equal(r.ok, false); assert.equal(st2.batches.length, 0, 'every chunk was reused');
+    assert.equal(r.staleIndex, true); assert.equal(r.grantSpent, true);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
