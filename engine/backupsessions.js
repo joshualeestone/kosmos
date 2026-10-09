@@ -46,10 +46,6 @@ const idOf = (p) => { try { const st = fs.statSync(p, { bigint: true }); return 
 // `<base>/<rest...>` with base's real path in front, only if no part below base is a link and it is a folder; base itself
 // may be a link (a config folder kept elsewhere). No part is a link, so this names the real folder (in the case the
 // parts were given in, on a case-insensitive volume). Else null.
-function exactFolder(base, ...rest) {
-  const r = folderCheck(base, ...rest);
-  return r.real || null;
-}
 
 /* { real } for `<base>/<rest...>` with no link below base; { link: true } when a part below base exists and is a link
    (refused, and said so); {} when it is not there. */
@@ -85,7 +81,7 @@ function filesUnder(dir, keep, maxDepth = 6) {
 // A recorded working folder is this agent's: as recorded, or the same folder on disk (status.js workdirBelongs).
 function belongsTo(agentDir) {
   const canon = trust.canonicalOnDisk(path.resolve(agentDir));
-  return (cwd) => typeof cwd === 'string' && !!cwd && (cwd === agentDir || cwd === canon || trust.canonicalOnDisk(path.resolve(cwd)) === canon);
+  return (cwd) => typeof cwd === 'string' && !!cwd && (cwd === agentDir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
 }
 
 function claudeRoots(agentDir, claudeRootsIn, id, belongs) {
