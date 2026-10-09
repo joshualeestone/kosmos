@@ -41,11 +41,14 @@ const jobfix = require('./test-support/jobfixture');   // #5500: the agent's job
  * the parsed /api/status. #5500: on Linux the job is a systemd unit and systemd answers `list-units` (the active
  * units) as the caller says instead.
  */
-/* #5658 (Renet, a loaded full-suite run): /api/status leaves the offline list empty on a poll that could not finish
-   its reads (pane lines it could not read, server.js couldNotAccount, which also sends counts.notRunning as null; or
-   an agent survey that failed), and the control half below rendered the missing row as a TypeError. An empty list on
-   a slow host is the route being honest, not this test's subject, so the board is read again (a fresh one each time)
-   until the ghost row is there, up to READS times. A row still missing after that fails in ghostRow with the reason. */
+/* #5658 (Renet, a loaded full-suite run): the control half rendered a missing ghost row as a TypeError. Under load the
+   likeliest path (review 2, measured with a stub tmux slower than status.js's 5 s tmux wait) is the pane list read
+   timing out: listPanes throws and /api/status answers 500 with { error, detail } and no agents at all. The route can
+   also leave the offline list empty on a poll it cannot account for (server.js couldNotAccount, notRunning null; not
+   reachable with this empty stub, which reads as zero unreadable lines) or when the survey of created agents fails.
+   None of these is this test's subject, so the board is read again (a fresh one each time) until the ghost row is
+   there, up to READS times. A row still missing after that fails in ghostRow with the server's own words.
+   Weakest premise: a route that fails one poll in three now passes; one that fails every poll still fails. */
 const READS = 3;
 const ghostOf = (status) => (status.agents || []).find((a) => a.sessionName === 'ghost');
 function boardWithUnseenAgent(launchctlListStdout, systemdActiveUnits) {
@@ -61,13 +64,20 @@ function ghostRow(status, what) {
   const row = ghostOf(status);
   const counts = status && status.counts;
   assert.ok(row, `${what}: no ghost row in ${READS} reads of /api/status`
-    + (!counts ? ' (the last answer carried no counts, so it was not a status read at all)'
-      : counts.notRunning === null ? ' (the last one withheld the offline list: pane lines it could not read, from load or from a regression in reading the stub tmux)'
+    + (!counts ? ` (the last answer was not a roster: ${JSON.stringify({ error: status && status.error, detail: status && status.detail })};`
+      + ' under load this is the pane list read timing out)'
+      : counts.notRunning === null ? ' (the last one withheld the offline list: it reported pane lines it could not read)'
         : ' (the agent fell out of the roster, its row failed to compose, or the survey of created agents failed every time)'));
   return row;
 }
+/* Review 2: the sandbox is removed whatever happens after it is made (setup included), and a removal that fails never
+   replaces the error that ended the read. */
 function readBoardOnce(launchctlListStdout, systemdActiveUnits) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-split-'));
+  try { return readBoardIn(sb, launchctlListStdout, systemdActiveUnits); }
+  finally { try { fs.rmSync(sb, { recursive: true, force: true }); } catch { /* a leftover temp folder, never the verdict */ } }
+}
+function readBoardIn(sb, launchctlListStdout, systemdActiveUnits) {
   const profiles = nodePath.join(sb, 'data', store.APP, 'profiles');
   const launch = nodePath.join(sb, 'launch');
   const worker = nodePath.join(sb, 'workers', 'ghost');
@@ -117,27 +127,23 @@ function readBoardOnce(launchctlListStdout, systemdActiveUnits) {
       });
     });
   `;
-  let out;
-  // #5658 review 1: the sandbox goes whatever the child does (a loaded host is where a child is likelier to fail).
-  try {
-    out = execFileSync(process.execPath, ['-e', script], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
-        AGENT_WORKFORCE_DRY_RUN: '1',
-        /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
-           TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
-        AGENT_WORKFORCE_TMUX_BIN: nodePath.join(bin, 'tmux'),
-        AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
-        AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
-        AGENT_WORKFORCE_LAUNCH: launch,
-        // #5500: the unit folder jobPathIn wrote to; a sandbox without one refuses every systemd call.
-        AGENT_WORKFORCE_SYSTEMD_DIR: nodePath.join(launch, 'systemd', 'user'),
-        AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'), // sandboxed whole (#634)
-      },
-    });
-  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+  const out = execFileSync(process.execPath, ['-e', script], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      AGENT_WORKFORCE_DRY_RUN: '1',
+      /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
+         TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
+      AGENT_WORKFORCE_TMUX_BIN: nodePath.join(bin, 'tmux'),
+      AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
+      AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
+      AGENT_WORKFORCE_LAUNCH: launch,
+      // #5500: the unit folder jobPathIn wrote to; a sandbox without one refuses every systemd call.
+      AGENT_WORKFORCE_SYSTEMD_DIR: nodePath.join(launch, 'systemd', 'user'),
+      AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'), // sandboxed whole (#634)
+    },
+  });
   return JSON.parse(out);
 }
 
