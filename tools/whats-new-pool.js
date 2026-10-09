@@ -32,8 +32,9 @@ function readPool(file) {
   const pool = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (!pool || !Array.isArray(pool.items)) throw new Error(file + ' has no items list');
   for (const it of pool.items) {
-    if (!it || typeof it.title !== 'string' || !STATUSES.includes(it.status) || !Number.isFinite(it.rank)) {
-      throw new Error(file + ': every item needs a title, a numeric rank and a status (' + STATUSES.join(', ') + ')');
+    if (!it || typeof it.title !== 'string' || !STATUSES.includes(it.status) || !Number.isFinite(it.rank)
+      || typeof it.since !== 'string' || !/^\d+\.\d+\.\d+$/.test(it.since)) {
+      throw new Error(file + ': every item needs a title, a numeric rank, a since version and a status (' + STATUSES.join(', ') + ')');
     }
   }
   // Titles are how `shown` finds what prod showed: two items with one title would be marked together.
@@ -83,6 +84,11 @@ function main(argv) {
     if (!Number.isInteger(max) || max < 1 || max > whatsnew.MAX_HIGHLIGHTS) {
       process.stderr.write('--max must be 1 to ' + whatsnew.MAX_HIGHLIGHTS + '\n');
       return 2;
+    }
+    // A What's New is for a version AFTER the last prod release (the window shows what is new since it).
+    if (pool.lastProd && newerFirst(version, pool.lastProd) >= 0) {
+      process.stderr.write(version + ' is not newer than the last PROD release the pool records (' + pool.lastProd + '); nothing written\n');
+      return 3;
     }
     const obj = { version, highlights: choose(pool, max) };
     const bad = whatsnew.problems(obj, version);

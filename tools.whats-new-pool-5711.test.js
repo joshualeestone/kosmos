@@ -39,10 +39,11 @@ test('#5711: the top highlights by rank; a held one and one prod already showed 
 });
 
 test('#5711: a tie in rank goes to the newer version', () => {
-  const t = tmp({ items: [item('Older', 1, 'pending', { since: '0.7.31' }), item('Newer', 1, 'pending', { since: '0.7.34' })] });
+  // Titles opposed to the version order, so the title fallback alone would pick the older one.
+  const t = tmp({ items: [item('A older', 1, 'pending', { since: '0.7.31' }), item('B newer', 1, 'pending', { since: '0.7.34' })] });
   try {
     assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=1'])), 0);
-    assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['Newer']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['B newer']);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
 
@@ -105,4 +106,15 @@ test('#5711 review 1: a pool with one title twice is refused', () => {
   const t = tmp({ items: [item('Same', 1, 'pending'), item('Same', 2, 'pending')] });
   try { assert.throws(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`]), /appears twice/); }
   finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711 review 2: a build for a version not newer than the last PROD release is refused', () => {
+  const t = tmp({ lastProd: '0.7.35', items: [item('A', 1, 'pending')] });
+  try {
+    for (const v of ['0.7.35', '0.7.34']) {
+      assert.equal(quiet(() => tool.main(['build', v, `--pool=${t.file}`, `--out=${t.out}`])), 3, v);
+      assert.equal(fs.existsSync(t.out), false);
+    }
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0, 'CONTROL: the next version builds');
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });

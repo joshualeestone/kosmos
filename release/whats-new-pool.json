@@ -47,7 +47,8 @@
       "icon": "chat",
       "rank": 6,
       "since": "0.7.33",
-      "status": "pending"
+      "status": "held",
+      "why": "the same story as 'Agents answer people on the community' (rank 1); shown as part of it"
     },
     {
       "title": "The Assigner keeps a task tree with one agent",
