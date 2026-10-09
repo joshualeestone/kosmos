@@ -490,3 +490,20 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   permission error on the store) also stops the state from being read, so markWithdrawn writes nothing and no test can
   see it (a permission-error arm was written, found unable to fail, and removed). The server.js wiring test is a
   source-text match: it pins the call, not the behaviour, and a reformat turns it red.
+
+## Review 38 (opus), all fixed unless stated
+- BLOCKER, the review-36 mistake again: the state was marked withdrawn only when the board's timer or a tick next
+  looked, so a Leave left unanswered and then refused (org_last_admin) inside one timer interval wrote the SAME record
+  back, and refusals made while it was pending were sent. The stop is now marked WHERE it happens, in
+  engine/orgenroll.js: clearEnrollment (every Leave and every refresh that ends it) and writeEnrollment of any record
+  without accepted words (consentWithdrawn, a rebuilt record) call markWithdrawn first. The timer and tick remain as a
+  backup. Test from the reviewer's repro, red on the pre-fix orgenroll.js.
+- A walk from a folder holding a board root (grep -r, find, rg, tar, cp -a, ls -R, chmod -R, the Grep tool) reached
+  the board's files but read as home: such a walk is board-files, the same "can reach" rule as review 33's globs. A
+  command with no folder walks the agent's own. Test with controls (ls -la, grep -r ., a walk of ~/Library/Caches).
+  Found while building it: a quoted spaced path re-split as a command replaced the outer command as current, so its
+  folder was not counted; the outer command is restored after every inner split.
+- A record naming another world is a stop: now tested (red by mutation).
+- Stated: "a Leave pending" in stoppedReporting cannot be told apart in a test (a pending Leave always also removed the
+  record, so the absence arm answers first); a walk from / or ~ (find ~ -name x) reads as board-files, which it can
+  reach; a walk named only through a glob or a variable is not counted as one.
