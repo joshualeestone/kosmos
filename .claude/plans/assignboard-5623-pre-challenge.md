@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: assignboard-5623
-diff_hash: 832804c90e797ae48bf912921dfa523c88ebc46f86220008e83c5c38ecc24cd8
+diff_hash: 00009eaa925ed603120e97245fa2400573a6688c7165d5c26734ad7f315d7a89
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-09T06:40:50Z
@@ -11,6 +11,11 @@ converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
+
+Rebase note (2026-10-09 02:55 CDT): rebased from base df34da6b4 onto main 8445eb829 (208 commits) with no conflicts.
+The added and removed lines are byte-identical before and after (sha256 of the -U0 +/- lines, 7454fa5fb4d4b778, both
+sides); only context in server.js and engine.reachable.test.js moved. diff_hash updated to the rebased diff; was
+832804c90e79. CI re-runs the full suite on the rebased tree before merge.
 
 **Iterations:** 19
 **Converged:** Yes (iteration 19 had nothing new above NIT)
