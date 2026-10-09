@@ -58346,8 +58346,8 @@ function pjCoordNotice(p) {
 }
 
 /* #5688 (Josh, 10-09 08:45: "There's some issue and I don't know what an issue would be"): the project's Issue
-   count, said member by member. Each reason is the engine's needsYouHere (projects.js needsYouReason), so this block
-   lists exactly the members the red pill counts. One Open per row: the agent's own page holds the fix (the answer box,
+   count, said member by member. Each reason is the engine's needsYouHere (projects.js needsYouReason), so the block's
+   first group is exactly the members the red pill counts (#5692 adds red rows it does not count, after them). One Open per row: the agent's own page holds the fix (the answer box,
    Restart, the reconnect steps), and its Back returns here. No Dismiss: each reason is live and clears itself once
    it is resolved, so hiding one would hide something still true. */
 const PJ_NEEDS_WHY = {
@@ -58359,12 +58359,13 @@ const PJ_NEEDS_WHY = {
   stuck_rate: ['Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.', 'Open'],
   other: ['Kosmos needs you to look at it.', 'Open'],
 };
+/* #5692: is this member's row drawn red? Asked of the row builder itself (paintOneProject's own call), so in the tab
+   layout the needs-you block and the rows cannot disagree. The consolidated rail draws its rows with lrow(), which
+   agrees for every uncounted red case today but is not the same function. */
+function pjRedHere(m) { return /\bpjm-attn\b/.test(pjMember(m, true, true, true)); }
 /* #5688 review 2: the notice is rebuilt whenever a member's reason changes, which drops a focused Open/Answer to the
    page. Put focus back on the same agent's button when it is still there; if that agent no longer needs you, on the
    first Open left, so a keyboard user is not sent back to the top. */
-/* #5692: is this member's row drawn red? Asked of the row builder itself (the project page's own call), so the
-   needs-you block and the rows cannot disagree. */
-function pjRedHere(m) { return /\bpjm-attn\b/.test(pjMember(m, true, true, true)); }
 function pjKeepOpenFocus(box, paint) {
   const a = document.activeElement;
   const had = box && a && box.contains(a) && a.dataset && a.dataset.pnOpen ? a.dataset.pnOpen : null;
@@ -58380,8 +58381,10 @@ function pjKeepOpenFocus(box, paint) {
    question when the agent is not asking one. */
 function pjAlsoWhy(m) {
   if (m.restartFailed) return ['Kosmos restarted it, and it did not come back.', 'Open'];
+  if (m.crashLoop && m.crashLoop.looping === true) return [PJ_NEEDS_WHY.crash_loop[0], 'Open'];
   if (m.state === 'needs_you' && m.stateProject) return ['Waiting for your answer about another project.', 'Answer'];
-  if (m.state === 'needs_you') return ['Waiting for you, about nothing on this project.', 'Open'];
+  // Review 1: a needs-you naming no project (often read off its screen) is not known to be about another project.
+  if (m.state === 'needs_you') return ['Waiting for you. It did not say which project.', 'Open'];
   if (m.state === 'connection_lost') return [PJ_NEEDS_WHY.gave_up[0], 'Open'];
   if (m.state === 'needs_trust') return [PJ_NEEDS_WHY.trust[0], 'Open'];
   return [PJ_NEEDS_WHY.other[0], 'Open'];
@@ -58400,8 +58403,9 @@ function pjNeedsNotice(roster, redHere) {
   const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act); }).join('');
   const n = rows.length || also.length;
   const who = n === 1 ? esc(nameOf((rows.length ? rows : also)[0])) + ' needs you' : n + ' agents need you';
-  const head = rows.length ? who + ' on this project.' : who + ', not about this project.';
-  const sub = rows.length && also.length ? '<div class="pnrow pn-also"><span class="pnwhy">Also waiting on you, not about this project:</span></div>' : '';
+  // Review 1: the uncounted rows are not known to be about another project, so the words never claim they are.
+  const head = rows.length ? who + ' on this project.' : who + '.';
+  const sub = rows.length && also.length ? '<div class="pnrow pn-also"><span class="pnwhy">Also waiting on you:</span></div>' : '';
   return '<div class="pnotice pn-needs"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + counted + sub + extra + '</div></div>';
 }
 
