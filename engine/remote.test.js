@@ -4197,3 +4197,16 @@ test('kosmos#5651 board review 2: only a bare 404 is an older coordinator; a 401
   assert.equal(gone.unsupported, undefined, 'a refusal was called an older coordinator');
   assert.match(gone.because, /start again/);
 });
+
+test('kosmos#5651 board review 3: no text is asked for while this computer is finishing (from any tab)', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  const finishing = remote.companyComplete('ann-mac', null, '123456');
+  await new Promise((r) => setTimeout(r, 200));
+  const t = await remote.companySecond();
+  await finishing;
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal(t.ok, false);
+  assert.match(t.because, /finishing/);
+});

@@ -1515,6 +1515,8 @@ function companySecond() {
     if (companySetup === c) companySetup = null;   // board review 2: as companyComplete does
     return Promise.resolve({ ok: false, because: 'that company sign-in has expired; start again' });
   }
+  // Board review 3: never beside a finish (a new code could replace the one being checked), from any tab.
+  if (companyFinishing === c) return Promise.resolve({ ok: false, because: 'this computer is finishing its setup; wait a moment' });
   if (companySecondInFlight && companySecondInFlight.c === c) return companySecondInFlight.run;
   const run = companySecondRun(c).finally(() => { if (companySecondInFlight && companySecondInFlight.run === run) companySecondInFlight = null; });
   companySecondInFlight = { c, run };

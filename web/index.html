@@ -48904,7 +48904,15 @@ document.getElementById('plus-si-register-go').addEventListener('click', () => {
 let PLUS_CO_EPOCH = 0;
 let PLUS_CO_REFUSED = '';   // review 3: the second-step code just refused, never sent again unchanged
 let PLUS_CO_TEXTING = false;   // kosmos#5651 board reviews 1-2: a text request is out (Finish waits; asked once)
-let PLUS_CO_LEAD = '';   // board review 2: the coordinator's takeover words, kept for every text that follows
+let PLUS_CO_LEAD = '';
+let PLUS_CO_FINISHING = false;   // board review 3: a finish (a code being checked) is out
+let PLUS_CO_HOLD_UNTIL = 0;      // board review 3: the coordinator's "wait N seconds" ends at this time
+let PLUS_CO_TEXT_SEQ = 0;        // board review 3: only the newest text request clears TEXTING
+/* Board review 3: "Text me again" is set from these facts in one place, never saved and restored. */
+function plusCompanySyncResend() {
+  const resend = document.getElementById('plus-si-company-resend');
+  if (resend) resend.disabled = PLUS_CO_TEXTING || PLUS_CO_FINISHING || Date.now() < PLUS_CO_HOLD_UNTIL;
+}   // board review 2: the coordinator's takeover words, kept for every text that follows
 async function plusCompanyManaged() {
   let r = null;
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
@@ -48931,6 +48939,8 @@ async function plusCompanyStart(btn) {
   document.getElementById('plus-si-company-second').value = '';
   PLUS_CO_REFUSED = '';
   PLUS_CO_TEXTING = false;
+  PLUS_CO_FINISHING = false;
+  PLUS_CO_HOLD_UNTIL = 0;
   PLUS_CO_LEAD = '';
   document.getElementById('plus-si-company-resend').hidden = true;
   plusSiShow('plus-si-company');
@@ -48971,17 +48981,18 @@ function plusCompanyPoll(epoch, siEpoch, interval) {
    company requires its own sign-in, so it is never offered. Board review 1: one request at a time; a late answer for
    an older setup or an abandoned sign-in is dropped; "Text me again" stays for a text that did not come. */
 async function plusCompanyText() {
-  if (PLUS_CO_TEXTING) return;
+  if (PLUS_CO_TEXTING || PLUS_CO_FINISHING) return;
   PLUS_CO_TEXTING = true;
+  const seq = ++PLUS_CO_TEXT_SEQ;
   const lead = PLUS_CO_LEAD;
   const epoch = PLUS_CO_EPOCH;
   const resend = document.getElementById('plus-si-company-resend');
   const go = document.getElementById('plus-si-company-go');
-  resend.disabled = true;
+  plusCompanySyncResend();
   go.disabled = true;   // board review 2: Finish waits for this answer
   const t = await plusSiPost('/api/remote/company/second-text', {});
-  PLUS_CO_TEXTING = false;
-  go.disabled = false;
+  // Board review 3: only the newest request clears the flag and Finish (a late answer for an older setup does not).
+  if (seq === PLUS_CO_TEXT_SEQ) { PLUS_CO_TEXTING = false; go.disabled = false; plusCompanySyncResend(); }
   if (t.stale || epoch !== PLUS_CO_EPOCH) return;
   // Board review 2: a setup that is gone or expired goes back to the email step, as Finish does.
   if (!t.ok && /start again/i.test(String(t.because || ''))) {
@@ -48992,7 +49003,6 @@ async function plusCompanyText() {
   }
   const label = document.getElementById('plus-si-company-second-label');
   const sentInput = document.getElementById('plus-si-company-second');
-  resend.disabled = false;
   if (t.ok && t.data.sent) {
     label.textContent = 'The code we texted to your phone';
     plusSiMsg(lead + (t.data.sentTo ? 'We texted a code to the phone ending ' + t.data.sentTo + '.' : 'We texted a code to your phone.')
@@ -49015,10 +49025,11 @@ async function plusCompanyText() {
     const wait = /wait (\d+) seconds/i.exec(why);
     resend.hidden = /all the texts/i.test(why);
     if (wait) {
-      resend.disabled = true;
-      setTimeout(() => { if (epoch === PLUS_CO_EPOCH) resend.disabled = false; }, Number(wait[1]) * 1000);
+      PLUS_CO_HOLD_UNTIL = Date.now() + Number(wait[1]) * 1000;
+      setTimeout(() => { if (epoch === PLUS_CO_EPOCH) plusCompanySyncResend(); }, Number(wait[1]) * 1000 + 50);
     }
   }
+  plusCompanySyncResend();
   sentInput.focus();
 }
 async function plusCompanyFinish(btn) {
@@ -49033,15 +49044,15 @@ async function plusCompanyFinish(btn) {
   if (second && second === PLUS_CO_REFUSED) { plusSiMsg('that code was just refused; enter a new one'); return; }
   btn.disabled = true;
   // Board review 2: no new text while a code is being checked (it could replace that code).
-  const resend = document.getElementById('plus-si-company-resend');
-  const resendWas = resend.disabled;
-  resend.disabled = true;
+  PLUS_CO_FINISHING = true;
+  plusCompanySyncResend();
   plusSiMsg('Setting up this computer.');
   const body = { name };
   if (second) body.second = second;
   const r = await plusSiPost('/api/remote/company/complete', body, PLUS_REGISTER_TIMEOUT_MS);
   btn.disabled = false;
-  resend.disabled = resendWas;
+  PLUS_CO_FINISHING = false;
+  plusCompanySyncResend();
   if (r.stale) return;
   if (!r.ok) {
     const why = String(r.because || '');

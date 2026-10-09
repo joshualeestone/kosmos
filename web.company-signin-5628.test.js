@@ -332,3 +332,23 @@ test('kosmos#5651 board review 2: a gone setup sends the text ask back to the em
   assert.match(v.line(), /held by a computer on this account/, 'Text me again dropped the takeover warning');
   assert.match(v.line(), /phone ending 4567/);
 });
+
+test('kosmos#5651 board review 3: a late text answer for an older setup does not free Finish during the newer request', async () => {
+  const releases = [];
+  const { w } = await atSecondStep(() => new Promise((r) => releases.push(() => r([200, { ok: true, sent: true, second: 'sms', sentTo: '4567' }]))));
+  const a = w.ctx.finish(w.el('plus-si-company-go'));       // setup A: its text request is held
+  await new Promise((r) => setImmediate(r));
+  await w.ctx.start(w.el('plus-signin-company'));          // setup B
+  await w.tick();
+  w.el('plus-si-company-name').value = 'neo-mac';
+  const b = w.ctx.finish(w.el('plus-si-company-go'));       // B's text request is held too
+  await new Promise((r) => setImmediate(r));
+  releases[0]();                                           // A's late answer lands
+  await a;
+  w.el('plus-si-company-second').value = '424242';
+  const before = w.calls.length;
+  await w.ctx.finish(w.el('plus-si-company-go'));          // Finish while B's request is still out
+  assert.equal(w.calls.length, before, 'a late answer for setup A freed Finish while B asked for a text');
+  releases[1]();
+  await b;
+});
