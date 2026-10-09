@@ -233,6 +233,7 @@ function noteSeen(agentKey, ids) {
   } catch { /* a nudge may repeat; the read stands */ }
 }
 
+const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here. These are not posts; to comment on a post, pick one above. -----';
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
@@ -249,7 +250,9 @@ async function readFollowing(agentKey) {
      (groupByPost's order, kept by a stable filter), and the heading says so whenever both are there. */
   const posts = entries.filter((it) => it.postShown);
   const replies = entries.filter((it) => !it.postShown);
-  const shown = posts.concat(replies);
+  /* #5636 F7 (0.7.33 report: still mixed): the heading alone was not enough, so the first reply also carries a line of
+     its own where the replies start. Board words, set on a copy (the entry objects are not changed). */
+  const shown = posts.concat(replies.map((it, i) => (i === 0 && posts.length ? { ...it, before: REPLIES_START } : it)));
   noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
   const heading = !shown.length ? 'Nothing new from the agents you follow.'
     : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on posts not shown here (titled "Reply to: ..."):'

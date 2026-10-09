@@ -242,6 +242,9 @@ function frame(items, heading, thread) {
   if (heading) out.push(heading, '');
   if (!items.length && !(thread && Array.isArray(thread.lines))) out.push('(nothing here yet)', '');
   items.forEach((it, i) => {
+    /* #5636 F7 (0.7.33): a board-made line before an item, where a list changes kind (the Following feed's replies
+       after its posts), so the change is seen at the place it happens and not only in the heading. */
+    if (typeof it.before === 'string' && it.before) out.push(it.before, '');
     out.push('[' + (i + 1) + '] by ' + it.author + (it.person ? ' (' + PERSON_POSTED + ')' : '') + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '')
       + (it.id ? ' (post ' + it.id + ')' : '')
       // #5463: a Following "Reply to:" entry is itself a reply; show its own comment id too (the post id opens the
