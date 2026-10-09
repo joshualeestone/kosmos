@@ -31,7 +31,7 @@ android/
 ├── gradlew, gradlew.bat, gradle/wrapper/              Gradle 8.9 wrapper (real jar)
 ├── gradle/gradle-daemon-jvm.properties                pins the daemon to JDK 21
 ├── app/
-│   ├── build.gradle                                   AGP 8.6.1, compile/target SDK 35
+│   ├── build.gradle                                   AGP 8.6.1, compile/target SDK 36
 │   └── src/main/
 │       ├── AndroidManifest.xml                        LauncherActivity + push delegation
 │       ├── res/mipmap-anydpi-v26/                     adaptive + round launcher icons
@@ -94,15 +94,17 @@ PATH += platform-tools
 ```
 
 Installed: cmdline-tools, platform-tools 37.0.1 (`adb`), build-tools 35.0.0,
-platform android-35. There is **no system Gradle and no Android Studio** by
+platforms android-35 and android-36 (compileSdk is 36; android-35 remains for the
+Robolectric unit tests, which are pinned to API 35). There is **no system Gradle and no
+Android Studio** by
 design, which is why this project ships the Gradle wrapper.
 
 ## Build status: verified green (with a JDK 21), and the JDK-26 catch
 
 **This skeleton builds, and the JDK requirement is pinned in the repo so a fresh
 clone builds too.** `./gradlew :app:assembleDebug` produces a signed debug APK
-(`app/build/outputs/apk/debug/app-debug.apk`, `io.kosmos.app` v0.1.2,
-compileSdk 35). No `JAVA_HOME` juggling is needed at the command line.
+(`app/build/outputs/apk/debug/app-debug.apk`, `io.kosmos.app` v0.1.3,
+compileSdk 36). No `JAVA_HOME` juggling is needed at the command line.
 
 **Why the pin is necessary.** This box's system-default JDK is OpenJDK 26, and
 Gradle cannot build on it: it starts, but its Groovy build-script compiler
