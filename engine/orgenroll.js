@@ -264,7 +264,8 @@ function consentWithdrawn(opts, hash) {
     try { writeEnrollment(next, opts); return true; } catch { return false; }
   });
 }
-const ROLES = new Set(['member', 'recovery', 'admin']);
+// The coordinator's org.rs ROLES. reviewer (#5685, #5529) may view this work Kosmos's content, each view logged.
+const ROLES = new Set(['member', 'recovery', 'reviewer', 'admin']);
 function cleanRole(r) { return ROLES.has(r) ? r : null; }
 
 /* The coordinator's public error codes (#5530), said in plain words. The tunnel passes its answer through on the last

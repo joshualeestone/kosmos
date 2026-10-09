@@ -47621,7 +47621,7 @@ async function plusOrgCheck() {
   PLUS_ORG.preview = { code: r.move ? null : code, org: r.org, ticket: r.ticket };   // a member moving here enrolls with no code
   document.getElementById('plus-org-ask').textContent = r.move
     ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
-    : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
+    : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : r.role === 'reviewer' ? ' as a reviewer' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
   plusOrgList('plus-org-reports', r.consent.reports);
   plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
   plusOrgList('plus-org-readers', r.consent.readers);
