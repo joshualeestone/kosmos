@@ -89,7 +89,7 @@ function writeEnrollment(rec, opts) {
 }
 /* The small marker files are written whole too (review 35): a torn pending leave would still count as pending but
    lose its undo flag and the consent it carries. */
-/* #5434 slice 15: through securewrite.writeSecret (flushed before the rename, the folder after; a unique `wx` temp; exact 0600), so a crash cannot leave it at full length but zero-filled (#5431). atomicOnly: a failed save leaves the old file.
+/* #5434 slice 15: through securewrite.writeSecret (flushed before the rename, the folder after on POSIX; a unique `wx` temp; exact 0600), so a crash cannot leave it at full length but zero-filled (#5431). atomicOnly: a failed save leaves the old file.
    The world id, the enrollment record and these markers all save through it; it throws, as before. */
 function writeWhole(file, text) {
   require('./securewrite').writeSecret(file, text, 0o600, { atomicOnly: true });
