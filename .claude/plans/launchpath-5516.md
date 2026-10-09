@@ -90,3 +90,15 @@ rest of the guard is still written.
     "Covered" means the folder's contents, not that its path cannot change.
   - NOT CHANGED (nits): source-text wiring checks, case-insensitive volumes, the deny-list growth follow-up (all
     recorded above).
+- Round 7 (opus): 1 BLOCKER, 7 WARNING, 1 CONVENTION, 4 NIT.
+  - FIXED (BLOCKER): what every claude pane starts by absolute path through --mcp-config (the browser tool's tree:
+    its script, its config and its browser) is covered, and so is the --settings file (a file rule in both layers).
+  - FIXED: each hop of a program's link chain is covered, and a dangling link's folder too (whatever is later made
+    there runs by that name). A PATH folder that cannot be listed is reported (a missing one is not). The agent-folder
+    comparison ignores letter case on macOS and Windows, in the guard and in the supervisor's cleaning. The supervisor
+    drops PATH folders not made yet (the guard is written again at the next start). A program that resolves into the
+    agent folder now has a test. The two tests that read the host's folders are pinned. The new block sits above the
+    #4491 doc comment again, and the header lists everything reported as uncoverable.
+  - Each fix has a mutation that makes a test fail (10 mutations, all red).
+  - NOT CHANGED (nits): an agent folder of `/` (not a real layout); `set +f` restored unconditionally (runs in a
+    subshell); a source checkout without the report hook script (development only).

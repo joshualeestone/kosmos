@@ -144,16 +144,13 @@ _kosmos_supervisor_tmux() {
 # and never globbed; the system default when nothing absolute is left. Tested by engine/launchpath-5516.test.js.
 # Review 4: given the agent's folder as $2, an entry that is that folder, inside it or above it (as written, or once
 # resolved) goes too: the guard cannot deny those (it would deny the agent's own folder), so they must not be on the
-# PATH at all. Review 5: an entry not made yet is resolved through its nearest existing parent, as the guard does.
+# PATH at all. The physical spelling, links resolved (review 7: only folders that exist reach it).
 _phys_or_leaf() {
-  local _d="$1" _rest="" _p
-  while [ -n "$_d" ] && [ "$_d" != / ] && [ ! -d "$_d" ]; do _rest="/${_d##*/}$_rest"; _d="${_d%/*}"; done
-  _p="$(cd -P "${_d:-/}" 2>/dev/null && pwd || true)"
-  [ -n "$_p" ] && printf '%s' "${_p%/}$_rest"
+  cd -P "$1" 2>/dev/null && pwd || true
 }
 abs_path_only() {
   local _out="" _e _r _own="" _ownp="" _old_ifs="$IFS"
-  if [ -n "${2:-}" ]; then _own="${2%/}"; _ownp="$(_phys_or_leaf "$_own")"; [ -n "$_ownp" ] || _ownp="$_own"; fi
+  if [ -n "${2:-}" ]; then _own="${2%/}"; _ownp="$(_phys_or_leaf "$_own")"; [ -n "$_ownp" ] || _ownp="$_own"; _ownp="$(printf '%s' "$_ownp" | tr '[:upper:]' '[:lower:]')"; fi
   IFS=':'; set -f
   for _e in $1; do
     case "$_e" in /*) ;; *) continue ;; esac
@@ -161,7 +158,11 @@ abs_path_only() {
       # Review 6: an entry the guard cannot name exactly goes too: one with a character the permission rules read as a
       # pattern (its file-tool rule is left out), or a . or .. segment (resolved differently here and in the guard).
       case "$_e" in *[\*\?\[\]\(\)\{\}\!\\]*|*/./*|*/../*|*/.|*/..) continue ;; esac
+      # Review 7: a folder not made yet goes (the guard is written again at the next start, when it exists), and the
+      # comparison ignores letter case, as the guard does on macOS (dropping more is the safe direction).
+      [ -d "$_e" ] || continue
       _r="$(_phys_or_leaf "${_e%/}")"; [ -n "$_r" ] || _r="${_e%/}"   # unresolvable: compare as written
+      _r="$(printf '%s' "$_r" | tr '[:upper:]' '[:lower:]')"
       case "$_r/" in "$_ownp"/*) continue ;; esac
       case "$_ownp/" in "${_r%/}"/*) continue ;; esac
     fi

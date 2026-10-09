@@ -710,35 +710,26 @@ function ruleHasPatternChar(rule, sep = path.sep) {
   return RULE_SYNTAX.test(inner.replace(/\*\*$/, '').replace(/\/\*$/, ''));
 }
 
-/*
- * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
- * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
- * own data folder is NOT denied -- only:
- *  - board.token (Read), and its temp copy, in EVERY root tokenOnlyTokenRoots returns, so the shell
- *    cannot read the board token slice 9 (#4864) already stops it SENDING; this stops it READING;
- *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
- *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
- *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
- *    the sandbox from where the agent-folder's cannot. Every ~/.claude-* account home that EXISTS is
- *    enumerated and gets CONCRETE settings-file denies in BOTH layers (so a non-default-account agent's
- *    real config home is covered by a measured file-write deny, not only the glob). A trailing
- *    ~/.claude-* glob stays in the permission layer for a home created later. What is NOT measured is
- *    whether Seatbelt translates a permission Edit-GLOB to a subprocess write (the guide's measurement
- *    only proved a Read-glob -> subprocess read); that is why existing homes are made concrete, and the
- *    glob-only future-home case is the reasoned residual the plan records.
- * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
- */
-/* #5516: the guard denies the agent's file tools (Edit) and shell (denyWrite) any write to the folders on the PATH its
-   pane starts with, and to the folders the programs there resolve into. That is ALL it covers (review 3): not programs
-   the supervisor starts by absolute path from folders off that PATH, not the code a covered program loads from beside
-   it (a package's lib, a keg's dylibs), and not shell rc files or git config (the plan names these as open). Sources: the pane PATH the supervisor passes
-   (KOSMOS_GUARD_PANE_PATH), this process's own PATH, and the plist's fixed folders. An entry that cannot be covered
-   (empty, relative, or inside the agent's own folder) is returned in `unsafe`. */
+/* #5516: the guard denies the agent's file tools (Edit) and shell (denyWrite) any write to what the agent's next start
+   runs: the folders on the PATH its pane starts with; the folders the programs there resolve into, each hop of a link
+   chain and the folder a dangling link points into (review 7); the folders of what the supervisor starts by absolute
+   path (this install's engine and bin, the installed supervisor's folder, node's folder, and the browser tool's tree,
+   review 7); and the files the claude launch names by path (the permission settings file, review 7). Sources: the pane
+   PATH the supervisor passes (KOSMOS_GUARD_PANE_PATH), this process's own PATH, and the plist's fixed folders.
+   NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
+   inside scripts, what shell startup adds to PATH, and replacing an ancestor of a covered folder.
+   Returned in `unsafe` (the guard then says it is not whole): an empty or relative pane entry; a folder that is the
+   agent's own, inside it or above it; a program that resolves there; a folder that could not be listed; a folder past
+   the scan cap. */
 const LAUNCH_PATH_FIXED = ['/opt/homebrew/bin', '/usr/local/bin'];
 // Review 5: the folder the installed supervisor runs from (create.supervisorPath(), what launchd and the pane start), which
 // also holds the engine pointer and the bridges. Not this source tree's bin, which nothing runs in an install.
 function installedSupervisorDir() { try { return path.dirname(create.supervisorPath()); } catch { return null; } }
+// Review 7: every claude pane starts with --mcp-config naming the browser tool's tree (its script, config and browser).
+function browserToolDir() { try { return require('./agentbrowser').homeDir(); } catch { return null; } }
+function permissionSettingsFile() { try { return require('./agentpermission').settingsPath(); } catch { return null; } }
 const LINK_SCAN_MAX = 4000;
+const LINK_HOPS_MAX = 40;
 function launchPathDirs(agentDir, deps = {}) {
   const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
   const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
@@ -747,12 +738,20 @@ function launchPathDirs(agentDir, deps = {}) {
   // Review 2: refreshTokenOnlyGuards passes one Map for its whole pass, so a PATH is scanned once, not once per agent.
   const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
   const fixed = Array.isArray(deps.launchFixed) ? deps.launchFixed : LAUNCH_PATH_FIXED;
-  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), installedSupervisorDir(), path.dirname(process.execPath)].filter(Boolean);
-  const key = JSON.stringify([pane, ownPath, own, max, fixed, ownProgs]);
+  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), installedSupervisorDir(), path.dirname(process.execPath), browserToolDir()].filter(Boolean);
+  const fileList = deps.launchFiles || [permissionSettingsFile()].filter(Boolean);
+  const plat = deps.platform || process.platform;
+  const key = JSON.stringify([pane, ownPath, own, max, fixed, ownProgs, fileList, plat]);
   if (cache && cache.has(key)) return cache.get(key);
   // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
-  // folder) cannot be covered.
-  const uncoverable = (real) => real === own || real.startsWith(own + path.sep) || own.startsWith(real === path.sep ? real : real + path.sep);
+  // folder) cannot be covered. Review 7: compared without case on macOS and Windows, whose disks usually ignore it (a
+  // not-yet entry keeps the case it was typed in); that only ever reports more as uncoverable.
+  const fold = plat === 'darwin' || plat === 'win32' ? (x) => x.toLowerCase() : (x) => x;
+  const ownF = fold(own);
+  const uncoverable = (real) => {
+    const r = fold(real);
+    return r === ownF || r.startsWith(ownF + path.sep) || ownF.startsWith(r === path.sep ? r : r + path.sep);
+  };
   const dirs = [];
   const unsafe = [];
   // Review 5: each covered folder's spellings as written (a link, /var for /private/var), so the file-tool rules can name
@@ -778,22 +777,66 @@ function launchPathDirs(agentDir, deps = {}) {
   // one that cannot be covered is still reported.
   if (typeof pane === 'string') for (const e of pane.split(path.delimiter)) add(e, true);
   if (typeof ownPath === 'string') for (const e of ownPath.split(path.delimiter)) add(e, false);
+  // Review 7: the folder each hop of a program's link chain sits in, to the end of the chain, whether or not the last
+  // target exists yet (a dangling link runs whatever is later made there).
+  const cover = (folder, shown) => {
+    const real = realOrLeaf(folder);
+    if (uncoverable(real)) { unsafe.push(shown); return; }
+    if (!dirs.includes(real)) dirs.push(real);
+  };
   for (const d of [...dirs]) {
     let names = [];
-    try { names = fs.readdirSync(d); } catch { continue; }
+    try { names = fs.readdirSync(d); } catch (e) {
+      // Review 7: a folder that is missing has nothing to run; one that cannot be listed still runs its programs by name.
+      if (!(e && e.code === 'ENOENT')) unsafe.push(`${d} (could not be listed: ${(e && e.code) || e})`);
+      continue;
+    }
     if (names.length > max) { unsafe.push(`${d} (more than ${max} entries; the rest were not checked, and which ones is not known)`); names = names.slice(0, max); }
     for (const n of names) {
-      let real;
-      try { real = fs.realpathSync.native(path.join(d, n)); if (fs.statSync(real).isDirectory()) continue; } catch { continue; }
-      const target = path.dirname(real);   // only files run from PATH; the folder each one lives in
-      if (uncoverable(target)) { unsafe.push(path.join(d, n)); continue; }
-      if (!dirs.includes(target)) dirs.push(target);
+      const shown = path.join(d, n);
+      let p = shown;
+      for (let hop = 0; ; hop++) {
+        let st;
+        try { st = fs.lstatSync(p); } catch { cover(path.dirname(p), shown); break; }   // dangling: the folder it names
+        if (st.isDirectory()) break;   // a folder, not a program (its own name is not run)
+        cover(path.dirname(p), shown);   // a program, or a link hop, sits here
+        if (!st.isSymbolicLink()) break;
+        if (hop >= LINK_HOPS_MAX) { unsafe.push(`${shown} (a link chain too long to follow)`); break; }
+        let t;
+        try { t = fs.readlinkSync(p); } catch { unsafe.push(`${shown} (a link that could not be read)`); break; }
+        p = path.resolve(realOrLeaf(path.dirname(p)), t);
+      }
     }
   }
-  const value = { dirs, aliases, unsafe: [...new Set(unsafe)] };
+  const files = [];
+  for (const f of fileList) {
+    const real = realOrLeaf(f);
+    const r = fold(real);
+    if (r === ownF || r.startsWith(ownF + path.sep)) { unsafe.push(f); continue; }   // a file in the agent's own folder
+    if (!files.includes(real)) files.push(real);
+  }
+  const value = { dirs, aliases, files, unsafe: [...new Set(unsafe)] };
   if (cache) cache.set(key, value);
   return value;
 }
+/*
+ * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
+ * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
+ * own data folder is NOT denied -- only:
+ *  - board.token (Read), and its temp copy, in EVERY root tokenOnlyTokenRoots returns, so the shell
+ *    cannot read the board token slice 9 (#4864) already stops it SENDING; this stops it READING;
+ *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
+ *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
+ *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
+ *    the sandbox from where the agent-folder's cannot. Every ~/.claude-* account home that EXISTS is
+ *    enumerated and gets CONCRETE settings-file denies in BOTH layers (so a non-default-account agent's
+ *    real config home is covered by a measured file-write deny, not only the glob). A trailing
+ *    ~/.claude-* glob stays in the permission layer for a home created later. What is NOT measured is
+ *    whether Seatbelt translates a permission Edit-GLOB to a subprocess write (the guide's measurement
+ *    only proved a Read-glob -> subprocess read); that is why existing homes are made concrete, and the
+ *    glob-only future-home case is the reasoned residual the plan records.
+ * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
+ */
 
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
@@ -870,6 +913,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (ruleHasPatternChar(r)) launchUnsafe.push(`${d} (its path has a character the permission rules cannot carry)`);
     else launchRules.push(r);
   }
+  for (const f of launch.files || []) {
+    const r = `Edit(${ruleAbs(f)})`;
+    if (ruleHasPatternChar(r)) launchUnsafe.push(`${f} (its path has a character the permission rules cannot carry)`);
+    else launchRules.push(r);
+  }
   /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
      misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
      sandbox layer still carries the concrete path. The globs this function adds itself are taken out before testing. */
@@ -881,7 +929,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     return false;
   });
   safeDeny.push(...launchRules);
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchUnsafe };
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe };
 }
 
 /*
@@ -973,7 +1021,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || [])];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || [])];
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.

@@ -22,6 +22,7 @@ const setup = require('./setup-assistant');
 const store = require('./store');
 
 fs.mkdirSync(store.ROOT, { recursive: true });
+function realOrLeafT(p) { const d = realOr(path.dirname(p)); return path.join(d, path.basename(p)); }
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
 function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
 function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
@@ -30,7 +31,9 @@ function binDir(name) { const d = path.join(SANDBOX, 'bins', name); fs.mkdirSync
 // ownPath is pinned in every call: the test process's own PATH is the runner's, not a fixture.
 // Review 5: the fixed folders and the install's own program folders are pinned too, so no test depends on this host's
 // /opt/homebrew or /usr/local. The W3b test below clears ownProgramDirs to check the real defaults.
-const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '/usr/bin:/bin', launchFixed: [], ownProgramDirs: [] };
+const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '/usr/bin:/bin', launchFixed: [], ownProgramDirs: [], launchFiles: [] };
+// Review 7: the same pins for direct launchPathDirs calls.
+const PIN = { launchFixed: [], ownProgramDirs: [], launchFiles: [] };
 
 test('#5516: every folder on the pane PATH is denied to the file tools AND the shell', () => {
   const dir = agentDir('lp-a');
@@ -95,7 +98,7 @@ test('#5516: launchPathDirs resolves symlinks and does not repeat a folder', () 
   const real = binDir('real-bin');
   const link = path.join(SANDBOX, 'bins', 'link-bin');
   fs.symlinkSync(real, link);
-  const { dirs, unsafe } = setup.launchPathDirs(agentDir('lp-sym'), { panePath: [link, real].join(path.delimiter), ownPath: '' });
+  const { dirs, unsafe } = setup.launchPathDirs(agentDir('lp-sym'), { ...PIN, panePath: [link, real].join(path.delimiter), ownPath: '' });
   assert.equal(dirs.filter((d) => d === realOr(real)).length, 1, JSON.stringify(dirs));
   assert.ok(!dirs.includes(link), 'the symlink path itself was kept, not its target');
   assert.deepEqual(unsafe, [], 'an empty board PATH is skipped quietly (review 2); only the pane PATH is held strictly');
@@ -133,15 +136,24 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   const link = path.join(path.dirname(own), 'lp-own-path-link');
   try { fs.symlinkSync(inside, link); } catch {}
   const sib = own + '-sibling';
-  assert.equal(run(`/a:${own}:${inside}/:${path.join(own, 'not-made-yet')}:${link}:${sib}`, own), `/a:${sib}`, 'the agent folder, inside it (made or not yet), or a link into it stayed on the PATH');
-  assert.equal(run(`/a:${own}:${sib}`), `/a:${own}:${sib}`, 'with no folder given, nothing extra should go');
-  // Review 6: with the folder given, an entry with a rule-pattern character or a . or .. segment goes too; a dotted name
-  // that is not a segment stays (CONTROL).
-  assert.equal(run('/a:/x/App (Beta)/bin:/x/b*:/x/./b:/x/y/../b:/x/..:/x/.hidden:/x/..y', own), '/a:/x/.hidden:/x/..y', 'an entry the guard cannot name exactly stayed');
-  // Review 5: an ancestor goes too, and a not-yet entry spelled through a link into the folder.
-  const viaLink = path.join(path.dirname(own), 'lp-own-path-top');
-  try { fs.symlinkSync(own, viaLink); } catch {}
-  assert.equal(run(`/a:${path.dirname(own)}:${path.join(viaLink, 'later', 'bin')}:${sib}`, own), `/a:${sib}`, 'an ancestor, or a not-yet entry through a link into the folder, stayed');
+  fs.mkdirSync(sib, { recursive: true });
+  const A = binDir('sh-a');
+  assert.equal(run(`${A}:${own}:${inside}/:${link}:${sib}`, own), `${A}:${sib}`, 'the agent folder, inside it, or a link into it stayed on the PATH');
+  assert.equal(run(`${A}:${own}:${sib}`), `${A}:${own}:${sib}`, 'with no folder given, nothing extra should go');
+  // Review 7: a folder not made yet goes (inside the agent folder or not); with no folder given it stays (CONTROL).
+  const never = path.join(SANDBOX, 'bins', 'never-made');
+  assert.equal(run(`${A}:${path.join(own, 'later')}:${never}:${sib}`, own), `${A}:${sib}`, 'a folder not made yet stayed');
+  assert.equal(run(`${A}:${never}`), `${A}:${never}`);
+  // Review 7: letter case is ignored, where the disk ignores it (macOS usually).
+  const upper = path.join(path.dirname(own), path.basename(own).toUpperCase());
+  if (fs.existsSync(upper)) assert.equal(run(`${A}:${upper}:${sib}`, own), `${A}:${sib}`, 'the agent folder in other letter case stayed');
+  // Review 6: with the folder given, an entry with a rule-pattern character or a . or .. segment goes too, though each
+  // exists; a dotted name that is not a segment stays (CONTROL).
+  const X = binDir('x');
+  for (const d of ['App (Beta)/bin', 'b*', 'b', 'y', '.hidden', '..y']) fs.mkdirSync(path.join(X, d), { recursive: true });
+  assert.equal(run([A, `${X}/App (Beta)/bin`, `${X}/b*`, `${X}/./b`, `${X}/y/../b`, `${X}/..`, `${X}/.hidden`, `${X}/..y`].join(':'), own), `${A}:${X}/.hidden:${X}/..y`, 'an entry the guard cannot name exactly stayed');
+  // Review 5: an ancestor goes too.
+  assert.equal(run(`${A}:${path.dirname(own)}:${sib}`, own), `${A}:${sib}`, 'an ancestor stayed');
   // The pane AND the guard are given its result.
   const i = sup.indexOf('_guard_path="$(abs_path_only "$_guard_path" "$WORKDIR")"');
   assert.ok(i > 0, 'the pane PATH is not cleaned');
@@ -165,17 +177,19 @@ test('#5516 review 2: broken links, folders as entries and the scan cap', () => 
   fs.symlinkSync(path.join(SANDBOX, 'nowhere', 'gone'), path.join(pd, 'broken'));
   fs.mkdirSync(path.join(pd, 'subdir'));
   fs.writeFileSync(path.join(pd, 'a'), ''); fs.writeFileSync(path.join(pd, 'b'), ''); fs.writeFileSync(path.join(pd, 'c'), '');
-  const r = setup.launchPathDirs(agentDir('lp-odd'), { panePath: pd, ownPath: '', linkScanMax: 2 });
+  const r = setup.launchPathDirs(agentDir('lp-odd'), { ...PIN, panePath: pd, ownPath: '', linkScanMax: 2 });
   assert.ok(r.dirs.includes(realOr(pd)), JSON.stringify(r));
   assert.ok(!r.dirs.includes(realOr(path.join(pd, 'subdir'))) && !r.dirs.includes(realOr(pd) + path.sep + 'subdir'), 'a folder entry was taken as a program folder');
   assert.ok(r.unsafe.some((u) => u.startsWith(realOr(pd)) && u.includes('more than 2 entries')), `the cap was not reported: ${JSON.stringify(r.unsafe)}`);
   // CONTROL: under the cap, no cap note.
-  const r2 = setup.launchPathDirs(agentDir('lp-odd2'), { panePath: pd, ownPath: '', linkScanMax: 100 });
-  assert.ok(!r2.unsafe.some((u) => u.startsWith(realOr(pd))), JSON.stringify(r2.unsafe));   // (the fixed Homebrew folder may pass the cap)
+  const r2 = setup.launchPathDirs(agentDir('lp-odd2'), { ...PIN, panePath: pd, ownPath: '', linkScanMax: 100 });
+  assert.ok(!r2.unsafe.some((u) => u.startsWith(realOr(pd))), JSON.stringify(r2.unsafe));
+  // Review 7: the dangling link's folder is covered (whatever is later made there runs by that name).
+  assert.ok(r2.dirs.includes(realOrLeafT(path.join(SANDBOX, 'nowhere'))), 'a dangling link\'s folder was not covered: ' + JSON.stringify(r2.dirs));
 });
 
 test('#5516 review 2: odd entries in the board process PATH are skipped quietly; the pane PATH is held strictly', () => {
-  const r = setup.launchPathDirs(agentDir('lp-own'), { panePath: '/usr/bin', ownPath: '::rel:/bin' });
+  const r = setup.launchPathDirs(agentDir('lp-board-odd'), { ...PIN, panePath: '/usr/bin', ownPath: '::rel:/bin' });
   assert.deepEqual(r.unsafe, [], JSON.stringify(r.unsafe));
   assert.ok(r.dirs.includes(realOr('/bin')));
 });
@@ -210,17 +224,22 @@ test('#5516 review 3: a PATH entry not created yet is resolved through a symlink
 
 test('#5516 review 3 (W3b): the folders of the programs the supervisor starts by absolute path are covered too', () => {
   const dir = agentDir('lp-own');
-  const r = setup.guardTokenOnlyFolder(dir, 'lp-own', { ...BASE, panePath: '/usr/bin', ownProgramDirs: undefined });
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-own', { ...BASE, panePath: '/usr/bin', ownProgramDirs: undefined, launchFiles: undefined });
   assert.deepEqual(r, { ok: true });
   const s = readSettings(dir);
   // Review 5: the INSTALLED supervisor's folder (what launchd and the pane run), named from create, not this tree's bin.
   const installed = path.dirname(require('./create').supervisorPath());
   fs.mkdirSync(installed, { recursive: true });
   assert.notEqual(realOr(installed), realOr(path.join(__dirname, '..', 'bin')), 'the fixture cannot tell the installed folder from the source bin');
-  for (const d of [installed, path.join(__dirname), path.dirname(process.execPath)]) {
+  // Review 7: and the browser tool's tree, which every claude pane starts by absolute path through --mcp-config.
+  for (const d of [installed, path.join(__dirname), path.dirname(process.execPath), require('./agentbrowser').homeDir()]) {
     assert.ok(s.sandbox.filesystem.denyWrite.includes(realOr(d)), 'no denyWrite for ' + d);
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOr(d))}/**)`), 'no Edit deny for ' + d);
   }
+  // Review 7: the permission settings file the launch passes with --settings, in both layers.
+  const perm = require('./agentpermission').settingsPath();
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOrLeafT(perm))})`), 'no Edit deny for the --settings file');
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeafT(perm)), 'no denyWrite for the --settings file');
 });
 
 test('#5516 review 5: a PATH folder reached through a link is named both ways in the file-tool rules', () => {
@@ -249,4 +268,50 @@ test('#5516 review 5: one refresh pass scans a PATH once, and the cached answer 
   assert.equal(a, b, 'the second call scanned again');
   setup.guardTokenOnlyFolder(agentDir('lp-cache'), 'lp-cache', { ...BASE, panePath: d, launchCache: cache });
   assert.equal(JSON.stringify(setup.launchPathDirs(agentDir('lp-cache'), deps)), before, 'a user of the cached answer changed it');
+});
+
+test('#5516 review 7: every hop of a link chain is covered, and a program that resolves into the agent folder is reported, not denied', () => {
+  const pd = binDir('chain-path');
+  const hop = binDir('chain-hop');
+  const end = binDir('chain-end');
+  fs.writeFileSync(path.join(end, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(end, 'tool'), path.join(hop, 'tool'));
+  fs.symlinkSync(path.join(hop, 'tool'), path.join(pd, 'tool'));
+  const r = setup.launchPathDirs(agentDir('lp-chain'), { ...PIN, panePath: pd, ownPath: '' });
+  for (const d of [pd, hop, end]) assert.ok(r.dirs.includes(realOr(d)), 'not covered: ' + d + ' ' + JSON.stringify(r.dirs));
+  assert.deepEqual(r.unsafe, []);
+  // A program on PATH that resolves into the agent's own folder: reported, and that folder is not denied.
+  const dir = agentDir('lp-into');
+  const pd2 = binDir('into-path');
+  fs.writeFileSync(path.join(dir, 'mine'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(dir, 'mine'), path.join(pd2, 'mine'));
+  const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: pd2, ownPath: '' });
+  assert.ok(r2.unsafe.includes(path.join(realOr(pd2), 'mine')), JSON.stringify(r2.unsafe));
+  assert.ok(!r2.dirs.includes(realOr(dir)), 'the agent folder was denied');
+  // CONTROL: without that link, nothing is reported.
+  fs.unlinkSync(path.join(pd2, 'mine'));
+  assert.deepEqual(setup.launchPathDirs(dir, { ...PIN, panePath: pd2, ownPath: '' }).unsafe, []);
+});
+
+test('#5516 review 7: a PATH folder that cannot be listed is reported; a missing one is not', { skip: process.getuid && process.getuid() === 0 }, () => {
+  const pd = binDir('unlistable');
+  fs.chmodSync(pd, 0o311);
+  try {
+    const r = setup.launchPathDirs(agentDir('lp-unlist'), { ...PIN, panePath: pd, ownPath: '' });
+    assert.ok(r.unsafe.some((u) => u.startsWith(realOr(pd)) && u.includes('could not be listed')), JSON.stringify(r.unsafe));
+  } finally { fs.chmodSync(pd, 0o755); }
+  const r2 = setup.launchPathDirs(agentDir('lp-unlist'), { ...PIN, panePath: path.join(SANDBOX, 'bins', 'not-there'), ownPath: '' });
+  assert.deepEqual(r2.unsafe, [], 'a missing folder was reported');
+});
+
+test('#5516 review 7: on macOS a not-yet entry inside the agent folder in other letter case is still uncoverable', () => {
+  // The agent folder is not made, so the disk cannot fold the case for us: only the guard's own comparison can.
+  const dir = path.join(SANDBOX, 'workers', 'lp-case-absent');
+  agentDir('lp-case-parent');
+  const shout = path.join(SANDBOX, 'workers', 'LP-CASE-ABSENT', 'later-bin');
+  const r = setup.launchPathDirs(dir, { ...PIN, panePath: shout, ownPath: '', platform: 'darwin' });
+  assert.ok(r.unsafe.includes(shout), JSON.stringify(r));
+  // CONTROL: on a platform whose disks keep case, it is a different folder.
+  const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: shout, ownPath: '', platform: 'linux' });
+  assert.ok(!r2.unsafe.includes(shout), JSON.stringify(r2));
 });
