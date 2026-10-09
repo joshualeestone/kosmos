@@ -115,7 +115,7 @@ test('#5434: removing a picture never takes another process\'s keep in flight in
   store.saveAvatar('eve', 'image/png', PNG);
   const kept = store.keepAvatarOriginal('eve');
   const dir = path.dirname(kept);
-  const inflight = path.join(dir, path.basename(kept) + '.kosmos-' + process.ppid + '-t0-1-1.tmp');   // a live writer's temp (this run's parent: alive)
+  const inflight = path.join(dir, path.basename(kept) + '.kosmos-' + process.pid + '-t' + (require('node:worker_threads').threadId + 1) + '-1-1.tmp');   // a live writer's temp: this process, another thread (always read as live, whatever launched the test)
   fs.writeFileSync(inflight, 'in flight');
   const dead = path.join(dir, path.basename(kept) + '.kosmos-2147483646-t0-1-1.tmp');   // a dead writer's leftover copy
   fs.writeFileSync(dead, 'left behind');
@@ -141,7 +141,7 @@ test('#5434: removing a picture also takes a dead writer\'s copy of it beside th
   // another extension in another case (an imported `gus.JPEG`): a separate file even on a disk that ignores case
   const deadOtherCase = dest.replace(/\.png$/, '.JPEG') + '.kosmos-2147483646-t0-1-1.tmp';
   fs.writeFileSync(deadOtherCase, 'copy');
-  const live = dest + '.kosmos-' + process.ppid + '-t0-1-1.tmp';
+  const live = dest + '.kosmos-' + process.pid + '-t' + (require('node:worker_threads').threadId + 1) + '-1-1.tmp';
   fs.writeFileSync(dead, 'copy'); fs.writeFileSync(live, 'in flight');
   store.removeAvatar('gus');
   assert.equal(fs.existsSync(dest), false, 'CONTROL: the picture was not removed');
