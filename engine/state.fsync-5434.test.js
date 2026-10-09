@@ -78,10 +78,13 @@ test('#5434 worlds registry: flushed before its rename (review 1)', () => {
     const { events, err } = recording(() => worlds.createWorld(base, 'Shop'));
     assert.equal(err, null, String(err));
     flushedBeforeRename(events, worlds.registryPath(base));
+    // review 2: the temp keeps the dot name the guide's sandbox rules and Undo's protected paths recognise
+    const r = events.find((e) => e[0] === 'rename' && e[2] === worlds.registryPath(base));
+    assert.match(path.basename(r[1]), /^\.worlds\.json\.\d+\.tmp$/, 'the registry temp lost the dot name its guards match: ' + r[1]);
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
-test('#5434: none of the five writers renames a hand-made temp any more', () => {
+test('#5434: none of the four store writers renames a hand-made temp any more', () => {
   const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
   const body = (src, header) => {
     const i = src.indexOf(header);
@@ -90,7 +93,6 @@ test('#5434: none of the five writers renames a hand-made temp any more', () => 
     return src.slice(i, j);
   };
   const writers = [
-    ['worlds.js', 'function writeRegistry('],
     ['projects.js', 'function writeAll('],
     ['remove.js', 'function writeRemoved('],
     ['you.js', 'function save('],

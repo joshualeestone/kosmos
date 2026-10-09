@@ -121,12 +121,23 @@ function readRegistry(base) {
   return { version: 1, activeWorldId, worlds };
 }
 
-/* Atomic publish through store.saveFlushed (a temp, flushed, then renamed over the target), so a concurrent reader
-   sees the old file or the new one, never a partial, and a crash never leaves it zero-filled. */
+/* Atomic publish: write to a temp in the same dir, FLUSH it, then rename over the target, so a concurrent reader sees
+   the old file or the new one, never a partial, and a crash cannot leave it at full length but zero-filled (#5434
+   slice 17, #5431). The temp keeps its DOT name `.worlds.json.<pid>.tmp` on purpose, not securewrite's: the guide's
+   sandbox rules (setup-assistant `Read(base/.*.tmp)`, `Edit(base/.worlds.json.*)`, boardCredentialPaths) and Undo's
+   protected paths (undo.js) recognise a registry temp only by that name (review 2). */
 function writeRegistry(base, reg) {
   fs.mkdirSync(base, { recursive: true });
-  // #5434 slice 17: store.saveFlushed (securewrite: flushed before the rename, the folder after on POSIX; a unique temp; the existing mode kept), so a crash cannot leave it at full length but zero-filled (#5431).
-  store.saveFlushed(registryPath(base), JSON.stringify(reg, null, 2) + '\n');
+  const { flushOrThrow, syncDir } = require('./securewrite');
+  const tmp = path.join(base, `.${REGISTRY_FILE}.${process.pid}.tmp`);
+  try {
+    const fd = fs.openSync(tmp, 'w');
+    let pending = null;
+    try { fs.writeFileSync(fd, JSON.stringify(reg, null, 2) + '\n'); flushOrThrow(fd); } catch (e) { pending = e; throw e; }
+    finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+    fs.renameSync(tmp, registryPath(base));
+  } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* not made */ } throw e; }
+  syncDir(base);
 }
 
 /* #2935: the user-facing switcher list drops hidden worlds. `readRegistry` deliberately keeps them
