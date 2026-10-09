@@ -118,8 +118,8 @@ const { threadId: THREAD } = require('node:worker_threads');
    history for those callers; a temp whose dead writer's pid is now reused is still left. */
 
 /* 🔑 pid ALONE IS NOT ENOUGH AND THIS REPO HAS PAID FOR LEARNING IT TWICE.
-   `trust.js` documents it at its own `tempPath`: a process that dies between
-   create and rename leaves the temp behind, and the next process to draw that
+   (`trust.js` learned it first, at a `tempPath` of its own that it dropped when it moved onto
+   this writer in #5434 slice 6.) A process that dies between create and rename leaves the temp behind, and the next process to draw that
    pid hits `wx` -> EEXIST FOREVER. Measured on #1776: one planted stale temp
    sent every later write down the in-place fallback, permanently, with no
    signal. With the start time and a counter a leftover is inert, because
@@ -574,8 +574,8 @@ function writeSecret(file, data, mode, opts) {
 }
 
 /* `tempPath` is deliberately NOT exported. It has no consumer outside this module,
-   and `engine/trust.js` keeps its equivalent private for the same reason: a name
-   generator is an implementation detail of the writer, and exporting it invites a
+   and it is why `engine/trust.js` dropped its own name generator and saves through this
+   writer (#5434 slice 6): a name generator is an implementation detail of the writer, and exporting it invites a
    caller to build a temp path the writer will not clean up. */
 // tempWriterGone is a predicate, not a name generator, so it cannot be used to make temps the writer will not clean
 module.exports = { writeSecret, secureDir, refuseSymlinkTarget, reapDeadTempsOf, tempWriterGone };

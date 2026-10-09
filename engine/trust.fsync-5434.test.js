@@ -32,6 +32,7 @@ const RECORD = () => path.join(store.ROOT, 'trust-writes.json');
 let pending = null;
 const WRITERS = [
   ['trustFolder', {
+    creates: true,
     prep: () => { pending = fresh('work'); },
     save: (cfg) => ({ file: path.join(cfg, '.claude.json'), ok: trust.trustFolder(pending, { configDir: cfg, createIfAbsent: true }).ok }),
   }],
@@ -51,6 +52,7 @@ const WRITERS = [
     },
   }],
   ['preacceptBypass', {
+    creates: true,
     prep: (cfg) => {
       const file = path.join(cfg, 'settings.json');
       try { const d = JSON.parse(fs.readFileSync(file, 'utf8')); delete d[trust.BYPASS_KEY]; fs.writeFileSync(file, JSON.stringify(d)); } catch { /* absent: a new file */ }
@@ -58,6 +60,7 @@ const WRITERS = [
     save: (cfg) => ({ file: path.join(cfg, 'settings.json'), ok: trust.preacceptBypass(cfg).ok }),
   }],
   ['preacceptOnboarding', {
+    creates: true,
     prep: (cfg) => {
       const file = path.join(cfg, '.claude.json');
       try { const d = JSON.parse(fs.readFileSync(file, 'utf8')); delete d[trust.ONBOARDING_KEY]; fs.writeFileSync(file, JSON.stringify(d)); } catch { /* absent: a new file */ }
@@ -120,11 +123,12 @@ for (const [name, w] of WRITERS) {
     flushedBeforeRename(events, file);
   });
 
-  test('#5434: ' + name + ': an existing file keeps its mode; a new one is born 0600', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+  test('#5434: ' + name + ': an existing file keeps its mode' + (w.creates ? '; a new one is born 0600' : ''), { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
     const cfg = fresh('cfg');
     w.prep(cfg);
     const file = withUmask(0o022, () => ok(w.save(cfg)));
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'a new file is not born private');
+    // the undo never creates the file (its prep's trustFolder did), so only the keep-mode half is about it
+    if (w.creates) assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'a new file is not born private');
     fs.chmodSync(file, 0o640);
     w.prep(cfg);
     withUmask(0o077, () => ok(w.save(cfg)));
@@ -167,8 +171,14 @@ test('#5434: the trust-writes record flushes before its rename, keeps its mode, 
   assert.equal(raw, JSON.stringify(JSON.parse(raw), null, 2), 'the record is not stored as before (two-space JSON, no trailing newline)');
   if (process.platform !== 'win32') {
     fs.chmodSync(RECORD(), 0o640);
-    assert.equal(trust.recordWrite('rec-c', w), true);
+    withUmask(0o077, () => assert.equal(trust.recordWrite('rec-c', w), true));   // a umask the fd's mode set must undo
     assert.equal(fs.statSync(RECORD()).mode & 0o777, 0o640, 'the record\'s mode was not kept');
+    fs.unlinkSync(RECORD());
+    withUmask(0o022, () => assert.equal(trust.recordWrite('rec-f', w), true));
+    assert.equal(fs.statSync(RECORD()).mode & 0o777, 0o644, 'a new record under umask 022 is not 0644 (not the umask default)');
+    fs.unlinkSync(RECORD());
+    withUmask(0o077, () => assert.equal(trust.recordWrite('rec-g', w), true));
+    assert.equal(fs.statSync(RECORD()).mode & 0o777, 0o600, 'a new record under umask 077 is not 0600 (the umask was overridden)');
   }
 });
 
