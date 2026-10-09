@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: walker-5535
-diff_hash: 80a03577feb0314a3f1b5ec6c675a4ca5b5dabdc000989f59bb203cb438466f6
+diff_hash: 91a39ebd196eead24466e2ce443c5e98a6f2a5f39b213b574d051de668844111
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-09T11:22:52Z
@@ -11,6 +11,11 @@ converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
+
+**Re-hashed after a conflict-free rebase (2026-10-09 09:2x CDT):** main added one unrelated line to engine.reachable.test.js
+(a #5628 seam excuse) above this branch's own excuse line, which moved the hunk's line offset; the walker's change is
+byte-identical. Mortals full suite PASSED at the pre-rebase hash 80a03577feb0 (17817 tests, 0 fail); the five backup and
+reachability test files pass on the rebased head (242, 0 fail).
 
 **Iterations:** 40
 **Converged:** Yes (round 40: no BLOCKER, no CONVENTION; its one WARNING, a missing ceiling on a granted chunk's
