@@ -851,15 +851,14 @@ function clearDefaultIdentity() {
   try {
     let mode = 0o600;
     try { mode = fs.statSync(cfg).mode & 0o777; } catch { /* keep the 600 default */ }
-    const tmp = `${cfg}.tmp-${process.pid}`;
-    try {
-      fs.writeFileSync(tmp, JSON.stringify(parsed, null, 2) + '\n', { mode });
-      fs.chmodSync(tmp, mode);
-      fs.renameSync(tmp, cfg);
-    } catch (e) {
-      try { fs.rmSync(tmp, { force: true }); } catch { /* best effort: never leave a partial temp */ }
-      throw e;
-    }
+    /* #5434 slice 9: through securewrite, so the temp is flushed before the rename and the folder after
+       it (POSIX only), and a crash cannot leave ~/.claude.json at full length but zero-filled (#5431).
+       It keeps what this writer had: born at `mode`, then set to it on the fd (best effort now; it was
+       a chmod), an atomic rename only (`atomicOnly`), and a failed save leaves no temp. It adds a
+       unique `wx` temp (the fixed `.tmp-<pid>` followed a link planted there). `ownTempsOnly`: the
+       home folder is the person's, so only this file's own dead temps are reaped (the one new delete
+       path there, as in engine/trust.js saveConfig); old `.tmp-<pid>` leftovers are not reaped. */
+    require('./securewrite').writeSecret(cfg, JSON.stringify(parsed, null, 2) + '\n', mode, { atomicOnly: true, ownTempsOnly: true });
   } catch { return { ok: false, already: false, because: 'we could not update this computer’s Claude config to remove the main connection' }; }
   return { ok: true, already: false, because: null };
 }
