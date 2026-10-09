@@ -183,3 +183,30 @@ for (const W of WRITERS) {
     for (const t of temps.values()) assert.equal(fs.existsSync(t), false, 'a temp it created was left behind: ' + t);
   });
 }
+
+/* Review 1: a guard file is never left writable by other accounts, and never takes a link target's mode. */
+for (const W of WRITERS) {
+  test(`#5434 ${W.name}: a world-writable file is narrowed, not kept`, { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+    const { file, save } = W.make();
+    fs.chmodSync(file, 0o666);
+    const prev = process.umask(0o022);
+    let ok;
+    try { ok = save(); } finally { process.umask(prev); }
+    assert.equal(ok, true, 'the save did not happen');
+    assert.equal(fs.statSync(file).mode & 0o7777, 0o644, 'group/other write was kept on the guard file');
+  });
+
+  test(`#5434 ${W.name}: a file that is a link takes the default mode, not its target's`, { skip: process.platform === 'win32' && 'symlinks need privileges on Windows' }, () => {
+    const { file, save } = W.make();
+    const target = path.join(SANDBOX, 'linked-' + (++N) + '.json');
+    fs.renameSync(file, target);
+    fs.chmodSync(target, 0o777);
+    fs.symlinkSync(target, file);
+    const prev = process.umask(0o022);
+    let ok;
+    try { ok = save(); } finally { process.umask(prev); }
+    assert.equal(ok, true, 'the save did not happen');
+    assert.equal(fs.lstatSync(file).isFile(), true, 'the link was not replaced by the guard file');
+    assert.equal(fs.statSync(file).mode & 0o7777, 0o644, 'the guard file took the link target\'s mode');
+  });
+}
