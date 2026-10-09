@@ -62,9 +62,9 @@ function setOn(on, now = Date.now()) {
   fs.mkdirSync(store.ROOT, { recursive: true });
   const was = read();
   const since = on === true ? (was.on && was.since ? was.since : new Date(now).toISOString()) : null;
-  const tmp = switchFile() + '.' + process.pid + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ on: on === true, ...(since ? { since } : {}) }));
-  fs.renameSync(tmp, switchFile());
+  // #5434 slice 22: flushed before the rename (store.saveFlushed), so a crash cannot leave the switch zero-filled,
+  // which would read as off and stop keeping copies without anyone choosing that.
+  store.saveFlushed(switchFile(), JSON.stringify({ on: on === true, ...(since ? { since } : {}) }));
   if (on !== true) { try { fs.rmSync(dir(), { recursive: true, force: true }); } catch { /* the sweep tries again */ } }
   return read();
 }
@@ -309,9 +309,17 @@ function sweep(now = Date.now()) {
     const all = readIndex();
     const live = all.filter((r) => r.atMs >= cutoff);
     if (live.length !== all.length) {
-      const tmp = indexFile() + '.' + process.pid + '.tmp';
-      fs.writeFileSync(tmp, live.map(({ atMs, ...r }) => JSON.stringify(r)).join('\n') + (live.length ? '\n' : ''), { mode: 0o600 });
-      fs.renameSync(tmp, indexFile());
+      // #5434 slice 22: flushed before the rename, exact 0600: a zero-filled index would lose every kept copy's record,
+      // so Undo could restore nothing, and the next sweep would delete every blob as unreferenced.
+      require('./securewrite').writeSecret(indexFile(), live.map(({ atMs, ...r }) => JSON.stringify(r)).join('\n') + (live.length ? '\n' : ''), 0o600, { atomicOnly: true });
+    }
+    /* #5434 slice 22: an index that HAS content but yields no record (zero-filled by a crash, or otherwise unreadable)
+       is not "nothing is kept": treating it so deleted every kept copy as unreferenced. Keep the blobs until the index
+       reads again; a torn last line from a crash mid-append still parses the lines before it, so it is unaffected. */
+    if (!all.length) {
+      let raw = '';
+      try { raw = fs.readFileSync(indexFile(), 'utf8'); } catch { raw = ''; }
+      if (raw.replace(/\s/g, '')) return;
     }
     const used = new Set(live.map((r) => r.hash).filter(Boolean));
     for (const n of fs.existsSync(blobsDir()) ? fs.readdirSync(blobsDir()) : []) {
