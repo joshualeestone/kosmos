@@ -493,3 +493,13 @@ test('#5636 review 3: the key that decides is the record\'s own agent\'s (a reti
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'new' } });
   assert.equal(stateOfTitle('ava', 'Retired post'), 'unconfirmed_unasked', 'the reader\'s key was read as the record\'s');
 });
+
+test('#5636 follow-up: an unanswered post taken back says it will not be sent again, not that Kosmos will ask about it', () => {
+  const p = post('ava', 'Taken back unsure');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), {});
+  assert.equal(stateOfTitle('ava', 'Taken back unsure'), 'unconfirmed_unasked', 'CONTROL: before the take-back');
+  writeJson(cs._paths.deletesFile(), { [p.id]: '2026-10-09T10:00:00Z' });
+  assert.equal(stateOfTitle('ava', 'Taken back unsure'), 'unconfirmed_taken_back');
+  assert.match(status.statusText('ava').text, /"Taken back unsure".*: taken back, so it will not be sent again\. Kosmos never heard whether it arrived; if it did, that copy may still be up$/m);
+});
