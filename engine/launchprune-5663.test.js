@@ -428,3 +428,20 @@ test('#5663 review 14: end to end, the supervisor\'s refreshTokenOnlyGuards({ on
   launch(v2);
   assert.ok(!readSettings(dir).permissions.deny.includes(r1), 'the supervisor\'s launch refresh did not prune');
 });
+
+test('#5663 review 15: a board start never writes the record, so it cannot write an older read over a launch\'s entries', () => {
+  const dir = agentDir('lp-nowrite');
+  setup.guardTokenOnlyFolder(dir, 'lp-nowrite', { ...BASE, atLaunch: true, panePath: binDir('nowrite/bin') });
+  const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
+  // A launch in another process records an entry after this board start read the record: modelled as the file
+  // changing under it; the board start must leave the file as it is.
+  const j = JSON.parse(fs.readFileSync(rec, 'utf8'));
+  j.deny.push('Edit(//concurrent/launch/entry/**)');
+  const text = JSON.stringify(j);   // compact: the guard writes it indented, so any write by the board start shows
+  fs.writeFileSync(rec, text);
+  setup.guardTokenOnlyFolder(dir, 'lp-nowrite', { ...BASE });
+  assert.equal(fs.readFileSync(rec, 'utf8'), text, 'a board start rewrote the record');
+  // CONTROL: a launch does write it.
+  setup.guardTokenOnlyFolder(dir, 'lp-nowrite', { ...BASE, atLaunch: true, panePath: binDir('nowrite/other/bin') });
+  assert.notEqual(fs.readFileSync(rec, 'utf8'), text, 'CONTROL: a launch did not write the record');
+});

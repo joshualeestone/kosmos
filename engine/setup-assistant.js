@@ -1096,7 +1096,8 @@ function ruleTarget(r, platform = process.platform) {
 /* The paths THIS AGENT'S settings file sends to the profile, counted per clause as the profile is likely built (review 5).
    Review 11: the person's user-level settings files (~/.claude, ~/.claude-<label>) also reach it and are not counted
    here (which one an agent reads is its account's; #5668 carries that). Rule targets are the guard's '//abs' spelling
-   and the person's '~/' one (against home). The read clause (denyRead
+   and the person's '~/' one (against home); a person's other spellings (a relative or a match-anywhere pattern) are not counted, so the count
+   can be low for them (review 15). The read clause (denyRead
    and the Read rule targets) and the write clause (denyWrite and the Edit rule targets), each path once within its
    clause, so a path in both is paid for twice. Per clause: their raw length, and their distinct prefixes (sorted, each
    path adds what it does not share with the one before it). Every measured set was one clause, so this counting is at
@@ -1303,9 +1304,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     return false;
   });
   safeDeny.push(...launchRules);
-  /* #5663: the record of the launch rules this guard wrote last time, so a refresh can REPLACE them (deny lists only
-     grew before: every upgrade added versioned paths for good). It sits in the agent's .claude folder, which the
-     sandbox denies whole, and the file tools are denied it here, so the agent cannot rewrite what gets pruned. */
+  /* #5663: the record of the launch rules this guard wrote at launches, so a launch can prune the ones whose paths are
+     gone (deny lists only grew before: every upgrade added versioned paths for good). It sits in the agent's .claude
+     folder, which the sandbox denies WRITES to, and the file tools are denied it here, so the agent cannot rewrite
+     what gets pruned (reading it is harmless). */
   const launchRecord = path.join(settingsDir, LAUNCH_RECORD_FILE);
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
@@ -1386,11 +1388,12 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     /* #5663: at a launch, a recorded launch rule that is not current and whose path is gone is dropped (an upgraded tool's
        old versioned path); every other rule merges as before. A rule the person wrote that is the SAME string as a
        dropped one goes with it (review 6): it names a path that no longer exists. */
+    const plat = deps.platform || process.platform;
     const prev = readLaunchRecord(rules.launchRecord);
     const launchDenyNow = new Set(rules.launchRules || []);
     const launchWritesNow = [...new Set([...(rules.launchDirs || []), ...(rules.launchFiles || [])])];
     const launchWritesNowSet = new Set(launchWritesNow);
-    const stale = new Set(rules.launchKnown ? prev.deny.filter((r) => !launchDenyNow.has(r) && launchPathGone(ruleTarget(r))) : []);
+    const stale = new Set(rules.launchKnown ? prev.deny.filter((r) => !launchDenyNow.has(r) && launchPathGone(ruleTarget(r, plat))) : []);
     const staleWrites = new Set(rules.launchKnown ? prev.denyWrite.filter((x) => !launchWritesNowSet.has(x) && launchPathGone(x)) : []);
     /* The record is a union: what was recorded and not pruned, and what THIS LAUNCH wrote. Review 7: only a launch adds to
        it. A board start builds its launch rules from its own inputs (its PATH, its XDG_CONFIG_HOME), which a launch need
@@ -1403,7 +1406,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        leave one launch's PATH, be pruned, and be planted during that session. Never recorded, it is never pruned; a
        removed version existed when it was recorded, so the upgrade case is unchanged. */
     const present = (p) => launchPathState(p) === 'present';
-    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? [...launchDenyNow].filter((r) => present(ruleTarget(r))) : [])])];
+    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? [...launchDenyNow].filter((r) => present(ruleTarget(r, plat))) : [])])];
     const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...(rules.launchKnown ? launchWritesNow.filter(present) : [])])];
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
     // Review 12: what a launch prunes is said (count only), so a dropped rule never goes unseen.
@@ -1463,7 +1466,9 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // #5663: what this refresh wrote for launch coverage, for the next refresh to replace. A record that cannot be
     // written leaves this refresh's rules in place (nothing is lost; the next refresh only cannot prune them): said.
     // Review 7: written before the local-settings clean, so a throw there cannot leave settings.json's rules unrecorded.
-    if (!prev.keep && !writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
+    // Review 15: only a launch writes it (only a launch changes it), so a board start cannot write back an older read
+    // over a concurrent launch's entries.
+    if (rules.launchKnown && !prev.keep && !writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
     cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
     // never a reason to write nothing.

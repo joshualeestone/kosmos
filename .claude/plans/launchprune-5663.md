@@ -132,3 +132,11 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
   Both mutations go red.
 - The size count reads rule paths for the platform the guard was asked for (`deps.platform`).
 - Duplicates: the warning reaching only the log (#5668); dated copies are never removed (bounded by content).
+
+## Review 15 (Opus) and what changed
+
+- A board start wrote the record back even though only a launch changes it. So an older read could overwrite entries that a concurrent launch had just recorded. Now only a launch writes the record. Test: a board start leaves the file byte for byte, with a control that a launch writes it; the mutation goes red.
+- Decided, stated: the same race on settings.json. A board start that read settings.json before a launch pruned rule R writes R back. R is then in settings and in no record, so it stays. That fails safe (kept), and it is the same kept-not-dropped outcome as the lock-free record.
+- Prune and record read rule paths for the platform the guard was asked for, as the size count does.
+- The comment no longer says the sandbox denies the record's folder whole: it denies writes. A note at the size function says which rule spellings are not counted.
+- Not changed: the first commit's body describes the earlier 48 KB "not whole" design. The squash merge takes the PR title and body, which describe the current one.
