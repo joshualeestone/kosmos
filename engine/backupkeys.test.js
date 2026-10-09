@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const keys = require('./backupkeys');
-const { hpkeKeyPair } = require('./hpke');
+const { hpkeKeyPair, hpkeSeal } = require('./hpke');
 
 const mctx = { org: 'org1', member: 'acct1', epoch: '1' };
 const nctx = { org: 'org1', member: 'acct1', epoch: '1', period: '2026-W41' };
@@ -120,4 +120,21 @@ test('a Uint8Array works wherever a Buffer does', () => {
 test('fresh keys are fresh: two member keys and two naming keys differ', () => {
   assert.ok(!keys.newMemberKey().sk.equals(keys.newMemberKey().sk));
   assert.ok(!keys.newNamingKey().equals(keys.newNamingKey()));
+});
+
+test('wraps are not authenticated, so a FORGED wrap (made by anyone with the public key) is held to the key checks', () => {
+  const member = keys.newMemberKey(), escrow = hpkeKeyPair();
+  const info = Buffer.from('kosmos-backup v1 key-wrap');
+  const forge = (magic, pk, aad, secret) => { const { enc, ct } = hpkeSeal(pk, info, aad, secret); return Buffer.concat([Buffer.from(magic), enc, ct]); };
+  // A forged member-key wrap of ANOTHER key, under the right context: refused by the expected public key.
+  const other = keys.newMemberKey();
+  assert.strictEqual(keys.unwrapMemberKey(escrow.sk, forge('KBK1', escrow.pk, keys.memberContextBytes(mctx), other.sk), mctx, member.pk), null);
+  // A forged wrap of a secret that is not 32 bytes: refused for both kinds.
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), Buffer.alloc(31, 7)), nctx), null);
+  assert.strictEqual(keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), Buffer.alloc(33, 7)), nctx), null);
+  // CONTROL: a forged naming-key wrap of 32 bytes DOES open (nothing can tell it from a real one): the defence is
+  // that chunk names then fail to verify on restore, not this function.
+  const fake = Buffer.alloc(32, 9);
+  const got = keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), fake), nctx);
+  assert.ok(got && got.equals(fake));
 });
