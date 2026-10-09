@@ -361,3 +361,34 @@ test('#5635 review 7: the re-read line about the rules never claims the person a
   assert.doesNotMatch(rulesLine[1], /OK|consent|agreed|approv/i);
   assert.ok(ir, 'module loads');
 });
+
+test('#5635 review 8: an update of a span that would leave out a section (the person has that heading outside) waits for the click', () => {
+  const last = defaults.sections()[defaults.sections().length - 1];
+  const olderBlock = defaults.sections().slice(0, -1).map((x) => x.text).join('\n');   // an earlier block without the newest section
+  const table = [{ version: 1, length: olderBlock.length, sha256: sha(olderBlock) }];
+  const born = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => olderBlock);
+  const text = born + `\n${last.heading}\nMy own words under this heading.\n`;
+  const f = agentFile('sharednewest', text);
+  const plan = doctrine.planFor(text, NOW, table);
+  assert.equal(plan.state, 'refresh');
+  assert.ok(plan.sections.length < defaults.sections().length, 'fixture: the plan does not leave a section out');
+  const got = doctrine.refreshUnedited('sharednewest', rosterOf('sharednewest'), { now: NOW, past: table });
+  assert.equal(got.state, 'left', JSON.stringify(got));
+  assert.equal(read(f), text);
+});
+
+test('#5635 review 8: the span offset after a cut (a copy BEFORE the span) and a current copy beside an old one', () => {
+  const span = doctrine.atBirth('', NOW).replace(BLOCK, () => OLD);
+  const before = `# Mine\n\n${OLD}\n\n${span}\n`;
+  const a = agentFile('copybefore', before);
+  assert.equal(run('copybefore').state, 'added', 'a copy before a whole span was left (the span was read as a second copy)');
+  assert.ok(read(a).includes(BLOCK) && !read(a).includes(OLD));
+  const thenTyped = `# Mine\n\n${OLD}\n\n${span}\n\n${OLD}\n- typed\n`;
+  const b = agentFile('copyspancopy', thenTyped);
+  assert.equal(run('copyspancopy').state, 'left');
+  assert.equal(read(b), thenTyped);
+  const withCurrent = `# Mine\n\n${OLD}\n\n# mine\n\n${BLOCK}\n`;
+  const c = agentFile('oldandcurrent', withCurrent);
+  assert.equal(run('oldandcurrent').state, 'left', 'an old copy beside today\'s own was cut with no click');
+  assert.equal(read(c), withCurrent);
+});

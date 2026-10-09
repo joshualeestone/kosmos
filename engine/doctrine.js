@@ -455,7 +455,8 @@ function refreshUnedited(sessionName, roster, opts) {
        a failure to report at every boot. A file that IS there and cannot be read (a symlink, unreadable, too large)
        is a failure. */
     if (!current.exists) {
-      const noFolder = !current.path || !require('node:fs').existsSync(require('node:path').dirname(current.path));
+      // lstat, not exists: a dangling link where the folder should be IS something there, and is reported (review 8).
+      const noFolder = !current.path || (() => { try { require('node:fs').lstatSync(require('node:path').dirname(current.path)); return false; } catch { return true; } })();
       return (current.editable || noFolder)
         ? { state: 'left', because: current.because || 'it has no instructions file yet' }
         : { state: 'could_not', because: current.because || 'we could not read its instructions file' };
@@ -479,24 +480,24 @@ function refreshUnedited(sessionName, roster, opts) {
       if (inner.split('\n').some((l) => l.startsWith('<!-- Kosmos added the working rules below on ') && !isKosmosFrame(l))) return notWhole;
       if (!wholeKnownBlock(sectionContentOf(inner), opts && opts.past)) return notWhole;
     }
-    /* Review 2: a plain copy is replaced only when EVERY section is written: a heading the person also has elsewhere
-       leaves one out, which the dialog shows and a write with no click would not. */
-    if (plan.replacing === true && !plan.updating && plan.sections.length !== defaults.sections().length) return notWhole;
-    /* Review 3: and only when the copy ends at a clean boundary (the end of the file, a blank line, a heading or a marker
-       line): a line the person typed under its last section reads as part of it for pastBlockIn, and would be cut off
-       from it by the write. */
-    /* Review 5: on EVERY replace, a span in the file too: the copy being cut is the one outside the span. */
+    /* Review 2/8: every write, an update of a span as much as a replace, writes EVERY section: a heading the person also
+       has outside the block leaves one out, which the dialog shows and a write with no click would not. */
+    if ((plan.replacing === true || plan.updating === true) && plan.sections.length !== defaults.sections().length) return notWhole;
+    /* Review 3/5: a plain copy is cut only when it ends at a clean boundary (the end of the file, a blank line, a heading
+       or a marker line), a span in the file too (the copy cut is the one outside it): a line the person typed under its
+       last section reads as part of it for pastBlockIn, and would be cut off from it by the write. */
     if (plan.replacing === true) {
       const text = current.text || '';
       const skip = span && !span.ambiguous ? span : null;
       const old = pastBlockIn(text, opts && opts.past, skip);
       const rest = old ? text.slice(old.end).replace(/^\r?\n/, '') : '';
       if (!old || !(rest === '' || /^(?:\r?\n|#{1,6} |<!--)/.test(rest))) return notWhole;
-      /* Review 7: planFor cuts a SECOND earlier copy too (it plans again on what remains), and only the first is checked
-         above. Two copies of the rules is not a file Kosmos wrote that way: the click. */
+      /* Review 7/8: planFor cuts a SECOND copy too (it plans again on what remains), an earlier one or today's own, and only
+         the first is checked above. Two copies of the rules is not a file Kosmos wrote that way: the click. */
       const cut = old.end - old.start;
       const shifted = skip ? (skip.start >= old.end ? { start: skip.start - cut, end: skip.end - cut } : skip) : null;   // the span, where it sits after the cut
-      if (pastBlockIn(text.slice(0, old.start) + text.slice(old.end), opts && opts.past, shifted)) return notWhole;
+      const remaining = text.slice(0, old.start) + text.slice(old.end);
+      if (pastBlockIn(remaining, opts && opts.past, shifted) || hasPlainCurrent(remaining)) return notWhole;
     }
     /* A last guard on the plan itself: the checks above already leave every edited span, so `edited` is not reached
        today; a plan that is neither an update nor a replace (sections missing from a file with no block) is the
