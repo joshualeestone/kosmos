@@ -22,7 +22,7 @@ const LOCK = Date.parse('2026-11-11T00:15:00Z');
 
 function keys() {
   const member = hpkeKeyPair(), nk = crypto.randomBytes(32), dev = crypto.generateKeyPairSync('ed25519');
-  const nkId = crypto.createHash('sha256').update('id').update(nk).digest().subarray(0, 16).toString('hex');
+  const nkId = require('./backupkeys').namingKeyId(nk);   // the real id (review 21: a made-up one hid a missing check)
   return { member, nk, nkId, dev, ctx: { org: 'o1', member: 'm1', epoch: '1', period: PERIOD, snapshot: 's-' + crypto.randomBytes(4).toString('hex') } };
 }
 
@@ -875,5 +875,16 @@ test('a clock reading no Date can hold is a plain failure', async () => {
   try {
     const r = await take(k, w.root, st, { deps: { now: () => 9e15 } });
     assert.equal(r.ok, false); assert.match(r.because, /clock/); assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a naming key id that is not this naming key\'s is refused before anything is read', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const stale = require('./backupkeys').namingKeyId(crypto.randomBytes(32));   // last period's, say
+    const { f, opened } = spyFs();
+    const r = await take(k, w.root, st, { input: { namingKeyId: stale }, deps: { fs: f } });
+    assert.equal(r.ok, false); assert.match(r.because, /naming key id/);
+    assert.equal(st.batches.length, 0); assert.equal(opened.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

@@ -42,6 +42,7 @@ const { scanFile, pathDecision, insideWorkKosmos } = require('./backupscan');
 const { uploadChunks, uploadManifest, MAX_MANIFEST } = require('./backupupload');
 const { pathProblem, collisionKey, collidingPaths } = require('./backuprestore');
 const { mask } = require('./secretmask');
+const { namingKeyId: namingKeyIdOf } = require('./backupkeys');
 /* A name holding something shaped like a credential (review 19: names were never checked, so a file named after a
    pasted token put it in the manifest). secretmask on each segment, specific kinds only: its generic long_token fires
    on ordinary long names (measured: 271 of 8,146 real paths), the specific kinds on 1 (an "xai" in a plan name).
@@ -86,7 +87,8 @@ const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WE
 const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". (The
-    coordinator falls back to "p<start>" for a time its time crate cannot hold; such a clock is refused here first.) */
+    coordinator falls back to "p<start>" for a time its time crate cannot hold, years past 9999; a clock that far off is
+    not refused here, but every grant it gets is in the coordinator's own period, so the run stops as newPeriod.) */
 function periodOf(ms) {
   const start = MONDAY_EPOCH + Math.floor((ms - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
   // ISO week-numbering year: the year of the Thursday of that week.
@@ -250,8 +252,9 @@ const entryBytes = (x) => Buffer.byteLength(JSON.stringify(x)) + 1;
    a skip entry (review 5: counting its size made one big disk image fail every snapshot). Otherwise every chunk but a
    file's last is at least CDC.min, and the stored bytes may be at most twice the file's (redaction can lengthen text),
    so it has at most floor(2 * size / CDC.min) + 1 chunks; each adds a name to the file entry and one objects entry
-   with the longest key accepted; plus the entry itself and a redaction record (at most secretmask's 11 kinds, about
-   530 bytes past the path) or a skip entry, within the fixed 1024.
+   with the longest key accepted; plus the entry itself and a redaction record or a skip entry, within the fixed 1024
+   (review 21 measured the worst: all 17 kinds secretmask can report, 8-digit counts, is 703 bytes past the path, and
+   with the file entry 815; about 200 bytes to spare).
    So a snapshot is limited to about 20 GB of files under maxFile: past that this bound passes the manifest ceiling
    even where the real manifest would not (at 1 MiB average chunks and real key lengths it is about a tenth). */
 const chunksMax = (f, maxFile) => (f.size > maxFile ? 0 : Math.floor((2 * f.size) / CDC.min) + 1);
@@ -308,7 +311,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   const budget = pos(deps.maxManifestJson, MANIFEST_JSON_BUDGET);
   if (typeof root !== 'string' || !path.isAbsolute(root)) return fail('the work Kosmos folder must be an absolute path');
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
-  if (typeof namingKeyId !== 'string' || !/^[0-9a-f]{32}$/.test(namingKeyId)) return fail('the naming key id must be 32 lowercase hex characters');
+  // The id the manifest records must be THIS naming key's (review 21): restore matches it against the naming key it
+  // unwraps, so a stale id (last period's) would lock in a manifest that can never be opened.
+  if (typeof namingKeyId !== 'string' || namingKeyId !== namingKeyIdOf(namingKey)) return fail('the naming key id is not this naming key\'s (backupkeys namingKeyId)');
   // The device key is used only to sign the manifest, after every chunk is uploaded: checked here, before anything is
   // spent (review 11), with sealManifest's own rule.
   if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') return fail('the device key must be an Ed25519 private key');
@@ -377,7 +382,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   // largest size refused ordinary second runs. Bytes spent earlier in the period are caught by the coordinator's
   // backup_quota refusal, which ends the run as overAllowance below.
   const chunkBound = index.size + listed.files.reduce((n, f) => n + chunksMax(f, maxFile), 0);
-  const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0);
+  // The manifest counts too: the 64 GiB is chunks and manifests together (review 21).
+  const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0) + sealedMax(budget);
   if (chunkBound > CHUNK_ALLOWANCE || byteBound > BYTE_ALLOWANCE) {
     return fail(`the work Kosmos is too large to back up in one week: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could pass the weekly allowance (${CHUNK_ALLOWANCE} chunks, 64 GB) under a cautious estimate; in practice about 25 GB of files fit`, { tooLarge: true, overAllowance: true });
   }
