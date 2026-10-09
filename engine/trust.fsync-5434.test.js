@@ -41,13 +41,15 @@ const WRITERS = [
       const d = fresh('work');
       const w = trust.trustFolder(d, { configDir: cfg, createIfAbsent: true });
       assert.equal(w.ok, true, 'the trust line the undo takes back was not written');
+      assert.ok(w.key, 'trustFolder returned no key for the undo to take back');
       pending = { d, w };
     },
     save: (cfg) => {
       const file = path.join(cfg, '.claude.json');
       const prevEnv = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
       process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = file;   // forgetFolder takes no config dir: point the seam at it
-      try { return { file, ok: trust.forgetFolder(pending.d, pending.w.displaced, pending.w.madeEntry).ok }; }
+      // the key trustFolder returned, as the real callers pass it: on Windows it is spelled with '/' (#2281), not the folder path
+      try { return { file, ok: trust.forgetFolder(pending.w.key, pending.w.displaced, pending.w.madeEntry).ok }; }
       finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prevEnv; }
     },
   }],
