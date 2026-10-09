@@ -2127,8 +2127,13 @@ function withdrawFor(agentId, kind, id) {
   const rec = recs[local] || {};
   const no = (because) => ({ ok: false, notEligible: true, because });
   if (rec.state === 'deleted') return { ok: true, state: 'deleted' };
-  // #5636 follow-up (review 2): withheld after a settle under a new registration: not "before it was sent" for sure.
-  if (rec.state === 'withheld' && rec.unverified === true) return { ok: true, state: 'unconfirmed_keyless' };
+  /* #5636 follow-up (review 2, 3): settled "not there" under a new registration (unverified) is not "before it was sent"
+     for sure, withheld already or still pending (not resent yet: an earlier ON period, a cap, the switch off). */
+  if (rec.unverified === true && (rec.state === 'withheld' || (rec.state === 'pending' && !rec.attempted))) {
+    if (rec.state === 'withheld') return { ok: true, state: 'unconfirmed_keyless' };
+    const taken = requestDelete(local);
+    return taken.ok ? { ok: true, state: 'unconfirmed_keyless' } : taken;
+  }
   // Review 3: moderators already took it down: it is not public, which is what the agent asked for.
   if (rec.takenDown === true) return { ok: true, state: 'deleted' };
   if (rec.state === 'refused') return no('The community did not accept this post, so there is nothing to take back');
