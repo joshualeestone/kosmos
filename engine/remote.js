@@ -1527,7 +1527,15 @@ async function companySecondRun(c) {
   // Board review 1: unsupported only when the tunnel does not know the verb, or the coordinator has no such route
   // (a bare 404; a setup that is gone answers 401 in words).
   if (olderTunnel(r) || (!r.ok && /\(404\)/.test(String(r.because || '')))) return { ok: false, unsupported: true, because: null };
-  if (!r.ok) return { ok: false, because: r.because };
+  if (!r.ok) {
+    // Board review 6: whether this setup can still finish is the SERVER's answer (some refusals for a dead setup do not
+    // say "start again"): ask once, and a gone setup is said so the page returns to the email step.
+    if (companySetup === c) {
+      const st = await companyStatusRun(c);
+      if (st.gone) return { ok: false, because: String(r.because || 'that company sign-in is over') + '; start again' };
+    }
+    return { ok: false, because: r.because };
+  }
   const got = lastJsonLine(r.said);
   const a = got && got.value;
   // Board review 1: an answer we cannot read is a failure, never "an authenticator account".

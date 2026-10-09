@@ -48942,7 +48942,10 @@ async function plusCompanyStart(btn) {
   PLUS_CO_TEXTING = false;
   PLUS_CO_FINISHING = false;
   PLUS_CO_HOLD_UNTIL = 0;
-  // Board review 5: a new setup starts with Finish free (an older request's late answer changes nothing).
+  // Board review 5: a new setup starts with Finish free (an older request's late answer changes nothing). Review 6:
+  // and no older request is ever "the newest" again.
+  PLUS_CO_TEXT_SEQ += 1;
+  PLUS_CO_FINISH_SEQ += 1;
   document.getElementById('plus-si-company-go').disabled = false;
   PLUS_CO_LEAD = '';
   document.getElementById('plus-si-company-resend').hidden = true;

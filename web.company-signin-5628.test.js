@@ -385,3 +385,33 @@ test('kosmos#5651 board review 5: a late finish answer for an older setup does n
   releases[1]();
   await b;
 });
+
+test('kosmos#5651 board review 6: an abandoned setup\'s late text answer does not free Finish during the new setup\'s finish', async () => {
+  const texts = [];
+  const finishes = [];
+  const w = world(Object.assign({}, START, {
+    '/api/remote/company/status': () => [200, { ready: true }],
+    '/api/remote/company/second-text': () => new Promise((r) => texts.push(() => r([200, { ok: true, sent: true, second: 'sms', sentTo: '4567' }]))),
+    '/api/remote/company/complete': (b) => (b.name === 'b-mac'
+      ? new Promise((r) => finishes.push(() => r([200, { ok: true }])))
+      : [400, { error: 'this account has a second step, so adding a computer to it needs that code too.' }]),
+  }));
+  w.el('plus-signin-email').value = 'neo@acme.test';
+  await w.ctx.start(w.el('plus-signin-company'));
+  await w.tick();
+  w.el('plus-si-company-name').value = 'a-mac';
+  const a = w.ctx.finish(w.el('plus-si-company-go'));       // A: refused for the second step; its text is held
+  await new Promise((r) => setImmediate(r));
+  w.ctx.startOver();
+  await w.ctx.start(w.el('plus-signin-company'));          // B
+  await w.tick();
+  w.el('plus-si-company-name').value = 'b-mac';
+  const b = w.ctx.finish(w.el('plus-si-company-go'));       // B's finish is out
+  await new Promise((r) => setImmediate(r));
+  texts[0]();                                              // A's late text answer
+  await a;
+  assert.equal(w.el('plus-si-company-go').disabled, true, 'an abandoned setup freed Finish during the new finish');
+  finishes[0]();
+  await b;
+  assert.equal(w.ctx.painted, 1, 'the new setup finished but the wizard did not move on');
+});

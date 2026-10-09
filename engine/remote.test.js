@@ -80,6 +80,7 @@ if (args[0] === 'setup' && args[1] === 'company-second') {
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
   if (mode.includes('slow-company-second')) { const until = Date.now() + 1200; while (Date.now() < until) { /* wait */ } }
   if (mode.includes('company-second-nojson')) { console.log('ok'); process.exit(0); }
+  if (mode.includes('company-second-off')) { process.stderr.write("Kosmos+ said no (401): your company's sign-in was turned off; sign in with your email code\\n"); process.exit(1); }
   if (mode.includes('company-second-404')) { process.stderr.write('Kosmos+ said no (404): \\n'); process.exit(1); }
   if (mode.includes('company-second-401')) { process.stderr.write('Kosmos+ said no (401): that company sign-in is not approved yet, or has expired; start again on the computer\\n'); process.exit(1); }
   console.log(JSON.stringify({ sent: true, second: 'sms', sentTo: '4567' }));
@@ -4223,4 +4224,14 @@ test('kosmos#5651 board review 4: no finish while a text is being asked for (fro
   delete process.env.FAKE_TUNNEL_MODE;
   assert.equal(done.ok, false);
   assert.match(done.because, /being texted/);
+});
+
+test('kosmos#5651 board review 6: a refusal for a setup that is gone says start again, whatever its words', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-off company-gone';
+  const t = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal(t.ok, false);
+  assert.match(t.because, /turned off/);
+  assert.match(t.because, /start again/, 'a dead setup was left on the code step');
 });
