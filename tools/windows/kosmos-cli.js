@@ -90,7 +90,7 @@ const USAGE = {
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
     'Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran>',
-    '  kosmos task list <project-id>                                 list this project\'s tasks',
+    '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
     '      --who <agent>                                            give it to that agent (--who me: to you)',
@@ -741,8 +741,14 @@ async function roomReopen(ctx, args) {
 
 async function taskList(ctx, args) {
   const project = args[0];
-  if (!project) { ctx.err('Usage: kosmos task list <project-id>'); return 2; }
-  const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project));   // #4491 slice 4: with the agent's own token
+  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done]'); return 2; }
+  /* #5705, as install/kosmos: grouped (open, built, on hold, done); --state keeps one group, checked here. */
+  let only = '';
+  if (args[1] === '--state') {
+    if (!['open', 'built', 'held', 'done'].includes(args[2])) { ctx.err('--state takes one of: open, built, held, done.'); return 2; }
+    only = '&state=' + args[2];
+  }
+  const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project) + '&order=state' + only);   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('list tasks');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
   const tasks = (r.json && Array.isArray(r.json.tasks)) ? r.json.tasks : null;

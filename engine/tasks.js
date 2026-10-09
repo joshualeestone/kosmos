@@ -1534,6 +1534,28 @@ function allTasks(everyProject) {
     || (b.number || 0) - (a.number || 0));
 }
 
+/* #5705 (user feedback, 2026-10-09): `kosmos task list` was one flat list of every task in every state. The list
+   groups by what the agent reading it acts on: open work first, then built and waiting, then on hold, then done,
+   each keeping allTasks' order (newest first). The same marks the list prints decide the group, so a row's group and
+   its [built] / [on hold] / [done] mark cannot disagree: done wins, then on hold, then built. */
+const LIST_GROUPS = ['open', 'built', 'held', 'done'];
+function listGroup(t) {
+  if (!t) return 'open';
+  if (t.isClosed === true || progressOf(t).closed) return 'done';
+  if (isOnHold(t) || t.projectPaused === true) return 'held';
+  if (typeof t.builtAt === 'string' && t.builtAt) return 'built';
+  return 'open';
+}
+/* Rows in group order (stable within a group); `only` keeps one group. An unknown `only` is the caller's to refuse. */
+function inListOrder(rows, only = null) {
+  const rank = (t) => LIST_GROUPS.indexOf(listGroup(t));
+  return (rows || [])
+    .map((t, i) => ({ t, i, g: rank(t) }))
+    .filter((x) => !only || LIST_GROUPS[x.g] === only)
+    .sort((a, b) => a.g - b.g || a.i - b.i)
+    .map((x) => x.t);
+}
+
 /**
  * Where a task's work actually is, for the Tasks view (#3559), DERIVED from
  * evidence, never a column somebody drags it into (Josh, 2026-09-24).
@@ -1808,6 +1830,6 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };

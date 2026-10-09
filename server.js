@@ -17353,8 +17353,12 @@ const server = http.createServer(async (req, res) => {
        project's door still has to show its tasks. `withArchived=<id>` keeps THAT archived project
        (only that one) in the Tasks view's read; every other archived project stays out. */
     let withArchived = null;
+    let listOrder = false;   // #5705: `kosmos task list` asks for its rows grouped (open, built, held, done)
+    let listOnly = null;     // #5705: and may keep one group (--state)
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
+      listOrder = q.get('order') === 'state';
+      listOnly = q.get('state') || null;
       projectScope = q.get('project') || null;
       forTasksView = q.get('view') === 'tasks';
       withArchived = q.get('withArchived') || null;
@@ -17389,7 +17393,12 @@ const server = http.createServer(async (req, res) => {
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list exactly as cheaply as before. */
     if (!forTasksView) {
-      sendJson(res, 200, { tasks: scoped.map(withRepeatWords), count: scoped.length, project: projectScope });   // kosmos#4787
+      if (listOnly !== null && !tasks.LIST_GROUPS.includes(listOnly)) {
+        sendJson(res, 400, { error: 'the state to list must be one of: ' + tasks.LIST_GROUPS.join(', ') });
+        return;
+      }
+      const rows = listOrder || listOnly ? tasks.inListOrder(scoped, listOnly) : scoped;   // #5705
+      sendJson(res, 200, { tasks: rows.map(withRepeatWords), count: rows.length, project: projectScope });   // kosmos#4787
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives

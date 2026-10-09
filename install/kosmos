@@ -4369,7 +4369,7 @@ cmd_task() {
   case "$sub" in
     ''|help|-h|--help)
       say "Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran>"
-      say "  kosmos task list <project-id>                                 list this project's tasks"
+      say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
       say "      --who <agent>                                            give it to that agent (--who me: to you)"
@@ -4395,7 +4395,11 @@ cmd_task() {
     # cmd_post and cmd_room use, so a malformed invocation is named even when the board is stopped
     # (rather than reporting "not running" and hiding the usage).
     list)
-      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id>"; exit 2; } ;;
+      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done]"; exit 2; }
+      # #5705: --state keeps one group; the value is checked here, so only these four words reach the URL.
+      if [ "${2:-}" = "--state" ]; then
+        case "${3:-}" in open|built|held|done) ;; *) say "--state takes one of: open, built, held, done."; exit 2 ;; esac
+      fi ;;
     add)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me] [--done \"<check>\"]"; exit 2; }
       # #3861: the sentence comes first, so `add <project> --parent 3 "x"` would file a task
@@ -4559,7 +4563,9 @@ cmd_task() {
       local rc=0 body
       local _ltok=""   # #4491 slice 4: the agent's own token too, plain hex only, as the room read sends it
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ltok="$KOSMOS_AGENT_TOKEN" ;; esac
-      body=$(kosmos_curl "$_bt" "$_ltok" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
+      # #5705: grouped (open, built, on hold, done); --state keeps one group (its word was checked above).
+      local _lst=""; [ "${2:-}" = "--state" ] && _lst="&state=${3:-}"
+      body=$(kosmos_curl "$_bt" "$_ltok" -sS -m 15 "$URL/api/tasks?project=$esc_project&order=state$_lst" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "list tasks" "$rc"; exit 1; }
       case "$body" in '{"error":'*)
         local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
