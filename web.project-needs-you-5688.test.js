@@ -141,15 +141,21 @@ test('#5692: a red row whose need is not about this project is named too, after 
   const dario = m('dario', null);   // CONTROL: not red, not counted: not listed
   const html = pjNeedsNotice([m('elon', 'stuck_auth', 'Elon'), sam, mark, demis, dario], redHere);
   assert.match(html, /<b>Elon needs you on this project\.<\/b>/, 'the heading still speaks for the pill');
-  assert.match(html, /Also waiting on you, not about this project:/);
+  assert.match(html, /Also waiting on you:</);
   assert.match(html, /Waiting for your answer about another project\./);
   assert.match(html, /Kosmos restarted it, and it did not come back\./);
   assert.equal(/data-pn-open="mark"[^>]*>Answer/.test(html), false, 'a dead agent was offered Answer');
-  assert.match(html, /Waiting for you, about nothing on this project\./);
+  assert.match(html, /Waiting for you\. It did not say which project\./);
+  assert.equal(/nothing on this project|not about this project/.test(html), false, 'claims a need is not about this project, which nobody knows');
   assert.equal(/data-pn-open="dario"/.test(html), false);
   assert.ok(html.indexOf('data-pn-open="elon"') < html.indexOf('data-pn-open="sam"'), 'counted rows come first');
   // Only uncounted red rows: the heading says so.
-  assert.match(pjNeedsNotice([sam], redHere), /<b>[^<]+ needs you, not about this project\.<\/b>/);
+  assert.match(pjNeedsNotice([sam], redHere), /<b>[^<]+ needs you\.<\/b>/);
+  assert.match(pjNeedsNotice([sam, mark], redHere), /<b>2 agents need you\.<\/b>/, 'two uncounted rows and none counted');
+  // A crash loop the pill did not count says so, before any state sentence.
+  assert.match(pjNeedsNotice([{ ...m('demis', null), state: 'connection_lost', crashLoop: { looping: true } }], redHere), /keeps restarting it/);
+  // No em dash in any of the also-sentences.
+  assert.equal(pjNeedsNotice([m('elon', 'trust'), sam, mark, demis], redHere).includes('\u2014'), false);
   // Without the row builder (an older caller), only the counted rows.
   assert.equal(pjNeedsNotice([sam]), '');
 });
