@@ -233,3 +233,19 @@ test('#5534 review 6: an expired bundle keeps the last good policy in force (fai
   assert.ok(r.policy && r.policy.refused, 'an expired bundle was not refused');
   assert.equal(create.policyAllows('openai', null).ok, false, 'an expired bundle lifted the policy');
 });
+
+test('#5534 slice 2: only the policy in force, merely expired, is stale; other refusals are not', () => {
+  reset();
+  fs.writeFileSync(orgpolicy.BUNDLE(), sign(bundle({ version: 4 })));
+  assert.equal(orgpolicy.refresh().applied.version, 4, 'premise');
+  const expiredSame = sign(bundle({ version: 4, exp: now() - 5 }));
+  fs.writeFileSync(orgpolicy.BUNDLE(), expiredSame);
+  const a = orgpolicy.refresh();
+  assert.equal(a.stale, true, 'the policy in force, expired, was not stale: ' + JSON.stringify(a));
+  fs.writeFileSync(orgpolicy.BUNDLE(), sign(bundle({ version: 5, exp: now() - 5 })));
+  assert.equal(orgpolicy.refresh().stale, undefined, 'an expired NEWER bundle read as stale');
+  fs.writeFileSync(orgpolicy.BUNDLE(), sign(bundle({ version: 4, exp: now() - 5, policy: { ...POLICY, providers_allowed: null } })));
+  assert.equal(orgpolicy.refresh().stale, undefined, 'other words under the version in force read as stale');
+  fs.writeFileSync(orgpolicy.BUNDLE(), sign(bundle({ version: 4, exp: now() - 5 }), stranger));
+  assert.equal(orgpolicy.refresh().stale, undefined, 'a bundle signed by another key read as stale');
+});
