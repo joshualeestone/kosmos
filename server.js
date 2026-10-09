@@ -9719,9 +9719,13 @@ const server = http.createServer(async (req, res) => {
              that check can also preview first. What it adds is that no join or move skips the consent step. */
           if (r.ok) {
             ORG_TICKET = { value: require('node:crypto').randomBytes(16).toString('hex'), at: Date.now(), code: r.move ? null : String(body.code).trim(),
-              consentHash: oe.consentHash(r.consent),   // the words this screen was shown, kept with the enrollment
+              // The words this screen was shown: the company's own hash (contract v1.4), sent back on enroll and kept
+              // with the enrollment. None served (or a malformed one): nothing is recorded, so mayReport fails closed
+              // rather than report on words the company cannot match (consenthash review 2).
+              consentHash: r.served || null,
               orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
             r.ticket = ORG_TICKET.value;
+            if (!r.served) console.error('orgenroll: no consent hash to echo (none served, malformed, or for words cleaned before showing); a join records none, and this Kosmos will not report');
           }
         } else if (pathname === '/api/org/enroll') {
           if (body.accepted === true) {

@@ -222,6 +222,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
 
     // O14: an unknown outcome and an undo still to send each go back to the code field, with the engine's sentence.
     for (const ans of [{ ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes; if joining went through, this screen will show it.' },
+      { ok: false, code: 'org_consent_changed', because: 'Your company changed what it would see since you checked. Nothing was joined. Check the code again to read the new words.' },
       { ok: false, code: 'org_undo_pending', because: 'Your company did not confirm this Kosmos, so it is not your work Kosmos. Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' }]) {
       await page.evaluate((a) => { window.__enrollAnswer = a; document.getElementById('plus-org-msg').textContent = ''; }, ans);
       await page.fill('#plus-org-code', 'ACME-JOIN-8888');

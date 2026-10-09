@@ -107,7 +107,7 @@ test('#5531 review 5: a ticket from a preview IS accepted once, for the code tha
   const sent = [];
   remote.macRequest = async (method, route, body) => {
     sent.push(route);
-    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT, consentHash: '7a'.repeat(32) } };
     if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
     if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
     if (route === oe.ROUTES.status) { const w = oe.worldId(); return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: w, thisComputer: true } } }; }
@@ -128,7 +128,7 @@ test('#5531 review 5: a ticket from a preview IS accepted once, for the code tha
   const ok = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
   assert.equal(ok.json.ok, true, 'a real ticket for the previewed code was refused: ' + JSON.stringify(ok.json));
   assert.equal(JSON.stringify(ok.json).includes('org_1') || 'world' in ok.json, false, 'an engine id reached the page: ' + JSON.stringify(ok.json));
-  assert.equal(JSON.parse(fs.readFileSync(enrollmentFile(), 'utf8')).consentHash, oe.consentHash(CONSENT), 'the consent shown was not kept with the enrollment');
+  assert.equal(JSON.parse(fs.readFileSync(enrollmentFile(), 'utf8')).consentHash, '7a'.repeat(32), 'the consent shown (the hash the company served with it) was not kept with the enrollment');
   assert.equal('consentHash' in ok.json, false, 'a field outside the page list reached the page (review 12): ' + JSON.stringify(ok.json));
   const again = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
   assert.match(again.json.because || '', REFUSED, 'a ticket was used twice');
@@ -336,6 +336,56 @@ test('#5531 review 37: the screen\'s ticket carries the previewed company to the
   const r = await call('/api/org/enroll', { body: { code: 'BETA-JOIN-5678', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
   assert.notEqual(r.json.ok, true, 'Alpha (named here) was taken as the Beta join landing: ' + JSON.stringify(r.json));
   assert.equal(oe.isEnrolledHere(), false, 'Alpha was recorded on Beta\'s consent');
+});
+
+test('#5531 follow-up b: the company\'s served consent hash goes back on enroll and is the one recorded; the page never sees it', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const SERVED = '5e'.repeat(32);
+  let enrollBody = null;
+  let served = SERVED;
+  remote.macRequest = async (method, route, body) => {
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: { reports: ['agent names'], backsUp: [], readers: ['you'], never: [] }, consentHash: served } };
+    if (route === oe.ROUTES.enroll) { enrollBody = body; return { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } }; }
+    return { ok: true, data: { ok: true } };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  const pv = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  assert.equal(JSON.stringify(pv.json).includes(SERVED), false, 'the served hash reached the page');
+  const r = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(r.json.ok, true, JSON.stringify(r.json));
+  assert.equal(enrollBody.consentHash, SERVED, 'the enroll did not carry the hash the company served');
+  assert.equal(oe.readEnrollment().consentHash, SERVED, 'the record kept a hash computed here, not the served one');
+  await call('/api/org/leave', { body: {}, headers: SCREEN });
+  // A company that serves none: nothing is sent and nothing is recorded, so mayReport fails closed.
+  served = undefined; enrollBody = null;
+  const pv2 = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  const r2 = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
+  assert.equal(r2.json.ok, true, JSON.stringify(r2.json));
+  assert.equal('consentHash' in enrollBody, false, 'a hash computed here was sent to a company that serves none');
+  // consenthash review 2: no hash served, none recorded: mayReport fails closed (the company could never match one).
+  assert.equal(oe.readEnrollment().consentHash, undefined, 'a hash the company never served was recorded');
+  assert.equal(oe.mayReport(), false, 'a join with no served hash may report, though every rollup would be refused');
+  assert.equal(oe.isEnrolledHere(), true, 'CONTROL: it is still the work Kosmos');
+  await call('/api/org/leave', { body: {}, headers: SCREEN });
+});
+
+test('#5531 follow-up b review 1: a malformed served hash is never echoed or recorded (mayReport fails closed)', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  let enrollBody = null;
+  remote.macRequest = async (method, route, body) => {
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: { reports: ['agent names'], backsUp: [], readers: ['you'], never: [] }, consentHash: 'AB'.repeat(32) } };
+    if (route === oe.ROUTES.enroll) { enrollBody = body; return { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } }; }
+    return { ok: true, data: { ok: true } };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  const pv = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal('consentHash' in enrollBody, false, 'a malformed served hash was echoed');
+  assert.notEqual(oe.readEnrollment().consentHash, 'AB'.repeat(32));
+  assert.equal(oe.mayReport(), false, 'a malformed served hash left a join that may report');
+  await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
 
 test('#5531 follow-up: a company\'s stated empty backed-up list reaches the screen through the real preview route', async (t) => {
