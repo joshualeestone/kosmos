@@ -598,3 +598,26 @@ test('a grant under another account than the run\'s first fails the run before t
     assert.equal(st.manifests.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('folders nested past the depth cap are skipped by name, not a stack overflow', () => {
+  const w = workKosmos();
+  try {
+    let p = w.root;
+    for (let i = 0; i < 260; i++) p = path.join(p, 'd');
+    fs.mkdirSync(p, { recursive: true });
+    fs.writeFileSync(path.join(p, 'deep.md'), 'x');
+    const l = snap.listFiles(w.root);
+    assert.ok(l.skipped.some((x) => /nested more than 256 deep/.test(x.why)), 'the deep folder is named');
+    assert.ok(!l.files.some((f) => f.path.endsWith('deep.md')));
+    assert.ok(l.files.some((f) => f.path === 'readme.txt'), 'control: the rest is listed');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a clock that gives no usable time is a plain failure, not a new period', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st, { deps: { now: () => NaN } });
+    assert.equal(r.ok, false); assert.match(r.because, /clock/); assert.equal(r.newPeriod, undefined);
+    assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
