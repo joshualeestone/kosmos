@@ -272,7 +272,6 @@ const TRIAGED_5548 = {
   setIntervalMinutes: ['engine/heartbeat-setting.js', ACCESSOR + ' (a single-field setter beside the patch setter the PUT route uses, #1722)'],
   labelFor: ['engine/communityindustry.js', 'pending: slice 2 of OPEN #4375 (the public label for an owner\'s industry)'],
   HANDOFF_CHECK_FOR_SERVING_AFTER_MS: ['engine/win32handoff.js', 'mirrored by tools/windows/KosmosLauncher.cs (CheckForServingAfterMs), pinned equal by tools.win-launcher-native.test.js'],
-  costOf: ['engine/usageprice.js', 'pending: #5532\'s rollup sender (its next piece) is the first caller; merged in #5556 after this guard, nothing calls it yet by design, and usageprice.test.js pins it to the page\'s usageApiCost'],
 };
 
 const engineDir = path.join(__dirname, 'engine');
@@ -433,11 +432,7 @@ const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f
 
 /* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and TRIAGED_5548 are by file, so a pending
    name cannot cover a new orphan of the same name in another module (#5548 review 1). */
-/* #5532 (E0.3, contract v1.5): the computer print landed and tested on its own first. Its first caller is the enroll,
-   leave and rollup wiring after #5531 merges. By file, and armed: the test below fails once it has a caller, so this
-   excuse cannot outlive its reason. */
-const FIRST_CALLER_5532 = { printFor: 'engine/computerprint.js' };
-const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || (TRIAGED_5548[n] && TRIAGED_5548[n][0] === rel) || FIRST_CALLER_5532[n] === rel;
+const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || (TRIAGED_5548[n] && TRIAGED_5548[n][0] === rel);
 
 test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
   const orphans = findOrphans(engineModules, sources, testBlob, skipped);
@@ -521,15 +516,6 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
   assert.deepEqual(findOrphans([{ rel: 'engine/t.js', text: tre }], [{ f: 'server.js', text: 'user()' }], 'viaTemplate() user()', () => false), []);
   const multi2 = 'function lonelyExport() {}\nmodule.exports = {\n  lonelyExport, // lonelyExport\n};\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi2 }], [], 'lonelyExport()', () => false), ['engine/m.js exports lonelyExport']);
-});
-
-test('#5532: printFor is excused only until its first caller lands', () => {
-  const without = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || (TRIAGED_5548[n] && TRIAGED_5548[n][0] === rel);
-  const still = new Set(findOrphans(engineModules, sources, testBlob, without));
-  for (const [n, file] of Object.entries(FIRST_CALLER_5532)) {
-    assert.ok(still.has(file + ' exports ' + n), n + ' has a caller now: remove it from FIRST_CALLER_5532');
-  }
-  assert.equal(skipped('printFor', 'engine/some-other-module.js'), false, 'the excuse must not cover another module');
 });
 
 test('#5548 slice 2 review 1: a bin/ comment naming an export does not count as a call', () => {
