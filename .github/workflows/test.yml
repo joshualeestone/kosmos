@@ -150,7 +150,9 @@ jobs:
           # kill-switch rules, inherited through $mac). Anything else, the variable unset included, is macos-latest.
           # Measured 2026-10-09 (numbers on #4601): a shell shard queued a median 56 to 77 min for macos-latest.
           s1='"macos-latest"'; s2='"macos-latest"'
-          shards="$(printf '%s' "$CI_SHELL_SHARDS" | tr -d ' ')"   # "1/2, 2/2" reads as "1/2,2/2"
+          # All whitespace stripped ("1/2, 2/2" reads as "1/2,2/2"), and only these characters kept, so the log line
+          # below can never carry a workflow command or a second line.
+          shards="$(printf '%s' "$CI_SHELL_SHARDS" | tr -d '[:space:]' | tr -cd '0-9/,')"
           if [ "$mac" != '"macos-latest"' ]; then
             case ",$shards," in *,1/2,*) s1="$mac" ;; esac
             case ",$shards," in *,2/2,*) s2="$mac" ;; esac
@@ -158,7 +160,7 @@ jobs:
           echo "shell1_runner=$s1" >> "$GITHUB_OUTPUT"
           echo "shell2_runner=$s2" >> "$GITHUB_OUTPUT"
           # Said in the log, so a misspelt value (one that routes nothing) is visible.
-          echo "shell shards: 1/2 -> $s1, 2/2 -> $s2 (KOSMOS_CI_SHELL_SHARDS='$CI_SHELL_SHARDS')"
+          echo "shell shards: 1/2 -> $s1, 2/2 -> $s2 (KOSMOS_CI_SHELL_SHARDS read as '$shards')"
 
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
   # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
@@ -197,7 +199,7 @@ jobs:
     # KOSMOS_CI_SHELL_SHARDS (see scope); otherwise macos-latest.
     # Measured 2026-10-07: the self-hosted Mac runs the node part in 4.3 min (GitHub: 22.2) but is ONE runner,
     # and every Mac job routed to it ran serially (about 1.8 runs an hour, against about 4.2 on GitHub's 5).
-    # Node only keeps the self-hosted Mac short of being the queue (numbers on #5488).
+    # With node alone the self-hosted Mac stayed short of being the queue; #4601 lets a shell shard join it by the repo variable (numbers on #5488).
     runs-on: ${{ fromJSON(matrix.part == 'node' && needs.scope.outputs.mac_runner || matrix.shard == '1/2' && needs.scope.outputs.shell1_runner || matrix.shard == '2/2' && needs.scope.outputs.shell2_runner || '"macos-latest"') }}
     # run-tests.sh boots boards and servers; bound a hung run rather than let it
     # sit on the 360-minute default. The suite now runs ~14m (#3499; it has grown well
