@@ -205,3 +205,17 @@ rest of the guard is still written.
   - NOT CHANGED (nits): the install's engine folder is scanned like a PATH folder (797 entries against a 4000 cap;
     passing the cap fails safe and names the folder); "/" as a PATH entry is dropped by the ancestor check (a test pins
     it); the first test reads the host's real fixed folders for its rules (recorded in round 11).
+- Round 15 (opus): 0 BLOCKER, 2 WARNING, 1 NIT. Both warnings were fail-open gaps in round 14's own exemptions.
+  - FIXED: every link on the way is recorded with its folder. Where that folder is NOT denied whole (above the agent
+    folder, is or holds a shared folder, or a dotfile's own folder), the link is denied by its own name instead, to
+    the file tools only. A second link beside a dotfile's (a linked dotfiles folder) is now covered. Test; mutation fails.
+  - FIXED: a folder holding a link that holds a shared folder but is NOT above the agent folder is said, not silently
+    skipped (the default data root sits in Library, Application Support). Test with a control; mutations fail.
+  - DECIDED: a link named by itself goes to the file tools only. How the sandbox matches a link's own path is not
+    measured, and resolving it there could deny a whole shared folder. And because the rules read a path as gitignore
+    does (a name covers everything under it), a link that is or holds a shared folder, or is in or above the agent
+    folder (the system links /tmp, /var, /etc), is never named: above the agent that stays the ancestor residual; a
+    dotfile's link that cannot be named is said. Measured here: the real PATH names no link at all.
+  - FIXED: each shared folder is matched in every spelling, including with only its parent resolved (as /tmp is a
+    link). Test; mutation fails.
+  - FIXED (nit): the header's list of what makes the guard not whole is brought up to date.

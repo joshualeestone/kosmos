@@ -490,7 +490,7 @@ test('#5516 review 12: a file to deny that is a link is denied where it leads to
   assert.equal(setup.launchPathDirs(agentDir('lp-dot'), { ...PIN, launchFiles: [plain], panePath: '/usr/bin', ownPath: '' }).files.length, 1);
   // Windows: nothing scanned, nothing reported (the Windows lane measures it first).
   const w = setup.launchPathDirs(agentDir('lp-win'), { ...PIN, platform: 'win32', panePath: 'relative;also', ownPath: '' });
-  assert.deepEqual(w, { dirs: [], aliases: [], files: [], unsafe: [] });
+  assert.deepEqual(w, { dirs: [], aliases: [], files: [], linkNames: [], unsafe: [] });
   // Both tmux spellings are named, whatever XDG_CONFIG_HOME says.
   const was = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = path.join(SANDBOX, 'elsewhere-xdg');
@@ -559,4 +559,38 @@ test('#5516 review 14: a linked dotfile in the home folder keeps the guard whole
   // CONTROL: not shared, it is covered.
   const r3 = setup.launchPathDirs(agentDir('lp-cont'), { ...PIN, launchShared: [], panePath: parent, ownPath: '' });
   assert.ok(r3.dirs.includes(realOr(parent)) && r3.unsafe.length === 0, JSON.stringify(r3));
+});
+
+test('#5516 review 15: every link on the way that is not denied by its folder is denied by its own name; a shared holder below the agent is said', () => {
+  // A dotfile whose link leads through a SECOND link beside it in the home folder (a linked dotfiles folder).
+  const home = binDir('home-lp15');
+  const store15 = binDir('store-lp15');
+  fs.writeFileSync(path.join(store15, 'tmux.conf'), '');
+  fs.symlinkSync(store15, path.join(home, '.dotfiles'));
+  fs.symlinkSync(path.join(home, '.dotfiles', 'tmux.conf'), path.join(home, '.tmux.conf'));
+  const r = setup.launchPathDirs(agentDir('lp-15a'), { ...PIN, launchFiles: [path.join(home, '.tmux.conf')], launchShared: [home], panePath: '/usr/bin', ownPath: '' });
+  assert.ok(r.linkNames.includes(path.join(realOr(home), '.dotfiles')), 'the second link was neither denied nor said: ' + JSON.stringify(r));
+  assert.deepEqual(r.unsafe, []);
+  assert.ok(!r.dirs.includes(realOr(home)), 'the home folder was denied whole');
+  // A PATH entry through a link held in a folder that HOLDS a shared folder but is not above the agent: said.
+  const lib = binDir('lib-lp15');
+  const appSupport = binDir('lib-lp15/App Support');
+  const away = binDir('away-lp15');
+  fs.symlinkSync(away, path.join(lib, 'tools'));
+  const r2 = setup.launchPathDirs(agentDir('lp-15b'), { ...PIN, launchShared: [appSupport], panePath: path.join(lib, 'tools'), ownPath: '' });
+  assert.ok(r2.unsafe.some((u) => u.includes('a link on its way is held in')), JSON.stringify(r2.unsafe));
+  assert.ok(r2.linkNames.includes(path.join(realOr(lib), 'tools')), JSON.stringify(r2.linkNames));
+  assert.ok(!r2.dirs.includes(realOr(lib)), 'the folder holding a shared one was denied whole');
+  // A link that IS a shared folder (a /tmp-style link) is never named: a rule on it would cover everything under it.
+  const r4 = setup.launchPathDirs(agentDir('lp-15b'), { ...PIN, launchShared: [path.join(lib, 'tools')], panePath: path.join(lib, 'tools', 'x'), ownPath: '' });
+  assert.ok(!r4.linkNames.includes(path.join(realOr(lib), 'tools')), 'a shared link was named in a rule: ' + JSON.stringify(r4));
+  // CONTROL: nothing shared there: the holder is covered whole and nothing is said.
+  const r3 = setup.launchPathDirs(agentDir('lp-15b'), { ...PIN, launchShared: [], panePath: path.join(lib, 'tools'), ownPath: '' });
+  assert.ok(r3.dirs.includes(realOr(lib)) && r3.unsafe.length === 0, JSON.stringify(r3));
+  // The guard writes a link name as a file-tool rule only.
+  const dir = agentDir('lp-15c');
+  setup.guardTokenOnlyFolder(dir, 'lp-15c', { ...BASE, launchShared: [appSupport], panePath: path.join(lib, 'tools') });
+  const st = readSettings(dir);
+  assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(path.join(realOr(lib), 'tools'))})`), 'no file-tool rule for the link');
+  assert.ok(!st.sandbox.filesystem.denyWrite.includes(path.join(realOr(lib), 'tools')), 'a link name went to the sandbox layer');
 });
