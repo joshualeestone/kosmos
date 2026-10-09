@@ -147,4 +147,11 @@ function allows({ provider, model } = {}, policy = inForce()) {
   return { ok: true };
 }
 
-module.exports = { refresh, current, inForce, allows, TYP, BUNDLE, PINNED, APPLIED };
+/* #5534 review 1: the board stopped being this company's enrolled Kosmos (it left, was removed, or the company stopped
+   naming it): its policy no longer applies here. The bundle and the applied record both go, so nothing re-applies it;
+   a later join brings the company's current one. Never throws. */
+function clear() {
+  for (const f of [BUNDLE(), APPLIED()]) { try { fs.rmSync(f, { force: true }); } catch { /* already gone */ } }
+}
+
+module.exports = { refresh, current, inForce, allows, clear, TYP, BUNDLE, PINNED, APPLIED };

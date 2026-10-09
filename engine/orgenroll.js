@@ -101,6 +101,8 @@ function writeWhole(file, text) {
 }
 function clearEnrollment(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), ENROLLMENT_FILE), { force: true }); } catch { /* already gone */ }
+  // #5534 review 1: every end of an enrollment comes through here, so the company's policy ends with it.
+  try { ((opts && opts.orgpolicy) || require('./orgpolicy')).clear(); } catch { /* best effort */ }
 }
 
 /* This world's id if it was ever minted; never mints (the gate and a page read must not write). */
