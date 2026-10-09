@@ -314,3 +314,15 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: a line over 4 MB is skipped unread, so a refusal inside such a line is lost (a miss, not a leak); a bare
   relative filename with no slash or dot prefix (cat board.token after a relative cd) is not taken as a path.
 - The orphaned review-11 comment sits above its code; the module header says scanText is not pure.
+
+## Review 24 (opus), all fixed unless stated
+- A guard that lapsed and was rewritten while the board was down was never seen lapsed, so the gap's refusals (the
+  person's own) were read under the old start: each agent's last guard confirmation is recorded, and one unconfirmed
+  for over two ticks (11 minutes) counts from now. The downtime's refusals are lost (the private side). Test.
+- The hidden-path hint matched worlds.json/board.token anywhere (an agent's ./maps/*/worlds.json read as the board's):
+  a hidden word whose fixed start resolves inside the agent's own folder is dropped from the hint. Test.
+- Offsets read from the state file must be non-negative numbers (a corrupt one no longer stops a file for good).
+- Stated: a brief misread of the world-id file can mark the state withdrawn and clear the queue (a loss, never a leak);
+  tokenOnlySettingsRules' own stderr line repeats each tick for a folder with a pattern character; the r23 test
+  cannot fail when run as root; the plan's "What changes" omits the setup-assistant exports (tokenOnlyTokenRoots,
+  kosmosHome, tokenOnlySettingsRules, guardTokenOnlyFolder), named here.

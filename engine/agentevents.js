@@ -50,7 +50,8 @@ const UNLISTABLE_SAID = new Set();   // said once per agent per process (review 
 const UNGUARDED_SAID = new Set();   // said once per agent per process (review 17: never silent)
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
-const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
+const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;
+const GUARD_GAP_MS = 11 * 60 * 1000;   // over two ticks without a guard check: it may have lapsed unseen (review 24)   // a send that failed waits this long before the next (as the rollup)
 
 /* A deny-rule refusal: it starts "Permission to use <Tool>" and ends "has been denied." Tested on the head and the tail
    only (review 19: one regex over a 4 MB result could backtrack on agent-shaped text). */
@@ -94,7 +95,7 @@ function resultText(c) {
 function targetClass(tool, input, ctx) {
   if (tool === 'WebFetch' || tool === 'WebSearch') return 'network-host';
   const paths = [];
-  const hidden = [];   // path words a glob, a variable or a substitution hides (review 19)
+  let hidden = [];   // path words a glob, a variable or a substitution hides (review 19)
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
   if (tool === 'Bash' && input && typeof input.command === 'string') {
     /* Every path-like word in the command (reviews 3, 4, 6 and 9), split as a shell splits: quotes and backslash-escaped
@@ -153,8 +154,12 @@ function targetClass(tool, input, ctx) {
      token or Kosmos's own folder, or the agent's config, that is the class. */
   /* Only the words that could not be resolved are looked at (review 20: the whole command matched a named world's own
      agent folders, which sit under Application Support/Kosmos, and relabelled an agent's own files as the board's). */
-  if (hidden.length) {
+  if (hidden.length) {   // (the own-folder words are dropped first, below)
     /* Each hidden word on its own (review 21: anchored to the end of all of them joined, a later hidden word hid it). */
+    /* A hidden word whose fixed start resolves inside the agent's own folder is the agent's (review 24: a globbed
+       worlds.json under the agent's own maps folder read as the board's registry). */
+    const own = (w) => { const pre = w.split(/[*?$`]/)[0]; if (!pre || !ctx.agentDir) return false; const r = path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir())); return r === ctx.agentDir || r.startsWith(ctx.agentDir + path.sep); };
+    hidden = hidden.filter((w) => !own(w));
     const board = hidden.some((w) => /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(w));
     const config = hidden.some((w) => /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(w));
     if (board && RANK.indexOf('board-files') < RANK.indexOf(best)) best = 'board-files';
@@ -306,10 +311,11 @@ function readState(root) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8'));
     const obj = (v) => (v && typeof v === 'object' ? v : {});
-    return { offsets: obj(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
-      withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
+    const nums = (v) => Object.fromEntries(Object.entries(obj(v)).filter(([, x]) => Number.isFinite(x) && x >= 0));   // review 24
+    return { offsets: nums(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
+      confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
-  } catch { return { offsets: {}, pending: [], listed: {}, withdrawn: false, collided: [], sendMax: null, enrolledAs: null, since: null, failAt: null }; }
+  } catch { return { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, enrolledAs: null, since: null, failAt: null }; }
 }
 
 function writeState(root, st) {   // whole or not at all; owner-only
@@ -423,7 +429,7 @@ async function tick(opts) {
     if (st.withdrawn) st.enrolledAs = null;
     if (st.enrolledAs !== enrolledAs) {
       const sameEnrollment = typeof st.enrolledAs === 'string' && st.enrolledAs.split('|').slice(0, 3).join('|') === enrolledAs.split('|').slice(0, 3).join('|');
-      st = { offsets: {}, pending: [], listed: {}, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
+      st = { offsets: {}, pending: [], listed: {}, confirmed: {}, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
     }
     const sinceMs = Math.max(joinedAt, st.since || joinedAt);
     const sinceS = Math.floor(sinceMs / 1000);   // whole seconds, for the file-skipping rules
@@ -435,6 +441,7 @@ async function tick(opts) {
        an agent that is NOT token-only would carry that agent's refusals, by the PERSON's own rules, to the company: it
        is not read at all (fail closed), and neither is anything when the agent list cannot be read. */
     const collidedNow = new Set();
+    const gapNow = new Set();   // review 24: guarded now, but unconfirmed for longer than GUARD_GAP_MS
     const launchCache = new Map();   // review 17: one launch-path scan per tick, shared by every agent's guard check
     /* Required (review 12: an absent check read as "no clash"). */
     if (typeof src.everyAgent !== 'function' || typeof src.transcriptDirsOf !== 'function' || typeof src.guarded !== 'function') return { sent: 0, because: 'the agent list cannot be checked; nothing changed' };
@@ -452,7 +459,14 @@ async function tick(opts) {
       const unguarded = [];
       for (const [n, d] of [...dirs]) {
         if (!d) continue;
-        if (src.guarded(d, launchCache)) { UNGUARDED_SAID.delete(n); continue; }   // guarded again: a later lapse is said again (review 22)
+        if (src.guarded(d, launchCache)) {
+          UNGUARDED_SAID.delete(n);   // guarded again: a later lapse is said again (review 22)
+          /* Review 24: a guard confirmed long ago (the board was down) may have lapsed and been rewritten unseen; the gap's
+             refusals could be the person's own, so the agent counts from now, as if newly listed. */
+          if (Number.isFinite(st.confirmed[n]) && now - st.confirmed[n] > GUARD_GAP_MS) collidedNow.add(n), gapNow.add(n);
+          if (!Number.isFinite(st.confirmed[n]) || now - st.confirmed[n] > 4 * 60 * 1000) st.confirmed[n] = now;   // not every tick (the review-9 write rule)
+          continue;
+        }
         dirs.delete(n); collidedNow.add(n); unguarded.push(d);
         if (!UNGUARDED_SAID.has(n)) { UNGUARDED_SAID.add(n); console.error('agentevents: ' + n + ' is token-only but its guard is not in force; its refusals are not read'); }
       }
@@ -483,6 +497,7 @@ async function tick(opts) {
        agent's, so its files start at their end, as an agent first listed this tick. Recorded while it collides. */
     const before = new Set(Array.isArray(st.collided) ? st.collided : []);
     for (const n of names) if (before.has(n) && !collidedNow.has(n)) st.listed[n] = now;
+    for (const n of gapNow) { st.listed[n] = now; collidedNow.delete(n); }   // read again from now on
     st.collided = [...collidedNow];
     for (const n of names) if (!Number.isFinite(st.listed[n])) st.listed[n] = now;
     for (const n of Object.keys(st.listed)) if (!names.includes(n)) delete st.listed[n];   // off the list: starts again
