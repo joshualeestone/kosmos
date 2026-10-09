@@ -142,6 +142,22 @@ function liveProjects(records) {
    holding an open part of a task
    some other agent marked is still busy (review round 4: the mark is on the task, the work is per part). New work on
    it (a part added, put back, or given to somebody) drops the mark (tasks.writeParts), and it counts again. */
+function hasOpenWork(session, projects) {
+  for (const p of projects) {
+    /* #4771: held work (a task on hold, or a paused project) does not keep an agent busy, so the agent can be given
+       real work; it stays on the agent's list. */
+    if (require('./projects').isPaused(p)) continue;
+    for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (tasks.isOnHold(t)) continue;
+      if (require('./taskrepeat').waitingForNextRun(t)) continue;   // #4787: between runs a repeating task holds no work
+      const prog = tasks.progressOf(t);
+      if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
+      if (prog.parts.some((x) => x.who === session && !x.closedAt)) return true;
+    }
+  }
+  return false;
+}
+
 /* #5678 review 2: does `who` holding an open part of `t` keep it busy, by hasOpenWork's own rules (on hold, between
    runs, built and freed: not busy)? A tree is locked only by holds like that, so a parked hold never locks a tree for
    good. One more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
@@ -188,22 +204,6 @@ function treeIsOthers(p, tree, holdersOf, root, session, taken, except) {
   if (held.length && !held.includes(session)) return true;
   const treeKey = p.id + '#tree#' + root + '#';
   return [...taken].some((k) => k.startsWith(treeKey) && k !== treeKey + session);
-}
-
-function hasOpenWork(session, projects) {
-  for (const p of projects) {
-    /* #4771: held work (a task on hold, or a paused project) does not keep an agent busy, so the agent can be given
-       real work; it stays on the agent's list. */
-    if (require('./projects').isPaused(p)) continue;
-    for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
-      if (tasks.isOnHold(t)) continue;
-      if (require('./taskrepeat').waitingForNextRun(t)) continue;   // #4787: between runs a repeating task holds no work
-      const prog = tasks.progressOf(t);
-      if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
-      if (prog.parts.some((x) => x.who === session && !x.closedAt)) return true;
-    }
-  }
-  return false;
 }
 
 /* Sort key: a real due date sorts before none, earlier first; then the older task. */
