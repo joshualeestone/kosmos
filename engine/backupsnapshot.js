@@ -94,8 +94,8 @@ const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WE
 const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". (The
-    coordinator falls back to "p<start>" for a time its time crate cannot hold, years past 9999; a clock that far off is
-    not refused here, but every grant it gets is in the coordinator's own period, so the run stops as newPeriod.) */
+    coordinator falls back to "p<start>" for a time its time crate cannot hold, years past 9999; takeSnapshot refuses a
+    clock that far off before using this.) */
 function periodOf(ms) {
   const start = MONDAY_EPOCH + Math.floor((ms - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
   // ISO week-numbering year: the year of the Thursday of that week.
@@ -340,7 +340,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
   const t = now();
   // A Date can hold only about 275,000 years either side of 1970: past that, periodOf reads "NaN-WNaN".
-  const usable = (x) => Number.isFinite(x) && Number.isFinite(new Date(x).getTime());
+  // And no later than year 9999, past which the coordinator labels periods differently ("p<start>").
+  const usable = (x) => Number.isFinite(x) && Number.isFinite(new Date(x).getTime()) && new Date(x).getUTCFullYear() <= 9999;
   if (!usable(t)) return fail('this computer\'s clock gave no usable time');
   const period = periodOf(t);
   // newPeriod, not retryLater: the same input fails again; the caller needs this period's context and naming key.
