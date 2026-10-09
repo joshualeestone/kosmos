@@ -522,3 +522,22 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: a walk named through a variable ($HOME, review 38's line) IS counted when the variable is $HOME (it is read as
   ~); other variables are not. Ticks are serialised against each other, not against enroll, leave or refresh: the
   stop count is what makes that safe.
+
+## Review 40 (opus), all fixed unless stated
+- BLOCKER, the same class a third time: the stop count on disk moved only when the disk already said "reporting", so
+  a Leave during an enrollment's FIRST tick (or a stop whose write failed) went uncounted and the gap was sent. Every
+  fix so far depended on what the disk said at one moment; the count is now kept in memory (STOPS), moved by every
+  markWithdrawn whatever the disk says (the tick and every enrollment writer run in the board process). A tick that
+  sees it move writes a withdrawn state and nothing else, so the next tick starts from then. Reviewer's repro, both
+  arms, red on the pre-fix files; removing STOPS++ is red.
+- orgenroll marks the stop AFTER a record without accepted words has landed, and after the record is removed (a mark
+  made before a write that then failed left the words in place and the state withdrawn). Both are synchronous with the
+  mark, so no tick runs in between.
+- A bare cd and pushd move where a walk starts; tar -C moves where its operands resolve; tar walks only to create or
+  add (an extract writes); a walking command's operands include plain names (grep's first is its pattern, find's
+  after its first test are values). Test.
+- Stated: the withdrawn state written when a tick aborts is not pinned by a test: in every case built, the first-sight
+  rule (a file first seen in an agent's first-listed tick starts at its end) also stops the gap. It is kept so the
+  invariant does not rest on that rule, which exists for speed.
+- What I got wrong in flight, AGAIN: a // comment inserted mid-line by a scripted replace commented out the rest of an
+  object literal (a syntax error this time; in review 36 it silently dropped two replaces). Saved as a lesson.

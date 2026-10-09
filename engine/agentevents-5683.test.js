@@ -1347,3 +1347,53 @@ test('#5683 r39: a copy\'s destination and tar\'s -C/-f are not walked; a cd mov
     ['zip -r /tmp/x.zip ~/Library', 'board-files'], ['rsync -a ~/Library/ /tmp/x/', 'board-files'],
   ]) assert.equal(ae.targetClass('Bash', { command: cmd }, c), want, cmd);
 });
+
+/* ---- review 40 ---- */
+
+test('#5683 r40: one Leave spanning an enrollment\'s FIRST tick, refused after it, sends nothing from the gap', async (t) => {
+  /* The reviewer's repro. The count on disk moved only when the disk already said "reporting", which a first tick has
+     not written yet; the in-memory count moves on every stop. Both arms: with and without a tick before. Red on the
+     pre-fix file. */
+  for (const priorTick of [false, true]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-r40-'));
+    const tdir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-r40t-'));
+    t.after(() => { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(tdir, { recursive: true, force: true }); });
+    const file = path.join(tdir, 'sess-9.jsonl'); fs.writeFileSync(file, '');
+    const c = coordinator();
+    await oe.enroll('ACME-JOIN-1234', true, { root, remote: c }); accept(root);
+    const base = { agents: () => ['Scout'], everyAgent: () => ['Scout'], guarded: () => true, transcriptDirsOf: (d) => ['/p' + d],
+      dirOf: (n) => '/Users/ann/work/workers/' + n.toLowerCase(), transcripts: async (d) => (d.endsWith('/scout') ? [file] : []) };
+    if (priorTick) { await ae.tick({ platform: 'darwin', root, remote: c, sources: base, now: Date.now() }); await new Promise((r) => setTimeout(r, 1100)); }
+    const w = fs.readFileSync(path.join(root, oe.WORLD_ID_FILE), 'utf8').trim();
+    let open; const opened = new Promise((r) => { open = r; });
+    const slow = { macRequest: async (m, route) => {
+      if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: { id: 'o', name: 'Acme', slug: 'acme' }, role: 'admin', enrolled: { computer: 'c', world: w, thisComputer: true } } };
+      await opened;
+      return { ok: false, because: '409 {"code":"org_last_admin"}' };
+    } };
+    let leaving = null; let once = true;
+    const src = Object.assign({}, base, { transcripts: async (d) => {
+      if (!d.endsWith('/scout')) return [];
+      if (once) { once = false; leaving = oe.leave({ root, remote: slow }); await new Promise((r) => setTimeout(r, 50)); }
+      return [file];
+    } });
+    await ae.tick({ platform: 'darwin', root, remote: c, sources: src, now: Date.now() });
+    await new Promise((r) => setTimeout(r, 1100));
+    append(file, use('while-left', 'Bash', { command: 'x' }), result('while-left', DENIED('x'), true));
+    open(); await leaving;
+    await ae.tick({ platform: 'darwin', root, remote: c, sources: base, now: Date.now() });
+    const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+    assert.equal(refs.includes('while-left'), false, (priorTick ? 'after a tick' : 'first tick') + ': a refusal made while the Leave was pending was sent');
+  }
+});
+
+test('#5683 r40: a bare cd, a pushd, and tar -C move where a walk starts', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  for (const [cmd, want] of [['cd && grep -r tok .', 'board-files'], ['cd; grep -r tok .', 'board-files'], ['pushd ~ && grep -r tok .', 'board-files'],
+    ['tar -czf ~/out.tgz -C ~ Library', 'board-files'], ['tar -czf ~/out.tgz -C ~ Documents', 'home'], ['cd /tmp; grep -r tok .', 'system'],
+    // plain-name operands; grep's first operand is its pattern; find's after its first test are values
+    ['cd ~ && grep -r tok', 'board-files'], ['cd ~ && grep -r tok Documents', 'home'], ['cd ~ && grep -r tok Library', 'board-files'],
+    ['grep -r Library ~/work', 'home'], ['cd ~ && find Documents -name Library', 'home'], ['tar xzf a.tgz -C ~', 'home'], ['tar czf out.tgz Library', 'other']]) {
+    assert.equal(ae.targetClass('Bash', { command: cmd }, c), want, cmd);
+  }
+});
