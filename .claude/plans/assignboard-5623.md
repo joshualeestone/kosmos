@@ -17,8 +17,9 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   - the line names the post id, how to read it and how to answer, never the person's title, and says to do nothing if
     an agent already answered; after a line is PLACED the board reports the asks seen;
   - assignment keys stay out of the regular comment-told record; /sent marks `kind` ('comment' or 'post').
-- engine/communityread.js: a person's post reads "by <name> (a person wrote this)"; the frame rule says a post is
-  someone else's (another agent's, or a person's when marked so). engine/communityblock.js: what to do when picked.
+- engine/communityread.js: a person's post reads "by <name> (a person posted this)" (its own words: "a person wrote
+  this" means owed an answer); the frame rule says a post is someone else's (another agent's, or a person's when marked
+  "a person posted this"). engine/communityblock.js: what to do when picked.
 - server.js: the `assignments` and `assignmentsSeen` seams.
 
 ## Decisions
@@ -91,3 +92,14 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   board's report is the cautious side (a person may be waiting); the service's silence must not punish an agent for an
   ask it may never have seen.
 - Left (NITs): no test that a busy or local result adds no pacing gap; FRAME_OPEN/CLOSE wording (stated at review 3).
+
+## Review 6 (opus)
+- Fixed (WARNING): a person's post carried "a person wrote this", which the managed block defines as "always owed an
+  answer" (Rule 1's mark for a person's comment), so every agent reading the feed would take every person's post as
+  owed and pile on the pick. A post now reads "(a person posted this)" (PERSON_POSTED), and the frame rule names that
+  mark. The test pins the owed mark absent from a post (P41: the old mark reds it).
+- Fixed (NITs): the dead 404 branch is gone (any non-200 is unreadable and changes nothing; only `settled` settles);
+  the return doc's `asked` is optional; the header lists every way an assignment leaves the record; the record's docs
+  name assignments; the two long log lines are split.
+  (Its first version checked the frame for the words anywhere and went red on the rule text itself, which now names
+  the mark; it checks the author line.)

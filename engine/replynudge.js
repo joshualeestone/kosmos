@@ -42,8 +42,9 @@
  * alone, outside the hourly limit, again every PERSON_RETELL_MS until the agent's reply to them appears, then recorded as an
  * unanswered person (readPersons / writePersons, one record per agent). See the PERSON_* constants and personsUpdate.
  * Rule 2: a person's POST the community picked this agent to answer (communityassign.openAssignments, `o.assignments`)
- * joins the same record under the key "a:<post id>", told the same way; it leaves the record only when the service
- * reports it settled 'answered' or 'gone' ('expired' stays, marked unanswered; unlisted is unknown and kept).
+ * joins the same record under the key "a:<post id>", told the same way; it leaves the record when the service reports
+ * it settled 'answered' or 'gone', or 'expired' before any tell reached the agent; an expired one that was told stays,
+ * marked unanswered; an unlisted one is unknown and kept; any entry ages out after PERSONS_KEPT_MS unseen.
  *
  * The planner is pure; the reads, the delivery and the store are injected, so tests drive it without a pane or a service.
  */
@@ -168,7 +169,8 @@ function personText(due) {
   return parts.join(' ');
 }
 
-/* #5623: the person comments it owes, per agent: { owed: { <comment id>: { remoteId, title, author, parent, firstSeen,
+/* #5623: what a person is owed, per agent (comments on its posts, and posts it was picked to answer under "a:<post id>"):
+   { owed: { <comment id or a:<post id>>: { remoteId, title, author, parent, firstSeen,
    told: [ms], unanswered } } }. Same posture as the told record: only a missing file is empty; anything else is null. */
 function personsFile(root, sessionName) {
   const h = crypto.createHash('sha256').update(String(sessionName)).digest('hex');
@@ -435,7 +437,7 @@ async function sweepOnce(o) {
         // Review 12: an agent whose told record could not be written last time is still tried, but takes no cap slot
         // here (a store that stays unwritable would otherwise hold a slot every pass); the line's own cap check still holds.
         if (rot && fresh && fresh.ok === true) rot.stopSaid = null;   // the service answered again
-        /* #5623: the person comments it owes, brought up to date in its record (answered ones go); due ones are typed
+        /* #5623: what persons are owed (comments, and Rule 2's assignments), brought up to date in its record; due ones are typed
            below, ahead of the regular line. A record that cannot be read skips the persons for this agent this pass. */
         let due = [];
         if (fresh && fresh.ok === true && typeof o.readPersons === 'function' && typeof o.writePersons === 'function') {
@@ -470,9 +472,20 @@ async function sweepOnce(o) {
             const u = personsUpdate(rec, persons, clock(), answered);
             const wrote = o.writePersons(session, u.owed) === true;
             if (wrote) due = u.due;
-            if (wrote) for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: (communityassign.isAssignment(id) ? 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer' : 'a person\'s comment ' + id) + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
-            // Review 3 (board half): an expiry says what happened, with the real number of tells (it may be fewer than three).
-            if (wrote) for (const id of expiredNow) { const n = Array.isArray(rec[id] && rec[id].told) ? rec[id].told.length : 0; say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer passed its answer window unanswered, told ' + n + (n === 1 ? ' time' : ' times') }); }
+            const who = plainWords(card.name || session, 80);
+            const whatOf = (id) => (communityassign.isAssignment(id)
+              ? 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer'
+              : 'a person\'s comment ' + id);
+            if (wrote) {
+              for (const id of u.unanswered) {
+                say({ name: who, session, act: 'unanswered-person', because: whatOf(id) + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+              }
+              // Review 3 (board half): an expiry says what happened, with the real number of tells (it may be fewer than three).
+              for (const id of expiredNow) {
+                const n = Array.isArray(rec[id] && rec[id].told) ? rec[id].told.length : 0;
+                say({ name: who, session, act: 'unanswered-person', because: whatOf(id) + ' passed its answer window unanswered, told ' + n + (n === 1 ? ' time' : ' times') });
+              }
+            }
           }
         }
         const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
