@@ -122,6 +122,9 @@ test('wrap throws on a caller mistake: key sizes, a bad context, a non-canonical
   assert.throws(() => keys.wrapNamingKey(keys.newNamingKey(), member.pk, mctx), /needs a non-empty period/);
   const nonCanonical = Buffer.alloc(32, 0xff);   // bit 255 set: hpke refuses it, since such a wrap could never open
   assert.throws(() => keys.wrapMemberKey(member.sk, nonCanonical, mctx), /canonical/);
+  // A canonical but low-order key (all zeros): refused with this module's own sentence, not an OpenSSL message.
+  assert.throws(() => keys.wrapMemberKey(member.sk, Buffer.alloc(32), mctx), /backupkeys: the recipient public key is not usable/);
+  assert.throws(() => keys.wrapNamingKey(keys.newNamingKey(), Buffer.alloc(32), nctx), /backupkeys: the recipient public key is not usable/);
 });
 
 test('the associated-data bytes are pinned (any other implementation of the unwrap service must match them)', () => {
@@ -225,4 +228,17 @@ test('a known-answer naming-key wrap (fixed member key, naming key and ephemeral
   const ks = s.keySchedule(sharedSecret, Buffer.from('kosmos-backup v1 key-wrap'));
   const ct = s.aeadSeal(ks.key, s.nonceFor(ks.baseNonce, 0), keys.namingContextBytes(nctx), Buffer.alloc(32, 4));
   assert.ok(Buffer.concat([Buffer.from('KBN1'), enc, ct]).equals(wrap));
+});
+
+test('unwrapped secrets are fresh Buffers: changing the input wrap afterwards does not change them', () => {
+  const member = keys.newMemberKey(), r = hpkeKeyPair();
+  const w = keys.wrapMemberKey(member.sk, r.pk, mctx);
+  const got = keys.unwrapMemberKey(r.sk, w, mctx, member.pk);
+  const copy = Buffer.from(got);
+  w.fill(0);
+  assert.ok(got.equals(copy));
+  const nk = keys.newNamingKey(), nw = new Uint8Array(keys.wrapNamingKey(nk, member.pk, nctx));
+  const ngot = keys.unwrapNamingKey(member.sk, nw, nctx, keys.namingKeyId(nk));
+  nw.fill(0);
+  assert.ok(ngot.equals(nk));
 });

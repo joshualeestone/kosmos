@@ -20,7 +20,8 @@
  * the wrap (whoever can write there could supply a forged wrap and a matching value together):
  *   - unwrapMemberKey REQUIRES the public key the result must derive to, taken from the coordinator-signed policy
  *     bundle (decision 7). A wrap of the wrong key (a forgery, a wrapper bug, another epoch's key under this
- *     context) is refused. (Equal up to X25519 clamping: secrets differing only in clamped bits are the same key.)
+ *     context) is refused. (Equal up to X25519 clamping: secrets differing only in clamped bits are the same key, so the bytes returned
+ *     are the bytes that were WRAPPED: code that hashes or compares raw secret bytes must not assume one form.)
  *   - unwrapNamingKey REQUIRES the naming-key id, taken from the device-SIGNED, verified manifest. A forged naming
  *     key cannot have that id, so it is refused outright.
  *
@@ -106,8 +107,13 @@ function namingKeyId(namingKey) {
 }
 
 function wrap(magic, info, aad, secret, recipientPk) {
-  const { enc, ct } = hpkeSeal(recipientPk, info, aad, secret);   // throws on a bad or non-canonical recipient key
-  return Buffer.concat([magic, enc, ct]);
+  let sealed;
+  try { sealed = hpkeSeal(recipientPk, info, aad, secret); } catch (err) {
+    // hpke.js names a non-canonical key itself; anything else (a low-order key OpenSSL refuses) gets a sentence here.
+    if (/canonical/.test(String(err && err.message))) throw err;
+    throw new Error('backupkeys: the recipient public key is not usable (a low-order or malformed X25519 key)');
+  }
+  return Buffer.concat([magic, sealed.enc, sealed.ct]);
 }
 function unwrap(magic, info, aad, recipientSk, wrapped) {
   const w = asBuf(wrapped);
