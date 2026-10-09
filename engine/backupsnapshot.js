@@ -50,6 +50,7 @@ const MAX_FILES = 500000;
 // The manifest's JSON must fit the coordinator's ceiling after framing and padding (Padme adds at most about 12%).
 const MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
 const MAX_SKIPPED = 100000;
+const MAX_DEPTH = 256;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 const MONDAY_EPOCH = Date.UTC(1970, 0, 5);   // the first Monday 00:00 UTC after the Unix epoch
@@ -101,8 +102,10 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
   let skippedExtra = 0, over = false;
   // Bounded, whatever the tree holds: past maxFiles the walk stops, and skips past maxSkipped are only counted.
   const skip = (x) => { if (skipped.length < maxSkipped) skipped.push(x); else skippedExtra++; };
-  const walk = (rel) => {
+  const walk = (rel, depth) => {
     if (over) return;
+    // A depth cap (review 8): recursion this deep is a pathological tree, skipped by name rather than a stack overflow.
+    if (depth > MAX_DEPTH) { skip({ path: rel, why: `folders nested more than ${MAX_DEPTH} deep` }); return; }
     let names;
     try { names = fs.readdirSync(path.join(root, rel)); } catch { skip({ path: rel || '.', why: 'a folder that could not be read' }); return; }
     for (const name of names.sort()) {
@@ -114,7 +117,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       if (st.isSymbolicLink()) { skip({ path: r, why: 'a link (links are not followed)' }); continue; }
       if (st.isDirectory()) {
         const why = folderDenied(r);
-        if (why) skip({ path: r, why }); else walk(r);
+        if (why) skip({ path: r, why }); else walk(r, depth + 1);
         continue;
       }
       if (!st.isFile()) { skip({ path: r, why: 'not a regular file' }); continue; }
@@ -127,7 +130,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       if (files.length > maxFiles) over = true;
     }
   };
-  walk('');
+  walk('', 0);
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   // Restore refuses every entry that collides (engine/backuprestore.js collidingPaths): the same key (case, invisible
   // characters, '\\' as '/'), or a file whose key is another entry's folder. Keep-first, in sorted order, on a trie of
@@ -146,8 +149,11 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
     if (clash) { skip({ path: f.path, why: `restore would refuse it beside ${clash} (names it treats as one)` }); continue; }
     n.file = f.path; kept.push(f);
   }
-  if (collidingPaths(kept).size) throw new Error('the walker kept paths restore would refuse as colliding');
-  return { files: kept, skipped, skippedExtra, over };
+  // Restore's own rule has the last word: anything it would still refuse is skipped too (review 8: a throw here would
+  // have refused the whole snapshot over one name).
+  const refused = collidingPaths(kept);
+  const out = refused.size ? kept.filter((f) => { if (!refused.has(f.path)) return true; skip({ path: f.path, why: 'restore would refuse it as colliding with another name' }); return false; }) : kept;
+  return { files: out, skipped, skippedExtra, over };
 }
 
 /* Read the file the walk found, or say why not: { buf } or { why }. One open, no final link followed, never blocking. */
@@ -163,7 +169,8 @@ function readListed(fs, rootReal, f, maxFile) {
     if (!st.isFile() || st.dev !== f.dev || st.ino !== f.ino) return { why: 'replaced while the snapshot was taken' };
     // A hard link has no real path of its own to check: another name for it may be outside the work Kosmos.
     if (st.nlink > 1n) return { why: 'a hard link (another name for it may be outside the work Kosmos)' };
-    // The real path, from the path opened; the descriptor's identity already ties it to the file the walk saw.
+    // The identity check above is the guard: the bytes read are the file the walk saw. The real-path and deny-list checks
+    // below are a second layer; a rename between the open and realpath can only make them skip the file (review 8).
     const real = fs.realpathSync(abs);
     if (!insideWorkKosmos(real, rootReal)) return { why: 'its real path is outside the work Kosmos' };
     const relReal = path.relative(rootReal, real).split(path.sep).join('/');
@@ -246,7 +253,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
   if (typeof namingKeyId !== 'string' || !/^[0-9a-f]{32}$/.test(namingKeyId)) return fail('the naming key id must be 32 lowercase hex characters');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
-  const period = periodOf(now());
+  const t = now();
+  if (!Number.isFinite(t)) return fail('this computer\'s clock gave no usable time');
+  const period = periodOf(t);
   // newPeriod, not retryLater: the same input fails again; the caller needs this period's context and naming key.
   if (ctx.period !== period) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { newPeriod: true });
 
@@ -315,7 +324,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       // becomes what this batch stored under the NEW bucket; chunks earlier batches of this run stored under the old
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
-      for (const [name, key] of stored) if (!keyProblem(key, ctx) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
+      for (const [name, key] of stored) if (pending.has(name) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
       return fail(index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
@@ -395,6 +404,9 @@ async function snapshotInner(input, deps, added, state, fail) {
     format: FORMAT, takenAt: new Date(now()).toISOString(), namingKeyId,
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
+  // Cannot throw on this content (review 8): paths passed pathProblem, every other value is a fixed sentence, a number,
+  // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
+  // takeSnapshot's catch returns `added` intact.
   const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks });
   if (!m || !m.ok) {
