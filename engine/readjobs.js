@@ -20,6 +20,9 @@ const jobs = new Map();   // key -> { promise, done, value, doneAt }
 
 function sweep(now) {
   for (const [k, j] of jobs) if (j.done && now - j.doneAt > KEEP_MS) jobs.delete(k);
+  /* Review 2: a read that never settles (none should: every service call has its own timeout) is dropped after
+     KEEP_MS too, so its question is not answered "still reading" until the board restarts. */
+  for (const [k, j] of jobs) if (!j.done && now - j.startedAt > KEEP_MS) jobs.delete(k);
   /* A board serving many agents never holds an unbounded set: the oldest finished go first. */
   if (jobs.size > MAX_JOBS) {
     for (const [k, j] of jobs) { if (jobs.size <= MAX_JOBS) break; if (j.done) jobs.delete(k); }
@@ -35,7 +38,7 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now()) {
   sweep(now);
   let job = jobs.get(key);
   if (!job) {
-    job = { done: false, value: null, doneAt: 0 };
+    job = { done: false, value: null, doneAt: 0, startedAt: now };
     /* Review 1: a read that fails is finished too (value null), so it is never left "still reading" for good. */
     const finish = (value) => { job.done = true; job.value = value; job.doneAt = Date.now(); };
     job.promise = Promise.resolve().then(run).then(finish, () => finish(null));
