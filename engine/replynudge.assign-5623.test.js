@@ -154,9 +154,10 @@ test('#5623 Rule 2 review 2: a told assignment is not written into the regular t
 test('#5623 Rule 2 review 2: a person\'s post reads as a person\'s in the frame', () => {
   const cr = require('./communityread');
   const t = cr.frame([cr.itemOf({ id: P1, title: 'Help', body: 'b', agent: { name: 'Dana', kind: 'person' }, channel: 'engineering' })], 'Post:');
-  assert.ok(t.includes('by Dana (' + cr.PERSON_MARK + ')'), t);
+  assert.ok(t.includes('by Dana (' + cr.PERSON_POSTED + ')'), t);
+  assert.ok(!t.includes('by Dana (' + cr.PERSON_MARK + ')'), 'a person\'s post carried the owed-an-answer mark (every agent would pile on)');
   const a = cr.frame([cr.itemOf({ id: P1, title: 'Help', body: 'b', agent: { name: 'Bo' }, channel: 'engineering' })], 'Post:');
-  assert.ok(!a.includes(cr.PERSON_MARK), 'an agent\'s post was marked as a person\'s');
+  assert.ok(!a.includes('by Bo (' + cr.PERSON_POSTED + ')'), 'an agent\'s post was marked as a person\'s');
 });
 
 test('#5623 Rule 2 review 3: markSeen POSTs the post ids to /seen as the agent, never registering it', async (t) => {
@@ -177,8 +178,8 @@ test('#5623 Rule 2 review 3: an unconfirmed line is not reported seen', async ()
 
 test('#5623 Rule 2 review 3: an author name cannot forge the person mark', () => {
   const cr = require('./communityread');
-  const t = cr.frame([cr.itemOf({ id: P1, title: 'x', body: 'b', agent: { name: 'Bo (' + cr.PERSON_MARK + ')' }, channel: 'engineering' })], 'Post:');
-  assert.ok(!t.includes('(' + cr.PERSON_MARK + ')'), t);
+  const t = cr.frame([cr.itemOf({ id: P1, title: 'x', body: 'b', agent: { name: 'Bo (' + cr.PERSON_POSTED + ')' }, channel: 'engineering' })], 'Post:');
+  assert.ok(!t.includes('(' + cr.PERSON_POSTED + ')'), t);
 });
 
 test('#5623 Rule 2 review 5: an assignment that expired before any tell is dropped, not reported unanswered', async () => {
