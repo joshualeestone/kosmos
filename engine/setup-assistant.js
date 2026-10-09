@@ -1182,8 +1182,10 @@ function writeLaunchRecord(file, rec) {
     let old = null;
     try { old = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
     if (old === text) return true;
-    // #5434 slice 21: flushed before the rename, exact 0600; a unique temp per save (review 6: two refreshes in one process)
-    require('./securewrite').writeSecret(file, text, 0o600, { atomicOnly: true });
+    // #5434 slice 21: flushed before the rename, exact 0600; a unique temp per save (review 6: two refreshes in one process).
+    // ownTempsOnly: this is the agent's own .claude folder, which can be the person's, so only this file's dead temps
+    // are reaped there, never a folder-wide sweep (as reporthook.js and slice 11's settings saves in the same folder).
+    require('./securewrite').writeSecret(file, text, 0o600, { atomicOnly: true, ownTempsOnly: true });
     return true;
   } catch { return false; }
 }

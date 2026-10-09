@@ -205,8 +205,7 @@ function writeConfigIfNeeded(file, text) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     require('./store').saveFlushed(file, text);   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX)
-  } catch {
-  }
+  } catch { /* best effort: same() below decides */ }
   /* A rename refused because a sibling supervisor won the race is fine, as long as
      what it wrote is what we would have. */
   return same();
