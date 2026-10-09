@@ -4350,7 +4350,9 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
 /* #5293 review 1: POST /api/agent/<name>/instruction-add joins: it only HOLDS a proposal the person applies on the page,
    and its handler names the caller with resolveAgentSender, header token first. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #5152 slice 1: `kosmos task done-when` (POST .../task/<n>/done-when) joins on the same terms: its handler names the
+   caller (processCaller) and refuses an agent that is not on the project (notOnProjectRefusal). */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -9766,7 +9768,9 @@ const server = http.createServer(async (req, res) => {
         const oe = require('./engine/orgenroll');
         let r;
         if (pathname === '/api/org/preview') {
-          r = await oe.preview(body.code);
+          // #5531 follow-up: { review: true } shows the words of the company this Kosmos already reports to, so a record
+          // with no consent recorded here can accept them without leaving (accepted through enroll with no code).
+          r = body.review === true ? await oe.reviewHere() : await oe.preview(body.code);
           /* A one-time ticket bound to WHAT was previewed: this code, or a member's move (no code). Enroll must carry
              the same ticket and the same code, so a join is always for the company whose consent was fetched. It is
              exactly as strong as isViaScreen, the board's check for every person-only setting: a caller that passes
@@ -9777,6 +9781,7 @@ const server = http.createServer(async (req, res) => {
               // with the enrollment. None served (or a malformed one): nothing is recorded, so mayReport fails closed
               // rather than report on words the company cannot match (consenthash review 2).
               consentHash: r.served || null,
+              review: r.review === true,   // a review's Accept: a lost answer is never taken as accepted (orgreview review 1)
               orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
             r.ticket = ORG_TICKET.value;
             if (!r.served) console.error('orgenroll: no consent hash to echo (none served, malformed, or for words cleaned before showing); a join records none, and this Kosmos will not report');
@@ -9794,7 +9799,7 @@ const server = http.createServer(async (req, res) => {
           }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, orgId: spent.orgId } : undefined);
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, orgId: spent.orgId, review: spent.review === true } : undefined);
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
           if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
@@ -9811,7 +9816,7 @@ const server = http.createServer(async (req, res) => {
         /* The page gets the company's name and slug, never the world id or org id. */
         /* What the page may see, by name (review 12): a field added to the engine's answer later is not sent by default. */
         if (r && typeof r === 'object') {
-          const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'ticket', 'role', 'consent', 'enrolledAt'];
+          const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'review', 'ticket', 'role', 'consent', 'enrolledAt'];
           const out = {};
           for (const k of keep) if (k in r) out[k] = r[k];
           if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug };
@@ -18902,6 +18907,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: whoAsked,
             parent: body.parent,
+            doneWhen: body.doneWhen,   // #5152: what finished means for it, as checks (engine/tasks.js validates)
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // Review 8: read right after the add, before any await below, so nothing changed meanwhile can be named.
           /* #5319: the task is added as asked (no silent dedup); the answer names OPEN tasks with the same text, so the
@@ -18912,7 +18918,7 @@ const server = http.createServer(async (req, res) => {
           let note = '';
           try {
             const raw = projects.readAll().find((x) => x && x.id === id);
-            const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null, detail: made.detail, who: tasks.whoOf(made) }) : [];
+            const alike = raw ? tasks.sameTextOpen(raw, made.sentence, made.number, { parent: made.parent || null, detail: made.detail, who: tasks.whoOf(made), doneWhen: made.doneWhen }) : [];
             if (alike.length) {
               const shown = (v) => { const c = Array.from(String(v).replace(/["\\\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff\ud800-\udfff\u{e0000}-\u{e007f}]/gu, ' ').replace(/\s+/g, ' ').trim());
                 return c.length > 60 ? c.slice(0, 57).join('') + '...' : c.join(''); };
@@ -19133,6 +19139,37 @@ const server = http.createServer(async (req, res) => {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
           { error: msg || 'we could not set that due date' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #5152 slice 1: set or clear what finished means for a task. Body { doneWhen: ["check", ...] | null }.
+     The caller is named as task add names it (token, else pane), and an identified agent changes only a task on a
+     project it is on. Any member may: the agent that writes the task's checks is often the one that added it, not
+     the one it is given to (Josh, 2026-10-03 11:07: the agent writes the task and its done-when). tasks.setDoneWhen
+     validates (400), refuses a closed task (409) and records the change in the task's transcript. */
+  const taskDoneWhen = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/done-when$/);
+  if (taskDoneWhen && req.method === 'POST') {
+    const id = decodeSegment(taskDoneWhen[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body) || !('doneWhen' in body)) {
+        sendJson(res, 400, { error: 'we could not read that request' }); return;
+      }
+      const viaScreen = isViaScreen(req, body);
+      const who = processCaller(req, body, safeRoster(), viaScreen, 'the task was not changed');
+      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed');
+      if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
+      try {
+        const t = tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, { by: who.card ? who.card.sessionName : null, person: viaScreen });
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
+          { error: msg || 'we could not change that task' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -19417,7 +19454,7 @@ const server = http.createServer(async (req, res) => {
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
      already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   /* kosmos#4787: a recurring task. POST .../repeat { every, at?, on?, minute?, clear? } sets, changes or stops its rule;
-     POST .../ran { note? } records that its job ran. Either from the screen (the person) or from an agent on the project,
+     POST .../ran { note?, unchanged? } records that its job ran (unchanged: it found nothing new, kosmos#5643). Either from the screen (the person) or from an agent on the project,
      identified the way the built mark is (its token, else its pane); an agent off the project is refused. The rule is
      checked whole in the engine (taskrepeat.repeatProblem), so a bad one is a 400 with the sentence, never stored. */
   const taskRepeat = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(repeat|ran)$/);
@@ -19454,7 +19491,9 @@ const server = http.createServer(async (req, res) => {
       let task;
       try {
         if (taskRepeat[3] === 'ran') {
-          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen });
+          // kosmos#5643: `unchanged: true` records a run that found nothing new (it rolls up on the task's page).
+          if (body.unchanged !== undefined && typeof body.unchanged !== 'boolean') throw new Error('unchanged is true or false');
+          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen, unchanged: body.unchanged === true });
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
@@ -22096,6 +22135,19 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about the Kosmos+ community: ${String(err && err.message)}\n`);
+  }
+  /* kosmos#5635 F1: the working rules, brought current at boot for every agent of ours whose rules are Kosmos's own
+     text, unedited (doctrine.refreshUnedited says which, and leaves the rest for the click). Each one changed is owed a
+     re-read line, as a click is. Josh's 2026-10-07 feedback found agents still on a line fixed five days earlier. */
+  try {
+    const done = doctrine.refreshFleet(safeRoster(), instructionRereadOwe);
+    /* Only a real failure is said: an agent with no instructions file yet is `left` (review 6), not `could_not`; one whose
+       file is there and cannot be read is still said (review 7). */
+    for (const d of done) {
+      if (d.state === 'could_not') process.stderr.write(`Kosmos could not bring ${d.sessionName}'s working rules up to date: ${d.because}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not bring agents' working rules up to date: ${String(err && err.message)}\n`);
   }
   /* kosmos#5297: the re-read lines owed (engine/instructionreread.js), a pass every INSTRUCTION_REREAD_MS from boot (it
      returns at once when nothing is owed). A line goes only to an agent idle at two passes running, so the first lands

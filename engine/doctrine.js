@@ -1,17 +1,19 @@
 'use strict';
 
 /**
- * The consented refresh of the working rules (#539): what a person's click
- * adds to an instruction file they own, composed here and NOWHERE ELSE.
+ * The refresh of the working rules (#539): what changes the rules Kosmos wrote into an instruction file the person
+ * owns, composed here and NOWHERE ELSE.
  *
- * The constraint the whole card hangs on (Mona Lisa's, on the card): role
- * text is PERSON-OWNED after creation and deliberately never rewritten.
- * This module is allowed near it because nothing here is silent and the
- * person is the author of the change: the click on the ruled dialog is the
- * same act as pasting the missing sections in themselves, with Kosmos
- * holding the pen. Anything that writes without the click, or touches a
- * byte outside the managed span, breaks the ownership rule for real and
- * should be reverted on sight.
+ * The constraint the whole card hangs on (Mona Lisa's, on the card): role text is PERSON-OWNED after creation and
+ * deliberately never rewritten. Two writers, and only two:
+ *   - the person's CLICK (refresh), the same act as pasting the sections in themselves with Kosmos holding the pen;
+ *   - kosmos#5635, with NO click (refreshUnedited, at board start): only where the rules text is, byte for byte, a
+ *     WHOLE earlier block Kosmos wrote (a span holding one exactly, or an unedited plain copy). Text that is Kosmos's
+ *     own and unchanged is not the person's words, so bringing it current takes none of theirs. Josh's 2026-10-07
+ *     feedback found every agent still on a line fixed five days before, because the click never came.
+ * Anything else that writes without the click (a span with a section removed, reordered or reworded, a file with no
+ * rules block, an agent whose person said Not now), or that touches a byte outside the managed span, breaks the
+ * ownership rule for real and should be reverted on sight.
  *
  * Built to Angel's nine constraints (2026-08-24, read from the code, on
  * the card's thread), each carried where it bites:
@@ -24,7 +26,9 @@
  *        own text plus Mona Lisa's sentences -- so there is nothing to
  *        neutralise, which is stated rather than discovered;
  *   3    ONE composition, two readers: the dialog shows what planFor
- *        composed and the click writes THAT file text, proven by hash;
+ *        composed and the click writes THAT file text, proven by hash
+ *        (the third writer, kosmos#5635's refreshUnedited, has no dialog and
+ *        so no hash: it writes only unedited whole Kosmos text, see above);
  *   4    a true no-op never writes: nothing-missing composes nothing, and
  *        an up-to-date span is detected on its SECTION CONTENT before any
  *        dated sentence is composed, so a byte never moves for a date;
@@ -59,18 +63,44 @@ function clickDate(now) {
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-/* Mona Lisa's sentences (her ruling, verbatim): the dated one is the FIRST
-   line inside the constant markers, never the marker itself. "Kosmos may
-   update this block" is TRUE: a later consented refresh recomposes the
-   span through this same module. */
+/* Mona Lisa's sentences (her ruling): the dated one is the FIRST line inside the constant markers, never the marker
+   itself. Her "Kosmos may update this block" became, in kosmos#5635, what Kosmos now does (KEEPS below), and it is
+   TRUE: an unedited span is recomposed at board start, an edited one only through the click. */
+/* kosmos#5635: every frame line says what Kosmos now does with the block: it may bring it up to date while it is exactly
+   as Kosmos wrote it, and asks first otherwise. Each starts with the words sectionContentOf strips. */
+const KEEPS = 'Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.';
 function openingLine(now) {
-  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, with your OK. Kosmos may update this block when the rules change; your own words above and below it are never touched. -->`;
+  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, with your OK. ${KEEPS} -->`;
+}
+/* kosmos#5635: the frame of a refresh nobody clicked (refreshUnedited), so the file never claims an OK nobody gave. */
+function autoLine(now) {
+  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, bringing its own earlier copy up to date. ${KEEPS} -->`;
 }
 const CLOSING_LINE = '<!-- end of the working rules -->';
+/* kosmos#5635 review 2: every frame line Kosmos has ever written, exactly (the date varies). sectionContentOf drops ANY
+   line with the frame's prefix, so a person's words added inside that comment would read as frame; the write with no
+   click requires each such line to be one of these.
+   🛑 FROZEN LITERALS, AND THE LIST ONLY GROWS (review 7). An entry built from KEEPS would change with it, and every
+   frame already written into agents' files under the old words would stop counting as Kosmos's own. When KEEPS or a
+   frame changes, ADD its new tails here and keep the old ones; doctrine.refreshunedited-5635.test.js fails if a frame
+   Kosmos writes today is missing from this list. */
+const FRAME_TAILS = Object.freeze([
+  // #539 / #4890 wording, before kosmos#5635
+  'with your OK. Kosmos may update this block when the rules change; your own words above and below it are never touched.',
+  'when it set up this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched.',
+  // kosmos#5635
+  'with your OK. Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.',
+  'when it set up this agent. Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.',
+  'bringing its own earlier copy up to date. Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.',
+]);
+function isKosmosFrame(line) {
+  const m = /^<!-- Kosmos added the working rules below on \d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}, (.*) -->$/.exec(line);
+  return !!m && FRAME_TAILS.includes(m[1]);
+}
 /* #4890: the same frame at birth, where nobody clicked. It starts with the words sectionContentOf strips, so a
    refresh compares the rules and never this line. */
 function birthLine(now) {
-  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, when it set up this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched. -->`;
+  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, when it set up this agent. ${KEEPS} -->`;
 }
 
 /** The span body for a given set of sections, dated the day of the click (or of the birth, given `opening`). */
@@ -123,12 +153,33 @@ function hasPlainCurrent(body) {
   return plainCurrentAt(body) >= 0;
 }
 
+/* kosmos#5635 review 5: the profile as the no-click write must read it. store.readProfile answers {} for ANY failure,
+   which would read a Not now and the restore record as absent and then let writeProfile replace the file (its id
+   too). Only a profile that does not exist is empty; one that exists and cannot be read or parsed is null. */
+function profileStrict(sessionName) {
+  let raw;
+  try { raw = require('node:fs').readFileSync(store.profilePath(sessionName), 'utf8'); }
+  catch (e) { return e && e.code === 'ENOENT' ? {} : null; }
+  try { const p = JSON.parse(raw); return p && typeof p === 'object' && !Array.isArray(p) ? p : null; } catch { return null; }
+}
+/* The hash of today's block, the record of which rules were last written into an agent's file (review 4). */
+function currentBlockHash() {
+  return crypto.createHash('sha256').update(defaults.block()).digest('hex');
+}
+/* kosmos#5635: rules text that is, byte for byte, a WHOLE earlier block. The only span content refreshUnedited writes
+   over: the per-section match below also accepts a span with a section deleted or the sections reordered (review 1),
+   which is the person's edit and waits for the click. */
+function wholeKnownBlock(content, past) {
+  const rows = past || PAST;
+  const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+  return rows.some((r) => r.length === content.length && sha(content) === r.sha256);
+}
 /* #4890: rules text Kosmos wrote and nobody changed: a whole earlier block, or (a span from an older click that
    added only the headings an agent lacked) sections that are each an earlier block's section, byte for byte. */
 function knownContent(content, past) {
   const rows = past || PAST;
   const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
-  if (rows.some((r) => r.length === content.length && sha(content) === r.sha256)) return true;
+  if (wholeKnownBlock(content, rows)) return true;
   const known = new Set(rows.sections || []);
   return known.size > 0 && content.split('\n### ').every((p, j) => known.has(sha(j === 0 ? p : '### ' + p)));
 }
@@ -179,7 +230,7 @@ function sectionContentOf(spanInner) {
  *   { state: 'current' }                                nothing to add; NO write may follow
  *   { state: 'refresh', sections, spanNext, fileNext, hash, replacing?, updating? }
  *
- * `replacing` (#4890) is true when the click also removes an unedited plain
+ * `replacing` (#4890) is true when the write (a click, or refreshUnedited) also removes an unedited plain
  * copy of an earlier block; `updating` when it rewrites an existing span. `past` is the fingerprint table, for tests only;
  * engine/doctrine-past.js otherwise.
  *
@@ -188,7 +239,7 @@ function sectionContentOf(spanInner) {
  * file that changed since the dialog (the could-not arm of the race is an
  * honest "look again", never a write on a guess).
  */
-function planFor(text, now, past) {
+function planFor(text, now, past, opening) {   // `opening`: the frame line (kosmos#5635), the click's by default
   const body = String(text == null ? '' : text);
   const found = projects.findBlock(body, START, END);
   if (found && found.ambiguous) {
@@ -205,7 +256,7 @@ function planFor(text, now, past) {
        person who clicked an earlier refresh that added only missing headings), another earlier copy, or today's
        own plain copy. One click then leaves one copy of the current rules. */
     if (found || pastBlockIn(without, past) || hasPlainCurrent(without)) {
-      const plan = planFor(without, now, past);
+      const plan = planFor(without, now, past, opening);
       if (plan.state === 'refresh') return { ...plan, replacing: true, hash: hashOf(plan.fileNext) };
       if (plan.state === 'current') {
         const kept = all.filter((s) => without.includes(s.heading));
@@ -218,7 +269,7 @@ function planFor(text, now, past) {
     const outside = body.slice(0, old.start) + body.slice(old.end);
     const wanted = all.filter((s) => !outside.includes(s.heading));
     if (wanted.length) {
-      const spanNext = spanBody(wanted, now);
+      const spanNext = spanBody(wanted, now, opening);
       const fileNext = body.slice(0, old.start) + `${START}\n${spanNext}\n${END}` + body.slice(old.end);
       return { state: 'refresh', replacing: true, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
     }
@@ -241,7 +292,7 @@ function planFor(text, now, past) {
     if (!wanted.length) return { state: 'current' };
     const wantedContent = wanted.map((s) => s.text).join('\n');
     if (sectionContentOf(spanInner) === wantedContent) return { state: 'current' };
-    const spanNext = spanBody(wanted, now);
+    const spanNext = spanBody(wanted, now, opening);
     const fileNext = projects.spliceBlock(body, spanNext, START, END);
     /* #4890: a span that is not text Kosmos wrote (knownContent) is `edited`, which the fleet click leaves. */
     const known = knownContent(sectionContentOf(spanInner), past);
@@ -252,7 +303,7 @@ function planFor(text, now, past) {
      carrying every section as the person's own text appends NOTHING. */
   const missing = defaults.missingFrom(body);
   if (!missing.length) return { state: 'current' };
-  const spanNext = spanBody(missing, now);
+  const spanNext = spanBody(missing, now, opening);
   const fileNext = projects.spliceBlock(body, spanNext, START, END);
   return { state: 'refresh', sections: missing, spanNext, fileNext, hash: hashOf(fileNext) };
 }
@@ -292,6 +343,9 @@ function status(sessionName, now, past) {   // `past`: tests only
   };
 }
 
+/* kosmos#5635 reviews 9/10: a copy Kosmos can prove is its own is replaced at board start with no click; what the fleet
+   click still sees here was left by that check or by a choice on record (a Not now, a restore), so the wording names no
+   one reason. */
 const FLEET_LEAVES_REPLACE = 'its older copy of the rules is replaced only from its own page, where the change is shown';
 const FLEET_LEAVES_EDITED = 'its working rules are not a copy Kosmos recognises as its own, so they are updated only from its own page, where the change is shown';
 /* #4890: why the fleet click (names only, no dialog hash) leaves this plan for the agent's own page, or null. The
@@ -364,7 +418,9 @@ function refresh(sessionName, roster, opts) {
       { who: 'kosmos', because: plan.replacing ? 'replaced its older working rules with the current ones, with your OK'
         : plan.updating ? 'updated the working rules, with your OK' : 'added the working rules, with your OK' });
     try {
-      store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION });
+      /* kosmos#5635 review 4: the click records the block it wrote too, so a person who restores the earlier rules
+         after a click is not overwritten by the next boot's sweep. */
+      store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION, doctrineWrote: currentBlockHash() });
     } catch { /* the file is the truth; the record catches up on the next write */ }
     return { state: 'added', sections: plan.sections.map((s) => s.heading) };
   } catch (err) {
@@ -378,6 +434,140 @@ function refresh(sessionName, roster, opts) {
   }
 }
 
+/**
+ * kosmos#5635 F1: bring an agent's working rules current with NO click, when the text being replaced is provably
+ * Kosmos's own and unedited: a span whose content is, byte for byte, a WHOLE earlier block (wholeKnownBlock, with exact
+ * marker and frame lines), or a plain, unedited copy of one ending at a clean boundary (`replacing`). At most once per
+ * BLOCK per agent (doctrineWrote, the current block's hash): a person who puts the earlier rules back after this
+ * block was written has their way (review 3), and a later block (a text fix, with or without a version bump) is
+ * still brought in (review 4). Josh's 2026-10-07 feedback found every agent on a test
+ * project still carrying a line fixed on main five days before (#4582), the third report of that staleness (#4890,
+ * #5297): the click that would have fixed it is not happening, so the person never gets the fix.
+ *
+ * What still needs the click, and why (each is something Kosmos cannot prove is its own unedited text, or a choice the
+ * person made; the checks below say which, and the plan lists them with their review rounds):
+ *   - a span the person edited (reworded, a section deleted or reordered, words on a marker or frame line, CRLF);
+ *   - a file with no rules block (adding sections there is adding to the person's text);
+ *   - a write that would leave out a section (the person has its heading outside the block);
+ *   - a plain copy with a line typed under it, or two copies of the rules (earlier or today's) in one file;
+ *   - an agent whose person said Not now to this version, or put the earlier rules back after this block was written;
+ *   - a profile that cannot be read.
+ * The person's own words are never touched: the write is planFor's fileNext, which spliceBlock or pastBlockIn compose
+ * byte for byte outside Kosmos's text.
+ *
+ * Returns { state: 'added', sections } when it wrote, { state: 'current' } when there was nothing to do,
+ * { state: 'left', because } when the change waits for the click, or { state: 'could_not', because }. Never throws.
+ */
+function refreshUnedited(sessionName, roster, opts) {
+  try {
+    if (!projects.heldExactly(sessionName, roster)) return { state: 'could_not', because: 'we could not tell that this agent is ours' };
+    const current = instructions.read(sessionName);
+    /* Review 6/7: nothing there yet (no file, `editable`; or no folder for it at all) is nothing to bring up to date, not
+       a failure to report at every boot. A file that IS there and cannot be read (a symlink, unreadable, too large)
+       is a failure. */
+    if (!current.exists) {
+      // lstat, not exists: a dangling link where the folder should be IS something there, and is reported (review 8).
+      const noFolder = !current.path || (() => { try { require('node:fs').lstatSync(require('node:path').dirname(current.path)); return false; } catch { return true; } })();
+      return (current.editable || noFolder)
+        ? { state: 'left', because: current.because || 'it has no instructions file yet' }
+        : { state: 'could_not', because: current.because || 'we could not read its instructions file' };
+    }
+    const plan = planFor(current.text || '', opts && opts.now, opts && opts.past, autoLine(opts && opts.now));   // `past`: tests only
+    if (plan.state !== 'refresh') return plan;
+    /* Review 1 (the blocker): a span is written over only when its content is a WHOLE earlier block. planFor's
+       `edited` is false for a span whose sections each match an earlier section, which is also true of a span the
+       person deleted a section from or reordered: those wait for the click. A span from an older click that added only
+       missing headings is left too, the safe side. */
+    const span = projects.findBlock(current.text || '', START, END);
+    const notWhole = { state: 'left', because: 'its working rules are not a copy Kosmos wrote whole, so they change only with your OK' };
+    if (span && !span.ambiguous) {
+      const text = current.text || '';
+      const lineEnd = text.indexOf('\n', span.start);
+      const inner = text.slice(lineEnd + 1, span.end - END.length);
+      /* Review 2: the marker lines are compared too (words typed on the start marker's line, or before the end marker,
+         are the person's), every frame-prefixed line must be a frame Kosmos wrote, and a span with Windows line endings
+         is left for the click (the rewrite would mix endings in the person's file). */
+      // (`inner.endsWith` is defence in depth: words before the end marker also fail wholeKnownBlock below.)
+      if (text.slice(span.start, lineEnd) !== START || !inner.endsWith('\n') || /\r/.test(inner)) return notWhole;
+      if (inner.split('\n').some((l) => l.startsWith('<!-- Kosmos added the working rules below on ') && !isKosmosFrame(l))) return notWhole;
+      if (!wholeKnownBlock(sectionContentOf(inner), opts && opts.past)) return notWhole;
+    }
+    /* Review 2/8: every write, an update of a span as much as a replace, writes EVERY section: a heading the person also
+       has outside the block leaves one out, which the dialog shows and a write with no click would not. */
+    if ((plan.replacing === true || plan.updating === true) && plan.sections.length !== defaults.sections().length) return notWhole;
+    /* Review 3/5: a plain copy is cut only when it ends at a clean boundary (the end of the file, a blank line, a heading
+       or a marker line), a span in the file too (the copy cut is the one outside it): a line the person typed under its
+       last section reads as part of it for pastBlockIn, and would be cut off from it by the write. */
+    if (plan.replacing === true) {
+      const text = current.text || '';
+      const skip = span && !span.ambiguous ? span : null;
+      const old = pastBlockIn(text, opts && opts.past, skip);
+      const rest = old ? text.slice(old.end).replace(/^\r?\n/, '') : '';
+      if (!old || !(rest === '' || /^(?:\r?\n|#{1,6} |<!--)/.test(rest))) return notWhole;
+      /* Review 7/8: planFor cuts a SECOND copy too (it plans again on what remains), an earlier one or today's own, and only
+         the first is checked above. Two copies of the rules is not a file Kosmos wrote that way: the click. */
+      const cut = old.end - old.start;
+      const shifted = skip ? (skip.start >= old.end ? { start: skip.start - cut, end: skip.end - cut } : skip) : null;   // the span, where it sits after the cut
+      const remaining = text.slice(0, old.start) + text.slice(old.end);
+      // Today's own copy is looked for OUTSIDE the span (review 9): a span holding today's block is not a second copy.
+      const bare = shifted ? remaining.slice(0, shifted.start) + remaining.slice(shifted.end) : remaining;
+      if (pastBlockIn(remaining, opts && opts.past, shifted) || hasPlainCurrent(bare)) return notWhole;
+    } else if (plan.updating === true && span && !span.ambiguous) {
+      /* Review 9: an old span with a copy of today's rules outside it would leave two current copies: the click. */
+      const text = current.text || '';
+      if (hasPlainCurrent(text.slice(0, span.start) + text.slice(span.end))) return notWhole;
+    }
+    /* A last guard on the plan itself: the checks above already leave every edited span, so `edited` is not reached
+       today; a plan that is neither an update nor a replace (sections missing from a file with no block) is the
+       person's text to add to, and waits for the click. */
+    if (plan.edited === true || !(plan.replacing === true || plan.updating === true)) {
+      return { state: 'left', because: plan.edited === true || plan.updating ? 'its working rules were edited, so they change only with your OK' : 'its working rules were never written by Kosmos, so they are added only with your OK' };
+    }
+    const profile = profileStrict(sessionName);
+    if (profile === null) return { state: 'could_not', because: 'we could not read what this agent has on record (a Not now, say), so we did not change its rules' };
+    if (profile.doctrineDeclined === defaults.DOCTRINE_VERSION) return { state: 'left', because: 'you said Not now to these rules for this agent' };
+    /* Review 3/4: once per BLOCK. If today's block was already written into this agent's file (by this sweep or by a
+       click) and an earlier one is there again, a person put it back (the Instructions tab's previous version, #4406):
+       their choice, and the click is how it changes now. Keyed on the block's hash, not DOCTRINE_VERSION, because text
+       fixes ship inside a version (several rows share one in doctrine-past.js), and a later fix must still arrive. */
+    const today = currentBlockHash();
+    if (profile.doctrineWrote === today) return { state: 'left', because: 'the earlier rules were put back after Kosmos updated them, so they change only with your OK' };
+    /* Recorded BEFORE the write (review 4), so a restore can never be overwritten twice; and put back if the write
+       then fails (review 5), so a failed write costs this boot only and is tried again at the next, rather than
+       reading as a restore for as long as this block is current. A record that cannot be saved is no reason to write. */
+    const before = Object.prototype.hasOwnProperty.call(profile, 'doctrineWrote') ? profile.doctrineWrote : null;
+    try { store.writeProfile(sessionName, { doctrineWrote: today }); } catch { return { state: 'could_not', because: 'we could not record the update for this agent, so we did not make it' }; }
+    try {
+      instructions.write(sessionName, plan.fileNext, current.version, undefined,
+        { who: 'kosmos', because: 'brought its working rules up to date (they were Kosmos\'s own text, unedited)' });
+    } catch (err) {
+      try { store.writeProfile(sessionName, { doctrineWrote: before }); } catch { /* best effort: the next boot reads it as a restore */ }
+      throw err;
+    }
+    try { store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION }); } catch { /* the file is the truth */ }
+    return { state: 'added', sections: plan.sections.map((x) => x.heading) };
+  } catch (err) {
+    return { state: 'could_not', because: (err && err.message) || 'we could not write to its instructions' };
+  }
+}
+
+/**
+ * kosmos#5635 review 1: the board-start sweep, as a function so it can be tested: refreshUnedited for every agent of
+ * ours in `roster`, and `owe(sessionName)` for each one written (the running agent read the old rules). Returns the
+ * verdicts, one per agent of ours; an unreadable roster (not an array) does nothing. Never throws.
+ */
+function refreshFleet(roster, owe, opts) {
+  if (!Array.isArray(roster)) return [];
+  const out = [];
+  for (const a of roster) {
+    if (!a || a.isNamedOurs !== true || typeof a.sessionName !== 'string') continue;
+    const got = refreshUnedited(a.sessionName, roster, opts);
+    if (got && got.state === 'added' && typeof owe === 'function') { try { owe(a.sessionName); } catch { /* the file is right */ } }
+    out.push({ sessionName: a.sessionName, ...got });
+  }
+  return out;
+}
+
 /** "Not now", remembered server-side per agent until the rules themselves
     change: keyed on the version, so a future bump un-hides the banner. */
 function decline(sessionName) {
@@ -389,4 +579,4 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
+module.exports = { START, END, spanBody, clickDate, autoLine, planFor, status, refresh, refreshUnedited, refreshFleet, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };

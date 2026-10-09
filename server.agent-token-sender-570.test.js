@@ -180,7 +180,10 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   /* #5293 review 1 added POST /api/agent/<name>/instruction-add, a WRITE that only HOLDS a proposal (the person applies
      it on the page, a person-only route): its handler names the caller with resolveAgentSender, header token first, and a
      token that resolves wins over any pane in the body (server.instradd-5293.test.js, the enforcing-board arm). */
-  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/agent\\/[^/]+\\/instruction-add$/, /^POST \\/api\\/project\\/[^/]+\\/role$/, /^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign|repeat|ran)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
+  /* #5152 added `done-when`, a WRITE: its handler identifies the caller with processCaller (header token first, a token
+     that does not resolve is refused) and refuses an agent not on the project (notOnProjectRefusal), measured in
+     server.task-donewhen-5152.test.js (the member and non-member arms, enforcement on). */
+  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/agent\\/[^/]+\\/instruction-add$/, /^POST \\/api\\/project\\/[^/]+\\/role$/, /^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign|repeat|ran|done-when)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
     'AGENT_TOKEN_ROUTE_PATTERNS changed: every WRITE a pattern admits must identify its caller from the header token, and every read of people\'s work must be narrowed to the caller\'s own projects (agentTokenOnlyCaller)');
   assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
   assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');

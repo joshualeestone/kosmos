@@ -70,6 +70,50 @@ function dueProblem(dueDate) {
   return null;
 }
 
+/* #5152 slice 1: a task's "done when", the two or three plain checks that say what finished means for it,
+   written before the work starts (Josh, 2026-10-03 11:07: the agent writes the task and its done-when; the
+   person may change it, with no approval step). Its own field rather than words in the detail, so the page and
+   the agent read it as checks. null means none was written. Each check is one line: a check is a sentence the
+   page lists, and a line break inside one would read as two. Over the limits is REFUSED, never cut, the rule
+   every other field here follows. */
+const DONE_WHEN_MAX = 3;
+const DONE_CHECK_MAX = 200;
+function doneWhenProblem(doneWhen) {
+  if (doneWhen === undefined || doneWhen === null) return null; // none / clear
+  /* The sentences carry no double quote: install/kosmos lifts a refusal out of the JSON with a sed that stops at the
+     first one, so a quoted word would cut the sentence there (review round 1). */
+  if (!Array.isArray(doneWhen)) return 'the done-when checks have to be a list';
+  if (doneWhen.length > DONE_WHEN_MAX) return `a task holds up to ${DONE_WHEN_MAX} done-when checks`;
+  for (const c of doneWhen) {
+    if (typeof c !== 'string' || !c.trim()) return 'each done-when check has to say something';
+    /* One line, and nothing a terminal acts on or that makes it show other words than are stored: every control
+       character, the Unicode line and paragraph breaks (review round 1), and the direction overrides and invisible
+       characters (review round 2: kosmos task list prints a check as it is stored). */
+    /* Review 3: by Unicode property, so no list of code points can miss one: controls (Cc), format characters (Cf:
+       direction marks, zero-width, soft hyphen, the tag characters that carry words a person cannot see but a model
+       reads), private use, unassigned and lone surrogates, line and paragraph separators, and the blank Hangul fillers.
+       Except U+200C (zero-width non-joiner), which Persian and several Indic scripts need to spell a word (review 6):
+       it joins nothing and carries no words. */
+    if (/(?!\u200c)[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\u115f\u1160\u3164\uffa0]/u.test(c)) return 'each done-when check has to be one line of plain text';
+    if (c.trim().length > DONE_CHECK_MAX) return `each done-when check has to be ${DONE_CHECK_MAX} characters or fewer`;
+  }
+  return null;
+}
+/** The stored form: the trimmed checks, or null for an absent or empty list. */
+function doneWhenValue(doneWhen) {
+  if (!Array.isArray(doneWhen) || !doneWhen.length) return null;
+  return doneWhen.map((c) => c.trim());
+}
+/** Who set the checks, as stored: a name, cut to WHO_MAX whole characters (never half a pair), or null. */
+function doneWhenSetter(by) {
+  if (typeof by !== 'string' || !by) return null;
+  return Array.from(by).slice(0, WHO_MAX).join('');
+}
+/** The checks as one transcript line, "1) ... 2) ...", which is what engine/taskchat.js can keep (a string). */
+function doneWhenWords(list) {
+  return Array.isArray(list) && list.length ? list.map((c, i) => (i + 1) + ') ' + c).join(' ') : null;
+}
+
 function taskProblem({ sentence, detail, who } = {}) {
   if (typeof sentence !== 'string' || !sentence.trim()) {
     return 'say what needs doing';
@@ -189,9 +233,13 @@ function subtaskProgress(p, n) {
  * write; the number is issued inside the same atomic mutate that stores
  * the task, so two concurrent creates cannot share one.
  */
-function create(projectId, { sentence, detail, who, parent, made: origin } = {}, roster) {
-  const problem = taskProblem({ sentence, detail, who });
+function create(projectId, { sentence, detail, who, parent, doneWhen, made: origin } = {}, roster) {
+  const problem = taskProblem({ sentence, detail, who }) || doneWhenProblem(doneWhen);
   if (problem) throw new Error(problem);
+  // #5152: a webhook's words are outside text, so they never say what finished means for a task.
+  if (origin && origin.via === 'webhook' && doneWhenValue(doneWhen)) {
+    throw new Error('a task a webhook adds has no done-when checks; the agent or the person writes them');
+  }
   // #1307: a webhook task is made given to nobody, always (it waits for a person). The route never
   // passes one; this keeps that a rule rather than a habit of the one caller.
   if (origin && origin.via === 'webhook' && typeof who === 'string' && who.trim()) {
@@ -245,7 +293,13 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
       dueDate: null,
       // #3861: the task this one is part of (a task number on this project), or null.
       parent: parentValue(parent),
+      // #5152: what finished means for this task, as checks, or null.
+      doneWhen: doneWhenValue(doneWhen),
     };
+    /* #5152 review 1: checks the person wrote on the screen are theirs (setDoneWhen keeps them from other callers).
+       Review 2: an agent's are marked with its name, so the agent the task goes to can see who set its bar. */
+    if (made.doneWhen && made.addedVia === 'screen') made.doneWhenByPerson = true;
+    else if (made.doneWhen && made.addedVia === 'process' && doneWhenSetter(made.addedBy)) made.doneWhenBy = doneWhenSetter(made.addedBy);
     return {
       ...p,
       taskCounter: number,
@@ -262,6 +316,7 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
     who: made.who,
     // #3861: a task made as a subtask says so from birth, as a pre-assigned one does.
     ...(made.parent ? { parent: made.parent } : {}),
+    ...(made.doneWhen ? { doneWhen: doneWhenWords(made.doneWhen) } : {}),
   });
   return made;
 }
@@ -300,7 +355,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
-    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
+    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -747,7 +802,7 @@ function setClosed(projectId, n, closedAt) {
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
-    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
+    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -846,6 +901,63 @@ function setDue(projectId, n, dueDate) {
 }
 
 /**
+ * #5152 slice 1: set, change or clear (`doneWhen` null or []) what finished means for a task. Checked whole before
+ * the write. A CLOSED task is refused: closing is the end of the work, and changing what done meant after it would
+ * rewrite what was checked. Setting the list it already has records nothing, as setDue does. `by` is the agent that
+ * changed it (null from the screen), kept in the transcript row. `person` is a write from the screen: checks the person
+ * set are refused (403) to every other caller until the person changes or clears them.
+ * Returns the task as stored. Throws with a sentence; `err.status` 409 for a closed task.
+ */
+function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {}) {
+  const problem = doneWhenProblem(doneWhen);
+  if (problem) throw new Error(problem);
+  const next = doneWhenValue(doneWhen);
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (progressOf(t).closed) {
+      const e = new Error('that task is done, so its done-when checks can no longer change; reopen it first');
+      e.status = 409;
+      throw e;
+    }
+    /* Checks the PERSON set are theirs to change (review round 1): the agent being judged against them does not
+       rewrite or clear them, as built's person mark, hold and repeat keep the person's own values. Checked inside the
+       write, so a screen edit landing first cannot be overwritten by a write that read before it. */
+    if (!person && t.doneWhenByPerson === true) {
+      const e = new Error('the person set these done-when checks, so only they can change them');
+      e.status = 403;
+      throw e;
+    }
+    /* Between AGENTS there is no such gate, decided (review 4): an agent's name reaches here in more than one spelling
+       (a pane's roster name, a paneless token's store key), and an assignee can let go of the task and take it back, so
+       a gate keyed on "is the assignee" would read as protection it cannot give. Every change is in the transcript with
+       who made it, and the list says who set the checks now. */
+    const before = Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
+    didChange = JSON.stringify(before) !== JSON.stringify(next);
+    changed = { ...t, doneWhen: next };
+    /* Whose they are now: the person's when the person set them (even the same list an agent wrote: saving it is the
+       person adopting it, recorded by the mark and not as a transcript row, since the checks did not change); the
+       agent's name when an agent set them (review 2, for kosmos task list); nobody's once cleared. */
+    delete changed.doneWhenByPerson;
+    delete changed.doneWhenBy;
+    if (next && person) changed.doneWhenByPerson = true;
+    else if (next && doneWhenSetter(by)) changed.doneWhenBy = doneWhenSetter(by);
+    return {
+      ...p,
+      tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
+    };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, next
+      ? { kind: 'done-when-set', doneWhen: doneWhenWords(next), ...(person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {}) }
+      : { kind: 'done-when-cleared', ...(person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {}) });
+  }
+  return changed;
+}
+
+/**
  * kosmos#4787: make a task repeat, change its rule, or stop it (`rule` null). The rule is checked whole before the write
  * (taskrepeat.repeatProblem) and stored normalised. A closed task cannot be made to repeat: closing is how a recurring
  * job ends. Setting the rule it already has records nothing, as setDue does.
@@ -880,10 +992,13 @@ function setRepeat(projectId, n, rule, opts = {}) {
       changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson;
       if (didChange) changed.repeatSetAt = new Date().toISOString();   // review 4: a first run is due from when the rule was set
       if (didChange) delete changed.lastRunLate;   // slice 2 review 1: "late" was measured against the old rule
+      // kosmos#5643 review 1: and the streak of runs that found nothing new belonged to the old rule's job.
+      if (didChange) dropRunStreak(changed);
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
       delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
+      dropRunStreak(changed);   // kosmos#5643 review 1
       // slice 3: the reviewer reviewed this rule's results, so it goes with the rule.
       dropReviewer(changed);
     }
@@ -968,6 +1083,9 @@ function setReviewer(projectId, n, who, opts = {}) {
  * about this run. Kept on the task as lastRunAt / lastRunBy / lastRunNote and recorded in its conversation, so every run
  * is in its history while the row shows the latest. Refused on a task that does not repeat (a one-off is closed, not run)
  * and on a closed one.
+ * kosmos#5643: `opts.unchanged` marks a run that found nothing new; a note repeating the last one (no numeral) is
+ * inferred unchanged. The task keeps lastChangeAt / lastChangeNote, unchangedRuns and unchangedInferred (dropRunStreak),
+ * and the history row says `unchanged` and, when only inferred, `inferred`.
  */
 const RUN_DEDUP_MS = 60 * 1000;
 function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
@@ -980,6 +1098,7 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   let changed;
   let duplicate = false;
+  let inferred = false;   // kosmos#5643 review 2: set in the write, read by the transcript row after it
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -993,7 +1112,34 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
+    /* kosmos#5643: an UNCHANGED run found nothing new: said with --unchanged (opts.unchanged), or a note that is the same
+       text as the run before it (whitespace aside), which is how an agent that repeats "all clear" says it. A run with no
+       note and no flag is not unchanged: nothing says so. Unchanged runs keep the last CHANGE (lastChangeAt / Note) apart
+       from the last run, and count how many in a row found nothing new (unchangedRuns), for the status line. */
+    /* Review 1: never a note with a digit in it. "found 2 new errors" can repeat word for word over two different
+       pairs of errors; a count or a reading is what a run reports, so only the agent can say it is nothing new. */
+    const sameNote = !!said && !/\p{N}/u.test(said) && typeof t.lastRunNote === 'string' && t.lastRunNote.replace(/\s+/g, ' ').trim() === said;
+    const unchanged = opts.unchanged === true || sameNote;
+    /* Review 2: WHO said it. A run the agent marked is "found nothing new"; one the board inferred from a repeated note is
+       only "repeated the same note", since the same words can still cover new things ("found two new errors"). The
+       page says each as what it is, so an inference never reads as a fact. */
+    inferred = unchanged && opts.unchanged !== true;
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
+    if (unchanged) {
+      changed.lastRunUnchanged = true;
+      changed.unchangedRuns = (Number.isInteger(t.unchangedRuns) && t.unchangedRuns > 0 ? t.unchangedRuns : 0) + 1;
+      // How many of that streak only repeated the note (the rest the agent marked).
+      const before = Number.isInteger(t.unchangedRuns) && t.unchangedRuns > 0 && Number.isInteger(t.unchangedInferred) ? t.unchangedInferred : 0;
+      changed.unchangedInferred = before + (inferred ? 1 : 0);
+    } else {
+      delete changed.lastRunUnchanged;
+      delete changed.unchangedRuns;
+      delete changed.unchangedInferred;
+      /* Review 3: a run with a note that is not unchanged is the last change. A run with NO note ends the streak (nothing
+         says it found nothing new) but says nothing of what changed either, so it is not called a change: the line then
+         names no last change rather than a run that reported nothing. */
+      if (said) { changed.lastChangeAt = changed.lastRunAt; changed.lastChangeNote = said; } else { delete changed.lastChangeAt; delete changed.lastChangeNote; }
+    }
     /* slice 2: a run is LATE (the row says so) when it is off the schedule: more than the miss grace after the latest
        slot since the rule was set, and not within the grace BEFORE the next slot (an early run is on time). It depends only
        on the rule and the run's time, never on earlier runs.
@@ -1004,8 +1150,14 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });
-  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}) });
+  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(changed.lastRunUnchanged ? { unchanged: true, ...(inferred ? { inferred: true } : {}) } : {}) });
   return changed;
+}
+
+/** kosmos#5643: the run streak's fields (how many runs in a row found nothing new, and the last change), which belong to
+    one repeat rule: dropped when the rule changes, is cleared, or the task closes. */
+function dropRunStreak(t) {
+  delete t.unchangedRuns; delete t.unchangedInferred; delete t.lastRunUnchanged; delete t.lastChangeAt; delete t.lastChangeNote;
 }
 
 /**
@@ -1533,7 +1685,7 @@ function sameTaskText(sentence) {
   // made opposite asks equal ("-5" / "5", "x > 5" / "x < 5", a check mark / a cross, "C++" / "C").
   return String(sentence == null ? '' : sentence).normalize('NFC').toLowerCase().replace(/\s+/gu, ' ').trim();
 }
-function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null, who = [] } = {}) {
+function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null, who = [], doneWhen = null } = {}) {
   const mine = sameTaskText(sentence);
   if (!mine) return [];
   // Review 7: the same sentence for another target is another ask ("Review the PR" for PR 12 and for PR 15, "Draft
@@ -1541,6 +1693,9 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
   const myDetail = sameTaskText(detail);
   const people = (list) => [...new Set((list || []).filter((x) => typeof x === 'string' && x))].sort().join('\n');
   const myWho = people(who);
+  // #5152 review 3: the checks are part of the ask, as the detail is (slice 0 wrote them into the detail).
+  const checks = (list) => (Array.isArray(list) ? list : []).map((c) => sameTaskText(c)).join('\n');
+  const myChecks = checks(doneWhen);
   const out = [];
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
     if (!t || t.closedAt || !Number.isInteger(t.number)) continue;
@@ -1549,7 +1704,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
     // Review 6: only tasks under the SAME parent (top-level with top-level): "Write tests" under #3 and under #7 are
     // two real tasks.
     if ((Number.isInteger(t.parent) ? t.parent : null) !== (Number.isInteger(parent) ? parent : null)) continue;
-    if (sameTaskText(t.sentence) !== mine || sameTaskText(t.detail) !== myDetail || people(whoOf(t)) !== myWho) continue;
+    if (sameTaskText(t.sentence) !== mine || sameTaskText(t.detail) !== myDetail || people(whoOf(t)) !== myWho || checks(t.doneWhen) !== myChecks) continue;
     // Review 8: an older task already under way (on hold, a due date, a built mark, a closed part) is that ask in
     // another state, perhaps last week's run: closing the new one could drop this week's.
     if (isOnHold(t) || t.dueDate || t.builtAt || partsOf(t).some((x) => x && x.closedAt)) continue;
@@ -1561,6 +1716,6 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };

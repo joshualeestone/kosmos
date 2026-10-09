@@ -6507,6 +6507,19 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
+/* kosmos#5643: a run of runs that found nothing new or repeated their note is one row; pressing it shows each. */
+.tkact-roll { border-top: 1px solid var(--k-rule); }
+.tkact-roll:first-child { border-top: 0; }
+.tkact-roll > summary { cursor: pointer; list-style: none; }
+.tkact-roll > summary::-webkit-details-marker { display: none; }
+/* A disclosure mark the flex row would otherwise lose; the alt text after the slash is empty, so a screen reader does
+   not read the triangle out before the row's words (review 1). */
+.tkact-roll > summary .tkact-what::before { content: '\25B8\00A0'; content: '\25B8\00A0' / ''; }   /* the plain line first: a browser without the alt-text form keeps the mark (review 2) */
+.tkact-roll[open] > summary .tkact-what::before { content: '\25BE\00A0'; content: '\25BE\00A0' / ''; }
+.tkact-roll > summary .tkact-what { color: var(--label-2); }
+.tkact-roll .tkact-rows { padding-left: 18px; }
+.tkact-roll[open] .tkact-rows { border-top: 1px solid var(--k-rule); }
+.tkact-roll + .tkact { border-top: 1px solid var(--k-rule); }
 /* #5153 slice 3: Profile's Recent work rows: the task's sentence over a muted line. */
 .dwork-list { display: flex; flex-direction: column; }
 .dwork-row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 9px 0; color: inherit; font: inherit; cursor: pointer; }
@@ -18941,7 +18954,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
-          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
+          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-review" hidden>Review what your company sees</button><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
           <div id="plus-org-leave-ask" hidden>
             <p class="fhint" id="plus-org-leave-sure"></p>
             <div class="frow">
@@ -47431,7 +47444,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while the person is reading a consent or a call is out. */
 var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
-function plusOrgMaybe() {
+function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
   if (PLUS_ORG.busy || PLUS_ORG.preview) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
@@ -47440,7 +47453,7 @@ function plusOrgMaybe() {
     PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
-    if (j && (j.enrolled === true) !== was) msg.textContent = '';
+    if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
@@ -47473,7 +47486,10 @@ function plusOrgPaint() {
   const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
   document.getElementById('plus-org-title').hidden = !full;
-  document.getElementById('plus-org-in').hidden = !here;
+  document.getElementById('plus-org-in').hidden = !here || !!PLUS_ORG.preview;   // a review's consent shows in place of the joined view
+  // #5531 follow-up: a Kosmos whose words were not accepted on this computer can read and accept them without leaving.
+  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false);
+  document.getElementById('plus-org-join').textContent = PLUS_ORG.preview && PLUS_ORG.preview.review ? 'Accept' : 'Join with this Kosmos';
   document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
@@ -47523,6 +47539,11 @@ async function plusOrgJoin() {
   PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
   if (!r.ok) {
     msg.textContent = r.because || 'Joining did not go through.';
+    // A review has no code to check again: its way back is the Review button (orgreview review 1).
+    if (p.review && r.code === 'org_ticket') msg.textContent = 'These words were open too long. Press Review what your company sees to read them again.';
+    // A review refused with a reason points at the Review button, so the joined view (and that button) comes back.
+    // The view is read back too (review 7): a refusal like org_not_here means the joined view above it is no longer true.
+    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
     // A code that is used, expired, or for another company will not work on a second press: back to the code field.
     // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
     if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending', 'org_consent_changed'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
@@ -47534,11 +47555,36 @@ async function plusOrgJoin() {
   PLUS_ORG.at = Date.now();
   msg.textContent = '';
   plusOrgPaint();
+  // An accepted review: whether this Kosmos now reports is the engine's answer, not a copy of its rule (review 6).
+  if (p.review) { PLUS_ORG.at = 0; plusOrgMaybe(); }
 }
 function plusOrgNotNow() {
+  const review = !!(PLUS_ORG.preview && PLUS_ORG.preview.review);
   PLUS_ORG.preview = null;
-  document.getElementById('plus-org-msg').textContent = 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
+  document.getElementById('plus-org-msg').textContent = review ? 'Nothing changed on this computer.' : 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
   plusOrgPaint();
+}
+/* #5531 follow-up: the words of the company this Kosmos already is the work Kosmos for. Accepting goes through Join with
+   no code (the coordinator records it as accepting again); nothing binds until then. */
+async function plusOrgReview() {
+  const msg = document.getElementById('plus-org-msg');
+  if (PLUS_ORG.busy) return;
+  msg.textContent = '';
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('preview', { review: true });
+  PLUS_ORG.busy = false;
+  // A refusal can mean the state moved (another screen accepted: "already reports"), so read it back, keeping the line (review 9).
+  if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
+  PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
+  document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. Accept it so this Kosmos can report:';
+  plusOrgList('plus-org-reports', r.consent.reports);
+  // The same words as a code's consent (orgreview review 11): a stated empty list says so, as the hash records it.
+  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
+  plusOrgList('plus-org-readers', r.consent.readers);
+  plusOrgList('plus-org-never', r.consent.never);
+  plusOrgLeaveArm(false);
+  plusOrgPaint();
+  document.getElementById('plus-org-join').focus();
 }
 function plusOrgLeaveArm(on) {
   const st = PLUS_ORG.state || {};
@@ -47575,6 +47621,7 @@ document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if
 document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
 document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
+document.getElementById('plus-org-review').addEventListener('click', plusOrgReview);
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
 document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
@@ -59745,6 +59792,18 @@ function tskRepeatSentence(t, now) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
     s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    /* kosmos#5643: how many runs in a row found nothing new, and when (and what) the last change was. */
+    const same = Number(t.unchangedRuns);
+    if (same >= 1) {
+      // Review 2: as the history says it: found nothing new (marked), the same note (inferred), or both.
+      const guessed = Number(t.unchangedInferred) || 0;
+      const what = guessed === 0 ? 'found nothing new' : guessed >= same ? (same === 1 ? 'repeated the note before it' : 'repeated the same note') : 'found nothing new or repeated the same note';
+      s += ' ' + (same === 1 ? 'It ' + what : 'The last ' + same + ' runs ' + what);
+      const changedAt = Date.parse(t.lastChangeAt || '');
+      // Review 1: the change's note only when it is not the last run's, which the sentence has just said.
+      if (Number.isFinite(changedAt)) s += '; the last change was ' + (agoWords(now - changedAt) || 'just now') + (t.lastChangeNote && t.lastChangeNote !== t.lastRunNote ? ': ' + t.lastChangeNote : '');
+      s += '.';
+    }
   } else if (!missed) {
     s += ' No run reported yet.';   // #5444 (Mona Lisa): after "Missed 3 runs" it said the same thing twice
   }
@@ -60730,13 +60789,16 @@ function tkPaintSubtasks(p, t, closed) {
 function tkActPhrase(ev, p) {
   const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
   switch (ev.kind) {
-    case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : ''); }
+    case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : '') + (ev.doneWhen ? '. Done when: ' + ev.doneWhen : ''); }
     case 'assigned': { const who = nameOf(ev.who); return who ? who + ' put on a part' : 'A part left with nobody on it'; }
     case 'part-added': return 'A part added' + (ev.sentence ? ': ' + ev.sentence : '');
     case 'part-closed': return 'A part marked done';
     case 'part-reopened': return 'A part put back';
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
+    // #5152: what finished means for the task, set or taken off (by an agent, named, or from the screen).
+    case 'done-when-set': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + ev.doneWhen : ''); }
+    case 'done-when-cleared': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
@@ -60745,7 +60807,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
@@ -61003,12 +61065,51 @@ async function paintTaskActivity(n) {
     return;
   }
   const now = Date.now();
-  holder.innerHTML = events.map((ev) => {
+  /* Review 1: a redraw (after a due date, a part, close or reopen) keeps open the rollups the person opened, keyed by
+     their place in the history and their first run's time (tkActRowsHtml's data-first). */
+  const canQuery = typeof holder.querySelectorAll === 'function';
+  const wasOpen = new Set(canQuery ? [...holder.querySelectorAll('details.tkact-roll[open]')].map((d) => d.dataset.first) : []);
+  holder.innerHTML = tkActRowsHtml(events, p, now);
+  if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
+}
+/* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are
+   ONE row, "N runs found nothing new" (or "repeated the same note" for runs the board only inferred, or both), which
+   opens to show each; a change, a late run and every other event keep their own row. Pure over its inputs, so a test
+   can lift it.
+   The repeat line's count (unchangedRuns) counts late runs too, so "The last 5 runs found nothing new" can sit beside
+   two rollups split by a late run: the line counts what was found, the history shows when (review 1). */
+function tkActRowsHtml(events, p, now) {
+  const row = (ev) => {
     const at = Date.parse(ev.at);
     const when = Number.isFinite(at) ? agoWords(now - at) : '';
     return '<div class="tkact"><time datetime="' + esc(String(ev.at)) + '">' + esc(when) + '</time>'
       + '<span class="tkact-what">' + esc(tkActPhrase(ev, p)) + '</span></div>';
-  }).join('');
+  };
+  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true;
+  const out = [];
+  for (let i = 0; i < events.length;) {
+    let j = i;
+    while (j < events.length && quiet(events[j])) j += 1;
+    if (j - i >= 2) {
+      const group = events.slice(i, j);
+      const last = group[group.length - 1];
+      const at = Date.parse(last.at);
+      const when = Number.isFinite(at) ? agoWords(now - at) : '';
+      // The key is the group's place in the history AND its first run's time: two rollups can share a time to the
+      // millisecond, and the history only grows at its end, so an earlier group keeps its place.
+      // Review 2: say what is known. Marked by the agent: found nothing new; inferred from a repeated note: the same note.
+      const inferred = group.filter((ev) => ev.inferred === true).length;
+      const what = inferred === 0 ? ' runs found nothing new' : inferred === group.length ? ' runs repeated the same note' : ' runs found nothing new or repeated the same note';
+      out.push('<details class="tkact-roll" data-first="' + esc(i + '@' + String(group[0].at)) + '"><summary class="tkact"><time datetime="' + esc(String(last.at)) + '">' + esc(when) + '</time>'
+        + '<span class="tkact-what">' + esc(group.length + what) + '</span></summary>'
+        + '<div class="tkact-rows">' + group.map(row).join('') + '</div></details>');
+      i = j;
+    } else {
+      out.push(row(events[i]));
+      i += 1;
+    }
+  }
+  return out.join('');
 }
 function openTaskPage(n) {
   const p = pjById(PJ_CURRENT);
