@@ -41,7 +41,7 @@ function makeHome() {
 
 /* A stub board: `/` answers as Kosmos so healthy() passes, GET /api/tasks the list above, and every POST is recorded
    with its parsed body and answered as the board answers a task write. */
-function withStub(fn) {
+function withStub(fn, refusal) {
   const seen = [];
   const server = http.createServer((req, res) => {
     const route = req.url.split('?')[0];
@@ -55,6 +55,7 @@ function withStub(fn) {
       req.on('end', () => {
         let body; try { body = JSON.parse(raw); } catch { body = { unparseable: raw }; }
         seen.push({ route, body, agent: req.headers['x-kosmos-agent-token'] });
+        if (refusal) { res.writeHead(refusal.status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: refusal.error })); return; }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ task: { number: 1, sentence: 'x', who: null } }));
       });
@@ -199,5 +200,56 @@ test('both help texts name the new verb and option', async () => {
   for (const help of [shHelp, winHelp]) {
     assert.match(help, /kosmos task done-when <project-id> <task-number>/);
     assert.match(help, /--done "<check>"/);
+  }
+});
+
+/* Review round 1: the board's refusals, in the engine's own sentences, reach the agent WHOLE in both CLIs. install/kosmos
+   lifts the sentence with a sed that stops at the first double quote, so a quoted word in one cut it short. */
+const tasksEngine = require('./engine/tasks');
+function refusalOf(fn) { try { fn(); } catch (e) { return { status: e.status || 400, error: e.message }; } throw new Error('the engine did not refuse'); }
+const REFUSALS = [
+  ['task', 'done-when', 'p5152', '3', 'x'],
+  ['task', 'add', 'p5152', 'Ship it', '--done', 'x'],
+];
+function engineRefusals() {
+  return [
+    { status: 409, error: 'that task is done, so its done-when checks can no longer change; reopen it first' },
+    { status: 403, error: 'the person set these done-when checks, so only they can change them' },
+    refusalOf(() => tasksEngine.create('p5152', { sentence: 'x', doneWhen: 'one string' })),
+    refusalOf(() => tasksEngine.create('p5152', { sentence: 'x', doneWhen: ['y'.repeat(tasksEngine.DONE_CHECK_MAX + 1)] })),
+  ];
+}
+
+test('CONTROL: the refusal sentences tested below are the engine\'s own (a sentence the engine no longer says proves nothing)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'engine', 'tasks.js'), 'utf8');
+  for (const r of engineRefusals().slice(0, 2)) assert.ok(src.includes(r.error), 'engine/tasks.js no longer says: ' + r.error);
+});
+
+test('install/kosmos prints each refusal from the board whole, and exits 1', async () => {
+  const home = makeHome();
+  for (const refusal of engineRefusals()) {
+    await withStub(async (port) => {
+      for (const args of REFUSALS) {
+        const r = await sh(port, home, args);
+        assert.equal(r.code, 1, `kosmos ${args.join(' ')}: ${r.out}`);
+        assert.ok(r.out.includes(refusal.error), `kosmos ${args.join(' ')} cut the board's sentence: ${r.out}`);
+      }
+    }, refusal);
+  }
+});
+
+test('Windows CLI prints each refusal from the board whole, and exits 1', async () => {
+  for (const refusal of engineRefusals()) {
+    for (const args of REFUSALS) {
+      const out = []; const err = [];
+      const code = await wincli.main(args, {
+        env: { KOSMOS_AGENT_TOKEN: TOKEN },
+        hook: { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => 'cd'.repeat(32), agentToken: realHook.agentToken },
+        out: (x) => out.push(x), err: (x) => err.push(x),
+        fetch: async () => ({ status: refusal.status, text: async () => JSON.stringify({ error: refusal.error }) }),
+      });
+      assert.equal(code, 1, args.join(' '));
+      assert.ok(err.join('\n').includes(refusal.error), `kosmos ${args.join(' ')} cut the board's sentence: ${err.join(' ')}`);
+    }
   }
 });

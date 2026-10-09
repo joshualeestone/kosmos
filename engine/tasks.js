@@ -80,12 +80,16 @@ const DONE_WHEN_MAX = 3;
 const DONE_CHECK_MAX = 200;
 function doneWhenProblem(doneWhen) {
   if (doneWhen === undefined || doneWhen === null) return null; // none / clear
-  if (!Array.isArray(doneWhen)) return '"done when" has to be a list of checks';
-  if (doneWhen.length > DONE_WHEN_MAX) return `"done when" holds up to ${DONE_WHEN_MAX} checks`;
+  /* The sentences carry no double quote: install/kosmos lifts a refusal out of the JSON with a sed that stops at the
+     first one, so a quoted word would cut the sentence there (review round 1). */
+  if (!Array.isArray(doneWhen)) return 'the done-when checks have to be a list';
+  if (doneWhen.length > DONE_WHEN_MAX) return `a task holds up to ${DONE_WHEN_MAX} done-when checks`;
   for (const c of doneWhen) {
-    if (typeof c !== 'string' || !c.trim()) return 'each "done when" check has to say something';
-    if (/[\r\n]/.test(c)) return 'each "done when" check has to be one line';
-    if (c.trim().length > DONE_CHECK_MAX) return `each "done when" check has to be ${DONE_CHECK_MAX} characters or fewer`;
+    if (typeof c !== 'string' || !c.trim()) return 'each done-when check has to say something';
+    /* One line, and nothing a terminal acts on: every control character, and the Unicode line and paragraph breaks
+       (review round 1: kosmos task list prints a check as it is stored). */
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(c)) return 'each done-when check has to be one line of plain text';
+    if (c.trim().length > DONE_CHECK_MAX) return `each done-when check has to be ${DONE_CHECK_MAX} characters or fewer`;
   }
   return null;
 }
@@ -223,7 +227,7 @@ function create(projectId, { sentence, detail, who, parent, doneWhen, made: orig
   if (problem) throw new Error(problem);
   // #5152: a webhook's words are outside text, so they never say what finished means for a task.
   if (origin && origin.via === 'webhook' && doneWhenValue(doneWhen)) {
-    throw new Error('a task a webhook adds has no "done when"; the agent or the person writes it');
+    throw new Error('a task a webhook adds has no done-when checks; the agent or the person writes them');
   }
   // #1307: a webhook task is made given to nobody, always (it waits for a person). The route never
   // passes one; this keeps that a rule rather than a habit of the one caller.
@@ -281,6 +285,8 @@ function create(projectId, { sentence, detail, who, parent, doneWhen, made: orig
       // #5152: what finished means for this task, as checks, or null.
       doneWhen: doneWhenValue(doneWhen),
     };
+    /* #5152 review 1: checks the person wrote on the screen are theirs (setDoneWhen keeps them from other callers). */
+    if (made.doneWhen && made.addedVia === 'screen') made.doneWhenByPerson = true;
     return {
       ...p,
       taskCounter: number,
@@ -885,10 +891,11 @@ function setDue(projectId, n, dueDate) {
  * #5152 slice 1: set, change or clear (`doneWhen` null or []) what finished means for a task. Checked whole before
  * the write. A CLOSED task is refused: closing is the end of the work, and changing what done meant after it would
  * rewrite what was checked. Setting the list it already has records nothing, as setDue does. `by` is the agent that
- * changed it (null from the screen), kept in the transcript row.
+ * changed it (null from the screen), kept in the transcript row. `person` is a write from the screen: checks the person
+ * set are refused (403) to every other caller until the person changes or clears them.
  * Returns the task as stored. Throws with a sentence; `err.status` 409 for a closed task.
  */
-function setDoneWhen(projectId, n, doneWhen, { by = null } = {}) {
+function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {}) {
   const problem = doneWhenProblem(doneWhen);
   if (problem) throw new Error(problem);
   const next = doneWhenValue(doneWhen);
@@ -898,13 +905,23 @@ function setDoneWhen(projectId, n, doneWhen, { by = null } = {}) {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
     if (progressOf(t).closed) {
-      const e = new Error('that task is done, so what "done" means for it can no longer change; reopen it first');
+      const e = new Error('that task is done, so its done-when checks can no longer change; reopen it first');
       e.status = 409;
+      throw e;
+    }
+    /* Checks the PERSON set are theirs to change (review round 1): the agent being judged against them does not
+       rewrite or clear them, as built's person mark, hold and repeat keep the person's own values. Checked inside the
+       write, so a screen edit landing first cannot be overwritten by a write that read before it. */
+    if (!person && t.doneWhenByPerson === true) {
+      const e = new Error('the person set these done-when checks, so only they can change them');
+      e.status = 403;
       throw e;
     }
     const before = Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
     didChange = JSON.stringify(before) !== JSON.stringify(next);
     changed = { ...t, doneWhen: next };
+    /* Whose they are now: the person's when the person set them, nobody's once cleared or set by an agent. */
+    if (person && next) changed.doneWhenByPerson = true; else delete changed.doneWhenByPerson;
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -912,8 +929,8 @@ function setDoneWhen(projectId, n, doneWhen, { by = null } = {}) {
   });
   if (didChange) {
     taskchat.record(projectId, changed.number, next
-      ? { kind: 'done-when-set', doneWhen: doneWhenWords(next), ...(by ? { by } : {}) }
-      : { kind: 'done-when-cleared', ...(by ? { by } : {}) });
+      ? { kind: 'done-when-set', doneWhen: doneWhenWords(next), ...(person ? { person: true } : by ? { by } : {}) }
+      : { kind: 'done-when-cleared', ...(person ? { person: true } : by ? { by } : {}) });
   }
   return changed;
 }

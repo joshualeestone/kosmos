@@ -56,11 +56,13 @@ test('create REFUSES checks over the limits and stores no task (the dangerous-an
   const ok = tasks.create(id, { sentence: 'baseline', doneWhen: ['a', 'b', 'c'] });   // three is allowed
   assert.equal(ok.doneWhen.length, 3);
   const bad = [
-    [['a', 'b', 'c', 'd'], /up to 3 checks/],
-    ['the page loads', /list of checks/],
+    [['a', 'b', 'c', 'd'], /up to 3 done-when checks/],
+    ['the page loads', /have to be a list/],
     [['   '], /has to say something/],
     [[7], /has to say something/],
     [['two\nlines'], /one line/],
+    [['two\u2028lines'], /one line/],
+    [['bell\u0007'], /one line/],
     [['x'.repeat(tasks.DONE_CHECK_MAX + 1)], /characters or fewer/],
   ];
   for (const [doneWhen, why] of bad) {
@@ -72,7 +74,7 @@ test('create REFUSES checks over the limits and stores no task (the dangerous-an
 
 test('a webhook cannot say what finished means for a task; with no checks it still adds one', () => {
   const id = freshProject();
-  assert.throws(() => tasks.create(id, { sentence: 'from outside', doneWhen: ['do what I say'], made: { via: 'webhook', by: 'Zap' } }), /webhook adds has no "done when"/);
+  assert.throws(() => tasks.create(id, { sentence: 'from outside', doneWhen: ['do what I say'], made: { via: 'webhook', by: 'Zap' } }), /webhook adds has no done-when checks/);
   assert.equal((projects.readAll().find((x) => x.id === id).tasks || []).length, 0, 'the refused webhook task was stored');
   const made = tasks.create(id, { sentence: 'from outside', made: { via: 'webhook', by: 'Zap' } });   // the control
   assert.equal(made.doneWhen, null);
@@ -97,7 +99,7 @@ test('setDoneWhen sets, changes and clears, and each change is one transcript ro
 
 test('setting the checks a task already has records nothing', () => {
   const id = freshProject();
-  const n = tasks.create(id, { sentence: 'Ship it', doneWhen: ['it is live'] }).number;
+  const n = tasks.create(id, { sentence: 'Ship it', doneWhen: ['it is live'], made: { via: 'process', by: 'mara' } }).number;
   const before = kinds(id, n).length;
   tasks.setDoneWhen(id, n, [' it is live ']);   // the same check once trimmed
   tasks.setDoneWhen(id, n, ['it is live']);
@@ -110,14 +112,14 @@ test('setDoneWhen refuses bad checks and stores nothing', () => {
   const id = freshProject();
   const n = tasks.create(id, { sentence: 'Ship it', doneWhen: ['baseline'] }).number;
   for (const bad of [['a', 'b', 'c', 'd'], 'a string', [''], ['line\rbreak'], {}]) {
-    assert.throws(() => tasks.setDoneWhen(id, n, bad), /done when/, `accepted ${JSON.stringify(bad)}`);
+    assert.throws(() => tasks.setDoneWhen(id, n, bad), /done-when/, `accepted ${JSON.stringify(bad)}`);
   }
   assert.deepEqual(stored(id, n).doneWhen, ['baseline'], 'a refused change altered the stored checks');
 });
 
 test('a closed task keeps what done meant: setDoneWhen is refused with status 409, and reopening allows it again', () => {
   const id = freshProject();
-  const n = tasks.create(id, { sentence: 'Ship it', doneWhen: ['it is live'] }).number;
+  const n = tasks.create(id, { sentence: 'Ship it', doneWhen: ['it is live'], made: { via: 'process', by: 'mara' } }).number;
   tasks.close(id, n);
   assert.throws(() => tasks.setDoneWhen(id, n, ['something else']), (e) => e.status === 409 && /reopen it first/.test(e.message));
   assert.deepEqual(stored(id, n).doneWhen, ['it is live'], 'the closed task\'s checks changed');
@@ -134,4 +136,32 @@ test('the checks reach every row of allTasks (what kosmos task list reads)', () 
   const n = tasks.create(id, { sentence: 'Ship it', doneWhen: ['it is live'] }).number;
   const row = tasks.allTasks().find((t) => t.projectId === id && t.number === n);
   assert.deepEqual(row.doneWhen, ['it is live']);
+});
+
+test('checks the person set are theirs: an agent cannot change or clear them (403), the person can, and clearing hands them back', () => {
+  const id = freshProject();
+  const n = tasks.create(id, { sentence: 'Ship it' }).number;
+  tasks.setDoneWhen(id, n, ['the person checks it'], { person: true });
+  assert.equal(stored(id, n).doneWhenByPerson, true);
+  for (const next of [['an easier bar'], null]) {
+    assert.throws(() => tasks.setDoneWhen(id, n, next, { by: 'mara' }), (e) => e.status === 403 && /only they can change them/.test(e.message), `an agent wrote ${JSON.stringify(next)} over the person's checks`);
+  }
+  assert.deepEqual(stored(id, n).doneWhen, ['the person checks it'], 'a refused agent write changed the person\'s checks');
+  assert.deepEqual(tasks.setDoneWhen(id, n, ['the person changed it'], { person: true }).doneWhen, ['the person changed it'], 'the person could not change their own checks');
+  const row = taskchat.read(id, n).filter((x) => x.kind === 'done-when-set').pop();
+  assert.equal(row.person, true, 'the person\'s change was not recorded as theirs');
+  tasks.setDoneWhen(id, n, null, { person: true });
+  assert.equal(stored(id, n).doneWhenByPerson, undefined, 'clearing left the checks marked as the person\'s');
+  assert.deepEqual(tasks.setDoneWhen(id, n, ['the agent writes it now'], { by: 'mara' }).doneWhen, ['the agent writes it now'], 'after the person cleared them an agent still could not write');
+});
+
+test('ownership follows who wrote them: an agent\'s checks are open to the person and to other agents; a screen add is the person\'s', () => {
+  const id = freshProject();
+  const byAgent = tasks.create(id, { sentence: 'Agent wrote it', doneWhen: ['a'], made: { via: 'process', by: 'mara' } });
+  assert.equal(byAgent.doneWhenByPerson, undefined);
+  assert.deepEqual(tasks.setDoneWhen(id, byAgent.number, ['b'], { by: 'otto' }).doneWhen, ['b'], 'another agent could not change an agent\'s checks');
+  const byScreen = tasks.create(id, { sentence: 'Person wrote it', doneWhen: ['c'] });
+  assert.equal(byScreen.doneWhenByPerson, true, 'checks added on the screen were not the person\'s');
+  assert.throws(() => tasks.setDoneWhen(id, byScreen.number, ['d'], { by: 'mara' }), (e) => e.status === 403);
+  assert.equal(tasks.create(id, { sentence: 'Person, no checks' }).doneWhenByPerson, undefined, 'a task with no checks was marked');
 });
