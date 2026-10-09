@@ -94,6 +94,7 @@ test('#5434 worlds registry: a failed flush throws, keeps the registry, and leav
     const { events, err } = recording(() => worlds.createWorld(base, 'Second'), isTemp);
     assert.ok(events.some((e) => e[0] === 'fsync' && isTemp(e[1] || '')), 'the registry temp was never flushed, so this tests nothing');
     assert.ok(err, 'a registry save whose flush failed was reported as done');
+    assert.equal(err.code, 'EIO', 'the save failed for another reason than the injected flush: ' + String(err));
     assert.equal(fs.readFileSync(worlds.registryPath(base), 'utf8'), before, 'a save whose flush failed changed the registry');
     assert.deepEqual(fs.readdirSync(base).filter((n) => /^\.worlds\.json\..*\.tmp$/.test(n)), [], 'the registry temp was left behind');
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
