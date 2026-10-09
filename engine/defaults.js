@@ -956,16 +956,21 @@ function block() {
  *     posted in the room, so the task folds such runs together. SAME HEADING: an agent holding an unedited copy of an
  *     earlier version is offered it through the consented dialog, and since kosmos#5635 an unedited whole block is
  *     brought current at board start. MEASURED before merge with claude -p (--setting-sources project,local) on test
- *     agents built from this block and a Your projects section, a stand-in kosmos logging every argument:
- *     - an hourly check set up on an empty project: 3/3 added the task with separate --done checks and set it hourly;
- *       the v25 block (control) 0/2 (one wrote all three checks as one blob, one wrote none);
- *     - given task 5: 2/2 put separate checks on it with done-when; control 0/1;
- *     - a run that found nothing new: 3/3 recorded it --unchanged and posted nothing; control 0/2 recorded any run;
- *     - a run that found two changes: 2/2 recorded it without the flag and posted the change;
- *     - small talk: 1/1 made read-only calls only.
+ *     agents built from this block and a Your projects section, each run in its own fresh folder, with a stand-in kosmos
+ *     logging every argument:
+ *     - an hourly check set up on an empty project: 2/2 added the task with separate --done checks and set it hourly;
+ *       the v25 block (control) 0/2 (one put all three checks into one done-when blob, one wrote none);
+ *     - a run that found nothing new: 3/3 recorded it --unchanged and posted nothing; control: one posted the run in
+ *       the room, one recorded nothing;
+ *     - a run that found two changes, from the person: 2/2 recorded it without the flag and told the person directly;
+ *     - asked in the room whether the run happened: 2/2 recorded it --unchanged and answered in the room;
+ *     - a run that could not check: 2/2 recorded what stopped it without --unchanged and reported Blocked;
+ *     - a task whose checks the person set: 2/2 left those checks alone; given task 5: 1/1 put separate checks on it
+ *       with done-when (control 0/1).
  *     Claude only.
- *     WEAKEST PREMISE, NAMED: the control's nothing-new arm recorded no run at all, so the measurement shows the new text
- *     gets a run recorded AND flagged, not the flag alone; and Codex and Gemini agents were not measured.
+ *     WEAKEST PREMISE, NAMED: the samples are small (1 to 3 per arm), Codex and Gemini were not measured, and the test
+ *     agents could still reach the host account's connectors (one searched Gmail) and its first name, which the rules
+ *     do not cause but the harness does not seal.
  */
 const DOCTRINE_VERSION = 26;
 

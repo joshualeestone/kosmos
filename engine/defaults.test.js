@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: '630a1f7decda2640' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: '8f75110e4d473c34' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -584,10 +584,16 @@ test('#5152: work goes on a task first, with Done when checks, and the built not
   assert.match(sec.text, /one `--done` per check, up to three/);
   assert.match(sec.text, /`kosmos task built <project-id> <task-number> "1 met\. 2 met\. 3 not met: <why>"`/);
   assert.match(sec.text, /`kosmos task done-when <project-id> <task-number> "<check 1>" "<check 2>"`/);
-  assert.match(sec.text, /unless it already has checks the person wrote \(keep those\)/);   // the person's checks are theirs (#5639)
   // v26 (#5643 slice 2): a scheduled run that found nothing new is flagged and not posted in the room.
   assert.match(sec.text, /`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`/);
-  assert.match(sec.text, /post nothing about\s+it in the room/);
+  assert.match(sec.text, /do not post about\s+it on your own/);
+  // Review 1: asked, an agent answers; a change goes to whoever asked, where they asked; a run that could not check is
+  // Blocked, never unchanged; and a person's checks are kept, as task list shows them.
+  assert.match(sec.text, /If someone asks, answer as usual\./);
+  assert.match(sec.text, /tell\s+whoever asked for the check, where they asked/);
+  assert.match(sec.text, /A run that could not check is not unchanged/);
+  assert.match(sec.text, /report it as Blocked/);
+  assert.match(sec.text, /"set by the person" \(keep those\)/);
   assert.doesNotMatch(sec.text, /Done when: 1\)/, 'the v24 checks-in-the-detail form is back');
   assert.match(sec.text, /If the work came to you as a task already, do not add another\./);
   assert.match(sec.text, /Right after adding it, run `kosmos task list <project-id>` and note your\s+task's number/);   // wraps in BLOCK
