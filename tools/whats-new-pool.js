@@ -23,7 +23,8 @@
  *       required, so it is never run by reflex after a cut (that would retire highlights prod users never saw).
  *       --from-history reads that version's What's New from this checkout's git history (the newest commit whose
  *       web/whats-new.json names it); there are no per-version tags to read it from. Give --ref=<the cut's frozen sha>
- *       (~/.claude/logs/cut-suite-runs.log records it) so a wording changed on main AFTER the freeze is not read as
+ *       (the cut prints it at step 2b, "frozen at <sha>", and ~/.claude/logs/cut-suite-runs.log on THE BOX THAT RAN
+ *       THE CUT records it as frozen_sha=) so a wording changed on main AFTER the freeze is not read as
  *       what prod showed.
  *
  * Exit 0 on success, 3 when the pool cannot make a showable list (no eligible highlight, or one the window rejects),

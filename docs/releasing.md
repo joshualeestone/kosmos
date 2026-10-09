@@ -37,7 +37,8 @@ improvement it gained would have died with the session that wrote it.
    writes it. Change wording in the pool and build again, never in the built file.
    After a Mac PROD promote, on an up-to-date main run
    `node tools/whats-new-pool.js shown <version> --promoted --from-history --ref=<frozen sha>`
-   and commit the pool, or prod users see the same highlights again (until #5713
+   (the cut prints the frozen sha at step 2b; the cut box's `~/.claude/logs/cut-suite-runs.log`
+   keeps it as `frozen_sha=`) and commit the pool, or prod users see the same highlights again (until #5713
    makes the promote do it). `icon` is one of `swarm`, `tasks`, `phone`,
    `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
    sentence for the line; no em dashes. A highlight about one platform carries
