@@ -9,7 +9,8 @@
  * transcripts are read: a person's own deny rules on any OTHER agent, and the auto-mode classifier, are never reported.
  * ⚠️ On a token-only agent the guard's rules share one deny list with the person's own (setup-assistant keeps what was
  * there), and Claude Code's refusal text is the same for both, so such an agent's refusal by the PERSON's own rule is
- * reported as the guard's (review 6; a stated premise, beside the sandbox text match).
+ * reported as the guard's (review 6; a stated premise, beside the sandbox text match). A tool whose own output starts
+ * with that refusal text, as an error, is also read as one (review 9): bounded by the fixed classes, never content.
  *
  * WHERE A REFUSAL IS SEEN. Claude Code writes a deny-rule refusal into the session transcript as an error tool result,
  * "Permission to use <Tool> with command <cmd> has been denied." (measured, 2.1.295). Its PermissionDenied hook fires
@@ -44,6 +45,7 @@ const SEND_PAST_MS = PAST_MS - 3600 * 1000;   // an hour short of 7 days, so a q
    for an "Operation not permitted" (only a shell result carries it here; review 5), and target 'other'. Bounded per
    file. */
 const CALLS = new Map();
+let TURN = 0;   // which agent is read first this tick (review 5), kept in memory
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
 const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
@@ -84,25 +86,37 @@ function targetClass(tool, input, ctx) {
   /* A network command is network-host before any path it names (decided, review 5): sending something out is the
      telling part, whatever it sends. */
   if (tool === 'WebFetch' || tool === 'WebSearch') return 'network-host';
-  /* Bounded (Renet, review 8 of slice 3): an unbounded [^\n]* backtracked quadratically on a long command with no URL
-     (2.5 s for 100 KB on the synchronous tick), and a command can be shaped by injected content. */
-  if (tool === 'Bash' && input && typeof input.command === 'string' && /\b(curl|wget|nc|ssh|scp)\b[^\n]{0,200}?\b[a-z]+:\/\//i.test(input.command.slice(0, 4096))) return 'network-host';
   const paths = [];
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
   if (tool === 'Bash' && input && typeof input.command === 'string') {
-    /* Every path-like word in the command (reviews 3, 4 and 6), split as a shell splits: quotes and backslash-escaped
-       spaces keep a word whole (the board's own folder is under "Application Support"), $HOME and ${HOME} are the
-       home folder, and a leading @ (curl's @file, --data=@file) names the file. Linear, on the first 4096 characters. */
-    for (const { w, first } of shellWords(input.command.slice(0, 4096))) {
-      if (first) continue;   // the program run, not what it was aimed at (review 8)
-      let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^@/, '');
-      v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
-      if (/^\/dev\//.test(v)) continue;   // a redirect to /dev/null is not a target (review 8)
-      /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or any word with a slash that
-         is not a URL; a relative one resolves against the agent's own folder. */
-      if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/^[a-z][a-z0-9+.-]*:\/\//i.test(v))) paths.push(v);
-      if (paths.length >= 64) break;
-    }
+    /* Every path-like word in the command (reviews 3, 4, 6 and 9), split as a shell splits: quotes and backslash-escaped
+       spaces keep a word whole (the board's own folder is under "Application Support"), $HOME and ${HOME} are the home
+       folder, a leading @ (curl's @file) names the file, and a quoted argument holding a command (bash -c "...",
+       python -c '...') is split once more. A network command is the PROGRAM word (review 9: `\bssh\b` matched ~/.ssh)
+       with a URL among its words. Linear, on the first 4096 characters (Renet's review 8 of slice 3: no backtracking). */
+    let net = false;
+    let url = false;
+    const look = (words, depth) => {
+      for (const { w, first } of words) {
+        if (first) {
+          if (/^(curl|wget|nc|ncat|ssh|scp|sftp|rsync)$/.test(path.basename(w))) net = true;
+          continue;   // the program run, not what it was aimed at (review 8)
+        }
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) { url = true; continue; }
+        if (depth === 0 && /\s/.test(w)) look(shellWords(w), 1);
+        let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^@/, '');
+        v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
+        if (/^\/dev\//.test(v)) continue;   // a redirect to /dev/null is not a target (review 8)
+        /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
+           space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
+        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) paths.push(v);
+        if (paths.length >= 64) return;
+      }
+    };
+    look(shellWords(input.command.slice(0, 4096)), 0);
+    /* A network command is network-host before any path it names (decided, review 5): sending something out is the
+       telling part, whatever it sends. */
+    if (net && url) return 'network-host';
   }
   let best = 'other';
   for (const p of paths) {
@@ -129,7 +143,7 @@ function shellWords(cmd) {
       else cur += ch;
     } else if (ch === "'" || ch === '"') { q = ch; any = true; }
     else if (ch === '\\' && i + 1 < cmd.length) { cur += cmd[++i]; any = true; }
-    else if (/[;|&()]/.test(ch)) end(true);
+    else if (/[;|&()\n]/.test(ch)) end(true);   // a newline ends a command too (review 9)
     else if (/\s|[<>]/.test(ch)) end(false);
     else { cur += ch; any = true; }
   }
@@ -155,8 +169,8 @@ function pathClass(p0, ctx) {
   };
   if (under(ctx.boardRoot)) return 'board-files';
   if (under(ctx.agentDir)) {
-    const rest = path.relative(ctx.agentDir, p).split(path.sep);
-    return rest[0] === '.claude' ? 'agent-config' : 'other';
+    const rest = path.relative(fold(ctx.agentDir), fold(p)).split(path.sep);   // folded too (review 9)
+    return rest[0] === fold('.claude') ? 'agent-config' : 'other';
   }
   if ((ctx.otherAgentDirs || []).some(under)) return 'other-agent';
   if (under(home)) return 'home';
@@ -242,7 +256,6 @@ function readState(root) {
     const obj = (v) => (v && typeof v === 'object' ? v : {});
     return { offsets: obj(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
       withdrawn: !!(j && j.withdrawn), sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
-      turn: j && Number.isFinite(j.turn) ? j.turn : 0,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
   } catch { return { offsets: {}, pending: [], listed: {}, enrolledAs: null, since: null, failAt: null }; }
 }
@@ -308,6 +321,7 @@ async function tick(opts) {
        company's queue, not what happened while no words were accepted). */
     const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '') + '|' + (rec.consentHash || '');
     let st = readState(root);
+    const stRaw = JSON.stringify(st);
     /* Words withdrawn and then accepted again under the SAME hash (review 3): the key alone would not change, so the
        withdrawal itself is recorded and a resumed tick starts clean as for new words. */
     if (st.withdrawn) st.enrolledAs = null;
@@ -330,9 +344,9 @@ async function tick(opts) {
     /* The agent read first rotates each tick (review 5): a large backlog cannot starve the others' files of the
        budget tick after tick (it delays a refusal, never loses one). */
     const order = [...dirs];
-    const turn = Number.isFinite(st.turn) ? st.turn : 0;
+    const turn = TURN;   // in memory (review 9: in the state file it made every tick a write)
     if (order.length) order.push(...order.splice(0, turn % order.length));
-    st.turn = turn + 1;
+    TURN = turn + 1;
     for (const [agent, dir] of order) {
       if (!dir) continue;
       const fromS = Math.max(sinceS, Math.floor(st.listed[agent] / 1000));
@@ -380,7 +394,8 @@ async function tick(opts) {
     for (const f of Object.keys(st.offsets)) if (!seen.has(f) && !fs.existsSync(f)) { delete st.offsets[f]; CALLS.delete(f); }
     if (st.pending.length > PENDING_MAX) st.pending = st.pending.slice(-PENDING_MAX);
     st.pending = st.pending.filter((e) => e.at * 1000 >= now - SEND_PAST_MS);
-    if (!writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
+    /* Written only when it changed (review 9: thousands of offsets rewritten every five minutes for nothing). */
+    if (JSON.stringify(st) !== stRaw && !writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
     if (st.pending.length === 0) return { sent: 0, because: null };
     if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: 0, because: 'waiting after a failed send' };
     /* Re-checked after the scan (review 2, the rollup's review 3): a Leave pressed, or words withdrawn, while the
