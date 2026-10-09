@@ -34,6 +34,12 @@ rest of the guard is still written.
   - FIXED (W3b): programs the supervisor starts by absolute path from folders not on the pane PATH. Measured: the guard
     did not deny the install's own folders. It now covers this install's engine and bin folders and node's folder (the
     guard runs from the same install). Claude's and tmux's folders are on the pane PATH. Test; the mutation makes it fail.
-  - OPEN, a recorded residual until decided: code a covered program loads from beside it (a package's lib, a keg's
-    dylibs). The candidate is to widen coverage to the package or keg root.
+  - DECIDED, a residual: the code a covered program loads from beside its own folder (a package's lib, a keg's
+    dylibs, a script's own tree).
+    - Rejected: widening every covered `bin` to its parent. That would deny shared trees such as ~/.local or /usr/local
+      as a whole, and could break ordinary tools writing their own state there.
+    - Rejected: a package-root rule per layout (npm, Homebrew, Python). It is a list of layouts that drifts.
+    - Weakest premise: that this part of the guard closes the "place a new program the agent's next start runs" class
+      while leaving the "change a library a program loads" class to a later part. It should be named on the card
+      (class-only).
 
