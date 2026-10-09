@@ -58,7 +58,8 @@ const TEMPLATE = /\.(example|sample|template|dist)$/i;
 // store names as a whole token (`mac_key-notes.md`, `chats/mac_key-chat.jsonl`, a project's own `communitysend/keys.json`,
 // a keys file under any folder named with the token such as `projects/communitysend-notes/keys.json`, and a person's
 // `projects/undo/blobs/README.md`).
-const TOKEN = (name) => `([^/]*[^a-z0-9/])?${name}([^a-z0-9/][^/]*)?`;
+// A run of digits glued onto the name counts as a copy too (`mac_key2`, `undo2/`).
+const TOKEN = (name) => `([^/]*[^a-z0-9/])?${name}\\d*([^a-z0-9/][^/]*)?`;
 const STORE_NAME = (name) => new RegExp(`(^|\\/)${TOKEN(name)}$`, 'i');
 const STORE_FOLDER = (name) => new RegExp(`(^|\\/)${TOKEN(name)}\\/`, 'i');
 /* Two tests rather than one pattern with `(.*\/)?` in it, which is quadratic on a path repeating the folder. (Each
