@@ -146,7 +146,11 @@ function stateOf(kind, rec, item, ctx) {
     // Review 1: the record's own agentRefused (statusOf reads it from rec.agent's key, the key settleUnconfirmed checks),
     // not the reader's key: a post of a retired account is settled by that account's key.
     // #5636 follow-up: a take-back recorded while the send was unanswered wins: it says what will (not) happen next.
-    if (st === 'unconfirmed' && kind === 'post' && rec.deleteRequested) return 'unconfirmed_taken_back';
+    /* Review 2: only where the take-down cannot reach a copy (no key, or a replaced registration); with the sending key
+       held the next sweep takes it down or holds it, which the plain unconfirmed words say. And a post withheld after a
+       settle under a new registration (unverified) keeps the doubt rather than reading "not sent". */
+    if (st === 'unconfirmed' && kind === 'post' && rec.deleteRequested && (rec.agentKeyless || rec.agentOtherRegistration)) return 'unconfirmed_taken_back';
+    if (st === 'withheld' && kind === 'post' && rec.unverified) return 'unconfirmed_taken_back';
     if (st === 'unconfirmed' && kind === 'post' && rec.agentRefused) return 'unconfirmed_refused';
     // Review 2: nor is one asked about while the address is one Kosmos does not send to, or while the record's own agent
     // has no key (review 3: the record's, as for the refusal above, not the reader's: a retired account's post is asked
