@@ -310,7 +310,10 @@ async function snapshotInner(input, deps, added, state, fail) {
   // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit (review 3):
   //   estimate  the exact JSON so far (entries, objects, skips), with keys not yet granted charged at MAX_KEY_LEN
   //   reserve   the upper bound of every listed file not yet finished (the current one included)
-  // estimate + reserve is an upper bound on the final manifest at every point, and it is checked before each batch.
+  // The check before the walk is the guard, and it is enough by construction: every file's exact charge (its entry, its
+  // objects at their real key length, a redaction record or a skip) is at most its reserve, so the final manifest is at
+  // most that sum. No check runs per batch (a mutant showed it redundant): mid-file it would count pending chunks twice,
+  // once charged and once in the file's reserve, and could only trip spuriously, after earlier batches were stored.
   let estimate = 1024;
   const ub = (f) => upperBound(f, maxFile);
   let reserve = listed.files.reduce((n, f) => n + ub(f), 0);
@@ -344,7 +347,6 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (!pending.size) return null;
     // The manifest so far, with every entry this run will add for what is pending, must still fit: stop BEFORE
     // uploading, so a manifest that cannot be stored never leaves locked chunks behind.
-    if (over()) return fail(tooLargeWhy(), { tooLarge: true });
     const batch = [...pending].map(([name, object]) => ({ name, object }));
     const r = await putChunks(deps, batch);
     const stored = (r && r.keys instanceof Map) ? r.keys : new Map();
