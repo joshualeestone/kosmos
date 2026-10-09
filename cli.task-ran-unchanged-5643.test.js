@@ -42,7 +42,8 @@ function withStub(fn) {
         seen.push({ route: req.url, body });
         res.writeHead(200, { 'content-type': 'application/json' });
         // As the board answers: the stored task, which says whether the run was unchanged (the flag, or the same note).
-        res.end(JSON.stringify({ task: { number: 3, lastRunUnchanged: body.unchanged === true || body.note === 'same as before' } }));
+        // 'again' answers as a retry within a minute of an unchanged run: duplicate AND lastRunUnchanged.
+        res.end(JSON.stringify(body.note === 'again' ? { task: { number: 3, lastRunUnchanged: true }, duplicate: true } : { task: { number: 3, lastRunUnchanged: body.unchanged === true || body.note === 'same as before' } }));
       });
       return;
     }
@@ -72,7 +73,8 @@ async function win(argv) {
     fetch: async (url, init) => {
       const body = init.body ? JSON.parse(init.body) : undefined;
       calls.push({ route: url.replace('http://127.0.0.1:1', ''), body });
-      return { status: 200, text: async () => JSON.stringify({ task: { number: 3, lastRunUnchanged: !!body && (body.unchanged === true || body.note === 'same as before') } }) };
+      const ans = body && body.note === 'again' ? { task: { number: 3, lastRunUnchanged: true }, duplicate: true } : { task: { number: 3, lastRunUnchanged: !!body && (body.unchanged === true || body.note === 'same as before') } };
+      return { status: 200, text: async () => JSON.stringify(ans) };
     },
   });
   return { code, calls, out: out.join('\n') + err.join('\n') };
@@ -117,4 +119,13 @@ test('review 1/2: when the BOARD counted a run unchanged (the same note, no flag
   const w = (await win(['task', 'ran', 'p1', '3', 'same as before'])).out;
   assert.match(w, /It repeats the note before it/);
   assert.doesNotMatch(w, /found nothing new/);
+});
+
+test('review 3: a duplicate run is said as a duplicate first, even when the board also calls it unchanged (both CLIs)', async () => {
+  const home = makeHome();
+  await withStub(async (port) => {
+    const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'again']);
+    assert.match(r.out, /already recorded a moment ago/, r.out);
+  });
+  assert.match((await win(['task', 'ran', 'p1', '3', 'again'])).out, /already recorded a moment ago/);
 });

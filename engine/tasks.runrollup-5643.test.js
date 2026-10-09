@@ -127,3 +127,18 @@ test('#5643 review 2: the board keeps which unchanged runs it only inferred (a r
   tasks.recordRun(id, n, 'mara', 'found \u0662 new', T0 + 300 * MIN);
   assert.equal(stored(id, n).unchangedRuns, undefined, 'an Arabic-Indic digit was not taken as a number');
 });
+
+test('#5643 review 3: a run with no note ends the streak but is not called the last change; closing the task drops the streak', () => {
+  const { id, n } = freshRepeating();
+  tasks.recordRun(id, n, 'mara', 'found a thing', T0);
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 60 * MIN, { unchanged: true });
+  tasks.recordRun(id, n, 'mara', '', T0 + 120 * MIN);   // forgot the flag, said nothing
+  let t = stored(id, n);
+  assert.equal(t.unchangedRuns, undefined, 'a bare run did not end the streak');
+  assert.equal(t.lastChangeAt, undefined, 'a run that reported nothing was called the last change');
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 180 * MIN, { unchanged: true });
+  assert.deepEqual([stored(id, n).unchangedRuns, stored(id, n).lastChangeAt], [1, undefined]);
+  tasks.close(id, n);
+  t = stored(id, n);
+  assert.deepEqual([t.unchangedRuns, t.lastRunUnchanged, t.unchangedInferred], [undefined, undefined, undefined], 'the closed task kept its streak');
+});

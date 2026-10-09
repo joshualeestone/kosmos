@@ -300,7 +300,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
-    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
+    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -747,7 +747,7 @@ function setClosed(projectId, n, closedAt) {
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
-    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
+    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -881,12 +881,12 @@ function setRepeat(projectId, n, rule, opts = {}) {
       if (didChange) changed.repeatSetAt = new Date().toISOString();   // review 4: a first run is due from when the rule was set
       if (didChange) delete changed.lastRunLate;   // slice 2 review 1: "late" was measured against the old rule
       // kosmos#5643 review 1: and the streak of runs that found nothing new belonged to the old rule's job.
-      if (didChange) { delete changed.unchangedRuns; delete changed.unchangedInferred; delete changed.lastRunUnchanged; delete changed.lastChangeAt; delete changed.lastChangeNote; }
+      if (didChange) dropRunStreak(changed);
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
       delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
-      delete changed.unchangedRuns; delete changed.unchangedInferred; delete changed.lastRunUnchanged; delete changed.lastChangeAt; delete changed.lastChangeNote;   // kosmos#5643 review 1
+      dropRunStreak(changed);   // kosmos#5643 review 1
       // slice 3: the reviewer reviewed this rule's results, so it goes with the rule.
       dropReviewer(changed);
     }
@@ -971,6 +971,9 @@ function setReviewer(projectId, n, who, opts = {}) {
  * about this run. Kept on the task as lastRunAt / lastRunBy / lastRunNote and recorded in its conversation, so every run
  * is in its history while the row shows the latest. Refused on a task that does not repeat (a one-off is closed, not run)
  * and on a closed one.
+ * kosmos#5643: `opts.unchanged` marks a run that found nothing new; a note repeating the last one (no numeral) is
+ * inferred unchanged. The task keeps lastChangeAt / lastChangeNote, unchangedRuns and unchangedInferred (dropRunStreak),
+ * and the history row says `unchanged` and, when only inferred, `inferred`.
  */
 const RUN_DEDUP_MS = 60 * 1000;
 function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
@@ -1020,8 +1023,10 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
       delete changed.lastRunUnchanged;
       delete changed.unchangedRuns;
       delete changed.unchangedInferred;
-      changed.lastChangeAt = changed.lastRunAt;
-      if (said) changed.lastChangeNote = said; else delete changed.lastChangeNote;
+      /* Review 3: a run with a note that is not unchanged is the last change. A run with NO note ends the streak (nothing
+         says it found nothing new) but says nothing of what changed either, so it is not called a change: the line then
+         names no last change rather than a run that reported nothing. */
+      if (said) { changed.lastChangeAt = changed.lastRunAt; changed.lastChangeNote = said; } else { delete changed.lastChangeAt; delete changed.lastChangeNote; }
     }
     /* slice 2: a run is LATE (the row says so) when it is off the schedule: more than the miss grace after the latest
        slot since the rule was set, and not within the grace BEFORE the next slot (an early run is on time). It depends only
@@ -1035,6 +1040,12 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   if (duplicate) return Object.assign({}, changed, { duplicate: true });
   taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(changed.lastRunUnchanged ? { unchanged: true, ...(inferred ? { inferred: true } : {}) } : {}) });
   return changed;
+}
+
+/** kosmos#5643: the run streak's fields (how many runs in a row found nothing new, and the last change), which belong to
+    one repeat rule: dropped when the rule changes, is cleared, or the task closes. */
+function dropRunStreak(t) {
+  delete t.unchangedRuns; delete t.unchangedInferred; delete t.lastRunUnchanged; delete t.lastChangeAt; delete t.lastChangeNote;
 }
 
 /**
