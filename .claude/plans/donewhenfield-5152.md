@@ -16,6 +16,11 @@
 - **Checks the person set are theirs** (review round 1). A screen write, or a screen add with checks, marks them `doneWhenByPerson`. Any other caller is refused (403) until the person changes or clears them. This matches built's person mark, hold and repeat. Josh's ruling lets the agent write the checks and the person edit them; it does not let the agent being judged rewrite the person's bar.
 - **"The person's" means the screen as isViaScreen reads it,** which server.js calls advisory: a local process with no token can send Sec-Fetch-Site. That is the same strength as built's person mark, hold and repeat. The mark keeps an AGENT (any caller with a token) off the person's checks, not every local process (review round 2).
 - **Who set them shows in `kosmos task list`** (review round 2): "set by the person", or "set by <agent>" quoted as [added by] is. Any member may write checks on a task given to another agent, so the agent the task goes to sees whose bar it is. If the person saves the same list an agent wrote, they adopt it: the mark moves, and no transcript row is written because the checks did not change.
+- **The assignee doesn't rewrite a bar another agent set for it** (review round 3, the same reasoning as the person's checks). The agent that set the checks, the person and any other member may change them; the task's own agent gets a 403 naming who set them.
+- **Decided, not built (review round 3):**
+  - `--done` takes no check starting with "-" (as `--who` takes no name starting with one); `done-when -- "-5 degrees"` covers it.
+  - The 200-character limit counts UTF-16 units, as SENTENCE_MAX does.
+  - Three identical checks are accepted: harmless, and the person can tidy them.
 - **No rate limit on this route**, the same as due and hold. A loop costs one transcript row per real change, and an unchanged list writes nothing. **No setup-guide masking**, the same as task add's sentence and detail (review round 1, both noted rather than built).
 - **Not in this slice:** editing or showing the checks on the task page (slice 2), per-check reports (slice 3), the assignee's managed block, and the pane line on assignment.
 - **The doctrine line stays as it is in this PR.** Slice 0's line tells agents to write "Done when: 1) ..." into the detail, and that still works. Moving it to `--done` is a follow-up. Every DOCTRINE_VERSION in engine/defaults.js is measured with `claude -p` on test agents before it merges (v24, v25), and engine/doctrine-past.js records each version so that existing agents are offered the change. Rejected: a wording change in this PR without that measurement.
@@ -35,3 +40,9 @@ That `kosmos task list` is where an agent reads its checks back. If agents mostl
   - W1: direction overrides and invisible characters in a check are refused (a terminal would show other words than are stored).
   - W2: the list names who set the checks.
   - Also: the screen-mark strength is stated (CONVENTION 3), the stale "all ten" title is fixed, and silent adoption is recorded (NIT 5).
+- **Round 3 (opus):** 0 blockers, 4 warnings, all fixed.
+  - W1: `task add <p> --done x` filed a task named "--done" on the Mac CLI. Now refused like `--who`, on both CLIs.
+  - W2: the character rule is now by Unicode property (Cc, Cf, Co, Cn, Cs, Zl, Zp and the blank fillers). That catches tag characters, soft hyphens and lone surrogates.
+  - W3: a check's brackets print as parentheses, so it cannot forge a set-by mark.
+  - W4: the assignee cannot rewrite another agent's bar.
+  - Nits fixed: the same-text note compares the checks; the empty-check refusal uses the same words on both CLIs; `by` is capped at WHO_MAX.

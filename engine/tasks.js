@@ -89,7 +89,10 @@ function doneWhenProblem(doneWhen) {
     /* One line, and nothing a terminal acts on or that makes it show other words than are stored: every control
        character, the Unicode line and paragraph breaks (review round 1), and the direction overrides and invisible
        characters (review round 2: kosmos task list prints a check as it is stored). */
-    if (/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/.test(c)) return 'each done-when check has to be one line of plain text';
+    /* Review 3: by Unicode property, so no list of code points can miss one: controls (Cc), format characters (Cf:
+       direction marks, zero-width, soft hyphen, the tag characters that carry words a person cannot see but a model
+       reads), private use, unassigned and lone surrogates, line and paragraph separators, and the blank Hangul fillers. */
+    if (/[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\u115f\u1160\u3164\uffa0]/u.test(c)) return 'each done-when check has to be one line of plain text';
     if (c.trim().length > DONE_CHECK_MAX) return `each done-when check has to be ${DONE_CHECK_MAX} characters or fewer`;
   }
   return null;
@@ -920,6 +923,13 @@ function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {})
       e.status = 403;
       throw e;
     }
+    /* Review 3: nor does the agent the task is given to rewrite a bar ANOTHER agent set for it (the same reasoning: it
+       is the one judged against them). The agent that set them, the person, and any other member may change them. */
+    if (!person && by && typeof t.doneWhenBy === 'string' && t.doneWhenBy !== by && whoOf(t).includes(by)) {
+      const e = new Error(`${t.doneWhenBy} set these done-when checks for you, so ask them or the person to change them`);
+      e.status = 403;
+      throw e;
+    }
     const before = Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
     didChange = JSON.stringify(before) !== JSON.stringify(next);
     changed = { ...t, doneWhen: next };
@@ -929,7 +939,7 @@ function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {})
     delete changed.doneWhenByPerson;
     delete changed.doneWhenBy;
     if (next && person) changed.doneWhenByPerson = true;
-    else if (next && by) changed.doneWhenBy = by;
+    else if (next && by) changed.doneWhenBy = String(by).slice(0, WHO_MAX);
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -1631,7 +1641,7 @@ function sameTaskText(sentence) {
   // made opposite asks equal ("-5" / "5", "x > 5" / "x < 5", a check mark / a cross, "C++" / "C").
   return String(sentence == null ? '' : sentence).normalize('NFC').toLowerCase().replace(/\s+/gu, ' ').trim();
 }
-function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null, who = [] } = {}) {
+function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null, who = [], doneWhen = null } = {}) {
   const mine = sameTaskText(sentence);
   if (!mine) return [];
   // Review 7: the same sentence for another target is another ask ("Review the PR" for PR 12 and for PR 15, "Draft
@@ -1639,6 +1649,9 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
   const myDetail = sameTaskText(detail);
   const people = (list) => [...new Set((list || []).filter((x) => typeof x === 'string' && x))].sort().join('\n');
   const myWho = people(who);
+  // #5152 review 3: the checks are part of the ask, as the detail is (slice 0 wrote them into the detail).
+  const checks = (list) => (Array.isArray(list) ? list : []).map((c) => sameTaskText(c)).join('\n');
+  const myChecks = checks(doneWhen);
   const out = [];
   for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
     if (!t || t.closedAt || !Number.isInteger(t.number)) continue;
@@ -1647,7 +1660,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
     // Review 6: only tasks under the SAME parent (top-level with top-level): "Write tests" under #3 and under #7 are
     // two real tasks.
     if ((Number.isInteger(t.parent) ? t.parent : null) !== (Number.isInteger(parent) ? parent : null)) continue;
-    if (sameTaskText(t.sentence) !== mine || sameTaskText(t.detail) !== myDetail || people(whoOf(t)) !== myWho) continue;
+    if (sameTaskText(t.sentence) !== mine || sameTaskText(t.detail) !== myDetail || people(whoOf(t)) !== myWho || checks(t.doneWhen) !== myChecks) continue;
     // Review 8: an older task already under way (on hold, a due date, a built mark, a closed part) is that ask in
     // another state, perhaps last week's run: closing the new one could drop this week's.
     if (isOnHold(t) || t.dueDate || t.builtAt || partsOf(t).some((x) => x && x.closedAt)) continue;
