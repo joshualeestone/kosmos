@@ -442,7 +442,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (stored.size && !(r && r.bucket)) return fail('the uploader answered stored chunks without naming their bucket', spent);
     // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it (review 2).
     const wrongPeriod = [];
-    let noLock = false, badKey = null;
+    let noLock = false, badKey = null, shortLock = false;
     for (const [name, key] of stored) {
       if (!pending.has(name)) { badKey = badKey || 'for a chunk this run did not ask to store'; continue; }
       if (usedKeys.has(key)) { badKey = badKey || 'repeats a key already named'; continue; }
@@ -450,6 +450,8 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (kp && kp.startsWith('in period')) { wrongPeriod.push(periodOfKey(key)); continue; }
       if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
+      // A lock shorter than this snapshot's manifest will get (review 25): the manifest could never name it.
+      if (lockOf(name) < manifestLockAt(t)) { shortLock = true; continue; }
       if (Buffer.byteLength(key) > MAX_KEY_LEN) { badKey = badKey || `longer than ${MAX_KEY_LEN} characters`; continue; }
       added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid });
       usedKeys.add(key);
@@ -459,6 +461,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     }
     if (badKey) return fail(`a granted key is not one this snapshot can name (${badKey})`, spent);
     if (noLock) return fail('a stored chunk came back without its lock end', spent);
+    if (shortLock) return fail('a stored chunk came back locked for less time than this snapshot\'s manifest would be', spent);
     if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period (chunks granted there are not kept: they stay stored, unnamed, until their lock ends)`, Object.assign({ newPeriod: true }, spent));
     // backup_quota: this period's allowance is spent (by earlier runs, or anything signing as this computer): not a
     // retry this period (review 9).
@@ -539,12 +542,17 @@ async function snapshotInner(input, deps, added, state, fail) {
   const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks });
   if (!m || !m.ok) {
-    // outlastsChunks: the index's chunks lock out too soon for this manifest (a period passed): they cannot be named.
+    // outlastsChunks: the named chunks lock out too soon for this manifest. Every lock was checked against this period's
+    // manifest lock, so in practice Monday passed since (review 25: a FRESH reading says so; the one above cannot). Else
+    // it is the index's (staleIndex, only when there is one).
+    const tNow = now();
+    const passed = m && m.outlastsChunks && usable(tNow) && periodOf(tNow) !== ctx.period;
+    // otherBucket: the coordinator now grants to another bucket. With an index, drop it (review 23); without one, this
+    // run's chunks are in the abandoned bucket, so none is handed back to be kept as an index (review 25).
+    if (m && m.otherBucket && !index.size) added.clear();
     return fail(`the manifest could not be uploaded: ${(m && m.because) || 'no answer'}`, Object.assign({},
       m && m.retryLater ? { retryLater: true } : {}, m && m.unsure ? { unsure: m.unsure } : {},
-      m && m.outlastsChunks ? Object.assign({ staleIndex: true }, periodOf(tEnd) !== ctx.period ? { newPeriod: true } : {}) : {},
-      // The coordinator now grants to another bucket than the index's (review 23): with every chunk reused, nothing was
-      // uploaded to show it, and each retry would spend a manifest grant. Drop the index.
+      passed ? { newPeriod: true } : (m && m.outlastsChunks && index.size ? { staleIndex: true } : {}),
       m && m.otherBucket && index.size ? { staleIndex: true } : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
   }
   // The manifest's key must be this context's (review 19): Monday 00:00 UTC can pass between the check above and the
