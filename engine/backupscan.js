@@ -88,7 +88,9 @@ function pathDecision(rel) {
   if (p.startsWith('/') || p.split('/').includes('..')) return { include: false, why: 'path outside the work Kosmos' };
   if (TEMPLATE.test(p)) return { include: true };
   for (const [re, why] of DENY) if (re.test(p)) return { include: false, why };
-  for (const origin of tempOrigins(p)) {
+  const origins = tempOrigins(p);
+  if (origins === null) return { include: false, why: 'a temp or backup copy with a name too long to check' };
+  for (const origin of origins) {
     for (const [re, why] of DENY) if (re.test(origin)) return { include: false, why: `${why} (a temp copy being written)` };
   }
   return { include: true };
@@ -97,19 +99,24 @@ function pathDecision(rel) {
 /* #5686 review 3: a writer's temp copy is named AROUND the file it replaces, so a rule anchored on the end of the
    name never sees it: `.mac_key.tmp` and `.tls.key.tmp` (the connector's atomic writes), `.board.token.<pid>.primary.tmp`
    (boardauth), `auth.json.kosmos-<pid>-t<n>-...tmp` (engine/securewrite.js), `signin-device.key.new-<pid>-<hex>` (the
-   device key's staging). One left by a crash, or caught mid-write, holds the same secret. So a TEMP-SHAPED name
-   (ending .tmp, or carrying a .new- staging suffix) is also judged as every name it could be a copy of: each run of
-   its leading dot-separated parts, with and without a leading dot. Only temp-shaped names are widened, so an ordinary
-   file such as secrets-plan.md or notes.md is judged as itself. */
+   device key's staging). One left by a crash, or caught mid-write, holds the same secret, and so does an editor's swap
+   or backup of it (review 4: `.mac_key.swp`, `mac_key~`, `id_rsa-new.tmp`). So a COPY-SHAPED name (see COPY_SHAPED) is
+   also judged as every name it could be a copy of: each leading run of it up to a '.', '-', '_' or '~', with and
+   without a leading dot. Only copy-shaped names are widened, so `secrets.md` or `server.key.md` is judged as itself.
+   The cost is on the safe side: a copy-shaped name that starts like a secret (`secrets_plan.tmp`, `readme.key.tmp`)
+   is skipped too. Bounded (review 4): a copy-shaped name longer than a filesystem allows (255) is skipped outright,
+   so at most 255 leading runs are tried and a hostile name cannot make the scan quadratic. */
+const COPY_SHAPED = /(\.(tmp|swp|swo|swx|bak|old|orig)|~|\.new-[^/]*)$/i;
+const MAX_COPY_NAME = 255;
 function tempOrigins(p) {
   const cut = p.lastIndexOf('/') + 1;
   const dir = p.slice(0, cut);
   const base = p.slice(cut);
-  if (!/\.tmp$/i.test(base) && !/\.new-[^/]*$/i.test(base)) return [];
+  if (!COPY_SHAPED.test(base)) return [];
+  if (base.length > MAX_COPY_NAME) return null;
   const out = new Set();
   for (const b of base.startsWith('.') ? [base, base.slice(1)] : [base]) {
-    const parts = b.split('.');
-    for (let k = 1; k < parts.length; k++) if (parts.slice(0, k).join('.')) out.add(dir + parts.slice(0, k).join('.'));
+    for (let i = 1; i < b.length; i++) if ('.-_~'.includes(b[i])) out.add(dir + b.slice(0, i));
   }
   return [...out];
 }
