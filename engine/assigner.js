@@ -184,7 +184,11 @@ function pick(session, projects, taken) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     if (require('./projects').isPaused(p)) continue;   // #4771: nothing in a paused project is handed out
-    const tree = tasks.treeOf(p);   // #5678
+    /* #5678: a task tree (a parent and everything under it) is one builder's work: its holders' (the project's agents on
+       an open part of an open task in it), or, this pass, the agent it was just given to (`taken` carries
+       "<project>#tree#<root>#<agent>", review 1: a parent and its subtask given to two idle agents in one tick). */
+    const tree = tasks.treeOf(p);
+    const holdersOf = tasks.treeHolders(p, tree);
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
       if (tasks.isOnHold(t)) continue;   // #4771: a task on hold is never handed out
@@ -198,12 +202,16 @@ function pick(session, projects, taken) {
       /* #5456: a repeating task with nobody on it is run by a schedule (the board shows it "On a schedule"), not
          waiting for an agent, so it is not handed out. A person can still give it to an agent by hand. */
       if (t.repeat) continue;
-      /* #5678 (user feedback 10-09): a subtask under an open task somebody is on is that owner's work, so it is not
-         handed to a second builder. The owner (busy with the parent) takes it, or a person gives it out by hand. */
-      if (tasks.ownerIn(tree, t)) continue;
+      /* #5678 (user feedback 10-09): never a second builder on one tree. Its holder may take more of it when free
+         (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
+      const root = tasks.rootIn(tree, t);
+      const holders = holdersOf.get(root);
+      if (holders && holders.size && !holders.has(session)) continue;
+      const treeKey = p.id + '#tree#' + root + '#';
+      if ([...taken].some((k) => k.startsWith(treeKey) && k !== treeKey + session)) continue;
       const part = prog.parts.find((x) => !x.closedAt);
       if (!part) continue;
-      candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t) });
+      candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t), treeKey: treeKey + session });
     }
   }
   candidates.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.age - b.age));
@@ -472,8 +480,9 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
       if (log.length >= MAX_PER_HOUR) continue;
       if (log.filter((e) => e.session === session).length >= MAX_PER_AGENT_PER_HOUR) continue;
       if (moved) movedParts.add(choice.projectId + '#' + choice.n + '#' + choice.partId);
-      else taken.add(choice.projectId + '#' + choice.n);
-      toAssign.push({ session, name: a.name || session, ...choice });
+      else { taken.add(choice.projectId + '#' + choice.n); if (choice.treeKey) taken.add(choice.treeKey); }   // #5678
+      const { treeKey: _tk, ...given } = choice;
+      toAssign.push({ session, name: a.name || session, ...given });
       log.push({ at: now, session });
       continue;
     }
