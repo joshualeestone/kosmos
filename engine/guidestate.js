@@ -53,12 +53,9 @@ function record(outcome) {
   const at = before && before.state === state && before.at ? before.at : new Date().toISOString();
   // Write-then-rename, so a read overlapping the write never sees a half file (which would read
   // as "no record" and report a change that did not happen).
-  const tmp = `${file()}.${process.pid}.new`;
   try {
-    fs.writeFileSync(tmp, JSON.stringify({ state, reason, at }) + '\n', 'utf8');
-    fs.renameSync(tmp, file());
+    require('./store').saveFlushed(file(), JSON.stringify({ state, reason, at }) + '\n');   // #5434 slice 19: flushed before the rename; its temp is removed on failure
   } catch {
-    try { fs.unlinkSync(tmp); } catch { /* never written */ }
     return { changed: false };
   }
   return { changed: !before || before.state !== state };

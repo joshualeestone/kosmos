@@ -81,9 +81,7 @@ function write(patch) {
   const next = { on: cur.on, intervalMinutes: cur.intervalMinutes, ...patch };
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ on: next.on, intervalMinutes: next.intervalMinutes }) + '\n');
-    fs.renameSync(tmp, FILE);
+    require('./store').saveFlushed(FILE, JSON.stringify({ on: next.on, intervalMinutes: next.intervalMinutes }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
