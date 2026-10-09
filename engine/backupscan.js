@@ -67,6 +67,8 @@ const STORE_FOLDER = (name) => new RegExp(`(^|\\/)${TOKEN(name)}\\/`, 'i');
    TOKEN pattern is quadratic within one long segment; pathDecision refuses a segment over MAX_SEGMENT first.) */
 const COMMUNITY_DIR = STORE_FOLDER('communitysend');
 const KEYS_FILE = STORE_NAME('keys');
+const PAIRING_FILE = STORE_NAME('pairing');
+const REMOTE_DIR = new RegExp(`(^|\\/)${TOKEN('remote')}\\/$`, 'i');
 const KOSMOS_STORES = [
   [STORE_FOLDER('sendertokens'), 'Kosmos agent tokens'],
   [STORE_FOLDER('launch-secrets'), 'Kosmos launch secrets'],
@@ -88,9 +90,11 @@ const KOSMOS_STORES = [
   [STORE_NAME('signin-device\\.key'), 'Kosmos Mac signing key'],
   [STORE_NAME('tls\\.key'), 'Kosmos tunnel TLS key'],
   // The connector's pairing state (kosmos-relay crates/tunnel/src/pairing.rs, pairing.json): during a pairing round it
-  // holds this computer's nonce and the comparison code. Scoped to the connector's remote folder. Its other files are
-  // kept: account (the verified account name, not the signed token), peers.json (public keys), devices.json, mac_id.
-  [new RegExp(`(^|\\/)${TOKEN('remote')}\\/${TOKEN('pairing')}$`, 'i'), 'Kosmos pairing state'],
+  // holds this computer's nonce and the comparison code. Narrower than the other stores: only directly inside a folder
+  // named with the token `remote` (the connector's state folder; one moved by AGENT_WORKFORCE_TUNNEL_STATE under another
+  // name is not covered). Two linear tests, as for the community keys. The connector's other files are kept: account
+  // (the verified account name, not the signed token), peers.json (public keys), devices.json, mac_id.
+  [{ test: (p) => PAIRING_FILE.test(p) && REMOTE_DIR.test(p.slice(0, p.lastIndexOf('/') + 1)) }, 'Kosmos pairing state'],
   // Kosmos's secrets folder (tokendoor's env/, githubdevice's and cloudflare's tokens), copied or renamed like any other
   // store. Keyed on what is inside it too, so a person's own trade-secrets/ folder of notes is untouched.
   [new RegExp(`(^|\\/)${TOKEN('secrets')}\\/(env\\/|(github|cloudflare)\\.token)`, 'i'), 'Kosmos secrets folder'],
@@ -111,8 +115,10 @@ const DENY = [
   [/(^|\/)\.git\//i, 'git internals (objects and packs carry every committed secret; config carries remote tokens)'],
   [/(^|\/)\.git$/i, 'git internals'],
   [/(^|\/)\.config\/(gh|gcloud|hub|rclone|op|doctl)\//i, 'tool auth folder'],
-  [/(^|\/)\.claude(-[^/]*)?\/\.credentials\.json$/i, 'provider sign-in'],  // review 7: an extra account's ~/.claude-<label> too
-  [/(^|\/)\.(codex|gemini|grok)(-[^/]*)?\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
+  // An extra account's ~/.claude-<label>, and a forgotten one renamed .removed-claude-<label> (engine/accounts.js), which
+  // keeps its sign-in file.
+  [/(^|\/)\.(removed-)?claude(-[^/]*)?\/\.credentials\.json$/i, 'provider sign-in'],
+  [/(^|\/)\.(removed-)?(codex|gemini|grok)(-[^/]*)?\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
   [new RegExp(`(^|\\/)(credentials?|secrets?|tokens?|auth)(\\.[a-z0-9]+)*\\.${CONFIGISH}$`, 'i'), 'credential-named config file'],
   [/(^|\/)(credentials?|secrets?)$/i, 'credential-named file'],
   [/(^|\/)client_secret[^/]*\.json$/i, 'OAuth client secret'],
@@ -158,8 +164,7 @@ function pathDecision(rel) {
    stand behind it (a PEM key, for one, is found by its content whatever the file is called).
    Over-skip, on the safe side: an origin is judged by EVERY deny rule, so a copy of ordinary work whose name starts
    like a denied one is skipped too, even when the uncopied name would be kept (secrets_plan.tmp,
-   cookies-recipe.md.tmp, contract.docx.bak, .git-blame.bak, server.key.md.bak although server.key.md is kept,
-   .env.example.bak although .env.example is kept: the template exemption is not applied to an origin).
+   cookies-recipe.md.tmp, .git-blame.bak, server.key.md.bak although server.key.md is kept).
    Bounded (review 4, review 7): the tail repeats only after a separator, so COPY_SHAPED cannot backtrack
    exponentially, and pathDecision refuses a segment over MAX_SEGMENT (a loose cap, above any real name) first.
    A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are

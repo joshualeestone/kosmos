@@ -71,7 +71,9 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'Kosmos/secrets copy/env/OPENAI_API_KEY', 'Kosmos/secrets.bak/env/X', 'Kosmos/old secrets/github.token', 'Kosmos/secrets2/env/X',
     'x/id_rsa.tmp_1',
     // review 14: the connector's pairing state; the secrets-folder rule runs before the template exemption
-    'Kosmos/remote/pairing.json', 'Kosmos/remote/.pairing.json.tmp', 'Kosmos/secrets/github.token.example']) {
+    'Kosmos/remote/pairing.json', 'Kosmos/remote/.pairing.json.tmp', 'Kosmos/secrets/github.token.example',
+    // review 15: a forgotten account's folder keeps its sign-in
+    'acct/.removed-claude-work/.credentials.json', 'acct/.removed-gemini-x/oauth_creds.json', 'acct/.removed-claude-work-2/.credentials.json']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
@@ -82,7 +84,7 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'notes/keyboard.tokens.csv', 'notes/billboard.token-ideas.md', 'projects/site/remote/api.keys.md',
     'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md',
     'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/undo/blobs.md', 'notes/mac_keyboard2.md', 'notes/trade-secrets/plan.md', 'notes/trade-secrets/env.md', 'Kosmos/remote/account', 'Kosmos/remote/peers.json',
-    'Kosmos/remote/devices.json', 'projects/site/pairing.json', 'Kosmos/secrets/readme.example', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    'Kosmos/remote/devices.json', 'projects/site/pairing.json', 'Kosmos/remote/old/pairing.json', 'Kosmos/secrets/readme.example', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
 });
@@ -102,6 +104,11 @@ test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially 
   }
   const ms2 = Number(process.hrtime.bigint() - t2) / 1e6;
   assert.ok(ms2 < 1000, `long single segments took ${ms2} ms (uncapped token patterns took 2 to 17 s each)`);
+  const t3 = process.hrtime.bigint();
+  const pair = 'remote-'.repeat(145) + '/' + 'pairing-'.repeat(127) + '/';
+  bs.pathDecision('w/' + pair.repeat(500) + 'x');   // about 1 MB: a joined two-token pattern took 3.5 s on it
+  const ms3 = Number(process.hrtime.bigint() - t3) / 1e6;
+  assert.ok(ms3 < 1000, `remote/pairing segment pairs took ${ms3} ms`);
   assert.equal(bs.pathDecision('w/' + 'a'.repeat(1017) + '.md').include, true, 'CONTROL: a 1020-character name, at the loose cap, is judged, not refused');
   assert.equal(bs.pathDecision('w/' + 'a'.repeat(1018) + '.md').include, false, 'one character over is refused');
 });
