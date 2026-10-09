@@ -753,3 +753,30 @@ test('#5683 r16: a sandbox refusal counts only on macOS; a tool named like an ob
   assert.equal(odd[0].action, 'run');
 });
 
+/* ---- review 17 ---- */
+
+test('#5683 r17: the board\'s own guard check agrees with what the guard writes', async (t) => {
+  const sa = require('./setup-assistant');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-guard-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const r = sa.guardTokenOnlyFolder(dir, 'Scout', { runner: 'claude', platform: 'darwin' });
+  if (!r.ok) { t.skip('the guard could not be written in this sandbox: ' + r.because); return; }
+  const src = ae._defaultSources();
+  assert.equal(src.guarded(dir, new Map()), true, 'a folder the guard just wrote was read as unguarded');
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-noguard-'));
+  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
+  assert.equal(src.guarded(other, new Map()), false, 'a folder with no guard was read as guarded');
+  /* A settings file that is there but does not keep the token out is not a guard either. */
+  fs.mkdirSync(path.join(other, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(other, '.claude', 'settings.json'), JSON.stringify({ permissions: { deny: ['Bash(rm:*)'] } }));
+  assert.equal(src.guarded(other, new Map()), false, 'a settings file without the token rules was read as a guard');
+});
+
+test('#5683 r17: words lost while enrolled (no 409 here) mark the state, so the gap is never sent', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await oe.consentWithdrawn({ root: s.root }, oe.readEnrollment({ root: s.root }).consentHash);   // e.g. by the rollup
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).withdrawn, true);
+});
+

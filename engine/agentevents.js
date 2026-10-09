@@ -45,7 +45,8 @@ const SEND_PAST_MS = PAST_MS - 3600 * 1000;   // an hour short of 7 days, so a q
    for an "Operation not permitted" (only a shell result carries it here; review 5), and target 'other'. Bounded per
    file. */
 const CALLS = new Map();
-let TURN = 0;   // which agent is read first this tick (review 5), kept in memory
+let TURN = 0;
+const UNGUARDED_SAID = new Set();   // said once per agent per process (review 17: never silent)   // which agent is read first this tick (review 5), kept in memory
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
 const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
@@ -327,14 +328,19 @@ function defaultSources() {
     /* Review 16: on the list is not under the company's rules. The guard is in force only when the agent's own settings
        hold every rule the guard writes for that folder, and the guard could write them all (no root missed, no rule
        dropped; setup-assistant refuses to guard otherwise, and on Windows at all). Anything else: not read. */
-    guarded: (dir) => {
+    guarded: (dir, cache) => {
       try {
         if (process.platform === 'win32') return false;
-        const rules = require('./setup-assistant').tokenOnlySettingsRules(dir);
+        const rules = require('./setup-assistant').tokenOnlySettingsRules(dir, { launchCache: cache });
         if (!rules || (rules.rootsMissed && rules.rootsMissed.length) || rules.tokenRuleDropped || !Array.isArray(rules.deny)) return false;
+        /* Review 17: the rules that keep the board token out (they follow from the token roots, not from the board's PATH,
+           so a guard written at an agent's launch from another pane's PATH still matches). All of them must be there. */
+        const tokenFile = require('./boardauth').TOKEN_FILE;
+        const needed = rules.deny.filter((r) => typeof r === 'string' && r.includes(tokenFile));
+        if (needed.length === 0) return false;
         const j = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
         const deny = j && j.permissions && Array.isArray(j.permissions.deny) ? new Set(j.permissions.deny) : new Set();
-        return rules.deny.length > 0 && rules.deny.every((r) => deny.has(r));
+        return needed.every((r) => deny.has(r));
       } catch { return false; }
     },
     transcripts: async (dir) => {
@@ -357,7 +363,19 @@ async function tick(opts) {
     const eo = { root: o.root, remote: o.remote };
     /* THE gate, the rollup's (#5531): the work Kosmos with the consent recorded on this computer, never merely
        enrolled. Not enrolled reads nothing: no transcript is opened for a company that does not exist. */
-    if (!oe.mayReport(eo)) return { sent: 0, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
+    if (!oe.mayReport(eo)) {
+      /* Review 17: words can be lost without a 409 here (the rollup's own 409, a refresh). While enrolled with no words
+         accepted, the state is marked withdrawn, so words accepted again (even the same) start clean and nothing from
+         the gap is sent. */
+      try {
+        if (oe.readEnrollment(eo)) {
+          const r0 = o.root || require('./store').ROOT;
+          const w = readState(r0);
+          if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; writeState(r0, w); }
+        }
+      } catch { /* the next tick tries again */ }
+      return { sent: 0, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
+    }
     const rec = oe.readEnrollment(eo);
     if (!rec || typeof rec.world !== 'string') return { sent: 0, because: 'not the enrolled Kosmos' };
     const root = o.root || require('./store').ROOT;
@@ -388,6 +406,7 @@ async function tick(opts) {
        an agent that is NOT token-only would carry that agent's refusals, by the PERSON's own rules, to the company: it
        is not read at all (fail closed), and neither is anything when the agent list cannot be read. */
     const collidedNow = new Set();
+    const launchCache = new Map();   // review 17: one launch-path scan per tick, shared by every agent's guard check
     /* Required (review 12: an absent check read as "no clash"). */
     if (typeof src.everyAgent !== 'function' || typeof src.transcriptDirsOf !== 'function' || typeof src.guarded !== 'function') return { sent: 0, because: 'the agent list cannot be checked; nothing changed' };
     {
@@ -400,7 +419,11 @@ async function tick(opts) {
       const others = otherDirs.map(flat);
       for (const [n, d] of [...dirs]) {
         if (!d) continue;
-        if (!src.guarded(d)) { dirs.delete(n); collidedNow.add(n); continue; }   // review 16: not under the company's rules yet
+        if (!src.guarded(d, launchCache)) {   // review 16: not under the company's rules yet
+          dirs.delete(n); collidedNow.add(n);
+          if (!UNGUARDED_SAID.has(n)) { UNGUARDED_SAID.add(n); console.error('agentevents: ' + n + ' is token-only but its guard is not in force; its refusals are not read'); }
+          continue;
+        }
         const mine = flat(d);
         if (others.some((o) => [...o].some((x) => mine.has(x)))) {
           dirs.delete(n);
@@ -550,4 +573,5 @@ async function tick(opts) {
   }
 }
 
-module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick };
+module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick,
+  _defaultSources: defaultSources };   // the guard check's round-trip test (review 17)
