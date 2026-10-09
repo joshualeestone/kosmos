@@ -13,7 +13,7 @@ A test proves that a changed template section reaches an existing agent's file. 
 
 ## F1 decisions (Angel)
 - **The consent rule was my own design for #539, not a ruling from Josh.** #539's body proposes "no instruction file changes without a person's click", and doctrine.js enforces it. Josh's 10-07 feedback asks for every Kosmos-written section to refresh live, the third report of the same staleness (#4890, #5297, now #5635). Recurrence is the tell: the click is not happening, so the person never gets the fix.
-- **The line that holds:** Kosmos rewrites only text it can prove is its own and unedited (`knownContent` or `pastBlockIn`, byte for byte against doctrine-past). A person's words are never touched. That is the property #539 protected, and it survives. What goes is the click for text nobody but Kosmos wrote.
+- **The line that holds:** Kosmos rewrites without a click only text that is, byte for byte, a WHOLE earlier block (`wholeKnownBlock` for a span, `pastBlockIn` for a plain copy). Review round 1 showed `knownContent`'s per-section match also accepts a span with a section deleted or reordered, which is the person's edit, so that match no longer counts here. A person's words are never touched. That is the property #539 protected, and it survives. What goes is the click for text nobody but Kosmos wrote.
 - **Kept on the click:** a span the person edited (`edited`), and a file with no rules block (appending sections to a file Kosmos never wrote rules into is adding to the person's text).
 - **A Not now for this version is honoured:** no auto-refresh for that agent until the version changes.
 - **At board start, beside the community sweep** (a board restart is the update, the same moment the other sweeps use). Each changed agent is owed the re-read line (instructionRereadOwe, #5297).
@@ -29,4 +29,9 @@ A test proves that a changed template section reaches an existing agent's file. 
 That the test agents' stale text was a known earlier block. If the multi-model test project's files were edited, or born from a role text that carries the rules inline, this refresh would not reach them. Verify on a served build with an agent created before it (the card asks for that).
 
 ## Review log
-(rounds below)
+- **Round 1 (opus):** 1 blocker and 3 warnings, all fixed.
+  - Blocker: a deleted or reordered section was put back on every boot. Now only a whole earlier block is rewritten, tested against the shipped table, and red on the old code.
+  - W2: no idle note when the summary is newer than the idle report; Codex and paneless members read "last reported idle".
+  - W3: the module header and the frame-line notes now state the two writers.
+  - W4: the sweep is `doctrine.refreshFleet`, tested on behaviour.
+  - Nits: a missing instructions file is quiet at boot (N5). Decided as before this change: the frame-prefix filter (N6), and CRLF spans rewritten as LF without a loop (N7). The "idle since X ago" wording stays, as #4581's idle line has it (N8).

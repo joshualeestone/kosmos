@@ -22091,14 +22091,10 @@ if (require.main === module) {
      text, unedited (doctrine.refreshUnedited says which, and leaves the rest for the click). Each one changed is owed a
      re-read line, as a click is. Josh's 2026-10-07 feedback found agents still on a line fixed five days earlier. */
   try {
-    const roster = safeRoster();
-    if (Array.isArray(roster)) {
-      for (const a of roster) {
-        if (!a || a.isNamedOurs !== true) continue;
-        const got = doctrine.refreshUnedited(a.sessionName, roster);
-        if (got && got.state === 'added') instructionRereadOwe(a.sessionName);
-        else if (got && got.state === 'could_not') process.stderr.write(`Kosmos could not bring ${a.sessionName}'s working rules up to date: ${got.because}\n`);
-      }
+    const done = doctrine.refreshFleet(safeRoster(), instructionRereadOwe);
+    /* An agent with no instructions file yet has nothing to bring up to date; only a real failure is said (review 1). */
+    for (const d of done) {
+      if (d.state === 'could_not' && !/no instructions file yet/.test(String(d.because))) process.stderr.write(`Kosmos could not bring ${d.sessionName}'s working rules up to date: ${d.because}\n`);
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not bring agents' working rules up to date: ${String(err && err.message)}\n`);

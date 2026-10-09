@@ -587,8 +587,13 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   assert.equal(idle.m.summary.state, 'stale');
   assert.match(idle.text, /summary: older than the 4-hour rhythm \(summaries\/2026-09-28-07\.md, 33h 20m ago; idle since 14h 0m ago\)$/m);
   // A runner idleExcused leaves out (Codex reports idle only) gets the note too: it is the member's report, said as one.
+  // Review 1: a runner that reports idle only can have worked since; its line says what it reported.
   const codex = show({ found: true, state: 'idle', at: at(840) }, { runner: 'codex' });
-  assert.match(codex.text, /; idle since 14h 0m ago\)$/m, 'a Codex member got no idle note');
+  assert.match(codex.text, /; last reported idle 14h 0m ago\)$/m, 'a Codex member was said to be idle since');
+  // Review 1: a summary written after the idle report gets no note (a later turn's idle was lost).
+  const newer = agentFolder('ida-f2-newer', [['2026-09-29-11.md', 360]]);   // 6h old, idle report 14h old
+  const view = v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => newer, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(840) }) });
+  assert.doesNotMatch(v.renderShow({ project: view }).join('\n'), /idle since|reported idle/, 'an idle time before the summary was printed');
   // A start reads as one.
   assert.match(show({ found: true, state: 'started', at: at(840) }).text, /; idle since this session started 14h 0m ago\)$/m);
   // CONTROL: working, an operator's clear, no report, and a future time say nothing more than before.

@@ -132,11 +132,41 @@ test('#5635: the birth and click frames say the same thing about keeping the blo
   for (const t of [born, doctrine.autoLine(NOW)]) assert.ok(!t.includes('—') && !t.includes('–'), 'a dash');
 });
 
-test('#5635: the board brings every agent of ours up to date at start, and owes each one changed a re-read line', () => {
+test('#5635 review 1 (the blocker): a section the person DELETED from the span, or sections reordered, are never put back without a click (real fingerprint table)', () => {
+  const born = doctrine.atBirth('# Mine\n', NOW);   // the current block, framed
+  const third = defaults.sections()[2].text;
+  const deleted = born.replace(third + '\n', '');
+  assert.notEqual(deleted, born, 'fixture: the section was not removed');
+  const [s1, s2] = [defaults.sections()[1].text, defaults.sections()[2].text];
+  const reordered = born.replace(s1 + '\n' + s2, () => s2 + '\n' + s1);
+  assert.notEqual(reordered, born, 'fixture: the sections were not swapped');
+  for (const [name, text] of [['deletedsection', deleted], ['reordered', reordered]]) {
+    const f = agentFile(name, text);
+    // CONTROL: the click still offers it (planFor, the real table), so it is this function that leaves it.
+    assert.equal(doctrine.planFor(text, NOW).state, 'refresh', name + ': fixture is not a refresh case');
+    const got = doctrine.refreshUnedited(name, rosterOf(name), { now: NOW });   // no `past`: the shipped table
+    assert.equal(got.state, 'left', name + ': ' + JSON.stringify(got));
+    assert.equal(read(f), text, name + ': the person\'s edit was undone');
+  }
+});
+
+test('#5635 review 1: the board-start sweep refreshes every agent of ours, owes each one written, and skips the rest', () => {
+  const oldText = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const ours = agentFile('fleetours', oldText);
+  const stranger = agentFile('fleetstranger', oldText);
+  const board = fleet.install([fleet.agent('fleetours', { state: 'idle' }), fleet.agent('fleetstranger', { state: 'idle' })]);
+  const roster = board.agents.map((a) => (a.sessionName === 'fleetstranger' ? { ...a, isNamedOurs: false } : a));
+  board.restore();
+  const owed = [];
+  const done = doctrine.refreshFleet(roster, (n) => owed.push(n), { now: NOW, past: OLD_TABLE });
+  assert.deepEqual(done.map((d) => [d.sessionName, d.state]), [['fleetours', 'added']], JSON.stringify(done));
+  assert.deepEqual(owed, ['fleetours'], 'the agent written was not owed the re-read line, or another was');
+  assert.ok(read(ours).includes(BLOCK));
+  assert.equal(read(stranger), oldText, 'an agent that is not ours was written');
+  assert.deepEqual(doctrine.refreshFleet(roster, (n) => owed.push(n), { now: NOW, past: OLD_TABLE }).map((d) => d.state), ['current'], 'a second sweep wrote again');
+  assert.deepEqual(owed, ['fleetours'], 'a sweep that wrote nothing owed a line');
+  assert.deepEqual(doctrine.refreshFleet(null, () => owed.push('x')), [], 'an unreadable roster did something');
+  // The board calls it at start with the re-read owe.
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf('doctrine.refreshUnedited(a.sessionName, roster)');
-  assert.ok(at > 0, 'the boot sweep no longer calls refreshUnedited');
-  const near = src.slice(at, at + 300);
-  assert.match(near, /got\.state === 'added'\) instructionRereadOwe\(a\.sessionName\)/, 'a changed agent is not owed the re-read line');
-  assert.ok(src.lastIndexOf('a.isNamedOurs !== true', at) > src.lastIndexOf('kosmos#5635 F1', at), 'the sweep no longer skips agents that are not ours');
+  assert.match(src, /doctrine\.refreshFleet\(safeRoster\(\), instructionRereadOwe\)/, 'the board no longer runs the sweep');
 });
