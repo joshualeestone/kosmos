@@ -347,9 +347,9 @@ function readState(root) {
 }
 function writeState(root, st) {   // whole or not at all: temp, then rename, owner-only. True when it was written.
   const file = path.join(root, STATE_FILE);
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-  try { fs.writeFileSync(tmp, JSON.stringify(st) + '\n', { mode: 0o600 }); fs.renameSync(tmp, file); return true; }
-  catch { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } return false; }
+  // #5434 slice 20: flushed before the rename, exact 0600; a failed save removes its own temp.
+  try { require('./securewrite').writeSecret(file, JSON.stringify(st) + '\n', 0o600, { atomicOnly: true }); return true; }
+  catch { return false; }
 }
 /* What counts as a change: WHICH agents there are (name and provider) and the projects, sorted, and nothing that moves
    when an agent starts, stops, works or waits. Not the status words, and not the model, which a running agent carries

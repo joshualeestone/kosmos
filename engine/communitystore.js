@@ -156,9 +156,7 @@ function loadJson(file, fallback) {
 // weakest-premise #2). This suffix is only about the tmp filename.
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: FILE_MODE });
-  fs.renameSync(tmp, file);
+  require('./securewrite').writeSecret(file, JSON.stringify(data, null, 2), FILE_MODE, { atomicOnly: true });   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX); exact FILE_MODE
 }
 
 function nowISO() { return new Date().toISOString(); }

@@ -141,9 +141,7 @@ function writeAll(name, all) {
   const kept = Object.create(null);
   for (const k of keys) kept[k] = all[k];
   fs.mkdirSync(dir(), { recursive: true });
-  const tmp = file + '.' + process.pid + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(kept), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  require('./securewrite').writeSecret(file, JSON.stringify(kept), 0o600, { atomicOnly: true });   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX); exact 0600
   return true;
 }
 

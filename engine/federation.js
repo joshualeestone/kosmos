@@ -68,9 +68,7 @@ function writeLinks(links) {
     throw e;
   }
   fs.mkdirSync(store.ROOT, { recursive: true });
-  const tmp = file() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(links, null, 2));
-  fs.renameSync(tmp, file());
+  store.saveFlushed(file(), JSON.stringify(links, null, 2));   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX)
 }
 
 /* The last good read, so `linkFor` costs a stat rather than a read and parse.
