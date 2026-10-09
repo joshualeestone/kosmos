@@ -91,8 +91,10 @@ function doneWhenProblem(doneWhen) {
        characters (review round 2: kosmos task list prints a check as it is stored). */
     /* Review 3: by Unicode property, so no list of code points can miss one: controls (Cc), format characters (Cf:
        direction marks, zero-width, soft hyphen, the tag characters that carry words a person cannot see but a model
-       reads), private use, unassigned and lone surrogates, line and paragraph separators, and the blank Hangul fillers. */
-    if (/[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\u115f\u1160\u3164\uffa0]/u.test(c)) return 'each done-when check has to be one line of plain text';
+       reads), private use, unassigned and lone surrogates, line and paragraph separators, and the blank Hangul fillers.
+       Except U+200C (zero-width non-joiner), which Persian and several Indic scripts need to spell a word (review 6):
+       it joins nothing and carries no words. */
+    if (/(?!\u200c)[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\u115f\u1160\u3164\uffa0]/u.test(c)) return 'each done-when check has to be one line of plain text';
     if (c.trim().length > DONE_CHECK_MAX) return `each done-when check has to be ${DONE_CHECK_MAX} characters or fewer`;
   }
   return null;

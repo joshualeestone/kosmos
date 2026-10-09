@@ -209,3 +209,9 @@ test('review 3: the same-text note treats different checks as a different ask', 
   assert.equal(tasks.sameTextOpen(p(), 'Ship it', 99, { doneWhen: ['it is fast'] }).length, 0, 'different checks were called the same ask');
   assert.equal(tasks.sameTextOpen(p(), 'Ship it', 99, {}).length, 0, 'no checks were called the same ask as checks');
 });
+
+test('review 6: a zero-width non-joiner, which Persian and Indic text needs, is accepted; a joiner and a tag character are not', () => {
+  assert.equal(tasks.doneWhenProblem(['می‌دانم it works']), null, 'a Persian word with its non-joiner was refused');
+  assert.match(tasks.doneWhenProblem(['x‍y']), /one line/);
+  assert.match(tasks.doneWhenProblem(['x\u{E0049}']), /one line/);
+});

@@ -4352,6 +4352,11 @@ cmd_feedback() {
   esac
 }
 
+# #5152: one done-when check as a JSON string body (no quotes around it): control bytes other than tab, CR and newline
+# are dropped and those three become spaces (a check is one line), then backslash and double quote are escaped, as
+# cmd_task built's note is.
+_task_check_json() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   '; }
+
 # ---- kosmos task <add|list|close> - the per-project tasks feature, surfaced (#2662) --------
 # The board already exposes GET /api/tasks?project=<id>, POST /api/project/<id>/tasks, and
 # POST /api/project/<id>/task/<n>/close|reopen; it just was not reachable from the terminal, so
@@ -4359,10 +4364,6 @@ cmd_feedback() {
 # is free via kosmos_curl (header written to a mode-600 temp file and passed `-H @file`, never on
 # argv, which macOS `ps -ww -o args` exposes cross-account). Same hand-rolled JSON escaping and
 # `_bt`/rc idioms as cmd_post, and the same bash-3.2 reason for both.
-# #5152: one done-when check as a JSON string body (no quotes around it): control bytes other than tab, CR and newline
-# are dropped and those three become spaces (a check is one line), then backslash and double quote are escaped, as
-# cmd_task built's note is.
-_task_check_json() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   '; }
 cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
