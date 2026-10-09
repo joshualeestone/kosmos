@@ -33,6 +33,21 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./store');
 const taskchat = require('./taskchat');
+const { flushOrThrow, syncDir } = require('./securewrite');
+
+/* #5434 slice 13: flush a file this module just wrote by path (a copy, a kept version) before anything relies on it,
+   so a crash cannot leave it at full length but zero-filled (#5431). Throws on a real flush failure; "cannot flush"
+   on this file system is not one (securewrite.flushOrThrow). */
+function flushPath(p) {
+  /* Read-write where allowed, so Windows can flush (FlushFileBuffers needs write access); read-only where the file's
+     mode forbids writing (a person's 0444 file, copied with its mode), since POSIX fsync works on a read-only fd. */
+  let fd;
+  try { fd = fs.openSync(p, 'r+'); }
+  catch (e) { if (!e || (e.code !== 'EACCES' && e.code !== 'EPERM')) throw e; fd = fs.openSync(p, 'r'); }
+  let pending = null;
+  try { flushOrThrow(fd); } catch (e) { pending = e; throw e; }
+  finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+}
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const KEEP_DAYS = 30;
@@ -283,7 +298,20 @@ function keepOpen(abs, fd, st, { cwd, session, now, who }) {
       const buf = fs.readFileSync(fd);   // the file checked above, never the path again
       hash = sha(buf);
       const blob = path.join(blobsDir(), hash);
-      if (!fs.existsSync(blob)) { fs.writeFileSync(blob + '.tmp', buf, { mode: 0o600 }); fs.renameSync(blob + '.tmp', blob); }
+      /* #5434 slice 13: the kept copy is flushed before it is renamed into place, and a copy already there is trusted
+         only if it still hashes to its name. Before, existence was enough, so a copy a crash had left zero-filled was
+         never rewritten: Undo would skip that file forever (it checks the hash before restoring, never restores
+         zeros), and the person's version kept here was lost. */
+      let good = false;
+      try { good = sha(fs.readFileSync(blob)) === hash; } catch { good = false; }
+      if (!good) {
+        const fd = fs.openSync(blob + '.tmp', 'w', 0o600);
+        let pending = null;
+        try { fs.writeFileSync(fd, buf); flushOrThrow(fd); } catch (e) { pending = e; throw e; }
+        finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+        fs.renameSync(blob + '.tmp', blob);
+        syncDir(blobsDir());
+      }
     }
     const rec = { id: String(now).padStart(14, '0') + '-' + crypto.randomBytes(4).toString('hex'), path: abs, existed: Boolean(st),
       hash, at: new Date(now).toISOString(), agent: who, cwd: String(cwd || ''), session: String(session || ''),
@@ -420,6 +448,8 @@ function moveAside(from, to) {
   try { fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL); }
   catch (err) { if (err && err.code !== 'EEXIST') { try { fs.unlinkSync(to); } catch { /* not made */ } } throw err; }   // no half copy left behind (review 3), never someone else's file (review 4)
   if (sha(fs.readFileSync(from)) !== sha(fs.readFileSync(to))) { try { fs.unlinkSync(to); } catch { /* left */ } throw new Error('copy differs'); }
+  /* #5434 slice 13: the copy is flushed before the original is deleted, or a crash could leave the only copy as zeros. */
+  try { flushPath(to); syncDir(path.dirname(to)); } catch (err) { try { fs.unlinkSync(to); } catch { /* left */ } throw err; }
   fs.unlinkSync(from);
 }
 
@@ -467,6 +497,7 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
         if (cur.kind === 'file') {
           fs.copyFileSync(f.path, keepAs, fs.constants.COPYFILE_EXCL);   // the current version, saved first; never over another save
           if (sha(fs.readFileSync(f.path)) !== sha(fs.readFileSync(keepAs))) throw new Error('save differs');
+          flushPath(keepAs);   // #5434 slice 13: on disk before the file it saves is replaced
         }
         const tmp = path.join(path.dirname(f.path), '.kosmos-undo-' + crypto.randomBytes(6).toString('hex'));
         /* The temp's REAL place, taken before it is written: a folder swapped afterwards must not stop it being
@@ -475,10 +506,15 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
         try { tmpReal = path.join(fs.realpathSync(path.dirname(tmp)), path.basename(tmp)); } catch { tmpReal = tmp; }
         try {
           fs.copyFileSync(blobPath, tmp, fs.constants.COPYFILE_EXCL);
+          /* #5434 slice 13: flushed before the rename makes it the person's file, so a crash cannot leave their file
+             at full length but zero-filled (#5431); the folder after it. A failed flush is caught below: the temp is
+             removed and their file is left as it was. Before the chmod, while the temp is still writable. */
+          flushPath(tmp);
           if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
           beforeWrite(f.path, 'rename');                   // tests only
           folderStillSafe(f.path, rec, protectedSet);       // again right before the rename (review 6)
           fs.renameSync(tmp, f.path);                      // replaces the entry itself: never writes through a link
+          syncDir(path.dirname(f.path));
         } catch (err) {
           try { fs.unlinkSync(tmpReal); } catch { /* not made */ }   // never leave the old content beside the file (review 2)
           throw err;
