@@ -69,6 +69,7 @@ const MAX_FILES = 500000;
 const MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
 const MAX_SKIPPED = 100000;
 const MAX_DEPTH = 256;
+const SPLIT_WINDOW = 8;   // segments joined when looking for a credential split across folder names
 // The coordinator's allowance per member per weekly period (docs/coordinator-api.md "Allowances"): chunk objects and
 // bytes, spent at grant time. A snapshot that could pass either is refused before it spends any (review 9).
 // The bound is cautious (chunks at the 256 KiB minimum, redaction doubling every file), so in practice it refuses at
@@ -168,16 +169,15 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       // Recorded under the masked name: the skipped list leaves the Mac too.
       const masked = nameMasked(name);
       if (masked !== null) { skip({ path: rel ? `${rel}/${masked}` : masked, why: 'a name holding something shaped like a credential' }); continue; }
-      // And a token split across a folder boundary (review 24): secretmask does not read a token across '/', so this
-      // name is checked joined to its parent's (each pair once, as the walk goes down; '\\' inside a name was a segment
-      // boundary to restore, so those parts are joined too). Measured on 8,146 real paths: 0 pairs fire only joined.
+      // And a token split across folder boundaries (reviews 24 and 26): secretmask does not read a token across '/', so
+      // each name is also checked joined to the 1 to 7 names above it (every window ending here; windows ending higher
+      // were checked on the way down). '\\' inside a name is a boundary to restore, so its parts count as segments.
+      // Measured on 8,146 real paths: 0 windows of up to 6 fire only joined. A hit is recorded with the whole window
+      // masked. Residual: a token split over more than 8 segments.
       const segs = asRestored(r).split('/');
-      const pair = segs.length >= 2 ? nameMasked(segs.slice(-2).join('')) : null;
-      const inName = name.includes('\\') ? nameMasked(asRestored(name).split('/').join('')) : null;
-      if (pair !== null || inName !== null) {
-        skip({ path: segs.slice(0, -2).concat(['\u2022\u2022\u2022\u2022']).join('/'), why: 'a path holding something shaped like a credential' });
-        continue;
-      }
+      let hit = 0;
+      for (let w = 2; w <= Math.min(SPLIT_WINDOW, segs.length) && !hit; w++) if (nameMasked(segs.slice(-w).join('')) !== null) hit = w;
+      if (hit) { skip({ path: segs.slice(0, -hit).concat(['\u2022\u2022\u2022\u2022']).join('/'), why: 'a path holding something shaped like a credential' }); continue; }
       let st;
       // bigint: device and inode compared exactly (a Number loses precision above 2^53).
       try { st = fs.lstatSync(path.join(root, r), { bigint: true }); } catch { skip({ path: r, why: 'an entry that could not be read' }); continue; }
