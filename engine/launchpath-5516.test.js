@@ -31,9 +31,9 @@ function binDir(name) { const d = path.join(SANDBOX, 'bins', name); fs.mkdirSync
 // ownPath is pinned in every call: the test process's own PATH is the runner's, not a fixture.
 // Review 5: the fixed folders and the install's own program folders are pinned too, so no test depends on this host's
 // /opt/homebrew or /usr/local. The W3b test below clears ownProgramDirs to check the real defaults.
-const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '/usr/bin:/bin', launchFixed: [], ownProgramDirs: [], launchFiles: [] };
+const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '/usr/bin:/bin', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [] };
 // Review 7: the same pins for direct launchPathDirs calls.
-const PIN = { launchFixed: [], ownProgramDirs: [], launchFiles: [] };
+const PIN = { launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [] };
 
 test('#5516: every folder on the pane PATH is denied to the file tools AND the shell', () => {
   const dir = agentDir('lp-a');
@@ -138,6 +138,7 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   fs.mkdirSync(inside, { recursive: true });
   const link = path.join(path.dirname(own), 'lp-own-path-link');
   try { fs.symlinkSync(inside, link); } catch {}
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), 'fixture: the link was not made');
   const sib = own + '-sibling';
   fs.mkdirSync(sib, { recursive: true });
   const A = binDir('sh-a');
@@ -169,7 +170,7 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   const block = sup.slice(i, sup.indexOf('unset _guard_path', i));
   assert.match(block, /\[ "\$RUNNER" = claude \] && PANE_ENV\+=\(-e "PATH=\$_guard_path"\)/, 'the claude pane is not given the cleaned PATH, or other runners get a second PATH key');
   assert.match(block, /KOSMOS_GUARD_PANE_PATH="\$_guard_path"/, 'the guard is not given the same PATH');
-  assert.match(block, /KOSMOS_GUARD_RUN_DIRS="\$\(dirname "\$CLAUDE"\):\$\(dirname "\$TMUX_BIN"\)"/, 'the guard is not given the claude and tmux folders');
+  assert.match(block, /KOSMOS_GUARD_RUN_DIRS="\$\(dirname "\$CLAUDE"\):\$\(dirname "\$TMUX_BIN"\):\$_eng:\$\(dirname "\$NODE_BIN"\)"/, 'the guard is not given the claude, tmux, engine and node folders as the supervisor spells them');
   // Review 8: no later line gives a claude pane a second PATH key (only the codex/gemini/grok line adds one, gated).
   const later = sup.slice(sup.indexOf('unset _guard_path', i)).split('\n').filter((l) => /PANE_ENV\+=\(-e "PATH=/.test(l));
   assert.equal(later.length, 1, 'another PATH key for the pane: ' + JSON.stringify(later));
@@ -384,6 +385,8 @@ test('#5516 review 9: a link along a path is followed one name at a time; the fo
   fs.symlinkSync(outside, path.join(dir, 'tools'));
   const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: path.join(dir, 'tools'), ownPath: '' });
   assert.ok(r2.unsafe.includes(path.join(dir, 'tools')), JSON.stringify(r2));
+  // Review 11: its written spelling (inside the agent folder) is never written as a rule either.
+  assert.ok(!r2.aliases.includes(path.join(dir, 'tools')), 'a path inside the agent folder became a rule: ' + JSON.stringify(r2.aliases));
   // CONTROL: the same folder given by its own path is coverable.
   assert.deepEqual(setup.launchPathDirs(dir, { ...PIN, panePath: outside, ownPath: '' }).unsafe, []);
   // A PROGRAM on a clean PATH folder whose link target passes through a link inside the agent folder: reported.
@@ -416,4 +419,53 @@ test('#5516 review 10: a ".." after a link in a link target applies to where the
   const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: many, ownPath: '' });
   assert.equal(r2.unsafe.length, 41, JSON.stringify(r2.unsafe.slice(-2)));
   assert.match(r2.unsafe[40], /^\(and 20 more\)$/);
+});
+
+test('#5516 review 11: link cycles end quickly and are reported', () => {
+  const pd = binDir('cyc-path');
+  const a = path.join(SANDBOX, 'bins', 'cyc-a');
+  const b = path.join(SANDBOX, 'bins', 'cyc-b');
+  fs.symlinkSync(b, a); fs.symlinkSync(a, b);
+  fs.symlinkSync(path.join(a, 'tool'), path.join(pd, 'tool'));
+  const self = binDir('cyc-self');
+  fs.symlinkSync(path.join(self, 'loop'), path.join(self, 'loop'));
+  fs.symlinkSync(path.join(self, 'loop', 'x'), path.join(pd, 'x'));
+  const t0 = Date.now();
+  const r = setup.launchPathDirs(agentDir('lp-cyc'), { ...PIN, panePath: pd, ownPath: '' });
+  assert.ok(Date.now() - t0 < 2000, 'the walk took ' + (Date.now() - t0) + ' ms');
+  assert.ok(r.unsafe.some((u) => u.startsWith(path.join(realOr(pd), 'tool')) && /too long/.test(u)), JSON.stringify(r.unsafe));
+  assert.ok(r.unsafe.some((u) => u.startsWith(path.join(realOr(pd), 'x'))), JSON.stringify(r.unsafe));
+});
+
+test('#5516 review 11: the disk spelling is used, an ancestor alias is never denied, and a file\'s own folder is not widened', () => {
+  // Letter case: an entry typed in other case on a disk that ignores it is covered under the disk's spelling.
+  const mixed = binDir('Mixed-Case');
+  const typed = path.join(path.dirname(mixed), 'MIXED-CASE');
+  if (fs.existsSync(typed)) {
+    const r = setup.launchPathDirs(agentDir('lp-spell'), { ...PIN, panePath: typed, ownPath: '' });
+    assert.ok(r.dirs.includes(realOr(mixed)), 'the disk spelling is missing: ' + JSON.stringify(r.dirs));
+  }
+  // An alias that is an ancestor of the agent folder (a .. folded by text) is dropped, never written as a rule.
+  const dir = agentDir('lp-alias-anc');
+  const lnk = path.join(path.dirname(dir), 'lp-alias-lnk');
+  fs.symlinkSync(binDir('alias-anc-away/deep'), lnk);
+  const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: '/usr/bin', ownPath: lnk + path.sep + '..' });
+  assert.ok(!r2.aliases.includes(path.dirname(dir)) && !r2.dirs.includes(realOr(path.dirname(dir))), 'an ancestor of the agent folder is denied: ' + JSON.stringify(r2));
+  assert.ok(r2.dirs.includes(realOr(path.join(SANDBOX, 'bins', 'alias-anc-away'))), 'CONTROL: where it really leads is covered: ' + JSON.stringify(r2.dirs));
+  // A file to deny: the file, not its whole folder.
+  const ff = path.join(binDir('file-home'), 'settings.json');
+  const r3 = setup.launchPathDirs(agentDir('lp-file'), { ...PIN, launchFiles: [ff], panePath: '/usr/bin', ownPath: '' });
+  assert.deepEqual(r3.files, [path.join(realOr(path.dirname(ff)), 'settings.json')]);
+  assert.ok(!r3.dirs.includes(realOr(path.dirname(ff))), 'the file\'s folder was denied as a whole');
+});
+
+test('#5516 review 11: the launchd jobs folder is covered (not scanned), and tmux\'s config files are file rules', () => {
+  const home = path.join(SANDBOX, 'home-lp11');
+  fs.mkdirSync(path.join(home, 'Library', 'LaunchAgents'), { recursive: true });
+  const r = setup.launchPathDirs(agentDir('lp-cfg'), { ...PIN, launchFiles: undefined, launchConfigDirs: undefined, home, platform: 'darwin', panePath: '/usr/bin', ownPath: '' });
+  assert.ok(r.dirs.includes(realOr(path.join(home, 'Library', 'LaunchAgents'))), JSON.stringify(r.dirs));
+  assert.ok(r.files.includes(path.join(realOr(home), '.tmux.conf')), JSON.stringify(r.files));
+  // CONTROL: off macOS there is no launchd folder.
+  const r2 = setup.launchPathDirs(agentDir('lp-cfg'), { ...PIN, launchFiles: undefined, launchConfigDirs: undefined, home, platform: 'linux', panePath: '/usr/bin', ownPath: '' });
+  assert.ok(!r2.dirs.includes(realOr(path.join(home, 'Library', 'LaunchAgents'))));
 });

@@ -714,13 +714,14 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    runs: the folders on the PATH its pane starts with; the folders the programs there resolve into, each hop of a link
    chain and the folder a dangling link points into (review 7); the folders of what the supervisor starts by absolute
    path (this install's engine and bin, the installed supervisor's folder, node's folder, and the browser tool's tree,
-   review 7); and the files the claude launch names by path (the permission settings file, review 7). Sources: the pane
+   review 7); the files the claude launch names by path (the permission settings file, review 7); and what the next
+   start reads as instructions: tmux's config files and the launchd jobs folder (review 11). Sources: the pane
    PATH the supervisor passes (KOSMOS_GUARD_PANE_PATH), this process's own PATH, and the plist's fixed folders.
    Review 9: every path is followed one name at a time, so the folder holding a link anywhere along it is covered too.
    NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
    inside scripts, what shell startup adds to PATH, a link held in an ancestor of the agent folder (such as /var in /),
-   replacing an ancestor of a covered folder, and programs named in Claude's own config files (MCP servers, hooks,
-   plugins, the status line), which are a later part of #5516.
+   replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
+   files (MCP servers, hooks, plugins, the status line) and the code in shell startup files.
    Returned in `unsafe` (the guard then says it is not whole): an empty or relative pane entry; a folder that is the
    agent's own, inside it or above it; a program that resolves there; a folder that could not be listed; a folder past
    the scan cap. */
@@ -750,15 +751,20 @@ function launchPathDirs(agentDir, deps = {}) {
   const look = Object.assign({ installedSupervisorDir, browserToolDir, permissionSettingsFile }, deps.launchLookups);   // a test seam
   const need = (what, v) => { if (!v) missed.push(`(${what}: its place could not be worked out)`); return v; };
   const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), need('the installed supervisor', look.installedSupervisorDir()), path.dirname(process.execPath), need('the browser tool', look.browserToolDir()), ...supervisorRunDirs()].filter(Boolean);
-  const fileList = deps.launchFiles || [need('the permission settings file', look.permissionSettingsFile())].filter(Boolean);
+  /* Review 11: what the next start reads as instructions, beside what it runs: tmux's config (read when the supervisor
+     starts a new tmux server) and the launchd jobs folder (each agent's job names the supervisor, claude and tmux). */
+  const home = deps.home || kosmosHome();
+  const tmuxConf = [path.join(home, '.tmux.conf'), path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'tmux', 'tmux.conf')];
+  const fileList = deps.launchFiles || [need('the permission settings file', look.permissionSettingsFile()), ...tmuxConf].filter(Boolean);
+  const configDirs = deps.launchConfigDirs || ((deps.platform || process.platform) === 'darwin' ? [path.join(home, 'Library', 'LaunchAgents')] : []);
   const plat = deps.platform || process.platform;
   /* Review 2 and 8: refreshTokenOnlyGuards passes one Map for its whole pass. The SCAN (which folders, and the program
      each name resolves into) is the same for every agent, so it is cached without the agent folder and done once per
      pass; only the agent-folder check below runs per agent. */
   const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
-  const key = JSON.stringify([pane, ownPath, max, fixed, ownProgs, fileList]);
+  const key = JSON.stringify([pane, ownPath, max, fixed, ownProgs, fileList, configDirs]);
   let scan = cache ? cache.get(key) : undefined;
-  if (!scan) { scan = scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }); if (cache) cache.set(key, scan); }
+  if (!scan) { scan = scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs }); if (cache) cache.set(key, scan); }
   // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
   // folder) cannot be covered. Review 7: compared without case on macOS and Windows, whose disks usually ignore it (a
   // not-yet entry keeps the case it was typed in); that only ever reports more as uncoverable.
@@ -766,6 +772,9 @@ function launchPathDirs(agentDir, deps = {}) {
   const ownF = fold(own);
   const rel = (r, o) => r === o || r.startsWith(o + path.sep) || o.startsWith(r === path.sep ? r : r + path.sep);
   const uncoverable = (real) => rel(fold(real), ownF);
+  // A written spelling is compared with the agent folder as written too (/var against /private/var, review 11).
+  const ownW = fold(path.resolve(agentDir));
+  const aliasBad = (w) => rel(fold(w), ownF) || rel(fold(w), ownW);
   const inOwn = (r) => r === ownF || r.startsWith(ownF + path.sep);
   const dirs = [];
   const aliases = [];
@@ -779,7 +788,8 @@ function launchPathDirs(agentDir, deps = {}) {
       if (rel(r, ownF)) continue;
     } else if (uncoverable(c.real)) { unsafe.push(c.shown); continue; }
     if (!dirs.includes(c.real)) dirs.push(c.real);
-    if (c.written && c.written !== c.real && !aliases.includes(c.written)) aliases.push(c.written);
+    // Review 11: an alias is checked like the folder (dropping one is safe: the real path is covered).
+    if (c.written && c.written !== c.real && !aliasBad(c.written) && !aliases.includes(c.written)) aliases.push(c.written);
   }
   const files = [];
   for (const f of scan.files) {
@@ -795,7 +805,7 @@ function launchPathDirs(agentDir, deps = {}) {
 }
 /* The agent-independent half of launchPathDirs: every candidate folder in order, as { real, shown, written }, and what
    cannot be covered whatever the agent (an empty or relative pane entry, an unlistable folder, the scan cap). */
-function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
+function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs }) {
   const cands = [];
   const unsafe = [];
   /* Review 9: a path is resolved one name at a time, so a link ANYWHERE along it (not only at its end) is seen: the
@@ -831,7 +841,8 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
         cur = w.real;
       } else cur = nxt;
     }
-    const out = { real: cur, holders, bad };
+    // Review 11: the disk's own spelling (letter case) once links are followed, as the sandbox matches it.
+    const out = { real: realOrLeaf(cur), holders: holders.map(realOrLeaf), bad };
     walked.set(abs, out);
     return out;
   };
@@ -844,13 +855,21 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
     return w.real;
   };
   const realDir = (d) => walk(d, 0).real;
+  // Only the folders holding links on the way (review 11: a FILE's own folder is not denied, only the file).
+  const pushHolders = (q, shown) => {
+    const w = walk(q, 0);
+    if (w.bad) unsafe.push(`${shown} (${w.bad})`);
+    for (const h of w.holders) cands.push({ real: h, shown, holder: true });
+    return w.real;
+  };
   // Review 5: each covered folder's spelling as written (a link, /var for /private/var), so the file-tool rules can name
   // both and do not depend on how Claude Code matches a linked path. The sandbox layer gets the resolved one.
   const add = (e, strict) => {
     if (!e || !path.isAbsolute(e)) { if (strict) unsafe.push(e === '' ? '(an empty entry)' : e); return; }
     // realOrLeaf (review 3): an entry not created yet is still resolved through a symlinked parent, so the agent-folder
     // check cannot fail open and the sandbox gets the spelling it matches (/private/var, not /var).
-    push(e, e, path.resolve(e));
+    // The written spelling is an alias only when it has no . or .. names (path.resolve would fold them by text).
+    push(e, e, e.split(path.sep).some((x) => x === '.' || x === '..') ? undefined : path.resolve(e));
   };
   for (const e of fixed) add(e, true);
   /* Review 3 (W3b): what the supervisor starts by ABSOLUTE path from folders that may be off the pane PATH: the engine
@@ -892,7 +911,9 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
       }
     }
   }
-  const files = fileList.map((f) => ({ real: path.join(push(path.dirname(f), f), path.basename(f)), shown: f }));
+  const files = fileList.map((f) => ({ real: path.join(pushHolders(path.dirname(f), f), path.basename(f)), shown: f }));
+  // Review 11: folders whose files the next start READS as instructions (the launchd jobs): covered, never scanned.
+  for (const d of configDirs) { pushHolders(d, d); cands.push({ real: realDir(d), shown: d, holder: true }); }
   return { cands, unsafe, files };
 }
 /*
@@ -963,7 +984,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // only the board reads this folder), and undo's on/off switch file, which turning off deletes every kept copy.
   const tokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
   const undoSwitches = tokenRoots.map((r) => path.join(r, 'undo.json'));
-  const launch = launchPathDirs(dir, deps);
+  // Review 11: whatever happens in the scan, the rest of the guard is still written, and the guard says it is not whole.
+  let launch;
+  try { launch = launchPathDirs(dir, deps); } catch (e) { launch = { dirs: [], aliases: [], files: [], unsafe: ['(the launch folders could not be worked out: ' + ((e && e.message) || e) + ')'] }; }
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...undoDirs.map((d) => `Read(${ruleAbs(d)}/**)`),

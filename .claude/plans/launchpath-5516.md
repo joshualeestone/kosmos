@@ -145,3 +145,21 @@ rest of the guard is still written.
     measuring first).
   - NOT CHANGED (nits): "/" as a PATH entry is already dropped by the supervisor's ancestor check (a test pins it);
     case-only duplicate rules are harmless.
+- Round 11 (opus): 1 BLOCKER, 6 WARNING, 3 NIT.
+  - FIXED (BLOCKER, part): what the next start READS as instructions is covered too: tmux's config files (file rules)
+    and the launchd jobs folder (each job names the supervisor, claude and tmux; covered, never scanned). Tests.
+  - DECIDED (BLOCKER, rest), a later part of #5516: the code in shell startup files (the plan already names rc files),
+    with programs named in Claude's own config files. Named in the header.
+  - FIXED: the walk's result is put in the disk's own spelling (letter case), which review 9 had lost. Test.
+  - FIXED: an alias (a written spelling) is checked against the agent folder in both its spellings and dropped when it
+    is in or above it (dropping one is safe: the real path is covered); a spelling with . or .. names is never an
+    alias. Tests; each part has a mutation that fails.
+  - FIXED: a FILE to deny no longer widens to its whole folder (the settings file had widened to the Kosmos data root).
+    Only the file and the folders holding links on its path. Test.
+  - FIXED: the supervisor passes the engine and node folders as IT spells them, beside claude and tmux. Test.
+  - FIXED: tests for link cycles (with a time bound), the disk spelling, an ancestor alias, and the file folder.
+  - FIXED (nits): a throw in the launch scan becomes a "not whole" note, so the rest of the guard is still written; the
+    shell test asserts its links exist before relying on them.
+  - DECIDED, residual: an entry whose path passes through a link held inside the agent folder deeper than its own
+    name is reported by the guard (not whole) but kept by the supervisor, as round 9's program-level case.
+  - NOT CHANGED (nit): a stray link loop on a PATH folder makes the guard not whole (fails safe; the reason names it).
