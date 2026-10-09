@@ -305,11 +305,16 @@ function keepOpen(abs, fd, st, { cwd, session, now, who }) {
       let good = false;
       try { good = sha(fs.readFileSync(blob)) === hash; } catch { good = false; }
       if (!good) {
-        const fd = fs.openSync(blob + '.tmp', 'w', 0o600);
-        let pending = null;
-        try { fs.writeFileSync(fd, buf); flushOrThrow(fd); } catch (e) { pending = e; throw e; }
-        finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
-        fs.renameSync(blob + '.tmp', blob);
+        /* A temp of its own (review 1): two keeps of the same content no longer share `<hash>.tmp`, where the second
+           one's rename failed and its keep went unrecorded. It still ends in `.tmp`, so sweep collects a dead one. */
+        const btmp = blob + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
+        try {
+          const fd = fs.openSync(btmp, 'wx', 0o600);
+          let pending = null;
+          try { fs.writeFileSync(fd, buf); flushOrThrow(fd); } catch (e) { pending = e; throw e; }
+          finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+          fs.renameSync(btmp, blob);
+        } catch (e) { try { fs.unlinkSync(btmp); } catch { /* not made */ } throw e; }
         syncDir(blobsDir());
       }
     }
@@ -449,7 +454,8 @@ function moveAside(from, to) {
   catch (err) { if (err && err.code !== 'EEXIST') { try { fs.unlinkSync(to); } catch { /* not made */ } } throw err; }   // no half copy left behind (review 3), never someone else's file (review 4)
   if (sha(fs.readFileSync(from)) !== sha(fs.readFileSync(to))) { try { fs.unlinkSync(to); } catch { /* left */ } throw new Error('copy differs'); }
   /* #5434 slice 13: the copy is flushed before the original is deleted, or a crash could leave the only copy as zeros. */
-  try { flushPath(to); syncDir(path.dirname(to)); } catch (err) { try { fs.unlinkSync(to); } catch { /* left */ } throw err; }
+  try { flushPath(to); syncDir(path.dirname(to)); syncDir(path.dirname(path.dirname(to))); }   // and the new folder's own entry (review 1)
+  catch (err) { try { fs.unlinkSync(to); } catch { /* left */ } throw err; }
   fs.unlinkSync(from);
 }
 
@@ -497,7 +503,11 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
         if (cur.kind === 'file') {
           fs.copyFileSync(f.path, keepAs, fs.constants.COPYFILE_EXCL);   // the current version, saved first; never over another save
           if (sha(fs.readFileSync(f.path)) !== sha(fs.readFileSync(keepAs))) throw new Error('save differs');
-          flushPath(keepAs);   // #5434 slice 13: on disk before the file it saves is replaced
+          // #5434 slice 13: on disk before the file it saves is replaced, its entry in this undo's new folder and that
+          // folder's entry in the saved root too (review 1: the bytes alone can survive a crash with no name to find them).
+          flushPath(keepAs);
+          syncDir(savedIn);
+          syncDir(path.dirname(savedIn));
         }
         const tmp = path.join(path.dirname(f.path), '.kosmos-undo-' + crypto.randomBytes(6).toString('hex'));
         /* The temp's REAL place, taken before it is written: a folder swapped afterwards must not stop it being
