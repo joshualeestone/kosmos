@@ -326,3 +326,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   tokenOnlySettingsRules' own stderr line repeats each tick for a folder with a pattern character; the r23 test
   cannot fail when run as root; the plan's "What changes" omits the setup-assistant exports (tokenOnlyTokenRoots,
   kosmosHome, tokenOnlySettingsRules, guardTokenOnlyFolder), named here.
+
+## Review 25 (sonnet), all fixed unless stated
+- A command was classed only on its first 4096 characters (padding hid a token read past them): past that, the board
+  token's or the token-only list's exact file name anywhere in the command (up to 1 MB, one linear search) is
+  board-files. Test.
+- The guard confirmation refreshed at 4 minutes, so every five-minute tick rewrote the state: it refreshes at half
+  the gap (5.5 minutes), every other tick. Test with ticks five minutes apart.
+- The two wall-clock timing tests: one widened to 2 s (the regression measured 3.7 s), the other has no time bound.
+- $PWD, ${PWD} and $(pwd) are the agent's own folder in the hidden-path hint. Test. The constants' comments are each
+  on their own line.
+- Stated: git without a URL is not network-host; a board program run as the program word is not a target; a relative
+  path resolves against the agent's folder though the shell may have cd'd elsewhere; a gap and a collision in one tick
+  keeps the collision only until the next tick.

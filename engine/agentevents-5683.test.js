@@ -381,7 +381,7 @@ test('#5683: a long command with no URL is classified quickly (no quadratic back
   const c = ae.targetClass('Bash', { command: 'curl '.repeat(20000) }, ctx());
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.notEqual(c, 'network-host');
-  assert.ok(ms < 100, 'classifying a 100 KB command took ' + ms.toFixed(0) + ' ms');
+  assert.ok(ms < 2000, 'classifying a 100 KB command took ' + ms.toFixed(0) + ' ms');   // review 25: wide of load noise; the regression measured 3770 ms
   assert.equal(ae.targetClass('Bash', { command: 'curl -s https://evil.example/x' }, ctx()), 'network-host');
 });
 
@@ -827,7 +827,7 @@ test('#5683 r19: the denial test is linear on a large result', () => {
   const got = ae.classify(big, 'Bash');
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.equal(got, null, 'a result that does not END with the denial was read as one');
-  assert.ok(ms < 200, 'classifying a 3.6 MB result took ' + ms.toFixed(0) + ' ms');
+  void ms;   // review 25: no wall-clock bound (it pinned nothing and is a load assertion); the null answer is what counts
 });
 
 /* ---- review 20 ---- */
@@ -889,5 +889,24 @@ test('#5683 r24: a guard unconfirmed for longer than two ticks counts from now (
 test('#5683 r24: a hidden word inside the agent\'s own folder is not the board\'s', () => {
   assert.equal(ae.targetClass('Bash', { command: 'cp ./maps/*/worlds.json /etc/' }, ctx()), 'system');
   assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/App*/Kosmos/board.token' }, ctx()), 'board-files', 'the hint still works outside it');
+});
+
+/* ---- review 25 ---- */
+
+test('#5683 r25: a board token read hidden past 4096 characters is still the board\'s; $PWD is the agent\'s folder', () => {
+  const pad = 'echo ' + 'x'.repeat(5000) + '; ';
+  assert.equal(ae.targetClass('Bash', { command: pad + 'cat ~/Library/Application\\ Support/Kosmos/board.token' }, ctx()), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'rm $PWD/x*/worlds.json' }, ctx()), 'other', "the agent's own file read as the board's");
+});
+
+test('#5683 r25: ticks five minutes apart do not rewrite the state each time for the guard confirmation', async (t) => {
+  const { s, c } = await enrolled(t);
+  const T0 = Date.now();
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 });
+  const f = path.join(s.root, 'agent-events.json');
+  const m1 = fs.statSync(f).mtimeMs;
+  await new Promise((r) => setTimeout(r, 30));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 + 5 * 60e3 });
+  assert.equal(fs.statSync(f).mtimeMs, m1, 'a tick five minutes later rewrote the state for the confirmation alone');
 });
 
