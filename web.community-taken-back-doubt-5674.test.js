@@ -47,7 +47,8 @@ test('#5674 CONTROL: every neighbour keeps its own words', () => {
   // Not taken back: an unverified post still waiting, or an unanswered keyless one nobody asked to delete.
   assert.equal(communityMineWord({ state: 'pending', unverified: true }), 'Not sent yet. Kosmos tries again every few minutes.');
   assert.notEqual(communityMineWord({ state: 'unconfirmed', agentKeyless: true }), DOUBT);
-  // A sent post with a live key comes down by the sweep, so the usual promise stands.
+  // A sent post comes down by the sweep with the key that sent it, so the usual promise stands. Decided: a post RESENT
+  // after an unverified settle is this case too; an older copy under the old account is not tracked (as the CLI).
   assert.match(communityMineWord({ state: 'sent', deleteRequested: true }), /^Deleting\./);
   // A refused agent is said as refused, first.
   assert.match(communityMineWord({ state: 'unconfirmed', deleteRequested: true, agentKeyless: true, agentRefused: true }), /refused this agent/);

@@ -32755,11 +32755,15 @@ function communityMineWord(r) {
   /* deleted first: deletes.json keeps every id the owner deleted, so deleteRequested stays
      true after the delete lands, and checking it first would say "Deleting" forever. */
   if (r.state === 'deleted') return 'Deleted from the community';
-  /* #5674: a post taken back while a copy MAY have arrived under a registration Kosmos no longer holds (#5636): settled
-     unverified and withheld (a still-waiting one was never taken back), or an unanswered post deleted while its agent has no key or another registration (sweepDeletes acts only
-     on sent posts, so "comes down within a few minutes" would never happen). One sentence, as the CLI says it. */
+  /* #5674: a post taken back while a copy MAY have arrived under a registration Kosmos no longer holds (#5636), worded
+     as the CLI's take-back words it (unconfirmed_keyless): settled unverified and then withheld (a still-waiting one was
+     never taken back), or an unanswered send deleted while its agent has no key or another registration (sweepDeletes
+     acts only on sent posts, so "comes down within a few minutes" would never happen).
+     Decided, as the CLI decides: once a post is RESENT under the new registration it is that copy Kosmos tracks, so a
+     later delete reads "Deleting" even though an older copy may also be up. And statuses() reads an unreadable keys
+     file as no keys, so for one refresh a live-key post can read this way; the next read corrects it. */
   if ((r.unverified && r.state === 'withheld')
-    || (r.deleteRequested && !r.agentRefused && (r.agentKeyless || r.agentOtherRegistration) && r.state !== 'sent')) {
+    || (r.deleteRequested && !r.agentRefused && (r.agentKeyless || r.agentOtherRegistration) && r.state === 'unconfirmed')) {
     return 'Taken back, so it won\'t be sent again. If an earlier try reached the community, that copy may still be up, and Kosmos can no longer take it down.';
   }
   if (r.state === 'withheld') return 'Deleted before it was sent';
