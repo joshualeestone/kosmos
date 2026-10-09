@@ -38,8 +38,8 @@ test('#5686: an agent\'s Claude and Gemini session folders and its own Codex rol
   try {
     const got = bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude], geminiHome: w.gemini, codexHome: w.codex });
     assert.deepEqual(got.roots, [
-      { name: 'sessions/mikey/claude', path: path.join(w.claude, 'projects', bs.flatten(w.agent)) },
-      { name: 'sessions/mikey/gemini', path: path.join(w.gemini, 'tmp', 'mikey-slug', 'chats') },
+      { name: 'sessions/mikey/claude', path: path.join(w.claude, 'projects', bs.flatten(w.agent)), optional: true },
+      { name: 'sessions/mikey/gemini', path: path.join(w.gemini, 'tmp', 'mikey-slug', 'chats'), optional: true },
     ]);
     const sessions = path.join(w.codex, 'sessions', '2026', '10', '09');
     // rollout-c names the folder with a trailing slash: the same folder on disk.
@@ -63,7 +63,7 @@ test('#5686: a Claude folder spelled two ways on disk (a symlinked agent folder)
     assert.deepEqual(got.roots.map((r) => r.path), [path.join(w.claude, 'projects', bs.flatten(w.agent))]);
     fs.mkdirSync(path.join(w.claude, 'projects', bs.flatten(link)));
     const two = bs.sessionsFor(link, { id: 'mikey', claudeRoots: [w.claude] });
-    assert.deepEqual(two.roots.map((r) => r.name), ['sessions/mikey/claude', 'sessions/mikey/claude-2']);
+    assert.deepEqual(two.roots.map((r) => r.name), ['sessions/mikey/claude', 'sessions/mikey/claude-raw']);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
@@ -77,6 +77,34 @@ test('#5686: on a case-insensitive volume, the agent folder spelled in another c
     // flatten(canonical) and flatten(as given) differ only in case: one folder, two names for it.
     const got = bs.sessionsFor(upper, { id: 'mikey', claudeRoots: [w.claude] });
     assert.equal(got.roots.length, 1, JSON.stringify(got.roots));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 6: a session folder that is a link out of its provider\'s folder is not returned', () => {
+  const w = world();
+  try {
+    // Claude's folder for this agent replaced by a link to the home folder; Gemini's chats by a link to another agent's.
+    const flat = path.join(w.claude, 'projects', bs.flatten(w.agent));
+    fs.rmSync(flat, { recursive: true }); fs.symlinkSync(w.base, flat);
+    const chats = path.join(w.gemini, 'tmp', 'mikey-slug', 'chats');
+    fs.rmSync(chats, { recursive: true }); fs.symlinkSync(w.other, chats);
+    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude], geminiHome: w.gemini }).roots, []);
+    // CONTROL: a link that stays inside the provider's folder is followed (another account's folder in the same root).
+    fs.rmSync(flat); fs.symlinkSync(path.join(w.claude, 'projects', bs.flatten(w.other)), flat);
+    assert.equal(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] }).roots.length, 1);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 6: a root\'s stored name depends on which config root and spelling, not on what else exists', () => {
+  const w = world();
+  try {
+    const second = path.join(w.base, '.claude-work');
+    fs.mkdirSync(path.join(second, 'projects', bs.flatten(w.agent)), { recursive: true });
+    const both = bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude, second] }).roots.map((r) => r.name);
+    assert.deepEqual(both, ['sessions/mikey/claude', 'sessions/mikey/claude-2']);
+    // The first account's folder gone: the second keeps its name.
+    fs.rmSync(path.join(w.claude, 'projects', bs.flatten(w.agent)), { recursive: true });
+    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude, second] }).roots.map((r) => r.name), ['sessions/mikey/claude-2']);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
