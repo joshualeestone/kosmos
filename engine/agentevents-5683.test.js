@@ -367,3 +367,12 @@ test('#5683 r2: words withdrawn while the transcripts are read stop the send', a
   await ae.tick({ root: s.root, remote: c, sources: during, now: Date.now() });
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'sent after the words were withdrawn mid-tick');
 });
+
+test('#5683: a long command with no URL is classified quickly (no quadratic backtracking)', () => {
+  const t0 = process.hrtime.bigint();
+  const c = ae.targetClass('Bash', { command: 'curl '.repeat(20000) }, ctx());
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.notEqual(c, 'network-host');
+  assert.ok(ms < 100, 'classifying a 100 KB command took ' + ms.toFixed(0) + ' ms');
+  assert.equal(ae.targetClass('Bash', { command: 'curl -s https://evil.example/x' }, ctx()), 'network-host');
+});
