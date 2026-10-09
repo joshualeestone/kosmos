@@ -966,3 +966,14 @@ test('#5683 r28: a guard gap and a collision in one tick keep the collision', as
   assert.ok(st.collided.includes('A'), 'the gap erased the collision mark');
 });
 
+/* ---- review 29 ---- */
+
+test('#5683 r29: two token-only agents sharing a transcript folder are neither read (the console would name the wrong one)', async (t) => {
+  const { s, c } = await enrolled(t);
+  const read = [];
+  const src = { agents: () => ['a', 'b'], everyAgent: () => ['a', 'b'], guarded: () => true, dirOf: (n) => '/w/' + n,
+    transcriptDirsOf: () => ['/p/shared'], transcripts: async (d) => { read.push(d); return []; } };
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.deepEqual(read, [], 'a folder shared by two read agents was read');
+});
+
