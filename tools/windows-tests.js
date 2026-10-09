@@ -56,6 +56,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'personfsync-5434.test.js',   // #5434 slice 9: ~/.claude.json and agy settings saves, on Windows too
   'agyhooks.fsync-5434.test.js',   // #5434 slice 10: agy's .agents/hooks.json save, on Windows too
   'setupsettings.fsync-5434.test.js',   // #5434 slice 11: the guard's Claude Code settings saves, on Windows too
+  'instructions.fsync-5434.test.js',   // #5434 slice 12: an agent's brief and its kept previous version, on Windows too
   'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
   'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too

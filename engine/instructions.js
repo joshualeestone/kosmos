@@ -31,7 +31,7 @@ const crypto = require('node:crypto');
 const store = require('./store');
 const { transcriptForSession, sessionStartedAtFromTmux } = require('./status');
 const workerfile = require('./workerfile');
-const { refuseSymlinkTarget } = require('./securewrite');
+const { refuseSymlinkTarget, flushOrThrow, syncDir } = require('./securewrite');
 
 /* The backup write's symlink guard, kept behind a seam (#1777 item 3). `O_NOFOLLOW` is
    UNDEFINED on win32 and `X | undefined === X`, so the flag alone would silently vanish on the
@@ -783,7 +783,16 @@ function write(agent, text, expectedVersion, exactSession, by) {
     // to look covered: moving this back to a post-hoc chmod leaves the suite
     // green.
     const mode = before ? (before.mode & 0o777) : 0o644;
-    fs.writeFileSync(tmp, body, { flag: 'wx', mode });
+    // #5434 slice 12: written through a descriptor and FLUSHED before the rename below makes it the brief, so a
+    // crash cannot leave CLAUDE.md / AGENTS.md at full length but zero-filled (#5431): the agent would start with
+    // no instructions at all. `wx` and the mode at create are unchanged. A flush that fails throws into the catch
+    // below, which removes the temp and refuses the save; the old brief stays (securewrite.flushOrThrow: "cannot
+    // flush" on this file system is not a failure).
+    const tfd = fs.openSync(tmp, 'wx', mode);
+    try {
+      fs.writeFileSync(tfd, body);
+      flushOrThrow(tfd);
+    } finally { fs.closeSync(tfd); }
     // And restore exactly, because the umask may have narrowed it. A failure
     // here is a real failure, not a best effort: silently handing back
     // permissions other than the ones the file had is the bug above.
@@ -883,6 +892,9 @@ function write(agent, text, expectedVersion, exactSession, by) {
         fs.ftruncateSync(pfd, 0);
         fs.fchmodSync(pfd, mode);
         fs.writeFileSync(pfd, shown.text);
+        // #5434 slice 12: the backup is flushed too, best effort like the rest of this block: a backup that is not
+        // on disk must not be claimed, so a failed flush leaves keptPrevious false.
+        flushOrThrow(pfd);
         keptPrevious = true;
       } catch {
         // A backup that could not be written must never block the save. It
@@ -894,6 +906,8 @@ function write(agent, text, expectedVersion, exactSession, by) {
     }
 
     fs.renameSync(tmp, file);
+    // #5434 slice 12: and the folder, so the rename itself survives a crash (POSIX only; best effort, never throws).
+    syncDir(path.dirname(file));
   } catch {
     // Any failure between the write and the rename otherwise leaves the temp
     // file beside the real one forever.
