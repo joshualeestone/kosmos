@@ -174,3 +174,12 @@ test('#5434: a keep that fails part way (after its temp exists) leaves no temp a
   assert.deepEqual(left, [], 'a keep that failed part way left its temp');
   assert.deepEqual(fs.readFileSync(store.avatarPath('hal')), PNG, 'the picture changed');
 });
+
+test('#5434: store.js copied ALONE still loads and reads its ROOT (the kosmos CLI\'s board_token needs no sibling)', (t) => {
+  const kh = fs.mkdtempSync(path.join(os.tmpdir(), 'storealone-'));
+  t.after(() => fs.rmSync(kh, { recursive: true, force: true }));
+  fs.copyFileSync(path.join(__dirname, 'store.js'), path.join(kh, 'store.js'));
+  const out = require('node:child_process').execFileSync(process.execPath, ['-e', 'process.stdout.write(require(process.argv[1]).ROOT)', path.join(kh, 'store.js')],
+    { env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'alone') }, encoding: 'utf8' });
+  assert.ok(out.startsWith(path.join(SB, 'alone')), 'store.js alone did not load or did not read its ROOT: ' + out);
+});
