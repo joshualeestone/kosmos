@@ -50,7 +50,7 @@ function set(patch) {
   }
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    require('./store').saveFlushed(FILE, JSON.stringify({ maxWorking: p.maxWorking }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
+    store.saveFlushed(FILE, JSON.stringify({ maxWorking: p.maxWorking }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };

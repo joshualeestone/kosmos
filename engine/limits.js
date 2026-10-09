@@ -71,7 +71,7 @@ function write({ on, perHour }) {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
     // A unique temp per save (store.saveFlushed), so even two processes cannot
     // interleave one temp; the rename keeps the file itself untearable.
-    require('./store').saveFlushed(FILE, JSON.stringify({ on, perHour }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
+    store.saveFlushed(FILE, JSON.stringify({ on, perHour }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };

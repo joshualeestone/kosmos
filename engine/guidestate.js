@@ -54,7 +54,7 @@ function record(outcome) {
   // Write-then-rename, so a read overlapping the write never sees a half file (which would read
   // as "no record" and report a change that did not happen).
   try {
-    require('./store').saveFlushed(file(), JSON.stringify({ state, reason, at }) + '\n');   // #5434 slice 19: flushed before the rename; its temp is removed on failure
+    store.saveFlushed(file(), JSON.stringify({ state, reason, at }) + '\n');   // #5434 slice 19: flushed before the rename; its temp is removed on failure
   } catch {
     return { changed: false };
   }

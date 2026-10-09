@@ -51,6 +51,7 @@ const limits = require('./limits');
 const autoupdate = require('./autoupdate');
 const heartbeat = require('./heartbeat-setting');
 const firstrun = require('./firstrun');
+const guidestate = require('./guidestate');
 
 const DRIVEN = [
   ['engmode', engmode.FILE, () => engmode.write({ on: true })],
@@ -58,6 +59,7 @@ const DRIVEN = [
   ['autoupdate', autoupdate.FILE, () => autoupdate.write({ on: false })],
   ['heartbeat', heartbeat.FILE, () => heartbeat.setOn(true)],
   ['first-run flag', firstrun.FLAG, () => firstrun.complete()],
+  ['setup-guide state', guidestate.file(), () => guidestate.record({ state: 'seeded', reason: 'test' })],
 ];
 
 for (const [name, file, save] of DRIVEN) {
@@ -79,13 +81,25 @@ test('#5434 engmode: a save whose flush fails is refused and leaves the file as 
   assert.equal(fs.readFileSync(engmode.FILE, 'utf8'), before);
 });
 
+test('#5434 setup-guide state: a save whose flush fails is swallowed as before and leaves the file as it was (review 1)', () => {
+  guidestate.record({ state: 'off', reason: 'before' });
+  const before = fs.readFileSync(guidestate.file(), 'utf8');
+  const isTemp = (p) => p.startsWith(guidestate.file() + '.kosmos-') && p.endsWith('.tmp');
+  const { events, out, err } = recording(() => guidestate.record({ state: 'refused', reason: 'after' }), isTemp);
+  assert.ok(events.some((e) => e[0] === 'fsync' && isTemp(e[1] || '')), 'the temp was never flushed, so this tests nothing');
+  assert.equal(err, null, 'record() threw; it never throws');
+  assert.deepEqual(out, { changed: false });
+  assert.equal(fs.readFileSync(guidestate.file(), 'utf8'), before);
+});
+
 test('#5434: all fourteen writers save through store.saveFlushed, with no bare rename left', () => {
   const files = ['agycap-setting.js', 'assigner-setting.js', 'autoupdate.js', 'communityindustry.js', 'communityswitch.js',
     'engmode.js', 'feedbacksend.js', 'heartbeat-setting.js', 'limits.js', 'ping.js', 'recommender-setting.js', 'tips.js',
     'guidestate.js', 'firstrun.js'];
   for (const f of files) {
     const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
-    assert.match(src, /saveFlushed\(/, f + ': not saved through store.saveFlushed');
+    // the CALL, not a mention in a comment (review 1)
+    assert.match(src, /^[^\n/]*(?:store|require\('\.\/store'\))\.saveFlushed\(/m, f + ': not saved through store.saveFlushed');
     assert.doesNotMatch(src, /renameSync\(/, f + ': still renames a hand-made temp');
   }
 });
