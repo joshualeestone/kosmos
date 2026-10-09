@@ -30,6 +30,21 @@ test('#5686 deny-list: Kosmos credential stores in the data root are skipped by 
   }
 });
 
+test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, whatever shape the writer names it', () => {
+  for (const p of ['Kosmos/remote/install_key', 'worlds/w1/Kosmos/remote/install_key', 'Kosmos/remote/.mac_key.tmp',
+    'Kosmos/remote/.install_key.tmp', 'Kosmos/remote/.tls.key.tmp', 'Kosmos/remote/.signin-device.key.tmp',
+    'Kosmos/remote/signin-device.key.new-4711-0a1b2c', 'Kosmos/.board.token.4711.primary.tmp',
+    'Kosmos/board.token.kosmos-1-t0-2-3.tmp', 'acct/auth.json.kosmos-1-t0-2-3.tmp', 'Kosmos/win32-channel/a.key.tmp',
+    'agents/a/.env.kosmos-9-t1-2-3.tmp', 'Kosmos/fed-seal-key.json.4711.0a1b2c3d4e5f.tmp', 'worlds/w1/Kosmos/remote/.mac_key.tmp']) {
+    assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
+  }
+  for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
+    'Kosmos/remote/.pending.json.tmp', 'Kosmos/.chats.tmp', 'projects/site/build.new-version.md', 'agents/a/keys.md.tmp',
+    'agents/a/.tmp', 'agents/a/a..b.tmp', 'agents/a/secrets.md', 'agents/a/server.key.md', 'agents/a/id_rsa.md']) {
+    assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
+  }
+});
+
 test('#5535 deny-list: credential-shaped paths are skipped by name; ordinary work files are not', () => {
   for (const p of ['.env', 'agents/a/.env.local', 'keys/server.pem', 'x/id_ed25519', 'x/id_rsa.pub', 'home/.ssh/config',
     '.npmrc', 'proj/.git/config', '.config/gh/hosts.yml', 'agents/b/.claude/.credentials.json', '.codex/auth.json',

@@ -63,17 +63,18 @@ const DENY = [
   // #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
   // inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
   // supervisor's launch secrets (bin/agent-supervisor.sh), each agent's Kosmos+ community key (engine/communitysend.js
-  // keysFile), and this board's sealing key and room keys (engine/fedseal.js). A file rule also takes any suffix, so
-  // the writer's temp file (name.<hex>.tmp, left by a crash or caught mid-save) is denied with it.
+  // keysFile), and this board's sealing key and room keys (engine/fedseal.js). A writer's temp copy of any denied file
+  // is denied with it by tempOrigins below, whatever shape the writer names it.
   [/(^|\/)sendertokens\//i, 'Kosmos agent tokens'],
   [/(^|\/)launch-secrets\//i, 'Kosmos launch secrets'],
   [/(^|\/)communitysend\/[^/]+\/keys\.json(\.[^/]*)?$/i, 'Kosmos+ community agent keys'],
   [/(^|\/)fed-seal-(key|rooms)\.json(\.[^/]*)?$/i, 'Kosmos room sealing keys'],
-  // Review 2's sweep of every owner-only writer: the Mac's signing key for the tunnel (engine/remote.js, no extension,
-  // so the .key rule misses it), the phone notify-only token (engine/phonenotify.js), and a provider account's
+  // Review 2's sweep of every owner-only writer: the Mac's signing keys for the tunnel (mac_key, engine/remote.js; and
+  // install_key, written by the connector, kosmos-relay crates/tunnel/src/assistant.rs; no extension, so the .key rule
+  // misses them), the phone notify-only token (engine/phonenotify.js), and a provider account's
   // API key file (claudeaccounts, geminiaccounts, grokaccounts). remote/'s other files (mac_id, pending.json, tls.crt)
   // name the Mac or hold its public certificate, and are kept; a person's own folder called remote/ is untouched.
-  [/(^|\/)remote\/mac_key(\.[^/]*)?$/i, 'Kosmos Mac signing key'],
+  [/(^|\/)remote\/(mac_key|install_key)(\.[^/]*)?$/i, 'Kosmos Mac signing key'],
   [/(^|\/)remote\/phone-notify\.json(\.[^/]*)?$/i, 'Kosmos phone notify token'],
   [/(^|\/)\.kosmos-[a-z0-9]+-apikey(\.[^/]*)?$/i, 'provider API key'],
   [/(^|\/)(cookies|login data|web data|local state)(-journal)?$/i, 'browser profile store'],
@@ -87,7 +88,30 @@ function pathDecision(rel) {
   if (p.startsWith('/') || p.split('/').includes('..')) return { include: false, why: 'path outside the work Kosmos' };
   if (TEMPLATE.test(p)) return { include: true };
   for (const [re, why] of DENY) if (re.test(p)) return { include: false, why };
+  for (const origin of tempOrigins(p)) {
+    for (const [re, why] of DENY) if (re.test(origin)) return { include: false, why: `${why} (a temp copy being written)` };
+  }
   return { include: true };
+}
+
+/* #5686 review 3: a writer's temp copy is named AROUND the file it replaces, so a rule anchored on the end of the
+   name never sees it: `.mac_key.tmp` and `.tls.key.tmp` (the connector's atomic writes), `.board.token.<pid>.primary.tmp`
+   (boardauth), `auth.json.kosmos-<pid>-t<n>-...tmp` (engine/securewrite.js), `signin-device.key.new-<pid>-<hex>` (the
+   device key's staging). One left by a crash, or caught mid-write, holds the same secret. So a TEMP-SHAPED name
+   (ending .tmp, or carrying a .new- staging suffix) is also judged as every name it could be a copy of: each run of
+   its leading dot-separated parts, with and without a leading dot. Only temp-shaped names are widened, so an ordinary
+   file such as secrets-plan.md or notes.md is judged as itself. */
+function tempOrigins(p) {
+  const cut = p.lastIndexOf('/') + 1;
+  const dir = p.slice(0, cut);
+  const base = p.slice(cut);
+  if (!/\.tmp$/i.test(base) && !/\.new-[^/]*$/i.test(base)) return [];
+  const out = new Set();
+  for (const b of base.startsWith('.') ? [base, base.slice(1)] : [base]) {
+    const parts = b.split('.');
+    for (let k = 1; k < parts.length; k++) if (parts.slice(0, k).join('.')) out.add(dir + parts.slice(0, k).join('.'));
+  }
+  return [...out];
 }
 
 /** True when realPath (symlinks already resolved) is root itself or inside it. Both absolute. */
