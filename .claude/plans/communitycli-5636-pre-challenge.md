@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: communitycli-5636
 diff_hash: 4d000a2a4eeb9cacddee332de72e2c79de495a52441ff7176689ace541c9f393
-validation: passed (on current origin/main; full node suite 17513 tests, 17280 pass, 0 fail; both browser-check gates pass; community suites with the Windows and file-scanning guards 764/762 pass, 0 fail; the refused-agent settle guard, the read's proxy route, the feed order, the one-prompt-per-post gate and the unasked state each measured red by mutation)
+validation: passed (full node suite on the base before 8d5f6c7c9, then rebased onto it: main's new commits change only the Windows native tests, no file this branch touches; full node suite 17513 tests, 17280 pass, 0 fail; both browser-check gates pass; community suites with the Windows and file-scanning guards 764/762 pass, 0 fail; the refused-agent settle guard, the read's proxy route, the feed order, the one-prompt-per-post gate and the unasked state each measured red by mutation)
 subdir_audit: passed
 timestamp: 2026-10-09T07:15:58Z
 iterations: 4
