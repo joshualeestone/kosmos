@@ -248,9 +248,16 @@ async function enrolled(t) {
 
 test('#5683 r1: an event from the future is not sent (it would cost its whole batch)', async (t) => {
   const { s, c } = await enrolled(t);
-  append(s.file, use('fut', 'Bash', { command: 'x' }, Date.now() + 3600e3), result('fut', DENIED('x'), true, Date.now() + 3600e3));
+  /* Review 36: with no earlier tick the agent was first listed in this one and its file skipped to the end unread, so
+     the test passed with the filter removed. Listed first; a present-time refusal beside it is the control. */
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
-  assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'an event an hour ahead was sent');
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('fut', 'Bash', { command: 'x' }, Date.now() + 3600e3), result('fut', DENIED('x'), true, Date.now() + 3600e3),
+    use('nowr', 'Bash', { command: 'x' }), result('nowr', DENIED('x'), true));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.ok(refs.includes('nowr'), 'the control refusal was not sent, so the file was not read');
+  assert.equal(refs.includes('fut'), false, 'an event an hour ahead was sent');
 });
 
 test('#5683 r1: the company changing its words stops the sends; words accepted again send nothing from the gap', async (t) => {
@@ -368,11 +375,15 @@ test('#5683 r2: words withdrawn while the transcripts are read stop the send', a
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('lv', 'Bash', { command: 'x' }), result('lv', DENIED('x'), true));
   const src = s.sources();
-  const during = { agents: src.agents, dirOf: src.dirOf, transcripts: async (d) => {
+  /* Review 36: the sources lacked everyAgent, transcriptDirsOf and guarded, so the tick returned before reading. */
+  let read = false;
+  const during = { ...src, transcripts: async (d) => {
+    read = true;
     await oe.consentWithdrawn({ root: s.root }, oe.readEnrollment({ root: s.root }).consentHash);   // mid-scan
     return src.transcripts(d);
   } };
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: during, now: Date.now() });
+  assert.ok(read, 'the transcripts were never read, so the withdrawal never happened mid-scan');
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'sent after the words were withdrawn mid-tick');
 });
 
@@ -451,9 +462,20 @@ test('#5683 r3: a recently written transcript holding old lines sends none of th
   const fresh = path.join(path.dirname(s.file), 'recent-old-lines.jsonl');
   const old = Date.now() - 3600e3;
   fs.writeFileSync(fresh, use('ol', 'Bash', { command: 'x' }, old) + '\n' + result('ol', DENIED('x'), true, old) + '\n');   // mtime: now
-  const src = { agents: () => ['Scout'], everyAgent: () => ['Scout'], transcriptDirsOf: (d) => ['/p' + d], guarded: () => true, dirOf: () => '/w/scout', transcripts: async () => [fresh] };
+  /* Review 36: in the agent's first-listed tick a file skips to its end unread, so this exercised the skip. The agent is
+     listed first with no files; the file appears after, and a fresh refusal in it is the control. */
+  let files = [];
+  const src = { agents: () => ['Scout'], everyAgent: () => ['Scout'], transcriptDirsOf: (d) => ['/p' + d], guarded: () => true, dirOf: () => '/w/scout', transcripts: async () => files };
+  fs.rmSync(fresh);
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
-  assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'an hour-old refusal in a fresh file was sent');
+  await new Promise((r) => setTimeout(r, 2100));   // past the "listed this tick" second (a file then starts at its end)
+  fs.writeFileSync(fresh, use('ol', 'Bash', { command: 'x' }, old) + '\n' + result('ol', DENIED('x'), true, old) + '\n' +
+    use('nw', 'Bash', { command: 'x' }) + '\n' + result('nw', DENIED('x'), true) + '\n');
+  files = [fresh];
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.ok(refs.includes('nw'), 'the control refusal was not sent, so the file was not read from its start');
+  assert.equal(refs.includes('ol'), false, 'an hour-old refusal in a fresh file was sent');
 });
 
 /* ---- review 4 ---- */
@@ -1113,4 +1135,75 @@ test('#5683 r35: a bracket class keeps its typed case (negation and mixed-case r
   // a class that excludes the board folder's letter still does
   assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosm[!o]s/b*' }, c), 'home');
   assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosmo[!k-z]/b*' }, c), 'home');
+});
+
+/* ---- review 36 ---- */
+
+test('#5683 r36: refusals made while the Kosmos was not reporting (a Leave the company refused) are not sent', async (t) => {
+  for (const arm of ['without', 'with']) {
+    const { s, c } = await enrolled(t);
+    await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+    await new Promise((r) => setTimeout(r, 1100));
+    const enr = fs.readdirSync(s.root).map((f) => path.join(s.root, f)).filter((f) => /enroll/i.test(path.basename(f)) && fs.statSync(f).isFile());
+    assert.ok(enr.length >= 1, 'no enrollment file found to remove');
+    const saved = enr.map((f) => [f, fs.readFileSync(f)]);
+    for (const [f] of saved) fs.rmSync(f);   // Leave pressed: the enrollment is cleared
+    if (arm === 'with') ae.markWithdrawn(s.root);   // what the server's timer does while it is not enrolled here
+    append(s.file, use('left-' + arm, 'Bash', { command: 'x' }), result('left-' + arm, DENIED('x'), true));
+    for (const [f, b] of saved) fs.writeFileSync(f, b);   // the company refused the Leave: the SAME record back
+    await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+    const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+    if (arm === 'without') assert.ok(refs.includes('left-without'), 'control: the gap is not sent even unmarked, so this test cannot fail');
+    else assert.equal(refs.includes('left-with'), false, 'a refusal from while it was not reporting was sent');
+  }
+});
+
+test('#5683 r36: the server timer marks the state withdrawn when this is not the work Kosmos', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const fn = src.slice(src.indexOf('function agentEventsTick()'), src.indexOf('function agentEventsTick()') + 1200);
+  assert.match(fn, /if \(!require\('\.\/engine\/orgenroll'\)\.isEnrolledHere\(\)\) \{ require\('\.\/engine\/agentevents'\)\.markWithdrawn\(\); return; \}/);
+});
+
+test('#5683 r36: withdrawal keeps no queue, and a bad queue entry or send size is dropped on read', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const file = path.join(s.root, 'agent-events.json');
+  const st = JSON.parse(fs.readFileSync(file, 'utf8'));
+  st.pending = [null, 5, { at: 'x' }, { at: Math.floor(Date.now() / 1000), kind: 'refused' }];
+  st.sendMax = -3;
+  fs.writeFileSync(file, JSON.stringify(st));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // does not throw on null
+  ae.markWithdrawn(s.root);
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(after.withdrawn, true);
+  assert.deepEqual(after.pending, [], 'a queue was kept after withdrawal');
+});
+
+test('#5683 r36: a halved send size resets once the backlog drains', async (t) => {
+  const { s } = await enrolled(t);
+  let big = true;
+  const sizes = [];
+  const c = coordinator((body) => { sizes.push(body.events.length); return big && body.events.length > 1 ? { ok: false, because: '413 {"code":"org_agent_events_too_big"}' } : { ok: true, data: { ok: true } }; });
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('a1', 'Bash', { command: 'x' }), result('a1', DENIED('x'), true), use('a2', 'Bash', { command: 'x' }), result('a2', DENIED('x'), true));
+  for (let i = 0; i < 4; i++) await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  big = false;
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, ...['b1', 'b2', 'b3'].flatMap((id) => [use(id, 'Bash', { command: 'x' }), result(id, DENIED('x'), true)]));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(sizes[sizes.length - 1], 3, 'the send size stayed halved after the backlog drained: ' + sizes.join(','));
+});
+
+test('#5683 r36: a path held in a variable or behind a command substitution is still the board\'s', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  for (const cmd of [
+    'T=~/Library/Application\\ Support/Kosmos/board.token; cat "$T"',
+    'export T=~/Library/Application\\ Support/Kosmos/board.token; cat $T',
+    'cat $(echo ~)/Library/Application\\ Support/Kosmos/board.token',
+  ]) assert.equal(ae.targetClass('Bash', { command: cmd }, c), 'board-files', cmd);
+  assert.equal(ae.targetClass('Bash', { command: 'echo $(cat /etc/passwd)' }, c), 'system');   // the inside is a command
+  assert.equal(ae.targetClass('Bash', { command: 'x=$(date +%s); echo $x' }, c), 'other');
 });

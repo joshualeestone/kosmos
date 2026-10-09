@@ -116,16 +116,19 @@ function targetClass(tool, input, ctx) {
       let takesValue = false;
       let prog = '';   // the program of the current command (review 32)
       let prevW = '';
+      /* The value of NAME=value is a path too (review 36: T=.../board.token; cat "$T" named the token only there). */
+      const val = (w) => { const v = w.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, '').replace(/^\$\{HOME\}|^\$HOME/, '~'); if (/[*?$`[{]/.test(v)) hidden.push(v); if (/^(~|\/|\.\.?\/)/.test(v)) paths.push(v); };
       for (const { w, first: f0 } of words) {
         const prev = prevW; prevW = w;
         if (f0) prog = '';
         let first = f0 || wrapped;
         if (wrapped && takesValue) { takesValue = false; continue; }   // the value of -u, -g, -n... (review 19)
         if (wrapped && /^-[ugnpUCDTrt]$/.test(w)) { takesValue = true; continue; }
-        if (wrapped && (/^-/.test(w) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || /^\d+[smhd]?$/.test(w))) continue;   // its options, K=V, a duration
+        if (wrapped && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { val(w); continue; }   // K=V (its value is looked at)
+        if (wrapped && (/^-/.test(w) || /^\d+[smhd]?$/.test(w))) continue;   // its options, a duration
         wrapped = false;
         if (first && /^(sudo|env|timeout|nice|nohup|command|xargs|time|exec|doas)$/.test(path.basename(w))) { wrapped = true; continue; }
-        if (first && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { wrapped = true; continue; }   // FOO=1 curl ... (review 14)
+        if (first && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { val(w); wrapped = true; continue; }   // FOO=1 curl ... (review 14)
         if (first) {
           /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
              URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
@@ -142,11 +145,20 @@ function targetClass(tool, input, ctx) {
            only as the script of a shell's -c or of eval, and then it is split and never one path (its first word is a
            program, not a target). Anywhere else it is ONE argument, so one path, whatever it holds ("R & D", "Tom &
            Jerry"); it is also split, which can only find more. */
+        /* The inside of each $( ... ) is a command of its own (review 36). */
+        if (depth === 0 && w.includes('$(')) {
+          for (let i = w.indexOf('$('); i >= 0; i = w.indexOf('$(', i + 2)) {
+            let d = 0; let j = i + 1;
+            for (; j < w.length; j++) { if (w[j] === '(') d++; else if (w[j] === ')' && --d === 0) break; }
+            look(shellWords(w.slice(i + 2, j)), 1);
+          }
+        }
         if (depth === 0 && /\s/.test(w)) {
           look(shellWords(w), 1);
           if ((/^(sh|bash|zsh|dash|ksh|fish|su)$/.test(prog) && /^-[A-Za-z]*c$/.test(prev)) || prog === 'eval') continue;
         }
-        let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^-[A-Za-z](?=[/~.])/, '').replace(/^@/, '');   // -C/dir too
+        /* --x=value and NAME=value (export T=..., review 36) both name their value. */
+        let v = w.replace(/^(--?[A-Za-z-]+|[A-Za-z_][A-Za-z0-9_]*)=/, '').replace(/^-[A-Za-z](?=[/~.])/, '').replace(/^@/, '');   // -C/dir too
         v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
         if (/^\/dev\//.test(v)) continue;   // a redirect to /dev/null is not a target (review 8)
         if (/[*?$`[{]/.test(v)) hidden.push(v);   // [ and { are globs too (review 32: Kosm[o]s, Kosmo{s,})
@@ -326,6 +338,12 @@ function shellWords(cmd) {
       else if (ch === '\\' && q === '"' && cmd[i + 1] === '\n') i++;   // a line continuation is dropped (review 31)
       else if (ch === '\\' && q === '"' && i + 1 < cmd.length) cur += /[$`"\\]/.test(cmd[i + 1]) ? cmd[++i] : ch;
       else cur += ch;
+    } else if (ch === '$' && cmd[i + 1] === '(') {
+      /* A command substitution is part of the word it sits in (review 36: split at its parentheses, $(echo ~)/.../board.token
+         left a plain /Library path); its inside is looked at by targetClass. Balanced, linear. */
+      let d = 0; let j = i;
+      for (; j < cmd.length; j++) { if (cmd[j] === '(') d++; else if (cmd[j] === ')' && --d === 0) break; }
+      cur += cmd.slice(i, Math.min(j + 1, cmd.length)); any = true; i = j;
     } else if (ch === "'" || ch === '"') { q = ch; any = true; }
     else if (ch === '\\' && cmd[i + 1] === '\n') i++;   // a line continuation joins the word (review 31: board.\<newline>token)
     else if (ch === '\\' && i + 1 < cmd.length) { cur += cmd[++i]; any = true; }
@@ -460,10 +478,22 @@ function readState(root) {
     const j = JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8'));
     const obj = (v) => (v && typeof v === 'object' ? v : {});
     const nums = (v) => Object.fromEntries(Object.entries(obj(v)).filter(([, x]) => Number.isFinite(x) && x >= 0));   // review 24
-    return { offsets: nums(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
-      confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
+    /* Queue entries and the send size are checked as offsets are (review 36: a null entry threw on every tick). */
+    const pend = Array.isArray(j && j.pending) ? j.pending.filter((e) => e && typeof e === 'object' && Number.isFinite(e.at)) : [];
+    return { offsets: nums(j && j.offsets), pending: pend, listed: obj(j && j.listed),
+      confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isInteger(j.sendMax) && j.sendMax >= 1 ? j.sendMax : null,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
   } catch { return { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, enrolledAs: null, since: null, failAt: null }; }
+}
+
+/* Not reporting now, for any reason (no accepted words, or no enrollment at all: review 36, a Leave the company then
+   refused wrote the SAME record back, and the reads in between were sent): a state that was reporting is marked
+   withdrawn with no queue kept (review 19), so reporting again starts from then and nothing from the gap is sent.
+   Reads only the state file; no transcript is opened. The server's timer calls it when this is not the work Kosmos. */
+function markWithdrawn(root0) {
+  const root = root0 || require('./store').ROOT;
+  const w = readState(root);
+  if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; w.pending = []; writeState(root, w); }
 }
 
 function writeState(root, st) {   // whole or not at all; owner-only
@@ -549,13 +579,7 @@ async function tick(opts) {
       /* Review 17: words can be lost without a 409 here (the rollup's own 409, a refresh). While enrolled with no words
          accepted, the state is marked withdrawn, so words accepted again (even the same) start clean and nothing from
          the gap is sent. */
-      try {
-        if (oe.readEnrollment(eo)) {
-          const r0 = o.root || require('./store').ROOT;
-          const w = readState(r0);
-          if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; w.pending = []; writeState(r0, w); }   // review 19: no queue kept
-        }
-      } catch { /* the next tick tries again */ }
+      try { markWithdrawn(o.root); } catch { /* the next tick tries again */ }
       return { sent: 0, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
     }
     const rec = oe.readEnrollment(eo);
@@ -804,5 +828,5 @@ async function tick(opts) {
   }
 }
 
-module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick,
+module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn,
   _defaultSources: defaultSources };   // the guard check's round-trip test (review 17)
