@@ -724,7 +724,9 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
    inside scripts, what shell startup adds to PATH, a link held in an ancestor of the agent folder (such as /var in /),
    replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
-   files (MCP servers, hooks, plugins, the status line) and the code in shell startup files. Both layers match by
+   files (MCP servers, hooks, plugins, the status line), the code in shell startup files, and what a file the start
+   reads can pull in or run in turn (tmux includes, run-shell and plugins; config other started programs read, such as
+   git's). Program files are named to the file tools only (review 23: the sandbox profile has a size limit). Both layers match by
    PATH, so a hard link to a user-owned program made under another name is not covered either (as #4491 says of the
    token), nor is a soft link the agent makes itself in its own folder or in temp and then uses with the file tools
    (the file-tool layer rests on Claude Code resolving links before it matches; the sandbox layer matches resolved
@@ -869,6 +871,15 @@ function launchPathDirs(agentDir, deps = {}) {
       if (!dirs.includes(d)) dirs.push(d);
       continue;
     }
+    /* Review 23 (MEASURED): a program's own file goes to the file tools only. The sandbox refuses a profile past 64 KB of
+       data (5,000 file paths failed every command; 500 added about 40 ms to each), deny lists only grow with upgrades,
+       and the sandboxed shell cannot write outside the agent folder and the temp folders anyway. A program file in a
+       temp folder is therefore said. The files the start reads (few, fixed) keep both layers. */
+    if (f.prog) {
+      if (f.inTemp && !rel(fold(d), ownF)) unsafe.push(`${f.shown} (it ends in ${f.real}, in a temp folder the agent's shell can write)`);
+      if (!linkNames.includes(f.real)) linkNames.push(f.real);
+      continue;
+    }
     if (!files.includes(f.real)) files.push(f.real);
   }
   for (const ad of patAliases) if (dirs.includes(realOrLeaf(ad)) && ad !== realOrLeaf(ad) && !aliases.includes(ad)) aliases.push(ad);
@@ -961,20 +972,20 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
     if (p === real || p.split(path.sep).some((x) => x === '.' || x === '..')) return;
     cands.push({ kind: 'alias', link: p, shown });
   };
-  const follow = (p0, shown, inCovered) => {
+  const follow = (p0, shown, inCovered, prog) => {
     let p = p0;
     for (let hop = 0; ; hop++) {
       const covered = hop === 0 && inCovered;
       let st;
       try { st = fs.lstatSync(p); } catch {   // dangling (review 13): what is later made at that exact name runs
         const at = folderOf(p, shown);
-        if (!wholeDirs.has(at)) { files.push({ real: path.join(at, path.basename(p)), shown }); alias(p, path.join(at, path.basename(p)), shown); }
+        if (!wholeDirs.has(at)) { files.push({ real: path.join(at, path.basename(p)), shown, prog }); alias(p, path.join(at, path.basename(p)), shown); }
         return;
       }
       if (st.isDirectory()) return;   // a folder, not a program (its own name is not run)
       const at = covered ? null : folderOf(p, shown);
       const named = at !== null && !wholeDirs.has(at);
-      if (!st.isSymbolicLink()) { if (named) { files.push({ real: path.join(at, path.basename(p)), shown }); alias(p, path.join(at, path.basename(p)), shown); } return; }
+      if (!st.isSymbolicLink()) { if (named) { files.push({ real: path.join(at, path.basename(p)), shown, prog }); alias(p, path.join(at, path.basename(p)), shown); } return; }
       /* Review 19: a link that leads to a FOLDER is never named, wherever it sits on the chain: a rule on its name would
          cover everything under it (a link to /tmp would deny the whole temp folder). It is a middle link: no rule, and
          said only where the agent can replace it. */
@@ -1022,7 +1033,7 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
       continue;
     }
     if (names.length > max) { unsafe.push(`${d} (more than ${max} entries; the rest were not checked, and which ones is not known)`); names = names.slice(0, max); }
-    for (const n of names) follow(path.join(d, n), path.join(d, n), true);
+    for (const n of names) follow(path.join(d, n), path.join(d, n), true, true);
   }
   /* Review 19: the programs the supervisor starts by absolute path (claude, tmux, node) end their chains in a store of
      versions that an update repoints into mid-session; that folder is denied whole, so a version written there after
@@ -1041,7 +1052,7 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
     }
   }
   // Review 12: a file the next start reads, followed the same way (a dotfile kept in another tree).
-  for (const f of fileList) follow(f, f, false);
+  for (const f of fileList) follow(f, f, false, false);
   /* Review 13 and 14: a shared folder (or one that holds one) is never denied whole; a folder whose contents run that
      leads into one is said. Each shared folder in every spelling: as given, resolved, and with only its parent
      resolved (a shared folder that is itself a link, as /tmp is, is reached by name through its resolved parent). */
@@ -1058,7 +1069,7 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
     kept.push(tempHeld ? Object.assign({}, c, { inTemp: true }) : c);
   }
   // Review 21: whether a file's folder is or holds a shared one, for the pattern-name fallback above.
-  return { cands: kept, unsafe, files: files.map((f) => (RULE_SYNTAX.test(path.basename(f.real)) ? Object.assign({}, f, { folderShared: holds(path.dirname(f.real)) }) : f)) };
+  return { cands: kept, unsafe, files: files.map((f) => Object.assign({}, f, RULE_SYNTAX.test(path.basename(f.real)) ? { folderShared: holds(path.dirname(f.real)) } : {}, f.prog ? { inTemp: inTemp(path.dirname(f.real)) } : {})) };
 }
 /*
  * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in

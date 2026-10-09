@@ -117,7 +117,9 @@ test('#5516 review 1 and 16: a program on PATH that links into another folder ha
   const s = readSettings(dir);
   const file = path.join(realOr(realHome), 'tool');
   assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(file)})`), `the program's file was not covered: ${JSON.stringify(s.permissions.deny)}`);
-  assert.ok(s.sandbox.filesystem.denyWrite.includes(file));
+  // Review 23 (measured): a program's own file goes to the file tools only; the sandbox profile has a size limit and
+  // the sandboxed shell cannot write there anyway.
+  assert.ok(!s.sandbox.filesystem.denyWrite.includes(file), 'a program file went to the sandbox layer');
   // Review 16: its folder is not denied whole (it can be a project or a package tree).
   assert.ok(!s.permissions.deny.includes(`Edit(${ruleAbs(realOr(realHome))}/**)`) && !s.sandbox.filesystem.denyWrite.includes(realOr(realHome)), 'the program\'s whole folder was denied');
   // CONTROL: without the link, that file is not named.
@@ -228,7 +230,7 @@ test('#5516 review 2: broken links, folders as entries and the scan cap', () => 
   assert.ok(!r2.unsafe.some((u) => u.startsWith(realOr(pd))), JSON.stringify(r2.unsafe));
   // Review 7 and 13: what a dangling link names is denied as a file (whatever is later made there runs by that name),
   // and its folder is not denied whole.
-  assert.ok(r2.files.includes(path.join(realOrLeafT(path.join(SANDBOX, 'nowhere')), 'gone')), 'a dangling link\'s target was not denied: ' + JSON.stringify(r2.files));
+  assert.ok(r2.linkNames.includes(path.join(realOrLeafT(path.join(SANDBOX, 'nowhere')), 'gone')), 'a dangling link\'s target was not denied: ' + JSON.stringify(r2.files));
   assert.ok(!r2.dirs.includes(realOrLeafT(path.join(SANDBOX, 'nowhere'))), 'the dangling target\'s whole folder was denied');
 });
 
@@ -335,7 +337,7 @@ test('#5516 review 7 and 16: every hop of a link chain is denied by name, and a 
   const r = setup.launchPathDirs(agentDir('lp-chain'), { ...PIN, panePath: pd, ownPath: '' });
   assert.ok(r.dirs.includes(realOr(pd)), JSON.stringify(r.dirs));
   assert.ok(r.linkNames.includes(path.join(realOr(hop), 'tool')), 'the hop link was not named: ' + JSON.stringify(r.linkNames));
-  assert.ok(r.files.includes(path.join(realOr(end), 'tool')), 'the program file was not denied: ' + JSON.stringify(r.files));
+  assert.ok(r.linkNames.includes(path.join(realOr(end), 'tool')), 'the program file was not denied: ' + JSON.stringify(r.files));
   assert.ok(!r.dirs.includes(realOr(hop)) && !r.dirs.includes(realOr(end)), 'a hop or end folder was denied whole');
   assert.deepEqual(r.unsafe, []);
   // A program on PATH that resolves into the agent's own folder: reported, and that folder is not denied.
@@ -421,7 +423,7 @@ test('#5516 review 9: a link along a path is followed one name at a time; the fo
   const r = setup.launchPathDirs(agentDir('lp-mid'), { ...PIN, panePath: pd, ownPath: '' });
   // Review 16: the program's file is denied by name; the folder link in the middle needs no rule (a rule on it would
   // cover all it leads to, and neither the file tools nor the sandboxed shell can replace it there).
-  assert.ok(r.files.includes(path.join(realOr(cellar), 'tool')), JSON.stringify(r.files));
+  assert.ok(r.linkNames.includes(path.join(realOr(cellar), 'tool')), JSON.stringify(r.files));
   assert.ok(!r.dirs.includes(realOr(opt)) && !r.linkNames.includes(path.join(realOr(opt), 'tool')), 'the middle link was ruled: ' + JSON.stringify(r));
   assert.deepEqual(r.unsafe, []);
   // A PATH entry written THROUGH a link inside the agent folder that points out of it: reported, not covered as whole.
@@ -455,8 +457,8 @@ test('#5516 review 10: a ".." after a link in a link target applies to where the
   fs.symlinkSync(away, path.join(base, 'lnk'));
   fs.symlinkSync(base + '/lnk/../target/tool', path.join(pd, 'tool'));   // as text: path.join would fold the .. away
   const r = setup.launchPathDirs(agentDir('lp-dd'), { ...PIN, panePath: pd, ownPath: '' });
-  assert.ok(r.files.includes(path.join(realOr(real), 'tool')), 'the file the program really is was not covered: ' + JSON.stringify(r.files));
-  assert.ok(!r.files.includes(path.join(realOr(base), 'target', 'tool')), 'the folded spelling was taken as the program');
+  assert.ok(r.linkNames.includes(path.join(realOr(real), 'tool')), 'the file the program really is was not covered: ' + JSON.stringify(r.files));
+  assert.ok(!r.linkNames.includes(path.join(realOr(base), 'target', 'tool')), 'the folded spelling was taken as the program');
   // The reason stays readable when one folder names many programs.
   const many = binDir('many-progs');
   const dir = agentDir('lp-many');
@@ -550,7 +552,7 @@ test('#5516 review 13 and 16: a shared folder is never denied whole; a program i
   fs.symlinkSync(path.join(shared, 'prog'), path.join(pd, 'prog'));
   const r = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, launchShared: [shared], panePath: pd, ownPath: '' });
   assert.ok(!r.dirs.includes(realOr(shared)), 'a shared folder was denied whole');
-  assert.ok(r.files.includes(path.join(realOr(shared), 'prog')) && r.unsafe.length === 0, 'the program in a shared folder is not denied by its file: ' + JSON.stringify(r));
+  assert.ok(r.linkNames.includes(path.join(realOr(shared), 'prog')) && r.unsafe.length === 0, 'the program in a shared folder is not denied by its file: ' + JSON.stringify(r));
   // A shared folder ON the PATH (its contents run by name) is said, not denied whole. CONTROL: not shared, it is covered.
   const r1 = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, launchShared: [shared], panePath: shared, ownPath: '' });
   assert.ok(!r1.dirs.includes(realOr(shared)) && r1.unsafe.some((u) => u.includes('a shared folder')), JSON.stringify(r1));
@@ -663,7 +665,7 @@ test('#5516 review 17: a file link on a program\'s chain held in a temp folder i
   fs.symlinkSync(path.join(dir, 'out', 'f'), path.join(pd2, 'f'));
   const r3 = setup.launchPathDirs(dir, { ...PIN, panePath: pd2, ownPath: '' });
   assert.ok(!r3.linkNames.includes(path.join(dir, 'out', 'f')), 'a spelling inside the agent folder became a rule: ' + JSON.stringify(r3.linkNames));
-  assert.ok(r3.files.includes(path.join(realOr(outside), 'f')), 'CONTROL: the file itself is denied');
+  assert.ok(r3.linkNames.includes(path.join(realOr(outside), 'f')), 'CONTROL: the file itself is denied');
 });
 
 test('#5516 review 18: one pass keeps a separate scan for a different PATH; a spelling with a dot name is never a rule', () => {
@@ -676,14 +678,14 @@ test('#5516 review 18: one pass keeps a separate scan for a different PATH; a sp
   const rb = setup.launchPathDirs(agentDir('lp-key'), { ...PIN, panePath: b, ownPath: '', launchCache: cache });
   assert.equal(cache.size, 2, 'a different PATH reused another PATH\'s scan');
   assert.ok(rb.dirs.includes(realOr(b)) && !ra.dirs.includes(realOr(b)), JSON.stringify({ ra, rb }));
-  assert.ok(rb.files.includes(path.join(realOr(path.dirname(a)), 'key-prog')), JSON.stringify(rb.files));
+  assert.ok(rb.linkNames.includes(path.join(realOr(path.dirname(a)), 'key-prog')), JSON.stringify(rb.files));
   // A program link whose target is written with a "." name: the dotted spelling never becomes a rule.
   const pd = binDir('dot-alias-path');
   const target = binDir('dot-alias-real');
   fs.writeFileSync(path.join(target, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
   fs.symlinkSync(path.dirname(target) + '/./dot-alias-real/tool', path.join(pd, 'tool'));   // as text, with "./"
   const r = setup.launchPathDirs(agentDir('lp-dotalias'), { ...PIN, panePath: pd, ownPath: '' });
-  assert.ok(r.files.includes(path.join(realOr(target), 'tool')), JSON.stringify(r.files));
+  assert.ok(r.linkNames.includes(path.join(realOr(target), 'tool')), JSON.stringify(r.files));
   assert.ok(!r.linkNames.some((l) => l.split(path.sep).includes('.')), 'a dotted spelling became a rule: ' + JSON.stringify(r.linkNames));
 });
 
@@ -715,7 +717,7 @@ test('#5516 review 19: the folder a program the supervisor starts by path ends i
   assert.ok(r.dirs.includes(realOr(versions)), 'the versions folder is not denied whole: ' + JSON.stringify(r.dirs));
   // CONTROL: the same program not named as one the supervisor starts: only its file.
   const r2 = setup.launchPathDirs(agentDir('lp-rp'), { ...PIN, launchRunProgs: [], panePath: bin, ownPath: '' });
-  assert.ok(!r2.dirs.includes(realOr(versions)) && r2.files.includes(path.join(realOr(versions), '1.0.0')), JSON.stringify(r2));
+  assert.ok(!r2.dirs.includes(realOr(versions)) && r2.linkNames.includes(path.join(realOr(versions), '1.0.0')), JSON.stringify(r2));
 });
 
 test('#5516 review 21: a program file whose NAME the rules cannot carry ("g[") has its folder denied whole, and the guard stays whole', () => {
@@ -734,9 +736,33 @@ test('#5516 review 21: a program file whose NAME the rules cannot carry ("g[") h
   fs.writeFileSync(path.join(keg2, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
   fs.symlinkSync(path.join(keg2, 'tool'), path.join(pd2, 'tool'));
   const r2 = setup.launchPathDirs(agentDir('lp-pat'), { ...PIN, panePath: pd2, ownPath: '' });
-  assert.ok(!r2.dirs.includes(realOr(keg2)) && r2.files.includes(path.join(realOr(keg2), 'tool')), JSON.stringify(r2));
+  assert.ok(!r2.dirs.includes(realOr(keg2)) && r2.linkNames.includes(path.join(realOr(keg2), 'tool')), JSON.stringify(r2));
   // A pattern-named file in a SHARED folder is not widened to that folder; it stays, and the guard says so.
   const r3 = setup.launchPathDirs(agentDir('lp-pat'), { ...PIN, launchShared: [keg], panePath: pd, ownPath: '' });
-  assert.ok(!r3.dirs.includes(realOr(keg)) && r3.files.includes(path.join(realOr(keg), 'g[')), JSON.stringify(r3));
+  assert.ok(!r3.dirs.includes(realOr(keg)) && r3.linkNames.includes(path.join(realOr(keg), 'g[')), JSON.stringify(r3));
   assert.ok(!r3.aliases.some((x) => realOr(x) === realOr(keg)), 'the shared folder was denied through its other spelling: ' + JSON.stringify(r3.aliases));
+});
+
+test('#5516 review 23: the sandbox layer stays small (folders and the few files the start reads); a program file in a temp folder is said', () => {
+  // Many programs, each in its own versioned folder (a package manager layout): none of their files reach denyWrite.
+  const pd = binDir('many-kegs-path');
+  for (let i = 0; i < 300; i++) {
+    const keg = binDir(`many-kegs/pkg${i}/1.${i}/bin`);
+    fs.writeFileSync(path.join(keg, 'tool' + i), '#!/bin/sh\n', { mode: 0o755 });
+    fs.symlinkSync(path.join(keg, 'tool' + i), path.join(pd, 'tool' + i));
+  }
+  const dir = agentDir('lp-small');
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-small', { ...BASE, panePath: pd }), { ok: true });
+  const s = readSettings(dir);
+  assert.ok(!s.sandbox.filesystem.denyWrite.some((x) => /many-kegs\/pkg/.test(x)), 'program files reached the sandbox layer');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(realOr(path.join(SANDBOX, 'bins', 'many-kegs', 'pkg7', '1.7', 'bin')), 'tool7'))})`), 'CONTROL: the file tools still deny them');
+  // A program that ends in a temp folder (where the sandboxed shell can write) is said.
+  const tmpLike = binDir('prog-temp');
+  fs.writeFileSync(path.join(tmpLike, 'p'), '#!/bin/sh\n', { mode: 0o755 });
+  const pd2 = binDir('prog-temp-path');
+  fs.symlinkSync(path.join(tmpLike, 'p'), path.join(pd2, 'p'));
+  const r = setup.launchPathDirs(agentDir('lp-small'), { ...PIN, launchTemps: [tmpLike], panePath: pd2, ownPath: '' });
+  assert.ok(r.unsafe.some((u) => u.includes('in a temp folder the agent')), JSON.stringify(r.unsafe));
+  const r2 = setup.launchPathDirs(agentDir('lp-small'), { ...PIN, launchTemps: [], panePath: pd2, ownPath: '' });
+  assert.deepEqual(r2.unsafe, [], 'CONTROL: not a temp folder, nothing said');
 });

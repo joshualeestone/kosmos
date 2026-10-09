@@ -317,3 +317,18 @@ reads. Anything that cannot be covered makes the guard say it is not whole, and 
     comment and its function is gone. NOT CHANGED: a bare program name is said for RUN_PROGS but skipped for RUN_DIRS
     (not reachable with the plist's absolute paths).
   - Each fix has a mutation that fails.
+- Round 23 (opus): 0 BLOCKER, 2 WARNING, 2 NIT. One warning, measured, was a BLOCKER in practice:
+  - MEASURED with sandbox-exec on this Mac: a sandbox profile past 65,535 bytes of data is refused ("data object length
+    ... exceeds maximum"): 5,000 file paths failed every command; 500 added about 38 ms to each (11 ms with none).
+    Deny lists merge and never shrink, so per-program file paths in the sandbox layer would grow with each upgrade until
+    every shell command the agent runs failed.
+  - FIXED: a program's own file is named to the FILE TOOLS ONLY. The sandbox layer keeps the folders denied whole and
+    the few files the start reads. That rests on the premise already recorded (round 16): the sandboxed shell writes
+    only in the agent folder and the temp folders; so a program that ends in a temp folder is said. Measured on the
+    real PATH here: 23 sandbox entries, 930 bytes; 552 names to the file tools; whole. Tests: the sandbox layer stays
+    free of program files for 300 versioned packages; a program in temp is said; two mutations fail.
+  - DECIDED, a later part (header and here): what a file the start reads can pull in or run in turn (tmux includes,
+    run-shell and plugins; config other started programs read, such as git's). Same class as the Claude-config part.
+  - NOT CHANGED (nits): a file LINK at hop 1 or later whose own name has a pattern character is said, not given the
+    folder fallback (rare; fails safe); a failure of the token-only probe in the supervisor skips the launch-time
+    refresh without a line (the board's last guard stands).
