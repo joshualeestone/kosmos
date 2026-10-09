@@ -80,7 +80,7 @@ function set(industry) {
   }
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    require('./store').saveFlushed(FILE, JSON.stringify({ industry }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
+    store.saveFlushed(FILE, JSON.stringify({ industry }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
     return { ok: true };
   } catch {
     return { ok: false, store: true, because: 'we could not save that setting' };

@@ -912,9 +912,9 @@ test('#5294 the marker cannot be saved: "unsent", and nothing is POSTed (the swe
   let calls = 0;
   feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
   try {
+    assert.equal(feedbacksend.markSent('2026-09-04').ok, false, 'setup: the write did not fail, so this proves nothing');
     assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'unsent');
     assert.equal(calls, 0, 'a send went out with no marker, so every sweep would repeat it');
-    assert.equal(feedbacksend.markSent('2026-09-04').ok, false, 'setup: the write did not fail, so this proved nothing');
   } finally { unblock(); }
 });
 
