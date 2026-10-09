@@ -270,7 +270,14 @@ test('every state this module or the send layer can produce has words (read from
   const NOT_STATES = new Set(['comment', 'post', 'pending', 'string', 'empty']);
   const fromStateOf = [...own.slice(own.indexOf('function stateOf'), own.indexOf('function itemsFor')).matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
     .filter((w) => !NOT_STATES.has(w));
-  const fromSend = [...send.matchAll(/state(?:: | = )'([a-z_]+)'/g)].map((m) => m[1]).filter((s) => s !== 'pending');
+  /* #5636 follow-up: 'unconfirmed_keyless' is withdrawFor's ANSWER to the agent (the CLI words it), never a state
+     written to a send record, so status never reads it. */
+  const ANSWER_ONLY = new Set(['unconfirmed_keyless']);
+  const fromSend = [...send.matchAll(/state(?:: | = )'([a-z_]+)'/g)].map((m) => m[1]).filter((s) => s !== 'pending' && !ANSWER_ONLY.has(s));
+  // That it is an answer only: it is assigned as a state exactly once, in withdrawFor's return, never to a record.
+  const assigned = [...send.matchAll(/state(?:: | = )'unconfirmed_keyless'/g)].length;
+  assert.equal(assigned, 1, 'unconfirmed_keyless is assigned as a state somewhere else too, so it may reach a send record');
+  assert.match(send, /return taken\.ok \? \{ ok: true, state: 'unconfirmed_keyless' \} : taken;/, 'CONTROL: withdrawFor\'s answer was not found');
   assert.ok(fromStateOf.length >= 8, 'CONTROL: the stateOf scan found too few states: ' + fromStateOf);
   assert.ok(fromSend.includes('sent') && fromSend.includes('unconfirmed'), 'CONTROL: the send-layer scan found ' + fromSend);
   for (const st of new Set([...fromStateOf, ...fromSend, 'held', 'sending'])) {
