@@ -993,7 +993,22 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
+    /* kosmos#5643: an UNCHANGED run found nothing new: said with --unchanged (opts.unchanged), or a note that is the same
+       text as the run before it (whitespace aside), which is how an agent that repeats "all clear" says it. A run with no
+       note and no flag is not unchanged: nothing says so. Unchanged runs keep the last CHANGE (lastChangeAt / Note) apart
+       from the last run, and count how many in a row found nothing new (unchangedRuns), for the status line. */
+    const sameNote = !!said && typeof t.lastRunNote === 'string' && t.lastRunNote.replace(/\s+/g, ' ').trim() === said;
+    const unchanged = opts.unchanged === true || sameNote;
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
+    if (unchanged) {
+      changed.lastRunUnchanged = true;
+      changed.unchangedRuns = (Number.isInteger(t.unchangedRuns) && t.unchangedRuns > 0 ? t.unchangedRuns : 0) + 1;
+    } else {
+      delete changed.lastRunUnchanged;
+      delete changed.unchangedRuns;
+      changed.lastChangeAt = changed.lastRunAt;
+      if (said) changed.lastChangeNote = said; else delete changed.lastChangeNote;
+    }
     /* slice 2: a run is LATE (the row says so) when it is off the schedule: more than the miss grace after the latest
        slot since the rule was set, and not within the grace BEFORE the next slot (an early run is on time). It depends only
        on the rule and the run's time, never on earlier runs.
@@ -1004,7 +1019,7 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });
-  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}) });
+  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(changed.lastRunUnchanged ? { unchanged: true } : {}) });
   return changed;
 }
 

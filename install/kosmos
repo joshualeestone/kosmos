@@ -4380,6 +4380,7 @@ cmd_task() {
       say "  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed"
       say "      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
       say "  kosmos task ran <project-id> <task-number> [\"what this run found\"]  record that a repeating task's job just ran"
+      say "      --unchanged                                              it found nothing new (the task's page rolls such runs up)"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order
@@ -4486,14 +4487,14 @@ cmd_task() {
       case " ${*:3} " in *" hourly "*|*" hour "*|*" daily "*|*" day "*|*" weekly "*|*" week "*|*" --clear "*) ;;
         *" --at "*|*" --on "*) say "--at and --on go with how often: hourly, daily or weekly. $_rusage"; exit 2 ;; esac ;;
     ran)
-      local _ranusage="Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]   (or --note \"...\")"
+      local _ranusage="Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]   (or --note \"...\") [--unchanged]"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_ranusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _n _npast=0 _nwant=0   # #4787 review 1: --note is ran's one option; any other --word is refused
       for _n in "${@:3}"; do
         if [ "$_nwant" = 1 ]; then _nwant=0; continue; fi
         if [ "$_npast" = 1 ]; then break; fi
-        case "$_n" in --) _npast=1 ;; --note) _nwant=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task ran" "$_ranusage" "$_n" ;; esac
+        case "$_n" in --) _npast=1 ;; --note) _nwant=1 ;; --unchanged) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task ran" "$_ranusage" "$_n" ;; esac   # #5643: --unchanged
       done
       [ "$_nwant" = 0 ] || { say "--note needs the note. $_ranusage"; exit 2; } ;;
     hold|unhold)
@@ -4723,7 +4724,7 @@ cmd_task() {
     repeat|ran)
       # kosmos#4787: a repeating task's rule (repeat) and its runs (ran). The agent token names who ran it (the pane is the
       # fallback, as for built); the board refuses a caller it cannot name.
-      local project num every="" at="" on="" clear=false note="" reviewer="" _w _wnext="" _rpast=0
+      local project num every="" at="" on="" clear=false note="" reviewer="" _w _wnext="" _rpast=0 unchanged=false
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
       for _w in "$@"; do
         case "$_wnext" in at) at="$_w"; _wnext=""; continue ;; on) on="$_w"; _wnext=""; continue ;; reviewer) reviewer="$_w"; _wnext=""; continue ;; esac
@@ -4732,6 +4733,7 @@ cmd_task() {
         else
           case "$_wnext" in note) note="${note:+$note }$_w"; _wnext=""; continue ;; esac
           if [ "$_w" = "--note" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=note; continue; fi
+          if [ "$_w" = "--unchanged" ] && [ "${_rpast:-0}" = 0 ]; then unchanged=true; continue; fi   # kosmos#5643
           if [ "$_w" = "--" ] && [ "${_rpast:-0}" = 0 ]; then _rpast=1; continue; fi
           note="${note:+$note }$_w"
         fi
@@ -4750,7 +4752,7 @@ cmd_task() {
         [ -z "$reviewer" ] || data="$data\"reviewer\":\"$(_jesc "$reviewer")\","
         data="$data\"clear\":$clear,\"from_pane\":\"$esc_pane\"}"
       else
-        data="{\"note\":\"$(_jesc "$note")\",\"from_pane\":\"$esc_pane\"}"
+        data="{\"note\":\"$(_jesc "$note")\",\"unchanged\":$unchanged,\"from_pane\":\"$esc_pane\"}"
       fi
       local rc=0 body
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
@@ -4761,7 +4763,7 @@ cmd_task() {
           local words; words=$(printf '%s' "$body" | sed -n 's/.*"words":"\([^"]*\)".*/\1/p')
           if [ "$sub" = ran ]; then
             case "$body" in *'"duplicate":true'*) say "That run of task $num on ${project:-the project} was already recorded a moment ago, so it was not recorded twice." ;;
-              *) say "Recorded a run of task $num on ${project:-the project}." ;; esac
+              *) if [ "$unchanged" = true ]; then say "Recorded a run of task $num on ${project:-the project} that found nothing new."; else say "Recorded a run of task $num on ${project:-the project}."; fi ;; esac
           elif [ "$clear" = true ]; then say "Task $num on ${project:-the project} no longer repeats."
           elif [ -z "$every" ] && [ "$reviewer" = none ]; then say "Nobody is told now when task $num on ${project:-the project} misses a run."
           elif [ -z "$every" ]; then say "$reviewer will be told when task $num on ${project:-the project} misses a run."

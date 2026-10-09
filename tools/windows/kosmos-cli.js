@@ -106,6 +106,7 @@ const USAGE = {
     '      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
+    '      --unchanged                                              it found nothing new (the task\'s page rolls such runs up)',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -994,23 +995,24 @@ async function taskRepeat(ctx, args) {
   if (reviewer) body.reviewer = reviewer;
   return taskRepeatCall(ctx, project, num, 'repeat', body, clear, every ? '' : reviewer, every && reviewer && reviewer !== 'none' ? reviewer : '');
 }
-const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...")';
+const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...") [--unchanged]';
 async function taskRan(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err(RAN_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   /* #4787 review 1, as install/kosmos: --note is ran's one option, a bare -- ends options, any other --word is refused. */
   const words = [];
-  let past = false, want = false;
+  let past = false, want = false, unchanged = false;
   for (const a of args.slice(2)) {
     if (want) { words.push(a); want = false; continue; }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--note') { want = true; continue; }
+    if (!past && a === '--unchanged') { unchanged = true; continue; }   // kosmos#5643, as install/kosmos
     if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task ran', RAN_USAGE, a); return 2; }
     words.push(a);
   }
   if (want) { ctx.err('--note needs the note. ' + RAN_USAGE); return 2; }
-  return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), from_pane: '' }, false);
+  return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), unchanged, from_pane: '' }, false);
 }
 async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnly, alsoReviewer) {
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which, body);
@@ -1022,7 +1024,7 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {
-    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + '.')
+    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + (body && body.unchanged === true ? ' that found nothing new.' : '.'))
       : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
         : reviewerOnly === 'none' ? 'Nobody is told now when task ' + num + ' on ' + project + ' misses a run.'
         : reviewerOnly ? reviewerOnly + ' will be told when task ' + num + ' on ' + project + ' misses a run.'
