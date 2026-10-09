@@ -57,8 +57,9 @@ const TEMPLATE = /\.(example|sample|template|dist)$/i;
 // `communitysend copy/`), and in a community folder any file named with the token `keys` is a key file
 // (`keys.json`, `keys.bak.json`). Cost, on the safe side: a person's own file or folder whose name holds one of these
 // store names as a whole token (`mac_key-notes.md`, `chats/mac_key-chat.jsonl`, a project's own `communitysend/keys.json`,
-// a keys file under any folder named with the token such as `projects/communitysend-notes/keys.json`, and a person's
-// `projects/undo/blobs/README.md`).
+// a keys file under any folder named with the token such as `projects/communitysend-notes/keys.json`, a person's
+// `projects/undo/blobs/README.md` or `src/undo-stack/blobs/a.js`, any `phone-notify.*` file such as `src/phone-notify.js`,
+// and a `pairing.*` file directly in a folder named `remote`, such as `src/remote/pairing.ts`).
 // A run of digits glued onto the name counts as a copy too (`mac_key2`, `undo2/`).
 const TOKEN = (name) => `([^/]*[^a-z0-9/])?${name}\\d*([^a-z0-9/][^/]*)?`;
 const STORE_NAME = (name) => new RegExp(`(^|\\/)${TOKEN(name)}$`, 'i');
@@ -156,7 +157,8 @@ function pathDecision(rel) {
    (engine/securewrite.js), `signin-device.key.new-<pid>-<hex>`, an editor's `.id_rsa.swp` or `id_rsa~`, a download's
    `id_rsa (1)`. So a COPY-SHAPED name (see COPY_SHAPED) is also judged as every name it could be a copy of: each
    leading run of it up to a '.', '-', '_', '~' or space, with and without a leading dot. A tail after the ending (a pid,
-   a random suffix: `.tmp-k3j9z`, `.bak2`) is accepted when it carries a digit anywhere, so `secrets.new-approach.md` is ordinary.
+   a random suffix, glued on or after a separator: `.tmp-k3j9z`, `.tmpk3j9z`, `.bak2`) is accepted when it carries a
+   digit anywhere, so `secrets.new-approach.md` is ordinary.
    What this does NOT cover, said so nobody reads it as complete: a copy whose ending is not in COPY_SHAPED, and a copy
    named IN FRONT of its origin (emacs `#id_rsa#` and `.#id_rsa`, `tmp-id_rsa`), and a tail with no digit in it
    (`.tmp-abcxyz`; a digit anywhere in the tail is enough, so `.new-4711-abcdef` counts). For Kosmos's own stores the token and
@@ -170,7 +172,7 @@ function pathDecision(rel) {
    A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
    tried and a hostile name cannot make the scan quadratic. (Filesystems cap a name in bytes, not characters; this caps
    the work, and a real name over it is rare and skipped on the safe side.) */
-const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)(?:(?=[-._0-9a-z]*\d)\d*([-._][0-9a-z]+)*)?|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
+const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)(?:(?=[-._0-9a-z]*\d)[0-9a-z]*([-._][0-9a-z]+)*)?|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
 const MAX_COPY_NAME = 255;
 const MAX_SEGMENT = 1020;
 function tempOrigins(p) {
