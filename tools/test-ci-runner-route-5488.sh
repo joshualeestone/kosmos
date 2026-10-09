@@ -4,7 +4,8 @@
 # head repo is this repo). (This is the honest path only; the machine's job guard is what refuses fork code:
 # tools/test-ci-runner-job-guard-5488.sh.) This runs the REAL decide step body, under GitHub's own shell flags,
 # taken from the parsed workflow, with each input, and pins the suite's runs-on expression (its fallback to
-# macos-latest when scope gave nothing is read from that pinned string, not evaluated). #4601: and that a shell shard follows the node part there only when KOSMOS_CI_SHELL_SHARDS names it.
+# macos-latest when scope gave nothing is read from that pinned string, not evaluated). #4601: and that a
+# shell shard follows the node part there only when KOSMOS_CI_SHELL_SHARDS names it.
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 WF="$HERE/../.github/workflows/test.yml"
@@ -26,6 +27,8 @@ if ! ruby -ryaml -e '
   raise "suite runs-on: node takes scope'"'"'s choice, a shell shard its own (#4601)" unless j["suite"]["runs-on"] == %q{${{ fromJSON(matrix.part == '"'"'node'"'"' && needs.scope.outputs.mac_runner || matrix.shard == '"'"'1/2'"'"' && needs.scope.outputs.shell1_runner || matrix.shard == '"'"'2/2'"'"' && needs.scope.outputs.shell2_runner || '"'"'"macos-latest"'"'"') }}}
   raise "the shard list is read from vars" unless d["env"]["CI_SHELL_SHARDS"] == "${{ vars.KOSMOS_CI_SHELL_SHARDS }}"
   raise "scope outputs a runner for each shard" unless j["scope"]["outputs"]["shell1_runner"] == "${{ steps.decide.outputs.shell1_runner }}" && j["scope"]["outputs"]["shell2_runner"] == "${{ steps.decide.outputs.shell2_runner }}"
+  shards = j["suite"]["strategy"]["matrix"]["include"].map { |x| x["shard"] }.reject { |x| x.to_s.empty? }.sort
+  raise "the routing names exactly the matrix shards (1/2, 2/2): got #{shards}" unless shards == ["1/2", "2/2"]
   raise "test stays on ubuntu" unless j["test"]["runs-on"] == "ubuntu-latest" && j["scope"]["runs-on"] == "ubuntu-latest"
   tmux = j["suite"]["steps"].find { |x| x["name"].to_s.include?("tmux") }
   raise "tmux installed only when missing, and never by brew on the self-hosted runner" unless tmux && tmux["run"].strip == %q{command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner (or not on its PATH); not installing into the machine owner'"'"'s Homebrew, card 5488"; exit 1; }; brew install tmux; }}
@@ -75,6 +78,8 @@ shard "shards 1/2,2/2 but the switch off: macos-latest" "$HOSTED" off push "" "1
 shard "shards 1/2,2/2 but a FORK PR: shell 2/2 on macos-latest too" "$HOSTED" on pull_request someone/kosmos "1/2,2/2" shell2_runner
 shard "shards 1/2,2/2 but the switch off: shell 2/2 on macos-latest too" "$HOSTED" off push "" "1/2,2/2" shell2_runner
 shard "shards '1/2 2/2' (a space only): shell 2/2 on the self-hosted Mac" "$SELF" on push "" "1/2 2/2" shell2_runner
+shard "shards '1/2x' (not a whole shard name): macos-latest" "$HOSTED" on push "" "1/2x" shell1_runner
+shard "shards 'v1/2,2/2.' (not whole names): macos-latest" "$HOSTED" on push "" "v1/2,2/2." shell2_runner
 shard "shards '1/22' (not a listed shard): macos-latest" "$HOSTED" on push "" "1/22" shell1_runner
 shard "shards 2/2 alone: shell 1/2 stays on macos-latest (the two case lines not swapped)" "$HOSTED" on push "" "2/2" shell1_runner
 shard "shards '1/2, 2/2' (a space): shell 2/2 on the self-hosted Mac" "$SELF" on push "" "1/2, 2/2" shell2_runner
