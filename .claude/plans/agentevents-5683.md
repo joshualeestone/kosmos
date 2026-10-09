@@ -172,3 +172,13 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: after a restart, an error result with "Operation not permitted" and no known call is taken as Bash (a Read
   error with that text would be read as a sandbox refusal); each tick lists and stats every token-only agent's
   transcripts (bounded by the session count).
+
+## Review 11 (sonnet), all fixed unless stated
+- The collision check left out an agent whose folder could not be resolved (a stray with an unusable name), failing
+  open: such an agent makes the check unreadable, and nothing is read. Test.
+- A wrapped program (sudo, env K=V, timeout N, nice, nohup, command, xargs, time, exec, doas) hid a network command,
+  and git to a URL was not network: the word after a wrapper (past its options, K=V words and a duration) is the
+  program; git with a URL is network. Test (git status is not).
+- A joined short option (tar -C/dir, -I/path) is a path. Test.
+- Stated: a quoted word with a slash and no space (application/json, s/a/b/) is taken as a path; it classes 'other',
+  the lowest rank, so it cannot raise a class.

