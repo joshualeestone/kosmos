@@ -187,15 +187,21 @@ function targetClass(tool, input, ctx) {
        word's first segments, as globs, must match every segment of the root. A segment with a variable or substitution
        may expand to anything, so it keeps the word. */
     const seg = (x) => x.split(path.sep).filter(Boolean);
-    /* Globs as the shell reads them (review 33, replacing review 32's): * and ? within a segment; a [...] class whose
-       body is plain characters and ranges is that class, and any other bracket form ([]o], [[:lower:]], a backslash)
-       is any one character, which can only match more. Braces are expanded before this (expandBraces). */
-    const globRe = (g) => {
-      let re = '';
+    /* One segment against one glob, as the shell reads it, with NO regex built from the command (review 34: each star
+       became its own [^/]* and a run of stars backtracked exponentially; 20 stars froze the board for over a minute,
+       and again on every restart, as the line is never passed). * ? and [...] classes; a class of plain characters and
+       ranges is that class (a reversed range matches nothing, as in bash) and any other bracket form is any one
+       character; a segment still holding a brace (a sequence {a..b}, a word past the expansion budget) matches
+       anything. Linear in each, with one star backtrack point (at most the two lengths multiplied, both short). */
+    const ci = process.platform === 'darwin';
+    const globMatch = (g, s0) => {
+      if (/[{}]/.test(g)) return true;
+      const s1 = ci ? s0.toLowerCase() : s0;
+      const toks = [];
       for (let i = 0; i < g.length; i++) {
         const ch = g[i];
-        if (ch === '*') { re += '[^/]*'; continue; }
-        if (ch === '?') { re += '[^/]'; continue; }
+        if (ch === '*') { if (toks[toks.length - 1] !== '*') toks.push('*'); continue; }
+        if (ch === '?') { toks.push({ any: true }); continue; }
         if (ch === '[') {
           let j = i + 1;
           if (g[j] === '!' || g[j] === '^') j++;
@@ -203,29 +209,50 @@ function targetClass(tool, input, ctx) {
           while (j < g.length && g[j] !== ']') j = g.startsWith('[:', j) && g.indexOf(':]', j + 2) > 0 ? g.indexOf(':]', j + 2) + 2 : j + 1;
           if (j < g.length) {
             const body = g.slice(i + 1, j);
-            re += /^!?[A-Za-z0-9._-]+$/.test(body) && !/^!?-|-$/.test(body) ? '[' + body.replace(/^!/, '^') + ']' : '[^/]';
+            if (/^[!^]?[A-Za-z0-9._-]+$/.test(body) && !/^[!^]?-|-$/.test(body)) {
+              const neg = /^[!^]/.test(body); const b = neg ? body.slice(1) : body; const set = [];
+              for (let k = 0; k < b.length; k++) {
+                if (b[k + 1] === '-' && k + 2 < b.length) { set.push([b[k], b[k + 2]]); k += 2; } else set.push([b[k], b[k]]);
+              }
+              const lo = (x) => (ci ? x.toLowerCase() : x);
+              toks.push({ set: set.map(([a, z]) => [lo(a), lo(z)]), neg });
+            } else toks.push({ any: true });
             i = j;
             continue;
           }
         }
-        re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+        toks.push({ lit: ci ? ch.toLowerCase() : ch });
       }
-      try { return new RegExp('^' + re + '$', process.platform === 'darwin' ? 'i' : ''); } catch { return /[^]/; }
+      const one = (t, c) => (t.any ? true : t.lit !== undefined ? t.lit === c : (t.set.some(([a, z]) => a <= c && c <= z) !== t.neg));
+      let p = 0; let t = 0; let starP = -1; let starT = 0;
+      while (t < s1.length) {
+        if (p < toks.length && toks[p] === '*') { starP = p++; starT = t; }
+        else if (p < toks.length && one(toks[p], s1[t])) { p++; t++; }
+        else if (starP >= 0) { p = starP + 1; t = ++starT; }
+        else return false;
+      }
+      while (toks[p] === '*') p++;
+      return p === toks.length;
     };
     const toBoard = (w0) => {
       if (!inRoots.length) return false;
       const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.').replace(/^~(?=\/|$)/, ctx.home || os.homedir());
       if (/^[$`]/.test(w)) return false;   // starts with another variable: not the agent's own either (own() keeps it)
-      const ws = seg(path.isAbsolute(w) ? w : path.join(ctx.agentDir, w));
-      return inRoots.some((b) => { const bs = seg(b); for (let i = 0; i < bs.length; i++) { if (i >= ws.length) return false; if (/[$`]/.test(ws[i])) return true; if (!globRe(ws[i]).test(bs[i])) return false; } return true; });
+      const ws = seg(path.normalize(path.isAbsolute(w) ? w : path.join(ctx.agentDir, w)));   // .. applied (review 34)
+      return inRoots.some((b) => { const bs = seg(b); for (let i = 0; i < bs.length; i++) { if (i >= ws.length) return false; if (/[$`]/.test(ws[i])) return true; if (!globMatch(ws[i], bs[i])) return false; } return true; });
     };
     /* {a,b} is expanded first, as the shell does before globbing (review 33: a brace spanning a / broke the segment
        match); an unbalanced brace is literal. At most 64 words per hidden word. A word left with no glob or variable
        is an ordinary path, classed as one. */
+    /* One budget of 64 words for the whole command, not per word (review 34: 4 KB of brace groups cost 45 times a plain
+       command). A word whose expansion hits the budget is also kept unexpanded, and its braced segments then match
+       anything (review 34: the 65th alternative, Kosmos, was never looked at). */
+    let braceBudget = 64;
     const expandBraces = (w) => {
       const out = [];
+      let cut = false;
       const go = (x) => {
-        if (out.length >= 64) return;
+        if (braceBudget <= 0) { cut = true; return; }
         let depth = 0; let open = -1; const commas = [];
         for (let i = 0; i < x.length; i++) {
           if (x[i] === '{') { if (depth === 0) open = i; depth++; }
@@ -240,12 +267,15 @@ function targetClass(tool, input, ctx) {
           }
         }
         out.push(x);
+        braceBudget--;
       };
+      if (!/[{]/.test(w)) { out.push(w); return out; }
       go(w);
+      if (cut) out.push(w);
       return out;
     };
     hidden = hidden.flatMap(expandBraces);
-    for (const w of hidden.filter((x) => !/[*?$`[]/.test(x))) {
+    for (const w of hidden.filter((x) => !/[*?$`[{]/.test(x))) {
       const c = pathClass(w, ctx);
       if (RANK.indexOf(c) < RANK.indexOf(best)) best = c;
     }
@@ -257,8 +287,8 @@ function targetClass(tool, input, ctx) {
     const reaches = (w0) => {
       const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.').replace(/^~(?=\/|$)/, ctx.home || os.homedir());
       if (/^[$`]/.test(w) || !ctx.agentDir && !path.isAbsolute(w)) return false;
-      const ws = seg(path.isAbsolute(w) ? w : path.join(ctx.agentDir, w));
-      return roots.some((b) => { const bs = seg(b); if (ws.length < bs.length) return false; for (let i = 0; i < bs.length; i++) { if (/[$`]/.test(ws[i])) return false; if (!globRe(ws[i]).test(bs[i])) return false; } return true; });
+      const ws = seg(path.normalize(path.isAbsolute(w) ? w : path.join(ctx.agentDir, w)));   // .. applied (review 34)
+      return roots.some((b) => { const bs = seg(b); if (ws.length < bs.length) return false; for (let i = 0; i < bs.length; i++) { if (/[$`]/.test(ws[i])) return false; if (!globMatch(ws[i], bs[i])) return false; } return true; });
     };
     const board = hidden.some((w) => reaches(w) || /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(w));
     const config = hidden.some((w) => /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(w));

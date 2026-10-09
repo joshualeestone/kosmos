@@ -433,3 +433,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: a glob of stars deep enough to reach the board folder (~/*/*/*/notes) reads as board-files (it can reach
   it); past 64 brace expansions the rest are not looked at; a quoted sentence starting with a path is that path
   (echo "/path/board.token is the file"), an over-claim.
+
+## Review 34 (opus), all fixed unless stated
+- BLOCKER: review 33's globRe turned each star into its own [^/]* and backtracked exponentially against a long
+  board-root segment (12 stars 2.4 s, 20 over a minute), on the board's main thread, and again on every restart as the
+  line is never passed. Replaced by a linear matcher with no regex built from the command (stars merged, one star
+  backtrack point). Test with 30 stars.
+- One brace budget of 64 words for the whole command, not per word (4 KB of brace groups cost 45 times a plain
+  command); a word that hits it is also kept unexpanded, its braced segments matching anything (the 65th alternative,
+  Kosmos, was never looked at). Test.
+- A brace sequence {a..b} is not expanded: a segment still holding a brace matches anything (it was classed as a
+  literal path, home). Test.
+- .. in a glob word is applied before segments are compared (path.normalize), in toBoard and reaches. Test.
+- A reversed range [z-a] matches nothing, as in bash (the regex threw and fell back to matching anything). Test.

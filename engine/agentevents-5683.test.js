@@ -1071,3 +1071,34 @@ test('#5683 r33: globs and braces that cannot reach the board folder stay what t
   assert.equal(ae.targetClass('Bash', { command: 'ls ~/Library/*' }, c), 'home');
   assert.equal(ae.targetClass('Bash', { command: '[ -f x ] && { echo hi; }' }, c), 'other');
 });
+
+/* ---- review 34 ---- */
+
+const r34 = (agentDir) => ctx({ agentDir: agentDir || '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+
+test('#5683 r34: a run of stars against the board path is linear, not exponential', () => {
+  /* The pre-fix regex took about 2.4 s at 12 stars and over a minute at 20; 30 here. The bound is generous on purpose
+     (a fixed deadline is a load assertion): it fails only on a blow-up, never on a busy machine. */
+  const t0 = Date.now();
+  assert.equal(ae.targetClass('Bash', { command: 'ls ~/Library/' + '*'.repeat(30) + 'Z/k' }, r34()), 'home');
+  assert.ok(Date.now() - t0 < 5000, 'a run of stars took ' + (Date.now() - t0) + ' ms');
+});
+
+test('#5683 r34: brace sequences, a .. in the path, and the 65th brace alternative still reach the board', () => {
+  const c = r34();
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosm{n..p}s/board.tok{d..f}n' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosmo{r..t}/b*' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/x/../Application\\ Support/K*/board.t?ken' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/x/../Application\\ Support/Kos[m]os/b*' }, r34('/Users/ann')), 'board-files');
+  const alts = Array.from({ length: 64 }, (_, i) => 'p' + i).join(',');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/{' + alts + ',Kosmos}/board.t?ken' }, c), 'board-files');
+});
+
+test('#5683 r34: a reversed range matches nothing, and a brace-heavy command is cheap', () => {
+  const c = r34();
+  assert.equal(ae.targetClass('Bash', { command: 'ls /[z-a]*/*/*/*/*' }, c), 'system');
+  const bomb = Array.from({ length: 120 }, () => 'cat ~/{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}/x*').join('; ').slice(0, 4096);
+  const t0 = Date.now();
+  for (let i = 0; i < 20; i++) ae.targetClass('Bash', { command: bomb }, c);
+  assert.ok(Date.now() - t0 < 5000, '20 brace-heavy commands took ' + (Date.now() - t0) + ' ms');
+});
