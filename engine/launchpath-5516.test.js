@@ -540,3 +540,23 @@ test('#5516 review 13: a FILE rule the rules cannot carry is reported, and a thr
   assert.equal(r2.ok, false, JSON.stringify(r2));
   assert.ok(readSettings(dir2).sandbox.filesystem.denyWrite.length > 0, 'the rest of the guard was not written');
 });
+
+test('#5516 review 14: a linked dotfile in the home folder keeps the guard whole; a folder holding a shared one is not denied', () => {
+  const home = binDir('home-lp14');
+  const dots = binDir('dots-lp14');
+  fs.writeFileSync(path.join(dots, 'tmux.conf'), '');
+  const f = path.join(home, '.tmux.conf');
+  fs.symlinkSync(path.join(dots, 'tmux.conf'), f);
+  const r = setup.launchPathDirs(agentDir('lp-dot14'), { ...PIN, launchFiles: [f], launchShared: [home], panePath: '/usr/bin', ownPath: '' });
+  assert.deepEqual(r.unsafe, [], 'a linked dotfile in the home folder made the guard not whole');
+  assert.ok(r.files.includes(path.join(realOr(home), '.tmux.conf')) && r.files.includes(path.join(realOr(dots), 'tmux.conf')), JSON.stringify(r.files));
+  // A PATH folder that CONTAINS a shared folder is not denied whole; it is said.
+  const parent = binDir('lp14-parent');
+  const sharedChild = binDir('lp14-parent/tmp-like');
+  const r2 = setup.launchPathDirs(agentDir('lp-cont'), { ...PIN, launchShared: [sharedChild], panePath: parent, ownPath: '' });
+  assert.ok(!r2.dirs.includes(realOr(parent)), 'a folder holding a shared one was denied whole');
+  assert.ok(r2.unsafe.some((u) => u.includes('holds a shared folder')), JSON.stringify(r2.unsafe));
+  // CONTROL: not shared, it is covered.
+  const r3 = setup.launchPathDirs(agentDir('lp-cont'), { ...PIN, launchShared: [], panePath: parent, ownPath: '' });
+  assert.ok(r3.dirs.includes(realOr(parent)) && r3.unsafe.length === 0, JSON.stringify(r3));
+});

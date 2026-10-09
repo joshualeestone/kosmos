@@ -938,16 +938,25 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
     files.push({ real: at, shown: f });
     const w = walk(f, 0);
     if (w.bad) unsafe.push(`${f} (${w.bad})`);
-    if (w.real !== at) { files.push({ real: w.real, shown: f }); for (const h of w.holders) cands.push({ real: h, shown: f, holder: true }); }
+    // The folder holding the file's OWN final link is not needed (the link itself is denied by name, review 14); only
+    // folders holding links further along are.
+    const own = path.dirname(at);
+    if (w.real !== at) { files.push({ real: w.real, shown: f }); for (const h of w.holders) if (h !== own) cands.push({ real: h, shown: f, holder: true }); }
   }
   // Review 11: folders whose files the next start READS as instructions (the launchd jobs): covered, never scanned.
   for (const d of configDirs) { pushHolders(d, d); cands.push({ real: realDir(d), shown: d, holder: true }); }
   // Review 13: a shared folder is never denied whole; leading into one is said instead.
-  const sharedSet = new Set((shared || []).filter(Boolean).flatMap((d) => [path.resolve(d), realOrLeaf(d)]));
+  /* Review 14: by containment, not only the exact folder. A folder that IS or CONTAINS a shared one is not denied; for
+     a program's folder it is said. A folder holding a link that contains a shared folder (/ holds /tmp) is the
+     ancestor residual: skipped, not said, or every agent would be not whole. */
+  const sharedList = [...new Set((shared || []).filter(Boolean).flatMap((d) => [path.resolve(d), realOrLeaf(d)]))];
+  const holds = (r) => sharedList.some((d) => d === r || d.startsWith(r === path.sep ? r : r + path.sep));
   const kept = [];
   for (const c of cands) {
-    if (sharedSet.has(c.real)) unsafe.push(`${c.shown} (it leads into ${c.real}, a shared folder that is not denied whole)`);
-    else kept.push(c);
+    if (!holds(c.real)) { kept.push(c); continue; }
+    if (c.holder && !sharedList.includes(c.real)) continue;
+    unsafe.push(c.holder ? `${c.shown} (a link on its way is held in ${c.real}, a shared folder that is not denied whole)`
+      : `${c.shown} (it leads into ${c.real}, which is or holds a shared folder that is not denied whole)`);
   }
   return { cands: kept, unsafe, files };
 }

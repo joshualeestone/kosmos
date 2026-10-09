@@ -189,3 +189,19 @@ rest of the guard is still written.
   - NOT CHANGED (nits): an alias for folders reached through an ancestor-held link (/tmp to /private/tmp) is not
     written; the resolved spelling is, and the ancestor residual covers the rest. Linux /usr/bin near the scan cap is
     not measured (Linux is not a shipped platform for token-only agents today).
+- Round 14 (sonnet): 0 BLOCKER, 3 WARNING, 4 NIT.
+  - FIXED: a file to deny whose final name is a link (a dotfiles-style tmux config in the home folder) no longer makes
+    the guard not whole: the link and its target are denied by name, so the folder holding the final link is not
+    needed. Test with a control; mutation fails.
+  - FIXED: the shared-folder rule works by containment. A program's folder that IS or HOLDS a shared folder is said,
+    not denied whole; a folder holding a link that contains a shared one (/ holds /tmp) is the ancestor residual,
+    skipped. Tests; mutations fail.
+  - DECIDED, the cost of the card (recorded so it is not mistaken for a bug): a token-only agent cannot install into
+    the launch folders itself (brew install, npm -g, cargo install, pipx and the like), cannot update claude from its
+    own shell, and cannot write launchd jobs. That is the point of the guard: what its next start runs is the
+    person's and Kosmos's to change, not the agent's. Kosmos's own installs and updates run in the board, outside the
+    agent's sandbox. Weakest premise: that no token-only agent's ordinary work needs a global install; if one does,
+    the person installs it.
+  - NOT CHANGED (nits): the install's engine folder is scanned like a PATH folder (797 entries against a 4000 cap;
+    passing the cap fails safe and names the folder); "/" as a PATH entry is dropped by the ancestor check (a test pins
+    it); the first test reads the host's real fixed folders for its rules (recorded in round 11).
