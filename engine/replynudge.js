@@ -443,19 +443,30 @@ async function sweepOnce(o) {
                expired or taken down) and leaves the record; an unreadable list changes nothing this pass. */
             let persons = Array.isArray(fresh.persons) ? fresh.persons : [];
             let answered = Array.isArray(fresh.answered) ? fresh.answered : [];
+            const expiredNow = [];
             if (typeof o.assignments === 'function') {
               let asg = null;
               try { asg = await o.assignments(session); } catch { asg = null; }
+              readOne = true;   // review 2 (board half): this agent's assignment read asked the service too
               if (asg && asg.ok === true && Array.isArray(asg.list)) {
-                const open = new Set(asg.list.map((x) => x && x.id));
                 persons = persons.concat(asg.list);
-                answered = answered.concat(Object.keys(rec).filter((id) => communityassign.isAssignment(id) && !open.has(id)));
+                /* Review 2 (board half): only what the service says was settled leaves the record. 'answered' and 'gone'
+                   go; 'expired' stays, marked unanswered (the person nobody answered is what /sent is for); a post in
+                   neither list is unknown and kept, aging out after PERSONS_KEPT_MS. */
+                const settled = asg.settled && typeof asg.settled === 'object' ? asg.settled : {};
+                answered = answered.concat(Object.keys(rec).filter((id) => communityassign.isAssignment(id)
+                  && (settled[id] === 'answered' || settled[id] === 'gone')));
+                for (const [id, why] of Object.entries(settled)) {
+                  if (why !== 'expired' || !rec[id] || rec[id].unanswered === true) continue;
+                  rec[id] = { ...rec[id], unanswered: true };
+                  expiredNow.push(id);
+                }
               }
             }
             const u = personsUpdate(rec, persons, clock(), answered);
             const wrote = o.writePersons(session, u.owed) === true;
             if (wrote) due = u.due;
-            if (wrote) for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: (communityassign.isAssignment(id) ? 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer' : 'a person\'s comment ' + id) + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+            if (wrote) for (const id of u.unanswered.concat(expiredNow)) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: (communityassign.isAssignment(id) ? 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer' : 'a person\'s comment ' + id) + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
           }
         }
         const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
@@ -515,7 +526,8 @@ async function sweepOnce(o) {
           /* Review 1: a person's TOP comment is also among the regular comments; it is recorded as told there too, so the
              regular line never names it again (once per comment). Taken back with the tell if the line did not reach. */
           const nudged0 = typeof o.readNudged === 'function' ? o.readNudged(session) : null;
-          const tops = due.filter((q) => !q.parent).map((q) => q.id);
+          // A person's top comment also goes in the regular told record; an assignment is no comment, and stays out of it.
+          const tops = due.filter((q) => !q.parent && !communityassign.isAssignment(q.id)).map((q) => q.id);
           if (nudged0 instanceof Set && tops.length) { try { o.writeNudged(session, new Set([...nudged0, ...tops])); } catch { /* the person line still goes */ } }
           let state = null; let held = false; let paneBusy = false;
           typedOne = true;
@@ -537,6 +549,12 @@ async function sweepOnce(o) {
             if (!back) say({ name: display, session, act: 'missed', because: 'its person record could not be put back, so this tell counts' });
           }
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
+          /* Review 2 (board half): the service counts silence only on asks the agent was TOLD about, so the board says so
+             once a line reached it, never on a read alone. Best effort: a failed report only means silence is not counted. */
+          if (reached && typeof o.assignmentsSeen === 'function') {
+            const seenIds = due.filter((q) => communityassign.isAssignment(q.id)).map((q) => q.remoteId);
+            if (seenIds.length) { try { await o.assignmentsSeen(session, seenIds); } catch { /* best effort */ } }
+          }
           // Review 7: a held line or a busy pane is not a failed try (as the regular path): it reached nothing unreachable.
           { const b = book.get(session) || {}; const fails = reached ? 0 : (held || paneBusy) ? (Number.isInteger(b.personFails) ? b.personFails : 0) : (Number.isInteger(b.personFails) ? b.personFails : 0) + 1;
             // Review 13: the rest starts only when a try actually failed, so a busy pane on the one retry does not restart it.

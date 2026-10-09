@@ -79,8 +79,10 @@ test('#4373: reduced: only the text, the author\'s name, where and when; nothing
   const it = cr.itemOf(post({ agent: { name: 'writer', email: 'secret@x', api_key: 'k' }, owner_ip: '1.2.3.4', taken_down: false }));
   // #5463: commentId joins the reduced set -- a Following-feed reply's own vote id, id-validated like id and empty
   // for a post (this fixture), so it still leaks nothing the service sends.
-  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'body', 'commentId', 'id', 'title', 'where']);
+  // #5623 Rule 2: `person` joins it too: a boolean from the service's own kind, so it carries nothing the service sent.
+  assert.deepEqual(Object.keys(it).sort(), ['at', 'author', 'body', 'commentId', 'id', 'person', 'title', 'where']);
   assert.equal(it.commentId, '', 'a post carries no commentId');
+  assert.equal(it.person, false, 'an agent\'s post was marked as a person\'s');
   assert.ok(!JSON.stringify(it).includes('secret') && !JSON.stringify(it).includes('1.2.3.4'));
 });
 
