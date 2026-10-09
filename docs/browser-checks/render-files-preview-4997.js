@@ -99,7 +99,7 @@ function fill(dir) {
            paintAgentFilesAll and the project panel from pjLoadDocs, all reading the real board; the Files screen from
            pjDocsPaintPage. The link out (F6) is not listed by the board, so on those three it is drawn with
            agentFileRow, the row shape every list shares; the Files screen paints it with its own painter. */
-        const open = async (listId, scope, name) => page.evaluate(async ({ listId, scope, name, pid }) => {
+        const open = async (listId, scope, name, listed = true) => page.evaluate(async ({ listId, scope, name, pid, listed }) => {
           if (scope === 'agent') CURRENT = { sessionName: 'ava' }; else PJ_CURRENT = pid;
           const list = document.getElementById(listId);
           /* Review 5: every list sits in a view that starts hidden (display: none), and a hidden row cannot take focus,
@@ -112,18 +112,19 @@ function fill(dir) {
           else if (listId === 'docs-list') { PJ_DOCS_FILES = [{ name, size: 70, modified: new Date().toISOString() }]; PJ_DOCS_TOTAL = 1; PJ_DOCS_PAGE = 0; pjDocsPaintPage(); }
           // Review 7: pjLoadDocs skips the redraw when the folder's stamp has not moved, so every open forgets it.
           else if (listId === 'pj-docs') { PJ_DOCS_STAMP = null; PJ_DOCS_OK = false; await pjLoadDocs(pid); }
-          /* #5703: the agent page's 5 s poll can start a newer paintAgentFiles while ours is in flight, and the older
-             paint then returns without drawing (its epoch is superseded); the poll's paint draws the row moments later.
-             So wait up to 3 s for the painter's row before deciding it is not there. */
+          /* #5703: the 5 s polls (the agent page's paintAgentFiles, the project's pjLoadDocs) can start a newer paint while
+             ours is in flight, and the older paint then returns without drawing (its epoch is superseded); the poll's
+             paint draws the row moments later. So wait up to 3 s for the painter's row before deciding it is not there,
+             but only for a file the board lists (F6's link out never comes, so it does not wait). */
           const find = () => [...list.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === name);
           let row = find();
-          for (let i = 0; !row && i < 30; i++) { await new Promise((r) => setTimeout(r, 100)); row = find(); }
+          for (let i = 0; listed && !row && i < 30; i++) { await new Promise((r) => setTimeout(r, 100)); row = find(); }
           const own = !!row;
           if (!row) { row = agentFileRow({ name, size: 70, modified: new Date().toISOString() }); list.append(row); }
           const visible = row.offsetParent !== null;   // review 8: a row in a still-hidden view could not take focus (F4)
           row.click();
           return { own, visible };
-        }, { listId, scope, name, pid: project.id });
+        }, { listId, scope, name, pid: project.id, listed });
         const shown = () => page.evaluate(() => {
           const back = document.getElementById('pv-preview');
           const img = back && back.querySelector('img.pv-media');
@@ -183,7 +184,7 @@ function fill(dir) {
           // Review 9: THIS list's own route, looked up exactly, after forgetting any earlier list's answer.
           const awayKey = (scope === 'agent' ? '/api/agent/ava/files/preview' : '/api/project/' + encodeURIComponent(project.id) + '/file-preview') + '?name=away.png';
           delete answered[awayKey];
-          await open(listId, scope, 'away.png');
+          await open(listId, scope, 'away.png', false);
           for (let i = 0; i < 40 && answered[awayKey] === undefined; i++) await page.waitForTimeout(100);
           const s4 = await settle(async () => { const s = await shown(); return { ...s, done: s.card || s.loaded }; });
           const refused = answered[awayKey];
