@@ -673,9 +673,9 @@ test('a second run in the period, reusing what the first stored, is not refused 
   try {
     const first = await take(k, w.root, st);
     assert.equal(first.ok, true, first.because);
-    // Pad the index to a realistic period's worth (10,000 earlier chunks): the check must still pass.
+    // Pad the index to a realistic period's worth (15,000 earlier chunks, about 15 GB at 1 MiB average): the check must still pass.
     const idx = new Map(first.added);
-    for (let i = 0; idx.size < 10000; i++) idx.set(i.toString(16).padStart(64, '0'), { key: `o1/acct1/1/${PERIOD}/x${i}`, lockedUntilMs: LOCK });
+    for (let i = 0; idx.size < 15000; i++) idx.set(i.toString(16).padStart(64, '0'), { key: `o1/acct1/1/${PERIOD}/x${i}`, lockedUntilMs: LOCK });
     const k2 = Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { snapshot: 's2' }) });
     const r = await take(k2, w.root, st, { input: { index: idx, bucket: first.bucket } });
     assert.equal(r.ok, true, r.because);
