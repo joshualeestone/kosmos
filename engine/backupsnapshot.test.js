@@ -1076,3 +1076,32 @@ test('a large walk gives the event loop turns (a timer fires during it), and an 
     assert.deepEqual(m.skipped.filter((x) => x.path.startsWith('deps')).map((x) => x.path), ['deps']);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('listing one large flat folder gives the event loop turns while it lists (not only between folders)', async () => {
+  const w = workKosmos();
+  try {
+    fs.mkdirSync(path.join(w.root, 'flat'));
+    for (let i = 0; i < 300; i++) fs.writeFileSync(path.join(w.root, 'flat', `f${i}.md`), 'x');
+    // A slow lstat (0.2 ms each, busy) makes the listing take about 60 ms of synchronous work in ONE folder.
+    const { f } = spyFs({ lstatSync: (real, p2, o) => { const end = Date.now() + 0.2; while (Date.now() < end) { /* busy */ } return real(p2, o); } });
+    let ticks = 0;
+    const timer = setInterval(() => { ticks++; }, 5);
+    const l = await snap.listFiles(w.root, f);
+    clearInterval(timer);
+    assert.ok(l.files.length >= 300);
+    assert.ok(ticks > 0, 'no timer fired while one flat folder was listed');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('exclude matches as restore compares names: "./deps" and "Deps" both leave out deps', async () => {
+  const w = workKosmos();
+  try {
+    fs.mkdirSync(path.join(w.root, 'deps'));
+    fs.writeFileSync(path.join(w.root, 'deps', 'a.js'), 'x');
+    for (const ex of ['./deps', 'Deps', 'deps/']) {
+      const l = await snap.listFiles(w.root, fs, { exclude: [ex] });
+      assert.ok(!l.files.some((x) => x.path.startsWith('deps/')), ex);
+      assert.ok(l.skipped.some((x) => x.path === 'deps'), ex);
+    }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

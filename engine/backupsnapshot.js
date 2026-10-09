@@ -165,7 +165,10 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
   const pause = yielder();
   // Folders the caller leaves out (review 34: a large dependency tree could otherwise make every snapshot tooLarge),
   // as '/'-separated relative paths; each is recorded once as skipped.
-  const excluded = new Set((Array.isArray(exclude) ? exclude : []).filter((x) => typeof x === 'string' && x).map((x) => x.replace(/\\/g, '/').replace(/\/+$/, '')));
+  // Matched as restore compares names (collisionKey: case, invisible characters, '\\' as '/'), with a leading "./" and
+  // trailing '/' dropped: "Deps" or "./deps" leaves out deps on a case-insensitive volume, as a person would expect.
+  const excluded = new Set((Array.isArray(exclude) ? exclude : []).filter((x) => typeof x === 'string' && x)
+    .map((x) => collisionKey(x.replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, ''))));
   // Another volume mounted inside the work Kosmos (an external disk, a network share) is not crossed: what
   // is backed up is this computer's work Kosmos, and a mount can bring in anything. Recorded as skipped.
   let rootDev = null;
@@ -191,6 +194,7 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
     }
     for (const name of names.sort()) {
       if (over) return;
+      await pause();   // per entry: one flat folder can hold hundreds of thousands
       const r = rel ? `${rel}/${name}` : name;
       // Recorded under the masked name: the skipped list leaves the Mac too.
       const masked = nameMasked(name);
@@ -211,7 +215,7 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
       if (st.isDirectory()) {
         if (rootDev !== null && st.dev !== rootDev) { skip({ path: r, why: 'another volume mounted inside the work Kosmos (not crossed)' }); continue; }
         const why = folderDenied(r);
-        if (excluded.has(r)) skip({ path: r, why: 'left out by the backup\'s settings' });
+        if (excluded.has(collisionKey(r))) skip({ path: r, why: 'left out by the backup\'s settings' });
         else if (why) skip({ path: r, why }); else await walk(r, depth + 1, st);
         continue;
       }
@@ -234,6 +238,7 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
   const node = () => ({ kids: new Map(), file: null });
   const trie = node(), kept = [];
   for (const f of files) {
+    await pause();
     let n = trie, clash = null;
     for (const seg of collisionKey(f.path).split('/')) {
       if (n.file) { clash = n.file; break; }
@@ -324,7 +329,7 @@ function upperBound(f, maxFile) {
  *                  bucket; memberKeyId binds each to the member key it was sealed to (an entry for another is stale)
  *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson? }
  * Resolves { ok: true, manifestKey, files, skipped, uploaded, reused, added, bucket } or
- * { ok: false, because, retryLater?, newPeriod?, staleIndex?, tooLarge?, overAllowance?, grantSpent?, unsure?, added, bucket }.
+ * { ok: false, because, retryLater?, newPeriod?, grantedPeriod?, staleIndex?, tooLarge?, overAllowance?, grantSpent?, unsure?, added, bucket }.
  *   overAllowance: the week's backup allowance would be passed (refused before anything is spent), or is used up
  *     (backup_quota, which can arrive after some batches were stored: they are in `added`): not this period.
  *   newPeriod: a period boundary passed (the context's, or a grant's): start again with the new period's context and
