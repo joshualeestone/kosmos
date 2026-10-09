@@ -4,6 +4,7 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
+  { version: 26, length: 25076, sha256: '630a1f7decda26401db36dee673b043c4cd4329ca69fcb73cd37d33690aa7405' },
   { version: 25, length: 24675, sha256: 'f0ceb95a6b07007f38d0df415b7914b34cd959402523f384ab1e5968807b406c' },
   { version: 25, length: 24406, sha256: '633af970178b1b58156aa020e918c828925ebf2fa402e26f4e5917073b9220ab' },
   { version: 24, length: 23939, sha256: 'a660bad12cb659d6a421a32cc7d5e305c2370ec5d9036a89f8d539a21a6371f5' },
@@ -13,8 +14,6 @@ const blocks = [
   { version: 23, length: 22468, sha256: '91ad3a6c31f4b409b991f54805ce0af198849618d3ab3c19a0ffe80972dc3dd6' },
   { version: 22, length: 22595, sha256: '03e6a056085231c88e3c860fd151623213afaac3471d8e1902df95d625342c79' },
   { version: 21, length: 22336, sha256: '2211bf1f791a9399571dfe70df63330e443d5c8854fe3905b9506dcbacac1bec' },
-  { version: 21, length: 21919, sha256: '8f049db34502268da4258dda6c2e242f8c13373b38f1e43800091e091c62aa5b' },
-  { version: 21, length: 21916, sha256: 'ff04f9d92e6c5917a67fff81781e8775d809467e312d8bb3f00aa04f5fed0e53' },
   { version: 20, length: 22046, sha256: '6f0045422d9692730773d914297bb6b6eb219fc7a193ddf27db2698f7a99bf21' },
   { version: 19, length: 22328, sha256: '6a3604bd76d0099f4598f4313544837e137fb72fd33d135202daeb20c7eea2a0' },
   { version: 19, length: 22270, sha256: '573e956577430b3f30eddc570d53f811246706c0befcac01ce3508d5bab7c985' },
@@ -42,9 +41,9 @@ const blocks = [
   { version: null, length: 5761, sha256: '118080f63230d3d0379c5343cccd5a34e1f9ed81023b035d9c402d758407622d' },
 ];
 blocks.sections = [
-  '68abaa28d7744aa1e0f797b53fbc4f28bdab892a85e42d4642f8627e4bd57ccf',
   '04600574afae222f46793b82d84e04b3cccfc609b454d6e3f59df409da5658b4',
   '0768c124f0a880e54e910a86dae0271f3814d59117d2ccf731d10a95325b2d3d',
+  '0aa7e236747adaa19ef8b362b6f73431a9a10c78dd125c9d7ff1774da0905b6d',
   '0faee029d83d6910471e7f099201dd845f4d4df9558ebbc2087527425f7edd0b',
   '100e05b3d75cfa7505137c6e4f8ada2f767c6dd518d10ede790b6d25acf4f194',
   '1738d44880c134efc97f134135fe39a5c2a6fcc0c50aa498e1feddf54168243b',
