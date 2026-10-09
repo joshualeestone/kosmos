@@ -12,6 +12,17 @@ const KEY = 'sk-ant-api03-' + 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0';
 const GH = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
 const PEM = '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACDDummyDummyDummyDummyDummyDummyDummyDummyAAAA\n-----END OPENSSH PRIVATE KEY-----';
 
+test('#5686 deny-list: Kosmos credential stores in the data root are skipped by name, under a world prefix too', () => {
+  for (const p of ['Kosmos/sendertokens/a.json', 'Kosmos/sendertokens/a.json.tmp-60291', 'Kosmos/launch-secrets/mikey.env.json',
+    'Kosmos/communitysend/234a7f2dbb0a/keys.json', 'worlds/w1/Kosmos/sendertokens/b.json', 'sendertokens/a.json']) {
+    assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
+  }
+  for (const p of ['Kosmos/communitysend/234a7f2dbb0a/sent.json', 'Kosmos/chats/direct..mikey.json', 'Kosmos/messages.jsonl',
+    'Kosmos/task-chats/a.task-7.jsonl', 'Kosmos/agent-token-only.json', 'projects/site/keys.json', 'notes/launch-secrets.md']) {
+    assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a conversation or ordinary work and is kept`);
+  }
+});
+
 test('#5535 deny-list: credential-shaped paths are skipped by name; ordinary work files are not', () => {
   for (const p of ['.env', 'agents/a/.env.local', 'keys/server.pem', 'x/id_ed25519', 'x/id_rsa.pub', 'home/.ssh/config',
     '.npmrc', 'proj/.git/config', '.config/gh/hosts.yml', 'agents/b/.claude/.credentials.json', '.codex/auth.json',

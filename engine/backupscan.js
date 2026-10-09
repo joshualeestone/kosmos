@@ -5,7 +5,7 @@
  * recorded by name, never stored unchecked.
  *
  *  1. By path: a deny-list of credential-shaped paths (env files, keys and keystores, provider and tool auth
- *     files, cloud and package-manager credentials, Terraform state, Kosmos's own secrets folder, git internals,
+ *     files, cloud and package-manager credentials, Terraform state, Kosmos's own secrets folder and token stores, git internals,
  *     browser profile stores), and compressed containers, whose contents cannot be scanned.
  *  2. By content: the scan, reusing engine/secretmask.js (the hardened detector the setup guide relies on),
  *     never a second set of patterns.
@@ -60,6 +60,12 @@ const DENY = [
   [/(^|\/)(credentials?|secrets?)$/i, 'credential-named file'],
   [/(^|\/)client_secret[^/]*\.json$/i, 'OAuth client secret'],
   [/(^|\/)secrets\//i, 'secrets folder'],
+  // #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
+  // inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
+  // supervisor's launch secrets, and each agent's Kosmos+ community key (engine/communitysend.js keysFile).
+  [/(^|\/)sendertokens\//i, 'Kosmos agent tokens'],
+  [/(^|\/)launch-secrets\//i, 'Kosmos launch secrets'],
+  [/(^|\/)communitysend\/[^/]+\/keys\.json$/i, 'Kosmos+ community agent keys'],
   [/(^|\/)(cookies|login data|web data|local state)(-journal)?$/i, 'browser profile store'],
   [/\.(zip|gz|tgz|bz2|xz|7z|rar|zst|lz4|dmg|jar|war|whl|apk|ipa|docx|xlsx|pptx|odt|ods|odp|epub|pages|numbers)$/i, 'compressed container (contents cannot be scanned)'],
 ];
