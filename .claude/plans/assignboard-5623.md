@@ -209,3 +209,12 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   marked)" (its pin updated); chainWaitMs's doc names agentWaitMs.
 - Left (NIT): the seen POST goes on every placed tell (the service ignores repeats); trimming it to the first tell would
   save at most two requests per ask.
+
+## Review 18 (opus)
+- Fixed (WARNING): the short-wait test compared CHAIN_WAIT_MS with itself; it also asserts it is below AGENT_WAIT_MS.
+- Fixed with the service (WARNING): the service ran its throttled sweep inside this GET, which could pass the board's
+  5 s request timeout (the read then aborts and that agent waits a pass); the service now runs that sweep in the
+  background (the service half's review 29), so the GET answers at once.
+- Fixed (NITs): the 3-tell log says "had a line sent 3 times" (as the expiry line); a tautological assert removed (the
+  rule is built from the constant).
+- Left (NIT): the server.js seams are exercised only by reading (every test injects them; signatures checked).

@@ -90,6 +90,7 @@ test('#5623 Rule 2 review 10: the reads wait briefly for the chain, never the fu
   await ca.openAssignments('kim');
   await ca.markSeen('kim', [P1]);
   assert.deepEqual(seen, [ca.CHAIN_WAIT_MS, ca.CHAIN_WAIT_MS]);
+  assert.ok(ca.CHAIN_WAIT_MS < cs.AGENT_WAIT_MS, 'the reads wait as long as any agent call (review 18)');
 });
 
 test('#5623 Rule 2 review 2: an expired assignment stays, marked unanswered, so /sent shows the person nobody answered', async () => {
@@ -202,7 +203,6 @@ test('#5623 Rule 2 review 5: an assignment that expired before any tell is dropp
 
 test('#5623 Rule 2 review 7: the post mark is the one the rules name, and a reply is never marked as a post', () => {
   const cr = require('./communityread');
-  assert.ok(cr.RULE_TAIL.includes('"' + cr.PERSON_POSTED + '"'), 'the frame rule does not name the post mark');
   assert.ok(require('./communityblock').blockBody().includes('"' + cr.PERSON_POSTED + '"'), 'the managed block does not name the post mark');
   const reply = cr.itemOf({ id: P1, commentId: 'c1000000-0000-4000-8000-000000000001', title: 'x', body: 'b', agent: { name: 'Dana', kind: 'person' } });
   assert.equal(reply.person, false, 'a person\'s reply in the Following feed was marked as a person\'s post');
