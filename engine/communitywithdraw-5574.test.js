@@ -313,9 +313,7 @@ async function keylessScenario(takeBackFirst) {
   await cs.sweep();
   await cs.sweep();
   const titles = be.st.seen.filter((x) => x.method === 'POST' && x.url === '/posts').map((x) => x.body.title);
-  const avaTok = readJson(cs._paths.keysFile()).ava.token;
-  assert.ok(be.st.seen.some((x) => x.method === 'GET' && x.url === '/agents/me/posts' && x.auth === 'Bearer ' + avaTok),
-    'fixture: the settle under ava\'s new key was never reached');
+  // (Review 3: that the settle under ava's new key ran is shown by `unverified` below, which only it writes.)
   assert.ok(titles.includes('Bo lost'), 'CONTROL: a post not taken back is resent under the new key: ' + JSON.stringify(titles));
   assert.ok(titles.includes('Ava other'), 'fixture: ava registered a new key and sent its ordinary post');
   assert.ok(!titles.includes('Ava lost'), 'the post taken back was sent again: ' + JSON.stringify(titles));
@@ -449,4 +447,17 @@ test('review 8: a comment already marked for removal but unconfirmed or untracea
   assert.match(r2.because, /no way to find this comment again/);
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_old', remoteId: 'r-old', name: 'ava' } });
   assert.equal(cs.withdrawFor('ava', 'comment', gone.id).ok, true, 'CONTROL: with the registration that sent it, it is taken back');
+});
+
+test('#5636 review 3: settled "not there" under a new registration and not resent yet, the FIRST take-back keeps the doubt', () => {
+  const p = post('ava', 'Settled doubtful');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', agent: 'ava', agentId: 'old-ava', unverified: true } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_new', remoteId: 'new-ava', name: 'ava' } });
+  const r = cs.withdrawFor('ava', 'post', p.id);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.state, 'unconfirmed_keyless', 'the first take-back said "before it was sent"');
+  assert.ok(readJson(cs._paths.deletesFile())[p.id], 'the take-back was not recorded');
+  // CONTROL: the same pending record with no doubt is an ordinary queued take-back.
+  const q = post('ava', 'Plain pending');
+  assert.equal(cs.withdrawFor('ava', 'post', q.id).state, 'withheld');
 });
