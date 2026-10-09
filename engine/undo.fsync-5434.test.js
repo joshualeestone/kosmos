@@ -119,6 +119,13 @@ test('#5434: the current version saved aside is flushed before the file is repla
   const flushed = events.findIndex((e) => e[0] === 'fsync' && e[1] === keepAs);
   const r = events.findIndex((e) => e[0] === 'rename' && e[2] === f);
   assert.ok(flushed >= 0 && flushed < r, 'the saved-aside version was not flushed before the file was replaced: ' + JSON.stringify(events));
+  if (process.platform !== 'win32') {
+    const dirs = [out.savedIn, path.dirname(out.savedIn)];
+    for (const d of dirs) {
+      const i = events.findIndex((e) => e[0] === 'fsync' && e[1] === d);
+      assert.ok(i >= 0 && i < r, 'the folder ' + d + ' was not flushed before the file was replaced (review 1)');
+    }
+  }
 });
 
 test('#5434: a read-only file is still restored, at its mode', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
@@ -187,13 +194,18 @@ test('#5434: moveAside across devices flushes the copy before deleting the origi
   fs.writeFileSync(from, 'MOVE ME');
   const realRename = fs.renameSync;
   const realUnlink = fs.unlinkSync;
-  const events = [];
+  const realFsync = fs.fsyncSync;
+  const realOpen = fs.openSync;
+  const events = [];   // ONE ordered list, so the test can say "before" (review 1)
+  const fdPath = new Map();
   fs.renameSync = (a, b) => { if (String(a) === from) { const e = new Error('cross-device'); e.code = 'EXDEV'; throw e; } return realRename(a, b); };
   fs.unlinkSync = (p) => { events.push(['unlink', String(p)]); return realUnlink(p); };
-  let rec;
-  try { rec = recording(() => undo.moveAside(from, to)); } finally { fs.renameSync = realRename; fs.unlinkSync = realUnlink; }
-  const all = [...rec.events, ...events];
+  fs.openSync = (p, ...rest) => { const fd = realOpen.call(fs, p, ...rest); fdPath.set(fd, String(p)); return fd; };
+  fs.fsyncSync = (fd) => { events.push(['fsync', fdPath.get(fd)]); return realFsync(fd); };
+  try { undo.moveAside(from, to); } finally { fs.renameSync = realRename; fs.unlinkSync = realUnlink; fs.fsyncSync = realFsync; fs.openSync = realOpen; }
   assert.equal(fs.existsSync(from), false);
   assert.equal(fs.readFileSync(to, 'utf8'), 'MOVE ME');
-  assert.ok(rec.events.some((e) => e[0] === 'fsync' && e[1] === to), 'the copy was never flushed: ' + JSON.stringify(all));
+  const flushed = events.findIndex((e) => e[0] === 'fsync' && e[1] === to);
+  const deleted = events.findIndex((e) => e[0] === 'unlink' && e[1] === from);
+  assert.ok(flushed >= 0 && deleted >= 0 && flushed < deleted, 'the copy was not flushed before the original was deleted: ' + JSON.stringify(events));
 });
