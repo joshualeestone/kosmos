@@ -243,23 +243,26 @@ test('no temp file is left behind when the rename fails', () => {
    * the directory read-only fails the WRITE too, so there was never a temp file
    * to leave behind. Reaching the cleanup needs a write that succeeds and a
    * rename that does not.
+   * #5434 slice 6: the module now saves through securewrite, which creates its temp with
+   * `fs.openSync(tmp, 'wx', mode)`, so the temps are observed there, not on writeFileSync.
    */
   const d = folder();
   write({ projects: {} });
 
-  const realWrite = fs.writeFileSync;
+  const realOpen = fs.openSync;
   const realRename = fs.renameSync;
   const written = [];
-  fs.writeFileSync = function (p, ...rest) { written.push(String(p)); return realWrite.call(fs, p, ...rest); };
+  fs.openSync = function (p, ...rest) { if (rest[0] === 'wx') written.push(String(p)); return realOpen.call(fs, p, ...rest); };
   fs.renameSync = () => { const e = new Error('injected'); e.code = 'EIO'; throw e; };
   try {
     const r = trustFolder(d);
     assert.equal(r.ok, false, 'a rename that throws is a refusal');
     const temps = written.filter((p) => p.includes('.kosmos-'));
-    assert.equal(temps.length, 1, 'the module did not write a temp file, so there is nothing to clean up');
-    assert.equal(fs.existsSync(temps[0]), false, `the temp file it wrote is still there: ${temps[0]}`);
+    // securewrite tries three fresh names before it gives up (atomicOnly: never an in-place rewrite)
+    assert.equal(temps.length, 3, 'the module did not write its temp files, so there is nothing to clean up');
+    for (const tp of temps) assert.equal(fs.existsSync(tp), false, `a temp file it wrote is still there: ${tp}`);
   } finally {
-    fs.writeFileSync = realWrite;
+    fs.openSync = realOpen;
     fs.renameSync = realRename;
   }
 });
@@ -413,10 +416,12 @@ test('the temp path is never the same twice, observed rather than argued', () =>
    * 🔑 It matters because `wx` refuses whatever is sitting at the name, and a
    * crash between create and rename leaves one behind. With a repeating name
    * that is a permanent wedge; with a unique one the leftover is inert.
+   * #5434 slice 6: the module now saves through securewrite, which creates its temp with
+   * `fs.openSync(tmp, 'wx', mode)`, so the temps are observed there, not on writeFileSync.
    */
-  const realWrite = fs.writeFileSync;
+  const realOpen = fs.openSync;
   const written = [];
-  fs.writeFileSync = function (p, ...rest) { written.push(String(p)); return realWrite.call(fs, p, ...rest); };
+  fs.openSync = function (p, ...rest) { if (rest[0] === 'wx') written.push(String(p)); return realOpen.call(fs, p, ...rest); };
   try {
     for (let i = 0; i < 3; i++) {
       const d = folder();
@@ -424,7 +429,7 @@ test('the temp path is never the same twice, observed rather than argued', () =>
       assert.equal(trustFolder(d).ok, true);
     }
   } finally {
-    fs.writeFileSync = realWrite;
+    fs.openSync = realOpen;
   }
   const temps = written.filter((p) => p.includes('.kosmos-'));
   assert.equal(temps.length, 3, 'the module did not write three temp files, so this compares nothing');
@@ -482,7 +487,7 @@ test('taking back never reports success about a config it could not read', () =>
   assert.match(r.because, /shaped/);
 });
 
-test('a file planted at the path the module is ABOUT to write is refused, not written through', () => {
+test('a file planted at the path the module is ABOUT to write is refused, not written through, and left alone', () => {
   /**
    * 🛑 THE `wx` FLAG'S OWN TEST, and nothing in this file had one. The unique
    * name means no fixture can guess the path, so the path is taken from the
@@ -491,28 +496,36 @@ test('a file planted at the path the module is ABOUT to write is refused, not wr
    * Without `wx` the write follows the link and the config — account details
    * included — lands where somebody else chose, and the rename then makes the
    * config itself that link.
+   * #5434 slice 6: through securewrite, a refused temp name is followed by a FRESH one (three
+   * tries), so the save now succeeds without touching the plant. Before, the plant failed this one
+   * write. What must still hold: nothing is written through the link, and the link is not removed.
    */
   const d = folder();
   write({ projects: {} });
   const elsewhere = nodePath.join(SANDBOX, 'attacker-real.json');
 
-  const realWrite = fs.writeFileSync;
+  const realOpen = fs.openSync;
   let planted = null;
-  fs.writeFileSync = function (p, ...rest) {
-    if (planted === null && String(p).includes('.kosmos-')) {
+  fs.openSync = function (p, ...rest) {
+    if (planted === null && rest[0] === 'wx' && String(p).includes('.kosmos-')) {
       planted = String(p);
       fs.symlinkSync(elsewhere, planted);        // there before the module's own write lands
     }
-    return realWrite.call(fs, p, ...rest);
+    return realOpen.call(fs, p, ...rest);
   };
   let r;
+  let plantStillThere = false;
   try { r = trustFolder(d); }
-  finally { fs.writeFileSync = realWrite; try { fs.rmSync(planted, { force: true }); } catch { /* fine */ } }
+  finally { fs.openSync = realOpen; }
+  try { plantStillThere = fs.lstatSync(planted).isSymbolicLink(); } catch { plantStillThere = false; }
+  try { fs.rmSync(planted, { force: true }); } catch { /* fine */ }
 
   assert.ok(planted, 'the plant never happened, so this tests nothing');
-  assert.equal(r.ok, false, 'the write went through a symlink at its own temp path');
   assert.equal(fs.existsSync(elsewhere), false, 'the config was written through the planted link');
-  assert.equal(read().projects[K(d)], undefined, 'a refused write still changed the config');
+  assert.equal(plantStillThere, true, 'the planted file was removed: a file we cannot prove is ours was deleted');
+  assert.equal(r.ok, true, 'the save did not move on to a fresh temp name');
+  assert.equal(fs.lstatSync(CONFIG).isSymbolicLink(), false, 'the config itself became a link');
+  assert.equal(read().projects[K(d)].hasTrustDialogAccepted, true, 'the save on the fresh name did not land');
 });
 
 test('the undo leaves a trust value that changed under it', () => {
@@ -609,10 +622,10 @@ test('two processes never choose the same temp path', () => {
   const script = `
     const fs = require('node:fs');
     process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = process.argv[1];   // node -e: argv[1] is the first extra arg
-    const real = fs.writeFileSync;
+    const real = fs.openSync;
     let seen = null;
-    fs.writeFileSync = function (p, ...rest) {
-      if (seen === null && String(p).includes('.kosmos-')) seen = String(p);
+    fs.openSync = function (p, ...rest) {
+      if (seen === null && rest[0] === 'wx' && String(p).includes('.kosmos-')) seen = String(p);
       return real.call(fs, p, ...rest);
     };
     require(process.argv[2]).trustFolder(process.argv[3]);
@@ -622,12 +635,12 @@ test('two processes never choose the same temp path', () => {
   write({ projects: {} });
 
   const mine = [];
-  const realWrite = fs.writeFileSync;
-  fs.writeFileSync = function (p, ...rest) {
-    if (String(p).includes('.kosmos-')) mine.push(String(p));
-    return realWrite.call(fs, p, ...rest);
+  const realOpen = fs.openSync;
+  fs.openSync = function (p, ...rest) {
+    if (rest[0] === 'wx' && String(p).includes('.kosmos-')) mine.push(String(p));
+    return realOpen.call(fs, p, ...rest);
   };
-  try { trustFolder(d); } finally { fs.writeFileSync = realWrite; }
+  try { trustFolder(d); } finally { fs.openSync = realOpen; }
 
   const d2 = folder();
   write({ projects: {} });

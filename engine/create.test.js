@@ -3786,7 +3786,8 @@ test('an undo that could not run is recorded, because the sentence says it did',
   }
 
   assert.equal(r.outcome, create.OUTCOME.PARTIAL, 'the start did not fail, so no rollback ran');
-  assert.equal(undoWrites, 1, 'the undo attempted exactly one config write, which is what the failure was injected into');
+  // #5434 slice 6: one config save, which securewrite tries on three fresh temp names before it gives up
+  assert.equal(undoWrites, 3, 'the undo attempted exactly one config save (three temp names), which is what the failure was injected into');
   assert.ok(r.steps.some((s) => s.label === 'took back the folder trust' && s.ok === false),
     'the undo failed and nothing on the machine says so, while the person is told we took it back');
 
