@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state2 plus-signin-email plus-signin-company plus-si-company plus-si-company-code plus-si-company-open plus-si-company-finish plus-si-company-name plus-si-company-second-row plus-si-company-second plus-si-company-go
+// Browser-check-surface: plus-state2 plus-signin-email plus-signin-company plus-si-company plus-si-company-code plus-si-company-open plus-si-company-finish plus-si-company-name plus-si-company-second-row plus-si-company-second plus-si-company-go plus-si-company-resend
 'use strict';
 /**
  * kosmos#5628 slice 2b-ui: a computer whose company's MDM installed the Kosmos profile signs in through the company's
@@ -101,6 +101,8 @@ async function openWizard(browser, BASE, managed, answers) {
       const w = await openWizard(browser, BASE, true, (step, body) => {
         if (step === 'start') return [200, { ok: true, matchCode: 'K7-3M', url: URL_SSO, interval: 1 }];
         if (step === 'open') return [200, { ok: true }];
+        // kosmos#5651: an authenticator account (no text to send).
+        if (step === 'second-text') return [200, { ok: true, sent: false, second: 'totp' }];
         if (step === 'status') return [200, { ready, gone: false, retry: false }];
         if (step === 'complete') {
           return body && body.second ? [200, { ok: true, status: {} }]

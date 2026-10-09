@@ -268,10 +268,14 @@ test('kosmos#5651 board review 1: Finish pressed again while the text is asked f
   const { w, asked } = await atSecondStep(async () => { await held; return [200, { ok: true, sent: true, second: 'sms', sentTo: '4567' }]; });
   const first = w.ctx.finish(w.el('plus-si-company-go'));
   await new Promise((r) => setImmediate(r));
-  await w.ctx.finish(w.el('plus-si-company-go'));          // a double click while the request is out
+  await w.ctx.text();                                      // Text me again while the first ask is out
+  w.el('plus-si-company-second').value = '424242';
+  const callsBefore = w.calls.length;
+  await w.ctx.finish(w.el('plus-si-company-go'));          // Finish with a code while the ask is out
+  assert.equal(w.calls.length, callsBefore, 'a code was finished while a new text was being asked for');
   release();
   await first;
-  assert.equal(asked.length, 1, 'one refusal asked for two texts');
+  assert.equal(asked.length, 1, 'a text was asked for twice at once');
   assert.match(w.line(), /phone ending 4567/);
 });
 
@@ -305,4 +309,26 @@ test('kosmos#5651 board review 1: a late answer for an older setup (a new compan
   release();
   await pending;
   assert.equal(w.line(), before, 'a late text answer wrote over a sign-in that was started over');
+});
+
+test('kosmos#5651 board review 2: a gone setup sends the text ask back to the email step; Text me again keeps the takeover words', async () => {
+  const { w } = await atSecondStep(() => [400, { error: 'that company sign-in has expired; start again' }]);
+  await w.ctx.finish(w.el('plus-si-company-go'));
+  assert.deepEqual(w.shown.slice(-1), ['plus-si-email'], 'a gone setup left Text me again as a dead end');
+  // The takeover words stay on every text after the first.
+  const answers = [[400, { error: 'this computer could not reach the sign-in service' }], [200, { ok: true, sent: true, second: 'sms', sentTo: '4567' }]];
+  let n = 0;
+  const v = world(Object.assign({}, START, {
+    '/api/remote/company/status': () => [200, { ready: true }],
+    '/api/remote/company/second-text': () => answers[n++],
+    '/api/remote/company/complete': () => [400, { error: 'that name is held by a computer on this account; to move it to this one, enter the code from your second step' }],
+  }));
+  v.el('plus-signin-email').value = 'neo@acme.test';
+  await v.ctx.start(v.el('plus-signin-company'));
+  await v.tick();
+  v.el('plus-si-company-name').value = 'old-laptop';
+  await v.ctx.finish(v.el('plus-si-company-go'));
+  await v.ctx.text();
+  assert.match(v.line(), /held by a computer on this account/, 'Text me again dropped the takeover warning');
+  assert.match(v.line(), /phone ending 4567/);
 });

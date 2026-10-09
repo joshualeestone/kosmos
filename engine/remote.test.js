@@ -79,6 +79,8 @@ if (args[0] === 'setup' && args[1] === 'company-second') {
   if (mode.includes('company-old-second')) { process.stderr.write("error: unrecognized subcommand 'company-second'\\n"); process.exit(2); }
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
   if (mode.includes('company-second-nojson')) { console.log('ok'); process.exit(0); }
+  if (mode.includes('company-second-404')) { process.stderr.write('Kosmos+ said no (404): \\n'); process.exit(1); }
+  if (mode.includes('company-second-401')) { process.stderr.write('Kosmos+ said no (401): that company sign-in is not approved yet, or has expired; start again on the computer\\n'); process.exit(1); }
   console.log(JSON.stringify({ sent: true, second: 'sms', sentTo: '4567' }));
   process.exit(0);
 }
@@ -4164,7 +4166,7 @@ test('kosmos#5651: the second-step text goes through the tunnel with the secret 
   assert.ok(run, 'the tunnel was not asked');
   assert.ok(!JSON.stringify(run).includes(fs.readFileSync(RECORD + '.stdin', 'utf8').trim()), 'the secret went on argv');
   // Board review 1: the setup's own secret, exactly (not merely something), went on stdin.
-  assert.ok(/^\S{20,}\n$/.test(fs.readFileSync(RECORD + '.stdin', 'utf8')), 'the setup secret was not what went on stdin');
+  assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8'), 'S3CRET-only-in-the-engine\n', 'the setup secret was not what went on stdin');
   process.env.FAKE_TUNNEL_MODE = 'company-old-second';
   const old = await remote.companySecond();
   delete process.env.FAKE_TUNNEL_MODE;
@@ -4182,4 +4184,16 @@ test('kosmos#5651 board review 1: calls at once share one request; an unreadable
   const odd = await remote.companySecond();
   delete process.env.FAKE_TUNNEL_MODE;
   assert.equal(odd.ok, false, 'an answer that could not be read was taken as an authenticator account');
+});
+
+test('kosmos#5651 board review 2: only a bare 404 is an older coordinator; a 401 is the coordinator\'s words', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-404';
+  const old = await remote.companySecond();
+  process.env.FAKE_TUNNEL_MODE = 'company-second-401';
+  const gone = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.deepEqual([old.ok, old.unsupported], [false, true], 'a missing route was not called unsupported');
+  assert.equal(gone.unsupported, undefined, 'a refusal was called an older coordinator');
+  assert.match(gone.because, /start again/);
 });

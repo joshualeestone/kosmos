@@ -48902,8 +48902,9 @@ document.getElementById('plus-si-register-go').addEventListener('click', () => {
    person new to Kosmos+ agreed to the terms on the approval page (slice 2c), so there is no terms step here. The
    setup's secret stays in the engine; nothing here carries it. */
 let PLUS_CO_EPOCH = 0;
-let PLUS_CO_REFUSED = '';
-let PLUS_CO_TEXTING = false;   // kosmos#5651 board review 1: a text request is out (Finish waits; asked once)   // review 3: the second-step code just refused, never sent again unchanged
+let PLUS_CO_REFUSED = '';   // review 3: the second-step code just refused, never sent again unchanged
+let PLUS_CO_TEXTING = false;   // kosmos#5651 board reviews 1-2: a text request is out (Finish waits; asked once)
+let PLUS_CO_LEAD = '';   // board review 2: the coordinator's takeover words, kept for every text that follows
 async function plusCompanyManaged() {
   let r = null;
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
@@ -48930,6 +48931,7 @@ async function plusCompanyStart(btn) {
   document.getElementById('plus-si-company-second').value = '';
   PLUS_CO_REFUSED = '';
   PLUS_CO_TEXTING = false;
+  PLUS_CO_LEAD = '';
   document.getElementById('plus-si-company-resend').hidden = true;
   plusSiShow('plus-si-company');
   plusSiMsg('Waiting for you to approve in your browser.');
@@ -48968,15 +48970,26 @@ function plusCompanyPoll(epoch, siEpoch, interval) {
    coordinator cannot: then the words say what still works. Review 3 (2b-ui): "Email me a code" is no way out where the
    company requires its own sign-in, so it is never offered. Board review 1: one request at a time; a late answer for
    an older setup or an abandoned sign-in is dropped; "Text me again" stays for a text that did not come. */
-async function plusCompanyText(lead) {
+async function plusCompanyText() {
   if (PLUS_CO_TEXTING) return;
   PLUS_CO_TEXTING = true;
+  const lead = PLUS_CO_LEAD;
   const epoch = PLUS_CO_EPOCH;
   const resend = document.getElementById('plus-si-company-resend');
+  const go = document.getElementById('plus-si-company-go');
   resend.disabled = true;
+  go.disabled = true;   // board review 2: Finish waits for this answer
   const t = await plusSiPost('/api/remote/company/second-text', {});
   PLUS_CO_TEXTING = false;
+  go.disabled = false;
   if (t.stale || epoch !== PLUS_CO_EPOCH) return;
+  // Board review 2: a setup that is gone or expired goes back to the email step, as Finish does.
+  if (!t.ok && /start again/i.test(String(t.because || ''))) {
+    PLUS_CO_EPOCH += 1;
+    plusSiShow('plus-si-email');
+    plusSiMsg(t.because);
+    return;
+  }
   const label = document.getElementById('plus-si-company-second-label');
   const sentInput = document.getElementById('plus-si-company-second');
   resend.disabled = false;
@@ -49009,6 +49022,8 @@ async function plusCompanyText(lead) {
   sentInput.focus();
 }
 async function plusCompanyFinish(btn) {
+  // Board review 2: not while a text request is out (its new code could replace the one being finished).
+  if (PLUS_CO_TEXTING) return;
   const name = plusNameClean(document.getElementById('plus-si-company-name').value.trim()).replace(/-+$/, '');
   if (!name) { plusSiMsg('pick a name for this computer'); return; }
   if (!PLUS_NAME_RULE.test(name)) { plusSiMsg('the name is 3 to 32 letters, digits or hyphens'); return; }
@@ -49017,11 +49032,16 @@ async function plusCompanyFinish(btn) {
   if (!row.hidden && !second) { plusSiMsg('enter the code from your second step'); return; }
   if (second && second === PLUS_CO_REFUSED) { plusSiMsg('that code was just refused; enter a new one'); return; }
   btn.disabled = true;
+  // Board review 2: no new text while a code is being checked (it could replace that code).
+  const resend = document.getElementById('plus-si-company-resend');
+  const resendWas = resend.disabled;
+  resend.disabled = true;
   plusSiMsg('Setting up this computer.');
   const body = { name };
   if (second) body.second = second;
   const r = await plusSiPost('/api/remote/company/complete', body, PLUS_REGISTER_TIMEOUT_MS);
   btn.disabled = false;
+  resend.disabled = resendWas;
   if (r.stale) return;
   if (!r.ok) {
     const why = String(r.because || '');
@@ -49045,9 +49065,8 @@ async function plusCompanyFinish(btn) {
       // kosmos#5651: the first time, ask for the account's text (only a text-message step sends one). Review 1: Finish
       // stays busy until the answer, so one refusal asks once.
       row.hidden = false;
-      btn.disabled = true;
-      await plusCompanyText(takeover ? why + ' ' : '');
-      btn.disabled = false;
+      PLUS_CO_LEAD = takeover ? why + ' ' : '';
+      await plusCompanyText();
       return;
     }
     if (/start again/i.test(why)) { PLUS_CO_EPOCH += 1; plusSiShow('plus-si-email'); plusSiMsg(why); return; }
@@ -49060,7 +49079,7 @@ async function plusCompanyFinish(btn) {
 }
 document.getElementById('plus-signin-company').addEventListener('click', (e) => plusCompanyStart(e.currentTarget));
 document.getElementById('plus-si-company-go').addEventListener('click', (e) => plusCompanyFinish(e.currentTarget));
-document.getElementById('plus-si-company-resend').addEventListener('click', () => plusCompanyText(''));
+document.getElementById('plus-si-company-resend').addEventListener('click', () => plusCompanyText());
 // No read at load: showing the email step reads the profile (plusSiShow), which is when the button can matter.
 document.getElementById('plus-si-done-go').addEventListener('click', () => {
   PLUS_SI_LANDED = false;

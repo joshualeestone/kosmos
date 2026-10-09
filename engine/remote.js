@@ -1511,7 +1511,10 @@ async function companyStatusRun(c) {
 let companySecondInFlight = null;   // board review 1: { c, run } so calls at once share one request (one text)
 function companySecond() {
   const c = companySetup;
-  if (companyExpired(c)) return Promise.resolve({ ok: false, because: 'that company sign-in has expired; start again' });
+  if (companyExpired(c)) {
+    if (companySetup === c) companySetup = null;   // board review 2: as companyComplete does
+    return Promise.resolve({ ok: false, because: 'that company sign-in has expired; start again' });
+  }
   if (companySecondInFlight && companySecondInFlight.c === c) return companySecondInFlight.run;
   const run = companySecondRun(c).finally(() => { if (companySecondInFlight && companySecondInFlight.run === run) companySecondInFlight = null; });
   companySecondInFlight = { c, run };
