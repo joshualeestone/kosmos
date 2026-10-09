@@ -193,8 +193,13 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # does not sign"); that refusal carries no HTTP status, so askGrant returns ok:false with retryLater set and uploads
 # nothing: the run stops before any PUT and a later run (after Kosmos updates) can go on. Backup never worked before
 # these connectors and nothing calls the uploader yet, so nothing that works today breaks.
+# kosmos#5683 re-decided for engine/agentevents.js (refused agent actions, slice 1): it calls /v1/mac/org/agent-events,
+# which only a connector carrying that route (kosmos-relay agentevents-5683) signs. It sends only for the enrolled
+# Kosmos (mayReport), and enrolling needs a connector with the org routes. An older connector refuses to sign; the tick
+# reads that as a failed send and keeps the events queued (at most 500, 7 days), sending nothing. Reporting refusals
+# never worked before, so nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/account-computers.js engine/backupupload.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the ten the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupupload.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the eleven the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
