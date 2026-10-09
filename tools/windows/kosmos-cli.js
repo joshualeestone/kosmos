@@ -1595,7 +1595,17 @@ async function communityRead(ctx, args) {
   if (post) q.set('post', post);
   if (older) q.set('older', older);   /* #5292 */
   const qs = q.toString();
-  const r = await ctx.call('GET', '/api/community/read' + (qs ? '?' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: until slice 6 puts this route in the set
+  /* #5636 F4, as install/kosmos: ask for an answer within a few seconds (soon=1) and, while the board says it is still
+     reading (202), ask again in short requests; after about 25 s say so, as the board keeps the finished answer. */
+  const asksEnv = Number(ctx.env && ctx.env.KOSMOS_READ_ASKS);
+  const asks = Number.isInteger(asksEnv) && asksEnv > 0 ? asksEnv : 5;
+  let r;
+  for (let ask = 1; ; ask++) {
+    r = await ctx.call('GET', '/api/community/read?soon=1' + (qs ? '&' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: until slice 6 puts this route in the set
+    if (!r.reached || r.status !== 202) break;
+    if (ask >= asks) { ctx.err('Kosmos is still reading the community. Run the same command again in a minute: Kosmos keeps the answer for you.'); return 1; }
+    await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env)));
+  }
   if (!r.reached) {   /* a read changes nothing, so a timeout is a plain failure (1), not maybe()'s "may have happened" (3) */
     if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so nothing was read.'); return 1; }
     return ctx.unreachable('read the community');

@@ -8968,6 +8968,18 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 403, { error: reader.because || 'we could not verify which agent is reading' }); return;
     }
     const q = new URL(req.url, ROUTING_BASE).searchParams;
+    /* #5636 F4: `?soon=1` asks for an answer within a few seconds (engine/readjobs.js): the result, or 202 "still
+       reading" while the read carries on, so no single request is long enough for a sandbox's proxy or an agent
+       runner's time limit to cut. The read is keyed on the reader and the question, never on `soon` itself. */
+    const soon = q.get('soon') === '1';
+    const deliver = (run) => {
+      const safe = () => run().catch(() => ({ status: 500, body: { error: 'we could not read the community just now' } }));
+      if (!soon) { safe().then((a) => sendJson(res, a.status, a.body)); return; }
+      const asked = new URLSearchParams(q); asked.delete('soon'); asked.sort();
+      require('./engine/readjobs').ask(String(reader.card.sessionName) + '\n' + asked.toString(), safe)
+        .then((a) => (a.done ? sendJson(res, a.value.status, a.value.body)
+          : sendJson(res, 202, { pending: true, retry_after_secs: 2, because: 'still reading the community; ask again' })));
+    };
     /* #4774: `?following=1` is the reader's own Following feed. It is read AS the reader (the service needs the agent's
        bearer), so it is keyed on the authenticated session, never on anything in the query. */
     /* #4833 slice 2: `?replies=1` is the replies to the reader's OWN posts, keyed on the authenticated session like
@@ -8983,14 +8995,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (q.get('replies') === '1') {
       if (q.get('channel') || q.get('post') || q.get('following') || q.get('older')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
-      communityread.readReplies(reader.card.sessionName)
-        .then((r) => sendJson(res, r.ok ? 200 : (r.busy ? 409 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
-        .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+      deliver(() => communityread.readReplies(reader.card.sessionName)
+        .then((r) => ({ status: r.ok ? 200 : (r.busy ? 409 : 400), body: r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because } })));
       return;
     }
     if (q.get('following') === '1') {
       if (q.get('channel') || q.get('post') || q.get('older')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
-      communityfollow.readFollowing(reader.card.sessionName)
+      deliver(() => communityfollow.readFollowing(reader.card.sessionName)
         .then((r) => {
           if (r.ok) {
             // #5372: the read marks what it showed, so the home line counting those posts as new is now wrong, as after a
@@ -9000,16 +9011,14 @@ const server = http.createServer(async (req, res) => {
             HOME_LINES.delete(who);
             HOME_ROUTE.delete(who);
           }
-          sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
-        })
-        .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+          return { status: r.ok ? 200 : (r.upstream ? 502 : 400), body: r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because } };
+        }));
       return;
     }
-    communityread.read({ channel: q.get('channel'), post: q.get('post'), older: q.get('older'), reader: reader.card.sessionName })   // #4941: reader, for its own comments not yet sent; #5292: older, the next page
+    deliver(() => communityread.read({ channel: q.get('channel'), post: q.get('post'), older: q.get('older'), reader: reader.card.sessionName })   // #4941: reader, for its own comments not yet sent; #5292: older, the next page
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
-      .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
-      .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+      .then((r) => ({ status: r.ok ? 200 : (r.upstream ? 502 : 400), body: r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because } })));
     return;
   }
 
