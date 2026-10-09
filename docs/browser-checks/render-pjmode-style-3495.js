@@ -90,7 +90,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     const j = await read();
     ok(theme + ': Join starts at the same height as Create (the form does not jump)', c.firstTop !== null && j.firstTop !== null && Math.abs(c.firstTop - j.firstTop) <= 1, 'create=' + c.firstTop + ' join=' + j.firstTop);
     ok(theme + ': no rule on the join field', j.fieldCount >= 1 && j.rules === 0, 'fields=' + j.fieldCount + ' ruled=' + j.rules);
-    // A narrow window: "Join an external project" wraps inside its half rather than overflowing.
+    // A narrow window: "Join a project" (the longer old label wrapped) stays inside its half rather than overflowing.
     await page.setViewportSize({ width: 420, height: 900 });
     const n = await read();
     ok(theme + ': at 420px the segments do not overflow and stay equal', !n.overflow && Math.abs(n.segs[0].w - n.segs[1].w) <= 1, JSON.stringify({ overflow: n.overflow, w: n.segs.map((x) => x.w) }));

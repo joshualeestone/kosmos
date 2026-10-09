@@ -119,7 +119,7 @@
  *      name but no owner_name (or one that is not a Kosmos+ name), "Maya Chen invited you"; with neither,
  *      "Someone invited you". Control: C1 with both.
  *  C3  the step words, read OUT OF the copied invitation (not typed again here), each exist as a visible label on
- *      the page's own path: "+ Add Project" on the Projects list, "Join an external project" on the Add Project
+ *      the page's own path: "+ Add Project" on the Projects list, "Join a project" on the Add Project
  *      screen it opens, "Verify" on the join step that opens. A later rename of either side fails here. Control:
  *      the same finder, given a phrase the page does not have ("Join a shared project"), finds nothing.
  *  C4  writeText rejecting AND select-and-copy failing: the message line says "Kosmos could not copy the
@@ -1572,7 +1572,7 @@ const closeAll = (page) => page.evaluate(() => {
     const invitation = (who) => who + ' invited you to the project "Spring launch" on Kosmos.\n'
       + '\n'
       + '1. Open Kosmos on your computer. If you do not have it yet, get it at installkosmos.com and sign in to Kosmos+.\n'
-      + '2. Go to Projects, press + Add Project, then Join an external project.\n'
+      + '2. Go to Projects, press + Add Project, then Join a project.\n'
       + '3. Paste this code and press Verify:\n'
       + '\n'
       + CODE + '\n'
