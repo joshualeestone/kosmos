@@ -303,6 +303,8 @@ function rootsOf(input) {
     // and a name the deny-list refuses as a folder (secrets) would have every file read and then dropped.
     if (pathProblem(`${r.name}/x`)) return `the root name ${r.name} is not one every system accepts`;
     if (!pathDecision(`${r.name}/x`).include) return `the root name ${r.name} is one the backup never stores`;
+    // Every stored path starts with the name, and every other name in a manifest is masked when it is secret-shaped.
+    if (nameMasked(r.name.replace(/\//g, ' ')) !== null) return `the root name ${r.name} looks like a secret`;
     names.push(r.name);
   }
   // So the files (and the manifest) come out in one order, sorted by stored path, whatever order the caller lists them in.
@@ -311,17 +313,19 @@ function rootsOf(input) {
   return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
 }
 
-/* Every root's listing, merged: each file carries its root's real path and its path inside it (rel), and its stored
-   path is prefixed with the root's name. A root inside another (by real path) is refused: its files would be stored
-   twice. The file limit counts every root together. Returns the merged listing, or why not (a sentence). */
-/* The last folders of a root's real path, as a prefix ('Users/me/.claude/'): enough for any deny rule anchored on a
-   parent folder (the deepest, .config/gh/, needs two). Three, so a rule never sees more of the path than it needs. */
+/* The last folders of a named root's real path, as a prefix ('Users/me/.claude/'): enough for every deny rule anchored
+   on a parent folder (the deepest, .config/gh/, needs two). Three, so a rule never sees more of the path than it needs.
+   A root deeper than that below a credential folder (.config/gh/a/b/c) is not judged by that folder's rule: choosing
+   such a root is the caller's mistake, and the content scan still stands behind it. */
 const NEAR_SEGMENTS = 3;
 function nearOf(real) {
   const segs = real.split(path.sep).filter(Boolean);
   return segs.length ? segs.slice(-NEAR_SEGMENTS).join('/') + '/' : '';
 }
 
+/* Every root's listing, merged: each file carries its root's real path and its path inside it (rel), and its stored
+   path is prefixed with the root's name. A root inside another (by folder identity) is refused: its files would be stored
+   twice. The file and skipped limits count every root together. Returns the merged listing, or why not (a sentence). */
 async function listRoots(roots, fs) {
   const reals = [], ids = [];
   for (const r of roots) {
@@ -357,7 +361,8 @@ async function listRoots(roots, fs) {
       // The deny-list judged the path inside the root, so a rule anchored on a parent folder (.claude/.credentials.json,
       // .gemini/oauth_creds.json, .ssh/) never fired when the root IS that folder. Judged again with the root's own last
       // folders in front, the way the file sits on disk; readListed does the same on the real path.
-      const near = nearOf(reals[i]);
+      // Named roots only: the single `root` (a work Kosmos folder) is judged as it always was.
+      const near = roots[i].name ? nearOf(reals[i]) : '';
       const d = pathDecision(near + f.path);
       if (!d.include) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push({ path: stored, why: d.why }); else out.skippedExtra++; continue; }
       out.files.push(Object.assign({}, f, { rel: f.path, path: stored, rootReal: reals[i], near }));
