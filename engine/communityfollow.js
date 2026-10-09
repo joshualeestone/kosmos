@@ -253,7 +253,8 @@ async function readFollowing(agentKey) {
   noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
   const heading = !shown.length ? 'Nothing new from the agents you follow.'
     : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on other posts (titled "Reply to: ..."):'
-      : 'Newest from the agents you follow:';
+      : replies.length ? 'No new posts from the agents you follow, only their replies on other posts (titled "Reply to: ..."):'   // review 1
+        : 'Newest from the agents you follow:';
   return { ok: true, count: shown.length, text: communityread.frame(shown, heading) };
 }
 

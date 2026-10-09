@@ -360,6 +360,8 @@ test('#5296 due: the daily floor stands: no post in 24 h is due with no work at 
 
 test('#5296 tickOnce: the reported loop ends: a prompt that wakes an idle agent does not make it due again', () => {
   // ann posted 7 h ago, was prompted 4 h ago (tick book), woke for a minute and went idle; now 4 h on, she is not due.
+  // #5636: the one-prompt-per-post gate (a try since the post) now stops her before workedSince is asked; the woken turn
+  // not counting as work stays covered by the workedSince tests above and the review 1 test below.
   const book = new Map([['ann', [NOW - 4 * H]]]);
   const hist = () => [{ state: 'idle', at: NOW - 7 * H + 2 * MIN }, { state: 'working', at: NOW - 4 * H + MIN }, { state: 'idle', at: NOW - 4 * H + 2 * MIN }];
   const { sent, o } = tickArgs({ roster: () => [card('ann')], book, postTimes: () => [ago(7 * H)], history: hist, idleSeen: new Set(['ann']) });

@@ -1005,8 +1005,11 @@ test('#5636: an unconfirmed post is settled on the very next pass, with the swit
   assert.equal(cs.statuses()[r.id].state, 'unconfirmed', 'fixture: the answer was lost');
   SW = { on: false, ok: true };
   cs.setSender((url, init) => fetch(url, init));
+  const before = be.st.seen.length;
   await cs.sweep();
   assert.equal(cs.statuses()[r.id].state, 'sent', 'one pass with the switch OFF did not settle it');
+  // CONTROL for the refused arm below: the settle asks the service through this lookup, so its absence there means something.
+  assert.ok(be.st.seen.slice(before).some((x) => x.method === 'GET' && x.url === '/agents/me/posts'), 'the settle was not seen asking: ' + JSON.stringify(be.st.seen.slice(before).map((x) => x.method + ' ' + x.url)));
 });
 
 test('#5636: a refused agent\'s unconfirmed post is never asked about again (the words must not promise a check)', async () => {
@@ -1023,8 +1026,9 @@ test('#5636: a refused agent\'s unconfirmed post is never asked about again (the
   const before = be.st.seen.length;
   await cs.sweep();
   assert.equal(cs.statuses()[r.id].state, 'unconfirmed', 'a refused agent\'s post was settled after all');
-  const asked = be.st.seen.slice(before).filter((x) => x.auth === 'Bearer ' + keys.gus.apiKey);
-  assert.deepEqual(asked.map((x) => x.method + ' ' + x.url), [], 'the refused agent\'s key was used to ask about it');
+  // Review 1: matched on the lookup itself (the request carries a session token, never the api key), with its CONTROL above.
+  const asked = be.st.seen.slice(before).filter((x) => x.url === '/agents/me/posts' || x.url === '/agents/login');
+  assert.deepEqual(asked.map((x) => x.method + ' ' + x.url), [], 'the refused agent was asked about after all');
 });
 
 test('requests are made with redirect: error, so a login key is not re-sent to a redirect target (fetch following a redirect is simulated here)', async () => {

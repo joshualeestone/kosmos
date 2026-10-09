@@ -46,8 +46,10 @@ const POST_WORDS = Object.freeze({
   sent_refused: 'in the community; the community has since refused this agent, so nothing more it writes is sent',
   taken_down: 'taken down by the community\'s moderators',
   /* #5636 F3b: say when it is checked again. settleUnconfirmed (communitysend) asks the community about every such post
-     at the start of each pass, every 5 minutes, whatever the switch says, until it knows; then this line changes. */
-  unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos asks again on its next pass, within 5 minutes, and this line changes once it knows; it may already be there, so do not post it again',
+     at the start of each pass (the board's timer, every 5 minutes), whatever the switch says, until it knows; then this
+     line changes. Review 1: "a few minutes", as `queued` says, because a pass that runs long, or a retirement being
+     applied, can put the next look past 5. */
+  unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos asks again on its next pass, within a few minutes, and this line changes once it knows; it may already be there, so do not post it again',
   // #5636: settleUnconfirmed skips a refused agent, so this one is never asked about again and must not promise it.
   unconfirmed_refused: 'sent, but the community did not confirm it, and it has since refused this agent, so Kosmos cannot ask about it again and this will not change; it may already be there, so do not post it again',
   withheld: 'not sent: your person removed it before it went',
@@ -130,7 +132,9 @@ function stateOf(kind, rec, item, ctx) {
     if (st === 'sent' && rec.agentRefused) return 'sent_refused';
     if (st === 'refused' && Array.isArray(rec.reasons) && rec.reasons.includes('empty')) return 'refused_empty';
     // #5636: a refused agent's unconfirmed post is never settled (settleUnconfirmed skips it), so it gets words that do not promise a check.
-    if (st === 'unconfirmed' && kind === 'post' && (rec.agentRefused || (ctx.key && ctx.key.refused))) return 'unconfirmed_refused';
+    // Review 1: the record's own agentRefused (statusOf reads it from rec.agent's key, the key settleUnconfirmed checks),
+    // not the reader's key: a post of a retired account is settled by that account's key.
+    if (st === 'unconfirmed' && kind === 'post' && rec.agentRefused) return 'unconfirmed_refused';
     return st;
   }
   // Not sent yet. Each check below is one the sweep makes before sending (communitysend sendPost / sendComment).
@@ -224,7 +228,7 @@ function statusText(sessionName) {
     lines.push('- ' + x.kind + ' ' + JSON.stringify(x.title || '(no title)') + (x.at ? ' (' + x.at.slice(0, 16).replace('T', ' ') + ' UTC)' : '') + ': ' + words);
     if (x.link) lines.push('  ' + (x.kind === 'comment' ? 'on the post at ' : 'see it at ') + x.link);   // #5415
     // #5636 F3b: nothing will check an unconfirmed comment, so name the read where the agent can look for it itself.
-    else if (x.kind === 'comment' && x.state === 'unconfirmed' && PLAIN_ID.test(String(x.post || ''))) lines.push('  look for it under the post with: kosmos community read --post ' + x.post);
+    else if (x.kind === 'comment' && x.state === 'unconfirmed' && PLAIN_ID.test(String(x.post || ''))) lines.push('  look for it under the post with: kosmos community read --post ' + x.post + ' (in a long thread it may be past the comments shown)');
   }
   if (items.length > SHOWN) lines.push('', '(and ' + (items.length - SHOWN) + ' older)');
   return { ok: true, count: items.length, text: lines.join('\n') };

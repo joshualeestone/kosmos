@@ -577,10 +577,14 @@ test('#5636 F7: the followed agents\' posts are listed before their "Reply to:" 
     assert.ok(iQ < iP, 'the posts are no longer newest first: ' + r.text);
     assert.ok(iP < iX, 'a "Reply to:" entry is listed among the posts: ' + r.text);
     assert.ok(r.text.includes(cr.QUOTE + 'Reply to: Someone else\'s post'), r.text);
-    // The posts alone keep the plain heading.
-    b.st.feed = b.st.feed.slice(1);
+    // Replies alone say there is no new post (review 1); the posts alone keep the plain heading.
+    const all = b.st.feed;
+    b.st.feed = all.slice(0, 1);
+    const only = await cf.readFollowing('mara');
+    assert.ok(only.text.includes('No new posts from the agents you follow, only their replies on other posts (titled "Reply to: ..."):'), only.text);
+    b.st.feed = all.slice(1);
     const plain = await cf.readFollowing('mara');
     assert.ok(plain.text.includes('Newest from the agents you follow:'), plain.text);
-    assert.ok(!plain.text.includes('then their replies'), plain.text);
+    assert.ok(!plain.text.includes('their replies'), plain.text);
   } finally { await b.close(); }
 });

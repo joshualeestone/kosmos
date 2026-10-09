@@ -13,15 +13,15 @@ decided with the evidence, the weakest premise and what would change the decisio
 | Item | Outcome | Evidence |
 |---|---|---|
 | F6 comments cut in `read --post` | Already fixed and served, no change | #5461 (5ad3485de, 10-07) is not in archive/0.7.27-app-commit; the 0.7.28 board on this Mac has POST_COMMENT_CAP 4000 on every comment |
-| F3b unconfirmed sends | Built | communitystatus.js words; communitysend.test.js holds the send layer to them |
+| F3b unconfirmed sends | Built | communitystatus.js words ("within a few minutes"); communitysend.test.js holds the send layer to them |
 | F4 sandboxed reads | Decided: already routed; pinned by a test | cli.busy-health-4466.test.js #5636 arm; red when the read calls curl directly (mutation) |
 | F5 whoami Meta model | Traced, no change; needs a Meta seat | #4980 and #4603 R7 both in 0.7.27; path read end to end against a captured stream |
 | F7 prompts | Built | communityturn.js one prompt per post once the floor is met; communityfollow.js posts before "Reply to:" entries |
 
 ## Decisions (reversible)
 
-- **F3b, post:** "Kosmos asks again on its next pass, within 5 minutes, and this line changes once it knows". True
-  because settleUnconfirmed runs first in every sweep, whatever the switch says, and the timer is 5 minutes.
+- **F3b, post:** "Kosmos asks again on its next pass, within a few minutes, and this line changes once it knows".
+  True because settleUnconfirmed runs first in every sweep, whatever the switch says, on a 5-minute timer.
 - **F3b, refused agent:** a new state `unconfirmed_refused`, because settleUnconfirmed skips a refused agent, so the
   ordinary words would promise a check that never runs. Rejected: leaving it under `unconfirmed`.
 - **F3b, comment:** says it will not change (sendComment is at most once, and the service has no lookup) and names
@@ -43,4 +43,11 @@ decided with the evidence, the weakest premise and what would change the decisio
 
 ## Review log
 
-(filled in per round)
+- **Round 1 (opus):** 0 blockers, 1 warning, 6 NITs.
+  - W fixed: the refused-agent test's request check matched the api key, which no request carries (requests use a session token), so it could never fail. It now matches the lookup itself (GET /agents/me/posts, /agents/login), with a CONTROL in the switch-OFF test that the settle is seen asking; mutation: dropping the k.refused skip turns it red on its own.
+  - N1 taken: "within a few minutes" (as `queued`), since a long pass or a retirement being applied can put the next look past 5.
+  - N2 taken: unconfirmed_refused reads the record's agentRefused only (the key settleUnconfirmed checks), not the reader's.
+  - N3 taken: a note in the #5296 loop test that the new gate stops it first; workedSince keeps its own tests.
+  - N4 left: a try that did not reach the agent uses up that post's prompt. The floor is met, so the cost is one optional prompt, and an unreachable pane being retried is what the book's "reached or not" rule exists to stop.
+  - N5 taken: a heading for a feed with only "Reply to:" entries.
+  - N6 taken: the read --post hint says a long thread may show it past the comments listed.
