@@ -146,6 +146,10 @@ function hasPlainCurrent(body) {
 /* kosmos#5635: rules text that is, byte for byte, a WHOLE earlier block. The only span content refreshUnedited writes
    over: the per-section match below also accepts a span with a section deleted or the sections reordered (review 1),
    which is the person's edit and waits for the click. */
+/* The hash of today's block, the record of which rules were last written into an agent's file (review 4). */
+function currentBlockHash() {
+  return crypto.createHash('sha256').update(defaults.block()).digest('hex');
+}
 function wholeKnownBlock(content, past) {
   const rows = past || PAST;
   const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
@@ -392,7 +396,9 @@ function refresh(sessionName, roster, opts) {
       { who: 'kosmos', because: plan.replacing ? 'replaced its older working rules with the current ones, with your OK'
         : plan.updating ? 'updated the working rules, with your OK' : 'added the working rules, with your OK' });
     try {
-      store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION });
+      /* kosmos#5635 review 4: the click records the block it wrote too, so a person who restores the earlier rules
+         after a click is not overwritten by the next boot's sweep. */
+      store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION, doctrineWrote: currentBlockHash() });
     } catch { /* the file is the truth; the record catches up on the next write */ }
     return { state: 'added', sections: plan.sections.map((s) => s.heading) };
   } catch (err) {
@@ -409,8 +415,10 @@ function refresh(sessionName, roster, opts) {
 /**
  * kosmos#5635 F1: bring an agent's working rules current with NO click, when the text being replaced is provably
  * Kosmos's own and unedited: a span whose content is, byte for byte, a WHOLE earlier block (wholeKnownBlock, with exact
- * marker and frame lines), or a plain, unedited copy of one ending at a clean boundary (`replacing`). At most ONCE per
- * version per agent: a person who puts the earlier rules back after it has their way (review 3). Josh's 2026-10-07 feedback found every agent on a test
+ * marker and frame lines), or a plain, unedited copy of one ending at a clean boundary (`replacing`). At most once per
+ * BLOCK per agent (doctrineWrote, the current block's hash): a person who puts the earlier rules back after this
+ * block was written has their way (review 3), and a later block (a text fix, with or without a version bump) is
+ * still brought in (review 4). Josh's 2026-10-07 feedback found every agent on a test
  * project still carrying a line fixed on main five days before (#4582), the third report of that staleness (#4890,
  * #5297): the click that would have fixed it is not happening, so the person never gets the fix.
  *
@@ -467,13 +475,19 @@ function refreshUnedited(sessionName, roster, opts) {
     let profile = {};
     try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
     if (profile.doctrineDeclined === defaults.DOCTRINE_VERSION) return { state: 'left', because: 'you said Not now to these rules for this agent' };
-    /* Review 3: once per version. If this agent was already brought to this version with no click and holds an earlier
-       block again, a person put it back (the Instructions tab's previous version, #4406): that is their choice, and the
-       click is how it changes now. */
-    if (profile.doctrineAuto === defaults.DOCTRINE_VERSION) return { state: 'left', because: 'the earlier rules were put back after Kosmos updated them, so they change only with your OK' };
+    /* Review 3/4: once per BLOCK. If today's block was already written into this agent's file (by this sweep or by a
+       click) and an earlier one is there again, a person put it back (the Instructions tab's previous version, #4406):
+       their choice, and the click is how it changes now. Keyed on the block's hash, not DOCTRINE_VERSION, because text
+       fixes ship inside a version (several rows share one in doctrine-past.js), and a later fix must still arrive. */
+    const today = currentBlockHash();
+    if (profile.doctrineWrote === today) return { state: 'left', because: 'the earlier rules were put back after Kosmos updated them, so they change only with your OK' };
+    /* Recorded BEFORE the write (review 4): the record only ever suppresses, so a write that then fails costs one more
+       chance to update at the next boot, never a second write over a restore. A record that cannot be saved is not a
+       reason to write without it. */
+    try { store.writeProfile(sessionName, { doctrineWrote: today }); } catch { return { state: 'could_not', because: 'we could not record the update for this agent, so we did not make it' }; }
     instructions.write(sessionName, plan.fileNext, current.version, undefined,
       { who: 'kosmos', because: 'brought its working rules up to date (they were Kosmos\'s own text, unedited)' });
-    try { store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION, doctrineAuto: defaults.DOCTRINE_VERSION }); } catch { /* the file is the truth */ }
+    try { store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION }); } catch { /* the file is the truth */ }
     return { state: 'added', sections: plan.sections.map((x) => x.heading) };
   } catch (err) {
     return { state: 'could_not', because: (err && err.message) || 'we could not write to its instructions' };

@@ -233,3 +233,25 @@ test('#5635 review 3: a span refreshed by a CLICK before this change (the old cl
   assert.equal(run('oldclick').state, 'added');
   assert.ok(read(f).includes(BLOCK));
 });
+
+test('#5635 review 4: once per BLOCK, not per version: a later block (a text fix inside the same version) still arrives', () => {
+  const oldText = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const f = agentFile('withinversion', oldText);
+  // An EARLIER block was written into this agent before, at the same DOCTRINE_VERSION (doctrine-past.js has several
+  // rows for one version): the record names that block, not today's.
+  // doctrineAuto is what round 3's per-VERSION record wrote; with it here, that rule would refuse, which is the defect.
+  store.writeProfile('withinversion', { doctrineVersion: defaults.DOCTRINE_VERSION, doctrineAuto: defaults.DOCTRINE_VERSION, doctrineWrote: sha('an earlier block of this same version') });
+  assert.equal(run('withinversion').state, 'added', 'a newer block in the same version did not arrive');
+  assert.ok(read(f).includes(BLOCK));
+  assert.equal(store.readProfile('withinversion').doctrineWrote, sha(BLOCK), 'the record does not name the block written');
+});
+
+test('#5635 review 4: a restore after a CLICK holds too (the click records the block it wrote)', () => {
+  const oldText = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const f = agentFile('clickthenrestore', oldText);
+  const plan = doctrine.planFor(oldText, NOW, OLD_TABLE);
+  assert.equal(doctrine.refresh('clickthenrestore', rosterOf('clickthenrestore'), { now: NOW, past: OLD_TABLE, expectHash: plan.hash }).state, 'added', 'CONTROL: the click did not write');
+  fs.writeFileSync(f, oldText);   // the person restores the earlier rules
+  assert.equal(run('clickthenrestore').state, 'left', 'the boot sweep overwrote a restore made after a click');
+  assert.equal(read(f), oldText);
+});
