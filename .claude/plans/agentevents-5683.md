@@ -568,3 +568,17 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   every $( at every depth: the fourth power of the length, past a minute on 2,600 characters. Only the outermost at each
   depth are looked at now. (3) I first guarded that with a node:test timeout, which cannot interrupt synchronous code
   (the suite would hang, not fail); the input now runs in a child killed after 20 s, red on the slow loop.
+
+## Review 43 (sonnet), all fixed unless stated
+- readState returns an empty state on ANY error, and five read-modify-write sites after the send wrote it back over
+  the real one (offsets, listing times and the stop record gone, so the next tick re-read the gap from the
+  enrollment). readStateForUpdate() returns null when the state exists but cannot be read: every update site skips
+  its write, the pre-write check refuses, and a tick that starts on an unreadable state opens no transcript. A send
+  that went out but could not be recorded is sent again next tick, which the coordinator keeps once. Test (the state
+  torn during the send, and a tick starting on it), red on the pre-fix file; each guard red by mutation.
+- DECIDED, overturning review 5 for one class only: a network command that also reads the board's own files is
+  board-files (curl -H "$(cat board.token)", curl -d @board.token), the most telling class; any other network command
+  is still network-host whatever it names. Weakest premise: a company may care more that something left the machine
+  than what it was; the event still says the action was a run, and the board token is never anything else's.
+- Stated (already, plans lines on python -c, a relative read after cd, node -e): a token read through an interpreter's
+  own code is not classed as the board's.

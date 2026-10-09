@@ -104,6 +104,7 @@ function targetClass(tool, input, ctx) {
   /* Folders a command walks down through (review 38: grep -r, find, the Grep tool). A walk from a folder that holds a
      board root reaches the board's files, as a glob that can match one does (review 33). */
   const trees = [];
+  let netHost = false;
   let incomplete = false;   // the word scan stopped early: the exact-name search below covers the whole command (review 42)
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
   if (tool === 'Grep') trees.push(input && typeof input.path === 'string' && input.path ? input.path : (ctx.agentDir || ''));   // (resolved below)
@@ -241,8 +242,9 @@ function targetClass(tool, input, ctx) {
       trees.push(...(ws.length ? ws : ['.']).map((x) => (/[*?$`[{]/.test(x) ? x : base && !path.isAbsolute(x) && !x.startsWith('~') ? path.resolve(base, x) : res(x))));
     }
     /* A network command is network-host before any path it names (decided, review 5): sending something out is the
-       telling part, whatever it sends. */
-    if (net && url) return 'network-host';
+       telling part, whatever it sends. Except the board's own files (review 43, overturning review 5 for that class
+       only: curl ... -H "$(cat board.token)" is an agent using the board's token, the most telling class there is). */
+    if (net && url) netHost = true;
   }
   let best = 'other';
   for (const p of paths) {
@@ -399,6 +401,7 @@ function targetClass(tool, input, ctx) {
       if (roots.some((r) => r === t || r.startsWith(t.endsWith(path.sep) ? t : t + path.sep))) { best = 'board-files'; break; }
     }
   }
+  if (netHost && best !== 'board-files') return 'network-host';
   return best;
 }
 
@@ -615,6 +618,15 @@ function withdrawIfStopped(eo) {
   if (stoppedReporting(eo || {})) markWithdrawn(eo && eo.root);
 }
 
+/* For a read-modify-write: null when the state exists but cannot be read now (review 43: readState returns an empty
+   state on ANY error, and writing that back erased the offsets, the listing times and the stop record, so the next
+   tick re-read the gap from the enrollment). A missing state is the empty one, as before. */
+function readStateForUpdate(root) {
+  try { JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8')); }
+  catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+  return readState(root);
+}
+
 function writeState(root, st) {   // whole or not at all; owner-only
   const file = path.join(root, STATE_FILE);
   const tmp = file + '.' + process.pid + '.tmp';
@@ -713,7 +725,8 @@ async function tick(opts) {
        again after the company changed them, starts clean, and nothing from before that moment is sent (not the last
        company's queue, not what happened while no words were accepted). */
     const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '') + '|' + (rec.consentHash || '');
-    let st = readState(root);
+    let st = readStateForUpdate(root);
+    if (!st) return { sent: 0, because: 'the state could not be read; nothing read or sent' };   // review 43
     const stRaw = JSON.stringify(st);
     const stops0 = st.stops;   // review 39: a stop marked while this tick reads makes it write and send nothing
     const gen0 = STOPS;   // review 40: and the in-memory count, which moves on every stop
@@ -879,10 +892,12 @@ async function tick(opts) {
     /* Review 39: a Leave run while the transcripts were read marks the stop on disk, and a refused Leave writes the SAME
        record back, so the enrollment check below cannot see it. The state this tick loaded must not overwrite that mark:
        if a stop was counted meanwhile, nothing is written or sent, and the next tick starts clean from the mark. */
-    if (STOPS !== gen0 || readState(root).stops !== stops0) {
+    const disk = readStateForUpdate(root);
+    if (!disk) return { sent: 0, because: 'the state could not be read; nothing written or sent' };   // review 43
+    if (STOPS !== gen0 || disk.stops !== stops0) {
       /* Recorded as withdrawn, so the next tick starts from then, not from the enrollment (review 40: on a first tick
          nothing on disk said "reporting", and the next tick read the gap from the start). */
-      const a = readState(root);
+      const a = disk;
       a.enrolledAs = a.enrolledAs || enrolledAs; a.withdrawn = true; a.pending = [];
       writeState(root, a);
       return { sent: 0, because: 'reporting stopped while reading; nothing written or sent' };
@@ -915,7 +930,8 @@ async function tick(opts) {
       /* Too big with more than one event (review 3: 50 events of long multibyte labels can pass 60 KB): send half as
          many next time instead of dropping good events. */
       if (/\borg_agent_events_too_big\b/.test(String((r && r.because) || '')) && batch.length > 1) {
-        const h = readState(root);
+        const h = readStateForUpdate(root);
+        if (!h) return { sent: 0, because: 'the state could not be read; nothing changed' };   // review 43
         h.sendMax = Math.ceil(batch.length / 2);
         writeState(root, h);
         return { sent: 0, because: 'the company took fewer at a time; sending half as many' };
@@ -923,7 +939,8 @@ async function tick(opts) {
       if (/\borg_agent_events_(bad|too_big)\b/.test(String((r && r.because) || ''))) {
         /* Slicing the front by the batch's length is safe because one tick runs at a time (server.js
            AGENT_EVENTS_RUNNING): nothing else adds to the queue between this send and this write. */
-        const left = readState(root);
+        const left = readStateForUpdate(root);
+        if (!left) return { sent: 0, because: 'the state could not be read; nothing changed' };   // review 43
         left.pending = left.pending.slice(batch.length);
         writeState(root, left);
         return { sent: 0, dropped: batch.length, because: 'the company refused these events as unreadable' };
@@ -933,7 +950,8 @@ async function tick(opts) {
       if (/\borg_consent_changed\b/.test(why)) {
         let changed = false;
         try { changed = await oe.consentWithdrawn(eo, rec.consentHash); } catch { changed = false; }
-        const w = readState(root);
+        const w = readStateForUpdate(root);
+        if (!w) return { sent: 0, because: 'the state could not be read; nothing changed' };   // review 43
         /* Only a withdrawal that was recorded starts the next acceptance clean (review 4: a failed write would otherwise
            reset the state, and its wait, on the very next tick). */
         if (changed) { w.withdrawn = true; w.pending = []; }   // review 19: nothing queued is kept once words are withdrawn
@@ -944,13 +962,17 @@ async function tick(opts) {
       if (/\borg_not_enrolled\b|\borg_not_member\b/.test(why)) {
         try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }
       }
-      const failed = readState(root);
+      const failed = readStateForUpdate(root);
+      if (!failed) return { sent: 0, because: 'the state could not be read; nothing changed' };   // review 43
       failed.failAt = now;   // review 2: no signed request and refresh every five minutes while it keeps failing
       writeState(root, failed);
       return { sent: 0, because: why || 'the send failed' };
     }
     /* Sent: drop exactly what went. A repeat would be ignored by the coordinator (one row per session and tool use). */
-    const after = readState(root);
+    const after = readStateForUpdate(root);
+    /* Sent but not recorded: the next tick sends the same events again, which the coordinator keeps once (one row per
+       session and tool use). Never an empty state written over the real one (review 43). */
+    if (!after) return { sent: batch.length, because: 'sent; the state could not be updated' };
     after.pending = after.pending.slice(batch.length);
     after.failAt = null;
     if (after.pending.length === 0) after.sendMax = null;   // review 6: kept until the backlog drains (no too-big every other tick)
