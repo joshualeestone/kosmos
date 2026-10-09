@@ -52,6 +52,10 @@ test('#5705: the person never needs a note, an unnamed caller does, and an unche
   assert.equal(unnamed.needsNote, true, 'refused for the note, not some other reason');
   // Review 3: a note of only zero-width characters is no note.
   assert.equal(tasks.setBuilt(id, b, { by: 'rex', note: '\u200b\u2060' }).needsNote, true);
+  // Review 4: a real note keeps its format characters as sent (a joined emoji).
+  const emoji = 'Done \u{1F469}\u200D\u{1F4BB}';
+  assert.equal(tasks.setBuilt(id, b, { by: 'rex', note: emoji }).ok, true);
+  assert.equal(stored(id, b).builtNote, emoji);
   const c = tasks.create(id, { sentence: 'No checks', who: 'rex' }).number;
   assert.equal(tasks.setBuilt(id, c, { by: 'rex' }).ok, true, 'CONTROL: no checks, no note needed');
 });

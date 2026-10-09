@@ -786,8 +786,10 @@ function withoutBuilt(t) {
  * task is refused: closing already cleared the mark.
  */
 function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false } = {}) {
-  /* Review 3 (#5705): format characters (zero-width and the like) are not a note, so a note of only those is none. */
-  const said = typeof note === 'string' ? note.replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim() : '';
+  const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
+     on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
+  const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
   if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
   const isPerson = person === true;
   const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
@@ -808,7 +810,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          (#5152) says what finished means, so an agent's mark on it must say how the checks went; the rules already ask
          for that note, and now a bare mark is refused. The person's mark from the screen never is. After the
          person-mark refusal (review 1), so an agent hears the real answer first. */
-      if (!isPerson && !said && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
+      if (!isPerson && !saidSomething && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
       /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said) {
