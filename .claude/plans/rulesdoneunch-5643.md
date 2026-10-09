@@ -18,7 +18,9 @@ The harness is in the scratchpad meas/ (batch3.sh, results3/). Batches 1 and 2 a
 | A run with nothing new | 3/3 `ran --unchanged`, no room post | 1/2 posted in the room, 1/2 did nothing |
 | A run with changes, from the person | 2/2 `ran` without the flag, answered the person directly | not run |
 | Asked in the room whether it ran | 2/2 `ran --unchanged` and answered in the room | not run |
-| A run that could not check | 2/2 `ran` without the flag, `report blocked` | not run |
+| A run that could not check | 2/2 `ran` without the flag, `report blocked` (and 2/2 again after review 2's wording) | not run |
+| A scheduled run, nobody asking, finds changes (review 2) | 2/2 `ran` and posted in the task's room | not run |
+| Nothing new, re-run after review 2 | 2/2 `ran --unchanged`, no post | |
 | A task whose checks the person set | 2/2 left them alone | not run |
 | Given task 5, no checks | 1/1 `done-when` with separate checks | 0/1 |
 
@@ -35,3 +37,8 @@ The harness is in the scratchpad meas/ (batch3.sh, results3/). Batches 1 and 2 a
   - W3 fixed: isolated runs; the log and the table were rewritten.
   - C1 and C2 fixed: the log label, the test comment.
   - NIT: reflowed.
+- **Round 2 (sonnet):** 0 blockers.
+  - W fixed: a change found with nobody asking had nowhere to go; now it is posted in the task's room (measured 2/2).
+  - C fixed: the v26 row is placed newest-first in doctrine-past.js.
+  - C fixed: Blocked names `kosmos report blocked`, for that run only (measured 2/2).
+  - NIT fixed: "record what it found", not "say".
