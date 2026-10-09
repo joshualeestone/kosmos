@@ -43,14 +43,18 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'Kosmos/remote/tls.key.4711.new', 'Kosmos/remote/mac_key copy', 'Kosmos/remote/..mac_key.tmp', 'Kosmos/remote/#mac_key#',
     'Kosmos/.#board.token', 'Kosmos/#board.token#', 'Kosmos/#fed-seal-key.json#', 'Kosmos/communitysend/ab/#keys.json#', 'acct/#.kosmos-grok-apikey#', 'Kosmos/communitysend/ab/.keys.json.tmp-7', 'Kosmos/fed-seal-rooms.json.save',
     'acct/.kosmos-claude-apikey.1', 'x/id_rsa (1)', 'x/id_rsa.backup', 'x/id_rsa.save', 'x/id_rsa.part', 'x/id_rsa.temp',
-    'x/id_rsa.prev', 'keys/tls.key.1', 'x/.env.tmp.4711']) {
+    'x/id_rsa.prev', 'keys/tls.key.1', 'x/.env.tmp.4711', 'x/id_rsa.tmp-k3j9z', 'x/id_rsa.tmp1', 'x/id_rsa 2', 'x/id_rsa.bak2',
+    // review 6: a Kosmos store is never lifted by the template exemption
+    'Kosmos/remote/mac_key.example', 'Kosmos/board.token.sample', 'Kosmos/fed-seal-key.json.template',
+    // the documented over-skip: a copy is judged by its leading runs, so this is skipped though server.key.md is kept
+    'x/server.key.md.bak']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
     'Kosmos/remote/.pending.json.tmp', 'Kosmos/.chats.tmp', 'projects/site/build.new-version.md', 'agents/a/keys.md.tmp',
     'agents/a/.tmp', 'agents/a/a..b.tmp', 'agents/a/secrets.md', 'agents/a/server.key.md', 'agents/a/id_rsa.md',
     'agents/a/notes~', 'agents/a/report-final.bak', 'w/' + 'a'.repeat(250) + '.md',
-    'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'agents/a/.env.example', 'notes/secrets.tmp-abcxyz.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
 });
