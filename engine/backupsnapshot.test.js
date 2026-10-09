@@ -1426,6 +1426,22 @@ test('#5686: sessionsFor\'s roots feed takeSnapshot: one agent\'s sessions store
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('#5686 review 9: with only, other files are never counted toward the file limit nor named, and their folders not walked', async () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbonly-')));
+  try {
+    const put = (rel) => { fs.mkdirSync(path.dirname(path.join(base, rel)), { recursive: true }); fs.writeFileSync(path.join(base, rel), 'x\n'); };
+    for (let i = 0; i < 6; i++) put(`2026/10/0${i}/rollout-${i}.jsonl`);
+    put('2026/10/09/rollout-mine.jsonl');
+    put('2026/10/09/theirs.env');
+    const listed = await snap.listFiles(base, fs, { only: ['2026/10/09/rollout-mine.jsonl'], maxFiles: 2 });
+    assert.equal(listed.over, false, 'six foreign files did not count against a limit of two');
+    assert.deepEqual(listed.files.map((f) => f.path), ['2026/10/09/rollout-mine.jsonl']);
+    assert.deepEqual(listed.skipped, [], 'nothing else is named');
+    // CONTROL: the same folder without only is over the limit.
+    assert.equal((await snap.listFiles(base, fs, { maxFiles: 2 })).over, true);
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
 test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
   const w = threeRoots(), k = keys(), st = store();
   try {

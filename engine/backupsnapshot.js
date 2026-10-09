@@ -179,8 +179,13 @@ function yielder() {
 /** Every regular file under root (absolute) the deny-list allows, as sorted '/'-separated relative paths with the
     device and inode seen, and what was skipped (links, denied folders and files, anything not a file or folder, a
     folder that could not be read). Nothing is opened but folders. fs is injectable for tests. */
-async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_SKIPPED, exclude = [] } = {}) {
+async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_SKIPPED, exclude = [], only } = {}) {
   const pause = yielder();
+  // only (#5686): the paths to keep, in a folder shared with others' files. Anything else, and every folder leading to
+  // none of them, is passed over in silence: never counted against maxFiles, never named in skipped.
+  const keep = Array.isArray(only) ? new Set(only.map((x) => collisionKey(x))) : null;
+  const toward = new Set();
+  if (keep) for (const k of keep) { const segs = k.split('/'); for (let i = 1; i < segs.length; i++) toward.add(segs.slice(0, i).join('/')); }
   // Folders the caller leaves out (review 34: a large dependency tree could otherwise make every snapshot tooLarge),
   // as '/'-separated relative paths; each is recorded once as skipped.
   // Matched as restore compares names (collisionKey: case, invisible characters, '\\' as '/'), with a leading "./" and
@@ -214,6 +219,7 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
       if (over) return;
       await pause();   // per entry: one flat folder can hold hundreds of thousands
       const r = rel ? `${rel}/${name}` : name;
+      if (keep && !keep.has(collisionKey(r)) && !toward.has(collisionKey(r))) continue;
       // Recorded under the masked name: the skipped list leaves the Mac too.
       const masked = nameMasked(name);
       // And a token split across folder boundaries: secretmask does not read a token across '/', so
@@ -369,15 +375,7 @@ async function listRoots(roots, fs) {
   const out = { files: [], skipped: gone.slice(0, MAX_SKIPPED), skippedExtra: Math.max(0, gone.length - MAX_SKIPPED), over: false };
   const pre = (name, p) => (!name ? p : p === '.' ? name : `${name}/${p}`);
   for (let i = 0; i < roots.length && !out.over; i++) {
-    const got = await listFiles(reals[i], fs, { exclude: roots[i].exclude, maxFiles: MAX_FILES - out.files.length, maxSkipped: Math.max(0, MAX_SKIPPED - out.skipped.length) });
-    // `only`: a root shared with others' files (a provider's folder holding every agent's sessions) keeps just the
-    // files named. Nothing else from it is stored or recorded, not even in skipped: those are other agents' file names.
-    const only = Array.isArray(roots[i].only) ? new Set(roots[i].only.map((x) => collisionKey(x))) : null;
-    if (only) {
-      got.files = got.files.filter((f) => only.has(collisionKey(f.path)));
-      got.skipped = got.skipped.filter((x) => only.has(collisionKey(x.path)));
-      got.skippedExtra = 0;
-    }
+    const got = await listFiles(reals[i], fs, { exclude: roots[i].exclude, only: roots[i].only, maxFiles: MAX_FILES - out.files.length, maxSkipped: Math.max(0, MAX_SKIPPED - out.skipped.length) });
     for (const f of got.files) {
       const stored = pre(roots[i].name, f.path);
       // The walk judged the path inside the root; restore judges the stored one, which is longer by the name.
@@ -388,7 +386,7 @@ async function listRoots(roots, fs) {
       // folders in front, the way the file sits on disk; readListed does the same on the real path.
       // Named roots only: the single `root` (a work Kosmos folder) is judged as it always was.
       const near = roots[i].name ? nearOf(reals[i]) : '';
-      const d = pathDecision(near + f.path);
+      const d = near ? pathDecision(near + f.path) : { include: true };
       if (!d.include) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push({ path: stored, why: d.why }); else out.skippedExtra++; continue; }
       out.files.push(Object.assign({}, f, { rel: f.path, path: stored, rootReal: reals[i], near }));
     }

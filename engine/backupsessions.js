@@ -7,7 +7,8 @@
  *                (`workers/a-b`, `workers/a.b`, a subfolder `workers/a/b` share one folder), so the folder is a root with
  *                an `only` list: the transcripts whose recorded working folder is this agent's (engine/status.js
  *                transcriptCwd, compared as status.js's workdirBelongs does). Both spellings of the folder are tried, as
- *                status.js does.
+ *                status.js does. Deliberately wider than status.js, which reads the top level only: a session's
+ *                subagent transcripts (<session>/subagents/agent-*.jsonl) are the agent's conversation too.
  *   Gemini       <gemini home>/tmp/<slug>/chats, the slug looked up for the agent folder in <gemini home>/projects.json
  *                (engine/geminisession.js forWorkdir's rule). One slug per folder, so the whole chats folder is a root.
  *   Codex        <codex home>/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl, ONE date tree for every agent: the sessions
@@ -103,7 +104,7 @@ function geminiRoot(agentDir, geminiHome, id) {
     if (trust.canonicalOnDisk(cwd) !== want) continue;
     // The slug becomes a folder name under tmp/: one plain segment only, never a path out of it.
     if (typeof slug !== 'string' || !slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) return null;
-    const real = exactFolder(path.join(geminiHome, 'tmp'), slug, 'chats');
+    const real = exactFolder(geminiHome, 'tmp', slug, 'chats');
     return real ? { name: `sessions/${id}/gemini`, path: real, optional: true } : null;
   }
   return null;
@@ -113,7 +114,7 @@ function codexRoot(agentDir, codexHome, id, belongs) {
   if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome)) return null;
   const real = exactFolder(codexHome, 'sessions');
   if (!real) return null;
-  const only = filesUnder(real, (n) => /^rollout-.*\.jsonl$/.test(n), 4).filter((rel) => {
+  const only = filesUnder(real, (n) => /^rollout-.*\.jsonl$/.test(n), 3).filter((rel) => {
     const meta = codexsession.metaOf(path.join(real, rel));
     return !!meta && belongs(meta.cwd);
   });
