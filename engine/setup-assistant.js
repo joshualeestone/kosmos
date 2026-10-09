@@ -741,6 +741,11 @@ function supervisorRunDirs() {
   return typeof v === 'string' && v ? v.split(path.delimiter) : [];
 }
 function launchPathDirs(agentDir, deps = {}) {
+  /* Review 12: not on Windows yet. A standard Windows PATH has folders whose names the rules read as patterns and a
+     system folder past the scan cap, so the guard would never be whole there and every token-only agent would be
+     refused. Windows coverage is measured and built in the Windows lane (#5516 later part); until then the Windows
+     guard is what it was. */
+  if ((deps.platform || process.platform) === 'win32') return { dirs: [], aliases: [], files: [], unsafe: [] };
   const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
   const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
   const max = deps.linkScanMax || LINK_SCAN_MAX;
@@ -754,7 +759,8 @@ function launchPathDirs(agentDir, deps = {}) {
   /* Review 11: what the next start reads as instructions, beside what it runs: tmux's config (read when the supervisor
      starts a new tmux server) and the launchd jobs folder (each agent's job names the supervisor, claude and tmux). */
   const home = deps.home || kosmosHome();
-  const tmuxConf = [path.join(home, '.tmux.conf'), path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'tmux', 'tmux.conf')];
+  // Both tmux spellings: the board's XDG_CONFIG_HOME need not be the one the tmux server sees (review 12).
+  const tmuxConf = [...new Set([path.join(home, '.tmux.conf'), path.join(home, '.config', 'tmux', 'tmux.conf'), ...(process.env.XDG_CONFIG_HOME ? [path.join(process.env.XDG_CONFIG_HOME, 'tmux', 'tmux.conf')] : [])])];
   const fileList = deps.launchFiles || [need('the permission settings file', look.permissionSettingsFile()), ...tmuxConf].filter(Boolean);
   const configDirs = deps.launchConfigDirs || ((deps.platform || process.platform) === 'darwin' ? [path.join(home, 'Library', 'LaunchAgents')] : []);
   const plat = deps.platform || process.platform;
@@ -911,7 +917,16 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs 
       }
     }
   }
-  const files = fileList.map((f) => ({ real: path.join(pushHolders(path.dirname(f), f), path.basename(f)), shown: f }));
+  /* Review 12: a file to deny that is itself a link (a dotfile kept in another tree) is denied at its own path AND at
+     where it leads; the folders holding links on the way are covered as for any path. */
+  const files = [];
+  for (const f of fileList) {
+    const at = path.join(pushHolders(path.dirname(f), f), path.basename(f));
+    files.push({ real: at, shown: f });
+    const w = walk(f, 0);
+    if (w.bad) unsafe.push(`${f} (${w.bad})`);
+    if (w.real !== at) { files.push({ real: w.real, shown: f }); for (const h of w.holders) cands.push({ real: h, shown: f, holder: true }); }
+  }
   // Review 11: folders whose files the next start READS as instructions (the launchd jobs): covered, never scanned.
   for (const d of configDirs) { pushHolders(d, d); cands.push({ real: realDir(d), shown: d, holder: true }); }
   return { cands, unsafe, files };

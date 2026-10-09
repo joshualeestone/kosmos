@@ -163,3 +163,17 @@ rest of the guard is still written.
   - DECIDED, residual: an entry whose path passes through a link held inside the agent folder deeper than its own
     name is reported by the guard (not whole) but kept by the supervisor, as round 9's program-level case.
   - NOT CHANGED (nit): a stray link loop on a PATH folder makes the guard not whole (fails safe; the reason names it).
+- Round 12 (sonnet): 0 BLOCKER, 4 WARNING, 2 NIT.
+  - FIXED: a file to deny that is itself a link (a dotfile kept in another tree) is denied at its own path and where it
+    leads, with the folders holding links on the way. Test with a control.
+  - FIXED: both tmux config spellings are always named (the board's XDG_CONFIG_HOME need not be the tmux server's).
+  - DECIDED: the launch scan is OFF on Windows for now. A standard Windows PATH has folder names the rules read as
+    patterns and a system folder past the scan cap, so the guard would never be whole and every token-only agent would
+    be refused there. Windows coverage is a later part, measured in the Windows lane (a spec to Homer, not a Mac edit).
+    The Windows guard stays exactly what it was. Test pins it. Weakest premise: that no Windows token-only agent relies
+    on this part before then.
+  - DECIDED, residual: in a source checkout the engine and bin folders are the repository itself, so a token-only
+    agent working in the MAIN checkout could not edit them. Worktrees and installs are unaffected, and Kosmos work is
+    done in worktrees by rule. Recorded rather than changed.
+  - NOT CHANGED (nits): the wiring checks read the supervisor's source (recorded before); a "too long" result cached
+    deep and reused shallow only reports more.

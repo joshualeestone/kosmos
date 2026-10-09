@@ -469,3 +469,30 @@ test('#5516 review 11: the launchd jobs folder is covered (not scanned), and tmu
   const r2 = setup.launchPathDirs(agentDir('lp-cfg'), { ...PIN, launchFiles: undefined, launchConfigDirs: undefined, home, platform: 'linux', panePath: '/usr/bin', ownPath: '' });
   assert.ok(!r2.dirs.includes(realOr(path.join(home, 'Library', 'LaunchAgents'))));
 });
+
+test('#5516 review 12: a file to deny that is a link is denied where it leads too; Windows is left as it was', () => {
+  const dots = binDir('dotfiles');
+  fs.writeFileSync(path.join(dots, 'tmux.conf'), '');
+  const home = binDir('home-lp12');
+  const f = path.join(home, '.tmux.conf');
+  fs.symlinkSync(path.join(dots, 'tmux.conf'), f);
+  const r = setup.launchPathDirs(agentDir('lp-dot'), { ...PIN, launchFiles: [f], panePath: '/usr/bin', ownPath: '' });
+  assert.ok(r.files.includes(path.join(realOr(dots), 'tmux.conf')), 'where the link leads is not denied: ' + JSON.stringify(r.files));
+  assert.ok(r.files.includes(path.join(realOr(home), '.tmux.conf')), 'the link itself is not denied');
+  // CONTROL: a plain file is denied once.
+  const plain = path.join(home, 'plain.conf');
+  fs.writeFileSync(plain, '');
+  assert.equal(setup.launchPathDirs(agentDir('lp-dot'), { ...PIN, launchFiles: [plain], panePath: '/usr/bin', ownPath: '' }).files.length, 1);
+  // Windows: nothing scanned, nothing reported (the Windows lane measures it first).
+  const w = setup.launchPathDirs(agentDir('lp-win'), { ...PIN, platform: 'win32', panePath: 'relative;also', ownPath: '' });
+  assert.deepEqual(w, { dirs: [], aliases: [], files: [], unsafe: [] });
+  // Both tmux spellings are named, whatever XDG_CONFIG_HOME says.
+  const was = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = path.join(SANDBOX, 'elsewhere-xdg');
+  try {
+    const t = setup.launchPathDirs(agentDir('lp-xdg'), { ...PIN, launchFiles: undefined, home, panePath: '/usr/bin', ownPath: '' });
+    for (const tail of ['/home-lp12/.config/tmux/tmux.conf', '/elsewhere-xdg/tmux/tmux.conf']) {
+      assert.ok(t.files.some((x) => x.endsWith(tail)), 'missing ' + tail + ' in ' + JSON.stringify(t.files));
+    }
+  } finally { if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was; }
+});
