@@ -189,3 +189,23 @@ test('review 3: the name-held sentence is said in the coordinator words; a refus
   assert.equal(w.el('plus-si-company-name').value, '', 'a stale name was left for the next start');
   assert.equal(w.el('plus-si-company-second').value, '', 'a refused code was left for the next start');
 });
+
+test('review 4: a timeout or a name refusal does not mark a still-good code refused', async () => {
+  const sent = [];
+  let answer = [400, { error: 'that name is not allowed' }];
+  const w = world(Object.assign({}, START, {
+    '/api/remote/company/status': () => [200, { ready: true }],
+    '/api/remote/company/complete': (b) => { sent.push(b); return b.second ? answer : [400, { error: 'this account has a second step, so adding a computer to it needs that code too.' }]; },
+  }));
+  w.el('plus-signin-email').value = 'neo@acme.test';
+  await w.ctx.start(w.el('plus-signin-company'));
+  await w.tick();
+  w.el('plus-si-company-name').value = 'neo-mac';
+  await w.ctx.finish(w.el('plus-si-company-go'));
+  w.el('plus-si-company-second').value = '123456';
+  await w.ctx.finish(w.el('plus-si-company-go'));          // refused for the name, not the code
+  answer = [200, { ok: true }];
+  w.el('plus-si-company-name').value = 'neo-mac2';
+  await w.ctx.finish(w.el('plus-si-company-go'));          // the same, still-good code is sent
+  assert.deepEqual(sent.at(-1), { name: 'neo-mac2', second: '123456' }, 'a code never judged was held back as refused');
+});

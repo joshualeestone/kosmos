@@ -1456,6 +1456,7 @@ async function companyStartRun(email) {
   const ttl = Math.min(3600, Math.max(60, Number.isFinite(a.expiresIn) ? a.expiresIn : 900));
   // Review 2: the address as parsed (and checked by sameOriginHttps above), never the raw string, goes to the opener.
   companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000, url: new URL(a.url).href };
+  companyOpenedAt = 0;   // review 4: a new setup's page may open at once (the limit is per setup)
   return { ok: true, because: null, matchCode: a.matchCode.trim(), url: a.url,
     interval: Math.min(60, Math.max(1, Number.isFinite(a.interval) ? a.interval : 5)) };
 }

@@ -48976,8 +48976,9 @@ async function plusCompanyFinish(btn) {
   if (r.stale) return;
   if (!r.ok) {
     const why = String(r.because || '');
-    // Review 3: ANY refusal of a sent code (a wrong code says "N tries left") keeps it from being sent again unchanged.
-    if (second) PLUS_CO_REFUSED = second;
+    // Review 3: a refusal OF THE CODE (a wrong code says "N tries left") keeps it from being sent again unchanged.
+    // Review 4: only that; a timeout or a name refusal never judged the code, which may still be good.
+    if (second && !r.timeout && /second code|tries left|wrong/i.test(why)) PLUS_CO_REFUSED = second;
     // The coordinator's words for an account with a second step (signin.rs): ask for its code here. Review 3: its
     // other sentence (the name is held by another computer on the account, which the code moves here) is said in its
     // own words, so nobody replaces a computer unknowingly.

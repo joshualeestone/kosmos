@@ -4129,6 +4129,9 @@ test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits
   remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
   assert.deepEqual(await remote.companyOpen(), { ok: true, because: null });
   assert.match((await remote.companyOpen()).because, /just opened/, 'a second open a moment later opened another tab');
+  // Review 4: a NEW setup's page opens at once (the limit is per setup).
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.deepEqual(await remote.companyOpen(), { ok: true, because: null }, 'a new setup was refused as just opened');
   remote.resetForTests();
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
   remote.setCompanyOpenCommandForTests(['/usr/bin/false']);
