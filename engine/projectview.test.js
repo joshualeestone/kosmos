@@ -595,6 +595,7 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   // Review 1: a summary written after the idle report gets no note (a later turn's idle was lost).
   const newer = agentFolder('ida-f2-newer', [['2026-09-29-11.md', 360]]);   // 6h old, idle report 14h old
   const view = v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => newer, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(840) }) });
+  assert.equal(view.members[0].summary.state, 'stale', 'CONTROL: the newer summary is not stale, so this arm tests nothing');
   assert.doesNotMatch(v.renderShow({ project: view }).join('\n'), /idle since|reported idle/, 'an idle time before the summary was printed');
   // A start reads as one.
   assert.match(show({ found: true, state: 'started', at: at(840) }).text, /; idle since this session started 14h 0m ago\)$/m);

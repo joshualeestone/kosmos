@@ -201,7 +201,7 @@ test('#5635 review 2: a span born under the OLD frame wording (before this chang
   assert.ok(read(f).includes(BLOCK));
 });
 
-test('#5635 review 3: a person who puts the earlier rules back after the update keeps them (once per version, no loop)', () => {
+test('#5635 review 3: a person who puts the earlier rules back after the update keeps them (once per block, no loop)', () => {
   const oldText = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
   const f = agentFile('undone', oldText);
   assert.equal(run('undone').state, 'added', 'CONTROL: the first boot did not update it');
@@ -239,7 +239,7 @@ test('#5635 review 4: once per BLOCK, not per version: a later block (a text fix
   const f = agentFile('withinversion', oldText);
   // An EARLIER block was written into this agent before, at the same DOCTRINE_VERSION (doctrine-past.js has several
   // rows for one version): the record names that block, not today's.
-  // doctrineAuto is what round 3's per-VERSION record wrote; with it here, that rule would refuse, which is the defect.
+  // doctrineAuto is the field round 3's per-VERSION rule wrote (no code reads it now); with it here, that rule would refuse.
   store.writeProfile('withinversion', { doctrineVersion: defaults.DOCTRINE_VERSION, doctrineAuto: defaults.DOCTRINE_VERSION, doctrineWrote: sha('an earlier block of this same version') });
   assert.equal(run('withinversion').state, 'added', 'a newer block in the same version did not arrive');
   assert.ok(read(f).includes(BLOCK));
@@ -254,4 +254,42 @@ test('#5635 review 4: a restore after a CLICK holds too (the click records the b
   fs.writeFileSync(f, oldText);   // the person restores the earlier rules
   assert.equal(run('clickthenrestore').state, 'left', 'the boot sweep overwrote a restore made after a click');
   assert.equal(read(f), oldText);
+});
+
+test('#5635 review 5: a plain copy with a typed line under it is left even when the file also has a whole known span', () => {
+  const oldSpan = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const text = oldSpan + '\n' + OLD + '\n- my own bullet under the last rule\n';
+  const f = agentFile('spanplustyped', text);
+  assert.equal(doctrine.planFor(text, NOW, OLD_TABLE).state, 'refresh', 'fixture: the click would act');
+  assert.equal(run('spanplustyped').state, 'left');
+  assert.equal(read(f), text);
+});
+
+test('#5635 review 5: a write that fails after the record is tried again at the next boot, not read as a restore', () => {
+  const oldText = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const f = agentFile('writefails', oldText);
+  const instructions = require('./instructions');
+  const real = instructions.write;
+  instructions.write = () => { throw new Error('the disk said no'); };
+  let first;
+  try { first = run('writefails'); } finally { instructions.write = real; }
+  assert.equal(first.state, 'could_not');
+  assert.equal(read(f), oldText);
+  assert.equal(run('writefails').state, 'added', 'the failed write was read as a restore at the next boot');
+  assert.ok(read(f).includes(BLOCK));
+});
+
+test('#5635 review 5: a profile that exists but cannot be read stops the write, and keeps its Not now and its id', () => {
+  const oldText = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const f = agentFile('badprofile', oldText);
+  store.writeProfile('badprofile', { doctrineDeclined: defaults.DOCTRINE_VERSION });
+  const pf = store.profilePath('badprofile');
+  const good = fs.readFileSync(pf, 'utf8');
+  fs.writeFileSync(pf, good.slice(0, -3));   // a torn write: not JSON
+  const got = run('badprofile');
+  assert.equal(got.state, 'could_not', JSON.stringify(got));
+  assert.equal(read(f), oldText, 'the rules were written over an unread Not now');
+  assert.equal(fs.readFileSync(pf, 'utf8'), good.slice(0, -3), 'the unreadable profile was replaced');
+  fs.writeFileSync(pf, good);   // CONTROL: readable again, the Not now holds
+  assert.equal(run('badprofile').state, 'left');
 });

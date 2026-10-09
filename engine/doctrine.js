@@ -146,6 +146,15 @@ function hasPlainCurrent(body) {
 /* kosmos#5635: rules text that is, byte for byte, a WHOLE earlier block. The only span content refreshUnedited writes
    over: the per-section match below also accepts a span with a section deleted or the sections reordered (review 1),
    which is the person's edit and waits for the click. */
+/* kosmos#5635 review 5: the profile as the no-click write must read it. store.readProfile answers {} for ANY failure,
+   which would read a Not now and the restore record as absent and then let writeProfile replace the file (its id
+   too). Only a profile that does not exist is empty; one that exists and cannot be read or parsed is null. */
+function profileStrict(sessionName) {
+  let raw;
+  try { raw = require('node:fs').readFileSync(store.profilePath(sessionName), 'utf8'); }
+  catch (e) { return e && e.code === 'ENOENT' ? {} : null; }
+  try { const p = JSON.parse(raw); return p && typeof p === 'object' && !Array.isArray(p) ? p : null; } catch { return null; }
+}
 /* The hash of today's block, the record of which rules were last written into an agent's file (review 4). */
 function currentBlockHash() {
   return crypto.createHash('sha256').update(defaults.block()).digest('hex');
@@ -460,9 +469,10 @@ function refreshUnedited(sessionName, roster, opts) {
     /* Review 3: and only when the copy ends at a clean boundary (the end of the file, a blank line, a heading or a marker
        line): a line the person typed under its last section reads as part of it for pastBlockIn, and would be cut off
        from it by the write. */
-    if (plan.replacing === true && !span) {
+    /* Review 5: on EVERY replace, a span in the file too: the copy being cut is the one outside the span. */
+    if (plan.replacing === true) {
       const text = current.text || '';
-      const old = pastBlockIn(text, opts && opts.past);
+      const old = pastBlockIn(text, opts && opts.past, span && !span.ambiguous ? span : null);
       const rest = old ? text.slice(old.end).replace(/^\r?\n/, '') : '';
       if (!old || !(rest === '' || /^(?:\r?\n|#|<!--)/.test(rest))) return notWhole;
     }
@@ -472,8 +482,8 @@ function refreshUnedited(sessionName, roster, opts) {
     if (plan.edited === true || !(plan.replacing === true || plan.updating === true)) {
       return { state: 'left', because: plan.edited === true || plan.updating ? 'its working rules were edited, so they change only with your OK' : 'its working rules were never written by Kosmos, so they are added only with your OK' };
     }
-    let profile = {};
-    try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
+    const profile = profileStrict(sessionName);
+    if (profile === null) return { state: 'could_not', because: 'we could not read what this agent has on record (a Not now, say), so we did not change its rules' };
     if (profile.doctrineDeclined === defaults.DOCTRINE_VERSION) return { state: 'left', because: 'you said Not now to these rules for this agent' };
     /* Review 3/4: once per BLOCK. If today's block was already written into this agent's file (by this sweep or by a
        click) and an earlier one is there again, a person put it back (the Instructions tab's previous version, #4406):
@@ -481,12 +491,18 @@ function refreshUnedited(sessionName, roster, opts) {
        fixes ship inside a version (several rows share one in doctrine-past.js), and a later fix must still arrive. */
     const today = currentBlockHash();
     if (profile.doctrineWrote === today) return { state: 'left', because: 'the earlier rules were put back after Kosmos updated them, so they change only with your OK' };
-    /* Recorded BEFORE the write (review 4): the record only ever suppresses, so a write that then fails costs one more
-       chance to update at the next boot, never a second write over a restore. A record that cannot be saved is not a
-       reason to write without it. */
+    /* Recorded BEFORE the write (review 4), so a restore can never be overwritten twice; and put back if the write
+       then fails (review 5), so a failed write costs this boot only and is tried again at the next, rather than
+       reading as a restore for as long as this block is current. A record that cannot be saved is no reason to write. */
+    const before = Object.prototype.hasOwnProperty.call(profile, 'doctrineWrote') ? profile.doctrineWrote : null;
     try { store.writeProfile(sessionName, { doctrineWrote: today }); } catch { return { state: 'could_not', because: 'we could not record the update for this agent, so we did not make it' }; }
-    instructions.write(sessionName, plan.fileNext, current.version, undefined,
-      { who: 'kosmos', because: 'brought its working rules up to date (they were Kosmos\'s own text, unedited)' });
+    try {
+      instructions.write(sessionName, plan.fileNext, current.version, undefined,
+        { who: 'kosmos', because: 'brought its working rules up to date (they were Kosmos\'s own text, unedited)' });
+    } catch (err) {
+      try { store.writeProfile(sessionName, { doctrineWrote: before }); } catch { /* best effort: the next boot reads it as a restore */ }
+      throw err;
+    }
     try { store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION }); } catch { /* the file is the truth */ }
     return { state: 'added', sections: plan.sections.map((x) => x.heading) };
   } catch (err) {
