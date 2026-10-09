@@ -50,7 +50,7 @@ function workKosmos() {
 }
 
 /* A store standing in for both uploaders: keeps every object, hands out keys in the given period. */
-function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucket/', manifestAnswer, longKeys, org = 'o1', epoch = '1', keyFor } = {}) {
+function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucket/', manifestAnswer, longKeys, org = 'o1', epoch = '1', keyFor, manifestPeriod } = {}) {
   const objects = new Map(), batches = [], manifests = [];
   let n = 0;
   return {
@@ -61,7 +61,7 @@ function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucke
       for (const { name, object } of batch) {
         if (failChunksAfter !== undefined && n >= failChunksAfter) return { ok: false, retryLater: true, because: 'grant ran out', keys, lockedUntil, bucket };
         // longKeys: the coordinator's real shape, two ids then two 32-hex ids (about 140 characters).
-        const key = longKeys ? `o1/acct-${'b'.repeat(68)}/1/${period}/${crypto.randomBytes(32).toString('hex')}` : `${org}/acct1/${epoch}/${period}/k${++n}`;
+        const key = longKeys ? `${org}/acct-${'b'.repeat(68)}/${epoch}/${period}/${crypto.randomBytes(32).toString('hex')}` : `${org}/acct1/${epoch}/${period}/k${++n}`;
         const k2 = keyFor ? keyFor(key, n) : key;
         objects.set(k2, Buffer.from(object)); keys.set(name, k2); lockedUntil.set(name, LOCK);
       }
@@ -71,7 +71,8 @@ function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucke
       manifests.push({ bytes, opts });
       if (manifestAnswer) return manifestAnswer;
       if (failManifest) return { ok: false, retryLater: true, because: 'manifest grant ran out' };
-      return { ok: true, key: `o1/acct1/1/${PERIOD}/m${manifests.length}`, lockedUntilMs: LOCK };
+      // The coordinator files a manifest under the same <org>/<account> as the chunks.
+      return { ok: true, key: `${org}/${longKeys ? 'acct-' + 'b'.repeat(68) : 'acct1'}/${epoch}/${manifestPeriod || PERIOD}/m${manifests.length}`, lockedUntilMs: LOCK };
     },
   };
 }
@@ -840,5 +841,39 @@ test('a denied folder or file spelled with an invisible character is denied: res
     assert.ok(!m.files.some((x) => x.path.startsWith('.git\u200b')), 'the invisible-.git folder was stored');
     assert.ok(!m.files.some((x) => x.path === 'agents/a/.env\u00ad'), 'the invisible-.env file was stored');
     assert.ok(m.files.some((x) => x.path === 'readme.txt'), 'control');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a file or folder named with something shaped like a credential is skipped, and recorded under a masked name', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', `${TOKEN}.md`), 'notes about it');
+    fs.mkdirSync(path.join(w.root, 'agents', 'a', `dir-${TOKEN}`));
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', `dir-${TOKEN}`, 'x.md'), 'x');
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', 'setprovider-plan-long-ordinary-name-for-a-file.md'), 'kept');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    const json = JSON.stringify(m);
+    assert.ok(!json.includes(TOKEN), 'the token appears nowhere in the manifest');
+    assert.equal(m.skipped.filter((x) => /shaped like a credential/.test(x.why)).length, 2);
+    assert.ok(m.files.some((x) => x.path === 'agents/a/setprovider-plan-long-ordinary-name-for-a-file.md'), 'control: an ordinary long name is kept');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a manifest filed under another period than its context (Monday passed as it was granted) is not reported as success', async () => {
+  const w = workKosmos(), k = keys(), st = store({ manifestPeriod: '2026-W42' });
+  try {
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, false); assert.equal(r.newPeriod, true); assert.equal(r.grantSpent, true);
+    assert.ok(r.added.size > 0, 'the stored chunks are returned');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a clock reading no Date can hold is a plain failure', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st, { deps: { now: () => 9e15 } });
+    assert.equal(r.ok, false); assert.match(r.because, /clock/); assert.equal(st.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
