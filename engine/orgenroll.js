@@ -226,6 +226,11 @@ const CONSENT_FILE = 'org-consent.json';
    cannot see negation ("never your token usage"), since report lines describe what IS sent and the coordinator's own
    rule decides what it takes. */
 const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
+/* #5534 (slice 2): whether the accepted words name the company policy, so the rollup may carry the version this Kosmos
+   applied and whether it refused one. The coordinator keeps the version exactly while its own words name "policy"
+   (CONSENT_NAMES_POLICY); the same whole word here. Read from the words each time, so words accepted before this
+   existed answer for themselves. */
+const NAMES_POLICY = /\bpolicy\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -254,7 +259,8 @@ function acceptedConsent(opts) {
   if (!rec) return null;
   const j = readConsents(opts).byHash[rec.consentHash];
   if (!j || !Array.isArray(j.reports)) return null;
-  return { reports: j.reports.filter((l) => typeof l === 'string' && l), usageConsented: j.usageConsented === true };
+  const reports = j.reports.filter((l) => typeof l === 'string' && l);
+  return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)) };
 }
 /* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
    the words on record here are no longer accepted words, so this Kosmos stops reporting until the person accepts the

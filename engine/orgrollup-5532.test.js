@@ -52,7 +52,7 @@ test('#5532: the body has the contract shape, the three status words, and names 
     projects: [{ name: 'Launch', agents: ['Leo', 'Raph'] }],
     usageByDay: { [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 1e6, output_tokens: 1e6 }, 'gpt-5.1-codex': { output_tokens: 5 } } },
   });
-  assert.deepEqual(Object.keys(b).sort(), ['agents', 'at', 'backup', 'lastActive', 'policyVersion', 'projects', 'reason', 'truncated', 'usage', 'usageWithheld', 'v', 'world'].sort());
+  assert.deepEqual(Object.keys(b).sort(), ['agents', 'at', 'backup', 'lastActive', 'policyRefused', 'policyVersion', 'projects', 'reason', 'truncated', 'usage', 'usageWithheld', 'v', 'world'].sort());
   assert.equal(b.v, 1); assert.equal(b.reason, 'daily'); assert.equal(b.truncated, false);
   assert.deepEqual(b.agents.map((a) => a.status), ['working', 'waiting', 'waiting', 'waiting', 'stopped'], 'the consent names three words: working, waiting, stopped');
   for (const a of b.agents) assert.deepEqual(Object.keys(a).sort(), ['model', 'name', 'provider', 'status']);
@@ -79,17 +79,19 @@ test('#5532 done-when: a planted secret in every free field never reaches the bo
   const text = JSON.stringify(b);
   assert.equal(text.includes('/Users/'), false, 'a path reached the body');
   assert.equal(text.includes('‮'), false, 'a bidi override reached the body');
-  for (const s of [b.agents[0].name, b.projects[0].name, b.projects[0].agents[0], b.policyVersion]) {
+  assert.equal(b.policyVersion, null, '#5534: a policy version that is not a whole number was sent');
+  for (const s of [b.agents[0].name, b.projects[0].name, b.projects[0].agents[0]]) {
     assert.ok(s.length <= r.NAME_MAX, 'a string over the bound: ' + s.length);
   }
   assert.equal(b.agents[0].provider, null, 'a provider outside the known list was sent');
   assert.equal(b.agents[0].status, 'waiting');
   assert.equal(text.includes(CONTENT), false, 'content (a task, a transcript, a folder, a description) reached the body: ' + text);
-  // A name the person chose is sent as a name, cleaned and bounded: four name fields here, and nothing else. A model is
+  // A name the person chose is sent as a name, cleaned and bounded: three name fields here, and nothing else (#5534: the
+  // policy version is a number now, never a string). A model is
   // not one: a string with spaces or markup is not a model id, sent as null for an agent (review 4) and dropped as a
   // usage row (review 8).
   assert.deepEqual(b.usage, [], 'a usage key that is not a model id was sent');
-  assert.equal(text.split(SECRET).length - 1, 4, 'the planted name appears in a field that is not a name: ' + text);
+  assert.equal(text.split(SECRET).length - 1, 3, 'the planted name appears in a field that is not a name: ' + text);
   assert.equal(b.agents[0].model, null);
 });
 
@@ -427,7 +429,7 @@ test('#5532 rollup review 7: a refresh keeps the accepted words (found by the ha
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root, ['agent names'], true);
   await oe.refresh({ root, remote: c });
-  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
+  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
 });
 
 test('#5532 wiring: the words are found only for the hash on the record, and only while it may report', async (t) => {
@@ -451,7 +453,7 @@ test('#5532 wiring: the real enroll path remembers the words shown, and usage is
     const c = coordinator();
     const r0 = await oe.enroll('ACME-JOIN-1234', true, { root, remote: c, consentHash: HASH, consent: { reports: lines, backsUp: [], readers: ['you'], never: [] } });
     assert.equal(r0.ok, true, JSON.stringify(r0));
-    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage }, JSON.stringify(lines));
+    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false }, JSON.stringify(lines));
   }
 });
 
@@ -780,4 +782,26 @@ test('#5532 rollup review 31: a failure\'s wait belongs to the words it was sent
   fs.writeFileSync(f, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(f, 'utf8')), { consentHash: H2 })));
   fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [H2], byHash: { [H2]: { reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], usageConsented: false } } }));
   assert.equal((await r.tick({ root, remote: c, sources: sources(), now: T0 + 11 * 60e3 })).sent, true, 'new words accepted still waited out the old words\' failure');
+});
+
+test('#5534 slice 2: the policy version and a refusal leave only under accepted words that name the policy', async (t) => {
+  const fakePolicy = { refresh: () => ({ applied: { version: 4 }, refused: 'the signature does not match' }) };
+  const send = async (lines) => {
+    const root = world(t);
+    const c = coordinator();
+    await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+    accept(root, lines);
+    await r.tick({ root, remote: c, sources: sources(), orgpolicy: fakePolicy, now: Date.UTC(2026, 9, 7, 12) });
+    const sent = c.sent.find((x) => x.route === r.ROUTE);
+    assert.ok(sent, 'premise: a rollup was sent');
+    return sent.body;
+  };
+  const without = await send(['agent names, the AI provider and model each uses']);
+  assert.equal(without.policyVersion, null, 'the policy version left under words that do not name the policy');
+  assert.equal(without.policyRefused, false, 'a refusal left under words that do not name the policy');
+  const named = await send(['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent"]);
+  assert.equal(named.policyVersion, 4, 'CONTROL: under words naming the policy, the version is sent');
+  assert.equal(named.policyRefused, true);
+  // A version the company could not have saved is not sent as one.
+  for (const bad of [0, -1, 1.5, '4', 2 ** 53]) assert.equal(r.build({ world: 'w', policyVersion: bad }).policyVersion, null, String(bad));
 });
