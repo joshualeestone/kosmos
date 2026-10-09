@@ -73,7 +73,15 @@ function openParts(session, projects) {
         /* When the part came to this agent: moved to it, or created on it (a part added with a who,
            or a task created with one, carries no movedAt). */
         const givenAt = x.movedAt || x.createdAt || t.createdAt || null;
-        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt });
+        /* #4787 (10-08 feedback: an hourly check lost results and took a manual rerun): a repeating task here is due (the
+           waitingForNextRun check above let it through), so the line names the run that is due and how to record it. */
+        let dueWords = null;
+        if (t.repeat) {
+          const tr = require('./taskrepeat');
+          const slot = tr.dueSlot(t);
+          if (slot !== null) dueWords = tr.whenWords(slot);
+        }
+        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...(dueWords ? { dueWords } : {}) });
       }
     }
   }
@@ -99,8 +107,13 @@ function nudgeText(part) {
      project; and the hint says the pause must be the person's ask, and that the room is told who paused. */
   // Not all dots: both CLIs refuse such an id (review 4).
   const id = (typeof part.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(part.projectId) && /[^.]/.test(part.projectId)) ? part.projectId : '';
+  /* #4787: a repeating task's due run, named with how to record it, so a missed run is rerun and recorded, not lost. */
+  const due = typeof part.dueWords === 'string' && part.dueWords
+    ? ' Its scheduled run (' + plainWords(part.dueWords, 60) + ') has not been reported: run it now, then record it with kosmos task ran'
+      + (id ? ' ' + id + ' ' + part.n : '') + ' (add --unchanged if it found nothing new).'
+    : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
-    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '. Pick it up, or if you are waiting on something, '
+    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + ' Pick it up, or if you are waiting on something, '
     /* #5318: two states, two machines. blocked is a wait nobody chases (another agent, a deploy, a review); only
        needs_you is escalated (recommender.js, after its grace). Offering blocked alone sent person-blocked work there,
        where it went inert (0.7.22, a real install). The question is in SINGLE quotes: unquoted, a ? stops zsh with "no
