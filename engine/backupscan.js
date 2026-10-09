@@ -87,6 +87,10 @@ const KOSMOS_STORES = [
   // The generic .key rule already denies them under their own names; this adds `tls.key.example` and the like.
   [STORE_NAME('signin-device\\.key'), 'Kosmos Mac signing key'],
   [STORE_NAME('tls\\.key'), 'Kosmos tunnel TLS key'],
+  // The connector's pairing state (kosmos-relay crates/tunnel/src/pairing.rs, pairing.json): during a pairing round it
+  // holds this computer's nonce and the comparison code. Scoped to the connector's remote folder. Its other files are
+  // kept: account (the verified account name, not the signed token), peers.json (public keys), devices.json, mac_id.
+  [new RegExp(`(^|\\/)${TOKEN('remote')}\\/${TOKEN('pairing')}$`, 'i'), 'Kosmos pairing state'],
   // Kosmos's secrets folder (tokendoor's env/, githubdevice's and cloudflare's tokens), copied or renamed like any other
   // store. Keyed on what is inside it too, so a person's own trade-secrets/ folder of notes is untouched.
   [new RegExp(`(^|\\/)${TOKEN('secrets')}\\/(env\\/|(github|cloudflare)\\.token)`, 'i'), 'Kosmos secrets folder'],
@@ -126,8 +130,9 @@ function pathDecision(rel) {
   // refuses a legal name in any script. Refused before any pattern runs, so a hostile segment cannot make the token
   // patterns below take more than bounded time.
   if (p.split('/').some((seg) => seg.length > MAX_SEGMENT)) return { include: false, why: 'a name too long to check' };
-  // Kosmos's own stores are judged BEFORE the template exemption (the generic secrets/ folder rule, older, is still
-  // judged after it, so secrets/github.token.example is kept): `mac_key.example` or `board.token.sample` is a copy
+  // Kosmos's own stores are judged BEFORE the template exemption (so are Kosmos's secrets/env/ and its github and
+  // cloudflare token files, by the secrets-folder store rule; a template of any other file in a secrets/ folder is
+  // still kept by the exemption): `mac_key.example` or `board.token.sample` is a copy
   // of a key the content scan cannot see, never a template.
   for (const [re, why] of KOSMOS_STORES) if (re.test(p)) return { include: false, why };
   if (TEMPLATE.test(p)) return { include: true };
