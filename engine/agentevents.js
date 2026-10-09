@@ -227,10 +227,10 @@ async function tick(opts) {
     let r;
     try { r = await remote.macRequest('POST', ROUTE, { events: batch }); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
     if (!r || !r.ok) {
-      /* A batch the coordinator REFUSES as malformed (org_agent_events_bad: an event it does not accept) would be
+      /* A batch the coordinator REFUSES as malformed or too big (org_agent_events_bad / _too_big, public codes) would be
          refused on every retry and hold back every later event. Drop exactly that batch; anything else (offline, busy,
          consent changed, not enrolled) keeps it for the next tick. */
-      if (/\borg_agent_events_bad\b/.test(String((r && r.because) || ''))) {
+      if (/\borg_agent_events_(bad|too_big)\b/.test(String((r && r.because) || ''))) {
         const left = readState(root);
         left.pending = left.pending.slice(batch.length);
         writeState(root, left);
