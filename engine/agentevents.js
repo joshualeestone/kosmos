@@ -204,9 +204,9 @@ function pathClass(p0, ctx) {
 }
 
 /* A refused call's rule, or null when it is not one the company placed. */
-function classify(text, tool) {
+function classify(text, tool, platform) {
   if (DENIED.test(text)) return 'token-only-guard';
-  if (tool === 'Bash' && SANDBOX.test(text)) return 'sandbox';
+  if (tool === 'Bash' && SANDBOX.test(text) && (platform || process.platform) === 'darwin') return 'sandbox';   // the sandbox is macOS's (review 16)
   return null;
 }
 
@@ -232,7 +232,7 @@ function scanText(text, calls, ctx) {
       if (b.is_error !== true) continue;
       const text0 = resultText(b.content);
       const tool = call.name || ((text0.match(DENIED) || [])[1]) || (SANDBOX.test(text0) ? 'Bash' : null);
-      const rule = classify(text0, tool);
+      const rule = classify(text0, tool, ctx.platform);
       if (!rule) continue;
       const at = Date.parse(row.timestamp);
       if (!Number.isFinite(at) || at < ctx.now - PAST_MS) continue;
@@ -240,7 +240,7 @@ function scanText(text, calls, ctx) {
       const sessionRef = ref(ctx.session);
       const toolUseRef = ref(b.tool_use_id);
       if (!agent || !sessionRef || !toolUseRef) continue;
-      out.push({ agent, at: Math.floor(at / 1000), action: ACTION[tool] || 'run', rule,
+      out.push({ agent, at: Math.floor(at / 1000), action: (tool && Object.prototype.hasOwnProperty.call(ACTION, tool) ? ACTION[tool] : 'run'), rule,
         targetClass: call.target || targetClass(tool, {}, ctx), sessionRef, toolUseRef });
     }
   }
@@ -324,6 +324,19 @@ function defaultSources() {
       return out;
     },
     configRoots: () => { try { return require('./status').configRoots(); } catch { return []; } },
+    /* Review 16: on the list is not under the company's rules. The guard is in force only when the agent's own settings
+       hold every rule the guard writes for that folder, and the guard could write them all (no root missed, no rule
+       dropped; setup-assistant refuses to guard otherwise, and on Windows at all). Anything else: not read. */
+    guarded: (dir) => {
+      try {
+        if (process.platform === 'win32') return false;
+        const rules = require('./setup-assistant').tokenOnlySettingsRules(dir);
+        if (!rules || (rules.rootsMissed && rules.rootsMissed.length) || rules.tokenRuleDropped || !Array.isArray(rules.deny)) return false;
+        const j = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
+        const deny = j && j.permissions && Array.isArray(j.permissions.deny) ? new Set(j.permissions.deny) : new Set();
+        return rules.deny.length > 0 && rules.deny.every((r) => deny.has(r));
+      } catch { return false; }
+    },
     transcripts: async (dir) => {
       const files = [];
       for (const d of receipt._transcriptDirs(dir)) files.push(...await receipt._transcriptsIn(d));
@@ -376,7 +389,7 @@ async function tick(opts) {
        is not read at all (fail closed), and neither is anything when the agent list cannot be read. */
     const collidedNow = new Set();
     /* Required (review 12: an absent check read as "no clash"). */
-    if (typeof src.everyAgent !== 'function' || typeof src.transcriptDirsOf !== 'function') return { sent: 0, because: 'the agent list cannot be checked; nothing changed' };
+    if (typeof src.everyAgent !== 'function' || typeof src.transcriptDirsOf !== 'function' || typeof src.guarded !== 'function') return { sent: 0, because: 'the agent list cannot be checked; nothing changed' };
     {
       const every = src.everyAgent();
       if (!Array.isArray(every)) return { sent: 0, because: 'the agent list could not be read; nothing changed' };
@@ -387,6 +400,7 @@ async function tick(opts) {
       const others = otherDirs.map(flat);
       for (const [n, d] of [...dirs]) {
         if (!d) continue;
+        if (!src.guarded(d)) { dirs.delete(n); collidedNow.add(n); continue; }   // review 16: not under the company's rules yet
         const mine = flat(d);
         if (others.some((o) => [...o].some((x) => mine.has(x)))) {
           dirs.delete(n);
