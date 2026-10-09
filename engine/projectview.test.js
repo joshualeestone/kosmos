@@ -590,6 +590,8 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   // Review 1: a runner that reports idle only can have worked since; its line says what it reported.
   const codex = show({ found: true, state: 'idle', at: at(840) }, { runner: 'codex' });
   assert.match(codex.text, /; last reported idle 14h 0m ago\)$/m, 'a Codex member was said to be idle since');
+  // Review 3: a start report from such a runner reads as a start.
+  assert.match(show({ found: true, state: 'started', at: at(840) }, { runner: 'codex' }).text, /; last reported starting 14h 0m ago\)$/m);
   // Review 1: a summary written after the idle report gets no note (a later turn's idle was lost).
   const newer = agentFolder('ida-f2-newer', [['2026-09-29-11.md', 360]]);   // 6h old, idle report 14h old
   const view = v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => newer, readBrief: () => ({ found: false }), readReport: () => ({ found: true, state: 'idle', at: at(840) }) });

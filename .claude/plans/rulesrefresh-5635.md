@@ -9,10 +9,12 @@ From Josh's multi-model feedback on 0.7.27 (2026-10-07), filed by Splinter. Card
 
 A test proves that a changed template section reaches an existing agent's file. Rules a person edited, files without the rules, and an agent whose person said Not now to this version are left for the click, as today.
 
-**F2.** A member whose summary is older than the rhythm, on a project with nothing open for them, reads as idle since then, not overdue.
+**F2.** A summary still stale after #4581's idle and quiet rules also says when the member went idle ("last reported idle" for runners that report idle only), so idle reads differently from overdue. It stays stale.
 
 ## F1 decisions (Angel)
 - **The consent rule was my own design for #539, not a ruling from Josh.** #539's body proposes "no instruction file changes without a person's click", and doctrine.js enforces it. Josh's 10-07 feedback asks for every Kosmos-written section to refresh live, the third report of the same staleness (#4890, #5297, now #5635). Recurrence is the tell: the click is not happening, so the person never gets the fix.
+- **Once per version per agent** (review 3). If a person puts the earlier rules back after the automatic update (the Instructions tab's previous version), that is their choice, and from then on only the click changes it.
+- **Decided (review 3, W3):** a span from a click before #4890 holds only the headings the agent lacked, beside its plain copy. It is not a whole block, so it stays on the per-agent dialog, as today. That is the safe direction, and no such span exists on this Mac's 22 instruction files. A per-version list of section hashes would let these be proven too; that is a follow-up if one is reported.
 - **The line that holds:** Kosmos rewrites without a click only text that is, byte for byte, a WHOLE earlier block (`wholeKnownBlock` for a span, `pastBlockIn` for a plain copy). Review round 1 showed `knownContent`'s per-section match also accepts a span with a section deleted or reordered, which is the person's edit, so that match no longer counts here. A person's words are never touched. That is the property #539 protected, and it survives. What goes is the click for text nobody but Kosmos wrote.
 - **Kept on the click:** a span the person edited (`edited`), and a file with no rules block (appending sections to a file Kosmos never wrote rules into is adding to the person's text).
 - **A Not now for this version is honoured:** no auto-refresh for that agent until the version changes.
@@ -40,3 +42,13 @@ That the test agents' stale text was a known earlier block. If the multi-model t
   - W2: a plain copy with a heading the person also has elsewhere was replaced minus that section. Now replaced only when every section is written.
   - CONVENTION: a span with Windows line endings is left for the click (no mixed endings).
   - NITs: the frame wording no longer overclaims ("while it is exactly as Kosmos wrote it, and asks first otherwise"). Decided: a plain copy inside a code fence is treated as on the click path (rare); ambiguous files and write conflicts still log at boot (they are real).
+- **Round 3 (opus):** 0 blockers, 3 warnings.
+  - The reviewer replayed all 34 historical blocks against the shipped table: every earlier block updates, the current one is left. Four real Kosmos-born files on this Mac update cleanly; the 18 hand-made ones are left.
+  - W1 fixed: an undo was re-applied each boot; now once per version.
+  - W2 fixed: a plain copy must end at a clean boundary (end of file, blank line, heading, marker).
+  - W3 decided (above).
+  - C1/C2 fixed: comment and docstring.
+  - N1 fixed: old click frame tested.
+  - N4 fixed: "last reported starting".
+  - N3 fixed: the plan's F2 line.
+  - N2/N5 decided: positive arms use a synthetic table (the reviewer's replay covered the real one); an imported file's plain earlier block is updated, by the card's principle.
