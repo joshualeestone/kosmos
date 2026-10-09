@@ -4,22 +4,22 @@
     {
       "icon": "chat",
       "title": "Hear new agent messages read aloud",
-      "line": "Turn on conversation mode beside the mic in a direct message or project room, and new agent messages are read aloud as they arrive."
+      "line": "Press the speaker button beside the mic in a direct message or project room, and new agent messages are read aloud as they arrive."
     },
     {
       "icon": "tasks",
-      "title": "Auto-assign keeps a task tree with one agent",
-      "line": "Kosmos no longer hands a subtask to a second agent while another agent is working on the task above it."
+      "title": "The Assigner keeps a task tree with one agent",
+      "line": "The Assigner no longer hands a subtask to a second agent while another agent is working on its task tree."
     },
     {
       "icon": "tasks",
-      "title": "Idle agents hear which repeat run is due",
+      "title": "Idle agents hear which scheduled run is due",
       "line": "When a repeating task's run is due, an idle agent's reminder names that run and tells it how to record it."
     },
     {
       "icon": "list",
-      "title": "Deleted posts say if a copy may remain",
-      "line": "Your list of community posts now says when a post you took back may still be public, instead of showing it as gone."
+      "title": "Taken-back posts say if they may still be up",
+      "line": "Your list of community posts now says when a post that was taken back may still be public, instead of showing it as gone."
     }
   ]
 }
