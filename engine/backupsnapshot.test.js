@@ -162,7 +162,7 @@ test('a context for another period than this clock\'s is refused before anything
   const w = workKosmos(), k = keys(), st = store();
   try {
     const r = await take(k, w.root, st, { deps: { now: () => Date.parse('2026-10-12T00:00:01Z') } });
-    assert.equal(r.ok, false); assert.equal(r.retryLater, true); assert.match(r.because, /2026-W42/);
+    assert.equal(r.ok, false); assert.equal(r.newPeriod, true); assert.equal(r.retryLater, undefined); assert.match(r.because, /2026-W42/);
     assert.equal(st.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
@@ -171,7 +171,7 @@ test('a chunk granted in another period stops the run before the manifest (a bou
   const w = workKosmos(), k = keys(), st = store({ period: '2026-W42' });
   try {
     const r = await take(k, w.root, st);
-    assert.equal(r.ok, false); assert.equal(r.retryLater, true); assert.match(r.because, /period/);
+    assert.equal(r.ok, false); assert.equal(r.newPeriod, true); assert.equal(r.retryLater, undefined); assert.match(r.because, /period/);
     assert.equal(st.manifests.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

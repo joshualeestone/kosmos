@@ -181,7 +181,9 @@ function upperBound(f) {
  *     index        this period's chunks stored by earlier runs: Map name -> { key, lockedUntilMs }, all under bucket
  *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson? }
  * Resolves { ok: true, manifestKey, files, skipped, uploaded, reused, added, bucket } or
- * { ok: false, because, retryLater?, staleIndex?, tooLarge?, grantSpent?, unsure?, added, bucket }.
+ * { ok: false, because, retryLater?, newPeriod?, staleIndex?, tooLarge?, grantSpent?, unsure?, added, bucket }.
+ *   newPeriod: a period boundary passed (the context's, or a grant's): start again with the new period's context and
+ *     naming key; this input can never succeed.
  *   added (Map name -> { key, lockedUntilMs }) is every chunk this run stored in ctx.period under `bucket`, failed or not.
  *   staleIndex: the index cannot be used (another bucket or period, malformed, or chunks whose locks end too soon):
  *     drop it, keep `added` under `bucket`, and take the next snapshot from that.
@@ -213,7 +215,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (typeof namingKeyId !== 'string' || !/^[0-9a-f]{32}$/.test(namingKeyId)) return fail('the naming key id must be 32 lowercase hex characters');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
   const period = periodOf(now());
-  if (ctx.period !== period) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { retryLater: true });
+  // newPeriod, not retryLater: the same input fails again; the caller needs this period's context and naming key.
+  if (ctx.period !== period) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { newPeriod: true });
 
   // The index: every entry this period's, with a lock end, under one named bucket. Checked before anything is read.
   const index = input.index instanceof Map ? input.index : new Map();
@@ -267,7 +270,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
       for (const [name, key] of stored) if (periodOfKey(key) === ctx.period && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
-      return fail('a grant named another bucket than the index\'s: drop the index and take a full snapshot', Object.assign({ staleIndex: true }, spent));
+      return fail(index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
     // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it (review 2).
@@ -282,7 +285,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (pending.has(name)) estimate += Buffer.byteLength(key) - MAX_KEY_LEN;   // charged at MAX_KEY_LEN when it was sealed
     }
     if (noLock) return fail('a stored chunk came back without its lock end', spent);
-    if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); retry in the new period`, Object.assign({ retryLater: true }, spent));
+    if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period`, Object.assign({ newPeriod: true }, spent));
     if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {}, spent));
     for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk');
     uploaded += pending.size;
