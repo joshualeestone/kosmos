@@ -59,10 +59,11 @@ function boardWithUnseenAgent(launchctlListStdout, systemdActiveUnits) {
 /* The row under test, or a failure that says why it is missing (#5658). */
 function ghostRow(status, what) {
   const row = ghostOf(status);
-  const counts = status.counts || {};
+  const counts = status && status.counts;
   assert.ok(row, `${what}: no ghost row in ${READS} reads of /api/status`
-    + (counts.notRunning === null ? ' (the last one withheld the offline list: a host too loaded to read the panes)'
-      : ' (the agent fell out of the roster, or the survey of created agents failed every time)'));
+    + (!counts ? ' (the last answer carried no counts, so it was not a status read at all)'
+      : counts.notRunning === null ? ' (the last one withheld the offline list: pane lines it could not read, from load or from a regression in reading the stub tmux)'
+        : ' (the agent fell out of the roster, its row failed to compose, or the survey of created agents failed every time)'));
   return row;
 }
 function readBoardOnce(launchctlListStdout, systemdActiveUnits) {
@@ -116,24 +117,27 @@ function readBoardOnce(launchctlListStdout, systemdActiveUnits) {
       });
     });
   `;
-  const out = execFileSync(process.execPath, ['-e', script], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
-      AGENT_WORKFORCE_DRY_RUN: '1',
-      /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
-         TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
-      AGENT_WORKFORCE_TMUX_BIN: nodePath.join(bin, 'tmux'),
-      AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
-      AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
-      AGENT_WORKFORCE_LAUNCH: launch,
-      // #5500: the unit folder jobPathIn wrote to; a sandbox without one refuses every systemd call.
-      AGENT_WORKFORCE_SYSTEMD_DIR: nodePath.join(launch, 'systemd', 'user'),
-      AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'), // sandboxed whole (#634)
-    },
-  });
-  fs.rmSync(sb, { recursive: true, force: true });
+  let out;
+  // #5658 review 1: the sandbox goes whatever the child does (a loaded host is where a child is likelier to fail).
+  try {
+    out = execFileSync(process.execPath, ['-e', script], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        AGENT_WORKFORCE_DRY_RUN: '1',
+        /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
+           TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */
+        AGENT_WORKFORCE_TMUX_BIN: nodePath.join(bin, 'tmux'),
+        AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
+        AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
+        AGENT_WORKFORCE_LAUNCH: launch,
+        // #5500: the unit folder jobPathIn wrote to; a sandbox without one refuses every systemd call.
+        AGENT_WORKFORCE_SYSTEMD_DIR: nodePath.join(launch, 'systemd', 'user'),
+        AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'), // sandboxed whole (#634)
+      },
+    });
+  } finally { fs.rmSync(sb, { recursive: true, force: true }); }
   return JSON.parse(out);
 }
 

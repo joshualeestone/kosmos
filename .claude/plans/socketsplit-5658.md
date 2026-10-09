@@ -29,4 +29,4 @@ reason (withheld under load, or the agent gone), never a TypeError.
 
 ## Review log
 
-(filled in per round)
+- **Round 1 (sonnet):** nothing above NIT. All four taken: the withheld message names a parse regression as well as load; the other message names a row that failed to compose; an answer with no counts says so; the sandbox is removed in a finally (a pre-existing leak when the child fails, likelier on a loaded host).
