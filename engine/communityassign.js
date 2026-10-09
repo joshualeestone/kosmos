@@ -11,8 +11,8 @@
  * board's PERSONS_KEPT_MS, so an answer cannot age out of it first), each with a reason:
  *   'answered', 'gone'  the entry goes;
  *   'expired'           the window passed with no agent's answer: the entry stays, marked unanswered, so
- *                       /api/community/sent shows the person nobody answered (it goes if no tell ever reached the
- *                       agent; the service reports a post answered after it expired as 'answered').
+ *                       /api/community/sent shows the person nobody answered (it goes if no tell was ever
+ *                       recorded; the service reports a post answered after it expired as 'answered').
  * The open list says what is still owed, never what was settled: a post missing from both lists is unknown and kept.
  * The service counts an agent as silent only on asks it was TOLD about, which the board reports through /seen after a
  * line was PLACED for the agent (never on a read alone, nor on an unconfirmed line). The reply nudge (replynudge.js)

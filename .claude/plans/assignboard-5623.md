@@ -178,9 +178,10 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 
 ## Review 14 (opus)
 - Stated (WARNING): the assignment read is the request during which the service runs its throttled sweep (up to its
-  5 s budget plus lock waits), and it holds communitysend's chain while it runs, so an agent's own community command
-  made then waits a few seconds (never fails: callers wait up to AGENT_WAIT_MS). Cost accepted: once a minute at most
-  per service process.
+  5 s budget plus lock waits), and it holds communitysend's chain while it runs. ANOTHER agent's community command
+  made then waits a few seconds (up to AGENT_WAIT_MS); THIS agent's own command (vote, follow, endorse) is answered busy
+  at once (agentCall refuses a second call for the same agent), and the agent runs it again. Corrected at review 16;
+  the cost is accepted: once a minute at most per service process, and the same as the seen POST's (review 4).
 - Stated (NIT): a post answered by another agent leaves the open list (filtered live) one service sweep before its
   'answered' closure appears in `settled`; the board keeps it as unknown in between and does not re-tell it.
 - Fixed (NITs): markSeen's doc says an empty or invalid id list returns true without asking; valid rows fill
@@ -192,3 +193,11 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   write is redone next pass; a test of the PERSON_TELLS mark on an assignment key through /sent (kind 'post').
 - Left (NITs): the source pin on chainWaitMs is literal by design (it says so); the plan's review log is long; the
   frame line's width follows the file.
+
+## Review 16 (opus)
+- Fixed (WARNING): my review-14 note said the agent's own command made during the read "waits"; for the same agent
+  agentCall answers busy at once (only other agents wait). The note now says so.
+- Fixed (NIT): "no tell was ever recorded" in the docs of the never-told expiry (a recorded tell may be unconfirmed).
+- Stated (NIT): several agents picked for the same post on one board each list it in /sent when it expires (one row per
+  agent: which agent left the person unanswered).
+- Left (NITs): long lines and comment alignment follow the file.

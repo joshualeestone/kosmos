@@ -43,7 +43,7 @@
  * unanswered person (readPersons / writePersons, one record per agent). See the PERSON_* constants and personsUpdate.
  * Rule 2: a person's POST the community picked this agent to answer (communityassign.openAssignments, `o.assignments`)
  * joins the same record under the key "a:<post id>", told the same way; it leaves the record when the service reports
- * it settled 'answered' or 'gone', or 'expired' before any tell reached the agent; it is marked unanswered after
+ * it settled 'answered' or 'gone', or 'expired' before any tell was recorded; it is marked unanswered after
  * PERSON_TELLS tells (as a comment is) or when it expired after a tell; an unlisted one is unknown and kept; any entry
  * ages out after PERSONS_KEPT_MS unseen.
  *
