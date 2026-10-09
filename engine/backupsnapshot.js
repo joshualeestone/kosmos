@@ -85,7 +85,8 @@ const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WE
    the public key, hex. An index entry under another member key cannot be named (the new private key cannot open it). */
 const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
 
-/** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". */
+/** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". (The
+    coordinator falls back to "p<start>" for a time its time crate cannot hold; such a clock is refused here first.) */
 function periodOf(ms) {
   const start = MONDAY_EPOCH + Math.floor((ms - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
   // ISO week-numbering year: the year of the Thursday of that week.
@@ -466,9 +467,13 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (objects[name] || pending.has(name)) continue;
       const known = index.get(name);
       // Every name this snapshot references gets one objects entry: its JSON is counted once, here.
+      // A key is charged at its byte length, which is its JSON length only because keyProblem allows plain segments
+      // ([A-Za-z0-9._:-]); widen that rule and this charge must escape (pinned by the "a key with a quote" test).
       estimate += CHUNK_NAME_LEN + 6 + (known ? Buffer.byteLength(known.key) : MAX_KEY_LEN);
       if (known) { objects[name] = known.key; reused++; continue; }
-      const { object } = sealNamedChunk(memberPk, namingKey, piece);
+      const sealed = sealNamedChunk(memberPk, namingKey, piece);
+      if (sealed.name !== name) return fail('a chunk was sealed under another name than it was given');   // cannot differ today
+      const { object } = sealed;
       pending.set(name, object); pendingBytes += object.length;
       if (pendingBytes >= batchBytes) { const stop = await flush(); if (stop) return stop; }
     }
