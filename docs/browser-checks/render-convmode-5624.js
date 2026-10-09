@@ -13,7 +13,12 @@
  *   C5 the person's own new message is not read
  *   C6 two new agent messages at once: only the newest is read, after a cancel of anything playing
  *   C7 turning it off stops what is playing and nothing more is read; the state is remembered per conversation
- *   C8 the project room's painter calls convFollow and paintRoom's box carries the room's key
+ *   C8 the project room, drawn by the real paintRoom: off reads nothing, on reads a new agent post, a guest's is not read
+ *   C10 an agent's first reply in an EMPTY direct thread is read (review 1)
+ *   C11 going to another agent and back does not read what arrived meanwhile (review 1)
+ *   C12 a hidden window reads nothing, and nothing it missed is read late when it shows again (review 1)
+ *   C13 an empty voice list (Chrome before voiceschanged) reads once the list arrives (review 1)
+ *   C14 nothing is read while the mic is listening (review 1)
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -40,14 +45,19 @@ function harness() {
   return () => {
     window.setInterval = () => 0;
     window.__spoken = [];
-    const voices = [
+    const full = [
       { name: 'Cloud Voice', lang: 'en-US', localService: false, default: true },
       { name: 'Samantha', lang: 'en-US', localService: true, default: false },
     ];
+    let voices = full;
+    const listeners = [];
+    window.__noVoicesYet = () => { voices = []; };
+    window.__voicesArrive = () => { voices = full; listeners.splice(0).forEach((f) => f()); };
     Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
       getVoices: () => voices,
       speak: (u) => window.__spoken.push({ text: u.text, voice: u.voice && u.voice.name }),
       cancel: () => { window.__spoken.push({ cancel: true }); },
+      addEventListener: (ev, f) => { if (ev === 'voiceschanged') listeners.push(f); },
     } });
     window.SpeechSynthesisUtterance = function (text) { this.text = text; };
     try { localStorage.removeItem('kosmos.convmode'); } catch { /* fresh */ }
@@ -123,7 +133,9 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await paint(page, thread);
     const c6 = await page.evaluate(() => window.__spoken);
     const c6text = c6.filter((x) => x.text).map((x) => x.text).join(' ');
-    chk(/Second of two/.test(c6text) && !/First of two/.test(c6text) && c6.some((x) => x.cancel), 'C6 two at once: only the newest is read, after a cancel', JSON.stringify(c6));
+    const iCancel = c6.findIndex((x) => x.cancel);
+    const iSpeak = c6.findIndex((x) => x.text);
+    chk(/Second of two/.test(c6text) && !/First of two/.test(c6text) && iCancel >= 0 && iCancel < iSpeak, 'C6 two at once: only the newest is read, after a cancel', JSON.stringify(c6));
 
     // C7: off stops and reads no more; remembered for this conversation only.
     await resetSpoken(page);
@@ -137,12 +149,85 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     const remembered = await page.evaluate(() => localStorage.getItem('kosmos.convmode'));
     chk(remembered === '{"dm:april":true}', 'C7b the on state is kept for this conversation, by its key', remembered);
 
-    // C8: the room path.
-    const c8 = await page.evaluate(() => {
-      const src = paintRoom.toString();
-      return { calls: /convFollow\(box, 'pj:' \+ PJ_CURRENT\)/.test(src), button: !!document.getElementById('pj-conv') };
+    // C8: the room, through the real paintRoom (pjById stood in for one project).
+    const room = (rows) => page.evaluate((r) => { paintRoom({ rows: r }); }, rows);
+    const post = (id, from, text, extra) => ({ kind: 'post', id, from, to: [], text, at: new Date().toISOString(), outcomes: {}, ...(extra || {}) });
+    await page.evaluate(() => {
+      PJ_CURRENT = 'p1';
+      window.pjById = (id) => (id === 'p1' ? { id: 'p1', name: 'Launch', agents: ['april'], members: ['april'] } : null);
+      // Show the room as opening a project does: unhide its panel (the direct-message panel goes behind it).
+      document.getElementById('panel-detail').hidden = true;
+      for (let el = document.getElementById('pj-conv'); el; el = el.parentElement) if (el.hidden) el.hidden = false;
     });
-    chk(c8.calls && c8.button, 'C8 the project room\'s painter calls convFollow and has its own toggle', JSON.stringify(c8));
+    await resetSpoken(page);
+    let rr = [post('r1', 'april', 'Room backlog.')];
+    await room(rr);
+    rr = [...rr, post('r2', 'april', 'Room news with the mode off.')];
+    await room(rr);
+    const offSaid = await spoken(page);
+    await page.click('#pj-conv');
+    rr = [...rr, post('r3', 'april', 'Room news with the mode on.')];
+    await room(rr);
+    const onSaid = await spoken(page);
+    const hasExt = await page.evaluate(() => document.querySelectorAll('#pj-room .msg.ext').length);
+    chk(offSaid === '' && /Room news with the mode on/.test(onSaid) && !/backlog|mode off/.test(onSaid), 'C8 the room, through paintRoom: off reads nothing, on reads the new agent post', JSON.stringify({ offSaid, onSaid, hasExt }));
+    await page.click('#pj-conv');   // off again for the room
+    await page.evaluate(() => {
+      PJ_CURRENT = null;
+      for (let el = document.getElementById('pj-room'); el && el !== document.body; el = el.parentElement) if (el.id && /^panel-/.test(el.id)) el.hidden = true;
+      document.getElementById('panel-detail').hidden = false;
+    });
+
+    // C10: a first reply in an EMPTY direct thread.
+    await resetSpoken(page);
+    await page.evaluate(() => { CURRENT = { sessionName: 'june', name: 'June' }; localStorage.setItem('kosmos.convmode', JSON.stringify({ 'dm:april': true, 'dm:june': true })); CONV.on = null; });
+    const jrow = (i, text) => ({ from: 'june', at: at(i), text });
+    await page.evaluate((m) => { window.__fx = { messages: m }; }, []);
+    await page.evaluate(() => paintTalk('june', 'June'));
+    await page.waitForTimeout(150);
+    await page.evaluate((m) => { window.__fx = { messages: m }; }, [jrow(20, 'My very first reply.')]);
+    await page.evaluate(() => paintTalk('june', 'June'));
+    await page.waitForTimeout(150);
+    chk(/My very first reply/.test(await spoken(page)), 'C10 an agent\'s first reply in an empty thread is read', await spoken(page));
+
+    // C11: away to june, april posts meanwhile, back to april: not read.
+    await resetSpoken(page);
+    await page.evaluate(() => { CURRENT = { sessionName: 'april', name: 'April' }; });
+    thread = [...thread, agentRow(30, 'Arrived while you were with June.')];
+    await paint(page, thread);
+    chk(!/while you were with June/.test(await spoken(page)), 'C11 going away and back does not read what arrived meanwhile', await spoken(page));
+
+    // C12: hidden reads nothing, and nothing late when shown again; then a new one is read.
+    await resetSpoken(page);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+    thread = [...thread, agentRow(31, 'Posted while hidden.')];
+    await paint(page, thread);
+    const hiddenSaid = await spoken(page);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); });
+    await paint(page, thread);
+    const lateSaid = await spoken(page);
+    thread = [...thread, agentRow(32, 'Posted once visible.')];
+    await paint(page, thread);
+    const nowSaid = await spoken(page);
+    chk(!/while hidden/.test(hiddenSaid) && !/while hidden/.test(lateSaid) && /once visible/.test(nowSaid), 'C12 a hidden window reads nothing, misses nothing late, then reads again', JSON.stringify({ hiddenSaid, lateSaid, nowSaid }));
+
+    // C13: no voices yet, then they arrive.
+    await resetSpoken(page);
+    await page.evaluate(() => window.__noVoicesYet());
+    thread = [...thread, agentRow(33, 'Before the voices loaded.')];
+    await paint(page, thread);
+    const before = await spoken(page);
+    await page.evaluate(() => window.__voicesArrive());
+    chk(before === '' && /Before the voices loaded/.test(await spoken(page)), 'C13 an empty voice list reads once the list arrives', JSON.stringify({ before, after: await spoken(page) }));
+
+    // C14: the mic listening.
+    await resetSpoken(page);
+    await page.evaluate(() => { VOICE.btn = document.getElementById('d-mic'); });
+    thread = [...thread, agentRow(34, 'Posted while the mic listens.')];
+    await paint(page, thread);
+    const micSaid = await spoken(page);
+    await page.evaluate(() => { VOICE.btn = null; });
+    chk(!/mic listens/.test(micSaid), 'C14 nothing is read while the mic is listening', micSaid);
 
     chk(errs.length === 0, 'C9 no page errors', errs.slice(0, 3).join(' | '));
     await page.close();

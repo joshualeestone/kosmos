@@ -7771,7 +7771,7 @@ html.has-voice .micbtn { display: grid; }
 html.has-speak .convbtn { display: grid; }
 .convbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .convbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.convbtn[aria-pressed="true"] { color: var(--k-accent, #1f6feb); background: color-mix(in srgb, var(--k-accent, #1f6feb) 12%, transparent); }
+.convbtn[aria-pressed="true"] { color: var(--k-ink); background: color-mix(in srgb, var(--k-ink) 14%, transparent); }
 /* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
    one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
    no box changes size where the mic is not drawn; the box gets room on the right only where it is (html.has-voice). */
@@ -37315,6 +37315,9 @@ function paintTalkThread(body, name) {
   DM_ROWS_OLDEST = null;
   for (const r of allRows) if (r && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;
   dmReplyPaint(DM_ROWS_OF);
+  convPaint();   // #5624 review 1: the toggle follows the agent on screen, whatever this paint shows
+  /* #5624 review 1: an empty thread starts with nothing heard, so the agent's first reply is read. */
+  if (DM_ROWS_OF && Array.isArray(body.messages) && !allRows.some((r) => r && r.from === DM_ROWS_OF)) convSeedEmpty('dm:' + DM_ROWS_OF);
   /* #2660: record WHEN THIS PAGE LEARNED of the agent's latest reply, so the
      working line can tell a state sample that is merely OLD from one that is
      wrong. Mirrors the room's loop deliberately, including its deny test: a row
@@ -37443,7 +37446,8 @@ function paintTalkThread(body, name) {
       if (r) { r.setAttribute('tabindex', '-1'); r.focus({ preventScroll: true }); }
     }
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
-    if (!filtering && CURRENT && CURRENT.sessionName) { convFollow(thread, 'dm:' + CURRENT.sessionName); convPaint(); }   // #5624
+    if (!filtering && CURRENT && CURRENT.sessionName) convFollow(thread, 'dm:' + CURRENT.sessionName);   // #5624
+    else if (filtering) convPause();   // #5624 review 1: a search shows a subset; after it, re-mark rather than read late
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -66757,7 +66761,7 @@ window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
    off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
 const CONV_STORE = 'kosmos.convmode';
 const CONV_MAX = 600;
-const CONV = { on: null, seen: Object.create(null), key: '', seq: 0 };
+const CONV = { on: null, seen: Object.create(null), key: '', where: '', last: '', seq: 0 };
 function convLoad() {
   if (CONV.on) return CONV.on;
   let o = null;
@@ -66788,49 +66792,82 @@ function convKeyFor(which) {
   if (which === 'pj') return (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT != null) ? 'pj:' + PJ_CURRENT : '';
   return '';
 }
+/* One stable label (review 1): the pressed state says on or off. */
 function convPaint() {
   document.querySelectorAll('.convbtn').forEach((b) => {
     const on = convIsOn(convKeyFor(b.getAttribute('data-conv-for')));
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    b.title = on ? 'Reading new messages aloud. Click to stop.' : 'Read new messages aloud';
-    b.setAttribute('aria-label', on ? 'Stop reading new messages aloud' : 'Read new messages aloud as they arrive');
+    b.title = on ? 'Reading new messages aloud (on)' : 'Read new messages aloud';
   });
 }
 function convStop() {
-  CONV.seq++; CONV.key = '';
+  CONV.seq++;
+  if (!CONV.key) return;
+  CONV.key = ''; CONV.where = '';
   try { if (speakCan()) window.speechSynthesis.cancel(); } catch { /* nothing to stop */ }
 }
-function convSpeak(row, key) {
+/* Review 1: the next draw of any conversation re-marks what is on screen as heard (a hidden window, a search, coming
+   back to a conversation: what arrived meanwhile is not read late). */
+function convPause() { CONV.last = ''; }
+/* Review 1: a thread drawn empty starts with nothing heard, so its first reply is read. */
+function convSeedEmpty(key) {
+  if (!key) return;
+  CONV.seen[key] = new Set();
+  CONV.last = key;
+}
+function convSpeak(row, key, waited) {
   const text = convOpening(speechTextOfRow(row), CONV_MAX);
   if (!text) return;
+  const mine = ++CONV.seq;
   const voice = speakVoice();
-  if (!voice) return;   // no on-device voice: the per-message button says why when pressed
+  if (!voice) {
+    /* Review 1: Chrome answers getVoices() with nothing until its list loads; wait for it once, as speakRow does. */
+    const vs = window.speechSynthesis;
+    if (!waited && (vs.getVoices() || []).length === 0 && typeof vs.addEventListener === 'function') {
+      const where = viewKey();
+      vs.addEventListener('voiceschanged', () => { if (CONV.seq === mine && viewKey() === where) convSpeak(row, key, true); }, { once: true });
+    }
+    return;   // no on-device voice: the per-message button says why when pressed
+  }
   if (SPEAK.btn) speakStop();   // a per-message reading gives way to the new message
   try { window.speechSynthesis.cancel(); } catch { /* nothing playing */ }
-  const mine = ++CONV.seq;
-  CONV.key = key;
-  for (const part of speechChunks(text, 220)) {
+  CONV.key = key; CONV.where = viewKey();
+  const parts = speechChunks(text, 220);
+  parts.forEach((part, i) => {
     const u = new SpeechSynthesisUtterance(part);
     u.voice = voice; u.lang = voice.lang;
-    u.onstart = () => { if (CONV.seq !== mine) try { window.speechSynthesis.cancel(); } catch { /* gone */ } };
+    /* Review 1: each piece checks it still belongs: the conversation on screen and a visible window. */
+    u.onstart = () => {
+      if (CONV.seq !== mine || viewKey() !== CONV.where || (typeof document !== 'undefined' && document.hidden === true)) convStop();
+    };
+    if (i === parts.length - 1) {
+      const done = () => { if (CONV.seq === mine) { CONV.key = ''; CONV.where = ''; } };
+      u.onend = done; u.onerror = done;
+    }
     window.speechSynthesis.speak(u);
-  }
+  });
 }
 /* Called after a conversation is drawn (root: its thread, key: as unread edge keys it). */
 function convFollow(root, key) {
   if (!root || !key) return;
-  const rows = Array.from(root.querySelectorAll('.msg:not(.you)[data-mid]'))
+  /* Agents' messages only: not the person's (.you), not a guest from outside (.ext), not a pending placeholder. */
+  const rows = Array.from(root.querySelectorAll('.msg:not(.you):not(.ext)[data-mid]'))
     .filter((r) => !String(r.getAttribute('data-mid')).startsWith('pending:'));
   const mids = rows.map((r) => r.getAttribute('data-mid'));
-  const seen = CONV.seen[key];
   if (CONV.key && CONV.key !== key) convStop();   // the conversation on screen changed
-  if (!seen) { CONV.seen[key] = new Set(mids); return; }   // first sight: nothing already there is read
+  /* First sight, or back after another conversation, a search or a hidden window (review 1): what is on screen now
+     counts as heard, and nothing is read. */
+  if (CONV.last !== key || !CONV.seen[key]) { CONV.seen[key] = new Set(mids); CONV.last = key; return; }
+  const seen = CONV.seen[key];
   const fresh = convNewMids(seen, mids);
   fresh.forEach((m) => seen.add(m));
   if (!fresh.length || !convIsOn(key) || !speakCan()) return;
-  if (typeof document !== 'undefined' && document.hidden === true) return;   // a hidden window does not talk
+  if (typeof document !== 'undefined' && document.hidden === true) { convPause(); return; }   // a hidden window does not talk
+  if (typeof VOICE !== 'undefined' && VOICE.btn) return;   // review 1: never into a listening mic
   convSpeak(rows[mids.lastIndexOf(fresh[fresh.length - 1])], key);   // the newest only: it stops the one before
 }
+document.addEventListener('visibilitychange', () => { if (document.hidden) { convStop(); convPause(); } });
+window.addEventListener('pagehide', () => { convStop(); convPause(); });
 document.addEventListener('click', (e) => {
   const b = e.target.closest && e.target.closest('.convbtn');
   if (!b) return;
@@ -67206,6 +67243,7 @@ function paintThreadInto(box, html, hasRows, queryChanged, filtering) {
   }
 }
 function paintRoom(body) {
+  convPaint();   // #5624 review 1: the toggle follows the room on screen, whatever this paint shows
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   const box = document.getElementById('pj-room');
@@ -67431,7 +67469,8 @@ function paintRoom(body) {
   /* #3743: after the paint, and on every poll; not on a read that did not answer (ok false, no rows), which would
      make the room's whole history look new on the next one. */
   if (!filtering && body.ok !== false) unreadEdgeApply(box, 'pj:' + PJ_CURRENT);
-  if (!filtering && body.ok !== false) { convFollow(box, 'pj:' + PJ_CURRENT); convPaint(); }   // #5624
+  if (!filtering && body.ok !== false) convFollow(box, 'pj:' + PJ_CURRENT);   // #5624
+  else if (filtering) convPause();   // #5624 review 1, as in the direct thread
 }
 /* The search input repaints from the cached body (loadRoom keeps it on
    the box) so typing filters instantly between polls; the query resets
