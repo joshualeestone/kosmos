@@ -555,4 +555,22 @@ test('#5670: the board\'s company refresh sends nothing unless live execution is
   live.allowLiveExecution();
   try { orgEnrollRefresh(); } finally { live.resetForTests(); }
   assert.equal(calls, 1, 'CONTROL: with live execution a pending Leave was not sent');
+  // CONTROL for the first arm (review 2): the enrolled fixture, with live execution, does refresh.
+  fs.rmSync(leaveFile, { force: true });
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  assert.ok(oe.readEnrollment(), 'CONTROL: the enrolled fixture reads as an enrollment');
+  live.allowLiveExecution();
+  try { orgEnrollRefresh(); } finally { live.resetForTests(); }
+  assert.equal(calls, 2, 'CONTROL: with live execution an enrolled board did not refresh');
+});
+
+test('#5670 review 2: the real start arms live execution before it calls start(), which the company refresh relies on', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const main = src.slice(src.lastIndexOf('if (require.main === module) {'));
+  const code = main.split('\n').filter((l) => !/^\s*(\/\/|\/?\*)/.test(l)).join('\n');   // lines of code, not comments
+  const arm = code.indexOf("require('./engine/live-execution').allowLiveExecution();");
+  const go = code.indexOf('start().then(');
+  assert.ok(arm > 0, 'CONTROL: the real start arms live execution');
+  assert.ok(go > 0, 'CONTROL: the real start calls start()');
+  assert.ok(arm < go, 'the real start calls start() before it arms live execution, so the at-start refresh would be skipped');
 });
