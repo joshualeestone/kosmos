@@ -24,7 +24,8 @@ const store = require('./store');
 
 fs.mkdirSync(store.ROOT, { recursive: true });
 function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
-const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [] };
+// managedSettingsPath: null, so the host's real managed settings file (if an admin installed one) is never read here.
+const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], managedSettingsPath: null };
 const stateDir = () => path.join(store.ROOT, setup.GUARD_STATE_DIR);
 const stateFile = (name) => path.join(stateDir(), encodeURIComponent(name) + '.json');
 const quiet = (fn) => { const real = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = real; } };
@@ -291,4 +292,30 @@ test('#5668 review 7: the admin\'s managed settings file counts toward the size;
     setup.guardTokenOnlyFolder(agentDir('gs-nolink'), 'gs-nolink', { ...BASE, accountConfigDir: empty, managedSettingsPath: null, boardStart: true });
   } finally { fs.linkSync = real; }
   assert.equal(setup.readGuardState()['gs-nolink'].ok, true, 'with no hard links a board start recorded nothing (the page would read as guarded)');
+});
+
+test('#5668 review 9: a board start that finds the guard not whole for a non-PATH reason replaces a readable ok line; a PATH reason does not', () => {
+  const sendertoken = require('./sendertoken');
+  const empty = path.join(SANDBOX, 'accounts', 'r9');
+  fs.mkdirSync(empty, { recursive: true });
+  const dir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-r9'] }) + '\n');
+  agentDir('gs-r9');
+  fs.writeFileSync(path.join(dir, 'gs-r9.json'), JSON.stringify({ ok: true, at: 't-launch' }));
+  // Not whole for a reason not about the PATH (here: a runner the guard cannot cover).
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, runnerOf: () => 'codex', accountConfigDir: empty, workerDir: (n) => path.join(SANDBOX, 'workers', n) }));
+  const line = setup.readGuardState()['gs-r9'];
+  assert.ok(line.ok === false && line.at !== 't-launch', 'a board start that found the guard broken kept the older ok line: ' + JSON.stringify(line));
+  // CONTROL: a PATH reason from a board start does not replace a readable line (the launch's PATH is what the agent has).
+  fs.writeFileSync(path.join(dir, 'gs-r9.json'), JSON.stringify({ ok: true, at: 't-launch' }));
+  const r = quiet(() => setup.guardTokenOnlyFolder(path.join(SANDBOX, 'workers', 'gs-r9'), 'gs-r9', { ...BASE, panePath: 'relative/bin', accountConfigDir: empty, boardStart: true }));
+  assert.match(String(r.because), /^the PATH this agent starts with/, 'CONTROL: this board start\'s reason is the PATH one: ' + JSON.stringify(r));
+  assert.equal(setup.readGuardState()['gs-r9'].at, 't-launch', 'a board start\'s PATH reading replaced the launch\'s line');
+  // Where the filesystem refuses hard links, an unreadable line is still replaced by a board start (as with links).
+  fs.writeFileSync(path.join(dir, 'gs-r9.json'), '{"ok": tr');
+  const realLink = fs.linkSync;
+  fs.linkSync = () => { const e = new Error('no links'); e.code = 'ENOTSUP'; throw e; };
+  try { quiet(() => setup.guardTokenOnlyFolder(path.join(SANDBOX, 'workers', 'gs-r9'), 'gs-r9', { ...BASE, accountConfigDir: empty, boardStart: true })); } finally { fs.linkSync = realLink; }
+  assert.equal(setup.readGuardState()['gs-r9'].ok, true, 'with no hard links an unreadable line was kept');
 });

@@ -138,6 +138,7 @@ function withoutStamp(m) {
    run has recorded it. */
 let TOKEN_GUARD_CACHE = null;
 function withTokenGuard(rows) {
+  // The list is read on every poll on purpose (review 9): an agent taken off it loses its notice at once.
   let listed;
   try { listed = new Set(require('./engine/sendertoken').tokenOnlyList()); } catch { return rows; }
   if (!listed.size) return rows;

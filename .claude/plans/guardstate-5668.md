@@ -85,7 +85,7 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 
 ## Review 7 (Opus) and what changed
 - **The unreadable-line replace could delete a launch's fresh line.** It now reads only that agent's file, and removes it only if it is still the same file (inode). A launch's line renamed in since is a new inode and stays. The residual is a window of microseconds between that check and the removal, which needs a cut-off line to begin with; the comment says so.
-- **The admin's managed settings file** (`MANAGED_SETTINGS_PATH`, root-owned, when installed) merges into the same sandbox profile, and now joins the size count (`deps.managedSettingsPath` is a test seam). It is absent on the fleet Mac, and the tests never read the real one.
+- **The admin's managed settings file** (`MANAGED_SETTINGS_PATH`, root-owned, when installed) merges into the same sandbox profile, and now joins the size count (`deps.managedSettingsPath` is a test seam). It is absent on the fleet Mac. From review 9, the engine tests pass `managedSettingsPath: null` in their base settings, so they never read the real one (before that, all but one did).
 - **Without hard links** (a filesystem that refuses them), a board start falls back to a rename where there is no line, rather than recording nothing.
 - **Windows, decided:** the guard returns "not shown to hold yet" on Windows, so every token-only agent's page there shows the "not complete" notice from the first board start. That is honest: Kosmos does not claim the guard on Windows. To tell Homer on #5664 when this merges.
 - The design-shots step is struck; Decided explains why.
@@ -95,3 +95,9 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 - One test of a usable line (`guardLineOf`), shared by the board's read and the board start's replace, so they cannot drift (a loosened validator goes red).
 - The no-hard-links rename fallback names its own microsecond window in its comment; it applies only where the filesystem refuses hard links.
 - Not an issue: the agent folder's settings.local.json is a separate file, and `cleanLocalSettings` keeps its denies there, not in settings.json. So they are not already in `next.permissions.deny`, and there is no double count.
+
+## Review 9 (Opus) and what changed
+- **A board start could not record a breakage it found itself.** Its "never replace a readable line" rule exists because its PATH reading is not the running agent's. But when it finds the guard not whole for a reason that is not about the PATH (the file could not be written, a rule could not be carried, an unsupported runner), it records that over a readable line. It rewrote the agent's settings just now, and keeping an older "ok" would read as guarded. The PATH reason is named once (`LAUNCH_PATH_REASON`), where it is said and where a board start tells it apart. Tested both ways: a control asserts the PATH reason was the one seen; two mutations red.
+- `managedSettingsPath: null` in the engine tests' base settings, and this plan's claim corrected.
+- With no hard links, an unreadable line is replaced too, as with links (tested; mutation red).
+- The route's per-poll list read is commented as deliberate: an agent taken off the list loses its notice at once.

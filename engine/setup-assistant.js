@@ -1328,6 +1328,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
    per agent in one folder (review 2): a run writes only its own agent's file, so two runs at once (the board and a
    launch) cannot write an older copy over each other's line. */
 const GUARD_STATE_DIR = 'token-only-guard';
+/* The not-whole reason that depends on the PATH the run measured (a launch's pane PATH, or the board's own). Named once,
+   where it is said and where a board start tells it apart (review 9). */
+const LAUNCH_PATH_REASON = 'the PATH this agent starts with has an entry Kosmos could not cover';
 function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
 function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
 // The one test of a usable line (review 8), for the board's read and for the board start's replace alike.
@@ -1392,7 +1395,7 @@ function recordGuardState(agentName, r, deps = {}) {
             /* No hard links on this filesystem (review 7): a plain rename, but only where there is no line. Residual (review
                8): a launch renaming in between that check and this rename is written over; the same microsecond window as
                below, and only where the filesystem refuses hard links (APFS does not). */
-            if (!fs.existsSync(file)) fs.renameSync(tmp, file);
+            if (!fs.existsSync(file) || !readableGuardLine(file)) fs.renameSync(tmp, file);   // none, or unreadable (review 9)
           } else {
             /* Unreadable: remove it and link again, still exclusive (review 6). Only that agent's file is read, and it is
                removed only if it is still the same file (review 7: a launch's line renamed in since is a new inode and
@@ -1474,7 +1477,11 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
      profile at that launch, so the launch's reading IS what the running agent has. Unmeasured (review 5): whether
      Claude Code reloads the file-tool rules mid-session; if it does, a board-start fix to that layer is live before the
      page stops saying "not complete". */
-  recordGuardState(agentName, r, { ...deps, exclusive: !!deps.boardStart });
+  /* Review 9: but a board start that finds the guard itself not whole for a reason that is not about the PATH (the file
+     could not be written, a rule could not be carried) records it over a readable line: the board start rewrote the
+     agent's settings file just now, and keeping an older "ok" would read as guarded. */
+  const boardFoundBroken = !!deps.boardStart && r && r.ok === false && !String(r.because || '').startsWith(LAUNCH_PATH_REASON);
+  recordGuardState(agentName, r, { ...deps, exclusive: !!deps.boardStart && !boardFoundBroken });
   return r;
 }
 function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
@@ -1624,7 +1631,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       ? `its ${sz.paths} denied path entries across the read and write clauses (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
       : null;
     if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
-    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };
+    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };
     return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
