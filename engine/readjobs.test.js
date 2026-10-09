@@ -13,7 +13,10 @@ const later = (ms, v) => new Promise((r) => setTimeout(() => r(v), ms));
 test('#5636 F4: a quick read is answered on the first ask', async () => {
   const a = await readjobs.ask('k', () => later(5, 'answer'), 200);
   assert.deepEqual(a, { done: true, value: 'answer' });
-  assert.equal(readjobs._size(), 0, 'a delivered answer is not kept');
+  // Review 3: kept RESEND_MS for the same question (a lost response can be asked for again), then dropped.
+  assert.equal(readjobs._size(), 1);
+  await readjobs.ask('other', () => 'x', 50, Date.now() + readjobs.RESEND_MS + 1000);
+  assert.equal(readjobs._size(), 1, 'a delivered answer outlived RESEND_MS');
 });
 
 test('#5636 F4: a slow read says "still reading", carries on, and the next ask gets it without reading again', async () => {
@@ -24,9 +27,11 @@ test('#5636 F4: a slow read says "still reading", carries on, and the next ask g
   const second = await readjobs.ask('k', run, 200);
   assert.deepEqual(second, { done: true, value: 'slow answer' });
   assert.equal(runs, 1, 'the second ask started a second read');
-  // Handed out once: a third ask reads afresh.
-  await readjobs.ask('k', run, 200);
-  assert.equal(runs, 2);
+  // Review 3: asked again within RESEND_MS, the same answer, no new read; after it, a fresh read.
+  assert.deepEqual(await readjobs.ask('k', run, 200), { done: true, value: 'slow answer' });
+  assert.equal(runs, 1, 'a re-ask within RESEND_MS read again');
+  await readjobs.ask('k', run, 200, Date.now() + readjobs.RESEND_MS + 1000);
+  assert.equal(runs, 2, 'a later ask did not read afresh');
 });
 
 test('#5636 F4: a finished answer nobody collected waits for the next ask, then goes', async () => {
@@ -66,7 +71,6 @@ test('#5636 F4: two asks at once of the same question share one read', async () 
 test('#5636 F4 review 1: a read that fails is finished (null), so the next ask is not "still reading" for good', async () => {
   const a = await readjobs.ask('k', () => Promise.reject(new Error('down')), 100);
   assert.deepEqual(a, { done: true, value: null });
-  assert.equal(readjobs._size(), 0);
 });
 
 test('#5636 F4 review 2: a read that never settles is dropped after KEEP_MS, so the next ask reads afresh', async () => {

@@ -8,7 +8,7 @@ a few seconds, and a read that takes longer is collected by asking again (or by 
 0.7.27's fix was the proxy route, pinned by a test; the 0.7.33 report shows reads still time out on that seat while the
 same reads work outside a sandbox. A read can take tens of seconds on the board (readReplies waits up to 20 s for
 another read, then fetches paced), and ONE long request is what a sandbox proxy or the agent runner's own time limit
-cuts. Which limit it is was not measured (the seat is on Josh's laptop); this fix works for either.
+cuts. Which limit it is was not measured (the reporting computer is not this one); this fix works for either.
 
 ## Decided
 - `?soon=1`: the board answers within about 4 s, the result or 202 "still reading", keeps the finished answer for the
@@ -16,6 +16,8 @@ cuts. Which limit it is was not measured (the seat is on Josh's laptop); this fi
 - Both commands ask again in short requests, about 5 asks (~25 s), then say to run the same command again in a minute.
 - An older board ignores soon=1; each request keeps its 30 s.
 - Accepted trade-off (review 1): a replies or Following read marks what it found as shown when it finishes; if nobody
-  collects it within 3 minutes it is dropped and those items read as seen. The message says "in a minute".
+  collects it within 3 minutes, or the board is holding more than 200 answers and drops the oldest, those items read
+  as seen. The message says "in a minute". A handed-out answer is kept 30 s more (review 3), so a response lost on the
+  way can be asked for again.
 - Weakest premise: that request length is what cuts the seat's reads. The next multi-model run measures it
   (Splinter has the `time kosmos community read --following` ask in its note).
