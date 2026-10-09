@@ -243,7 +243,7 @@ function spyFs(over = {}) {
   const opened = [];
   const f = Object.create(fs);
   f.constants = fs.constants;
-  for (const n of ['readdirSync', 'lstatSync', 'realpathSync', 'fstatSync', 'readSync', 'closeSync']) {
+  for (const n of ['readdirSync', 'lstatSync', 'realpathSync', 'fstatSync', 'statSync', 'readSync', 'closeSync']) {
     const real = fs[n].bind(fs);
     f[n] = over[n] ? (...a) => over[n](real, ...a) : real;
   }
@@ -618,6 +618,51 @@ test('a clock that gives no usable time is a plain failure, not a new period', a
   try {
     const r = await take(k, w.root, st, { deps: { now: () => NaN } });
     assert.equal(r.ok, false); assert.match(r.because, /clock/); assert.equal(r.newPeriod, undefined);
+    assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('the real path checked must be the file opened: an inode that differs at the real path is skipped', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const { f } = spyFs({ statSync: (real, p2, o) => { const s2 = real(p2, o); return String(p2).endsWith('notes.md') ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { ino: s2.ino + 1n }) : s2; } });
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/notes.md' && /replaced/.test(x.why)));
+    assert.ok(m.files.some((x) => x.path === 'readme.txt'), 'control');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a file that grows during the read is skipped as grown, not as too large', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const { f } = spyFs({ fstatSync: (real, fd, o) => { const s2 = real(fd, o); return Number(s2.size) === w.files['agents/a/notes.md'].length ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { size: 3n }) : s2; } });
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/notes.md' && /grew/.test(x.why)), JSON.stringify(m.skipped.filter((x) => x.path.endsWith('notes.md'))));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a snapshot that could pass the week\'s allowance is refused before anything is spent; backup_quota is not a retry', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    const big = new Map(Array.from({ length: 199990 }, (_, i) => [i.toString(16).padStart(64, '0'), { key: `o1/acct1/1/${PERIOD}/k${i}`, lockedUntilMs: LOCK }]));
+    const st = store();
+    const r = await take(k, w.root, st, { input: { index: big, bucket: 'bucket/' } });
+    assert.equal(r.ok, false); assert.equal(r.overAllowance, true); assert.equal(st.batches.length, 0);
+    const st2 = store();
+    const r2 = await take(k, w.root, st2, { deps: { uploadChunks: async () => ({ ok: false, code: 'backup_quota', because: 'refused (HTTP 429)', keys: new Map(), lockedUntil: new Map(), bucket: null }) } });
+    assert.equal(r2.ok, false); assert.equal(r2.overAllowance, true); assert.equal(r2.retryLater, undefined);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('an index chunk whose lock ends before this snapshot\'s manifest would is stale before anything is read', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), { key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: NOW + 10 * 86400 * 1000 }]]), bucket: 'bucket/' } });
+    assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.match(r.because, /ends before/);
     assert.equal(st.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
