@@ -17,3 +17,7 @@ A page PR whose diff selects many checks (tools/bc-pr-select.js, #4119) finishes
 That 120 is enough for the largest selections: 146 extra checks took more than 60 minutes; measure the next large run's length.
 
 ## Review log
+- **Round 1 (sonnet):** 0 blockers, 0 warnings.
+  - CONVENTION fixed: the check is advisory (the file's header), so a cut-off run gives no verdict rather than blocking a merge. What blocks is an author's own merge-on-green wait.
+  - NITs: the comment is collapsed to one history line, and the queue-time evidence is moved to this plan only (most of those cancels are likely concurrency cancels; #5634's 60:27 is the one measured timeout).
+  - Decided: no step-level limit on the driver, since a hung check is still stopped at 120.
