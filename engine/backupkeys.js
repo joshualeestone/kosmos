@@ -11,9 +11,13 @@
  * - A NAMING key per period (HMAC key for chunk names) is 32 random bytes, kept wrapped to the member PUBLIC key
  *   with (org, member, epoch, period) as associated data, so it is recoverable after the Mac is lost.
  *
- * Wraps:  member key  KBK1 | enc(32) | ct(32 + 16)   info "kosmos-backup v1 member-key"
- *         naming key  KBN1 | enc(32) | ct(32 + 16)   info "kosmos-backup v1 naming-key"
- * Distinct magic, info AND a context string that names its kind: a member-key wrap can never open as a naming key.
+ * Wraps:  member key  KBK1 | enc(32) | ct(32 + 16)
+ *         naming key  KBN1 | enc(32) | ct(32 + 16)      both with HPKE info "kosmos-backup v1 key-wrap"
+ * Distinct magic AND a context line that names its kind: a member-key wrap can never open as a naming key.
+ *
+ * Wraps are NOT authenticated (HPKE base mode): anyone with a recipient's public key can make one that opens. A
+ * member key must therefore derive to the expected public key, and a forged naming-key wrap can only make a
+ * restore fail its chunk-name checks (backupformat's openVerifiedChunk), never yield other data.
  *
  * wrap* throw on a caller mistake (a key that is not 32 bytes, a bad context, a non-canonical recipient key, which
  * hpke.js refuses because it could never be opened). unwrap* return null on ANY failure and never throw, as hpke.js
@@ -30,8 +34,8 @@ const FORMAT = 1;
 const KEY_LEN = 32, ENC_LEN = 32, TAG_LEN = 16;
 const MEMBER_MAGIC = Buffer.from('KBK1');   // Kosmos Backup Key: a wrapped member private key, format 1
 const NAMING_MAGIC = Buffer.from('KBN1');   // Kosmos Backup Naming key, wrapped, format 1
-const MEMBER_INFO = Buffer.from(`kosmos-backup v${FORMAT} member-key`);
-const NAMING_INFO = Buffer.from(`kosmos-backup v${FORMAT} naming-key`);
+// One HPKE info for both kinds: what separates them is the magic and the kind line in the associated data.
+const INFO = Buffer.from(`kosmos-backup v${FORMAT} key-wrap`);
 const WRAP_LEN = 4 + ENC_LEN + KEY_LEN + TAG_LEN;
 const MEMBER_FIELDS = ['org', 'member', 'epoch'];
 const NAMING_FIELDS = ['org', 'member', 'epoch', 'period'];
@@ -76,8 +80,11 @@ function wrap(magic, info, aad, secret, recipientPk) {
 }
 function unwrap(magic, info, aad, recipientSk, wrapped) {
   const w = asBuf(wrapped);
-  if (!w || w.length !== WRAP_LEN || !w.subarray(0, 4).equals(magic)) return null;
+  if (!w || w.length < 4 + ENC_LEN || !w.subarray(0, 4).equals(magic)) return null;
   const out = hpkeOpen(recipientSk, w.subarray(4, 4 + ENC_LEN), info, aad, w.subarray(4 + ENC_LEN));
+  // HPKE base mode is not authenticated: anyone holding the recipient's public key can make a wrap that opens.
+  // So the secret's length is checked here (a forged wrap of 31 bytes must not become a key), and a member key must
+  // also derive to the expected public key (unwrapMemberKey).
   return out && out.length === KEY_LEN ? out : null;
 }
 
@@ -85,7 +92,7 @@ function unwrap(magic, info, aad, recipientSk, wrapped) {
 function wrapMemberKey(memberSk, recipientPk, ctx) {
   const sk = key32(memberSk, 'the member key');
   const pk = key32(recipientPk, 'the recipient public key');
-  return wrap(MEMBER_MAGIC, MEMBER_INFO, memberContext(ctx), sk, pk);
+  return wrap(MEMBER_MAGIC, INFO, memberContext(ctx), sk, pk);
 }
 
 /** The member private key from a wrap, only if it derives to expectedPk; null on ANY failure. Never throws. */
@@ -93,7 +100,7 @@ function unwrapMemberKey(recipientSk, wrapped, ctx, expectedPk) {
   try {
     const sk = asBuf(recipientSk), want = asBuf(expectedPk);
     if (!sk || sk.length !== KEY_LEN || !want || want.length !== KEY_LEN) return null;
-    const member = unwrap(MEMBER_MAGIC, MEMBER_INFO, memberContext(ctx), sk, wrapped);
+    const member = unwrap(MEMBER_MAGIC, INFO, memberContext(ctx), sk, wrapped);
     if (!member) return null;
     return crypto.timingSafeEqual(publicKeyOf(member), want) ? member : null;
   } catch { return null; }
@@ -103,7 +110,7 @@ function unwrapMemberKey(recipientSk, wrapped, ctx, expectedPk) {
 function wrapNamingKey(namingKey, memberPk, ctx) {
   const nk = key32(namingKey, 'the naming key');
   const pk = key32(memberPk, 'the member public key');
-  return wrap(NAMING_MAGIC, NAMING_INFO, namingContext(ctx), nk, pk);
+  return wrap(NAMING_MAGIC, INFO, namingContext(ctx), nk, pk);
 }
 
 /** One period's naming key from its wrap, with the member private key; null on ANY failure. Never throws. */
@@ -111,7 +118,7 @@ function unwrapNamingKey(memberSk, wrapped, ctx) {
   try {
     const sk = asBuf(memberSk);
     if (!sk || sk.length !== KEY_LEN) return null;
-    return unwrap(NAMING_MAGIC, NAMING_INFO, namingContext(ctx), sk, wrapped);
+    return unwrap(NAMING_MAGIC, INFO, namingContext(ctx), sk, wrapped);
   } catch { return null; }
 }
 
