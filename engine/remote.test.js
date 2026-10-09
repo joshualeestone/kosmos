@@ -83,6 +83,7 @@ if (args[0] === 'setup' && args[1] === 'company-status') {
   process.exit(0);
 }
 if (args[0] === 'setup' && args[1] === 'complete') {
+  if (flag('--sso-setup') && mode.includes('company-complete-refused')) { fs.readFileSync(0, 'utf8'); process.stderr.write('Kosmos+ said no (409): your account was just set up on another computer; start setting up this one again\\n'); process.exit(1); }
   if (flag('--sso-setup')) fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
   if (mode.includes('setup-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a computer on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this computer, it is already set up and there is nothing more to do here. If it is a different computer, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('setup-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a Mac on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this Mac, it is already set up and there is nothing more to do here. If it is a different Mac, press Turn off there first, or pick another name.\\n'); process.exit(1); }
@@ -4076,4 +4077,20 @@ test('kosmos#5628 review 6: an older tunnel says update, and an Off pressed whil
   const done = await finishing;
   assert.equal(done.ok, true, done.because);
   assert.equal(remote.read().on, false, 'an Off pressed during the finish was undone');
+});
+
+test('kosmos#5628 review 8: after a refused finish the server decides whether the setup lives', async () => {
+  // Refused, and the server says the setup is gone (its grant was spent): cleared, nothing more to finish.
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-complete-refused company-gone';
+  assert.equal((await remote.companyComplete('ann')).ok, false);
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/, 'a spent setup was kept');
+  // Refused, and the server says it is still ready (e.g. a second step to enter): kept, the finish can be retried.
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-complete-refused';
+  assert.equal((await remote.companyComplete('ann')).ok, false);
+  delete process.env.FAKE_TUNNEL_MODE;
+  const retried = await remote.companyComplete('ann');
+  assert.equal(retried.ok, true, 'a setup the server still holds was dropped: ' + retried.because);
 });

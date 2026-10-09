@@ -1372,6 +1372,14 @@ function readManagedOrg() {
 
 let companySetup = null;   // { email, setupId, secret, expiresAt }: engine memory only
 
+/* Review 8: before approval, the board's clock is only an upper bound (the server extends a setup when the person
+   approves, and the board learns it at its next poll, slow in a background tab), so it gets this grace past the
+   poll lag; the server's answer decides inside it. After approval the clock was restarted from the first ready. */
+const COMPANY_PRE_APPROVAL_GRACE_MS = 120000;
+function companyExpired(c) {
+  return !c || Date.now() > c.expiresAt + (c.approved ? 0 : COMPANY_PRE_APPROVAL_GRACE_MS);
+}
+
 /** Start a company sign-in setup for this email. Answers what the page shows (the code to compare, the address to
     open, how often to ask), never the secret. */
 let companyStartInFlight = null;
@@ -1440,7 +1448,7 @@ async function companyStatus() {
   try { return await running.promise; } finally { if (companyStatusInFlight === running) companyStatusInFlight = null; }
 }
 async function companyStatusRun(c) {
-  if (!c || Date.now() > c.expiresAt) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true }; }
+  if (companyExpired(c)) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true }; }
   const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
   // Review 6: an older tunnel program will never answer, so the page stops (with why) instead of polling forever.
   if (olderTunnel(r)) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true, because: COMPANY_UNSUPPORTED }; }
@@ -1459,8 +1467,8 @@ async function companyStatusRun(c) {
 async function companyComplete(name, acceptTerms, second) {
   { const b = busy(); if (b) return b; }
   const c = companySetup;
-  if (!c || Date.now() > c.expiresAt) {
-    companySetup = null;
+  if (companyExpired(c)) {
+    if (companySetup === c) companySetup = null;
     return { ok: false, because: 'that company sign-in has expired; start again' };
   }
   if (typeof name === 'string') name = name.trim().toLowerCase();
@@ -1488,9 +1496,10 @@ async function companyComplete(name, acceptTerms, second) {
   const offAt = offEpoch;   // review 6: an Off pressed while this runs stands (#3827, as the in-app register)
   const result = await runSetupComplete(args, c.secret + '\n', name);
   // Review 6: the server refused it as finished or expired: nothing more can come of this setup, so start again.
-  // Review 7: only the server's own two sentences for a grant that cannot be spent (not every "start again": a wait for
-  // too many second-step codes leaves the grant good).
-  if (!result.ok && /company sign-in (is not finished|has expired)/i.test(String(result.because || '')) && companySetup === c) companySetup = null;
+  // Review 8: whether this setup can still finish is the SERVER's answer, not a match on its sentences (a refused finish
+  // may already have spent the grant; a wait for too many second-step codes leaves it good): ask once, and a gone
+  // setup is cleared (companyStatusRun does that).
+  if (!result.ok && companySetup === c) await companyStatusRun(c);
   // Review 4: as the in-app sign-in's register (#3827): set up means switched on, or the managed Mac is enrolled and
   // unreachable until someone finds the switch.
   if (result.ok) {
