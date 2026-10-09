@@ -35,8 +35,9 @@ const LABEL_MAX = 128;
 const AHEAD_S = 300;               // the coordinator refuses an event more than 5 minutes ahead
 const SEND_PAST_MS = PAST_MS - 3600 * 1000;   // an hour short of 7 days, so a queued event never expires in flight
 /* Tool uses seen but not yet answered, per transcript, kept in memory across ticks (a result can land a tick after its
-   call). Lost on a restart: such a result is then classified without its call (tool from the denial text; target
-   'other'). Bounded per file. */
+   call). Lost on a restart: such a result is then classified without its call: the tool from the denial text, or Bash
+   for an "Operation not permitted" (only a shell result carries it here; review 5), and target 'other'. Bounded per
+   file. */
 const CALLS = new Map();
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
@@ -66,6 +67,8 @@ function resultText(c) {
 
 /* Which class of target a refused call aimed at: never the path itself. */
 function targetClass(tool, input, ctx) {
+  /* A network command is network-host before any path it names (decided, review 5): sending something out is the
+     telling part, whatever it sends. */
   if (tool === 'WebFetch' || tool === 'WebSearch') return 'network-host';
   /* Bounded (Renet, review 8 of slice 3): an unbounded [^\n]* backtracked quadratically on a long command with no URL
      (2.5 s for 100 KB on the synchronous tick), and a command can be shaped by injected content. */
@@ -135,7 +138,7 @@ function scanText(text, calls, ctx) {
       calls.delete(b.tool_use_id);   // any result answers its call (review 2: a successful one too)
       if (b.is_error !== true) continue;
       const text0 = resultText(b.content);
-      const tool = call.name || ((text0.match(DENIED) || [])[1]) || null;
+      const tool = call.name || ((text0.match(DENIED) || [])[1]) || (SANDBOX.test(text0) ? 'Bash' : null);
       const rule = classify(text0, tool);
       if (!rule) continue;
       const at = Date.parse(row.timestamp);
@@ -160,15 +163,15 @@ function readFrom(file, offset, max) {
     const size = fs.fstatSync(fd).size;
     const from = offset > size ? 0 : offset;   // a rewritten file starts again
     const len = Math.min(size - from, cap);
-    if (len <= 0) return { text: '', next: from };
+    if (len <= 0) return { text: '', next: from, read: 0 };
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, from);
     const nl = buf.lastIndexOf(0x0a);
     /* A window with no newline: wait for the line to finish, unless the window is full (a line over READ_MAX, such as
        a large tool result). Then skip past it (review 1): its tail is read next as an unparseable line and ignored,
        and the file never wedges on it. */
-    if (nl < 0) return { text: '', next: len === READ_MAX ? from + len : from };   // a short budget waits for a later tick
-    return { text: buf.subarray(0, nl).toString('utf8'), next: from + nl + 1 };
+    if (nl < 0) return { text: '', next: len === READ_MAX ? from + len : from, read: len };   // a short budget waits
+    return { text: buf.subarray(0, nl).toString('utf8'), next: from + nl + 1, read: len };
   } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
 }
 
@@ -186,6 +189,7 @@ function readState(root) {
     const obj = (v) => (v && typeof v === 'object' ? v : {});
     return { offsets: obj(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
       withdrawn: !!(j && j.withdrawn), sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
+      turn: j && Number.isFinite(j.turn) ? j.turn : 0,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
   } catch { return { offsets: {}, pending: [], listed: {}, enrolledAs: null, since: null, failAt: null }; }
 }
@@ -270,7 +274,13 @@ async function tick(opts) {
     for (const n of names) if (!Number.isFinite(st.listed[n])) st.listed[n] = now;
     for (const n of Object.keys(st.listed)) if (!names.includes(n)) delete st.listed[n];   // off the list: starts again
     let budget = TICK_READ_MAX;
-    for (const [agent, dir] of dirs) {
+    /* The agent read first rotates each tick (review 5): a large backlog cannot starve the others' files of the
+       budget tick after tick (it delays a refusal, never loses one). */
+    const order = [...dirs];
+    const turn = Number.isFinite(st.turn) ? st.turn : 0;
+    if (order.length) order.push(...order.splice(0, turn % order.length));
+    st.turn = turn + 1;
+    for (const [agent, dir] of order) {
       if (!dir) continue;
       const fromS = Math.max(sinceS, Math.floor(st.listed[agent] / 1000));
       if (!Number.isFinite(fromS)) continue;   // fail closed (review 3)
@@ -285,10 +295,16 @@ async function tick(opts) {
           if (m.mtimeMs < fromS * 1000) { st.offsets[file] = m.size; continue; }
           off = 0;
         }
+        else {
+          /* A file that has not grown is not opened (review 5: every session ever seen was opened every tick). */
+          let m;
+          try { m = fs.statSync(file); } catch { continue; }
+          if (m.size === off) continue;
+        }
         if (budget <= 0) continue;   // this tick has read enough (the read is synchronous); the rest next tick
         const r = readFrom(file, off, budget);
         if (!r) continue;
-        budget -= r.next - off;
+        budget -= r.read;   // the bytes actually read (review 5: a rewritten file's reset offset made this negative)
         st.offsets[file] = r.next;
         if (!r.text) continue;
         const calls = CALLS.get(file) || new Map();
@@ -337,6 +353,8 @@ async function tick(opts) {
         return { sent: 0, because: 'the company took fewer at a time; sending half as many' };
       }
       if (/\borg_agent_events_(bad|too_big)\b/.test(String((r && r.because) || ''))) {
+        /* Slicing the front by the batch's length is safe because one tick runs at a time (server.js
+           AGENT_EVENTS_RUNNING): nothing else adds to the queue between this send and this write. */
         const left = readState(root);
         left.pending = left.pending.slice(batch.length);
         writeState(root, left);
