@@ -145,7 +145,8 @@ function withTokenGuard(rows) {
   let mt = null;
   try { mt = fs.statSync(path.join(store.ROOT, setupAssistant.GUARD_STATE_DIR)).mtimeMs; } catch { mt = null; }
   if (mt === null) return rows;
-  if (!TOKEN_GUARD_CACHE || TOKEN_GUARD_CACHE.mt !== mt) TOKEN_GUARD_CACHE = { mt, rec: setupAssistant.readGuardState() };
+  // Review 6: and at least every five seconds, for a filesystem whose mtime is too coarse to see two writes apart.
+  if (!TOKEN_GUARD_CACHE || TOKEN_GUARD_CACHE.mt !== mt || Date.now() - TOKEN_GUARD_CACHE.at > 5000) TOKEN_GUARD_CACHE = { mt, at: Date.now(), rec: setupAssistant.readGuardState() };
   const rec = TOKEN_GUARD_CACHE.rec;
   return rows.map((r) => {
     const g = r && listed.has(r.sessionName) ? rec[r.sessionName] : null;

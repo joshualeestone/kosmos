@@ -93,3 +93,20 @@ test('#5668 review 4: the route reads the record again once a run has written (t
   fs.renameSync(path.join(d, 'Cache.json.tmp'), path.join(d, 'Cache.json'));
   assert.deepEqual((await cards()).Cache.tokenGuard, { state: 'guarded', at: 't2' }, 'the route kept serving the old line after a run wrote');
 });
+
+test('#5668 review 6: a change the folder\'s mtime does not show (a coarse clock) is still read within five seconds', async (t) => {
+  const b = fleet.install([fleet.agent('Coarse', { state: 'idle' })]);
+  t.after(() => { b.restore(); fs.rmSync(sendertoken.tokenOnlyFile(), { force: true }); fs.rmSync(path.join(store.ROOT, setup.GUARD_STATE_DIR), { recursive: true, force: true }); });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['Coarse'] }));
+  record({ Coarse: { ok: false, because: 'first', at: 't1' } });
+  // A whole-second mtime, as a coarse filesystem gives, set before the first read and set again after the write.
+  const d = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  const X = Math.floor(Date.now() / 1000) - 60;
+  fs.utimesSync(d, X, X);
+  assert.equal((await cards()).Coarse.tokenGuard.state, 'notWhole');
+  fs.writeFileSync(path.join(d, 'Coarse.json'), JSON.stringify({ ok: true, at: 't2' }));
+  fs.utimesSync(d, X, X);
+  assert.equal((await cards()).Coarse.tokenGuard.state, 'notWhole', 'CONTROL: within the cap the cached line is served');
+  await new Promise((r) => setTimeout(r, 5200));
+  assert.equal((await cards()).Coarse.tokenGuard.state, 'guarded', 'a change the mtime did not show was never read');
+});

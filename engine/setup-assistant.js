@@ -1271,7 +1271,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...tokenPaths.map((p) => `Edit(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Edit(${ruleAbs(p)}.*)`),
     `Edit(${ruleAbs(listFile)})`,
-    `Edit(${ruleAbs(guardRecord)}/**)`,   // #5668 review 1: the records the agents' pages read, so an agent cannot hide its notice
+    // #5668 review 1: the records the agents' pages read, so an agent cannot hide its notice. Like its siblings here, a data
+    // root with a pattern character drops this rule, and the guard then says it is not whole.
+    `Edit(${ruleAbs(guardRecord)}/**)`,
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
@@ -1380,7 +1382,11 @@ function recordGuardState(agentName, r, deps = {}) {
            cannot be read (cut off by a crash) is replaced, or it would hide every later board start's reading. */
         try { fs.linkSync(tmp, file); } catch (e) {
           if (!(e && e.code === 'EEXIST')) throw e;
-          if (!Object.prototype.hasOwnProperty.call(readGuardState(deps), agentName)) fs.renameSync(tmp, file);
+          // Unreadable: remove it and link again, still exclusive (review 6), so a launch's line that lands first stays.
+          if (!Object.prototype.hasOwnProperty.call(readGuardState(deps), agentName)) {
+            try { fs.unlinkSync(file); } catch { /* gone */ }
+            try { fs.linkSync(tmp, file); } catch (e2) { if (!(e2 && e2.code === 'EEXIST')) throw e2; }
+          }
         }
       } else fs.renameSync(tmp, file);
     } finally { try { fs.unlinkSync(tmp); } catch { /* renamed, or gone */ } }

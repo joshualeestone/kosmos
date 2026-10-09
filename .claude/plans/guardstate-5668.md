@@ -74,3 +74,11 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 - **Comments and the README said every run writes.** Corrected to say what is true: each launch and creation write, and a board start writes only an agent with no line. This plan's drift is corrected too.
 - **Pruning sweeps a temp file a dead writer left**, once it is a minute old (a fresh one may still be in use; control). An empty agent name records nothing.
 - **The decision's "what would change it" now names the unmeasured question:** whether Claude Code reloads the file-tool rules mid-session.
+
+## Review 6 (Sonnet) and what changed
+- The route's cache is also re-read at least every five seconds, for a filesystem whose mtime is too coarse to see two writes apart. Tested by pinning the folder's mtime to a whole second around an in-place write, with a control that within the cap the cached line is served; removing the cap goes red.
+- A board start replacing an unreadable line now removes it and links again, still exclusive, so a launch's line that lands first is kept (mutation red).
+- The record's deny rule says, like its siblings, that a data root with a pattern character drops it and the guard then says it is not whole.
+- Not changed:
+  - a creation that fails leaves a not-whole line until the next board start prunes it, which is harmless: a rolled-back agent has no row on the page;
+  - paths in both the agent's settings files are counted once, because sandboxDenySize dedupes within each clause.
