@@ -19,6 +19,7 @@
  *   C12 a hidden window reads nothing, and nothing it missed is read late when it shows again (review 1)
  *   C12b hiding the window while a message is read stops it (review 1)
  *   C13 an empty voice list (Chrome before voiceschanged) reads once the list arrives (review 1)
+ *   C13b turning the mode off during a voice-list wait means nothing is read (review 2)
  *   C14 nothing is read while the mic is listening (review 1)
  *   C9 no page errors
  *
@@ -232,6 +233,19 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     const before = await spoken(page);
     await page.evaluate(() => window.__voicesArrive());
     chk(before === '' && /Before the voices loaded/.test(await spoken(page)), 'C13 an empty voice list reads once the list arrives', JSON.stringify({ before, after: await spoken(page) }));
+
+    // C13b: voices pending, the mode turned off, voices arrive: nothing is read (review 2).
+    await resetSpoken(page);
+    // The stand-in never fires onend, so mark the earlier reading as ended, as a real voice would have by now.
+    await page.evaluate(() => { CONV.key = ''; CONV.where = ''; });
+    await page.evaluate(() => window.__noVoicesYet());
+    thread = [...thread, agentRow(36, 'Pending when the mode went off.')];
+    await paint(page, thread);
+    await page.click('#d-conv');   // off
+    await page.evaluate(() => window.__voicesArrive());
+    const c13b = await spoken(page);
+    await page.click('#d-conv');   // on again for the arms below
+    chk(!/mode went off/.test(c13b), 'C13b turning the mode off during a voice-list wait means nothing is read', c13b);
 
     // C14: the mic listening.
     await resetSpoken(page);

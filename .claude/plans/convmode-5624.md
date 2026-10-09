@@ -39,3 +39,13 @@ it off stops it. The state is visible on the button and remembered per conversat
     C10, C11, C12b, C13, C14 were run against the first version and were RED there.
   - CONVENTION: the pressed colour used an undefined token; now the ink colour, which follows dark mode. CONV.key is
     cleared when speech ends. NIT: one stable label (the pressed state says on/off).
+- **Round 2 (sonnet, blind):** 0 BLOCKER, 3 WARNING, 1 CONVENTION, 3 NIT.
+  - WARNING (fixed): turning the mode off during Chrome's voice-list wait did not void the wait. Off now bumps the
+    sequence, and convSpeak returns when the mode is off. C13b added: RED on the round 1 page, green now.
+  - WARNING (fixed): leaving a conversation stopped speech only at the next piece. The #4409 half-second watch now also
+    stops conversation mode when the view changes. Not testable in the hermetic check, which stubs the timer; covered
+    by reading, and C12b covers the hidden-window stop.
+  - WARNING (fixed): "on" was hard to see: a 2px ink ring. With no on-device voice the on button now says so.
+  - CONVENTION (fixed): hover uses the ink token (dark mode). NIT (fixed): the mic and a hidden window are re-checked
+    after the voice-list wait. NIT (noted): a mode remembered from storage may be silent after a reload until the page
+    is interacted with (the browser's autoplay rule); stored keys are not pruned (one small entry per conversation).
