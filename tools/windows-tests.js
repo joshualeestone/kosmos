@@ -51,6 +51,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'store.fsync-5434.test.js',   // #5434 slice 4: store.js's profile, settings and picture saves, on Windows too
   'allowance.fsync-5434.test.js',   // #5434 slice 5: the account folder's weekly files, on Windows too
   'create.codexfsync-5434.test.js',   // #5434 slice 7: the codex config.toml rewrite, on Windows too
+  'create.codexlock-5434.test.js',    // #5434 slice 8: one lock for the codex config.toml writers; the trust append flushed
   'trust.fsync-5434.test.js',   // #5434 slice 6: trust.js's Claude Code config and settings saves, on Windows too
   'personfsync-5434.test.js',   // #5434 slice 9: ~/.claude.json and agy settings saves, on Windows too
   'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too

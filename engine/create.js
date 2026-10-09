@@ -2580,6 +2580,21 @@ function trustCodexFolder(dir, home, agentDefaultAccount) {
   // engine's own CODEX_HOME, which codexHomeDir() would follow.
   const codexHome = home || (agentDefaultAccount ? defaultAgentCodexHome() : codexHomeDir());
   const cfg = path.join(codexHome, 'config.toml');
+  /* #5434 slice 8: the read and the append run under the lock forgetCodexFolder takes on the
+     same file, so an append cannot land between a forget's read and its rename and be lost
+     (that was a new agent left untrusted, blocked on codex's trust dialog, #245). The folder is
+     made first so the lock always has somewhere to live; a folder that cannot be made throws
+     here as the append used to. Lock busy throws a sentence; every caller catches. */
+  fs.mkdirSync(codexHome, { recursive: true });
+  const locked = require('./filelock').withFileLock(cfg, () => appendCodexTrust(cfg, dir), {
+    busy: 'another Kosmos change to the codex config did not finish in time, so the folder trust was not written',
+    cannotAccess: 'we could not get exclusive access to the codex config, so the folder trust was not written',
+  });
+  if (!locked.ok) throw new Error(locked.because);
+}
+
+/* trustCodexFolder's write, run under its lock. */
+function appendCodexTrust(cfg, dir) {
   let text = '';
   try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
   // #2129/#5: key on the ON-DISK canonical spelling, which is what codex looks
@@ -2594,8 +2609,19 @@ function trustCodexFolder(dir, home, agentDefaultAccount) {
   // macOS output is byte-identical.
   const key = `[projects.${tomlProjectKeyString(require('./trust').canonicalOnDisk(dir))}]`;
   if (text.includes(key)) return;
-  fs.mkdirSync(codexHome, { recursive: true });
-  fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
+  /* #5434 slice 8: still an APPEND, now flushed (#5431). Not a whole rewrite through writeSecret
+     like the forget: codex writes this file itself (its trust dialog, its model choice) and does
+     not take our lock, and an append cannot lose a codex edit made between our read and our
+     write, where a rename would. A first-ever append created the file, so its folder is flushed
+     too (POSIX only, best effort). A failed flush throws, as a failed append always did. */
+  const created = !fs.existsSync(cfg);
+  const securewrite = require('./securewrite');
+  const fd = fs.openSync(cfg, 'a');
+  try {
+    fs.writeSync(fd, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
+    securewrite.flushOrThrow(fd);
+  } finally { fs.closeSync(fd); }
+  if (created) securewrite.syncDir(path.dirname(cfg));
 }
 
 /**
@@ -2629,6 +2655,23 @@ function forgetCodexFolder(dir, home, agentDefaultAccount) {
   // (~/.codex for a default agent), not the engine's CODEX_HOME.
   const codexHome = home || (agentDefaultAccount ? defaultAgentCodexHome() : codexHomeDir());
   const cfg = path.join(codexHome, 'config.toml');
+  /* #5434 slice 8: the read, the edit and the rename run under the lock trustCodexFolder takes
+     on the same file, so a trust append cannot land between them and be lost. As trust.js's
+     withWriteLock does, it runs unlocked when the codex folder does not exist, so the read's own
+     honest answer ("no codex config") is not masked by the lock's ENOENT; with no folder there
+     is nothing to lose. It does not stop codex itself, which writes this file without our lock. */
+  let folderExists = false;
+  try { folderExists = fs.statSync(path.dirname(cfg)).isDirectory(); } catch { folderExists = false; }
+  if (!folderExists) return forgetCodexTrust(cfg, dir);
+  const locked = require('./filelock').withFileLock(cfg, () => forgetCodexTrust(cfg, dir), {
+    busy: 'another Kosmos change to the codex config did not finish in time, so the folder trust was not taken back',
+    cannotAccess: 'we could not get exclusive access to the codex config, so the folder trust was not taken back',
+  });
+  return locked.ok ? locked.value : { ok: false, removed: false, because: locked.because };
+}
+
+/* forgetCodexFolder's read, edit and write, run under its lock. */
+function forgetCodexTrust(cfg, dir) {
   let text;
   try { text = fs.readFileSync(cfg, 'utf8'); }
   catch { return { ok: true, removed: false, because: 'there is no codex config to change' }; }
