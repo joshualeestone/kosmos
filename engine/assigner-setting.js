@@ -53,9 +53,7 @@ function write(patch) {
     failover: typeof patch.failover === 'boolean' ? patch.failover : cur.failover === true };
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ on: next.on, failover: next.failover }) + '\n');
-    fs.renameSync(tmp, FILE);
+    require('./store').saveFlushed(FILE, JSON.stringify({ on: next.on, failover: next.failover }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };
