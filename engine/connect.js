@@ -355,9 +355,7 @@ function writeState(next) {
   if (next && next.phase === PHASE.CONNECTED) { try { loginexpiry.loginChanged(); } catch { /* never breaks the flow */ } }
   try {
     fs.mkdirSync(path.dirname(STATE_FILE()), { recursive: true });
-    const tmp = `${STATE_FILE()}.${process.pid}.new`;
-    fs.writeFileSync(tmp, JSON.stringify(mem, null, 2));
-    fs.renameSync(tmp, STATE_FILE());
+    require('./store').saveFlushed(STATE_FILE(), JSON.stringify(mem, null, 2));   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX)
   } catch { /* the in-memory copy still answers; persistence is for restarts */ }
   return mem;
 }

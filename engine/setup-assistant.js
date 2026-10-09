@@ -1199,9 +1199,8 @@ function writeLaunchRecord(file, rec) {
     let old = null;
     try { old = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
     if (old === text) return true;
-    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;   // review 6: two refreshes in one process
-    fs.writeFileSync(tmp, text, { mode: 0o600 });
-    try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
+    // #5434 slice 21: flushed before the rename, exact 0600; a unique temp per save (review 6: two refreshes in one process)
+    require('./securewrite').writeSecret(file, text, 0o600, { atomicOnly: true });
     return true;
   } catch { return false; }
 }
