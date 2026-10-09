@@ -392,3 +392,19 @@ test('#5635 review 8: the span offset after a cut (a copy BEFORE the span) and a
   assert.equal(run('oldandcurrent').state, 'left', 'an old copy beside today\'s own was cut with no click');
   assert.equal(read(c), withCurrent);
 });
+
+test('#5635 review 9: a CURRENT span plus one clean old copy is updated (the span is not a second copy); an old span plus today\'s copy outside it waits', () => {
+  const current = doctrine.atBirth('', NOW);   // a span holding today's block
+  // The shipped table holds today's block too (doctrine-4890's test pins that), so this one does.
+  const both = [...OLD_TABLE, { version: 2, length: BLOCK.length, sha256: sha(BLOCK) }];
+  for (const [name, text] of [['curspanafter', `# Mine\n\n${current}\n${OLD}\n`], ['curspanbefore', `# Mine\n\n${OLD}\n\n${current}\n`]]) {
+    const f = agentFile(name, text);
+    assert.equal(run(name, { past: both }).state, 'added', name + ': a current span was read as a second copy');
+    assert.ok(!read(f).includes(OLD));
+  }
+  const oldSpan = doctrine.atBirth('', NOW).replace(BLOCK, () => OLD);
+  const two = `# Mine\n\n${oldSpan}\n\n${BLOCK}\n`;
+  const g = agentFile('oldspanpluscurrent', two);
+  assert.equal(run('oldspanpluscurrent').state, 'left', 'an update would have left two current copies');
+  assert.equal(read(g), two);
+});

@@ -26,7 +26,9 @@
  *        own text plus Mona Lisa's sentences -- so there is nothing to
  *        neutralise, which is stated rather than discovered;
  *   3    ONE composition, two readers: the dialog shows what planFor
- *        composed and the click writes THAT file text, proven by hash;
+ *        composed and the click writes THAT file text, proven by hash
+ *        (the third writer, kosmos#5635's refreshUnedited, has no dialog and
+ *        so no hash: it writes only unedited whole Kosmos text, see above);
  *   4    a true no-op never writes: nothing-missing composes nothing, and
  *        an up-to-date span is detected on its SECTION CONTENT before any
  *        dated sentence is composed, so a byte never moves for a date;
@@ -341,7 +343,9 @@ function status(sessionName, now, past) {   // `past`: tests only
   };
 }
 
-const FLEET_LEAVES_REPLACE = 'its older copy of the rules is replaced only from its own page, where the change is shown';
+/* kosmos#5635 review 9: a copy Kosmos can prove is its own is replaced at board start with no click; what the fleet click
+   still sees here is one that check left (see refreshUnedited), so it goes to the agent's own page. */
+const FLEET_LEAVES_REPLACE = 'its older copy of the rules has something beside it Kosmos cannot check on its own, so it is replaced only from its own page, where the change is shown';
 const FLEET_LEAVES_EDITED = 'its working rules are not a copy Kosmos recognises as its own, so they are updated only from its own page, where the change is shown';
 /* #4890: why the fleet click (names only, no dialog hash) leaves this plan for the agent's own page, or null. The
    fleet list (server.js) reads the same answer, so the list and the click agree. */
@@ -439,10 +443,16 @@ function refresh(sessionName, roster, opts) {
  * project still carrying a line fixed on main five days before (#4582), the third report of that staleness (#4890,
  * #5297): the click that would have fixed it is not happening, so the person never gets the fix.
  *
- * What still needs the click, and why: a span the person EDITED (their words), a file with no rules block (adding
- * sections to a file Kosmos never wrote rules into is adding to the person's text), and an agent whose person said
- * Not now to this version. The person's own words are never touched: the write is planFor's fileNext, which
- * spliceBlock or pastBlockIn compose byte for byte outside Kosmos's text.
+ * What still needs the click, and why (each is something Kosmos cannot prove is its own unedited text, or a choice the
+ * person made; the checks below say which, and the plan lists them with their review rounds):
+ *   - a span the person edited (reworded, a section deleted or reordered, words on a marker or frame line, CRLF);
+ *   - a file with no rules block (adding sections there is adding to the person's text);
+ *   - a write that would leave out a section (the person has its heading outside the block);
+ *   - a plain copy with a line typed under it, or two copies of the rules (earlier or today's) in one file;
+ *   - an agent whose person said Not now to this version, or put the earlier rules back after this block was written;
+ *   - a profile that cannot be read.
+ * The person's own words are never touched: the write is planFor's fileNext, which spliceBlock or pastBlockIn compose
+ * byte for byte outside Kosmos's text.
  *
  * Returns { state: 'added', sections } when it wrote, { state: 'current' } when there was nothing to do,
  * { state: 'left', because } when the change waits for the click, or { state: 'could_not', because }. Never throws.
@@ -476,6 +486,7 @@ function refreshUnedited(sessionName, roster, opts) {
       /* Review 2: the marker lines are compared too (words typed on the start marker's line, or before the end marker,
          are the person's), every frame-prefixed line must be a frame Kosmos wrote, and a span with Windows line endings
          is left for the click (the rewrite would mix endings in the person's file). */
+      // (`inner.endsWith` is defence in depth: words before the end marker also fail wholeKnownBlock below.)
       if (text.slice(span.start, lineEnd) !== START || !inner.endsWith('\n') || /\r/.test(inner)) return notWhole;
       if (inner.split('\n').some((l) => l.startsWith('<!-- Kosmos added the working rules below on ') && !isKosmosFrame(l))) return notWhole;
       if (!wholeKnownBlock(sectionContentOf(inner), opts && opts.past)) return notWhole;
@@ -497,7 +508,13 @@ function refreshUnedited(sessionName, roster, opts) {
       const cut = old.end - old.start;
       const shifted = skip ? (skip.start >= old.end ? { start: skip.start - cut, end: skip.end - cut } : skip) : null;   // the span, where it sits after the cut
       const remaining = text.slice(0, old.start) + text.slice(old.end);
-      if (pastBlockIn(remaining, opts && opts.past, shifted) || hasPlainCurrent(remaining)) return notWhole;
+      // Today's own copy is looked for OUTSIDE the span (review 9): a span holding today's block is not a second copy.
+      const bare = shifted ? remaining.slice(0, shifted.start) + remaining.slice(shifted.end) : remaining;
+      if (pastBlockIn(remaining, opts && opts.past, shifted) || hasPlainCurrent(bare)) return notWhole;
+    } else if (plan.updating === true && span && !span.ambiguous) {
+      /* Review 9: an old span with a copy of today's rules outside it would leave two current copies: the click. */
+      const text = current.text || '';
+      if (hasPlainCurrent(text.slice(0, span.start) + text.slice(span.end))) return notWhole;
     }
     /* A last guard on the plan itself: the checks above already leave every edited span, so `edited` is not reached
        today; a plan that is neither an update nor a replace (sections missing from a file with no block) is the
