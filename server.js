@@ -20830,6 +20830,9 @@ const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
 /** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not daily (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
 function orgEnrollRefresh() {
+  // #5670: a refresh sends to the company, so it waits for live execution like the rollup tick and every other background
+  // send; the real start arms it before start() runs on every supported platform, so a pending Leave still goes at once.
+  if (!liveExecution.liveExecutionAllowed()) return;
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
@@ -22263,6 +22266,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test

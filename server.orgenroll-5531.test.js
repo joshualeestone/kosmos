@@ -529,3 +529,21 @@ test('#5531 follow-up review 3: a review\'s lost Accept through the real routes 
   assert.match(r.json.because, /press Accept again/);
   assert.equal(oe.mayReport(), false, 'a lost Accept let this Kosmos report');
 });
+
+test('#5670: the board\'s company refresh sends nothing unless live execution is allowed, enrolled or not', (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh } = require('./server');
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  oe.refresh = async () => { calls += 1; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  live.resetForTests();
+  orgEnrollRefresh();
+  assert.equal(calls, 0, 'an enrolled board refreshed (sent to its company) without live execution');
+  // CONTROL: the same enrolled board with live execution armed (as the real start arms it) does refresh.
+  live.allowLiveExecution();
+  orgEnrollRefresh();
+  assert.equal(calls, 1, 'CONTROL: with live execution an enrolled board did not refresh');
+});
