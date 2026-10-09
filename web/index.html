@@ -67094,7 +67094,7 @@ window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
    Nothing already on screen is read: a conversation's messages count as heard the first time they are drawn, and
    when the mode is turned on. A newer message stops the one being read; leaving the conversation or turning the mode
    off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
-/* HELD (Josh 2026-10-09 10:49, "lets hold on the conversation mode"): off, so no toggle is drawn and nothing is read,
+/* HELD (Josh 2026-10-09 10:49 and 10:52: "It doesn't make sense to have it in the input box"): off, so no toggle is drawn and nothing is read,
    even for a conversation someone turned on before the hold. To bring it back, make the default true. The
    kosmos.convmode.enabled switch exists so the page check can still exercise the mode; nothing in the app sets it. */
 const CONV_ENABLED = (() => { try { return localStorage.getItem('kosmos.convmode.enabled') === '1'; } catch { return false; } })();
@@ -67109,7 +67109,7 @@ function convLoad() {
   CONV.on = o && typeof o === 'object' && !Array.isArray(o) ? o : {};
   return CONV.on;
 }
-function convIsOn(key) { return CONV_ENABLED && !!key && convLoad()[key] === true; }
+function convIsOn(key) { return !!key && CONV_ENABLED && convLoad()[key] === true; }
 function convSet(key, on) {
   const o = convLoad();
   if (on) o[key] = true; else delete o[key];
