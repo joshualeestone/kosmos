@@ -41,35 +41,37 @@ const CONFIGISH = '(json|ya?ml|toml|ini|txt|conf|cfg|xml|properties|csv)';
 // Credential-shaped paths, matched case-insensitively on a forward-slash relative path.
 // Templates hold placeholders, not secrets: kept (the final content check still runs on them).
 const TEMPLATE = /\.(example|sample|template|dist)$/i;
+// #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
+// inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
+// supervisor's launch secrets (bin/agent-supervisor.sh), each agent's Kosmos+ community key (engine/communitysend.js
+// keysFile), this board's sealing key and room keys (engine/fedseal.js), the Mac's tunnel signing keys (mac_key,
+// engine/remote.js; install_key, the connector: kosmos-relay crates/tunnel/src/assistant.rs), the phone notify-only
+// token (engine/phonenotify.js) and a provider account's API key file (claudeaccounts, geminiaccounts, grokaccounts).
+// 🔑 The content scan stores several of these as they are (measured: mac_key, phone-notify.json), so the NAME is the
+// only defence, and a copy under a name a writer, editor or Finder gives it must be denied too. So each store name
+// is matched as a TOKEN anywhere in a file name, in ANY folder: bounded on both sides by the start or end of the
+// name or by a character that is not a letter or digit (STORE_NAME). That denies `.mac_key.tmp-9`, `mac_key copy`,
+// `#board.token#` and `remote copy/mac_key`, while `keyboard.tokens.csv` or `imac_keyboard.md` are ordinary. A store
+// FOLDER is matched the same way, as a token in a folder name (`sendertokens.bak/`, `old sendertokens/`,
+// `communitysend copy/`), and in a community folder any file named with the token `keys` is a key file
+// (`keys.json`, `keys.bak.json`). Cost, on the safe side: a person's own file or folder whose name holds one of these
+// store names as a whole token (`mac_key-notes.md`, `chats/mac_key-chat.jsonl`, a project's own `communitysend/keys.json`).
+const TOKEN = (name) => `([^/]*[^a-z0-9/])?${name}([^a-z0-9/][^/]*)?`;
+const STORE_NAME = (name) => new RegExp(`(^|\\/)${TOKEN(name)}$`, 'i');
+const STORE_FOLDER = (name) => new RegExp(`(^|\\/)${TOKEN(name)}\\/`, 'i');
+/* Two linear tests rather than one pattern with `(.*\/)?` in it, which is quadratic on a path repeating the folder. */
+const COMMUNITY_DIR = STORE_FOLDER('communitysend');
+const KEYS_FILE = STORE_NAME('keys');
 const KOSMOS_STORES = [
-  // #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
-  // inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
-  // supervisor's launch secrets (bin/agent-supervisor.sh), each agent's Kosmos+ community key (engine/communitysend.js
-  // keysFile), this board's sealing key and room keys (engine/fedseal.js), the Mac's tunnel signing keys (mac_key,
-  // engine/remote.js; install_key, the connector: kosmos-relay crates/tunnel/src/assistant.rs), the phone notify-only
-  // token (engine/phonenotify.js) and a provider account's API key file (claudeaccounts, geminiaccounts, grokaccounts).
-  // 🔑 The content scan stores several of these as they are (measured: mac_key, phone-notify.json), so the NAME is the
-  // only defence, and a copy under a name a writer, editor or Finder gives it must be denied too. So each store name
-  // is matched as a TOKEN anywhere in a file name, in ANY folder: bounded on both sides by the start or end of the
-  // name or by a character that is not a letter or digit (STORE_NAME). That denies `.mac_key.tmp-9`, `mac_key copy`,
-  // `#board.token#` and `remote copy/mac_key`, while `keyboard.tokens.csv` or `imac_keyboard.md` are ordinary. A store
-  // FOLDER is matched with any copy suffix on the folder (`sendertokens.bak/`, `communitysend copy/`). Cost, on the
-  // safe side: a person's own file whose name holds one of these store names as a whole token (`mac_key-notes.md`).
-];
-const STORE_NAME = (name) => new RegExp(`(^|\\/)([^/]*[^a-z0-9/])?${name}([^a-z0-9/][^/]*)?$`, 'i');
-const STORE_FOLDER = (name) => new RegExp(`(^|\\/)${name}([^a-z0-9/][^/]*)?\\/`, 'i');
-KOSMOS_STORES.push(
   [STORE_FOLDER('sendertokens'), 'Kosmos agent tokens'],
   [STORE_FOLDER('launch-secrets'), 'Kosmos launch secrets'],
-  [new RegExp(`(^|\\/)communitysend([^a-z0-9/][^/]*)?\\/(.*\\/)?([^/]*[^a-z0-9/])?keys\\.json([^a-z0-9/][^/]*)?$`, 'i'), 'Kosmos+ community agent keys'],
+  [{ test: (p) => COMMUNITY_DIR.test(p) && KEYS_FILE.test(p) }, 'Kosmos+ community agent keys'],
   [STORE_NAME('fed-seal-(key|rooms)'), 'Kosmos room sealing keys'],
   [STORE_NAME('board\\.token'), 'Kosmos board token'],
   [STORE_NAME('(mac_key|install_key)'), 'Kosmos Mac signing key'],
   [STORE_NAME('phone-notify'), 'Kosmos phone notify token'],
   [STORE_NAME('\\.?kosmos-[a-z0-9]+-apikey'), 'provider API key'],
-);
-// Judged BEFORE the template exemption (review 6): `mac_key.example` or `board.token.sample` is a copy of a key the
-// content scan cannot see, never a template.
+];
 
 const DENY = [
   [/(^|\/)\.env(\.[^/]*)?$/i, 'environment file'],
@@ -85,12 +87,11 @@ const DENY = [
   [/(^|\/)\.git$/i, 'git internals'],
   [/(^|\/)\.config\/(gh|gcloud|hub|rclone|op|doctl)\//i, 'tool auth folder'],
   [/(^|\/)\.claude(-[^/]*)?\/\.credentials\.json$/i, 'provider sign-in'],  // review 7: an extra account's ~/.claude-<label> too
-  [/(^|\/)\.(codex|gemini|grok)\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
+  [/(^|\/)\.(codex|gemini|grok)(-[^/]*)?\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
   [new RegExp(`(^|\\/)(credentials?|secrets?|tokens?|auth)(\\.[a-z0-9]+)*\\.${CONFIGISH}$`, 'i'), 'credential-named config file'],
   [/(^|\/)(credentials?|secrets?)$/i, 'credential-named file'],
   [/(^|\/)client_secret[^/]*\.json$/i, 'OAuth client secret'],
   [/(^|\/)secrets\//i, 'secrets folder'],
-  ...KOSMOS_STORES,
   [/(^|\/)(cookies|login data|web data|local state)(-journal)?$/i, 'browser profile store'],
   [/\.(zip|gz|tgz|bz2|xz|7z|rar|zst|lz4|dmg|jar|war|whl|apk|ipa|docx|xlsx|pptx|odt|ods|odp|epub|pages|numbers)$/i, 'compressed container (contents cannot be scanned)'],
 ];
@@ -100,6 +101,8 @@ function pathDecision(rel) {
   if (typeof rel !== 'string' || !rel || rel.includes('\0')) return { include: false, why: 'unusable path' };
   const p = rel.split(path.sep).join('/');
   if (p.startsWith('/') || p.split('/').includes('..')) return { include: false, why: 'path outside the work Kosmos' };
+  // Kosmos's own stores are judged BEFORE the template exemption: `mac_key.example` or `board.token.sample` is a copy
+  // of a key the content scan cannot see, never a template.
   for (const [re, why] of KOSMOS_STORES) if (re.test(p)) return { include: false, why };
   if (TEMPLATE.test(p)) return { include: true };
   for (const [re, why] of DENY) if (re.test(p)) return { include: false, why };

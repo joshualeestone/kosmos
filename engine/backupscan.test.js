@@ -52,7 +52,11 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'Kosmos/remote copy/mac_key', 'Kosmos/remote.bak/mac_key', 'Kosmos/remote 2/install_key', 'Kosmos/sendertokens copy/a.json',
     'Kosmos/sendertokens.bak/a.json', 'Kosmos/launch-secrets.old/agent-secrets.Ab12Cd', 'Kosmos/communitysend copy/ab/keys.json',
     'Kosmos/communitysend/keys.json', 'Kosmos/communitysend/ab/old/keys.json', 'Kosmos/mac_key', 'Kosmos/phone-notify.json',
-    'Kosmos/remote copy/signin-device.key', 'acct/.claude-work/.credentials.json']) {
+    'Kosmos/remote copy/signin-device.key', 'acct/.claude-work/.credentials.json',
+    // review 8: a store folder copied with its name in front, a keys backup named before .json, other account dirs,
+    // and the documented over-skip of a project's own communitysend/keys.json
+    'old sendertokens/a.json', 'x/.sendertokens/a.json', 'Kosmos/communitysend/ep/keys.bak.json',
+    'a/.gemini-work/oauth_creds.json', 'a/.codex-2/auth.json', 'projects/x/communitysend/keys.json']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
@@ -71,6 +75,10 @@ test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially 
   for (const end of ['.tmp', '.bak', '.new']) bs.pathDecision('w/a' + end + '1'.repeat(28) + '!');
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.ok(ms < 500, `took ${ms} ms (exponential backtracking takes seconds here; the fixed pattern takes well under 1 ms)`);
+  const t1 = process.hrtime.bigint();
+  bs.pathDecision('communitysend/'.repeat(15000) + 'x');   // 210 KB: a quadratic community pattern took 7 s here
+  const ms1 = Number(process.hrtime.bigint() - t1) / 1e6;
+  assert.ok(ms1 < 1000, `a path repeating communitysend/ took ${ms1} ms`);
 });
 
 test('#5686 review 4: a copy-shaped name too long for a filesystem is skipped, not widened (uncapped, 100000 dots exhausts the heap)', () => {
