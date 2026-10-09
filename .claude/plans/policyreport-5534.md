@@ -24,3 +24,18 @@ that it refused one), and nothing about the policy is sent or stored for a membe
   Rejected "refused a newer one": the board also refuses older, re-signed and tampered bundles.
 - A refusal is a boolean, not the reason: the reason is board prose and would be a new free-text field to the company.
 - Deploy order does not matter: an old coordinator ignores the fields; a board sends them only under the new words.
+
+## Review decisions (rounds 1-6)
+- Released boards 0.7.33 to 0.7.35 always send policyVersion null with no policyRefused: the coordinator reads that as
+  "not reported" (round 3 BLOCKER: refusing it would have stopped every report from those boards after re-consent).
+- Both fields together otherwise; a send without them keeps the stored values, but only for the same world.
+- policyReported tells "none applied" from "never reported"; the console says "None applied" or Unavailable.
+- A refusal is something new the company sent: the policy in force merely expired (signature checked) is `stale`, a
+  fault on this computer (failed save, no pinned key) is `local`; neither is reported as refused.
+- The board gates on the line naming the version ("version of your company's policy"), not the bare word, because the
+  update line also mentions the policy (round 5). The coordinator constant is pinned to the same phrase.
+- A failed policy read repeats the last values sent, so a passing fault does not make two change sends.
+- Known limits, decided: refusals applyPolicy makes before saving (over 64 KB, another company's) are not reported; a
+  working coordinator never sends them. A newer bundle left unapplied by a failed save, then expired, reads as refused.
+  The coordinator checks the version range, not that the company ever saved it (the board is the member's own Mac).
+- Deploy: the coordinator change ships with the next relay deploy; members accept the new words once.
