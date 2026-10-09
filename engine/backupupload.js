@@ -409,8 +409,9 @@ async function uploadInner(deps, objects, opts, keys, run) {
     const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
     const unreached = [];           // chunks that met a pre-connect failure and no trouble until the deadline: nothing written
     const troubledNow = run.troubled; // name -> { c, key } for chunks that met trouble and are not (yet) stored
-    // anyReached: some attempt on THIS grant, by any chunk, got past connecting (S3 answered, or the request may have
-    // left). Then the bucket is reachable, and chunks that only failed to connect are re-granted like any chunk left.
+    // anyReached: some attempt on THIS grant, by any chunk, did not fail before connecting (S3 answered, or the request
+    // may have left; a local refusal sets it too, but a refusal stops the run before it is read). Then the bucket is
+    // reachable, and chunks that only failed to connect are granted again like any chunk left.
     let stop = null, stored = 0, anyReached = false;
     await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
       let troubled = false, preOnly = false;
@@ -444,10 +445,11 @@ async function uploadInner(deps, objects, opts, keys, run) {
     }
     // unsure: chunks whose write may have landed under these keys (an answer was lost). A later run uploads them again
     // under new keys, so a landed one becomes a locked orphan until its lock ends; the caller may record them.
+    // Trouble first: a write that may have landed is never followed by a new grant, whatever else the grant met.
+    if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys, unsure: stuck.map((x) => ({ name: x.c.name, key: x.key })) };
     // The bucket could not even be reached by ANY attempt on this grant: no new grant (it could not be reached either),
     // and nothing is unsure. If some attempt did reach it, a connect failure was passing: those chunks are left.
-    if (unreached.length && !stuck.length && !anyReached) return { ok: false, retryLater: true, because: `the bucket could not be reached (${unreached.length} chunks never connected before their grant ran out); try again later`, keys };
-    if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys, unsure: stuck.map((x) => ({ name: x.c.name, key: x.key })) };
+    if (unreached.length && !anyReached) return { ok: false, retryLater: true, because: `the bucket could not be reached (${unreached.length} chunks never connected before their grant ran out); try again later`, keys };
     for (const c of unreached) left.push(c);
     // The next grant is sized from the RATE this one achieved: about 80% of what the link carries in one window,
     // never more than double this grant (so it settles instead of swinging), at least 1, at most MAX_PER_GRANT.
