@@ -41,25 +41,7 @@ const CONFIGISH = '(json|ya?ml|toml|ini|txt|conf|cfg|xml|properties|csv)';
 // Credential-shaped paths, matched case-insensitively on a forward-slash relative path.
 // Templates hold placeholders, not secrets: kept (the final content check still runs on them).
 const TEMPLATE = /\.(example|sample|template|dist)$/i;
-const DENY = [
-  [/(^|\/)\.env(\.[^/]*)?$/i, 'environment file'],
-  [/(^|\/)\.envrc$/i, 'environment file'],
-  [/(^|\/)[^/]+\.env$/i, 'environment file'],
-  [/\.(pem|key|p8|p12|pfx|jks|keystore|kdbx|keychain|keychain-db|ppk|gpg|asc|ovpn|tfstate|tfstate\.backup|tfvars|secret|token)$/i, 'key, keystore, state or secret file'],
-  [/(^|\/)(authorized_keys|\.terraformrc|\.dockercfg|\.my\.cnf|logins\.json|key4\.db|cookies\.sqlite|\.(bash|zsh|sh|python|node_repl|psql|mysql)_history|\.histfile)$/i, 'credential or history file'],
-  [/(^|\/)service[-_]?account[^/]*\.json$/i, 'service account key'],
-  [/(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/i, 'ssh key'],
-  [/(^|\/)\.(ssh|gnupg|aws|azure|kube|docker|m2|terraform\.d)\//i, 'credential folder'],
-  [/(^|\/)(\.netrc|_netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|\.htpasswd|\.vault-token|\.boto|\.s3cfg|\.yarnrc\.yml|pip\.conf|rclone\.conf|kubeconfig)$/i, 'credential file'],
-  [/(^|\/)\.git\//i, 'git internals (objects and packs carry every committed secret; config carries remote tokens)'],
-  [/(^|\/)\.git$/i, 'git internals'],
-  [/(^|\/)\.config\/(gh|gcloud|hub|rclone|op|doctl)\//i, 'tool auth folder'],
-  [/(^|\/)\.claude\/\.credentials\.json$/i, 'provider sign-in'],
-  [/(^|\/)\.(codex|gemini|grok)\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
-  [new RegExp(`(^|\\/)(credentials?|secrets?|tokens?|auth)(\\.[a-z0-9]+)*\\.${CONFIGISH}$`, 'i'), 'credential-named config file'],
-  [/(^|\/)(credentials?|secrets?)$/i, 'credential-named file'],
-  [/(^|\/)client_secret[^/]*\.json$/i, 'OAuth client secret'],
-  [/(^|\/)secrets\//i, 'secrets folder'],
+const KOSMOS_STORES = [
   // #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
   // inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
   // supervisor's launch secrets (bin/agent-supervisor.sh), each agent's Kosmos+ community key (engine/communitysend.js
@@ -79,6 +61,30 @@ const DENY = [
   [/(^|\/)remote\/[^/]*(mac_key|install_key|\.key)[^/]*$/i, 'Kosmos Mac signing key'],
   [/(^|\/)remote\/[^/]*phone-notify[^/]*$/i, 'Kosmos phone notify token'],
   [/(^|\/)[^/]*\.kosmos-[a-z0-9]+-apikey[^/]*$/i, 'provider API key'],
+  // Judged BEFORE the template exemption (review 6): `mac_key.example` or `board.token.sample` is a copy of a key the
+  // content scan cannot see, never a template.
+];
+
+const DENY = [
+  [/(^|\/)\.env(\.[^/]*)?$/i, 'environment file'],
+  [/(^|\/)\.envrc$/i, 'environment file'],
+  [/(^|\/)[^/]+\.env$/i, 'environment file'],
+  [/\.(pem|key|p8|p12|pfx|jks|keystore|kdbx|keychain|keychain-db|ppk|gpg|asc|ovpn|tfstate|tfstate\.backup|tfvars|secret|token)$/i, 'key, keystore, state or secret file'],
+  [/(^|\/)(authorized_keys|\.terraformrc|\.dockercfg|\.my\.cnf|logins\.json|key4\.db|cookies\.sqlite|\.(bash|zsh|sh|python|node_repl|psql|mysql)_history|\.histfile)$/i, 'credential or history file'],
+  [/(^|\/)service[-_]?account[^/]*\.json$/i, 'service account key'],
+  [/(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/i, 'ssh key'],
+  [/(^|\/)\.(ssh|gnupg|aws|azure|kube|docker|m2|terraform\.d)\//i, 'credential folder'],
+  [/(^|\/)(\.netrc|_netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|\.htpasswd|\.vault-token|\.boto|\.s3cfg|\.yarnrc\.yml|pip\.conf|rclone\.conf|kubeconfig)$/i, 'credential file'],
+  [/(^|\/)\.git\//i, 'git internals (objects and packs carry every committed secret; config carries remote tokens)'],
+  [/(^|\/)\.git$/i, 'git internals'],
+  [/(^|\/)\.config\/(gh|gcloud|hub|rclone|op|doctl)\//i, 'tool auth folder'],
+  [/(^|\/)\.claude\/\.credentials\.json$/i, 'provider sign-in'],
+  [/(^|\/)\.(codex|gemini|grok)\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
+  [new RegExp(`(^|\\/)(credentials?|secrets?|tokens?|auth)(\\.[a-z0-9]+)*\\.${CONFIGISH}$`, 'i'), 'credential-named config file'],
+  [/(^|\/)(credentials?|secrets?)$/i, 'credential-named file'],
+  [/(^|\/)client_secret[^/]*\.json$/i, 'OAuth client secret'],
+  [/(^|\/)secrets\//i, 'secrets folder'],
+  ...KOSMOS_STORES,
   [/(^|\/)(cookies|login data|web data|local state)(-journal)?$/i, 'browser profile store'],
   [/\.(zip|gz|tgz|bz2|xz|7z|rar|zst|lz4|dmg|jar|war|whl|apk|ipa|docx|xlsx|pptx|odt|ods|odp|epub|pages|numbers)$/i, 'compressed container (contents cannot be scanned)'],
 ];
@@ -88,6 +94,7 @@ function pathDecision(rel) {
   if (typeof rel !== 'string' || !rel || rel.includes('\0')) return { include: false, why: 'unusable path' };
   const p = rel.split(path.sep).join('/');
   if (p.startsWith('/') || p.split('/').includes('..')) return { include: false, why: 'path outside the work Kosmos' };
+  for (const [re, why] of KOSMOS_STORES) if (re.test(p)) return { include: false, why };
   if (TEMPLATE.test(p)) return { include: true };
   for (const [re, why] of DENY) if (re.test(p)) return { include: false, why };
   const origins = tempOrigins(p);
@@ -102,16 +109,20 @@ function pathDecision(rel) {
    name never sees it: `.tls.key.tmp` (the connector's atomic writes), `auth.json.kosmos-<pid>-t<n>-...tmp`
    (engine/securewrite.js), `signin-device.key.new-<pid>-<hex>`, an editor's `.id_rsa.swp` or `id_rsa~`, a download's
    `id_rsa (1)`. So a COPY-SHAPED name (see COPY_SHAPED) is also judged as every name it could be a copy of: each
-   leading run of it up to a '.', '-', '_', '~' or space, with and without a leading dot.
+   leading run of it up to a '.', '-', '_', '~' or space, with and without a leading dot. A tail after the ending (a pid,
+   a random suffix: `.tmp-k3j9z`, `.bak2`) is accepted when it carries a digit, so `secrets.new-approach.md` is ordinary.
    What this does NOT cover, said so nobody reads it as complete: a copy whose ending is not in COPY_SHAPED, and a copy
-   named IN FRONT of its origin (emacs `#id_rsa#` and `.#id_rsa`, `tmp-id_rsa`). For Kosmos's own stores the rules above
+   named IN FRONT of its origin (emacs `#id_rsa#` and `.#id_rsa`, `tmp-id_rsa`), and a tail with no digit in it
+   (`.tmp-abcxyz`). For Kosmos's own stores the rules above
    match anywhere in the name and need none of this; for other credentials the content scan and the final raw check
    stand behind it (a PEM key, for one, is found by its content whatever the file is called).
    Over-skip, on the safe side: an origin is judged by EVERY deny rule, so a copy of ordinary work whose name starts
-   like a denied one is skipped too (secrets_plan.tmp, cookies-recipe.md.tmp, contract.docx.bak, .git-blame.bak).
-   Bounded (review 4): a copy-shaped name longer than a filesystem allows (255 characters) is skipped outright, so at
-   most 510 leading runs are tried and a hostile name cannot make the scan quadratic. */
-const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)([-.][0-9a-f]+)*|~|\.\d+| copy( \d+)?| \(\d+\))$/i;
+   like a denied one is skipped too, even when the uncopied name would be kept (secrets_plan.tmp,
+   cookies-recipe.md.tmp, contract.docx.bak, .git-blame.bak, server.key.md.bak although server.key.md is kept).
+   Bounded (review 4): a copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
+   tried and a hostile name cannot make the scan quadratic. (Filesystems cap a name in bytes, not characters; this caps
+   the work, and a real name over it is rare and skipped on the safe side.) */
+const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)([-.]?(?=[a-z]*\d)[0-9a-z]+)*|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
 const MAX_COPY_NAME = 255;
 function tempOrigins(p) {
   const cut = p.lastIndexOf('/') + 1;
