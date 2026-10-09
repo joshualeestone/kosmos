@@ -2681,7 +2681,14 @@ function forgetCodexFolder(dir, home, agentDefaultAccount) {
     busy: 'another Kosmos change to the codex config did not finish in time, so the folder trust was not taken back',
     cannotAccess: 'we could not get exclusive access to the codex config, so the folder trust was not taken back',
   });
-  return locked.ok ? locked.value : { ok: false, removed: false, because: locked.because };
+  if (locked.ok) return locked.value;
+  /* The folder went between the stat and the lock (the lock's mkdir then fails): there is no
+     config left to change, so answer that rather than a lock failure (review 2). */
+  let stillThere = false;
+  try { stillThere = fs.statSync(path.dirname(cfg)).isDirectory(); } catch { stillThere = false; }
+  return stillThere
+    ? { ok: false, removed: false, because: locked.because }
+    : { ok: true, removed: false, because: 'there is no codex config to change' };
 }
 
 /* forgetCodexFolder's read, edit and write, run under its lock. */
