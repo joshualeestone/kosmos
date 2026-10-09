@@ -2584,19 +2584,24 @@ function trustCodexFolder(dir, home, agentDefaultAccount) {
      same file, so an append cannot land between a forget's read and its rename and be lost
      (that was a new agent left untrusted, blocked on codex's trust dialog, #245). The folder is
      made first so the lock always has somewhere to live; a folder that cannot be made throws
-     here as the append used to. Lock busy throws a sentence; every caller catches. */
+     here as the append used to. Lock busy throws a sentence; every caller catches.
+     An entry already present answers before any of that, unlocked, as it always did, so a
+     re-trust that changes nothing never waits on the lock or fails on it (review 1). The locked
+     write checks again. */
+  const key = codexTrustKey(dir);
+  let seen = '';
+  try { seen = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
+  if (seen.includes(key)) return;
   fs.mkdirSync(codexHome, { recursive: true });
-  const locked = require('./filelock').withFileLock(cfg, () => appendCodexTrust(cfg, dir), {
+  const locked = require('./filelock').withFileLock(cfg, () => appendCodexTrust(cfg, key), {
     busy: 'another Kosmos change to the codex config did not finish in time, so the folder trust was not written',
     cannotAccess: 'we could not get exclusive access to the codex config, so the folder trust was not written',
   });
   if (!locked.ok) throw new Error(locked.because);
 }
 
-/* trustCodexFolder's write, run under its lock. */
-function appendCodexTrust(cfg, dir) {
-  let text = '';
-  try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
+/* The heading trustCodexFolder writes for `dir`. */
+function codexTrustKey(dir) {
   // #2129/#5: key on the ON-DISK canonical spelling, which is what codex looks
   // up (std::fs::canonicalize resolves its cwd to the stored case), NOT the raw
   // `dir` the code hands us (workersDir hardcodes lowercase 'work'). On a fresh
@@ -2607,16 +2612,25 @@ function appendCodexTrust(cfg, dir) {
   // becomes a valid TOML literal-string key (raw `\U`/`\u` made codex fail to
   // load config.toml at all). A POSIX path keeps its double-quoted form, so
   // macOS output is byte-identical.
-  const key = `[projects.${tomlProjectKeyString(require('./trust').canonicalOnDisk(dir))}]`;
+  return `[projects.${tomlProjectKeyString(require('./trust').canonicalOnDisk(dir))}]`;
+}
+
+/* trustCodexFolder's write, run under its lock. */
+function appendCodexTrust(cfg, key) {
+  let text = '';
+  try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
   if (text.includes(key)) return;
   /* #5434 slice 8: still an APPEND, now flushed (#5431). Not a whole rewrite through writeSecret
      like the forget: codex writes this file itself (its trust dialog, its model choice) and does
      not take our lock, and an append cannot lose a codex edit made between our read and our
      write, where a rename would. A first-ever append created the file, so its folder is flushed
-     too (POSIX only, best effort). A failed flush throws, as a failed append always did. */
+     too (POSIX only, best effort). A failed flush throws, as a failed append always did.
+     A file this append creates is 0600, the default forgetCodexFolder already uses for this file:
+     it sits beside auth.json (review 1; it was the umask's, usually 0644). An existing file keeps
+     its mode, since 'a' never changes it. */
   const created = !fs.existsSync(cfg);
   const securewrite = require('./securewrite');
-  const fd = fs.openSync(cfg, 'a');
+  const fd = fs.openSync(cfg, 'a', 0o600);
   try {
     fs.writeSync(fd, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
     securewrite.flushOrThrow(fd);
