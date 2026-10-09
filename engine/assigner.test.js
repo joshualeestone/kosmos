@@ -751,3 +751,26 @@ test('#5678 step: two idle agents and an unheld parent with a subtask: the tree 
     } finally { w2.restore(); }
   } finally { w.restore(); }
 });
+
+/* #5678 review 2: only a BUSY hold locks a tree (hasOpenWork's own rules), so a parked hold never locks it for good. */
+test('#5678 pick: a parked hold (built, on hold) does not lock the tree; a busy one does (CONTROL)', () => {
+  const proj = (parent) => [{ id: 'p5678b', agents: ['idleB', 'builderA'], tasks: [parent, { number: 2, sentence: 'Child', parent: 1 }] }];
+  assert.equal(a.pick('idleB', proj({ number: 1, sentence: 'Parent', who: 'builderA' }), new Set()), null, 'CONTROL: a busy hold locks the tree');
+  const built = a.pick('idleB', proj({ number: 1, sentence: 'Parent', who: 'builderA', builtAt: '2026-10-09T00:00:00Z', builtWho: ['builderA'] }), new Set());
+  assert.ok(built && built.n === 2, 'a built parent kept its tree from everyone: ' + JSON.stringify(built));
+  const held = a.pick('idleB', proj({ number: 1, sentence: 'Parent', who: 'builderA', onHold: true }), new Set());
+  assert.ok(held && held.n === 2, 'a parent on hold kept its tree from everyone: ' + JSON.stringify(held));
+});
+
+/* #5678 review 2: failover must not put a second builder on a tree another busy agent holds. */
+test('#5678 failoverPick: a stalled part is not moved into a tree another agent holds busy; CONTROL: alone, it is', () => {
+  const stalled = [{ projectId: 'pf', n: 2, partId: 1, from: 'limitedA', fromRunner: 'claude' }];
+  const mk = (withB) => [{ id: 'pf', agents: ['limitedA', 'busyB', 'idleC'], tasks: [
+    { number: 1, sentence: 'Parent', ...(withB ? { who: 'busyB' } : {}) },
+    { number: 2, sentence: 'Child', parent: 1, who: 'limitedA' },
+  ] }];
+  assert.equal(a.failoverPick('idleC', 'codex', stalled, mk(true), new Set()), null, 'a moved part made a second builder on a tree busyB holds');
+  const ok = a.failoverPick('idleC', 'codex', stalled, mk(false), new Set());
+  assert.ok(ok && ok.n === 2, 'CONTROL: with only the stalled holder on the tree, the part moves: ' + JSON.stringify(ok));
+  assert.equal(a.failoverPick('idleC', 'codex', stalled, mk(false), new Set(), new Set(['pf#tree#1#otherAgent'])), null, 'a tree given to another agent this pass was moved into');
+});
