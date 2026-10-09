@@ -60,3 +60,22 @@ rest of the guard is still written.
   - NOT CHANGED (nits): case-insensitive volumes (fails toward over-denying, not a leak); the pane PATH is cleaned for
     every token-only agent (harmless; other runners return "unsupported"); the wiring checks read the source text
     (abs_path_only itself is executed).
+- Round 5 (opus): 2 BLOCKER, 5 WARNING, 4 NIT.
+  - FIXED (both BLOCKERs): the folder the INSTALLED supervisor runs from (create.supervisorPath(), which also holds the
+    engine pointer and the bridges) is now covered, and the test names that folder from create rather than repeating the
+    code's own expression. A control checks the fixture can tell it from the source tree's bin. Mutation makes it fail.
+  - FIXED: a PATH folder reached through a link is named both ways in the file-tool rules (the sandbox keeps the
+    resolved one). Test with a control; mutation makes it fail.
+  - FIXED: the supervisor's PATH cleaning and the guard now agree. Ancestors of the agent folder leave the pane PATH
+    too, and a not-yet entry is resolved through its nearest existing parent. Each comparison has a mutation that fails.
+  - FIXED: tests pin the fixed folders and the install's program folders, so they do not depend on the host.
+  - FIXED (nits): the cleaned PATH goes only to claude panes (no second PATH key for other runners; a test checks the
+    line); comments corrected; a test for the per-pass cache, which fails if a user changes the cached answer.
+  - DECIDED: a guard that is not whole because of a launch folder still refuses creating a token-only agent. That is the
+    card's rule (an agent that cannot be guarded whole is not created), and the reason names the folder.
+    Weakest premise: an odd folder on the board's PATH blocks every token-only creation until it is renamed or removed.
+  - DECIDED, a follow-up: deny lists merge and are never pruned, so versioned install folders (a package manager's
+    per-version folders) accumulate after upgrades. Not a hole (it only over-denies stale paths), but the settings file
+    grows. Pruning needs a record of which rules were launch rules that the agent itself cannot edit; a follow-up card.
+  - NOT CHANGED: boardkeychain-4491.test.js does not pin the launch folders (it is the base branch's file; the real
+    fixed list has no pattern characters).

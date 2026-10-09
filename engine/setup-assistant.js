@@ -735,6 +735,9 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    (KOSMOS_GUARD_PANE_PATH), this process's own PATH, and the plist's fixed folders. An entry that cannot be covered
    (empty, relative, or inside the agent's own folder) is returned in `unsafe`. */
 const LAUNCH_PATH_FIXED = ['/opt/homebrew/bin', '/usr/local/bin'];
+// Review 5: the folder the installed supervisor runs from (create.supervisorPath(), what launchd and the pane start), which
+// also holds the engine pointer and the bridges. Not this source tree's bin, which nothing runs in an install.
+function installedSupervisorDir() { try { return path.dirname(create.supervisorPath()); } catch { return null; } }
 const LINK_SCAN_MAX = 4000;
 function launchPathDirs(agentDir, deps = {}) {
   const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
@@ -743,13 +746,18 @@ function launchPathDirs(agentDir, deps = {}) {
   const own = realOrLeaf(agentDir);
   // Review 2: refreshTokenOnlyGuards passes one Map for its whole pass, so a PATH is scanned once, not once per agent.
   const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
-  const key = JSON.stringify([pane, ownPath, own, max, deps.ownProgramDirs || null]);
+  const fixed = Array.isArray(deps.launchFixed) ? deps.launchFixed : LAUNCH_PATH_FIXED;
+  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), installedSupervisorDir(), path.dirname(process.execPath)].filter(Boolean);
+  const key = JSON.stringify([pane, ownPath, own, max, fixed, ownProgs]);
   if (cache && cache.has(key)) return cache.get(key);
   // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
   // folder) cannot be covered.
   const uncoverable = (real) => real === own || real.startsWith(own + path.sep) || own.startsWith(real === path.sep ? real : real + path.sep);
   const dirs = [];
   const unsafe = [];
+  // Review 5: each covered folder's spellings as written (a link, /var for /private/var), so the file-tool rules can name
+  // both and do not depend on how Claude Code matches a linked path. The sandbox layer gets the resolved one.
+  const aliases = [];
   const add = (e, strict) => {
     if (!e || !path.isAbsolute(e)) { if (strict) unsafe.push(e === '' ? '(an empty entry)' : e); return; }
     // realOrLeaf (review 3): an entry not created yet is still resolved through a symlinked parent, so the agent-folder
@@ -757,13 +765,17 @@ function launchPathDirs(agentDir, deps = {}) {
     const real = realOrLeaf(e);
     if (uncoverable(real)) { unsafe.push(e); return; }
     if (!dirs.includes(real)) dirs.push(real);
+    const w = path.resolve(e);
+    if (w !== real && !aliases.includes(w)) aliases.push(w);
   };
-  for (const e of LAUNCH_PATH_FIXED) add(e, true);
+  for (const e of fixed) add(e, true);
   /* Review 3 (W3b): what the supervisor starts by ABSOLUTE path from folders that may be off the pane PATH: the engine
      scripts and the supervisor itself (this install's engine and bin), and node (this process's own binary). The
-     guard runs from the same install, so these are its own folders. Claude's and tmux's folders are on the pane PATH. */
-  for (const e of deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), path.dirname(process.execPath)]) add(e, true);
-  // The pane's PATH is held strictly; this process's own (review 2) only contributes its absolute entries.
+     guard runs from the same install, so these are its own folders. Claude's and tmux's folders come from the plist's PATH
+     (this process's own PATH at a launch refresh). */
+  for (const e of ownProgs) add(e, true);
+  // The pane's PATH is held strictly. This process's own (review 2) skips empty and relative entries quietly; an absolute
+  // one that cannot be covered is still reported.
   if (typeof pane === 'string') for (const e of pane.split(path.delimiter)) add(e, true);
   if (typeof ownPath === 'string') for (const e of ownPath.split(path.delimiter)) add(e, false);
   for (const d of [...dirs]) {
@@ -778,7 +790,7 @@ function launchPathDirs(agentDir, deps = {}) {
       if (!dirs.includes(target)) dirs.push(target);
     }
   }
-  const value = { dirs, unsafe: [...new Set(unsafe)] };
+  const value = { dirs, aliases, unsafe: [...new Set(unsafe)] };
   if (cache) cache.set(key, value);
   return value;
 }
@@ -853,7 +865,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      still carries its concrete path (launchDirs, below). */
   const launchRules = [];
   const launchUnsafe = [...launch.unsafe];   // a copy: launchPathDirs caches its answer for the whole refresh pass
-  for (const d of launch.dirs) {
+  for (const d of [...launch.dirs, ...(launch.aliases || [])]) {
     const r = `Edit(${ruleAbs(d)}/**)`;
     if (ruleHasPatternChar(r)) launchUnsafe.push(`${d} (its path has a character the permission rules cannot carry)`);
     else launchRules.push(r);

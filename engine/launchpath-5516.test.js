@@ -28,13 +28,16 @@ function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdi
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
 function binDir(name) { const d = path.join(SANDBOX, 'bins', name); fs.mkdirSync(d, { recursive: true }); return d; }
 // ownPath is pinned in every call: the test process's own PATH is the runner's, not a fixture.
-const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '/usr/bin:/bin' };
+// Review 5: the fixed folders and the install's own program folders are pinned too, so no test depends on this host's
+// /opt/homebrew or /usr/local. The W3b test below clears ownProgramDirs to check the real defaults.
+const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '/usr/bin:/bin', launchFixed: [], ownProgramDirs: [] };
 
 test('#5516: every folder on the pane PATH is denied to the file tools AND the shell', () => {
   const dir = agentDir('lp-a');
   const a = binDir('claude-bin');
   const b = binDir('brew-bin');
-  const r = setup.guardTokenOnlyFolder(dir, 'lp-a', { ...BASE, panePath: [a, b, '/usr/bin'].join(path.delimiter) });
+  // launchFixed unpinned here: this test checks the real fixed list (rules only, which do not depend on the host).
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-a', { ...BASE, panePath: [a, b, '/usr/bin'].join(path.delimiter), launchFixed: undefined });
   assert.deepEqual(r, { ok: true });
   const s = readSettings(dir);
   for (const d of [a, b]) {
@@ -117,8 +120,8 @@ test('#5516 review 1: a program on PATH that links into another folder gets that
 
 test('#5516 review 2: the supervisor cleans the pane PATH with a function this test runs', () => {
   const sup = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
-  const m = sup.match(/\nabs_path_only\(\) \{\n[\s\S]*?\n\}\n/);
-  assert.ok(m, 'abs_path_only is not defined in the supervisor');
+  const m = sup.match(/\n_phys_or_leaf\(\) \{\n[\s\S]*?\n\}\nabs_path_only\(\) \{\n[\s\S]*?\n\}\n/);
+  assert.ok(m, 'abs_path_only (and the helper it calls) is not defined in the supervisor');
   const run = (input, own) => require('child_process').execFileSync('/bin/bash', ['-c', m[0] + '\nabs_path_only "$1" "$2"', 'x', input, own || ''], { encoding: 'utf8' });
   assert.equal(run('/a::rel:/b c:.:/d*'), '/a:/b c:/d*', 'empty, relative and dot entries go; spaces and a * stay literal');
   assert.equal(run('rel:.:'), '/usr/bin:/bin:/usr/sbin:/sbin', 'nothing absolute left: the system default');
@@ -132,11 +135,15 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   const sib = own + '-sibling';
   assert.equal(run(`/a:${own}:${inside}/:${path.join(own, 'not-made-yet')}:${link}:${sib}`, own), `/a:${sib}`, 'the agent folder, inside it (made or not yet), or a link into it stayed on the PATH');
   assert.equal(run(`/a:${own}:${sib}`), `/a:${own}:${sib}`, 'with no folder given, nothing extra should go');
+  // Review 5: an ancestor goes too, and a not-yet entry spelled through a link into the folder.
+  const viaLink = path.join(path.dirname(own), 'lp-own-path-top');
+  try { fs.symlinkSync(own, viaLink); } catch {}
+  assert.equal(run(`/a:${path.dirname(own)}:${path.join(viaLink, 'later', 'bin')}:${sib}`, own), `/a:${sib}`, 'an ancestor, or a not-yet entry through a link into the folder, stayed');
   // The pane AND the guard are given its result.
   const i = sup.indexOf('_guard_path="$(abs_path_only "$_guard_path" "$WORKDIR")"');
   assert.ok(i > 0, 'the pane PATH is not cleaned');
   const block = sup.slice(i, sup.indexOf('unset _guard_path', i));
-  assert.match(block, /PANE_ENV\+=\(-e "PATH=\$_guard_path"\)/, 'the pane is not given the cleaned PATH');
+  assert.match(block, /\[ "\$RUNNER" = claude \] && PANE_ENV\+=\(-e "PATH=\$_guard_path"\)/, 'the claude pane is not given the cleaned PATH, or other runners get a second PATH key');
   assert.match(block, /KOSMOS_GUARD_PANE_PATH="\$_guard_path"/, 'the guard is not given the same PATH');
 });
 
@@ -200,11 +207,43 @@ test('#5516 review 3: a PATH entry not created yet is resolved through a symlink
 
 test('#5516 review 3 (W3b): the folders of the programs the supervisor starts by absolute path are covered too', () => {
   const dir = agentDir('lp-own');
-  const r = setup.guardTokenOnlyFolder(dir, 'lp-own', { ...BASE, panePath: '/usr/bin' });
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-own', { ...BASE, panePath: '/usr/bin', ownProgramDirs: undefined });
   assert.deepEqual(r, { ok: true });
   const s = readSettings(dir);
-  for (const d of [path.join(__dirname), path.join(__dirname, '..', 'bin'), path.dirname(process.execPath)]) {
+  // Review 5: the INSTALLED supervisor's folder (what launchd and the pane run), named from create, not this tree's bin.
+  const installed = path.dirname(require('./create').supervisorPath());
+  fs.mkdirSync(installed, { recursive: true });
+  assert.notEqual(realOr(installed), realOr(path.join(__dirname, '..', 'bin')), 'the fixture cannot tell the installed folder from the source bin');
+  for (const d of [installed, path.join(__dirname), path.dirname(process.execPath)]) {
     assert.ok(s.sandbox.filesystem.denyWrite.includes(realOr(d)), 'no denyWrite for ' + d);
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOr(d))}/**)`), 'no Edit deny for ' + d);
   }
+});
+
+test('#5516 review 5: a PATH folder reached through a link is named both ways in the file-tool rules', () => {
+  const dir = agentDir('lp-alias');
+  const real = binDir('alias-real');
+  const link = path.join(SANDBOX, 'bins', 'alias-link');
+  try { fs.symlinkSync(real, link); } catch {}
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-alias', { ...BASE, panePath: link }), { ok: true });
+  const s = readSettings(dir);
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOr(real))}/**)`), 'the resolved spelling is missing');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(link)}/**)`), 'the as-written spelling is missing');
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(realOr(real)));
+  // CONTROL: a folder given by its real path gets no second spelling.
+  const dir2 = agentDir('lp-alias-control');
+  setup.guardTokenOnlyFolder(dir2, 'lp-alias-control', { ...BASE, panePath: realOr(real) });
+  assert.ok(!readSettings(dir2).permissions.deny.includes(`Edit(${ruleAbs(link)}/**)`));
+});
+
+test('#5516 review 5: one refresh pass scans a PATH once, and the cached answer is not changed by its users', () => {
+  const cache = new Map();
+  const d = binDir('cache (bin)');   // a pattern character, so the guard adds to its own unsafe list
+  const deps = { panePath: d, ownPath: BASE.ownPath, launchFixed: [], ownProgramDirs: [], launchCache: cache };   // the key the guard uses
+  const a = setup.launchPathDirs(agentDir('lp-cache'), deps);
+  const before = JSON.stringify(a);
+  const b = setup.launchPathDirs(agentDir('lp-cache'), deps);
+  assert.equal(a, b, 'the second call scanned again');
+  setup.guardTokenOnlyFolder(agentDir('lp-cache'), 'lp-cache', { ...BASE, panePath: d, launchCache: cache });
+  assert.equal(JSON.stringify(setup.launchPathDirs(agentDir('lp-cache'), deps)), before, 'a user of the cached answer changed it');
 });
