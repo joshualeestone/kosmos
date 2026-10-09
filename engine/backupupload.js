@@ -411,14 +411,16 @@ async function uploadInner(deps, objects, opts, keys, run) {
     const troubledNow = run.troubled; // name -> { c, key } for chunks that met trouble and are not (yet) stored
     let stop = null, stored = 0;
     await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
-      let troubled = false, preOnly = false;
+      // preOnly: an attempt failed before connecting. reached: one got past connecting. Only preOnly && !reached is
+      // "could not be reached"; a bucket that answered once (say 400 IncompleteBody, nothing committed) is reachable.
+      let troubled = false, preOnly = false, reached = false;
       for (let attempt = 0; ; attempt++) {
         if (stop) return;
         // Out of time on this grant. A chunk that met bucket or network trouble does NOT get a new grant (that spends
         // allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
         const remaining = deadline - now();
         // (Out of time before any attempt still re-grants here, unlike uploadManifestInner: chunk grants are 200,000 a week.)
-        if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else if (preOnly) unreached.push(c); else left.push(c); return; }
+        if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else if (preOnly && !reached) unreached.push(c); else left.push(c); return; }
         // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
         // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
         const r = await putOne(fetchFn, up, c.object, troubled, timeoutFor(c.object.length));
@@ -429,7 +431,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
         // (uploadManifestInner carries the same retry rules for its one upload: change both together.)
         // troubled: an attempt that may have written this chunk (a lost answer, a failure after S3 got the request).
         // Not a pre-connect failure, and not S3 saying it committed nothing.
-        if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; troubledNow.set(c.name, { c, key: up.key }); }
+        if (r.preconnect) { preOnly = true; } else { reached = true; if (!r.nothingCommitted) { troubled = true; troubledNow.set(c.name, { c, key: up.key }); } }
         // Jittered, so workers that met the same SlowDown do not retry in lockstep.
         await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
       }
@@ -634,7 +636,7 @@ async function uploadManifestInner(deps, bytes, o, st) {
         // as slow. Stop rather than spend another of the period's 50 manifest grants. (The chunk worker re-grants
         // here; its allowance is 200,000 a week, and that path is reviewed separately.)
         if (attempt === 0) return { ok: false, retryLater: true, grantSpent: true, because: 'the manifest grant ran out before a single upload attempt (its answer was too slow); try again later' };
-        cleanRanOut = !troubled && !preOnly; break;
+        cleanRanOut = !troubled && !(preOnly && !reached); break;
       }
       const r = await putOne(fetchFn, up, bytes, troubled, timeoutMs);
       if (r.kind === 'stored' || r.kind === 'present') return { ok: true, key: up.key, sha256, lockedUntilMs: up.retainMs };
