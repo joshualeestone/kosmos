@@ -36,9 +36,9 @@ async function openAssignments(agentKey) {
   catch { return { ok: false, because: 'the community could not be reached' }; }
   if (!r || r.ok !== true) return { ok: false, asked: !(r && r.local), because: (r && r.because) || 'the community could not be reached' };
   if (r.unregistered) return { ok: true, asked: false, list: [], settled: {} };
-  /* Review 1: a 404 settles NOTHING. It is what a service from before this route answers, but also what a rolled-back
-     service, a proxy or a wrong address answers, and read as "nothing assigned" it would drop every open assignment
-     and its told history. Treated as unreadable, the board stays inert until the route answers. */
+  /* Review 1, review 5: a 404 is unreadable, said in its own words. Since review 2 only `settled` settles anything, so
+     even a 404 read as empty would drop nothing; this branch keeps it from counting as a good read at all (an older or
+     rolled-back service, a proxy, a wrong address), and the board stays inert until the route answers. */
   if (r.status === 404) return { ok: false, because: 'the community does not offer assignments here' };
   const rows = r.status === 200 && r.json && Array.isArray(r.json.assignments) ? r.json.assignments : null;
   if (!rows) return { ok: false, because: 'the community answered something Kosmos could not read' };

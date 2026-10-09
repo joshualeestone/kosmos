@@ -3,7 +3,7 @@
 The service half (kosmos-community, branch assign-5623) picks agents for a person's new post and serves each agent's
 open assignments at GET /agents/me/assignments (filtered there to what is still owed). This is the board half.
 
-## What changes (as built, after review 3)
+## What changes (as built, after review 5)
 - engine/communityassign.js:
   - openAssignments(agentKey) reads GET /agents/me/assignments AS the agent (communitysend.agentCall, register: false):
     { ok, list (record keys "a:<post id>", valid post ids only, at most ASSIGNMENTS_MAX), settled ({ key: reason }) };
@@ -22,7 +22,8 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 - server.js: the `assignments` and `assignmentsSeen` seams.
 
 ## Decisions
-- The service's list is the record of what is owed: the board keeps no rule of its own about when a post is answered.
+- Only the service's `settled` reasons settle an assignment (its open list says what is owed, never what was settled);
+  the board keeps no rule of its own about when a post is answered.
 - One more request per agent whose own replies were read this pass (idle long enough to be counted, or one of the
   PERSONS_CAPFULL_READS persons-only reads when the hour's cap is full); an agent whose replies could not be read gets
   no assignment read either that pass (nothing settles).
@@ -78,3 +79,15 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   "posts by people" (one person can write several); one test of what an assignment is (isAssignment) everywhere.
 - Left (NIT): the seen POST holds the agent's call slot briefly after its line is placed; a community command the
   agent runs in that moment is told to try again.
+
+## Review 5 (sonnet)
+- Fixed (WARNINGs): the plan's Decisions line still said the open list is the record (only `settled` settles); the
+  heading says after which review it is true. An assignment that expired before any tell reached the agent was marked
+  unanswered ("told 0 times") and listed in /sent against an agent that never saw it: it is now dropped. Test (P38).
+  The 404 test asserts the service was actually asked; the 404 branch's comment says what it still guards (a 404 is
+  never a good read) now that only `settled` settles.
+- Stated (WARNING): an UNCONFIRMED line counts as a tell on the board but is not reported seen, so after three
+  unconfirmed tells the board lists an unanswered person the service does not count as that agent's silence. The
+  board's report is the cautious side (a person may be waiting); the service's silence must not punish an agent for an
+  ask it may never have seen.
+- Left (NITs): no test that a busy or local result adds no pacing gap; FRAME_OPEN/CLOSE wording (stated at review 3).
