@@ -63,20 +63,22 @@ const DENY = [
   // #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
   // inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
   // supervisor's launch secrets (bin/agent-supervisor.sh), each agent's Kosmos+ community key (engine/communitysend.js
-  // keysFile), and this board's sealing key and room keys (engine/fedseal.js). A writer's temp copy of any denied file
-  // is denied with it by tempOrigins below, whatever shape the writer names it.
+  // keysFile), this board's sealing key and room keys (engine/fedseal.js), the Mac's tunnel signing keys (mac_key,
+  // engine/remote.js; install_key, the connector: kosmos-relay crates/tunnel/src/assistant.rs), the phone notify-only
+  // token (engine/phonenotify.js) and a provider account's API key file (claudeaccounts, geminiaccounts, grokaccounts).
+  // 🔑 Each FILE rule here matches the store's name ANYWHERE in the file name, not only as the whole name: the content
+  // scan stores several of these as they are (measured: mac_key, phone-notify.json), so the name is the only defence,
+  // and a copy of one under ANY name a writer, editor or Finder gives it (.mac_key.tmp-9, board.token.4711.new,
+  // "mac_key copy") must be denied too. The cost is a person's own file whose name contains one of these exact store
+  // names (my-board.token-notes.md), which is skipped. remote/'s mac_id, pending.json and tls.crt are kept.
   [/(^|\/)sendertokens\//i, 'Kosmos agent tokens'],
   [/(^|\/)launch-secrets\//i, 'Kosmos launch secrets'],
-  [/(^|\/)communitysend\/[^/]+\/keys\.json(\.[^/]*)?$/i, 'Kosmos+ community agent keys'],
-  [/(^|\/)fed-seal-(key|rooms)\.json(\.[^/]*)?$/i, 'Kosmos room sealing keys'],
-  // Review 2's sweep of every owner-only writer: the Mac's signing keys for the tunnel (mac_key, engine/remote.js; and
-  // install_key, written by the connector, kosmos-relay crates/tunnel/src/assistant.rs; no extension, so the .key rule
-  // misses them), the phone notify-only token (engine/phonenotify.js), and a provider account's
-  // API key file (claudeaccounts, geminiaccounts, grokaccounts). remote/'s other files (mac_id, pending.json, tls.crt)
-  // name the Mac or hold its public certificate, and are kept; a person's own folder called remote/ is untouched.
-  [/(^|\/)remote\/(mac_key|install_key)(\.[^/]*)?$/i, 'Kosmos Mac signing key'],
-  [/(^|\/)remote\/phone-notify\.json(\.[^/]*)?$/i, 'Kosmos phone notify token'],
-  [/(^|\/)\.kosmos-[a-z0-9]+-apikey(\.[^/]*)?$/i, 'provider API key'],
+  [/(^|\/)communitysend\/[^/]+\/[^/]*keys\.json[^/]*$/i, 'Kosmos+ community agent keys'],
+  [/(^|\/)[^/]*fed-seal-(key|rooms)[^/]*$/i, 'Kosmos room sealing keys'],
+  [/(^|\/)[^/]*board\.token[^/]*$/i, 'Kosmos board token'],
+  [/(^|\/)remote\/[^/]*(mac_key|install_key|\.key)[^/]*$/i, 'Kosmos Mac signing key'],
+  [/(^|\/)remote\/[^/]*phone-notify[^/]*$/i, 'Kosmos phone notify token'],
+  [/(^|\/)[^/]*\.kosmos-[a-z0-9]+-apikey[^/]*$/i, 'provider API key'],
   [/(^|\/)(cookies|login data|web data|local state)(-journal)?$/i, 'browser profile store'],
   [/\.(zip|gz|tgz|bz2|xz|7z|rar|zst|lz4|dmg|jar|war|whl|apk|ipa|docx|xlsx|pptx|odt|ods|odp|epub|pages|numbers)$/i, 'compressed container (contents cannot be scanned)'],
 ];
@@ -97,26 +99,29 @@ function pathDecision(rel) {
 }
 
 /* #5686 review 3: a writer's temp copy is named AROUND the file it replaces, so a rule anchored on the end of the
-   name never sees it: `.mac_key.tmp` and `.tls.key.tmp` (the connector's atomic writes), `.board.token.<pid>.primary.tmp`
-   (boardauth), `auth.json.kosmos-<pid>-t<n>-...tmp` (engine/securewrite.js), `signin-device.key.new-<pid>-<hex>` (the
-   device key's staging). One left by a crash, or caught mid-write, holds the same secret, and so does an editor's swap
-   or backup of it (review 4: `.mac_key.swp`, `mac_key~`, `id_rsa-new.tmp`). So a COPY-SHAPED name (see COPY_SHAPED) is
-   also judged as every name it could be a copy of: each leading run of it up to a '.', '-', '_' or '~', with and
-   without a leading dot. Only copy-shaped names are widened, so `secrets.md` or `server.key.md` is judged as itself.
-   The cost is on the safe side: a copy-shaped name that starts like a secret (`secrets_plan.tmp`, `readme.key.tmp`)
-   is skipped too. Bounded (review 4): a copy-shaped name longer than a filesystem allows (255) is skipped outright,
-   so at most 255 leading runs are tried and a hostile name cannot make the scan quadratic. */
-const COPY_SHAPED = /(\.(tmp|swp|swo|swx|bak|old|orig)|~|\.new-[^/]*)$/i;
+   name never sees it: `.tls.key.tmp` (the connector's atomic writes), `auth.json.kosmos-<pid>-t<n>-...tmp`
+   (engine/securewrite.js), `signin-device.key.new-<pid>-<hex>`, an editor's `.id_rsa.swp` or `id_rsa~`, a download's
+   `id_rsa (1)`. So a COPY-SHAPED name (see COPY_SHAPED) is also judged as every name it could be a copy of: each
+   leading run of it up to a '.', '-', '_', '~' or space, with and without a leading dot.
+   What this does NOT cover, said so nobody reads it as complete: a copy whose ending is not in COPY_SHAPED, and a copy
+   named IN FRONT of its origin (emacs `#id_rsa#` and `.#id_rsa`, `tmp-id_rsa`). For Kosmos's own stores the rules above
+   match anywhere in the name and need none of this; for other credentials the content scan and the final raw check
+   stand behind it (a PEM key, for one, is found by its content whatever the file is called).
+   Over-skip, on the safe side: an origin is judged by EVERY deny rule, so a copy of ordinary work whose name starts
+   like a denied one is skipped too (secrets_plan.tmp, cookies-recipe.md.tmp, contract.docx.bak, .git-blame.bak).
+   Bounded (review 4): a copy-shaped name longer than a filesystem allows (255 characters) is skipped outright, so at
+   most 510 leading runs are tried and a hostile name cannot make the scan quadratic. */
+const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)([-.][0-9a-f]+)*|~|\.\d+| copy( \d+)?| \(\d+\))$/i;
 const MAX_COPY_NAME = 255;
 function tempOrigins(p) {
   const cut = p.lastIndexOf('/') + 1;
   const dir = p.slice(0, cut);
   const base = p.slice(cut);
   if (!COPY_SHAPED.test(base)) return [];
-  if (base.length > MAX_COPY_NAME) return null;
+  if ([...base].length > MAX_COPY_NAME) return null;
   const out = new Set();
   for (const b of base.startsWith('.') ? [base, base.slice(1)] : [base]) {
-    for (let i = 1; i < b.length; i++) if ('.-_~'.includes(b[i])) out.add(dir + b.slice(0, i));
+    for (let i = 1; i < b.length; i++) if ('.-_~ '.includes(b[i])) out.add(dir + b.slice(0, i));
   }
   return [...out];
 }
