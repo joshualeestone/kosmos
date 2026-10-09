@@ -121,7 +121,12 @@ test('#5434: a trust that lands inside a forget is refused, never silently lost'
     const out = realRead.call(fs, p, ...rest);
     if (landed === null && String(p) === cfgOf(home)) {
       fs.readFileSync = realRead;
-      try { noWait(() => create.trustCodexFolder(arriving, home)); landed = true; } catch { landed = false; }
+      try { noWait(() => create.trustCodexFolder(arriving, home)); landed = true; }
+      catch (e) {
+        // Refused BY THE LOCK, not by anything else that throws, or this arm would measure nothing (review 1).
+        assert.match(String(e && e.message), /did not finish in time, so the folder trust was not written/);
+        landed = false;
+      }
     }
     return out;
   };
@@ -149,4 +154,27 @@ test('#5434: a flush that fails refuses the trust and releases the lock', () => 
   try { assert.throws(() => create.trustCodexFolder(dir, home), /EIO/); }
   finally { fs.fsyncSync = realFsync; }
   assert.equal(fs.existsSync(cfgOf(home) + '.lock'), false, 'a failed trust left config.toml.lock behind');
+});
+
+test('#5434: a re-trust of a folder already trusted answers at once, even with the lock held', () => {
+  const home = freshHome();
+  const dir = folder();
+  create.trustCodexFolder(dir, home);
+  const before = fs.readFileSync(cfgOf(home), 'utf8');
+  fs.mkdirSync(cfgOf(home) + '.lock'); // a live holder
+  try { noWait(() => create.trustCodexFolder(dir, home)); }
+  finally { fs.rmdirSync(cfgOf(home) + '.lock'); }
+  assert.equal(fs.readFileSync(cfgOf(home), 'utf8'), before);
+});
+
+test('#5434: a config.toml the trust creates is 0600, and an existing one keeps its mode', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+  const prev = process.umask(0o022);
+  try {
+    const home = freshHome();
+    create.trustCodexFolder(folder(), home);
+    assert.equal(fs.statSync(cfgOf(home)).mode & 0o777, 0o600, 'a new config.toml beside auth.json was created readable by others');
+    fs.chmodSync(cfgOf(home), 0o640);
+    create.trustCodexFolder(folder(), home);
+    assert.equal(fs.statSync(cfgOf(home)).mode & 0o777, 0o640, 'the append changed an existing file\'s mode');
+  } finally { process.umask(prev); }
 });
