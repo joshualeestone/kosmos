@@ -819,3 +819,34 @@ test('#5678 pick: a parent is not starved by a subtask that never moves; CONTROL
   assert.ok(plain && plain.n === 2, 'CONTROL: a pickable subtask goes first: ' + JSON.stringify(plain));
   assert.equal(a.pick('idleE', proj({ who: 'busyF' }), new Set()), null, 'CONTROL: a subtask a member holds busy keeps the tree (and the parent) from others');
 });
+
+/* #5678 review 6: failover in one pass: two idle agents and one stalled holder with two stalled parts in one tree; the
+   tree key `taken` carries keeps the second agent off it. */
+test('#5678 failoverPick in one pass: a tree moved to one agent is not moved to a second; CONTROL: without the key it would be', () => {
+  const proj = [{ id: 'pm', agents: ['stalledS', 'idleB', 'idleC'], tasks: [
+    { number: 1, sentence: 'One', who: 'stalledS' }, { number: 2, sentence: 'Two', parent: 1, who: 'stalledS' },
+  ] }];
+  const stalled = [{ projectId: 'pm', n: 1, partId: 1, from: 'stalledS', fromRunner: 'claude' },
+    { projectId: 'pm', n: 2, partId: 1, from: 'stalledS', fromRunner: 'claude' }];
+  const moved = new Set();
+  const taken = new Set();
+  const first = a.failoverPick('idleB', 'codex', stalled, proj, moved, taken);
+  assert.ok(first && first.treeKey, 'fixture: the first agent was not given the tree: ' + JSON.stringify(first));
+  moved.add(first.projectId + '#' + first.n + '#' + first.partId);
+  taken.add(first.treeKey);
+  assert.equal(a.failoverPick('idleC', 'codex', stalled, proj, moved, taken), null, 'the same tree was moved to a second agent in one pass');
+  assert.ok(a.failoverPick('idleC', 'codex', stalled, proj, moved, new Set()), 'CONTROL: without the tree key the second agent would have been given it');
+  // And step hands its pass's `taken` to failoverPick (a step-level run needs rate-limited cards; the call is pinned).
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'assigner.js'), 'utf8');
+  assert.match(src, /failoverPick\(session, runnerOf\.get\(session\) \|\| null, stalled, projects, movedParts, taken\)/, 'step no longer passes the pass\'s trees to failover');
+});
+
+/* #5678 review 6: a holder switched off in this project holds nothing here (busyHold's swarm clause, decided in review 5). */
+test('#5678 pick: a holder switched off in the project does not keep its tree from the others; CONTROL: switched on, it does', () => {
+  const proj = (swarmOff) => [{ id: 'ps', agents: ['idleG', 'holderH'], swarmOff, tasks: [
+    { number: 1, sentence: 'Parent' }, { number: 2, sentence: 'Held', parent: 1, who: 'holderH' }, { number: 3, sentence: 'Sibling', parent: 1 },
+  ] }];
+  assert.equal(a.pick('idleG', proj([]), new Set()), null, 'CONTROL: a busy holder keeps its tree');
+  const got = a.pick('idleG', proj(['holderH']), new Set());
+  assert.ok(got && got.n === 3, 'a holder switched off in the project kept its tree from the others: ' + JSON.stringify(got));
+});
