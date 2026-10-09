@@ -216,6 +216,15 @@ test('#5623 Rule 2 review 11: agentCall waits the caller\'s finite waitMs, else 
   assert.equal(cs._chainWaitMs(undefined), d);
 });
 
+test('#5623 Rule 2 review 13: agentCall\'s busy timer uses chainWaitMs, not the bare default', () => {
+  // A source pin: holding the real chain from a test needs a registered agent and a network stub; this catches the one
+  // regression that matters (the timer going back to agentWaitMs, which would stall the nudge behind a send sweep).
+  const src = require('node:fs').readFileSync(require.resolve('./communitysend'), 'utf8');
+  const body = src.slice(src.indexOf('function agentCall('), src.indexOf('async function agentCallNow('));
+  assert.ok(body.includes('}, chainWaitMs(opts));'), 'agentCall\'s timer no longer waits chainWaitMs(opts)');
+  assert.ok(!/\}, agentWaitMs\);/.test(body), 'agentCall\'s timer waits the bare agentWaitMs');
+});
+
 test('#5623 Rule 2 review 11: a line with a comment and an assignment reports only the assignment as seen', async () => {
   const PC = 'c1000000-0000-4000-8000-000000000001';
   const { o, state } = rig([asg(P1)], { fresh: async () => ({ ok: true, posts: [], persons: [{ remoteId: P2, title: 'x', id: PC, author: 'Dana', parent: '' }], answered: [] }) });
