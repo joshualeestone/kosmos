@@ -35,7 +35,7 @@
 const crypto = require('crypto');
 const nodeFs = require('fs');
 const path = require('path');
-const { CDC, chunkBuffer, sealNamedChunk, sealManifest, checkBackupContext } = require('./backupformat');
+const { CDC, chunkBuffer, chunkName, sealNamedChunk, sealManifest, checkBackupContext } = require('./backupformat');
 const { scanFile, pathDecision, insideWorkKosmos } = require('./backupscan');
 const { uploadChunks, uploadManifest, MAX_MANIFEST } = require('./backupupload');
 const { pathProblem, collisionKey, collidingPaths } = require('./backuprestore');
@@ -67,6 +67,9 @@ const MAX_KEY_LEN = 256;
 // The bounds backupupload.uploadManifest puts on a chunk's lock end (its LOCK_MAX_MS, plus an hour), checked here up front.
 const LOCK_FLOOR_MS = Date.UTC(2020, 0, 1), LOCK_MAX_MS = 39 * 86400 * 1000;
 const ownerOf = (key) => key.split('/').slice(0, 2).join('/');
+/* The member key a chunk was sealed to, as recorded in each index entry: the first 16 bytes of a domain-tagged SHA-256 of
+   the public key, hex. An index entry under another member key cannot be named (the new private key cannot open it). */
+const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". */
 function periodOf(ms) {
@@ -85,14 +88,14 @@ function periodOfKey(key) {
 }
 
 /* Why a coordinator key cannot stand for a chunk of this context, or null: it must be <org>/<account>/<epoch>/<period>/<random>
-   with the context's org, epoch and period. A chunk under another epoch was sealed to another member key, and one
-   under another period was named with another naming key: a manifest naming it would not restore. */
+   with the context's org and period (one under another period was named with another naming key: a manifest naming it
+   would not restore). NOT the epoch segment (review 13): the coordinator writes a constant there today (backup.rs EPOCH
+   = 1), so it says nothing about which member key sealed a chunk; that binding is the index entry's memberKeyId. */
 function keyProblem(key, ctx) {
   const parts = typeof key === 'string' ? key.split('/') : [];
   // Plain segments only (review 7): the manifest budget charges a key at its byte length, which JSON keeps only for these.
   if (parts.length !== 5 || parts.some((x) => !/^[A-Za-z0-9._:-]+$/.test(x) || x === '.' || x === '..')) return 'not a coordinator object key';
   if (parts[0] !== ctx.org) return `under org ${parts[0]}, not ${ctx.org}`;
-  if (parts[2] !== ctx.epoch) return `under key epoch ${parts[2]}, not ${ctx.epoch}`;
   if (parts[3] !== ctx.period) return `in period ${parts[3]}, not ${ctx.period}`;
   return null;
 }
@@ -113,12 +116,19 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
   let skippedExtra = 0, over = false;
   // Bounded, whatever the tree holds: past maxFiles the walk stops, and skips past maxSkipped are only counted.
   const skip = (x) => { if (skipped.length < maxSkipped) skipped.push(x); else skippedExtra++; };
-  const walk = (rel, depth) => {
+  const walk = (rel, depth, seen) => {
     if (over) return;
     // A depth cap (review 8): recursion this deep is a pathological tree, skipped by name rather than a stack overflow.
     if (depth > MAX_DEPTH) { skip({ path: rel, why: `folders nested more than ${MAX_DEPTH} deep` }); return; }
     let names;
     try { names = fs.readdirSync(path.join(root, rel)); } catch { skip({ path: rel || '.', why: 'a folder that could not be read' }); return; }
+    // The folder listed must be the one the walk saw (review 13): a folder swapped for a link after its lstat would be
+    // listed through the link. Checked again after listing; its files are also each checked at the open.
+    if (seen) {
+      let again = null;
+      try { again = fs.lstatSync(path.join(root, rel), { bigint: true }); } catch { /* gone */ }
+      if (!again || !again.isDirectory() || again.dev !== seen.dev || again.ino !== seen.ino) { skip({ path: rel, why: 'replaced while the snapshot was taken' }); return; }
+    }
     for (const name of names.sort()) {
       if (over) return;
       const r = rel ? `${rel}/${name}` : name;
@@ -129,7 +139,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       if (st.isDirectory()) {
         if (rootDev !== null && st.dev !== rootDev) { skip({ path: r, why: 'another volume mounted inside the work Kosmos (not crossed)' }); continue; }
         const why = folderDenied(r);
-        if (why) skip({ path: r, why }); else walk(r, depth + 1);
+        if (why) skip({ path: r, why }); else walk(r, depth + 1, st);
         continue;
       }
       if (!st.isFile()) { skip({ path: r, why: 'not a regular file' }); continue; }
@@ -142,7 +152,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       if (files.length > maxFiles) over = true;
     }
   };
-  walk('', 0);
+  walk('', 0, null);
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   // Restore refuses every entry that collides (engine/backuprestore.js collidingPaths): the same key (case, invisible
   // characters, '\\' as '/'), or a file whose key is another entry's folder. Keep-first, in sorted order, on a trie of
@@ -234,10 +244,12 @@ function upperBound(f, maxFile) {
  *     memberPk     the member's backup public key (32 bytes), namingKey this period's naming key (32 bytes) and
  *                  namingKeyId its id (backupkeys namingKeyId), deviceKey the device's Ed25519 private KeyObject
  *     ctx          the manifest context { org, member, epoch, period, snapshot }; period must be periodOf(now)
- *     index        this period's chunks stored by earlier runs: Map name -> { key, lockedUntilMs }, all under bucket
+ *     index        this period's chunks stored by earlier runs: Map name -> { key, lockedUntilMs, memberKeyId }, all under
+ *                  bucket; memberKeyId binds each to the member key it was sealed to (an entry for another is stale)
  *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson? }
  * Resolves { ok: true, manifestKey, files, skipped, uploaded, reused, added, bucket } or
- * { ok: false, because, retryLater?, newPeriod?, staleIndex?, tooLarge?, grantSpent?, unsure?, added, bucket }.
+ * { ok: false, because, retryLater?, newPeriod?, staleIndex?, tooLarge?, overAllowance?, grantSpent?, unsure?, added, bucket }.
+ *   overAllowance: the week's backup allowance would be passed, or is used up (backup_quota): not this period.
  *   newPeriod: a period boundary passed (the context's, or a grant's): start again with the new period's context and
  *     naming key; this input can never succeed.
  *   added (Map name -> { key, lockedUntilMs }) is every chunk this run stored in ctx.period under `bucket`, failed or not.
@@ -282,11 +294,12 @@ async function snapshotInner(input, deps, added, state, fail) {
 
   // The index: every entry this period's, with a lock end, under one named bucket. Checked before anything is read.
   const index = input.index instanceof Map ? input.index : new Map();
+  const mkid = memberKeyIdOf(memberPk);
   if (index.size) {
     if (typeof input.bucket !== 'string' || !input.bucket) return fail('an index of earlier chunks needs the bucket they are stored under', { staleIndex: true });
     for (const [name, e] of index) {
       const why = typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name) || !e ? 'malformed'
-        : keyProblem(e.key, ctx)
+        : keyProblem(e.key, ctx) || (e.memberKeyId !== mkid ? 'sealed to another member key' : null)
           || (!Number.isSafeInteger(e.lockedUntilMs) || e.lockedUntilMs < LOCK_FLOOR_MS || e.lockedUntilMs > t + LOCK_MAX_MS + 3600 * 1000 ? 'a lock end no grant could set' : null)
           // A lock that ends before any manifest granted now would (period end + 30 days + the window; at least now + 30
           // days + 15 min): uploadManifest would refuse it as outlasting it (review 9 NIT).
@@ -347,8 +360,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // Upload what is pending; on any failure, stop. Keys must be this period's and under one bucket.
   const flush = async () => {
     if (!pending.size) return null;
-    // The manifest so far, with every entry this run will add for what is pending, must still fit: stop BEFORE
-    // uploading, so a manifest that cannot be stored never leaves locked chunks behind.
+    // No size check here: the one check before the walk already guarantees the finished manifest fits (see there).
     const batch = [...pending].map(([name, object]) => ({ name, object }));
     const r = await putChunks(deps, batch);
     const stored = (r && r.keys instanceof Map) ? r.keys : new Map();
@@ -359,7 +371,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       // becomes what this batch stored under the NEW bucket; chunks earlier batches of this run stored under the old
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
-      for (const [name, key] of stored) if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
+      for (const [name, key] of stored) if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid });
       return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
@@ -374,7 +386,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
       if (Buffer.byteLength(key) > MAX_KEY_LEN) { badKey = badKey || `longer than ${MAX_KEY_LEN} characters`; continue; }
-      added.set(name, { key, lockedUntilMs: lockOf(name) });
+      added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid });
       usedKeys.add(key);
       owner = owner || ownerOf(key);
       objects[name] = key;
@@ -410,13 +422,16 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (d.redacted && d.redacted.length) { redacted.push({ path: f.path, kinds: d.redacted }); estimate += entryBytes(redacted[redacted.length - 1]); }
     const names = [];
     for (const piece of chunkBuffer(data)) {
-      const { name, object } = sealNamedChunk(memberPk, namingKey, piece);
+      // Named first, sealed only if it will be uploaded (review 13: sealing every chunk re-encrypted the whole work
+      // Kosmos on every run, to upload only what changed).
+      const name = chunkName(namingKey, piece);
       names.push(name);
       if (objects[name] || pending.has(name)) continue;
       const known = index.get(name);
       // Every name this snapshot references gets one objects entry: its JSON is counted once, here.
       estimate += CHUNK_NAME_LEN + 6 + (known ? Buffer.byteLength(known.key) : MAX_KEY_LEN);
       if (known) { objects[name] = known.key; reused++; continue; }
+      const { object } = sealNamedChunk(memberPk, namingKey, piece);
       pending.set(name, object); pendingBytes += object.length;
       if (pendingBytes >= batchBytes) { const stop = await flush(); if (stop) return stop; }
     }
@@ -456,4 +471,4 @@ async function snapshotInner(input, deps, added, state, fail) {
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
-module.exports = { periodOf, periodOfKey, listFiles, takeSnapshot, MAX_FILE, BATCH_BYTES, MAX_FILES };
+module.exports = { periodOf, periodOfKey, memberKeyIdOf, listFiles, takeSnapshot, MAX_FILE, BATCH_BYTES, MAX_FILES };
