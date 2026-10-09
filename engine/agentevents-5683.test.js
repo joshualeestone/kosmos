@@ -1018,3 +1018,30 @@ test('#5683 r31: a hidden word must reach the board root segment by segment', ()
   assert.equal(ae.targetClass('Bash', { command: 'cat ./*/worlds.json' }, c), 'other');
   assert.equal(ae.targetClass('Bash', { command: 'cat ~/*/*/*/board.token' }, c), 'board-files');
 });
+
+/* ---- review 32 ---- */
+
+const r32 = () => ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos',
+  boardRoots: ['/Applications/Kosmos.app'], otherAgentDirs: ['/Users/ann/Projects/R & D'] });
+
+test('#5683 r32: the script of a shell -c is a command, its first word a program, never one path', () => {
+  const c = r32();
+  assert.equal(ae.targetClass('Bash', { command: 'sh -c "/Applications/Kosmos.app/bin/kosmos accounts; cat notes.txt"' }, c), 'other');
+  assert.equal(ae.targetClass('Bash', { command: 'bash -c ".claude/hooks/fmt.sh; ls /tmp"' }, c), 'system');
+  assert.equal(ae.targetClass('Bash', { command: 'sudo bash -lc "cat /etc/hosts"' }, c), 'system');
+});
+
+test('#5683 r32: a quoted word anywhere else is one path, whatever it holds', () => {
+  const c = r32();
+  assert.equal(ae.targetClass('Bash', { command: 'cat "/Users/ann/Projects/R & D/notes.md"' }, c), 'other-agent');
+  assert.equal(ae.targetClass('Bash', { command: 'cat /Users/ann/Projects/R\\ \\&\\ D/notes.md' }, c), 'other-agent');
+});
+
+test('#5683 r32: bracket and brace globs hide a path too', () => {
+  const c = r32();
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosm[o]s/board.token' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosmo{s,}/board.token' }, c), 'board-files');
+  const h = ctx({ agentDir: '/Users/ann', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/App*/Kosm[o]s/board.token' }, h), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ./[ab]*/notes' }, h), 'other');
+});
