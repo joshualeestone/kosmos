@@ -55,13 +55,14 @@ test('#5706 review 1: a list number or an abbreviation is not a sentence end, so
     'I met with the landlord at 3 p.m. Then we walked through the whole flat.');
 });
 
-test('#5706 review 1: a full stop at the 200th character inside a word (v3.5) is not a sentence end', () => {
-  const lead = 'z'.repeat(150) + ' ' + 'y'.repeat(45) + ' v3';   // the "." of "v3.5" is the 200th character
+test('#5706 review 1: a full stop at the 200th character inside a word (release3.5) is not a sentence end', () => {
+  /* A long word (release3.5), so the abbreviation rule cannot be what refuses it: only reading past the slice can. */
+  const lead = 'z'.repeat(150) + ' ' + 'y'.repeat(39) + ' release3';   // the "." of "release3.5" is the 200th character
   const text = lead + '.5 next ' + 'word '.repeat(200);
   assert.equal(text.indexOf('.'), 199, 'CONTROL: the full stop sits at index 199');
   const r = spillHead(text);
   assert.ok(r.head.endsWith('\u2026'), r.head.slice(-20));
-  assert.ok(!r.head.endsWith('v3.'), r.head.slice(-20));
+  assert.ok(!r.head.endsWith('release3.'), r.head.slice(-20));
 });
 
 test('#5706 review 1: a slice that already ends on a whole word keeps it, and a trailing comma is dropped', () => {
