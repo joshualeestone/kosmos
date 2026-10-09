@@ -6,7 +6,8 @@
  * Harness: file:// with fetch answered here and speechSynthesis a recording stand-in, as render-voice-4409.js (a voice
  * cannot run in CI; what is under test is the page's half of the seam). The direct thread is drawn by the real
  * paintTalk; the project room calls the same convFollow from paintRoom (pinned at C8).
- *   C1 the toggle is drawn beside the mic and starts off (aria-pressed false)
+ *   C0 HELD (Josh 2026-10-09 10:49): by default no toggle is drawn and a conversation stored as on reads nothing
+ *   C1 the toggle is drawn beside the mic and starts off (aria-pressed false), with the mode's switch on
  *   C2 with the mode OFF, a new agent message is not read (CONTROL for C4)
  *   C3 turning it on reads nothing already on screen
  *   C4 with it on, a new agent message is read, with an on-device voice, code announced not spelled
@@ -72,7 +73,7 @@ function harness() {
     // The app's on-device dictation bridge, recording only (C17 presses the mic through its real handler).
     window.__voice = [];
     window.webkit = { messageHandlers: { kosmosVoice: { postMessage: (m) => window.__voice.push(m) } } };
-    try { localStorage.removeItem('kosmos.convmode'); } catch { /* fresh */ }
+    try { localStorage.removeItem('kosmos.convmode'); if (window.__convEnabled !== false) localStorage.setItem('kosmos.convmode.enabled', '1'); else localStorage.removeItem('kosmos.convmode.enabled'); } catch { /* fresh */ }
     const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url) => (String(url).includes('/thread') ? enc(window.__fx) : enc({}));
   };
@@ -90,6 +91,31 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   const errs = [];
   try {
+    {
+      // C0: the default page, as 0.7.35 ships it. A conversation stored as on from before the hold must stay silent.
+      const p0 = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+      p0.on('pageerror', (e) => errs.push(e.message));
+      await p0.addInitScript(() => { window.__convEnabled = false; });
+      await p0.addInitScript(harness());
+      await p0.addInitScript(() => { try { localStorage.setItem('kosmos.convmode', JSON.stringify({ 'dm:april': true })); } catch { /* none */ } });
+      await p0.goto(PAGE);
+      await p0.evaluate(() => {
+        CURRENT = { sessionName: 'april', name: 'April' };
+        LAST = [{ sessionName: 'april', name: 'April', state: 'idle' }];
+        document.getElementById('panel-detail').hidden = false;
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+        document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
+      });
+      await paint(p0, [agentRow(1, 'Already on screen.')]);
+      await paint(p0, [agentRow(1, 'Already on screen.'), agentRow(2, 'A new message after the hold.')]);
+      const c0 = await p0.evaluate(() => {
+        const shown = (id) => { const b = document.getElementById(id); return !!b && getComputedStyle(b).display !== 'none'; };
+        return { dm: shown('d-conv'), pj: shown('pj-conv'), mic: shown('d-mic'), speakable: document.documentElement.classList.contains('has-speak') };
+      });
+      const said0 = await spoken(p0);
+      chk(c0.speakable && !c0.dm && !c0.pj && !/after the hold/.test(said0), 'C0 held: no toggle is drawn and a conversation stored as on reads nothing', JSON.stringify({ c0, said0 }));
+      await p0.close();
+    }
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     page.on('pageerror', (e) => errs.push(e.message));
     await page.addInitScript(harness());
