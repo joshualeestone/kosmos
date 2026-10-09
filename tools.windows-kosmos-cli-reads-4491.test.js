@@ -30,7 +30,7 @@ async function run(argv, answer, env = { KOSMOS_AGENT_TOKEN: AGENT }) {
 const ROLES = { roles: [{ key: 'builder', label: 'Builder' }], own: { instructions: 'You are {{NAME}}.' } };
 const READS = [
   [['room', 'p4491'], '/api/project/p4491/room?as=text', { body: 'nothing here yet\n' }],
-  [['task', 'list', 'p4491'], '/api/tasks?project=p4491', { body: { tasks: [], count: 0 } }],
+  [['task', 'list', 'p4491'], '/api/tasks?project=p4491&order=state', { body: { tasks: [], count: 0 } }],
   [['agent', 'roles'], '/api/roles?catalogue=1', { body: ROLES }],
   [['agent', 'role-draft'], '/api/roles', { body: ROLES }],
 ];

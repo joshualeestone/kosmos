@@ -390,7 +390,7 @@ test('room and task sanitize the project id the way install/kosmos does; the rea
   assert.equal(room.calls[0].route, '/api/project/proj..xy/room?as=text');
   assert.equal(room.calls[0].headers['x-kosmos-agent-token'], AGENT, 'the room read answers to the agent\'s own token since #4491 slice 4');
   const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [{ number: 1, sentence: 'ship it', isClosed: false, whoNames: ['leo'] }] } }));
-  assert.equal(list.calls[0].route, '/api/tasks?project=p1');
+  assert.equal(list.calls[0].route, '/api/tasks?project=p1&order=state');
   assert.equal(list.out, '[1] ship it (leo)');
   const add = await run(['task', 'add', 'p1', 'write docs', 'more', 'detail'], () => ({ body: { task: {} } }));
   assert.deepEqual(add.calls[0].body, { sentence: 'write docs', detail: 'more detail', from_pane: '' });
