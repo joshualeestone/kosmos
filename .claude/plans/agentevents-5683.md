@@ -227,3 +227,15 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   skipped to its end for want of a tick.
 - readState's fallback returns every field.
 - Stated: the call map keeps a bounded map per transcript seen, freed when the file is gone.
+
+## Review 16 (opus), all fixed unless stated
+- On the token-only list is not under the company's rules: setup-assistant refuses to write the guard when a root is
+  missed, a rule is dropped, on Windows, or for a non-Claude runner, and a just-listed agent runs unguarded until its
+  settings carry the rules. Such an agent's refusals are all the PERSON's own. Only an agent whose own settings hold
+  every rule the guard writes for its folder (tokenOnlySettingsRules, now exported; nothing missed or dropped) is read;
+  the check is a required source. Test.
+- A sandbox refusal counts only on macOS (no sandbox is written elsewhere). Test.
+- A tool name from denial text that is an object key (constructor) is a 'run', never an inherited value. Test.
+- Stated: a settings file that holds the rules does not prove the RUNNING session started with them (a session started
+  before the guard was written reads its old settings until it restarts); a non-token-only twin created and deleted
+  within one tick is never recorded as a collision; home falls back to os.homedir() where the guard uses kosmosHome().
