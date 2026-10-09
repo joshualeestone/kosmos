@@ -81,8 +81,8 @@ const SKEW_MS = 60 * 60 * 1000;
 const periodsNear = (t) => new Set([periodOf(t - SKEW_MS), periodOf(t), periodOf(t + SKEW_MS)]);
 // The coordinator's allowance per member per weekly period (docs/coordinator-api.md "Allowances"): chunk objects and
 // bytes, spent at grant time. A snapshot that could pass either is refused before it spends any.
-// The bound is cautious (chunks at the 256 KiB minimum, redaction doubling every file), so in practice it refuses at
-// about 25 GB of files, though real chunks average 1 MiB; the refusal says so.
+// The bound is cautious (chunks at the 256 KiB minimum, redaction doubling every file), so it refuses at roughly 25 GB
+// of files by that arithmetic (an estimate, not measured), though real chunks average 1 MiB; the refusal says so.
 const CHUNK_ALLOWANCE = 200000, BYTE_ALLOWANCE = 64 * 2 ** 30;
 // A sealed chunk object at most: the chunk, Padme padding (at most about 12%, here 13%), framing; never below the floor.
 const sealedMax = (n) => Math.max(4148, Math.ceil(n * 1.13) + 4096);
@@ -103,7 +103,7 @@ const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WE
 const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". (The
-    coordinator falls back to "p<start>" for a time its time crate cannot hold, outside years -9999 to 9999; takeSnapshot refuses a
+    coordinator falls back to "p<start>" for a time its time crate cannot hold, outside years -9999 to 9999; takeSnapshot refuses any year past 9998 either way, a
     clock that far off before using this.) */
 function periodOf(ms) {
   const start = MONDAY_EPOCH + Math.floor((ms - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
@@ -220,6 +220,9 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
         continue;
       }
       if (!st.isFile()) { skip({ path: r, why: 'not a regular file' }); continue; }
+      // Hard links are skipped here too, so a hard-linked tree takes no part of the file count, the manifest reserve
+      // or the allowance (it could otherwise refuse a whole snapshot as tooLarge); readListed checks again at the open.
+      if (st.nlink > 1n) { skip({ path: r, why: 'stored under more than one name (a hard link; another name may be outside the work Kosmos)' }); continue; }
       const d = denied(r);
       if (!d.include) { skip({ path: r, why: d.why }); continue; }
       // A path restore would refuse (engine/backuprestore.js pathProblem) is not stored: it could never come back.
