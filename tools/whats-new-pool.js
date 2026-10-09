@@ -102,8 +102,9 @@ function main(argv) {
     process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --ref=COMMIT, --promoted)\n');
     return 2;
   }
-  const [cmd, version] = argv.filter((a) => !a.startsWith('--'));
-  if (!['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
+  const positional = argv.filter((a) => !a.startsWith('--'));
+  const [cmd, version] = positional;
+  if (positional.length !== 2 || !['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
     process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--from=<file> | --from-history [--ref=<commit>]] [--promoted]\n');
     return 2;
   }
@@ -141,7 +142,11 @@ function main(argv) {
       return 3;
     }
     const out = opt(argv, 'out', whatsnew.FILE);
-    fs.writeFileSync(out, JSON.stringify(obj, null, 2) + '\n');
+    const tmpOut = out + '.tmp-' + process.pid;
+    try {
+      fs.writeFileSync(tmpOut, JSON.stringify(obj, null, 2) + '\n');
+      fs.renameSync(tmpOut, out);
+    } finally { fs.rmSync(tmpOut, { force: true }); }
     const rel = path.relative(process.cwd(), out);
     process.stdout.write((rel.startsWith('..') ? out : rel) + ': ' + obj.highlights.length + ' highlight(s) for ' + version
       + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n'
@@ -168,8 +173,15 @@ function main(argv) {
     process.stderr.write('--ref only goes with --from-history; nothing marked\n');
     return 2;
   }
-  const from = fromHist ? 'git history' : opt(argv, 'from', whatsnew.FILE);
-  const shownObj = fromHist ? fromHistory(version, ROOT, opt(argv, 'ref', 'HEAD')) : JSON.parse(fs.readFileSync(from, 'utf8'));
+  // Review 9: HEAD is main's LATEST wording for that version, which can differ from what was cut (0.7.34 lost an item
+  // after its first commit). The frozen sha is the only honest answer, so it is required, never defaulted.
+  if (fromHist && opt(argv, 'ref', null) === null) {
+    process.stderr.write('--from-history needs --ref=<the cut\'s frozen sha> (step 2b of the cut, or frozen_sha= in the cut box\'s'
+      + ' ~/.claude/logs/cut-suite-runs.log); nothing marked\n');
+    return 2;
+  }
+  const from = fromHist ? 'git history at ' + opt(argv, 'ref', '') : opt(argv, 'from', whatsnew.FILE);
+  const shownObj = fromHist ? fromHistory(version, ROOT, opt(argv, 'ref', '')) : JSON.parse(fs.readFileSync(from, 'utf8'));
   if (!shownObj || shownObj.version !== version || !Array.isArray(shownObj.highlights)) {
     process.stderr.write(from + ' is not the What\'s New of ' + version + '; nothing marked\n');
     return 3;
@@ -189,7 +201,10 @@ function main(argv) {
   const titles = new Set(shownObj.highlights.map((h) => h.title));
   let marked = 0;
   for (const it of pool.items) {
-    if (titles.has(it.title) && it.status === 'pending') { it.status = 'shown'; it.shownIn = version; marked++; }
+    // Review 9: the pool tracks MAC prod, and the Mac never shows a highlight tagged for other platforms only, so a
+    // Mac promote leaves it pending for the platform that has not shown it yet.
+    const onMac = !Array.isArray(it.platforms) || !it.platforms.length || it.platforms.includes('mac');
+    if (titles.has(it.title) && it.status === 'pending' && onMac) { it.status = 'shown'; it.shownIn = version; marked++; }
   }
   pool.lastProd = version;
   // Temp file then rename: a crash mid-write must not truncate the only record of what prod showed.
@@ -198,7 +213,7 @@ function main(argv) {
     fs.writeFileSync(tmpFile, JSON.stringify(pool, null, 2) + '\n');
     fs.renameSync(tmpFile, poolFile);
   } finally { fs.rmSync(tmpFile, { force: true }); }
-  process.stdout.write(marked + ' highlight(s) marked shown in prod ' + version + '\n');
+  process.stdout.write(marked + ' highlight(s) marked shown in prod ' + version + ' (read from ' + from + ')\n');
   return 0;
 }
 

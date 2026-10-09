@@ -140,8 +140,10 @@ test('#5711 review 5: --from-history finds the What\'s New a version shipped in 
   try {
     const copy = path.join(dir, 'pool.json');
     fs.copyFileSync(path.join(__dirname, 'release', 'whats-new-pool.json'), copy);
-    assert.equal(quiet(() => tool.main(['shown', '0.7.35', '--promoted', '--from-history', `--pool=${copy}`])), 0);
-    assert.equal(quiet(() => tool.main(['shown', '0.0.1', '--promoted', '--from-history', `--pool=${copy}`])), 3, 'CONTROL');
+    assert.equal(quiet(() => tool.main(['shown', '0.7.35', '--promoted', '--from-history', '--ref=HEAD', `--pool=${copy}`])), 0);
+    assert.equal(quiet(() => tool.main(['shown', '0.0.1', '--promoted', '--from-history', '--ref=HEAD', `--pool=${copy}`])), 3, 'CONTROL');
+    // Review 9: no default ref (HEAD can hold wording that was never cut).
+    assert.equal(quiet(() => tool.main(['shown', '0.7.35', '--promoted', '--from-history', `--pool=${copy}`])), 2);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -230,5 +232,17 @@ test('#5711 review 7: --from with --from-history, or --ref without it, is refuse
     assert.equal(quiet(() => tool.main(['shown', '0.7.36', '--promoted', `--pool=${t.file}`, `--from=${shown}`, '--ref=HEAD'])), 2);
     assert.equal(fs.readFileSync(t.file, 'utf8'), before, 'nothing marked');
     assert.equal(quiet(() => tool.main(['shown', '0.7.36', '--promoted', `--pool=${t.file}`, `--from=${shown}`])), 0, 'CONTROL');
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711 review 9: a Mac promote leaves a Windows-only highlight pending; extra arguments are refused', () => {
+  const t = tmp({ lastProd: '0.7.35', items: [item('Both', 1, 'pending'), item('Win only', 2, 'pending', { platforms: ['windows'] }), item('Mac only', 3, 'pending', { platforms: ['mac'] })] });
+  try {
+    const shown = path.join(t.dir, 'shown.json');
+    fs.writeFileSync(shown, JSON.stringify({ version: '0.7.36', highlights: ['Both', 'Win only', 'Mac only'].map((title) => ({ icon: 'tasks', title, line: 'x' })) }));
+    assert.equal(quiet(() => tool.main(['shown', '0.7.36', '0.7.37', '--promoted', `--pool=${t.file}`, `--from=${shown}`])), 2, 'two versions');
+    assert.equal(quiet(() => tool.main(['shown', '0.7.36', '--promoted', `--pool=${t.file}`, `--from=${shown}`])), 0);
+    const by = Object.fromEntries(JSON.parse(fs.readFileSync(t.file, 'utf8')).items.map((i) => [i.title, i.status]));
+    assert.deepEqual(by, { 'Both': 'shown', 'Win only': 'pending', 'Mac only': 'shown' });
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
