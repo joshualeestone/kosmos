@@ -71,3 +71,17 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   coordinator's capped/skipped counts are logged.
 - Stated: words accepted again count from the tick that sees them (a refusal between the acceptance and that tick, at
   most one tick, is not sent). org_bad_print is not dropped: it is a board defect, and the 30-minute wait bounds it.
+
+## Review 3 (sonnet), all fixed
+- A torn read of the token-only list (an empty list) wiped every agent's first sighting: the board's source answers
+  null when the file exists but cannot be read, and the tick then changes nothing. Test through the board's own
+  sources, P19.
+- A Bash target was its FIRST path (usually the binary or a cd): every path in the command is classed and the most
+  telling one reported (board-files, agent-config, other-agent, home, system, other). Test, P18.
+- Too big with more than one event dropped good events: the next send carries half as many (reset after a success);
+  a single event too big is dropped. Test, P20.
+- Words withdrawn and accepted again under the SAME hash kept the old queue and the gap: the withdrawal is recorded in
+  the state and the resumed tick starts clean. Test with a positive arm (a refusal after the words are back IS sent),
+  P21. The consent path also sets the 30-minute wait.
+- A recently written transcript holding old lines exercises the time filter itself (the mtime skip could hide it).
+  Test, P22. A non-finite first-sighting time fails closed.
