@@ -16,8 +16,14 @@
  * Distinct magic AND a context line that names its kind: a member-key wrap can never open as a naming key.
  *
  * Wraps are NOT authenticated (HPKE base mode): anyone with a recipient's public key can make one that opens. A
- * member key must therefore derive to the expected public key, and a forged naming-key wrap can only make a
- * restore fail its chunk-name checks (backupformat's openVerifiedChunk), never yield other data.
+ * member key must therefore derive to the expected public key. A naming key cannot be checked that way, so:
+ *   - unwrapNamingKey is for RESTORE only, where a forged naming key just makes chunk names fail to verify
+ *     (backupformat's openVerifiedChunk) and never yields other data;
+ *   - a Mac must NEVER unwrap a naming key from storage to name NEW chunks: a forged one would make those names
+ *     predictable to whoever forged it. A Mac that lost its naming key mid-period makes a fresh one (newNamingKey),
+ *     at the cost of deduplication within that period;
+ *   - if a stored wrap is ever reused for new data, it first needs an authenticator (a device signature, or carrying
+ *     it inside the device-signed manifest).
  *
  * Context ids are STRINGS of letters, digits and . _ : - (1 to 128): epoch '1' and '01' are different contexts, and
  * a number throws on wrap and reads as null on unwrap, so whatever stores them must write one canonical form.
@@ -50,7 +56,7 @@ const asBuf = (x) => (Buffer.isBuffer(x) ? x : (x instanceof Uint8Array ? Buffer
 /* The associated data for one kind of wrap: a fixed line naming the kind, then each field. Throws on a bad ctx. */
 function contextBytes(kind, fields, ctx) {
   for (const k of fields) {
-    if (!ctx || typeof ctx[k] !== 'string' || !ID_RE.test(ctx[k])) throw new Error(`backupkeys: the ${kind} context needs a non-empty ${k} of letters, digits and . _ : -`);
+    if (!ctx || !Object.hasOwn(ctx, k) || typeof ctx[k] !== 'string' || !ID_RE.test(ctx[k])) throw new Error(`backupkeys: the ${kind} context needs a non-empty ${k} of letters, digits and . _ : -`);
   }
   return Buffer.from(`kosmos-backup v${FORMAT} ${kind}\n` + fields.map((k) => `${k}=${ctx[k]}`).join('\n'));
 }
@@ -115,7 +121,8 @@ function wrapNamingKey(namingKey, memberPk, ctx) {
   return wrap(NAMING_MAGIC, INFO, namingContext(ctx), nk, pk);
 }
 
-/** One period's naming key from its wrap, with the member private key; null on ANY failure. Never throws. */
+/** One period's naming key from its wrap, with the member private key, FOR RESTORE ONLY (see the header); null on ANY
+    failure. Never throws. */
 function unwrapNamingKey(memberSk, wrapped, ctx) {
   try {
     const sk = asBuf(memberSk);

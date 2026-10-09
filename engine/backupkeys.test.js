@@ -64,7 +64,8 @@ test('a member-key wrap never opens as a naming key, nor the reverse (the magic 
   // A member key wrapped to the member's own public key, opened as a naming key with the same ids.
   const mw = keys.wrapMemberKey(member.sk, member.pk, mctx);
   assert.strictEqual(keys.unwrapNamingKey(member.sk, mw, nctx), null);
-  // With the magic swapped, so only the kind line in the associated data separates them (both share one info).
+  // With the magic swapped: the associated data still differs (the kind line, and the naming key's period field),
+  // and both kinds share one HPKE info.
   const swapped = Buffer.concat([Buffer.from('KBN1'), mw.subarray(4)]);
   assert.strictEqual(keys.unwrapNamingKey(member.sk, swapped, nctx), null);
   const nw = keys.wrapNamingKey(keys.newNamingKey(), member.pk, nctx);
@@ -98,6 +99,12 @@ test('wrap throws on a caller mistake: key sizes, a bad context, a non-canonical
   assert.throws(() => keys.wrapMemberKey(member.sk, r.pk, Object.assign({}, mctx, { member: 'a\nperiod=x' })), /needs a non-empty member/);
   assert.throws(() => keys.wrapMemberKey(member.sk, r.pk, Object.assign({}, mctx, { org: 'x'.repeat(129) })), /needs a non-empty org/);
   assert.throws(() => keys.wrapNamingKey(Buffer.alloc(16), member.pk, nctx), /naming key must be 32 bytes/);
+  // A numeric id is not a string: wrap throws, unwrap reads null (so key storage must keep one canonical string form).
+  assert.throws(() => keys.wrapMemberKey(member.sk, r.pk, Object.assign({}, mctx, { epoch: 1 })), /needs a non-empty epoch/);
+  const w1 = keys.wrapMemberKey(member.sk, r.pk, mctx);
+  assert.strictEqual(keys.unwrapMemberKey(r.sk, w1, Object.assign({}, mctx, { epoch: 1 }), member.pk), null);
+  // Only the context's OWN fields count: an inherited epoch is not one.
+  assert.throws(() => keys.wrapMemberKey(member.sk, r.pk, Object.assign(Object.create({ epoch: '1' }), { org: 'org1', member: 'acct1' })), /needs a non-empty epoch/);
   assert.throws(() => keys.wrapNamingKey(keys.newNamingKey(), member.pk, mctx), /needs a non-empty period/);
   const nonCanonical = Buffer.alloc(32, 0xff);   // bit 255 set: hpke refuses it, since such a wrap could never open
   assert.throws(() => keys.wrapMemberKey(member.sk, nonCanonical, mctx), /canonical/);
