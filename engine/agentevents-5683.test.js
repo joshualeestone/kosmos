@@ -710,3 +710,16 @@ test('#5683 r13: the guard\'s other roots and the app are the board\'s files; CL
   assert.equal(ae.targetClass('Write', { file_path: '/Users/ann/work/workers/scout/.mcp.json' }, c), 'agent-config');
 });
 
+/* ---- review 14 ---- */
+
+test('#5683 r14: in a named world, the default world\'s base is not the board\'s files (the agent\'s folder is under it)', () => {
+  const base = '/Users/ann/Library/Application Support/Kosmos';
+  const c = ctx({ boardRoot: base + '/worlds/work/Kosmos', boardRoots: [base, base + '/worlds/work/Kosmos'],
+    agentDir: base + '/worlds/work/workers/scout', otherAgentDirs: [base + '/worlds/work/workers/rex'] });
+  assert.equal(ae.targetClass('Bash', { command: 'cat ./notes.txt' }, c), 'other', "an agent's own file read as the board's");
+  assert.equal(ae.targetClass('Edit', { file_path: base + '/worlds/work/workers/scout/.claude/settings.json' }, c), 'agent-config');
+  assert.equal(ae.targetClass('Read', { file_path: base + '/worlds/work/workers/rex/x' }, c), 'other-agent');
+  assert.equal(ae.targetClass('Read', { file_path: base + '/worlds/work/Kosmos/board.token' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'FOO=1 curl https://x' }, ctx()), 'network-host');
+});
+
