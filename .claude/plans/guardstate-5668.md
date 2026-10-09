@@ -19,7 +19,7 @@ For an agent listed token-only, its page shows a notice when the last guard run 
    - engine: the record is written per agent by both callers, and the account file is counted;
    - server: the route carries the field only for listed agents;
    - a browser check renders both notices through the real openDetail, with a control that a guarded agent shows none.
-   - Design shots for the page.
+   - (Design shots: superseded, see Decided.)
 
 ## Decided
 - A guarded agent shows nothing. The notice is for something the person should act on. A "guarded" line on every token-only agent's page would be noise.
@@ -82,3 +82,10 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 - Not changed:
   - a creation that fails leaves a not-whole line until the next board start prunes it, which is harmless: a rolled-back agent has no row on the page;
   - paths in both the agent's settings files are counted once, because sandboxDenySize dedupes within each clause.
+
+## Review 7 (Opus) and what changed
+- **The unreadable-line replace could delete a launch's fresh line.** It now reads only that agent's file, and removes it only if it is still the same file (inode). A launch's line renamed in since is a new inode and stays. The residual is a window of microseconds between that check and the removal, which needs a cut-off line to begin with; the comment says so.
+- **The admin's managed settings file** (`MANAGED_SETTINGS_PATH`, root-owned, when installed) merges into the same sandbox profile, and now joins the size count (`deps.managedSettingsPath` is a test seam). It is absent on the fleet Mac, and the tests never read the real one.
+- **Without hard links** (a filesystem that refuses them), a board start falls back to a rename where there is no line, rather than recording nothing.
+- **Windows, decided:** the guard returns "not shown to hold yet" on Windows, so every token-only agent's page there shows the "not complete" notice from the first board start. That is honest: Kosmos does not claim the guard on Windows. To tell Homer on #5664 when this merges.
+- The design-shots step is struck; Decided explains why.

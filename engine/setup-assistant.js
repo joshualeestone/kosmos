@@ -1330,6 +1330,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
 const GUARD_STATE_DIR = 'token-only-guard';
 function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
 function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
+function readableGuardLine(file) {
+  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return !!(j && typeof j === 'object' && !Array.isArray(j) && typeof j.ok === 'boolean'); } catch { return false; }
+}
 function readGuardState(deps = {}) {
   const out = {};
   let names;
@@ -1381,11 +1384,20 @@ function recordGuardState(agentName, r, deps = {}) {
            fails with EEXIST, so a line another run wrote first is kept and no half-written file is left. A line that
            cannot be read (cut off by a crash) is replaced, or it would hide every later board start's reading. */
         try { fs.linkSync(tmp, file); } catch (e) {
-          if (!(e && e.code === 'EEXIST')) throw e;
-          // Unreadable: remove it and link again, still exclusive (review 6), so a launch's line that lands first stays.
-          if (!Object.prototype.hasOwnProperty.call(readGuardState(deps), agentName)) {
-            try { fs.unlinkSync(file); } catch { /* gone */ }
-            try { fs.linkSync(tmp, file); } catch (e2) { if (!(e2 && e2.code === 'EEXIST')) throw e2; }
+          if (e && e.code !== 'EEXIST') {
+            // No hard links on this filesystem (review 7): a plain rename, but only where there is no line.
+            if (!fs.existsSync(file)) fs.renameSync(tmp, file);
+          } else {
+            /* Unreadable: remove it and link again, still exclusive (review 6). Only that agent's file is read, and it is
+               removed only if it is still the same file (review 7: a launch's line renamed in since is a new inode and
+               stays). Residual: a launch renaming in between that check and the removal; a window of microseconds that
+               needs a cut-off line to start with. */
+            let seen = null;
+            try { seen = fs.statSync(file).ino; } catch { seen = null; }
+            if (seen !== null && !readableGuardLine(file)) {
+              try { if (fs.statSync(file).ino === seen) fs.unlinkSync(file); } catch { /* gone */ }
+              try { fs.linkSync(tmp, file); } catch (e2) { if (!(e2 && e2.code === 'EEXIST')) throw e2; }
+            }
           }
         }
       } else fs.renameSync(tmp, file);
@@ -1596,7 +1608,9 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if ((deps.platform || process.platform) === 'darwin') {
       /* #5668: the account's own file, and the agent folder's settings.local.json (cleanLocalSettings keeps its denies,
          review 1), reach the same profile. */
-      const acct = settingsLists([accountSettingsFile(agentName, deps), path.join(rules.settingsDir, 'settings.local.json')]);
+      // Review 7: and the root-owned managed settings file, when an admin installed it (it merges into the same profile).
+      const managed = deps.managedSettingsPath !== undefined ? deps.managedSettingsPath : MANAGED_SETTINGS_PATH;
+      const acct = settingsLists([accountSettingsFile(agentName, deps), path.join(rules.settingsDir, 'settings.local.json'), ...(managed ? [managed] : [])]);
       const fsbNow = next.sandbox.filesystem;
       sz = sandboxDenySize({ denyRead: [...(fsbNow.denyRead || []), ...acct.denyRead], denyWrite: [...(fsbNow.denyWrite || []), ...acct.denyWrite] }, [...next.permissions.deny, ...acct.deny], deps.home, deps.platform || process.platform);
     }

@@ -274,3 +274,21 @@ test('#5668 review 5: pruning sweeps a temp file a dead writer left (once it is 
   setup.guardTokenOnlyFolder(agentDir('gs-noname'), '', { ...BASE, accountConfigDir: null });
   assert.ok(!fs.existsSync(path.join(dir, '.json')), 'an empty name wrote a line');
 });
+
+test('#5668 review 7: the admin\'s managed settings file counts toward the size; with no hard links a board start still records a new agent', () => {
+  const dir = agentDir('gs-managed');
+  const empty = path.join(SANDBOX, 'accounts', 'managed-empty');
+  fs.mkdirSync(empty, { recursive: true });
+  const big = path.join(bigAccount('gs-managed'), 'settings.json');
+  const r = quiet(() => setup.guardTokenOnlyFolder(dir, 'gs-managed', { ...BASE, accountConfigDir: empty, managedSettingsPath: big }));
+  assert.ok(r.warning, 'the managed settings file did not count: ' + JSON.stringify(r));
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'gs-managed', { ...BASE, accountConfigDir: empty, managedSettingsPath: null }), { ok: true }, 'CONTROL: without it, under the size');
+  // A filesystem without hard links: the board start's exclusive create falls back to a rename where there is no line.
+  const real = fs.linkSync;
+  fs.linkSync = () => { const e = new Error('no links'); e.code = 'ENOTSUP'; throw e; };
+  try {
+    fs.rmSync(path.join(store.ROOT, setup.GUARD_STATE_DIR, 'gs-nolink.json'), { force: true });
+    setup.guardTokenOnlyFolder(agentDir('gs-nolink'), 'gs-nolink', { ...BASE, accountConfigDir: empty, managedSettingsPath: null, boardStart: true });
+  } finally { fs.linkSync = real; }
+  assert.equal(setup.readGuardState()['gs-nolink'].ok, true, 'with no hard links a board start recorded nothing (the page would read as guarded)');
+});
