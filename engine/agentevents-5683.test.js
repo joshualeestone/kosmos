@@ -760,7 +760,9 @@ test('#5683 r17: the board\'s own guard check agrees with what the guard writes'
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-guard-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const r = sa.guardTokenOnlyFolder(dir, 'Scout', { runner: 'claude', platform: 'darwin' });
-  if (!r.ok) { t.skip('the guard could not be written in this sandbox: ' + r.because); return; }
+  /* Review 18: on a Mac the guard must be writable here, or the only test of the real check would skip and never fail. */
+  if (!r.ok && process.platform !== 'darwin') { t.skip('the guard could not be written off macOS: ' + r.because); return; }
+  assert.ok(r.ok, 'the guard could not be written: ' + r.because);
   const src = ae._defaultSources();
   assert.equal(src.guarded(dir, new Map()), true, 'a folder the guard just wrote was read as unguarded');
   const other = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-noguard-'));
@@ -775,8 +777,32 @@ test('#5683 r17: the board\'s own guard check agrees with what the guard writes'
 test('#5683 r17: words lost while enrolled (no 409 here) mark the state, so the gap is never sent', async (t) => {
   const { s, c } = await enrolled(t);
   await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
-  await oe.consentWithdrawn({ root: s.root }, oe.readEnrollment({ root: s.root }).consentHash);   // e.g. by the rollup
+  const hash = oe.readEnrollment({ root: s.root }).consentHash;
+  await oe.consentWithdrawn({ root: s.root }, hash);   // e.g. by the rollup
   await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).withdrawn, true);
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('gap', 'Bash', { command: 'x' }), result('gap', DENIED('x'), true));   // while no words are accepted
+  await new Promise((r) => setTimeout(r, 1100));
+  accept(s.root);   // the same words accepted again
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('after', 'Bash', { command: 'x' }), result('after', DENIED('x'), true));
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.equal(refs.includes('gap'), false, 'a refusal from the gap was sent');
+  assert.ok(refs.includes('after'), 'nothing was sent after the words were accepted again');
+});
+
+/* ---- review 18 ---- */
+
+test('#5683 r18: a guarded agent sharing a folder with an UNGUARDED listed one is not read', async (t) => {
+  const { s, c } = await enrolled(t);
+  const read = [];
+  const src = { agents: () => ['orch.main', 'orch-main'], everyAgent: () => ['orch.main', 'orch-main'],
+    guarded: (d) => d === '/w/orch.main', dirOf: (n) => '/w/' + n,
+    transcriptDirsOf: (d) => ['/p/' + d.replace(/[^A-Za-z0-9/]/g, '-')], transcripts: async (d) => { read.push(d); return []; } };
+  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.deepEqual(read, [], "a folder shared with an unguarded agent (the person's own rules) was read");
 });
 

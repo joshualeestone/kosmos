@@ -241,7 +241,7 @@ function scanText(text, calls, ctx) {
       const sessionRef = ref(ctx.session);
       const toolUseRef = ref(b.tool_use_id);
       if (!agent || !sessionRef || !toolUseRef) continue;
-      out.push({ agent, at: Math.floor(at / 1000), action: (tool && Object.prototype.hasOwnProperty.call(ACTION, tool) ? ACTION[tool] : 'run'), rule,
+      out.push({ agent, ms: at, at: Math.floor(at / 1000), action: (tool && Object.prototype.hasOwnProperty.call(ACTION, tool) ? ACTION[tool] : 'run'), rule,
         targetClass: call.target || targetClass(tool, {}, ctx), sessionRef, toolUseRef });
     }
   }
@@ -397,7 +397,8 @@ async function tick(opts) {
       const sameEnrollment = typeof st.enrolledAs === 'string' && st.enrolledAs.split('|').slice(0, 3).join('|') === enrolledAs.split('|').slice(0, 3).join('|');
       st = { offsets: {}, pending: [], listed: {}, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
     }
-    const sinceS = Math.floor(Math.max(joinedAt, st.since || joinedAt) / 1000);   // whole seconds, as e.at
+    const sinceMs = Math.max(joinedAt, st.since || joinedAt);
+    const sinceS = Math.floor(sinceMs / 1000);   // whole seconds, for the file-skipping rules
     const names = src.agents();
     if (!Array.isArray(names)) return { sent: 0, because: 'the token-only list could not be read; nothing changed' };
     const dirs = new Map(names.map((n) => [n, src.dirOf(n)]));
@@ -414,21 +415,24 @@ async function tick(opts) {
       if (!Array.isArray(every)) return { sent: 0, because: 'the agent list could not be read; nothing changed' };
       const flat = (d) => new Set(src.transcriptDirsOf(d));
       /* An agent whose folder cannot be resolved cannot be compared (review 11): that is unreadable too, not "no clash". */
+      /* The guard pass FIRST (review 18): a listed agent whose guard is not in force runs under the person's own rules, so
+         it is not read, and it counts among the "others" a read agent must not share a folder with. */
+      const unguarded = [];
+      for (const [n, d] of [...dirs]) {
+        if (!d || src.guarded(d, launchCache)) continue;   // review 16: not under the company's rules yet
+        dirs.delete(n); collidedNow.add(n); unguarded.push(d);
+        if (!UNGUARDED_SAID.has(n)) { UNGUARDED_SAID.add(n); console.error('agentevents: ' + n + ' is token-only but its guard is not in force; its refusals are not read'); }
+      }
       const otherDirs = every.filter((n) => !names.includes(n)).map((n) => src.dirOf(n));
       if (otherDirs.some((d) => !d)) return { sent: 0, because: 'an agent\'s folder could not be resolved; nothing changed' };
-      const others = otherDirs.map(flat);
+      const others = [...otherDirs, ...unguarded].map(flat);
       for (const [n, d] of [...dirs]) {
         if (!d) continue;
-        if (!src.guarded(d, launchCache)) {   // review 16: not under the company's rules yet
-          dirs.delete(n); collidedNow.add(n);
-          if (!UNGUARDED_SAID.has(n)) { UNGUARDED_SAID.add(n); console.error('agentevents: ' + n + ' is token-only but its guard is not in force; its refusals are not read'); }
-          continue;
-        }
         const mine = flat(d);
         if (others.some((o) => [...o].some((x) => mine.has(x)))) {
           dirs.delete(n);
           collidedNow.add(n);
-          console.error('agentevents: ' + n + ' shares its transcript folder with an agent that is not token-only; not read');
+          console.error('agentevents: ' + n + ' shares its transcript folder with an agent not under the company\'s rules; not read');
         }
       }
     }
@@ -455,6 +459,7 @@ async function tick(opts) {
     TURN = turn + 1;
     for (const [agent, dir] of order) {
       if (!dir) continue;
+      const fromMs = Math.max(sinceMs, st.listed[agent]);
       const fromS = Math.max(sinceS, Math.floor(st.listed[agent] / 1000));
       if (!Number.isFinite(fromS)) continue;   // fail closed (review 3)
       for (const file of await src.transcripts(dir)) {
@@ -487,7 +492,10 @@ async function tick(opts) {
         const ctx = { agent, session: sessionOf(file), boardRoot: root, boardRoots, configRoots, agentDir: dir,
           otherAgentDirs: allDirs.filter((d) => d !== dir), home: o.home, now };
         for (const e of scanText(r.text, calls, ctx)) {
-          if (e.at < fromS || e.at > Math.floor(now / 1000) + AHEAD_S) continue;
+          /* Compared in milliseconds (review 18: a refusal a fraction of a second before a boundary passed a whole-second
+             test), then the time kept only in seconds. */
+          const ms = e.ms; delete e.ms;
+          if (!(ms >= fromMs) || e.at > Math.floor(now / 1000) + AHEAD_S) continue;
           st.pending.push(Object.assign({ world: rec.world }, e));
         }
         while (calls.size > CALLS_MAX) calls.delete(calls.keys().next().value);
