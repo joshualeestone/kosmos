@@ -72,11 +72,11 @@ const MAX_FILES = 500000;
 const MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
 const MAX_SKIPPED = 100000;
 const MAX_DEPTH = 256;
-const SPLIT_WINDOW = 8;
+const SPLIT_WINDOW = 8;   // segments joined when looking for a credential split across folder names
 // The clock skew tolerated between this Mac and the coordinator, as backupupload's clock check does (an hour): within it
 // of a Monday, the context may name either neighbouring period, since the coordinator's clock decides the grant's.
 const SKEW_MS = 60 * 60 * 1000;
-const periodsNear = (t) => new Set([periodOf(t - SKEW_MS), periodOf(t), periodOf(t + SKEW_MS)]);   // segments joined when looking for a credential split across folder names
+const periodsNear = (t) => new Set([periodOf(t - SKEW_MS), periodOf(t), periodOf(t + SKEW_MS)]);
 // The coordinator's allowance per member per weekly period (docs/coordinator-api.md "Allowances"): chunk objects and
 // bytes, spent at grant time. A snapshot that could pass either is refused before it spends any.
 // The bound is cautious (chunks at the 256 KiB minimum, redaction doubling every file), so in practice it refuses at
@@ -318,7 +318,8 @@ function upperBound(f, maxFile) {
  *   staleIndex: the index cannot be used (another bucket or period, malformed, or chunks whose locks end too soon):
  *     drop it, keep `added` under `bucket`, and take the next snapshot from that.
  *   tooLarge: the manifest would pass its ceiling (too many files): not a retry.
- * Never throws.
+ * Never throws. (If an injected uploader throws mid-batch, that batch's stored chunks cannot be known, so they are not in
+ * `added`; the real uploaders never throw.)
  */
 async function takeSnapshot(input, deps) {
   const added = new Map();
@@ -361,6 +362,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   // decides which period a grant lands in; a wrong-period failure reports it as grantedPeriod, and a context built from
   // that must be accepted, or the retry loops).
   if (!periodsNear(t).has(ctx.period)) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { newPeriod: true });
+  // The manifest lock for the CONTEXT's period, which may be a neighbour of this clock's (see periodsNear).
+  const tCtx = [t, t - SKEW_MS, t + SKEW_MS].find((x) => periodOf(x) === ctx.period);
+  const ctxManifestLock = manifestLockAt(tCtx);
 
   // The index: every entry this period's, with a lock end, under one named bucket. Checked before anything is read.
   const index = input.index instanceof Map ? input.index : new Map();
@@ -375,7 +379,7 @@ async function snapshotInner(input, deps, added, state, fail) {
           // A lock that ends before any manifest granted now would (period end + 30 days + the window; at least now + 30
           // days + 15 min): uploadManifest would refuse it as outlasting it. Mirrors the coordinator's
           // RETAIN_AFTER_PERIOD_SECS (30 days) and GRANT_SECS (15 minutes) in backup.rs retain_until_for.
-          || (e.lockedUntilMs < manifestLockAt(t) ? 'a lock that ends before this snapshot\'s manifest would' : null);
+          || (e.lockedUntilMs < ctxManifestLock ? 'a lock that ends before this snapshot\'s manifest would' : null);
       if (why) return fail(`the index holds an entry this snapshot cannot name (${why})`, { staleIndex: true });
     }
     state.bucket = input.bucket;
@@ -423,7 +427,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (chunkBound > CHUNK_ALLOWANCE || byteBound > BYTE_ALLOWANCE) {
     return fail(`the work Kosmos is too large to back up in one week: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could pass the weekly allowance (${CHUNK_ALLOWANCE} chunks, 64 GB; the allowance limit: about 25 GB of files fit, under a cautious estimate)`, { tooLarge: true, overAllowance: true });
   }
-  const tooLargeWhy = () => `the work Kosmos is too large for one snapshot: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could make a manifest past its size limit (the manifest limit: about 20 GB of files)`;
+  const tooLargeWhy = () => `the work Kosmos is too large for one snapshot: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could make a manifest past its size limit (the manifest limit: about 20 GB of files, a cautious estimate)`;
   if (over()) return fail(tooLargeWhy(), { tooLarge: true });
   const files = [], redacted = [];
   const objects = {};        // every referenced chunk: name -> key (filled as chunks are stored or reused)
@@ -445,7 +449,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
       for (const [name, key] of stored) {
-        if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name)) && lockOf(name) >= manifestLockAt(t)) {
+        if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name)) && lockOf(name) >= ctxManifestLock) {
           added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid }); usedKeys.add(key);
         }
       }
@@ -469,7 +473,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
       // A lock shorter than this snapshot's manifest will get: the manifest could never name it.
-      if (lockOf(name) < manifestLockAt(t)) { shortLock = true; continue; }
+      if (lockOf(name) < ctxManifestLock) { shortLock = true; continue; }
       if (Buffer.byteLength(key) > MAX_KEY_LEN) { badKey = badKey || `longer than ${MAX_KEY_LEN} characters`; continue; }
       added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid });
       usedKeys.add(key);
