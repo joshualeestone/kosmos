@@ -23738,7 +23738,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || []) + pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
+  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -58364,6 +58364,9 @@ const PJ_NEEDS_WHY = {
 /* #5688 review 2: the notice is rebuilt whenever a member's reason changes, which drops a focused Open/Answer to the
    page. Put focus back on the same agent's button when it is still there; if that agent no longer needs you, on the
    first Open left, so a keyboard user is not sent back to the top. */
+/* #5692: is this member's row drawn red? Asked of the row builder itself (the project page's own call), so the
+   needs-you block and the rows cannot disagree. */
+function pjRedHere(m) { return /\bpjm-attn\b/.test(pjMember(m, true, true, true)); }
 function pjKeepOpenFocus(box, paint) {
   const a = document.activeElement;
   const had = box && a && box.contains(a) && a.dataset && a.dataset.pnOpen ? a.dataset.pnOpen : null;
@@ -58373,17 +58376,35 @@ function pjKeepOpenFocus(box, paint) {
   const back = btns.find((b) => b.dataset.pnOpen === had) || btns[0];
   if (back) back.focus();
 }
-function pjNeedsNotice(roster) {
-  const rows = (roster || []).filter((m) => m && typeof m.needsYouHere === 'string' && m.needsYouHere);
-  if (!rows.length) return '';
+/* #5692: a member whose row is red here but whose need is not about this project (so the Issue pill does not count it,
+   #763): a question about another project, a needs-you that names none, a restart that did not come back. Said after
+   the counted ones, so every red row on the page has its reason. Worded from the member's own fields, never as a
+   question when the agent is not asking one. */
+function pjAlsoWhy(m) {
+  if (m.restartFailed) return ['Kosmos restarted it, and it did not come back.', 'Open'];
+  if (m.state === 'needs_you' && m.stateProject) return ['Waiting for your answer about another project.', 'Answer'];
+  if (m.state === 'needs_you') return ['Waiting for you, about nothing on this project.', 'Open'];
+  if (m.state === 'connection_lost') return [PJ_NEEDS_WHY.gave_up[0], 'Open'];
+  if (m.state === 'needs_trust') return [PJ_NEEDS_WHY.trust[0], 'Open'];
+  return [PJ_NEEDS_WHY.other[0], 'Open'];
+}
+/* `redHere` (#5692) says whether a member's row is drawn red: callers pass the row builder itself, so the block names
+   exactly the red rows the page draws. Without it, only the counted members are listed. */
+function pjNeedsNotice(roster, redHere) {
+  const all = (roster || []).filter(Boolean);
+  const rows = all.filter((m) => typeof m.needsYouHere === 'string' && m.needsYouHere);
+  const also = typeof redHere === 'function' ? all.filter((m) => !m.needsYouHere && m.present === true && redHere(m)) : [];
+  if (!rows.length && !also.length) return '';
   const nameOf = (m) => String(m.name || m.sessionName || 'An agent');
-  const head = rows.length === 1 ? esc(nameOf(rows[0])) + ' needs you on this project.' : rows.length + ' agents need you on this project.';
-  const body = rows.map((m) => {
-    const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other;
-    return '<div class="pnrow"><span class="pnwho">' + esc(nameOf(m)) + '</span><span class="pnwhy">' + esc(why) + '</span>'
-      + '<button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button></div>';
-  }).join('');
-  return '<div class="pnotice pn-needs"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + body + '</div></div>';
+  const line = (m, why, act) => '<div class="pnrow"><span class="pnwho">' + esc(nameOf(m)) + '</span><span class="pnwhy">' + esc(why) + '</span>'
+    + '<button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button></div>';
+  const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act); }).join('');
+  const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act); }).join('');
+  const n = rows.length || also.length;
+  const who = n === 1 ? esc(nameOf((rows.length ? rows : also)[0])) + ' needs you' : n + ' agents need you';
+  const head = rows.length ? who + ' on this project.' : who + ', not about this project.';
+  const sub = rows.length && also.length ? '<div class="pnrow pn-also"><span class="pnwhy">Also waiting on you, not about this project:</span></div>' : '';
+  return '<div class="pnotice pn-needs"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + counted + sub + extra + '</div></div>';
 }
 
 /** The whole notice: '' when every agent has the folder. */
@@ -63276,7 +63297,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjNeedsNotice(roster) + pjCoordNotice(p) + pjNotice(roster, p.id);   // #5688: who needs you, first
+  const notice = pjNeedsNotice(roster, pjRedHere) + pjCoordNotice(p) + pjNotice(roster, p.id);   // #5688: who needs you, first
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   pjKeepOpenFocus(noticeBox, () => setIfChanged(noticeBox, notice));   // #5688: a repaint keeps a focused Open

@@ -96,9 +96,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const nb = host2.querySelector('.ny-host-5688 .pnotice');
     const ob = host2.querySelector('.ny-host-5688 [data-pn-open]');
     const vis = (el) => { if (!el) return false; const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+    // #5692: with the real row builder as the red test, a red row not counted here (a question about another project)
+    // is named in the block; an idle member is not.
+    const also = typeof pjNeedsNotice === 'function' && typeof pjRedHere === 'function'
+      ? pjNeedsNotice([Object.assign(mk('needs_you'), { name: 'Sam', stateProject: 'elsewhere', needsYouHere: null }), Object.assign(mk('idle'), { name: 'Ida', needsYouHere: null })], pjRedHere) : '';
+    const also5692 = { another: /Sam[\s\S]*Waiting for your answer about another project\./.test(also), idleListed: /Ida/.test(also) };
     const counted5688 = { countedWarn: !!(r2[0] && r2[0].querySelector('.pj-face .lwarn')), countedWarnDisplay: disp(r2[0] && r2[0].querySelector('.pj-face .lwarn')),
       uncountedWarn: !!(r2[1] && r2[1].querySelector('.pj-face .lwarn')), noticeShown: vis(nb), noticeText: nb ? nb.textContent : '', openShown: vis(ob), openLabel: ob ? ob.getAttribute('aria-label') : '' };
     return {
+      also5692,
       counted5688,
       needsWarnPresent: !!needsWarn,
       needsWarnDisplay: disp(needsWarn),
@@ -153,6 +159,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (c.uncountedWarn) fail.push('#5688 CONTROL: the same member, not counted, got the triangle');
   if (!c.noticeShown || !/Elon needs you on this project\./.test(c.noticeText) || !/rate limit/.test(c.noticeText)) fail.push('#5688: the needs-you block is not shown or does not say who and why (' + JSON.stringify(c.noticeText) + ')');
   if (!c.openShown || c.openLabel !== 'Open Elon') fail.push('#5688: the needs-you block has no visible Open for the member (' + JSON.stringify(c.openLabel) + ')');
+  const a5692 = r.also5692 || {};
+  if (!a5692.another) fail.push('#5692: a red row about another project is not named in the needs-you block');
+  if (a5692.idleListed) fail.push('#5692 CONTROL: an idle member was named in the needs-you block');
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));
     console.error('  measured=' + JSON.stringify(r));
