@@ -42,6 +42,8 @@ const SEED = `
     { id: 'b', name: 'Beta', parent: null, archived: false, summary: { total: 1, needsYou: 1 },
       description: 'Beta description line', agents: [ { name: 'Three', sessionName: 's3' } ] },
     { id: 'g', name: 'Gamma', parent: 'b', archived: false, summary: { total: 0 } },
+    // #5712: a second child under Beta, so the last child's elbow can be told from a sibling's tee.
+    { id: 'd', name: 'Delta', parent: 'b', archived: false, summary: { total: 0 } },
   );
   LAST.length = 0;
   // Render the rows: the toggle only flips the layout class; paintProjects is what
@@ -225,6 +227,17 @@ const SEED = `
   check('a child row draws a horizontal ELBOW (::after, 2px border-top)',
     rails.childElbowBorder === 2 && rails.childElbowContent !== 'none', JSON.stringify(rails));
   check('CONTROL: a top-level row draws NO rail (rails are for children only)', rails.topHasRail === false, JSON.stringify(rails.topHasRail));
+
+  // 3c. #5712 (Josh, 2026-10-09 14:44): the LAST child's rail stops at its elbow; an earlier sibling's runs the full row.
+  const elbow = await page.evaluate(`(() => {
+    const kids = [...document.querySelectorAll('#pj-list .pj-row.child')].filter((r) => getComputedStyle(r).display !== 'none');
+    const m = (r) => { const b = getComputedStyle(r, '::before'); return { name: (r.querySelector('.pjname') || r).textContent.trim(), rowH: r.getBoundingClientRect().height, railH: parseFloat(b.height), last: r.classList.contains('pj-lastkid') }; };
+    return { n: kids.length, first: kids[0] ? m(kids[0]) : null, last: kids.length ? m(kids[kids.length - 1]) : null };
+  })()`);
+  const fullRow = (x) => x && Math.abs(x.railH - (x.rowH + 2)) <= 1.5;
+  const toElbow = (x) => x && Math.abs(x.railH - (x.rowH / 2 + 3)) <= 1.5;
+  check('#5712: the last child ends its rail at the elbow (and only it is marked last)', elbow.n === 2 && elbow.last.last && toElbow(elbow.last) && !fullRow(elbow.last), JSON.stringify(elbow));
+  check('#5712 CONTROL: an earlier sibling\'s rail runs the full row, on to the next sibling', elbow.first && !elbow.first.last && fullRow(elbow.first), JSON.stringify(elbow.first));
 
   // 4. The top strip: shown only in the Roadmap, its summary reflects the count, and
   //    Collapse all / Expand all fold/unfold every branch.
