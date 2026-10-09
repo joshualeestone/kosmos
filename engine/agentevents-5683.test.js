@@ -24,7 +24,7 @@ const result = (id, content, isError, at) => JSON.stringify({ type: 'user', time
   message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } });
 const DENIED = (cmd) => 'Permission to use Bash with command ' + cmd + ' has been denied.';
 
-const ctx = (over) => Object.assign({ agent: 'Scout', session: 'sess-1', boardRoot: '/Users/ann/Library/Kosmos',
+const ctx = (over) => Object.assign({ agent: 'Scout', session: 'sess-1', platform: 'darwin', boardRoot: '/Users/ann/Library/Kosmos',
   agentDir: '/Users/ann/work/workers/scout', otherAgentDirs: ['/Users/ann/work/workers/rex'], home: '/Users/ann', now: NOW }, over);
 
 test('#5683 scan: a deny-rule refusal is the token-only guard, a Bash EPERM is the sandbox, other errors are not reported', () => {
@@ -122,7 +122,7 @@ const append = (file, ...lines) => fs.appendFileSync(file, lines.join('\n') + '\
 test('#5683 tick: a Kosmos that is not the enrolled one opens no transcript and sends nothing', async (t) => {
   const s = setup(t);
   const c = coordinator();
-  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0);
   assert.deepEqual(s.read, [], 'a transcript was opened for a company that does not exist');
   assert.deepEqual(c.sent, []);
@@ -133,10 +133,10 @@ test('#5683 tick: history before the enrollment is never sent; a new refusal is,
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  let r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  let r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0, 'a refusal from before the enrollment was sent');
   append(s.file, use('new-1', 'Bash', { command: SECRET }), result('new-1', DENIED(SECRET), true));
-  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 1);
   const sends = c.sent.filter((x) => x.route === ae.ROUTE);
   assert.equal(sends.length, 1);
@@ -145,7 +145,7 @@ test('#5683 tick: history before the enrollment is never sent; a new refusal is,
   assert.equal(e.world, oe.readEnrollment({ root: s.root }).world);
   assert.equal(e.toolUseRef, 'new-1');
   assert.equal(JSON.stringify(sends[0].body).includes('board.token'), false, 'content reached the company');
-  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0, 'the same refusal was sent twice');
 });
 
@@ -155,16 +155,16 @@ test('#5683 tick: only token-only agents are read; a failed send keeps the event
   const c = coordinator(() => (refuse ? { ok: false, because: '503' } : { ok: true, data: { ok: true } }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources([]), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources([]), now: Date.now() });
   assert.deepEqual(s.read, [], 'an agent that is not token-only had its transcript read');
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, use('n2', 'Bash', { command: 'x' }), result('n2', DENIED('x'), true));
-  let r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  let r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0);
   refuse = false;
-  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0, 'sent again inside the wait after a failure (review 2)');
-  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 31 * 60e3 });
+  r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() + 31 * 60e3 });
   assert.equal(r.sent, 1, 'the event a failed send left queued was not sent later');
 });
 
@@ -173,19 +173,19 @@ test('#5683 tick: at most 50 events go in one send, the rest next tick', async (
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const lines = [];
   for (let i = 0; i < 60; i++) lines.push(use('m' + i, 'Bash', { command: 'x' }), result('m' + i, DENIED('x'), true));
   append(s.file, ...lines);
-  assert.equal((await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() })).sent, 50);
-  assert.equal((await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() })).sent, 10);
+  assert.equal((await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() })).sent, 50);
+  assert.equal((await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() })).sent, 10);
 });
 
 test('#5683 tick: enrolled but with no accepted words recorded here opens no transcript and sends nothing', async (t) => {
   const s = setup(t);
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });   // joined, but accept() never ran
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.deepEqual(s.read, [], 'a transcript was read under an enrollment with no accepted words');
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false);
 });
@@ -196,13 +196,13 @@ test('#5683 tick: a batch the coordinator refuses as unreadable is dropped, so i
   const c = coordinator(() => (bad ? { ok: false, because: '400 {"code":"org_agent_events_bad"}' } : { ok: true, data: { ok: true } }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, use('p1', 'Bash', { command: 'x' }), result('p1', DENIED('x'), true));
-  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.dropped, 1, 'the refused batch was kept to be refused again');
   bad = false;
   append(s.file, use('p2', 'Bash', { command: 'x' }), result('p2', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const ok = c.sent.filter((x) => x.route === ae.ROUTE).pop();
   assert.deepEqual(ok.body.events.map((e) => e.toolUseRef), ['p2'], 'a later event waited behind the refused one');
 });
@@ -249,7 +249,7 @@ async function enrolled(t) {
 test('#5683 r1: an event from the future is not sent (it would cost its whole batch)', async (t) => {
   const { s, c } = await enrolled(t);
   append(s.file, use('fut', 'Bash', { command: 'x' }, Date.now() + 3600e3), result('fut', DENIED('x'), true, Date.now() + 3600e3));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'an event an hour ahead was sent');
 });
 
@@ -259,10 +259,10 @@ test('#5683 r1: the company changing its words stops the sends; words accepted a
   const c = coordinator(() => (refuse ? { ok: false, because: '409 {"code":"org_consent_changed"}' } : { ok: true, data: { ok: true } }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // Scout is seen listed
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // Scout is seen listed
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('g1', 'Bash', { command: 'x' }), result('g1', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(oe.mayReport({ root: s.root }), false, 'kept reporting on words the company no longer holds');
   append(s.file, use('g2', 'Bash', { command: 'x' }), result('g2', DENIED('x'), true));   // during the gap
   await new Promise((r) => setTimeout(r, 1100));   // the re-acceptance is a later second than the gap's refusal
@@ -275,10 +275,10 @@ test('#5683 r1: the company changing its words stops the sends; words accepted a
   fs.writeFileSync(path.join(s.root, oe.CONSENT_FILE), JSON.stringify({ order: [H2], byHash: { [H2]: { reports: ['x'], usageConsented: false } } }));
   refuse = false;
   /* The first tick under the new words starts clean (review 2: then a refusal AFTER it must be sent). */
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // a new consent state has no failure wait
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // a new consent state has no failure wait
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('g3', 'Bash', { command: 'x' }), result('g3', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const ok = c.sent.filter((x) => x.route === ae.ROUTE).slice(1);
   const refs = ok.flatMap((x) => x.body.events.map((e) => e.toolUseRef));
   assert.equal(refs.includes('g2'), false, 'a refusal from while no words were accepted was sent');
@@ -293,19 +293,19 @@ test('#5683 r1: an enrollment with no readable start time sends nothing', async 
   delete rec.enrolledAt;
   fs.writeFileSync(f, JSON.stringify(rec));
   append(s.file, use('z', 'Bash', { command: 'x' }), result('z', DENIED('x'), true));
-  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0);
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false);
 });
 
 test('#5683 r1: a call in one tick and its sandbox result in the next is sent as a sandbox refusal', async (t) => {
   const { s, c } = await enrolled(t);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // Scout is seen listed
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // Scout is seen listed
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('sp', 'Bash', { command: 'touch /etc/x' }));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, result('sp', 'touch: /etc/x: Operation not permitted', true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const ev = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
   assert.deepEqual(ev.map((e) => [e.toolUseRef, e.rule, e.targetClass]), [['sp', 'sandbox', 'system']]);
 });
@@ -318,9 +318,9 @@ test('#5683 r2: an agent made token-only after joining sends nothing from before
   const rexFile = path.join(path.dirname(s.file), 'rex-1.jsonl');
   fs.writeFileSync(rexFile, use('own', 'Bash', { command: 'x' }) + '\n' + result('own', DENIED('x'), true) + '\n');
   const src = (agents) => ({ agents: () => agents, everyAgent: () => agents, transcriptDirsOf: (d) => ['/p' + d], guarded: () => true, dirOf: (n) => '/w/' + n, transcripts: async (d) => (d === '/w/Rex' ? [rexFile] : []) });
-  await ae.tick({ root: s.root, remote: c, sources: src([]), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src([]), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
-  await ae.tick({ root: s.root, remote: c, sources: src(['Rex']), now: Date.now() });   // now listed
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src(['Rex']), now: Date.now() });   // now listed
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, "the person's own rule's refusal was sent as the company's");
 });
 
@@ -340,7 +340,7 @@ test('#5683 r2: an old session is skipped without being read', async (t) => {
   const past = new Date(Date.now() - 3 * 86400e3);
   fs.utimesSync(old, past, past);
   const src = { agents: () => ['Scout'], everyAgent: () => ['Scout'], transcriptDirsOf: (d) => ['/p' + d], guarded: () => true, dirOf: () => '/w/scout', transcripts: async () => [old] };
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   const st = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
   assert.equal(st.offsets[old], fs.statSync(old).size, 'an old session was not skipped to its end');
 });
@@ -351,20 +351,20 @@ test('#5683 r2: a batch refused as too big is dropped, and not_enrolled asks the
   const c = coordinator(() => ({ ok: false, because: answer }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, use('b1', 'Bash', { command: 'x' }), result('b1', DENIED('x'), true));
-  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.dropped, 1);
   answer = '403 {"code":"org_not_enrolled"}';
   append(s.file, use('b2', 'Bash', { command: 'x' }), result('b2', DENIED('x'), true));
   const before = c.sent.filter((x) => x.route === oe.ROUTES.status).length;
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.ok(c.sent.filter((x) => x.route === oe.ROUTES.status).length > before, 'not_enrolled did not ask the company again');
 });
 
 test('#5683 r2: words withdrawn while the transcripts are read stop the send', async (t) => {
   const { s, c } = await enrolled(t);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('lv', 'Bash', { command: 'x' }), result('lv', DENIED('x'), true));
   const src = s.sources();
@@ -372,7 +372,7 @@ test('#5683 r2: words withdrawn while the transcripts are read stop the send', a
     await oe.consentWithdrawn({ root: s.root }, oe.readEnrollment({ root: s.root }).consentHash);   // mid-scan
     return src.transcripts(d);
   } };
-  await ae.tick({ root: s.root, remote: c, sources: during, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: during, now: Date.now() });
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'sent after the words were withdrawn mid-tick');
 });
 
@@ -399,11 +399,11 @@ test('#5683 r3: a token-only list file that cannot be read changes nothing (firs
   fs.mkdirSync(path.dirname(listFile), { recursive: true });
   t.after(() => { try { fs.unlinkSync(listFile); } catch { /* none */ } });
   fs.writeFileSync(listFile, JSON.stringify({ agents: ['Scout'] }));
-  await ae.tick({ root: s.root, remote: c, now: Date.now() });   // the board's own sources
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, now: Date.now() });   // the board's own sources
   const before = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).listed;
   assert.ok(Number.isFinite(before.Scout), 'Scout was not seen listed');
   fs.writeFileSync(listFile, '{"agents": ["Sco');   // torn mid-write
-  await ae.tick({ root: s.root, remote: c, now: Date.now() + 5000 });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, now: Date.now() + 5000 });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).listed, before, 'a torn list wiped the first sightings');
 });
 
@@ -413,12 +413,12 @@ test('#5683 r3: too big with many events sends half as many next, never dropping
   const c = coordinator((body) => (big && body.events.length > 1 ? { ok: false, because: '413 {"code":"org_agent_events_too_big"}' } : { ok: true, data: { ok: true } }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('h1', 'Bash', { command: 'x' }), result('h1', DENIED('x'), true), use('h2', 'Bash', { command: 'x' }), result('h2', DENIED('x'), true));
-  const r1 = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const r1 = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r1.dropped, undefined, 'a too-big batch of two was dropped');
-  const r2 = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const r2 = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r2.sent, 1, 'half as many were not sent next');
 });
 
@@ -428,18 +428,18 @@ test('#5683 r3: words withdrawn and accepted again under the SAME hash send noth
   const c = coordinator(() => (refuse ? { ok: false, because: '409 {"code":"org_consent_changed"}' } : { ok: true, data: { ok: true } }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('q1', 'Bash', { command: 'x' }), result('q1', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, use('q2', 'Bash', { command: 'x' }), result('q2', DENIED('x'), true));   // the gap
   await new Promise((r) => setTimeout(r, 1100));
   accept(s.root);   // the same words (the same hash) accepted again
   refuse = false;
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('q3', 'Bash', { command: 'x' }), result('q3', DENIED('x'), true));   // after the words are back
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const refs = c.sent.filter((x) => x.route === ae.ROUTE).slice(1).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
   assert.equal(refs.includes('q2'), false, 'a refusal from the gap was sent');
   assert.equal(refs.includes('q1'), false, 'the queue from before the withdrawal was sent');
@@ -452,7 +452,7 @@ test('#5683 r3: a recently written transcript holding old lines sends none of th
   const old = Date.now() - 3600e3;
   fs.writeFileSync(fresh, use('ol', 'Bash', { command: 'x' }, old) + '\n' + result('ol', DENIED('x'), true, old) + '\n');   // mtime: now
   const src = { agents: () => ['Scout'], everyAgent: () => ['Scout'], transcriptDirsOf: (d) => ['/p' + d], guarded: () => true, dirOf: () => '/w/scout', transcripts: async () => [fresh] };
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'an hour-old refusal in a fresh file was sent');
 });
 
@@ -469,13 +469,13 @@ test('#5683 r4: a queued event is dropped an hour before the coordinator would s
   const c = coordinator(() => ({ ok: false, because: '503' }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('ex', 'Bash', { command: 'x' }), result('ex', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // queued, the send fails
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // queued, the send fails
   const st = () => JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
   assert.equal(st().pending.length, 1);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + (7 * 86400 - 1800) * 1000 });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() + (7 * 86400 - 1800) * 1000 });
   assert.equal(st().pending.length, 0, 'an event 6 days 23.5 hours old stayed queued');
 });
 
@@ -484,26 +484,26 @@ test('#5683 r4: a failed withdrawal keeps its wait (no signed request every tick
   const c = coordinator(() => ({ ok: false, because: '409 {"code":"org_consent_changed"}' }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   const real = oe.consentWithdrawn;
   oe.consentWithdrawn = async () => false;   // the record could not be changed
   t.after(() => { oe.consentWithdrawn = real; });
   append(s.file, use('w1', 'Bash', { command: 'x' }), result('w1', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const sends = () => c.sent.filter((x) => x.route === ae.ROUTE).length;
   const n = sends();
   append(s.file, use('w2', 'Bash', { command: 'x' }), result('w2', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(sends(), n, 'a failed withdrawal sent again inside its wait');
 });
 
 test('#5683 r4: an offset is kept while its file exists, even when a listing comes back empty', async (t) => {
   const { s, c } = await enrolled(t);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const empty = Object.assign({}, s.sources(), { transcripts: async () => [] });
-  await ae.tick({ root: s.root, remote: c, sources: empty, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: empty, now: Date.now() });
   const st = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
   assert.ok(Object.prototype.hasOwnProperty.call(st.offsets, s.file), 'a listing that failed for a moment dropped the offset');
 });
@@ -526,12 +526,12 @@ test('#5683 r5: a rewritten file cannot lift the read budget', () => {
 
 test('#5683 r5: a file that has not grown is not read again', async (t) => {
   const { s, c } = await enrolled(t);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const real = fs.openSync;
   let opened = 0;
   fs.openSync = (...a) => { if (a[0] === s.file) opened += 1; return real(...a); };
   t.after(() => { fs.openSync = real; });
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(opened, 0, 'an unchanged transcript was opened');
 });
 
@@ -582,8 +582,8 @@ test('#5683 r8: the agent read first rotates each tick', async (t) => {
   const { s, c } = await enrolled(t);
   const order = [];
   const src = { agents: () => ['A', 'B'], everyAgent: () => ['A', 'B'], transcriptDirsOf: (d) => ['/p' + d], guarded: () => true, dirOf: (n) => '/w/' + n, transcripts: async (d) => { order.push(d); return []; } };
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   /* Relative, not absolute (review 10: the starting turn is module-wide, so it depends on earlier tests). */
   assert.deepEqual(order.slice(2), order.slice(0, 2).reverse(), 'the second tick read the agents in the same order');
 });
@@ -594,12 +594,12 @@ test('#5683 r8: after a halving, the smaller size is kept until the backlog drai
   const c = coordinator((body) => { sizes.push(body.events.length); return body.events.length > 2 ? { ok: false, because: '413 {"code":"org_agent_events_too_big"}' } : { ok: true, data: { ok: true } }; });
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   const lines = [];
   for (let i = 0; i < 6; i++) lines.push(use('k' + i, 'Bash', { command: 'x' }), result('k' + i, DENIED('x'), true));
   append(s.file, ...lines);
-  for (let i = 0; i < 4; i++) await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  for (let i = 0; i < 4; i++) await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   /* 6 too big, 3 too big, then 2 and 2: had the size gone back to 50 after the first success, the fourth would be 4. */
   assert.deepEqual(sizes, [6, 3, 2, 2], 'the send size went back up before the backlog drained');
 });
@@ -621,11 +621,11 @@ test('#5683 r9: on a Mac the agent\'s own settings are found whatever the case',
 
 test('#5683 r9: a tick that changed nothing does not rewrite the state', async (t) => {
   const { s, c } = await enrolled(t);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const f = path.join(s.root, 'agent-events.json');
   const before = fs.statSync(f).mtimeMs;
   await new Promise((r) => setTimeout(r, 30));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(fs.statSync(f).mtimeMs, before, 'an idle tick rewrote the state file');
 });
 
@@ -644,13 +644,13 @@ test('#5683 r10: a token-only agent sharing its transcript folder with one that 
   const src = { agents: () => ['orch.main'], everyAgent: () => ['orch.main', 'orch-main'], guarded: () => true,
     dirOf: (n) => '/w/' + n, transcriptDirsOf: (d) => ['/p/' + d.replace(/[^A-Za-z0-9]/g, '-')],
     transcripts: async (d) => { read.push(d); return []; } };
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   assert.deepEqual(read, [], 'a token-only agent sharing a folder with a personal one was read');
   const unreadable = Object.assign({}, src, { everyAgent: () => null });
-  const r = await ae.tick({ root: s.root, remote: c, sources: unreadable, now: Date.now() });
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: unreadable, now: Date.now() });
   assert.match(r.because, /agent list could not be read/);
   const apart = Object.assign({}, src, { everyAgent: () => ['orch.main', 'rex'] });
-  await ae.tick({ root: s.root, remote: c, sources: apart, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: apart, now: Date.now() });
   assert.deepEqual(read, ['/w/orch.main'], 'an agent with its own folder was not read');
 });
 
@@ -670,7 +670,7 @@ test('#5683 r11: an agent whose folder cannot be resolved stops the collision ch
   const src = { agents: () => ['tok'], everyAgent: () => ['tok', 'stray'], guarded: () => true,
     dirOf: (n) => (n === 'stray' ? null : '/w/' + n), transcriptDirsOf: (d) => ['/p/' + d],
     transcripts: async (d) => { read.push(d); return []; } };
-  const r = await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   assert.deepEqual(read, []);
   assert.match(r.because, /could not be resolved/);
 });
@@ -684,19 +684,19 @@ test('#5683 r12: when a collision clears, nothing from the shared folder\'s past
   let every = ['orch.main', 'orch-main'];
   const src = { agents: () => ['orch.main'], everyAgent: () => every, guarded: () => true, dirOf: (n) => '/w/' + n,
     transcriptDirsOf: (d) => ['/p/' + d.replace(/[^A-Za-z0-9/]/g, '-')], transcripts: async () => [shared] };
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });   // collides: not read
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });   // collides: not read
   await new Promise((r) => setTimeout(r, 1100));
   append(shared, use('theirs', 'Bash', { command: 'x' }), result('theirs', DENIED('x'), true));   // orch-main's own rule
   await new Promise((r) => setTimeout(r, 1100));
   every = ['orch.main'];   // orch-main deleted: the collision clears
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, "the other agent's refusal was sent once the collision cleared");
 });
 
 test('#5683 r12: sources without the agent-list check send nothing', async (t) => {
   const { s, c } = await enrolled(t);
   const partial = { agents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [] };
-  const r = await ae.tick({ root: s.root, remote: c, sources: partial, now: Date.now() });
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: partial, now: Date.now() });
   assert.match(r.because, /cannot be checked/);
 });
 
@@ -741,9 +741,9 @@ test('#5683 r16: a listed agent whose guard is not in force is not read', async 
   const { s, c } = await enrolled(t);
   const read = [];
   const src = Object.assign({}, s.sources(), { guarded: () => false, transcripts: async (d) => { read.push(d); return []; } });
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   assert.deepEqual(read, [], "an unguarded agent's transcripts were read (its refusals are the person's own)");
-  await ae.tick({ root: s.root, remote: c, sources: Object.assign({}, src, { guarded: () => true }), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: Object.assign({}, src, { guarded: () => true }), now: Date.now() });
   assert.ok(read.length > 0, 'the stub setup never reads at all, so the empty read proved nothing');
 });
 
@@ -778,19 +778,19 @@ test('#5683 r17: the board\'s own guard check agrees with what the guard writes'
 
 test('#5683 r17: words lost while enrolled (no 409 here) mark the state, so the gap is never sent', async (t) => {
   const { s, c } = await enrolled(t);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const hash = oe.readEnrollment({ root: s.root }).consentHash;
   await oe.consentWithdrawn({ root: s.root }, hash);   // e.g. by the rollup
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).withdrawn, true);
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('gap', 'Bash', { command: 'x' }), result('gap', DENIED('x'), true));   // while no words are accepted
   await new Promise((r) => setTimeout(r, 1100));
   accept(s.root);   // the same words accepted again
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('after', 'Bash', { command: 'x' }), result('after', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
   assert.equal(refs.includes('gap'), false, 'a refusal from the gap was sent');
   assert.ok(refs.includes('after'), 'nothing was sent after the words were accepted again');
@@ -804,11 +804,11 @@ test('#5683 r18: a guarded agent sharing a folder with an UNGUARDED listed one i
   const src = { agents: () => ['orch.main', 'orch-main'], everyAgent: () => ['orch.main', 'orch-main'],
     guarded: (d) => d === '/w/orch.main', dirOf: (n) => '/w/' + n,
     transcriptDirsOf: (d) => ['/p/' + d.replace(/[^A-Za-z0-9/]/g, '-')], transcripts: async (d) => { read.push(d); return []; } };
-  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   assert.deepEqual(read, [], "a folder shared with an unguarded agent (the person's own rules) was read");
   /* The positive arm (review 19): with both guarded and no clash, the same setup does read. */
   const ok = Object.assign({}, src, { agents: () => ['orch.main'], everyAgent: () => ['orch.main'], guarded: () => true });
-  await ae.tick({ root: s.root, remote: c, sources: ok, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: ok, now: Date.now() });
   assert.deepEqual(read, ['/w/orch.main'], 'the stub setup never reads at all, so the empty read proved nothing');
 });
 
@@ -852,7 +852,7 @@ test('#5683 r21: one agent whose transcripts cannot be listed does not silence t
   const src = { agents: () => ['bad', 'good'], everyAgent: () => ['bad', 'good'], guarded: () => true,
     dirOf: (n) => '/w/' + n, transcriptDirsOf: (d) => ['/p' + d],
     transcripts: async (d) => { if (d === '/w/bad') throw new Error('unreadable'); read.push(d); return []; } };
-  const r = await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
   assert.deepEqual(read, ['/w/good'], 'the other agent was not read');
   assert.equal(r.because, null);
 });

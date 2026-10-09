@@ -5,8 +5,8 @@
  * Mac-signed, at most 50 events a send, each { world, agent, at, action, rule, targetClass, sessionRef, toolUseRef }.
  *
  * WHICH REFUSALS COUNT. Only rules the company placed (decided on the card, Pete agreed): the token-only guard's deny
- * rules and its sandbox. Only token-only agents (engine/sendertoken.js tokenOnlyList) run under them, so only their
- * transcripts are read: a person's own deny rules on any OTHER agent, and the auto-mode classifier, are never reported.
+ * rules and its sandbox. Only token-only agents (engine/sendertoken.js tokenOnlyList) WHOSE GUARD IS IN FORCE (their
+ * settings hold the guard's token rules; review 16) run under them, so only their transcripts are read: a person's own deny rules on any OTHER agent, and the auto-mode classifier, are never reported.
  * ⚠️ On a token-only agent the guard's rules share one deny list with the person's own (setup-assistant keeps what was
  * there), and Claude Code's refusal text is the same for both, so such an agent's refusal by the PERSON's own rule is
  * reported as the guard's (review 6; a stated premise, beside the sandbox text match). A tool whose own output starts
@@ -361,7 +361,10 @@ function defaultSources() {
         /* Review 17: the rules that keep the board token out (they follow from the token roots, not from the board's PATH,
            so a guard written at an agent's launch from another pane's PATH still matches). All of them must be there. */
         const tokenFile = require('./boardauth').TOKEN_FILE;
-        const needed = rules.deny.filter((r) => typeof r === 'string' && r.includes(tokenFile));
+        /* This board's own store's token rules only (review 22: requiring every world's concrete rule made a newly
+           created world turn every agent unguarded until each relaunched, though the guard's worlds glob covers it). */
+        const own = require('./store').ROOT;
+        const needed = rules.deny.filter((r) => typeof r === 'string' && r.includes(tokenFile) && r.includes(own));
         if (needed.length === 0) return false;
         const j = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
         const deny = j && j.permissions && Array.isArray(j.permissions.deny) ? new Set(j.permissions.deny) : new Set();
@@ -449,7 +452,8 @@ async function tick(opts) {
          it is not read, and it counts among the "others" a read agent must not share a folder with. */
       const unguarded = [];
       for (const [n, d] of [...dirs]) {
-        if (!d || src.guarded(d, launchCache)) continue;   // review 16: not under the company's rules yet
+        if (!d) continue;
+        if (src.guarded(d, launchCache)) { UNGUARDED_SAID.delete(n); continue; }   // guarded again: a later lapse is said again (review 22)
         dirs.delete(n); collidedNow.add(n); unguarded.push(d);
         if (!UNGUARDED_SAID.has(n)) { UNGUARDED_SAID.add(n); console.error('agentevents: ' + n + ' is token-only but its guard is not in force; its refusals are not read'); }
       }
@@ -529,7 +533,7 @@ async function tick(opts) {
         st.offsets[file] = r.next;
         if (!r.text) continue;
         const calls = CALLS.get(file) || new Map();
-        const ctx = { agent, session: sessionOf(file), boardRoot: root, boardRoots, configRoots, agentDir: dir,
+        const ctx = { agent, session: sessionOf(file), platform: o.platform, boardRoot: root, boardRoots, configRoots, agentDir: dir,
           otherAgentDirs: allDirs.filter((d) => d !== dir), home: o.home, now };
         for (const e of scanText(r.text, calls, ctx)) {
           /* Compared in milliseconds (review 18: a refusal a fraction of a second before a boundary passed a whole-second

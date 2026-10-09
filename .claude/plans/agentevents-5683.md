@@ -293,3 +293,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Correction to review 14's note: a dropped base's own files (outside worlds/) are classed before the other agents'
   folders; no known layout puts an agent folder there (the default world's workers sit outside the base), so this can
   only over-claim, never hide.
+
+## Review 22 (opus), all fixed unless stated
+- The guard check required every world's concrete token rule, so creating a named world made every agent read as
+  unguarded until it relaunched (though the guard's worlds glob covers that store): it requires this board's own
+  store's token rules. An agent guarded again is said again if it later lapses.
+- Four tests expected a sandbox event from the platform default and failed off macOS: the test context and ticks say
+  darwin (the tick takes a platform for tests).
+- The module doc says listed AND guard in force.
+- Stated: words lost without a 409 here and the same words accepted again within one tick (no tick sees the gap)
+  could send that few minutes' refusals; a listed agent whose dirOf returns null is skipped in the collision check
+  (dirOf never returns null in production).
+- Untested (stated): the new-named-world case itself (it needs a world registry made after the guard is written); the
+  round-trip test pins that the narrowed check still reads a real guard as guarded and an unguarded folder as not.
