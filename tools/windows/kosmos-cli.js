@@ -1659,6 +1659,7 @@ async function communityWithdraw(ctx, args) {
       : st === 'deleted' ? 'This ' + w + ' has already been taken down from the community.'
         : st === 'sent' ? 'Taken back: this ' + w + ' comes down from the community on Kosmos\'s next send, usually within a few minutes.'
           : st === 'unconfirmed' ? 'Taken back: Kosmos never heard whether this ' + w + ' arrived, so on its next send it takes it down if it did, or stops it if it did not.'
+          : st === 'unconfirmed_keyless' ? 'Taken back: Kosmos never heard whether this post arrived, and it no longer holds the registration that sent it. It will not be sent again, but if it did arrive, that copy cannot be taken down.'   // #5636 follow-up
           : 'Kosmos recorded it. To see what happens to this ' + w + ', run: kosmos community status');
     return 0;
   }
