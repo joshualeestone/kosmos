@@ -730,7 +730,12 @@ function stripIdentity(profile) {
    leaves the old file as it was. These folders are Kosmos's own, so any provably dead writer temp there is reaped. */
 // (statSync follows a link: a linked file passes its target's mode, and the rename replaces the link with a regular
 // file, as the old write-then-rename did)
-function modeOf(file) { try { return fs.statSync(file).mode & 0o777; } catch { return null; } }
+// On Windows a mode is only the read-only bit (0o444 or 0o666); carrying it would make a temp read-only and the rename
+// over a read-only file fail, so there the writer's default stands (null, umaskDefault)
+function modeOf(file) {
+  if (process.platform === 'win32') return null;
+  try { return fs.statSync(file).mode & 0o777; } catch { return null; }
+}
 /* securewrite is required at CALL time, never at load: the kosmos CLI's board_token() requires store.js by itself
    (and a test copies store.js alone into a minimal KOSMOS_HOME, cli.task-2662.test.js), so a load-time require of a
    sibling module would break loading it there. */
