@@ -58361,10 +58361,11 @@ const PJ_NEEDS_WHY = {
   stuck_rate: ['Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.', 'Open'],
   other: ['Kosmos needs you to look at it.', 'Open'],
 };
-/* #5692: is this member's row drawn red? Asked of the row builder itself (paintOneProject's own call), so in the tab
-   layout the needs-you block and the rows cannot disagree. The consolidated rail draws its rows with lrow(), which
+/* #5692: is this member's row drawn red? Asked of the row builder itself, so in the tab layout the needs-you block and
+   the rows cannot disagree. No minus and no hideState: neither touches the red class (pjm-attn), and the minus-drawing
+   call sites are counted (web.layout-picker.test.js piece ten). The consolidated rail draws its rows with lrow(), which
    agrees for every uncounted red case today but is not the same function. */
-function pjRedHere(m) { return /\bpjm-attn\b/.test(pjMember(m, true, true, true)); }
+function pjRedHere(m) { return /\bpjm-attn\b/.test(pjMember(m, true, false)); }
 /* #5688 review 2: the notice is rebuilt whenever a member's reason changes, which drops a focused Open/Answer to the
    page. Put focus back on the same agent's button when it is still there; if that agent no longer needs you, on the
    first Open left, so a keyboard user is not sent back to the top. */

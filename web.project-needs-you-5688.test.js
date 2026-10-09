@@ -101,7 +101,7 @@ test('#5688 wiring: both notice boxes paint it first, and its Open opens the age
   assert.match(PAGE, /const notice = pjNeedsNotice\(roster, pjRedHere\) \+ pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/);
   assert.match(PAGE, /setIfChanged\(rn, op \? pjNeedsNotice\(op\.agents \|\| \[\], pjRedHere\) \+ pjCoordNotice\(op\)/);
   // #5692: the red test is the row builder itself, so the block and the rows cannot disagree.
-  assert.match(slice('function pjRedHere('), /pjMember\(m, true, true, true\)/);
+  assert.match(slice('function pjRedHere('), /pjMember\(m, true, false\)/);
   assert.match(slice('function pjNeedsOpenClick('), /openDetail\(b\.dataset\.pnOpen, undefined, PJ_CURRENT\)/);
   assert.match(PAGE, /getElementById\('pj-one-notice'\)\.addEventListener\('click', pjNeedsOpenClick\)/);
   assert.match(PAGE, /rn\.addEventListener\('click', pjNeedsOpenClick\)/);
