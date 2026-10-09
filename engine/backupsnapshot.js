@@ -293,7 +293,9 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
    files are stored as `<name>/<path in the root>`, so restore puts each back under its name. input.root (one folder,
    paths stored as they are) still works, alone. Returns the roots, or why they cannot be used (a sentence). */
 const ROOT_NAME = /^[a-z0-9][a-z0-9-]{0,31}(\/[a-z0-9][a-z0-9-]{0,31}){0,3}$/;
-const MAX_ROOTS = 64;
+const MAX_ROOTS = 64;            // required roots (a world's own folders)
+const MAX_OPTIONAL_ROOTS = 1024;  // optional roots (provider session folders: a few per agent)
+const UNNAMED_ROOT = 'a session folder';   // how an optional root with an unusable name is recorded in skipped
 /* Why a root name cannot be used, or null. Shared with engine/backupsessions.js, which builds names from agent ids.
    A name restore refuses (a Windows device name such as con or aux) would store files that can never come back; a name
    the deny-list refuses as a folder (secrets) would have every file read and then dropped; every stored path starts
@@ -312,10 +314,15 @@ function rootsOf(input) {
     return [{ name: '', path: input.root, exclude: input.exclude }];
   }
   if (input.root !== undefined || input.exclude !== undefined) return 'give roots (each with its own exclude), or one root, not both';
-  if (!Array.isArray(input.roots) || !input.roots.length || input.roots.length > MAX_ROOTS) return `roots must be a list of 1 to ${MAX_ROOTS} folders`;
-  const names = [];
-  for (const r of input.roots) {
-    if (!r || typeof r.name !== 'string') return 'each root needs a name';
+  if (!Array.isArray(input.roots) || !input.roots.length) return 'roots must be a list of folders';
+  // Required roots are judged first and every problem with one fails the snapshot (a world's data is never silently
+  // absent). Optional roots (a provider's session folders) are judged after them and NEVER fail it: one that cannot be
+  // used becomes a refused root, recorded in skipped with its reason, under its name when the name itself is usable.
+  const required = input.roots.filter((r) => !(r && r.optional === true)), optional = input.roots.filter((r) => r && r.optional === true);
+  if (required.length > MAX_ROOTS) return `at most ${MAX_ROOTS} required roots`;
+  const names = [], out = [];
+  const problem = (r) => {
+    if (typeof r.name !== 'string') return 'each root needs a name';
     const bad = rootNameProblem(r.name);
     if (bad) return bad;
     // refused: a root its caller could not take safely (engine/backupsessions.js), recorded in skipped with that reason.
@@ -324,14 +331,30 @@ function rootsOf(input) {
     // One name inside another (`sessions` and `sessions/claude`) would let two roots write the same restored path.
     if (names.some((n) => n === r.name || n.startsWith(r.name + '/') || r.name.startsWith(n + '/'))) return `the root name ${r.name} repeats or contains another root's name`;
     if (r.only !== undefined && (!Array.isArray(r.only) || r.only.some((x) => typeof x !== 'string' || !x))) return `the root ${r.name}'s only must be a list of paths inside it`;
-    // More named files than one snapshot can hold: an optional root is left out (recorded), any other fails the snapshot.
+    // More named files than one snapshot can hold (an optional root is left out for this in listRoots).
     if (r.only !== undefined && new Set(r.only).size > MAX_FILES && !r.optional) return `the root ${r.name} names more than ${MAX_FILES} files, more than one snapshot can list`;
-    names.push(r.name);
+    return null;
+  };
+  const take = (r) => { names.push(r.name); out.push({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true, refused: r.refused, only: r.only === undefined ? undefined : [...new Set(r.only)] }); };
+  for (const r of required) {
+    if (!r) return 'each root needs a name';
+    const p = problem(r);
+    if (p) return p;
+    take(r);
   }
+  optional.forEach((r, k) => {
+    const p = k >= MAX_OPTIONAL_ROOTS ? `more than ${MAX_OPTIONAL_ROOTS} session folders, more than one snapshot takes` : problem(r);
+    if (!p) { take(r); return; }
+    // Recorded under its name only if that name is usable and not already taken; else under a fixed label, so a bad
+    // name never reaches the manifest.
+    const usable = typeof r.name === 'string' && !rootNameProblem(r.name) && !names.some((n) => n === r.name || n.startsWith(r.name + '/') || r.name.startsWith(n + '/'));
+    out.push({ name: usable ? r.name : UNNAMED_ROOT, refused: p.replace(/^the root name \S+ /, 'its name ').replace(/^the root \S+ /, ''), optional: true, label: !usable });
+    if (usable) names.push(r.name);
+  });
   // So the files (and the manifest) come out in one order, sorted by stored path, whatever order the caller lists them in.
   // Sorted by name + '/', which is the order of the stored paths they start (by name alone, `data-old` would follow
   // `data`, while `data-old/x` sorts before `data/x`).
-  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true, refused: r.refused, only: r.only === undefined ? undefined : [...new Set(r.only)] })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
+  return out.sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
 }
 
 /* The last folders of a named root's real path, as a prefix ('Users/me/.claude/'): enough for every deny rule anchored
@@ -527,8 +550,9 @@ function upperBound(f, maxFile) {
  *     root         the work Kosmos folder (absolute)
  *     roots        instead of root (and exclude): [{ name, path, exclude?, optional?, only? }], several folders, each stored under its
  *                  name (lowercase letters, digits, hyphens; up to four parts joined by '/'; none inside another, by
- *                  name or by real path). An optional root that cannot be read is recorded in skipped, not a
- *                  failure (a provider's session folder may be gone by the walk). `only`: the paths
+ *                  name or by real path, except roots on one folder that each keep only named files). A REQUIRED
+ *                  root that cannot be used fails the snapshot; an OPTIONAL one (at most 1024) never does: it is
+ *                  left out and recorded in skipped (unreadable, conflicting, too large, a bad name). `only`: the paths
  *                  inside the root to keep; nothing else from it is stored or named. See rootsOf.
  *     memberPk     the member's backup public key (32 bytes), namingKey this period's naming key (32 bytes) and
  *                  namingKeyId its id (backupkeys namingKeyId), deviceKey the device's Ed25519 private KeyObject

@@ -1226,7 +1226,7 @@ test('#5686: roots that cannot be used are refused before anything is read or up
       [[{ name: 'one', path: w.roots.data }, { name: 'two', path: w.roots.data + '/' }], /same folder/],
       [[{ name: 'all', path: w.base }, { name: 'link', path: path.join(w.base, 'link-to-data') }], /the root link is inside the root all/],
       [[{ name: 'workers', path: w.roots.workers }, { name: 'linked', path: path.join(other, 'to-data') }, { name: 'data', path: w.roots.data }], /same folder/],
-      [[], /1 to 64/],
+      [[], /list of folders/],
     ];
     for (const [roots, want] of cases) {
       const st = store();
@@ -1554,6 +1554,32 @@ test('#5686 review 14: two roots naming one shared folder in different case, eac
     assert.equal(r.ok, true, r.because);
     const { sink } = await restoreFrom(k, st, st.manifests[0].bytes);
     assert.deepEqual([...sink.committed.keys()].sort(), ['sessions/a/claude/a.jsonl', 'sessions/b/claude/b.jsonl']);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 15: optional roots never fail the snapshot: too many, a bad name, a repeated or nesting name are recorded', async () => {
+  const w = threeRoots(), k = keys();
+  try {
+    const extra = Array.from({ length: 70 }, (_, i) => ({ name: `sessions/agent${i}/claude`, path: path.join(w.base, `gone${i}`), optional: true }));
+    const st = store();
+    const r = await takeRoots(k, [
+      { name: 'data', path: w.roots.data }, { name: 'workers', path: w.roots.workers },
+      ...extra,
+      { name: 'Bad Name', path: w.roots.projects, optional: true },
+      { name: 'sessions/agent1/claude', path: w.roots.projects, optional: true },   // repeats one above
+      { name: 'data/inner', path: w.roots.projects, optional: true },               // nests under a required root's name
+    ], st);
+    assert.equal(r.ok, true, r.because);
+    const { sink, opened } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.ok(sink.committed.has('data/messages.jsonl') && sink.committed.has('workers/a/notes.md'));
+    assert.ok(![...sink.committed.keys()].some((p) => p.startsWith('projects/') || p.startsWith('data/inner')), 'none of the bad optional roots stored');
+    const reasons = opened.skipped.map((x) => `${x.path}: ${x.why}`);
+    assert.ok(reasons.some((x) => x.startsWith('a session folder: ') && /lowercase/.test(x)), 'a bad name is recorded under a fixed label');
+    assert.ok(reasons.some((x) => /repeats or contains/.test(x)), JSON.stringify(reasons.slice(-4)));
+    assert.ok(!reasons.some((x) => x.startsWith('Bad Name')), 'the bad name itself never reaches the manifest');
+    // CONTROL: the same bad name on a required root fails the snapshot.
+    const req = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'Bad Name', path: w.roots.projects }], store());
+    assert.equal(req.ok, false);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
