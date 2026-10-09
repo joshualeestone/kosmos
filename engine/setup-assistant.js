@@ -1101,11 +1101,11 @@ function ruleTarget(r, platform = process.platform) {
    clause, so a path in both is paid for twice. Per clause: their raw length, and their distinct prefixes (sorted, each
    path adds what it does not share with the one before it). Every measured set was one clause, so this counting is at
    least what was measured, never less. */
-function sandboxDenySize(fsb, deny, home) {
+function sandboxDenySize(fsb, deny, home, platform = process.platform) {
   const rules = (deny || []).map(String);
   const at = home || kosmosHome();
   const target = (r) => {
-    const t = ruleTarget(r);
+    const t = ruleTarget(r, platform);
     if (t) return t;
     const m = /^(?:Edit|Read)\(~\/(.*?)(?:\/\*\*)?\)$/.exec(r);
     return m ? path.join(at, m[1]) : null;
@@ -1310,7 +1310,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
   else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: !!launch.paneKnown };
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
 /*
@@ -1472,7 +1472,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        to measurements (review 4), and a refusal would stop an agent being created on an estimate. It is said beside
        an uncovered PATH entry, not instead of it. Its readers are the logs (stderr: the board's log at board start and
        creation, the supervisor's at a launch); no caller carries `warning` further today (reviews 5 and 6). */
-    const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny, deps.home) : null;
+    const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny, deps.home, deps.platform || process.platform) : null;
     const warning = sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)
       ? `its ${sz.paths} denied paths (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
       : null;

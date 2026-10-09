@@ -38,7 +38,7 @@ test('#5663: an upgrade replaces the old versioned folder in both layers; the pe
   const dir = agentDir('lp-upgrade');
   const v1 = binDir('tool/1.0/bin');
   const v2 = binDir('tool/2.0/bin');
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-upgrade', { ...BASE, panePath: v1 }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-upgrade', { ...BASE, atLaunch: true, panePath: v1 }), { ok: true });
   // The person adds their own rules beside the guard's.
   const s1 = readSettings(dir);
   s1.permissions.deny.push('Edit(//person/own/rule)');
@@ -52,7 +52,7 @@ test('#5663: an upgrade replaces the old versioned folder in both layers; the pe
   const w1 = realOr(v1);
   assert.ok(s1.permissions.deny.includes(r1) && s1.sandbox.filesystem.denyWrite.includes(w1), 'CONTROL: 1.0 was covered before the upgrade');
   fs.rmSync(path.join(SANDBOX, 'bins', 'tool', '1.0'), { recursive: true });
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-upgrade', { ...BASE, panePath: v2 }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-upgrade', { ...BASE, atLaunch: true, panePath: v2 }), { ok: true });
   const s2 = readSettings(dir);
   assert.ok(!s2.permissions.deny.includes(r1), 'the old version\'s folder rule was kept for good');
   assert.ok(!s2.sandbox.filesystem.denyWrite.includes(w1), 'the old version\'s folder stayed in the sandbox layer');
@@ -68,23 +68,23 @@ test('#5663: with no record (a guard written before this change), nothing is pru
   const dir = agentDir('lp-norecord');
   const v1 = binDir('old/1.0/bin');
   const v2 = binDir('old/2.0/bin');
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, panePath: v1 }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, atLaunch: true, panePath: v1 }), { ok: true });
   // As a guard written before this change: no record on disk.
   fs.rmSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), { force: true });
   fs.rmSync(path.join(SANDBOX, 'bins', 'old', '1.0'), { recursive: true });
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, panePath: v2 }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, atLaunch: true, panePath: v2 }), { ok: true });
   assert.ok(readSettings(dir).permissions.deny.includes(dirRule(v1)), 'with no record, a rule was pruned it cannot know the guard wrote');
   // From now on the record exists, so the next upgrade prunes 2.0.
   const v3 = binDir('old/3.0/bin');
   fs.rmSync(path.join(SANDBOX, 'bins', 'old', '2.0'), { recursive: true });
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, panePath: v3 }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-norecord', { ...BASE, atLaunch: true, panePath: v3 }), { ok: true });
   const s = readSettings(dir);
   assert.ok(!s.permissions.deny.includes(dirRule(v2)) && s.permissions.deny.includes(dirRule(v3)));
 });
 
 test('#5663: the record cannot be rewritten by the agent: it is denied to the file tools, and the sandbox denies its folder', () => {
   const dir = agentDir('lp-record');
-  setup.guardTokenOnlyFolder(dir, 'lp-record', { ...BASE, panePath: binDir('rec/bin') });
+  setup.guardTokenOnlyFolder(dir, 'lp-record', { ...BASE, atLaunch: true, panePath: binDir('rec/bin') });
   const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
   assert.ok(fs.existsSync(rec), 'no record was written');
   const s = readSettings(dir);
@@ -99,20 +99,20 @@ test('#5663: a sandbox layer past the measured ceiling is a warning (the guard i
   const dir = agentDir('lp-ceiling');
   const many = [];
   for (let i = 0; i < 1400; i++) many.push(binDir(`ceiling/pkg${i}/1.${i}/bin`));
-  const r = setup.guardTokenOnlyFolder(dir, 'lp-ceiling', { ...BASE, panePath: many.join(path.delimiter) });
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-ceiling', { ...BASE, atLaunch: true, panePath: many.join(path.delimiter) });
   // Review 4: a warning, never a refusal (creation refuses on ok:false, and the limits are fitted to measurements).
   assert.equal(r.ok, true, JSON.stringify(r).slice(0, 200));
   assert.match(r.warning, /denied paths \(\d+ distinct characters, \d+ in all\) are past/);
   assert.ok(readSettings(dir).sandbox.filesystem.denyWrite.length > 1000, 'the guard was not written');
   // CONTROL: the same agent with a handful of folders is whole.
-  assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, atLaunch: true, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
 });
 
 test('#5663 reviews 1 and 2: only an agent launch prunes; the board\'s own start (no launch inputs) keeps what a launch wrote, even once it is gone', () => {
   const dir = agentDir('lp-callers');
   const v = binDir('callers/1.0/bin');
   const other = binDir('callers/other/bin');
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE, panePath: v }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE, atLaunch: true, panePath: v }), { ok: true });
   const rv = dirRule(v);
   const wv = realOr(v);
   // The board's start: no pane PATH, so no launch rules are current.
@@ -127,7 +127,7 @@ test('#5663 reviews 1 and 2: only an agent launch prunes; the board\'s own start
   const s2 = readSettings(dir);
   assert.ok(s2.permissions.deny.includes(rv) && s2.sandbox.filesystem.denyWrite.includes(wv), 'a board start pruned a gone folder');
   // CONTROL: the next launch (a PATH without it) prunes it.
-  setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE, panePath: other });
+  setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE, atLaunch: true, panePath: other });
   const s3 = readSettings(dir);
   assert.ok(!s3.permissions.deny.includes(rv) && !s3.sandbox.filesystem.denyWrite.includes(wv), 'a launch did not prune a gone folder');
   const rec3 = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), 'utf8'));
@@ -148,7 +148,7 @@ test('#5663 review 2: the ceiling is a macOS check, and its reason is said besid
   const rm = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE });
   assert.equal(rm.ok, true); assert.match(rm.warning, /denied paths/);
   // Both reasons at once: past the ceiling AND a PATH entry it could not cover.
-  const both = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE, panePath: 'relative/bin' });
+  const both = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE, atLaunch: true, panePath: 'relative/bin' });
   assert.equal(both.ok, false);
   assert.match(both.because, /could not cover/); assert.match(both.warning, /denied paths/);
 });
@@ -157,14 +157,14 @@ test('#5663: a launch path not current but still on disk is kept; once it is gon
   const dir = agentDir('lp-keep');
   const a = binDir('keep/a/bin');
   const b = binDir('keep/b/bin');
-  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: [a, b].join(path.delimiter) });
+  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, atLaunch: true, panePath: [a, b].join(path.delimiter) });
   const rb = dirRule(b);
   // A narrower launch: b is no longer on the PATH but is still on disk.
-  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: a });
+  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, atLaunch: true, panePath: a });
   assert.ok(readSettings(dir).permissions.deny.includes(rb), 'a folder still on disk was pruned');
   // Review 3: b goes and its parent stays: pruned.
   fs.rmSync(b, { recursive: true });
-  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: a });
+  setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, atLaunch: true, panePath: a });
   assert.ok(!readSettings(dir).permissions.deny.includes(rb), 'a gone folder in a folder that stays was kept');
 });
 
@@ -174,14 +174,14 @@ test('#5663 review 3: a version FILE removed from a versions folder that stays (
   for (const v of ['1.0', '2.0']) fs.writeFileSync(path.join(store, v), '#!/bin/sh\n', { mode: 0o755 });
   const pd = binDir('verstore-path');
   fs.symlinkSync(path.join(store, '1.0'), path.join(pd, 'tool'));
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-verfile', { ...BASE, panePath: pd }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-verfile', { ...BASE, atLaunch: true, panePath: pd }), { ok: true });
   const r1 = `Edit(${ruleAbs(path.join(realOr(store), '1.0'))})`;
   assert.ok(readSettings(dir).permissions.deny.includes(r1), 'CONTROL: the version file is named: ' + readSettings(dir).permissions.deny.filter((x) => x.includes('verstore')).join(' '));
   // The tool upgrades itself: the link now names 2.0 and 1.0 is removed; the versions folder stays.
   fs.unlinkSync(path.join(pd, 'tool'));
   fs.symlinkSync(path.join(store, '2.0'), path.join(pd, 'tool'));
   fs.unlinkSync(path.join(store, '1.0'));
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-verfile', { ...BASE, panePath: pd }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-verfile', { ...BASE, atLaunch: true, panePath: pd }), { ok: true });
   const s = readSettings(dir);
   assert.ok(!s.permissions.deny.includes(r1), 'the removed version file stayed');
   assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(realOr(store), '2.0'))})`), 'the new version file is not named');
@@ -193,11 +193,11 @@ test('#5663: a corrupt or wrong-shaped record prunes nothing, even a gone path',
     const dir = agentDir(name);
     const a = binDir(`corrupt${bad.length}/a/bin`);
     const b = binDir(`corrupt${bad.length}/b/bin`);
-    setup.guardTokenOnlyFolder(dir, name, { ...BASE, panePath: [a, b].join(path.delimiter) });
+    setup.guardTokenOnlyFolder(dir, name, { ...BASE, atLaunch: true, panePath: [a, b].join(path.delimiter) });
     const rb = dirRule(b);
     fs.rmSync(b, { recursive: true });
     fs.writeFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), bad);
-    assert.deepEqual(setup.guardTokenOnlyFolder(dir, name, { ...BASE, panePath: a }), { ok: true });
+    assert.deepEqual(setup.guardTokenOnlyFolder(dir, name, { ...BASE, atLaunch: true, panePath: a }), { ok: true });
     assert.ok(readSettings(dir).permissions.deny.includes(rb), 'a corrupt record pruned a rule: ' + bad);
     // Review 10: one that does not parse as an object is kept as a dated copy before it is replaced.
     const copies = fs.readdirSync(path.join(dir, '.claude')).filter((f) => f.startsWith('kosmos-launch-rules.json.unreadable-'));
@@ -250,7 +250,7 @@ test('#5663 review 5: a real launch passes its PATH in KOSMOS_GUARD_PANE_PATH (a
   const v2 = binDir('envtool/2.0/bin');
   const run = (pane) => {
     if (pane === undefined) delete process.env.KOSMOS_GUARD_PANE_PATH; else process.env.KOSMOS_GUARD_PANE_PATH = pane;
-    try { return setup.guardTokenOnlyFolder(dir, 'lp-env', { ...BASE }); } finally { delete process.env.KOSMOS_GUARD_PANE_PATH; }
+    try { return setup.guardTokenOnlyFolder(dir, 'lp-env', { ...BASE, atLaunch: true }); } finally { delete process.env.KOSMOS_GUARD_PANE_PATH; }   // atLaunch: as refreshTokenOnlyGuards({ only }) passes
   };
   assert.deepEqual(run(v1), { ok: true });
   const r1 = dirRule(v1);
@@ -272,8 +272,8 @@ test('#5663 review 7: a launch never prunes what only a board start wrote (an ab
   assert.ok(s1.permissions.deny.some((r) => r.includes('asym-not-made-yet')), 'CONTROL: the board start denied the absent folder: ' + s1.permissions.deny.filter((r) => r.includes('asym')).join(' '));
   const before = s1.permissions.deny.filter((r) => r.includes('asym-not-made-yet'));
   const beforeW = s1.sandbox.filesystem.denyWrite.filter((x) => x.includes('asym-not-made-yet'));
-  setup.guardTokenOnlyFolder(dir, 'lp-asym', { ...BASE, panePath: v });
-  setup.guardTokenOnlyFolder(dir, 'lp-asym', { ...BASE, panePath: v });
+  setup.guardTokenOnlyFolder(dir, 'lp-asym', { ...BASE, atLaunch: true, panePath: v });
+  setup.guardTokenOnlyFolder(dir, 'lp-asym', { ...BASE, atLaunch: true, panePath: v });
   const s2 = readSettings(dir);
   for (const r of before) assert.ok(s2.permissions.deny.includes(r), 'a launch pruned what only the board start wrote: ' + r);
   for (const x of beforeW) assert.ok(s2.sandbox.filesystem.denyWrite.includes(x), 'a launch pruned a board-start sandbox entry: ' + x);
@@ -282,17 +282,17 @@ test('#5663 review 7: a launch never prunes what only a board start wrote (an ab
 test('#5663 review 8: a launch whose PATH is empty (no absolute entry) is not a launch\'s inputs, so it prunes nothing', () => {
   const dir = agentDir('lp-emptypane');
   const v = binDir('emptypane/1.0/bin');
-  setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, panePath: v });
+  setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, atLaunch: true, panePath: v });
   const rv = dirRule(v);
   const wv = realOr(v);
   fs.rmSync(path.join(SANDBOX, 'bins', 'emptypane', '1.0'), { recursive: true });
   for (const pane of ['', path.delimiter, 'relative/bin']) {
-    setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, panePath: pane });
+    setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, atLaunch: true, panePath: pane });
     const s = readSettings(dir);
     assert.ok(s.permissions.deny.includes(rv) && s.sandbox.filesystem.denyWrite.includes(wv), 'pruned on a PATH with no absolute entry: ' + JSON.stringify(pane));
   }
   // CONTROL: a real launch PATH prunes it.
-  setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, panePath: binDir('emptypane/other/bin') });
+  setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, atLaunch: true, panePath: binDir('emptypane/other/bin') });
   assert.ok(!readSettings(dir).permissions.deny.includes(rv), 'CONTROL: a launch with a real PATH did not prune');
 });
 
@@ -300,7 +300,7 @@ test('#5663 review 9: a folder a launch denied while it was absent is never reco
   const dir = agentDir('lp-absent');
   const v = binDir('absentlaunch/tool/bin');
   const x = path.join(SANDBOX, 'bins', 'absentlaunch', 'not-installed-yet', 'bin');   // e.g. a tool folder before install
-  setup.guardTokenOnlyFolder(dir, 'lp-absent', { ...BASE, panePath: [v, x].join(path.delimiter) });
+  setup.guardTokenOnlyFolder(dir, 'lp-absent', { ...BASE, atLaunch: true, panePath: [v, x].join(path.delimiter) });
   const s1 = readSettings(dir);
   const before = s1.permissions.deny.filter((r) => r.includes('not-installed-yet'));
   const beforeW = s1.sandbox.filesystem.denyWrite.filter((p) => p.includes('not-installed-yet'));
@@ -309,7 +309,7 @@ test('#5663 review 9: a folder a launch denied while it was absent is never reco
   assert.ok(![...rec.deny, ...rec.denyWrite].some((e) => e.includes('not-installed-yet')), 'an absent path was recorded: ' + JSON.stringify(rec));
   assert.ok(rec.deny.includes(dirRule(v)), 'CONTROL: a present launch folder is recorded');
   // The tmux server's PATH changes: the next launch does not have it.
-  setup.guardTokenOnlyFolder(dir, 'lp-absent', { ...BASE, panePath: v });
+  setup.guardTokenOnlyFolder(dir, 'lp-absent', { ...BASE, atLaunch: true, panePath: v });
   const s2 = readSettings(dir);
   for (const r of before) assert.ok(s2.permissions.deny.includes(r), 'a launch pruned a folder denied while absent: ' + r);
   for (const p of beforeW) assert.ok(s2.sandbox.filesystem.denyWrite.includes(p), 'a launch pruned a sandbox entry denied while absent: ' + p);
@@ -322,14 +322,14 @@ test('#5663 review 11: the size counts the person\'s ~/ rule spelling against ho
   // that arm runs only for an ordinary user (review 12).
   const dir = agentDir('lp-unreadable');
   const v = binDir('unreadable/1.0/bin');
-  setup.guardTokenOnlyFolder(dir, 'lp-unreadable', { ...BASE, panePath: v });
+  setup.guardTokenOnlyFolder(dir, 'lp-unreadable', { ...BASE, atLaunch: true, panePath: v });
   const rv = dirRule(v);
   const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
   const before = fs.readFileSync(rec, 'utf8');
   const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
   if (!asRoot) fs.chmodSync(rec, 0o000);
   fs.rmSync(path.join(SANDBOX, 'bins', 'unreadable', '1.0'), { recursive: true });
-  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-unreadable', { ...BASE, panePath: binDir('unreadable/other/bin') }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-unreadable', { ...BASE, atLaunch: true, panePath: binDir('unreadable/other/bin') }), { ok: true });
   if (!asRoot) {
     assert.ok(readSettings(dir).permissions.deny.includes(rv), 'an unreadable record pruned a rule');
     assert.equal(fs.statSync(rec).mode & 0o777, 0, 'an unreadable record was replaced');
@@ -338,11 +338,11 @@ test('#5663 review 11: the size counts the person\'s ~/ rule spelling against ho
   }
   // The same unparseable content twice gets one dated copy.
   const dir2 = agentDir('lp-onecopy');
-  setup.guardTokenOnlyFolder(dir2, 'lp-onecopy', { ...BASE, panePath: binDir('onecopy/bin') });
+  setup.guardTokenOnlyFolder(dir2, 'lp-onecopy', { ...BASE, atLaunch: true, panePath: binDir('onecopy/bin') });
   const rec2 = path.join(dir2, '.claude', 'kosmos-launch-rules.json');
   for (let i = 0; i < 2; i++) {
     fs.writeFileSync(rec2, '{broken');
-    setup.guardTokenOnlyFolder(dir2, 'lp-onecopy', { ...BASE, panePath: binDir('onecopy/bin') });
+    setup.guardTokenOnlyFolder(dir2, 'lp-onecopy', { ...BASE, atLaunch: true, panePath: binDir('onecopy/bin') });
   }
   const copies = fs.readdirSync(path.join(dir2, '.claude')).filter((f) => f.startsWith('kosmos-launch-rules.json.unreadable-'));
   assert.equal(copies.length, 1, 'copied again: ' + copies.join(' '));
@@ -356,7 +356,7 @@ test('#5663 review 12: a launch that prunes says so in the log (counts only), an
   const real = process.stderr.write;
   const run = (pane) => {
     process.stderr.write = (chunk, ...rest) => { if (String(chunk).startsWith('#5663:')) said.push(String(chunk)); else return real.call(process.stderr, chunk, ...rest); return true; };
-    try { return setup.guardTokenOnlyFolder(dir, 'lp-log', { ...BASE, panePath: pane }); } finally { process.stderr.write = real; }
+    try { return setup.guardTokenOnlyFolder(dir, 'lp-log', { ...BASE, atLaunch: true, panePath: pane }); } finally { process.stderr.write = real; }
   };
   run(v1);
   run(v1);
@@ -378,14 +378,53 @@ test('#5663 review 13: a path whose state cannot be read (EACCES on its parent) 
   try {
     // Unreadable at the launch that names it: not recorded.
     fs.chmodSync(parent, 0o000);
-    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, panePath: c });
+    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, atLaunch: true, panePath: c });
     fs.chmodSync(parent, 0o755);
     assert.ok(!JSON.parse(fs.readFileSync(recFile, 'utf8')).deny.includes(rc), 'an unreadable path was recorded');
     // Readable: recorded. Unreadable at a launch without it: kept, not pruned.
-    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, panePath: c });
+    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, atLaunch: true, panePath: c });
     assert.ok(JSON.parse(fs.readFileSync(recFile, 'utf8')).deny.includes(rc), 'CONTROL: a readable path is recorded');
     fs.chmodSync(parent, 0o000);
-    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, panePath: other });
+    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, atLaunch: true, panePath: other });
     assert.ok(readSettings(dir).permissions.deny.includes(rc), 'an unreadable path was pruned');
   } finally { fs.chmodSync(parent, 0o755); }
+});
+
+test('#5663 review 14: a board start that inherits KOSMOS_GUARD_PANE_PATH (no atLaunch) neither records nor prunes', () => {
+  const dir = agentDir('lp-inherit');
+  const v1 = binDir('inherit/1.0/bin');
+  const v2 = binDir('inherit/2.0/bin');
+  setup.guardTokenOnlyFolder(dir, 'lp-inherit', { ...BASE, atLaunch: true, panePath: v1 });
+  const r1 = dirRule(v1);
+  fs.rmSync(path.join(SANDBOX, 'bins', 'inherit', '1.0'), { recursive: true });
+  process.env.KOSMOS_GUARD_PANE_PATH = v2;
+  try { setup.guardTokenOnlyFolder(dir, 'lp-inherit', { ...BASE }); } finally { delete process.env.KOSMOS_GUARD_PANE_PATH; }
+  assert.ok(readSettings(dir).permissions.deny.includes(r1), 'a board start with an inherited pane PATH pruned');
+  const rec = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), 'utf8'));
+  assert.ok(!rec.deny.includes(dirRule(v2)), 'a board start with an inherited pane PATH recorded');
+  // CONTROL: the same with atLaunch prunes.
+  process.env.KOSMOS_GUARD_PANE_PATH = v2;
+  try { setup.guardTokenOnlyFolder(dir, 'lp-inherit', { ...BASE, atLaunch: true }); } finally { delete process.env.KOSMOS_GUARD_PANE_PATH; }
+  assert.ok(!readSettings(dir).permissions.deny.includes(r1), 'CONTROL: a launch did not prune');
+});
+
+test('#5663 review 14: end to end, the supervisor\'s refreshTokenOnlyGuards({ only }) with the env PATH prunes; the board\'s own refresh does not', () => {
+  const sendertoken = require('./sendertoken');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['lp-e2e'] }) + '\n');
+  const dir = agentDir('lp-e2e');
+  const v1 = binDir('e2e/1.0/bin');
+  const v2 = binDir('e2e/2.0/bin');
+  const deps = { ...BASE, workerDir: () => dir };
+  const quiet = (fn) => { const real = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = real; } };
+  const launch = (pane) => { process.env.KOSMOS_GUARD_PANE_PATH = pane; try { return quiet(() => setup.refreshTokenOnlyGuards({ ...deps, only: 'lp-e2e' })); } finally { delete process.env.KOSMOS_GUARD_PANE_PATH; } };
+  assert.deepEqual(launch(v1).guarded, ['lp-e2e']);
+  const r1 = dirRule(v1);
+  assert.ok(readSettings(dir).permissions.deny.includes(r1), 'CONTROL: the launch wrote the rule');
+  fs.rmSync(path.join(SANDBOX, 'bins', 'e2e', '1.0'), { recursive: true });
+  // The board's own refresh, even with the variable set in its environment: nothing pruned.
+  process.env.KOSMOS_GUARD_PANE_PATH = v2;
+  try { quiet(() => setup.refreshTokenOnlyGuards(deps)); } finally { delete process.env.KOSMOS_GUARD_PANE_PATH; }
+  assert.ok(readSettings(dir).permissions.deny.includes(r1), 'the board\'s own refresh pruned');
+  launch(v2);
+  assert.ok(!readSettings(dir).permissions.deny.includes(r1), 'the supervisor\'s launch refresh did not prune');
 });

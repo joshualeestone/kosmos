@@ -6,7 +6,7 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 ## Built (current)
 - engine/setup-assistant.js:
   - A record of the launch rules the guard wrote at an agent's launch, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what this launch wrote and that exists on disk. A board start never adds to it.
-  - Pruning is done only by an agent launch, which is the refresh that carries the pane PATH. It drops a recorded launch entry that is not current AND whose path is gone from disk. This happens in both layers. Every other rule merges as before.
+  - Pruning is done only by an agent launch: the supervisor's `refreshTokenOnlyGuards({ only })`, which passes `atLaunch`, with a pane PATH that has an absolute entry. An inherited `KOSMOS_GUARD_PANE_PATH` never makes a board start into a launch. It drops a recorded launch entry that is not current AND whose path is gone from disk. This happens in both layers. Every other rule merges as before.
   - The ceiling, macOS only, counts the paths THIS AGENT'S settings file sends to the sandbox profile, per clause: the read clause is denyRead plus the Read targets; the write clause is denyWrite plus the Edit targets. Rule targets are taken in the guard's `//abs` spelling and the person's `~/` one. The person's user-level settings files also reach the profile and are not counted (#5668). Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and whole, and it returns a `warning` (also written to stderr), never a refusal. The warning is given beside an uncovered-PATH reason, not instead of it.
 - engine/launchprune-5663.test.js.
 
@@ -123,3 +123,12 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
   - The plan file name, a known conflict between the PR hook and CLAUDE.md; the plan explains it.
   - The commit subjects. The squash merge takes the PR title, which will use the `#5663: ...` form.
   - The test's local `realOr`/`ruleAbs`, the existing test pattern.
+
+## Review 14 (Sonnet) and what changed
+
+- A board started from an environment that exported `KOSMOS_GUARD_PANE_PATH` counted as a launch, and could record and prune. Now a launch is explicit: `atLaunch` (passed by `refreshTokenOnlyGuards({ only })`, the supervisor's call) and a usable pane PATH. Tests:
+  - an inherited variable with no `atLaunch` neither records nor prunes;
+  - end to end, the supervisor's call with the env PATH prunes, and the board's own refresh does not.
+  Both mutations go red.
+- The size count reads rule paths for the platform the guard was asked for (`deps.platform`).
+- Duplicates: the warning reaching only the log (#5668); dated copies are never removed (bounded by content).
