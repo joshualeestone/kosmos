@@ -718,7 +718,8 @@ async function leaveNow(opts, retry) {
   setLeavePending(true, opts, before, undo, pendingConsentHash(opts));
   /* #5534 review 3: what was in force, so a leave the company refuses (last admin) can put it back when its answer
      carries no policy field (an older coordinator). A leave not yet confirmed still drops it at once: the person chose
-     to leave, and this Kosmos stops reporting at the same moment (decided on the card). */
+     to leave, and this Kosmos stops reporting at the same moment (decided on the card). That is a deliberate way for
+     the person to lift the policy on their own Mac, as removing the files is; the company sees the reports stop. */
   let heldPolicy = null;
   try { heldPolicy = policyMod(opts).snapshot(); } catch { heldPolicy = null; }
   clearEnrollment(opts);   // stop at once, whatever happens next
@@ -852,7 +853,8 @@ async function refreshNow(opts) {
   /* Review 3: a policy of another company than this answer's: it ends BEFORE the new one is applied, so a bundle of
      the new company's that is refused leaves no policy rather than the old company's. Keyed on the policy's own
      company, not the record's, so a move by code that never cleared is caught here too. */
-  const policy = saved ? takePolicy(d, opts, org.id) : null;
+  // Not saved: the old record stands, but a policy of another company than this answer's still ends now (review 7).
+  const policy = saved ? takePolicy(d, opts, org.id) : (endForeignPolicy(opts, org.id), null);
   return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
 }
 
@@ -880,7 +882,8 @@ function takePolicy(d, opts, orgId) {
    one in force. { version, refused } or null when the answer carried no policy. Never throws: a policy that cannot be
    saved or applied leaves the enrollment as it is, and the next refresh (on start and daily) tries again. */
 function applyPolicy(token, opts, orgId) {
-  if (typeof token !== 'string' || !token || token.length > 64 * 1024) return null;
+  if (typeof token !== 'string' || !token) return null;
+  if (token.length > 64 * 1024) return { version: null, refused: 'the policy is larger than this Kosmos accepts' };
   const orgpolicy = policyMod(opts);
   /* Review 1: a bundle for another company than the one this answer names is not saved (a coordinator mix-up). A
      mix-up guard, not a security check: the payload is read before its signature is checked, and orgpolicy.refresh()
