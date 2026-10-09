@@ -66,7 +66,7 @@ function clickDate(now) {
    TRUE: an unedited span is recomposed at board start, an edited one only through the click. */
 /* kosmos#5635: every frame line says what Kosmos now does with the block: keeps it current by itself while nobody has
    edited it, and asks first once somebody has. Each starts with the words sectionContentOf strips. */
-const KEEPS = 'Kosmos keeps this block up to date when the rules change while nobody has edited it, and asks first once someone has; your own words above and below it are never touched.';
+const KEEPS = 'Kosmos keeps this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.';
 function openingLine(now) {
   return `<!-- Kosmos added the working rules below on ${clickDate(now)}, with your OK. ${KEEPS} -->`;
 }
@@ -75,6 +75,18 @@ function autoLine(now) {
   return `<!-- Kosmos added the working rules below on ${clickDate(now)}, bringing its own earlier copy up to date. ${KEEPS} -->`;
 }
 const CLOSING_LINE = '<!-- end of the working rules -->';
+/* kosmos#5635 review 2: every frame line Kosmos has ever written, exactly (the date varies). sectionContentOf drops ANY
+   line with the frame's prefix, so a person's words added inside that comment would read as frame; the write with no
+   click requires each such line to be one of these. */
+const FRAME_TAILS = [
+  'with your OK. Kosmos may update this block when the rules change; your own words above and below it are never touched.',
+  'when it set up this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched.',
+  'with your OK. ' + KEEPS, 'when it set up this agent. ' + KEEPS, 'bringing its own earlier copy up to date. ' + KEEPS,
+];
+function isKosmosFrame(line) {
+  const m = /^<!-- Kosmos added the working rules below on \d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}, (.*) -->$/.exec(line);
+  return !!m && FRAME_TAILS.includes(m[1]);
+}
 /* #4890: the same frame at birth, where nobody clicked. It starts with the words sectionContentOf strips, so a
    refresh compares the rules and never this line. */
 function birthLine(now) {
@@ -421,13 +433,21 @@ function refreshUnedited(sessionName, roster, opts) {
        person deleted a section from or reordered: those wait for the click. A span from an older click that added only
        missing headings is left too, the safe side. */
     const span = projects.findBlock(current.text || '', START, END);
+    const notWhole = { state: 'left', because: 'its working rules are not a copy Kosmos wrote whole, so they change only with your OK' };
     if (span && !span.ambiguous) {
       const text = current.text || '';
-      const inner = text.slice(text.indexOf('\n', span.start) + 1, span.end - END.length);
-      if (!wholeKnownBlock(sectionContentOf(inner), opts && opts.past)) {
-        return { state: 'left', because: 'its working rules are not a copy Kosmos wrote whole, so they change only with your OK' };
-      }
+      const lineEnd = text.indexOf('\n', span.start);
+      const inner = text.slice(lineEnd + 1, span.end - END.length);
+      /* Review 2: the marker lines are compared too (words typed on the start marker's line, or before the end marker,
+         are the person's), every frame-prefixed line must be a frame Kosmos wrote, and a span with Windows line endings
+         is left for the click (the rewrite would mix endings in the person's file). */
+      if (text.slice(span.start, lineEnd) !== START || !inner.endsWith('\n') || /\r/.test(inner)) return notWhole;
+      if (inner.split('\n').some((l) => l.startsWith('<!-- Kosmos added the working rules below on ') && !isKosmosFrame(l))) return notWhole;
+      if (!wholeKnownBlock(sectionContentOf(inner), opts && opts.past)) return notWhole;
     }
+    /* Review 2: a plain copy is replaced only when EVERY section is written: a heading the person also has elsewhere
+       leaves one out, which the dialog shows and a write with no click would not. */
+    if (plan.replacing === true && !plan.updating && plan.sections.length !== defaults.sections().length) return notWhole;
     /* `edited` is checked on EVERY path: a plain copy cut beside a span (replacing) carries the span's plan, edited or not. */
     if (plan.edited === true || !(plan.replacing === true || plan.updating === true)) {
       return { state: 'left', because: plan.edited === true || plan.updating ? 'its working rules were edited, so they change only with your OK' : 'its working rules were never written by Kosmos, so they are added only with your OK' };

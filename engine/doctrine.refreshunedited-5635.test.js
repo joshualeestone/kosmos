@@ -73,7 +73,7 @@ test('#5635: the file never claims an OK nobody gave: an automatic refresh write
   const line = read(f).split('\n').find((l) => l.startsWith('<!-- Kosmos added the working rules below on '));
   assert.equal(line, doctrine.autoLine(NOW));
   assert.ok(!/with your OK/.test(line), 'an automatic write said the person agreed');
-  assert.match(line, /keeps this block up to date when the rules change while nobody has edited it, and asks first/);
+  assert.match(line, /keeps this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise/);
   assert.equal(doctrine.planFor(read(f), NOW, OLD_TABLE).state, 'current', 'the new frame line is read as a change to the rules');
 });
 
@@ -127,7 +127,7 @@ test('#5635: an agent that is not exactly ours is never written', () => {
 
 test('#5635: the birth and click frames say the same thing about keeping the block current', () => {
   const born = doctrine.atBirth('# Mine\n', NOW);
-  assert.match(born, /when it set up this agent\. Kosmos keeps this block up to date when the rules change while nobody has edited it, and asks first once someone has;/);
+  assert.match(born, /when it set up this agent\. Kosmos keeps this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise;/);
   assert.match(doctrine.spanBody(defaults.sections(), NOW), /with your OK\. Kosmos keeps this block up to date/);
   for (const t of [born, doctrine.autoLine(NOW)]) assert.ok(!t.includes('—') && !t.includes('–'), 'a dash');
 });
@@ -169,4 +169,35 @@ test('#5635 review 1: the board-start sweep refreshes every agent of ours, owes 
   // The board calls it at start with the re-read owe.
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /doctrine\.refreshFleet\(safeRoster\(\), instructionRereadOwe\)/, 'the board no longer runs the sweep');
+});
+
+test('#5635 review 2: the person\'s words ON a marker line or INSIDE the frame comment, a span with Windows line endings, and a plain copy missing a section are left for the click', () => {
+  const oldSpan = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const frame = oldSpan.split('\n').find((l) => l.startsWith('<!-- Kosmos added the working rules below on '));
+  const heading3 = defaults.sections()[2].heading;
+  const cases = {
+    markertail: oldSpan.replace(doctrine.START, () => doctrine.START + ' MY NOTE'),
+    framewords: oldSpan.replace(frame, () => frame.replace(' -->', ' and my own words -->')),
+    crlfspan: oldSpan.replace(/\n/g, '\r\n'),
+    sharedheading: `# Mine\n\n${heading3}\nMy own take on this.\n\n${OLD}\n`,
+  };
+  for (const [name, text] of Object.entries(cases)) {
+    assert.notEqual(text, oldSpan, name + ': fixture did not change');
+    const f = agentFile(name, text);
+    // CONTROL: each is a refresh the click would offer.
+    assert.equal(doctrine.planFor(text, NOW, OLD_TABLE).state, 'refresh', name + ': fixture is not a refresh case');
+    const got = run(name);
+    assert.equal(got.state, 'left', name + ': ' + JSON.stringify(got));
+    assert.equal(read(f), text, name + ': written without a click');
+  }
+});
+
+test('#5635 review 2: a span born under the OLD frame wording (before this change) is still Kosmos\'s own and is brought current', () => {
+  const oldFrame = '<!-- Kosmos added the working rules below on 3 Oct 2026, when it set up this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched. -->';
+  const born = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const now = born.split('\n').find((l) => l.startsWith('<!-- Kosmos added the working rules below on '));
+  const text = born.replace(now, () => oldFrame);
+  const f = agentFile('oldframe', text);
+  assert.equal(run('oldframe').state, 'added');
+  assert.ok(read(f).includes(BLOCK));
 });

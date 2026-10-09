@@ -35,3 +35,8 @@ That the test agents' stale text was a known earlier block. If the multi-model t
   - W3: the module header and the frame-line notes now state the two writers.
   - W4: the sweep is `doctrine.refreshFleet`, tested on behaviour.
   - Nits: a missing instructions file is quiet at boot (N5). Decided as before this change: the frame-prefix filter (N6), and CRLF spans rewritten as LF without a loop (N7). The "idle since X ago" wording stays, as #4581's idle line has it (N8).
+- **Round 2 (sonnet):** 0 blockers, 2 warnings, both fixed in the no-click write.
+  - W1: words on a marker line or inside the frame comment were not compared. Both marker lines are now exact, and every frame-prefixed line must be a frame Kosmos wrote (FRAME_TAILS; old wordings kept, so spans born before this change still update).
+  - W2: a plain copy with a heading the person also has elsewhere was replaced minus that section. Now replaced only when every section is written.
+  - CONVENTION: a span with Windows line endings is left for the click (no mixed endings).
+  - NITs: the frame wording no longer overclaims ("while it is exactly as Kosmos wrote it, and asks first otherwise"). Decided: a plain copy inside a code fence is treated as on the click path (rare); ambiguous files and write conflicts still log at boot (they are real).
