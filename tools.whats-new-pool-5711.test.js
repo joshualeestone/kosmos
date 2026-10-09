@@ -92,6 +92,8 @@ test('#5711: the real pool builds a window the cut accepts, without the held con
   // Zero pending is legal (a promote can show the last one), so only a non-empty choice is checked by the window.
   assert.equal(chosen.length, Math.min(5, pool.items.filter((i) => i.status === 'pending').length));
   if (chosen.length) assert.deepEqual(whatsnew.problems({ version: '0.7.36', highlights: chosen }, '0.7.36'), []);
+  // Live data only: the held item sits at rank 99, so this cannot catch a broken held FILTER (the first test, a held
+  // item at rank 0, does); it catches the pool itself un-holding conversation mode.
   assert.ok(!chosen.some((h) => /aloud|conversation mode/i.test(h.title + h.line)), 'the held mode never resurfaces');
   assert.ok(pool.items.some((i) => i.status === 'held' && /aloud/i.test(i.title)), 'CONTROL: the held item is in the pool');
   // Review 5: every gate build has (platforms included) on the real pool, written only to a temp file.
@@ -122,19 +124,22 @@ test('#5711 review 6: --from-history takes the NEWEST commit naming the version,
     put('0.7.1', 'Fixed wording'); put('0.7.2', 'Next');
     // --ref: the wording at the cut's frozen sha, not main's later fix.
     assert.equal(tool.fromHistory('0.7.1', dir, frozen).highlights[0].title, 'First wording');
-    assert.equal(tool.fromHistory('0.7.1', dir).highlights[0].title, 'Fixed wording', 'the newest commit for 0.7.1, not the first');
-    assert.equal(tool.fromHistory('0.7.2', dir).highlights[0].title, 'Next');
-    assert.equal(tool.fromHistory('0.7.9', dir), null, 'CONTROL: a version never committed');
+    // Review 11: read EXACTLY at the ref. HEAD's file is 0.7.2's, so 0.7.1 at HEAD is refused, never walked back to.
+    assert.equal(tool.fromHistory('0.7.1', dir, 'HEAD'), null);
+    assert.equal(tool.fromHistory('0.7.1', dir, 'HEAD~1').highlights[0].title, 'Fixed wording');
+    assert.equal(tool.fromHistory('0.7.2', dir, 'HEAD').highlights[0].title, 'Next');
+    assert.equal(tool.fromHistory('0.7.9', dir, 'HEAD'), null, 'CONTROL: a version never committed');
+    assert.equal(tool.fromHistory('0.7.1', dir, 'no-such-ref'), null, 'an unknown ref');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 const shallow = (() => { try { return require('node:child_process').execFileSync('git', ['-C', __dirname, 'rev-parse', '--is-shallow-repository'], { encoding: 'utf8' }).trim() !== 'false'; } catch { return true; } })();
 test('#5711 review 5: --from-history finds the What\'s New a version shipped in this checkout\'s history', { skip: shallow && 'a shallow clone (CI) has no history of web/whats-new.json; the throwaway-repo test above covers the logic' }, () => {
-  const got = tool.fromHistory('0.7.35');
+  const got = tool.fromHistory('0.7.35', __dirname, 'ad8039770');   // 0.7.35's frozen sha (Mortals' cut log)
   assert.ok(got, 'found 0.7.35');
   assert.equal(got.version, '0.7.35');
   assert.ok(got.highlights.some((h) => h.title === 'Agent cards show the last community post'));
-  assert.equal(tool.fromHistory('0.0.1'), null, 'CONTROL: a version that never shipped is not found');
+  assert.equal(tool.fromHistory('0.0.1', __dirname, 'ad8039770'), null, 'CONTROL: another version at that sha is refused');
   // The printed recovery command, end to end on a copy of the real pool (0.7.35 is already recorded: marks 0, exit 0).
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-hist-'));
   try {
@@ -143,8 +148,8 @@ test('#5711 review 5: --from-history finds the What\'s New a version shipped in 
     // and this test must not turn red on main the day that happens (review 10).
     const real = JSON.parse(fs.readFileSync(path.join(__dirname, 'release', 'whats-new-pool.json'), 'utf8'));
     fs.writeFileSync(copy, JSON.stringify(Object.assign(real, { lastProd: '0.7.35' })));
-    assert.equal(quiet(() => tool.main(['shown', '0.7.35', '--promoted', '--from-history', '--ref=HEAD', `--pool=${copy}`])), 0);
-    assert.equal(quiet(() => tool.main(['shown', '0.0.1', '--promoted', '--from-history', '--ref=HEAD', `--pool=${copy}`])), 3, 'CONTROL');
+    assert.equal(quiet(() => tool.main(['shown', '0.7.35', '--promoted', '--from-history', '--ref=ad8039770', `--pool=${copy}`])), 0);
+    assert.equal(quiet(() => tool.main(['shown', '0.0.1', '--promoted', '--from-history', '--ref=ad8039770', `--pool=${copy}`])), 3, 'CONTROL');
     // Review 9: no default ref (HEAD can hold wording that was never cut).
     assert.equal(quiet(() => tool.main(['shown', '0.7.35', '--promoted', '--from-history', `--pool=${copy}`])), 2);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -248,4 +253,15 @@ test('#5711 review 9: a Mac promote leaves a Windows-only highlight pending; ext
     const by = Object.fromEntries(JSON.parse(fs.readFileSync(t.file, 'utf8')).items.map((i) => [i.title, i.status]));
     assert.deepEqual(by, { 'Both': 'shown', 'Win only': 'pending', 'Mac only': 'shown' });
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711 review 11: a malformed lastProd is refused when the pool is read', () => {
+  for (const bad of ['0.7.3x', '0.7', 7]) {
+    const t = tmp({ lastProd: bad, items: [item('A', 1, 'pending')] });
+    try { assert.throws(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`]), /lastProd/, String(bad)); }
+    finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+  }
+  const t = tmp({ items: [item('A', 1, 'pending')] });   // CONTROL: no lastProd at all is allowed
+  try { assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0); }
+  finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });

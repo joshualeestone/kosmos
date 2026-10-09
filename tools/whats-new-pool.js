@@ -13,6 +13,8 @@
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
  * on the release branch, docs/windows RELEASING.md); the pool does not record Windows promotes.
  *   held     a feature that is held or dropped (conversation mode, Josh 10:49): never chosen, whatever its rank
+ * A Windows-only highlight is never marked shown (the pool records Mac promotes only), so once Windows prod has shown
+ * it, RETIRE IT BY HAND: set its status to shown, with shownIn the Windows version.
  * A highlight tagged for ONE platform still takes one of the 5 slots of the one file both platforms read (the engine
  * caps the file, not each platform's view), so that platform's window shows fewer. Tag an item only when it truly is
  * one platform's; build refuses a list that leaves a platform with none.
@@ -24,8 +26,8 @@
  *       after <version> is PROMOTED to prod: every pool entry whose title is in that version's What's New becomes
  *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut: --promoted is
  *       required, so it is never run by reflex after a cut (that would retire highlights prod users never saw).
- *       --from-history reads that version's What's New from this checkout's git history (the newest commit whose
- *       web/whats-new.json names it); there are no per-version tags to read it from. Give --ref=<the cut's frozen sha>
+ *       --from-history reads that version's What's New from git, EXACTLY at --ref (required), refusing a file there
+ *       for another version; there are no per-version tags to read it from. Give --ref=<the cut's frozen sha>
  *       (the cut prints it at step 2b, "frozen at <sha>", and ~/.claude/logs/cut-suite-runs.log on THE BOX THAT RAN
  *       THE CUT records it as frozen_sha=) so a wording changed on main AFTER the freeze is not read as
  *       what prod showed.
@@ -48,6 +50,9 @@ function readPool(file) {
       || typeof it.since !== 'string' || !/^\d+\.\d+\.\d+$/.test(it.since)) {
       throw new Error(file + ': every item needs a title, a numeric rank, a since version and a status (' + STATUSES.join(', ') + ')');
     }
+  }
+  if (pool.lastProd !== undefined && (typeof pool.lastProd !== 'string' || !/^\d+\.\d+\.\d+$/.test(pool.lastProd))) {
+    throw new Error(file + ': lastProd must be a version like 0.7.35, not ' + JSON.stringify(pool.lastProd));
   }
   // Titles are how `shown` finds what prod showed: two items with one title would be marked together.
   const seen = new Set();
@@ -78,18 +83,20 @@ function choose(pool, max) {
 }
 
 /**
- * The What's New <version> shipped: the newest commit at or before `ref` whose web/whats-new.json names it. With ref
- * the cut's frozen sha that is exactly what was cut; with HEAD it is main's latest wording for that version.
+ * The What's New <version> shipped: web/whats-new.json EXACTLY at `ref`, the cut's frozen sha, or null when the file
+ * there is not for that version. Review 11: it never walks back. A later commit (HEAD, origin/main) would otherwise
+ * yield main's post-freeze wording, and a highlight removed after the freeze would stay pending though prod showed it.
+ * The cut refuses a frozen tree whose file is for another version (release.sh step 2b re-check), so the frozen sha
+ * always qualifies.
  */
-function fromHistory(version, root = ROOT, ref = 'HEAD') {
+function fromHistory(version, root, ref) {
   const { execFileSync } = require('node:child_process');
-  const git = (args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 });
-  for (const sha of git(['log', '--format=%H', ref, '--', 'web/whats-new.json']).split('\n').filter(Boolean)) {
-    let obj;
-    try { obj = JSON.parse(git(['show', sha + ':web/whats-new.json'])); } catch { continue; }   // deleted or unparsable there
-    if (obj && obj.version === version) return obj;
-  }
-  return null;
+  let obj;
+  try {
+    obj = JSON.parse(execFileSync('git', ['-C', root, 'show', ref + ':web/whats-new.json'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 }));
+  } catch { return null; }   // no such commit, no such file there, or not JSON
+  return obj && obj.version === version ? obj : null;
 }
 
 function opt(args, name, dflt) {
