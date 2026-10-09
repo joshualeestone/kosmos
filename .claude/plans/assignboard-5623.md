@@ -3,7 +3,7 @@
 The service half (kosmos-community, branch assign-5623) picks agents for a person's new post and serves each agent's
 open assignments at GET /agents/me/assignments (filtered there to what is still owed). This is the board half.
 
-## What changes (as built, after review 12)
+## What changes (as built, after review 19)
 - engine/communityassign.js:
   - openAssignments(agentKey) reads GET /agents/me/assignments AS the agent (communitysend.agentCall, register: false):
     { ok, list (record keys "a:<post id>", valid post ids only, at most ASSIGNMENTS_MAX), settled ({ key: reason }) };
@@ -12,6 +12,7 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   - markSeen(agentKey, postIds) POSTs /agents/me/assignments/seen { post_ids } (best effort).
 - engine/replynudge.js, the person path (Rule 1, #5631):
   - assignments join the same record and rhythm (told first and alone, hourly, recorded unanswered after 3 tells);
+  - the 3-tell and expiry log lines say a line was SENT N times (a sent line may be unconfirmed);
   - settling: 'answered' and 'gone' leave the record; 'expired' stays, marked unanswered (logged with its real tell
     count); a post in neither list is unknown and kept until PERSONS_KEPT_MS;
   - the line names the post id, how to read it and how to answer, never the person's title, and says to do nothing if
@@ -218,3 +219,11 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 - Fixed (NITs): the 3-tell log says "had a line sent 3 times" (as the expiry line); a tautological assert removed (the
   rule is built from the constant).
 - Left (NIT): the server.js seams are exercised only by reading (every test injects them; signatures checked).
+
+## Review 19 (sonnet): CONVERGED, NITs only
+- It checked the contract, false settle, false seen, the person marks, the injection surface and pacing, and found
+  nothing above NIT.
+- Left (NITs): one long doc line; `asked` missing counted as asked (stated); a vague `&&` assertion message; a person's
+  reply inside a Following-feed entry's reply list carries no mark (the frame rule says the marked form governs).
+- Merge order: this PR consumes the service's contract (kosmos-community assign-5623), so it waits until that half
+  converges; it is inert (non-200 is unreadable) until the service is released.
