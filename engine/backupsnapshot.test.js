@@ -888,3 +888,15 @@ test('a naming key id that is not this naming key\'s is refused before anything 
     assert.equal(st.batches.length, 0); assert.equal(opened.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('two grants in one run naming different buckets, with no index, fail without staleIndex (there is none to drop)', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    let i = 0;
+    const st = store();
+    const real = st.uploadChunks;
+    const r = await take(k, w.root, st, { deps: { batchBytes: 1, uploadChunks: async (d, batch) => { const res = await real(d, batch); if (++i === 2) res.bucket = 'bucket2/'; return res; } } });
+    assert.equal(r.ok, false); assert.match(r.because, /two grants in one snapshot/); assert.equal(r.staleIndex, undefined);
+    assert.equal(r.bucket, 'bucket2/');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

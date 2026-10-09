@@ -31,6 +31,12 @@
  * Memory: sealed chunks wait in batches of at most batchBytes; one file is read whole (backupscan works on one
  * buffer), so the per-file peak is a few times maxFile (the bytes, a decoded copy, the redacted copy).
  *
+ * Results stay on this Mac. `because` is a sentence for the person or the log here: the walker's own are fixed text (an
+ * unexpected error gives only its code, never its message, which can carry paths), and an uploader's refusal is passed
+ * on as the uploader wrote it (its own reviewed sentences). Names in the manifest are checked for credential kinds
+ * secretmask names; a generic long token used as a name (secretmask's long_token, which fires on ordinary long names
+ * too) is not masked, a known residual.
+ *
  * Not here: key storage (the member public key, the naming key and the device key are inputs), persisting the period
  * index (the caller keeps it: `added` is returned on every result, failed or not), the schedule and freshness.
  */
@@ -123,7 +129,9 @@ const asRestored = (rel) => rel.replace(/\\/g, '/');
 // And on restore's own equivalence of it (review 18): collisionKey drops invisible characters and folds case, so
 // ".git<zero-width space>" is .git to restore. Denied if either reading is.
 const denied = (rel) => { const a = pathDecision(asRestored(rel)); return a.include ? pathDecision(collisionKey(rel)) : a; };
-/* A folder the deny-list refuses: every folder rule ends in '/', so a bare child name matches exactly those. */
+/* A folder the deny-list refuses: every folder rule ends in '/', so a bare child name matches exactly those. A rule on a
+   NAME only (".env", "credentials") is not a folder rule: a folder so named is walked, and each file in it is judged
+   by name and content as usual (review 22). */
 const folderDenied = (rel) => { const d = denied(`${rel}/x`); return d.include ? null : d.why; };
 
 /** Every regular file under root (absolute) the deny-list allows, as sorted '/'-separated relative paths with the
@@ -413,7 +421,8 @@ async function snapshotInner(input, deps, added, state, fail) {
           added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid }); usedKeys.add(key);
         }
       }
-      return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign({ staleIndex: true }, spent));
+      // staleIndex only when there was an index to drop (review 22); without one, the next run is a full snapshot anyway.
+      return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign(index.size ? { staleIndex: true } : {}, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
     // Stored keys with no bucket named (reviews 14 and 17): whether or not an index set one, they cannot be checked
