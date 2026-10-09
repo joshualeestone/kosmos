@@ -420,7 +420,8 @@ async function tick(opts) {
   if (pf.send === 'later' || pf.send === 'error') {
     // Said where the joined view reads it (review 18): it must not claim this Kosmos reports while it waits for a print.
     // Tied to the words it waits under too (rollup review 32), as a failure's wait is: new words accepted start afresh.
-    if (!st.printWaitAt) writeState(root, Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: rec.consentHash || null }));
+    // Rewritten when the words changed too (rollup review 33): a note kept from other words would read as no wait.
+    if (!st.printWaitAt || st.printWaitHash !== (rec.consentHash || null)) writeState(root, Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: rec.consentHash || null }));
     return { sent: false, because: 'this computer could not be read yet' };
   }
   if (st.printWaitAt) { delete st.printWaitAt; writeState(root, Object.assign({}, st, { enrolledAs })); }   // readable again

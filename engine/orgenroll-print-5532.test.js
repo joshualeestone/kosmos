@@ -107,6 +107,12 @@ test('#5532 print guard: a read still retrying sends nothing, on a join, a leave
   fail = false;
   cp._testRunner(() => DUMP, { platform: 'darwin' });
   assert.equal((await join(root, co)).ok, true, 'CONTROL: the join goes once the computer can be read');
+  assert.match(r.because, /press Join again/, 'a join is told to press Join');
+  // Rollup review 33: in a review the button is Accept, so the same wait says Accept.
+  cp._testRunner(() => { throw new Error('ioreg timed out'); }, { platform: 'darwin' });
+  const rv = await oe.enroll(null, true, { root, remote: co, consentHash: HASH, consent: CONSENT, orgId: ACME.id, computerSalt: SALT, review: true });
+  assert.equal(rv.ok, false, JSON.stringify(rv));
+  assert.match(rv.because, /press Accept again/, 'a review was told to press a Join button it does not have: ' + rv.because);
 });
 
 test('#5532 print guard 1: nothing this caller logs carries a print, the hardware id or a body with one', async (t) => {
@@ -266,4 +272,25 @@ test('#5532 rollup review 21: a malformed salt is said once, not on every tick',
   const root = sandbox(t);
   for (let i = 0; i < 3; i += 1) await join(root, company(root), { computerSalt: 'zz-not-hex-' + 'q'.repeat(30) });
   assert.equal(lines.filter((l) => /no computer print/.test(l)).length, 1, 'the same malformed salt was logged more than once: ' + JSON.stringify(lines));
+});
+
+test('#5532 rollup review 33: a print wait under new words is recorded under them, so the view still says it waits', async (t) => {
+  const root = sandbox(t);
+  const co = company(root);
+  await join(root, co);
+  const keep = (h) => fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [h], byHash: { [h]: { reports: ['agent names'], usageConsented: false } } }));
+  keep(HASH);
+  cp._testRunner(() => DUMP, { platform: 'linux' });   // the reader answers "none"; the print is pinned, so the rollup waits
+  const src = { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false };
+  const T0 = Date.UTC(2026, 9, 8, 12);
+  await rollup.tick({ root, remote: company(root), sources: src, now: T0 });
+  assert.equal(rollup.waitingForPrint(root), true, 'CONTROL: it waits under the first words');
+  // New words accepted (a review's Accept keeps the enrollment), and the print still cannot be read.
+  const H2 = 'ef'.repeat(32);
+  const f = path.join(root, oe.ENROLLMENT_FILE);
+  fs.writeFileSync(f, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(f, 'utf8')), { consentHash: H2 })));
+  keep(H2);
+  assert.equal(rollup.waitingForPrint(root), false, 'CONTROL: the old note does not speak for the new words');
+  await rollup.tick({ root, remote: company(root), sources: src, now: T0 + 6 * 60e3 });
+  assert.equal(rollup.waitingForPrint(root), true, 'a wait under the new words was not recorded: the view would say it reports');
 });

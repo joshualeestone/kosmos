@@ -402,10 +402,16 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   words kept here, while the review refused on a consent hash alone, so a Kosmos joined before its words were kept here
   (or whose words were withdrawn) was told "not accepted", shown Review, and refused as "already reports". FIXED: one
   test for both (accepted words with report lines on record here); words accepted that ask for no reports are said as
-  that (reportingWait 'noReports') and not offered Review; a failure's retry wait belongs to the words it was sent under,
+  that (reportingWait 'noReports') and [superseded by review 32: Review IS offered for them]; a failure's retry wait belongs to the words it was sent under,
   so accepting new words ends it. Tests: engine (legacy record can Review), route (noReports, no words), rollup (wait
   ends with new words), page (O15c); each mutation fails.
 - Review 32: Review stays offered for words that ask for no reports (such a Kosmos never sends, so it never hears that
   its company's words changed; Review is how it finds out); hidden only while it waits for this computer's identity.
   The print wait is tied to the words it was set under, as a failure's wait is (a review's Accept keeps the enrollment).
   Tests: O15c, route (wait under other words does not hold, control), each mutation fails.
+- Review 33: in a review, the print-read retry says "press Accept again", not Join; the print-wait note is rewritten when
+  the words changed (latent ordering dependency removed); the review's refusal says the words are already accepted here
+  (not "reports", which a print wait can make untrue). Considered with #5644 in place and kept as decided in review 20:
+  a persistent refusal other than words-changed or not-enrolled (a restored Mac, say) leaves the view saying it reports,
+  with Review neither offered nor allowed; the way out is Leave and Join. Also kept: a review Accept the company answers
+  with no pinned print records no words (review 16), so the view says "not accepted" until Accept succeeds.

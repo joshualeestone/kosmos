@@ -350,7 +350,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       codeField: !document.getElementById('plus-org-out').hidden }));
     // A refused Review press (another screen accepted meanwhile: "already reports") reads the state back too, keeping its
     // line: the button and "sends nothing" go (review 9).
-    await page.evaluate(() => { window.__reviewRefuse = { ok: false, because: 'This Kosmos already reports to your company on the words it accepted here.' };
+    await page.evaluate(() => { window.__reviewRefuse = { ok: false, because: 'This Kosmos already has its company's words accepted here.' };
       window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-01T00:00:00.000Z' };
       PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; PLUS_ORG.at = Date.now(); PLUS_ORG.preview = null;
       document.getElementById('plus-org-msg').textContent = ''; plusOrgPaint(); });
@@ -381,7 +381,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       && late.msg === 'These words were open too long. Press Review what your company sees to read them again.' && late.review
       && !other.consent && other.review
       && gone.msg === 'This Kosmos is no longer your work Kosmos, so nothing was sent.' && !gone.inView && gone.codeField
-      && already.msg === 'This Kosmos already reports to your company on the words it accepted here.' && !already.review && !/sends your company nothing/.test(already.say)
+      && already.msg === 'This Kosmos already has its company's words accepted here.' && !already.review && !/sends your company nothing/.test(already.say)
       && acc.enroll.length === enrollsBefore + 1 && last.body.accepted === true && !('code' in last.body) && typeof last.body.ticket === 'string'
       && acc.inView && acc.join === 'Join with this Kosmos' && acc.reread && acc.reviewGone && !/sends your company nothing/.test(acc.say),
       'O15 a Kosmos that sends nothing reviews its company\'s words and accepts them with no code; Not now changes nothing; one that reports is not offered it',

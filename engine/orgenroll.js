@@ -352,7 +352,7 @@ async function reviewHere(opts) {
      never by a consent hash alone: a Kosmos joined before its words were kept here, or whose words were withdrawn, has
      a hash and no words, and Review is its way back. */
   const acc = acceptedConsent(opts);
-  if (acc && acc.reports.length > 0) return { ok: false, because: 'This Kosmos already reports to your company on the words it accepted here.' };
+  if (acc && acc.reports.length > 0) return { ok: false, because: 'This Kosmos already has its company\'s words accepted here.' };
   const st = await signed('POST', ROUTES.status, {}, opts);
   if (!st.ok) return { ok: false, because: 'Your company could not be asked through Kosmos+ just now. Try again in a minute.' };
   const d = st.data;
@@ -424,7 +424,8 @@ async function enrollNow(code, accepted, opts) {
   const salt = opts && typeof opts.computerSalt === 'string' ? opts.computerSalt : null;
   if (salt && opts.orgId) {
     const pf = printFields(salt, opts.orgId);
-    if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; press Join again in a minute.' };
+    // In a review the button is Accept (rollup review 33), as the no-confirm answer below already says.
+    if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; press ' + (asReview ? 'Accept' : 'Join') + ' again in a minute.' };
     if (pf.send === 'error') return { ok: false, because: 'This Kosmos could not make its computer print, so nothing was sent.' };
     Object.assign(body, pf.fields, { computerSalt: salt });
   }
