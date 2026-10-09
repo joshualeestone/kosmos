@@ -408,3 +408,15 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
     bash tools/test-connector-verbs.sh                              # the connector caller list
     git diff | grep '^+' | grep -cP '\x{2014}|&m[d]ash;|&#82[1]2;|\\u20[1]4'   # must print 0 (brackets keep it from matching itself)
   Absolute paths when run by an agent. Every finding is probed red on the pre-fix file before its test is added.
+
+## Review 32 (opus), all fixed unless stated
+- Reviews 30 and 31 patched the whole-quoted-command rule twice and each patch exposed another case (a program word in
+  sh -c read as board-files or agent-config; a quoted path through "R & D" read as other). Replaced by ONE rule, the
+  shell's: a quoted word with spaces is a command only as the script of a shell's -c (sh, bash, zsh, dash, ksh, fish,
+  su) or of eval, and then it is split and never one path; anywhere else it is one argument, so one path. Tests.
+- [ and { are globs: Kosm[o]s and Kosmo{s,} hid a token read (home, or other at the home folder). They are hidden words
+  now; globRe reads [...] classes and a brace segment matches anything. Tests.
+- Two comments run together at clashNow are each on their own line.
+- Stated: a script given another way (python -c, osascript -e, ssh host "cmd", watch "cmd") is still one argument as
+  well as split, so a quoted script there that starts with / can read as that path (over-claims only to system or
+  the class of its first path).

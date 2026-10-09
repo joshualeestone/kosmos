@@ -114,7 +114,11 @@ function targetClass(tool, input, ctx) {
     const look = (words, depth) => {
       let wrapped = false;   // the word before was a wrapper (sudo, env, timeout...): this one is the program (review 11)
       let takesValue = false;
+      let prog = '';   // the program of the current command (review 32)
+      let prevW = '';
       for (const { w, first: f0 } of words) {
+        const prev = prevW; prevW = w;
+        if (f0) prog = '';
         let first = f0 || wrapped;
         if (wrapped && takesValue) { takesValue = false; continue; }   // the value of -u, -g, -n... (review 19)
         if (wrapped && /^-[ugnpUCDTrt]$/.test(w)) { takesValue = true; continue; }
@@ -125,7 +129,7 @@ function targetClass(tool, input, ctx) {
         if (first) {
           /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
              URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
-          const prog = path.basename(w);
+          prog = path.basename(w);
           if (/^(ssh|scp|sftp|nc|ncat)$/.test(prog)) { net = true; url = true; }
           else if (/^(curl|wget|git)$/.test(prog)) net = true;   // git with a URL (push, clone, fetch to it)
           else if (prog === 'rsync') rsync = true;
@@ -134,18 +138,20 @@ function targetClass(tool, input, ctx) {
         if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) { url = true; continue; }
         if (rsync && /^([^\s/@]+@)?[A-Za-z0-9.-]+::?[^\s]*$/.test(w) && !w.startsWith('/')) { net = true; url = true; }
         if (/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:/.test(w)) url = true;   // git@host:repo, user@host:path (review 19)
-        if (depth === 0 && /\s/.test(w)) look(shellWords(w), 1);
+        /* One rule for a quoted word with spaces (review 32, replacing the patches of reviews 30 and 31): it is a COMMAND
+           only as the script of a shell's -c or of eval, and then it is split and never one path (its first word is a
+           program, not a target). Anywhere else it is ONE argument, so one path, whatever it holds ("R & D", "Tom &
+           Jerry"); it is also split, which can only find more. */
+        if (depth === 0 && /\s/.test(w)) {
+          look(shellWords(w), 1);
+          if ((/^(sh|bash|zsh|dash|ksh|fish|su)$/.test(prog) && /^-[A-Za-z]*c$/.test(prev)) || prog === 'eval') continue;
+        }
         let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^-[A-Za-z](?=[/~.])/, '').replace(/^@/, '');   // -C/dir too
         v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
         if (/^\/dev\//.test(v)) continue;   // a redirect to /dev/null is not a target (review 8)
-        if (/[*?$`]/.test(v)) hidden.push(v);
+        if (/[*?$`[{]/.test(v)) hidden.push(v);   // [ and { are globs too (review 32: Kosm[o]s, Kosmo{s,})
         /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
            space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
-        /* A whole quoted command (it holds ; | & or a newline, split above at depth 1) is not one path (review 30: sh -c
-           "/usr/bin/true; cat notes.txt" read as a system path). */
-        /* Unless, whole, it is the board's files or the agent's config (review 31: a quoted path through a folder named
-           "Tom & Jerry" is a path, and its split halves name nothing). */
-        if (depth === 0 && /\s/.test(w) && /[;|&\n]/.test(w) && RANK.indexOf(pathClass(v, ctx)) > RANK.indexOf('agent-config')) continue;
         if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) paths.push(v);
         if (paths.length >= 64) return;
       }
@@ -172,7 +178,7 @@ function targetClass(tool, input, ctx) {
     /* A word with no fixed start that does not begin with a variable (a bare glob like a star then /worlds.json) is
        relative, so it is the agent's own folder's (review 26); paths fold case on a Mac, as pathClass does. */
     const fold2 = (x) => (process.platform === 'darwin' ? x.toLowerCase() : x);
-    const own = (w0) => { const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.'); const pre = w.split(/[*?$`]/)[0]; if (!ctx.agentDir) return false; if (!pre) return !/^[$`]/.test(w); const r = path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir())); return fold2(r) === fold2(ctx.agentDir) || fold2(r).startsWith(fold2(ctx.agentDir) + path.sep); };
+    const own = (w0) => { const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.'); const pre = w.split(/[*?$`[{]/)[0]; if (!ctx.agentDir) return false; if (!pre) return !/^[$`]/.test(w); const r = path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir())); return fold2(r) === fold2(ctx.agentDir) || fold2(r).startsWith(fold2(ctx.agentDir) + path.sep); };
     /* A word whose fixed start resolves at, under, or toward a board root inside the agent's folder (an agent connected at
        the home folder, review 30: ~/Library/Application\ Support/Kosmo?/board.token was dropped as the agent's own) is
        kept, as pathClass checks such a root before the agent's own folder (review 28). */
@@ -181,7 +187,20 @@ function targetClass(tool, input, ctx) {
        word's first segments, as globs, must match every segment of the root. A segment with a variable or substitution
        may expand to anything, so it keeps the word. */
     const seg = (x) => x.split(path.sep).filter(Boolean);
-    const globRe = (g) => new RegExp('^' + g.replace(/[.+^{}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$', process.platform === 'darwin' ? 'i' : '');
+    /* * ? and [...] as the shell reads them; a segment with a brace may expand to anything, so it matches (review 32). */
+    const globRe = (g) => {
+      if (g.includes('{')) return /^/;
+      let re = '';
+      for (let i = 0; i < g.length; i++) {
+        const ch = g[i];
+        const close = ch === '[' ? g.indexOf(']', i + 2) : -1;
+        if (ch === '*') re += '[^/]*';
+        else if (ch === '?') re += '[^/]';
+        else if (close > 0) { re += '[' + g.slice(i + 1, close).replace(/^!/, '^').replace(/\\/g, '\\\\') + ']'; i = close; }
+        else re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      }
+      try { return new RegExp('^' + re + '$', process.platform === 'darwin' ? 'i' : ''); } catch { return /^/; }
+    };
     const toBoard = (w0) => {
       if (!inRoots.length) return false;
       const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.').replace(/^~(?=\/|$)/, ctx.home || os.homedir());
@@ -485,8 +504,8 @@ async function tick(opts) {
        an agent that is NOT token-only would carry that agent's refusals, by the PERSON's own rules, to the company: it
        is not read at all (fail closed), and neither is anything when the agent list cannot be read. */
     const collidedNow = new Set();
-    const gapNow = new Set();
-    const clashNow = new Set();   // review 28: agents that collide THIS tick (a gap must not erase that mark)   // review 24: guarded now, but unconfirmed for longer than GUARD_GAP_MS
+    const gapNow = new Set();   // review 24: guarded now, but unconfirmed for longer than GUARD_GAP_MS
+    const clashNow = new Set();   // review 28: agents that collide THIS tick (a gap must not erase that mark)
     const launchCache = new Map();   // review 17: one launch-path scan per tick, shared by every agent's guard check
     /* Required (review 12: an absent check read as "no clash"). */
     if (typeof src.everyAgent !== 'function' || typeof src.transcriptDirsOf !== 'function' || typeof src.guarded !== 'function') return { sent: 0, because: 'the agent list cannot be checked; nothing changed' };
