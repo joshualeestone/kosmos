@@ -101,7 +101,11 @@ function targetClass(tool, input, ctx) {
   if (tool === 'WebFetch' || tool === 'WebSearch') return 'network-host';
   const paths = [];
   let hidden = [];   // path words a glob, a variable or a substitution hides (review 19)
+  /* Folders a command walks down through (review 38: grep -r, find, the Grep tool). A walk from a folder that holds a
+     board root reaches the board's files, as a glob that can match one does (review 33). */
+  const trees = [];
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
+  if (tool === 'Grep') trees.push(input && typeof input.path === 'string' && input.path ? input.path : (ctx.agentDir || ''));
   if (tool === 'Bash' && input && typeof input.command === 'string') {
     /* Every path-like word in the command (reviews 3, 4, 6 and 9), split as a shell splits: quotes and backslash-escaped
        spaces keep a word whole (the board's own folder is under "Application Support"), $HOME and ${HOME} are the home
@@ -111,6 +115,14 @@ function targetClass(tool, input, ctx) {
     let net = false;
     let url = false;
     let rsync = false;
+    /* A command walks folders when its program always does, or when a flag of its own says so (ls -a is not recursive;
+       ls -R is). Its folder words, or the agent's own folder when it names none, are trees. */
+    const ALWAYS = /^(find|du|tree|rg|ag|ack|tar)$/;
+    const FLAG = { grep: /^-[A-Za-z]*[rR]|^--(recursive|dereference-recursive)$/, egrep: /^-[A-Za-z]*[rR]/, fgrep: /^-[A-Za-z]*[rR]/,
+      ls: /^-[A-Za-z]*R/, cp: /^-[A-Za-z]*[rRa]|^--(recursive|archive)$/, rsync: /^-[A-Za-z]*[ra]|^--(recursive|archive)$/,
+      scp: /^-[A-Za-z]*r/, zip: /^-[A-Za-z]*r/, chmod: /^-[A-Za-z]*R/, chown: /^-[A-Za-z]*R/, chgrp: /^-[A-Za-z]*R/ };
+    const cmds = [];   // per command: { walks, words }
+    let cur = null;
     const look = (words, depth) => {
       let wrapped = false;   // the word before was a wrapper (sudo, env, timeout...): this one is the program (review 11)
       let takesValue = false;
@@ -133,11 +145,13 @@ function targetClass(tool, input, ctx) {
           /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
              URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
           prog = path.basename(w);
+          cur = { prog, walks: ALWAYS.test(prog), words: [] }; cmds.push(cur);
           if (/^(ssh|scp|sftp|nc|ncat)$/.test(prog)) { net = true; url = true; }
           else if (/^(curl|wget|git)$/.test(prog)) net = true;   // git with a URL (push, clone, fetch to it)
           else if (prog === 'rsync') rsync = true;
           continue;   // the program run, not what it was aimed at (review 8)
         }
+        if (cur && cur.prog === prog && FLAG[prog] && FLAG[prog].test(w)) cur.walks = true;
         if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) { url = true; continue; }
         if (rsync && /^([^\s/@]+@)?[A-Za-z0-9.-]+::?[^\s]*$/.test(w) && !w.startsWith('/')) { net = true; url = true; }
         if (/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:/.test(w)) url = true;   // git@host:repo, user@host:path (review 19)
@@ -150,11 +164,11 @@ function targetClass(tool, input, ctx) {
           for (let i = w.indexOf('$('); i >= 0; i = w.indexOf('$(', i + 2)) {
             let d = 0; let j = i + 1;
             for (; j < w.length; j++) { if (w[j] === '(') d++; else if (w[j] === ')' && --d === 0) break; }
-            look(shellWords(w.slice(i + 2, j)), 1);
+            { const sv = cur; look(shellWords(w.slice(i + 2, j)), 1); cur = sv; }   // the outer command stays current
           }
         }
         if (depth === 0 && /\s/.test(w)) {
-          look(shellWords(w), 1);
+          { const sv = cur; look(shellWords(w), 1); cur = sv; }
           if ((/^(sh|bash|zsh|dash|ksh|fish|su)$/.test(prog) && /^-[A-Za-z]*c$/.test(prev)) || prog === 'eval') continue;
         }
         /* --x=value and NAME=value (export T=..., review 36) both name their value. */
@@ -164,11 +178,13 @@ function targetClass(tool, input, ctx) {
         if (/[*?$`[{]/.test(v)) hidden.push(v);   // [ and { are globs too (review 32: Kosm[o]s, Kosmo{s,})
         /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
            space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
-        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) paths.push(v);
+        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) { paths.push(v); if (cur && cur.prog === prog) cur.words.push(v); }
+        else if (cur && cur.prog === prog && /^(~|\.)$/.test(v)) cur.words.push(v);   // ~ and . alone are folders too
         if (paths.length >= 64) return;
       }
     };
     look(shellWords(input.command.slice(0, 4096)), 0);
+    for (const c of cmds) if (c.walks) trees.push(...(c.words.length ? c.words : [ctx.agentDir || '']));
     /* A network command is network-host before any path it names (decided, review 5): sending something out is the
        telling part, whatever it sends. */
     if (net && url) return 'network-host';
@@ -316,6 +332,17 @@ function targetClass(tool, input, ctx) {
   if (tool === 'Bash' && input && typeof input.command === 'string' && input.command.length > 4096 &&
       RANK.indexOf('board-files') < RANK.indexOf(best) && /(^|[\/\s'"])(board\.token|agent-token-only\.json)(['"\s;|&)]|$)/.test(input.command.slice(4096 - 64, 1024 * 1024))) {
     best = 'board-files';
+  }
+  /* A walk from a folder at or above a board root reaches the board's files (review 38). */
+  if (trees.length && RANK.indexOf('board-files') < RANK.indexOf(best)) {
+    const fold3 = (x) => (process.platform === 'darwin' ? x.toLowerCase() : x);
+    const home = ctx.home || os.homedir();
+    const roots = [ctx.boardRoot, ...(ctx.boardRoots || [])].filter(Boolean).map((r) => fold3(path.resolve(r)));
+    for (const t0 of trees) {
+      if (!t0 || /[*?$`[{]/.test(t0)) continue;
+      const t = fold3(path.resolve(ctx.agentDir || path.sep, t0 === '~' || t0.startsWith('~/') ? path.join(home, t0.slice(1)) : t0));
+      if (roots.some((r) => r === t || r.startsWith(t.endsWith(path.sep) ? t : t + path.sep))) { best = 'board-files'; break; }
+    }
   }
   return best;
 }

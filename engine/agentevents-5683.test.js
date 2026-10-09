@@ -1255,3 +1255,54 @@ test('#5683 r36: a path held in a variable or behind a command substitution is s
   assert.equal(ae.targetClass('Bash', { command: 'echo $(cat /etc/passwd)' }, c), 'system');   // the inside is a command
   assert.equal(ae.targetClass('Bash', { command: 'x=$(date +%s); echo $x' }, c), 'other');
 });
+
+/* ---- review 38 ---- */
+
+test('#5683 r38: a Leave left unanswered, then refused, inside one timer interval sends nothing from while it was left', async (t) => {
+  /* The board's timer never ran here: the stop is marked where the enrollment is cleared (engine/orgenroll.js). Red on
+     the pre-fix orgenroll.js (the refusal was sent). */
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  const off = { macRequest: async () => ({ ok: false, because: 'unreachable' }) };
+  const r1 = await oe.leave({ root: s.root, remote: off });
+  assert.equal(r1.pending, true);
+  assert.equal(oe.mayReport({ root: s.root }), false);
+  append(s.file, use('while-left', 'Bash', { command: 'x' }), result('while-left', DENIED('x'), true));
+  const w = fs.readFileSync(path.join(s.root, oe.WORLD_ID_FILE), 'utf8').trim();
+  const refuse = { macRequest: async (m, route) => (route === oe.ROUTES.status
+    ? { ok: true, data: { member: true, org: { id: 'o', name: 'Acme', slug: 'acme' }, role: 'admin', enrolled: { computer: 'c', world: w, thisComputer: true } } }
+    : { ok: false, because: '409 {"code":"org_last_admin"}' }) };
+  const r2 = await oe.leave({ root: s.root, remote: refuse });
+  assert.equal(r2.still, true, JSON.stringify(r2));
+  assert.equal(oe.mayReport({ root: s.root }), true, 'the record did not come back with its words');
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.equal(refs.includes('while-left'), false, 'a refusal made while the Leave was pending was sent');
+});
+
+test('#5683 r38: a record naming another world is a stop', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const wid = path.join(s.root, oe.WORLD_ID_FILE);
+  fs.writeFileSync(wid, 'f'.repeat(32));   // this world's id is now another one than the record names
+  ae.withdrawIfStopped({ root: s.root });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).withdrawn, true);
+});
+
+test('#5683 r38: a walk from a folder that holds a board root reaches the board\'s files', () => {
+  const R = '/Users/ann/Library/Application Support/Kosmos';
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: R });
+  for (const cmd of ['grep -r tok /Users/ann/Library', 'grep -rn tok ~/Library', 'find ~ -name x', 'ls -R ~/Library',
+    'find /Users/ann/Library -name "*.token" -exec cat {} +', 'rg secret ~/Library/Application\\ Support', 'tar czf /tmp/x.tgz ~/Library', 'cp -a ~/Library /tmp/x']) {
+    assert.equal(ae.targetClass('Bash', { command: cmd }, c), 'board-files', cmd);
+  }
+  assert.equal(ae.targetClass('Grep', { pattern: 'tok', path: '/Users/ann/Library' }, c), 'board-files');
+  assert.equal(ae.targetClass('Grep', { pattern: 'tok' }, ctx({ agentDir: '/Users/ann', home: '/Users/ann', boardRoot: R })), 'board-files');
+  // not a walk, or a walk that cannot reach the board root
+  for (const [cmd, want] of [['grep tok ~/Library/notes.txt', 'home'], ['ls -la ~/Library', 'home'], ['grep -r tok .', 'other'],
+    ['grep -r tok ~/Library/Caches', 'home'], ['find /tmp -name x', 'system']]) {
+    assert.equal(ae.targetClass('Bash', { command: cmd }, c), want, cmd);
+  }
+  assert.equal(ae.targetClass('Grep', { pattern: 'tok' }, c), 'other');
+});
