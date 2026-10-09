@@ -66,6 +66,9 @@ for (const [name, write] of WRITERS) {
     withUmask(0o022, write);
     assert.equal(fs.statSync(file).mode & 0o777, 0o640, 'the mode was not kept');
     fs.unlinkSync(file);
+    withUmask(0o022, write);
+    assert.equal(fs.statSync(file).mode & 0o777, 0o644, 'a new file under umask 022 is not 0644 (a fixed mode, not the umask default)');
+    fs.unlinkSync(file);
     withUmask(0o077, write);
     assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'a new file under umask 077 is not 0600 (the umask was overridden)');
   });
@@ -112,9 +115,12 @@ test('#5434: removing a picture never takes another process\'s keep in flight in
   store.saveAvatar('eve', 'image/png', PNG);
   const kept = store.keepAvatarOriginal('eve');
   const dir = path.dirname(kept);
-  const inflight = path.join(dir, path.basename(kept) + '.kosmos-' + process.pid + '-t0-1-1.tmp');   // a live writer's temp
+  const inflight = path.join(dir, path.basename(kept) + '.kosmos-' + process.ppid + '-t0-1-1.tmp');   // a live writer's temp (this run's parent: alive)
   fs.writeFileSync(inflight, 'in flight');
+  const dead = path.join(dir, path.basename(kept) + '.kosmos-2147483646-t0-1-1.tmp');   // a dead writer's leftover copy
+  fs.writeFileSync(dead, 'left behind');
   store.removeAvatar('eve');
+  assert.equal(fs.existsSync(dead), false, 'a dead writer\'s copy of the removed picture was left');
   assert.equal(fs.existsSync(kept), false, 'CONTROL: the kept original was not removed with the picture');
   assert.equal(fs.existsSync(inflight), true, 'a keep in flight was unlinked');
   fs.unlinkSync(inflight);

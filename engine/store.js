@@ -15,9 +15,9 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const securewrite = require('./securewrite');   // #5434 slice 4: the store's saves flush before they rename
 const os = require('node:os');
 const path = require('node:path');
+const securewrite = require('./securewrite');   // #5434 slice 4: the store's saves flush before they rename
 // ⚠️ `ping.js` requires THIS module at its top (for ROOT), so the identity
 // stamp below requires ping at CALL time, never at load: a top-level
 // require here would hand ping a half-built exports object and ROOT would
@@ -653,11 +653,12 @@ function removeAvatar(name) {
   const existing = avatarPath(name);
   if (existing) fs.unlinkSync(existing);
   // kosmos#5302: a removed picture takes the originals kept for it too.
-  // A writer's temp (`<key>.<ver>-<size><ext>.kosmos-...tmp`, #5434) is another process's keep in flight: never taken.
+  // A writer's temp (`<key>.<ver>-<size><ext>.kosmos-...tmp`, #5434) whose writer may be alive is another process's
+  // keep in flight: never taken. One whose writer is provably gone holds a copy of the removed picture: taken.
   try {
     const key = safeKey(name);
     for (const f of fs.readdirSync(originalsDir())) {
-      if (f.startsWith(key + '.') && securewrite.tempWriterGone(f) === null) fs.unlinkSync(path.join(originalsDir(), f));
+      if (f.startsWith(key + '.') && securewrite.tempWriterGone(f) !== false) fs.unlinkSync(path.join(originalsDir(), f));
     }
   } catch { /* none kept */ }
   return Boolean(existing);
