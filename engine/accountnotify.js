@@ -36,9 +36,8 @@ function readBook(file) {
 function writeBook(file, book) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(book, null, 2) + '\n');
-    fs.renameSync(tmp, file);
+    // #5434 slice 23: flushed before the rename
+    require('./store').saveFlushed(file, JSON.stringify(book, null, 2) + '\n');
     return true;
   } catch { return false; }
 }

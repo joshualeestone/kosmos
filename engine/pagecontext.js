@@ -25,7 +25,6 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
 const roles = require('./roles');
 const projects = require('./projects');
 const instructions = require('./instructions');
@@ -122,14 +121,12 @@ function write(agentName, page, now) {
   let st;
   try { st = fs.lstatSync(dir); } catch { st = null; }
   if (!st || !st.isDirectory()) return { ok: false, because: 'the setup guide has no folder on this computer' };
-  /* Random, so two reports in one millisecond (a quick double move) never collide on 'wx'. */
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   try {
-    fs.writeFileSync(tmp, d.text, { encoding: 'utf8', mode: 0o644, flag: 'wx' });
-    fs.renameSync(tmp, file);
+    /* #5434 slice 23: flushed before the rename (the umask-default mode; ownTempsOnly, the guide's folder is the agent's, not
+       Kosmos's). securewrite's temp is unique, so two reports in one millisecond never collide on 'wx'. */
+    require('./securewrite').writeSecret(file, d.text, null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });   // the umask default, as the old 0644 create gave (never wider under a strict umask)
     return { ok: true, file };
   } catch {
-    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
     return { ok: false, because: 'we could not tell the setup guide which screen you are on' };
   }
 }

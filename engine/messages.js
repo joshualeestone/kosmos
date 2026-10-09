@@ -92,9 +92,8 @@ function markSeen(projectId, now) {
   const cur = seenRead() || {};
   cur[id] = new Date(Number.isFinite(now) ? now : Date.now()).toISOString();
   fs.mkdirSync(path.dirname(SEEN), { recursive: true });
-  const tmp = SEEN + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n');
-  fs.renameSync(tmp, SEEN);
+  // #5434 slice 23: flushed before the rename (a failure still throws, as before)
+  store.saveFlushed(SEEN, JSON.stringify(cur, null, 2) + '\n');
   return cur[id];
 }
 
