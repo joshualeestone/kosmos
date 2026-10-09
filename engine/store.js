@@ -17,7 +17,6 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const securewrite = require('./securewrite');   // #5434 slice 4: the store's saves flush before they rename
 // ⚠️ `ping.js` requires THIS module at its top (for ROOT), so the identity
 // stamp below requires ping at CALL time, never at load: a top-level
 // require here would hand ping a half-built exports object and ROOT would
@@ -657,7 +656,7 @@ function removeAvatar(name) {
   try {
     const key = safeKey(name);
     for (const f of fs.readdirSync(avatarsDir())) {
-      if (f.startsWith(key + '.') && securewrite.tempWriterGone(f) === true) { try { fs.unlinkSync(path.join(avatarsDir(), f)); } catch { /* gone already */ } }
+      if (f.startsWith(key + '.') && securewrite().tempWriterGone(f) === true) { try { fs.unlinkSync(path.join(avatarsDir(), f)); } catch { /* gone already */ } }
     }
   } catch { /* no avatars folder */ }
   // kosmos#5302: a removed picture takes the originals kept for it too.
@@ -668,7 +667,7 @@ function removeAvatar(name) {
     for (const f of fs.readdirSync(originalsDir())) {
       // tempWriterGone: null is an ordinary kept original (taken, as before), true a dead writer's temp (taken), false a
       // writer that may be alive, or another thread of this process (kept)
-      if (f.startsWith(key + '.') && securewrite.tempWriterGone(f) !== false) { try { fs.unlinkSync(path.join(originalsDir(), f)); } catch { /* one held open (Windows) does not stop the rest */ } }
+      if (f.startsWith(key + '.') && securewrite().tempWriterGone(f) !== false) { try { fs.unlinkSync(path.join(originalsDir(), f)); } catch { /* one held open (Windows) does not stop the rest */ } }
     }
   } catch { /* none kept */ }
   return Boolean(existing);
@@ -732,8 +731,12 @@ function stripIdentity(profile) {
 // (statSync follows a link: a linked file passes its target's mode, and the rename replaces the link with a regular
 // file, as the old write-then-rename did)
 function modeOf(file) { try { return fs.statSync(file).mode & 0o7777; } catch { return null; } }
+/* securewrite is required at CALL time, never at load: the kosmos CLI's board_token() requires store.js by itself
+   (and a test copies store.js alone into a minimal KOSMOS_HOME, cli.task-2662.test.js), so a load-time require of a
+   sibling module breaks reading the store's ROOT there. */
+function securewrite() { return require('./securewrite'); }
 function saveFlushed(file, data) {
-  securewrite.writeSecret(file, data, modeOf(file), { atomicOnly: true, umaskDefault: true });
+  securewrite().writeSecret(file, data, modeOf(file), { atomicOnly: true, umaskDefault: true });
 }
 
 function writeProfile(name, patch) {
