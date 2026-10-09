@@ -154,3 +154,13 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - The use-strict guard skips a tracked file deleted from the working tree.
 - "Decided" says that tools keeping old versions on disk get no pruning.
 - Recording and pruning use a named pair, `launchPathPresent` and `launchPathGone`, over the one state helper.
+
+## Review 18 (Sonnet) and what changed
+
+- A board start read the record, and copied and logged a corrupt one, at every board start, though only a launch uses it. Now only a launch reads it. Test: a board start with a corrupt record logs nothing, copies nothing and leaves the file; the mutation goes red.
+- Duplicates of decided points:
+  - the post-prune window (review 12);
+  - dated copies never removed (bounded by content);
+  - the use-strict guard's scope and its known false reds;
+  - non-path rules over-counted in the safe direction;
+  - the plan name and commit subjects.

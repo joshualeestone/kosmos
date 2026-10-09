@@ -1394,7 +1394,8 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        old versioned path); every other rule merges as before. A rule the person wrote that is the SAME string as a
        dropped one goes with it (review 6): it names a path that no longer exists. */
     const plat = deps.platform || process.platform;
-    const prev = readLaunchRecord(rules.launchRecord);
+    // Review 18: only a launch uses the record (to prune and to write it), so only a launch reads it.
+    const prev = rules.launchKnown ? readLaunchRecord(rules.launchRecord) : { deny: [], denyWrite: [], keep: true };
     const launchDenyNow = new Set(rules.launchRules || []);
     const launchWritesNow = [...new Set([...(rules.launchDirs || []), ...(rules.launchFiles || [])])];
     const launchWritesNowSet = new Set(launchWritesNow);

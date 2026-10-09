@@ -462,3 +462,17 @@ test('#5663 review 17: an unparseable record whose copy cannot be written is lef
   assert.ok(said.some((l) => /no copy could be kept/.test(l)), said.join(''));
   assert.ok(!said.some((l) => /kept a copy at/.test(l)), 'the log claimed a copy: ' + said.join(''));
 });
+
+test('#5663 review 18: a board start does not read the record, so a corrupt one is neither copied nor logged there', () => {
+  const dir = agentDir('lp-boardread');
+  setup.guardTokenOnlyFolder(dir, 'lp-boardread', { ...BASE, atLaunch: true, panePath: binDir('boardread/bin') });
+  const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
+  fs.writeFileSync(rec, '{broken');
+  const said = [];
+  const real = process.stderr.write;
+  process.stderr.write = (c, ...rest) => { if (String(c).startsWith('#5663:')) { said.push(String(c)); return true; } return real.call(process.stderr, c, ...rest); };
+  try { setup.guardTokenOnlyFolder(dir, 'lp-boardread', { ...BASE }); } finally { process.stderr.write = real; }
+  assert.deepEqual(said, [], 'a board start logged the record');
+  assert.deepEqual(fs.readdirSync(path.join(dir, '.claude')).filter((f) => f.includes('.unreadable-')), [], 'a board start copied the record');
+  assert.equal(fs.readFileSync(rec, 'utf8'), '{broken');
+});
