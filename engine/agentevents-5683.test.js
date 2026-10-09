@@ -873,3 +873,21 @@ test('#5683 r23: a failed state write keeps the calls, so the re-read is classed
   const ev = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
   assert.deepEqual(ev.map((e) => [e.toolUseRef, e.targetClass]), [['wf', 'system']], 'the call was lost with the failed write');
 });
+
+/* ---- review 24 ---- */
+
+test('#5683 r24: a guard unconfirmed for longer than two ticks counts from now (it may have lapsed unseen)', async (t) => {
+  const { s, c } = await enrolled(t);
+  const T0 = Date.now();
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('down', 'Bash', { command: 'x' }), result('down', DENIED('x'), true));   // during the gap
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 + 30 * 60e3 });   // half an hour later
+  assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'a refusal from the unchecked gap was sent');
+});
+
+test('#5683 r24: a hidden word inside the agent\'s own folder is not the board\'s', () => {
+  assert.equal(ae.targetClass('Bash', { command: 'cp ./maps/*/worlds.json /etc/' }, ctx()), 'system');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/App*/Kosmos/board.token' }, ctx()), 'board-files', 'the hint still works outside it');
+});
+
