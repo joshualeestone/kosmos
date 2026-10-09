@@ -107,6 +107,7 @@ test('#5434: a backup whose flush fails is not claimed, and the save still lands
   assert.equal(fs.readFileSync(file, 'utf8'), NEW);
 });
 
+/* Not flush coverage (it passes on main too): it guards the move of the mode restore onto the descriptor (review 1). */
 test('#5434: the brief keeps its mode', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
   const { name, file } = agent();
   fs.chmodSync(file, 0o600);
