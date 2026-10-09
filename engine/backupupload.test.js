@@ -804,6 +804,8 @@ function manifestCoordinator(b, opts) {
   return { macRequest, bodies };
 }
 const mKey = (n) => `org1/acct1/1/2026-W41/mK${n}`;
+// A script for every key, kept per key between PUTs (a getter returning a fresh array would replay step one forever).
+const perKey = (...steps) => { const m = new Map(); return (k) => { if (!m.has(k)) m.set(k, steps.slice()); return m.get(k); }; };
 const manifestBytes = () => crypto.randomBytes(up.MIN_OBJECT + 100);
 // The opts a caller passes: the chunks' bucket path (the local bucket's) and a lock end no manifest here outlasts.
 // One chunk it names (a key no stub hands out) locked 38 days (a real lock is at most 39), so no manifest here outlasts it.
@@ -964,10 +966,13 @@ test('manifest bucket trouble is retried on the SAME url until expiry, then ends
 
 test('a manifest grant that expired cleanly gets a NEW grant with a fresh nonce; bounded at MAX_REGRANTS more', async () => {
   const expired = [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>'];
+  const rt = [400, '<Error><Code>RequestTimeout</Code></Error>'];
   let b = await bucket();
   try {
     const mc = manifestCoordinator(b);
-    b.script.set(mKey(1), [expired]);
+    // A real expiry follows an attempt that got no further (a RequestTimeout): an expiry on the FIRST attempt is a
+    // clock disagreement and is not re-granted (its own test).
+    b.script.set(mKey(1), [rt, expired]);
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
     assert.strictEqual(r.ok, true, r.because);
     assert.strictEqual(r.key, mKey(2));
@@ -977,7 +982,7 @@ test('a manifest grant that expired cleanly gets a NEW grant with a fresh nonce;
   b = await bucket();
   try {
     const mc = manifestCoordinator(b);
-    b.script.get = () => [expired];
+    b.script.get = perKey(rt, expired);
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.retryLater, true);
@@ -1064,11 +1069,11 @@ test('a manifest grant naming one of its chunks\' keys, or a key an earlier mani
     // A re-grant (after a clean expiry) that repeats the first grant's key.
     let n = 0;
     const mc = manifestCoordinator(b, { tamper: (d) => { if (++n === 2) { d.upload.key = mKey(1); d.upload.url = d.upload.url.replace('mK2', 'mK1'); } } });
-    b.script.set(mKey(1), [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>'], [500], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
+    b.script.set(mKey(1), [[400, '<Error><Code>RequestTimeout</Code></Error>'], [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>'], [500], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
     assert.strictEqual(r.ok, false); assert.match(r.because, /must not write/);
     assert.strictEqual(mc.bodies.length, 2);
-    assert.strictEqual(b.puts, 1);
+    assert.strictEqual(b.puts, 2, 'the first grant\'s two attempts only; nothing under the repeated key');
   } finally { await b.close(); }
 });
 
@@ -1195,6 +1200,7 @@ test('a bucket that is not host/ or host/bucket/ is refused before any grant; ev
 
 test('every manifest exit after a grant answered says grantSpent: a refused PUT, trouble, an unreachable bucket, the re-grant cap', async () => {
   const expired = [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>'];
+  const rt = [400, '<Error><Code>RequestTimeout</Code></Error>'];
   let b = await bucket();
   try {
     b.script.set(mKey(1), [[400, '<Error><Code>BadDigest</Code></Error>']]);
@@ -1203,7 +1209,7 @@ test('every manifest exit after a grant answered says grantSpent: a refused PUT,
     b.script.get = () => [[503]];
     const trouble = await up.uploadManifest(deps(manifestCoordinator(b), clock()), manifestBytes(), mOpts(b));
     assert.strictEqual(trouble.retryLater, true); assert.ok(trouble.unsure); assert.strictEqual(trouble.grantSpent, true);
-    b.script.get = () => [expired];
+    b.script.get = perKey(rt, expired);
     const cap = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b));
     assert.match(cap.because, /grants in a row/); assert.strictEqual(cap.grantSpent, true);
   } finally { await b.close(); }
@@ -1295,7 +1301,7 @@ test('a re-grant request that fails after a grant ran out cleanly still says gra
     const mc = manifestCoordinator(b);
     const real = mc.macRequest;
     mc.macRequest = async (...a) => (++n === 1 ? real(...a) : { ok: false, because: 'refused (HTTP 429 on /v1/org/backup/manifest, code backup_quota)' });
-    b.script.set(mKey(1), [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    b.script.set(mKey(1), [[400, '<Error><Code>RequestTimeout</Code></Error>'], [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
     assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'backup_quota');
     assert.strictEqual(r.grantSpent, true);
@@ -1410,4 +1416,23 @@ test('a chunk key with an empty third segment has no owner (refused before any g
     assert.strictEqual(r.ok, false); assert.match(r.because, /not all under one/);
     assert.strictEqual(mc.bodies.length, 0);
   } finally { await b.close(); }
+});
+
+test('S3 saying "expired" on the FIRST manifest attempt (a clock disagreement) ends retryLater with no re-grant', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    b.script.get = () => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']];
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true); assert.strictEqual(r.grantSpent, true);
+    assert.match(r.because, /expired on the first attempt/);
+    assert.strictEqual(mc.bodies.length, 1);
+    assert.strictEqual(b.puts, 1);
+  } finally { await b.close(); }
+});
+
+test('a chunk run refused before asking for any grant says grantSpent: false', async () => {
+  let asked = 0;
+  const r = await up.uploadChunks({ macRequest: async () => { asked++; return { ok: false, because: 'x' }; }, fetch, sleep: async () => {} }, [{ name: 'n', object: Buffer.alloc(10) }]);
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, false); assert.strictEqual(asked, 0);
 });
