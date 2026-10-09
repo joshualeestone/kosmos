@@ -224,7 +224,13 @@ function idleNoted(summary, member, readReport, nowMs) {
   const at = Date.parse(rep.at);
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   if (!Number.isFinite(at) || at > now) return summary;
-  return { ...summary, idleKind: rep.state === 'started' ? 'started' : 'idle', idleSince: new Date(at).toISOString(), idleMinutes: Math.max(0, Math.round((now - at) / 60000)) };
+  // Review 1: a summary written AFTER the idle report means a later turn whose idle was lost; saying "idle since" an
+  // earlier time would contradict it, as idleExcused's review 1 refuses to.
+  const wroteAt = Date.parse(summary.at);
+  if (Number.isFinite(wroteAt) && wroteAt > at) return summary;
+  /* Review 1: a runner that reports idle only (Codex) or carries none can have worked since; its line says what it
+     reported, never that it has been idle since then (idleReported). */
+  return { ...summary, idleKind: rep.state === 'started' ? 'started' : 'idle', idleReported: !REPORTS_WORKING.has(member.runner), idleSince: new Date(at).toISOString(), idleMinutes: Math.max(0, Math.round((now - at) / 60000)) };
 }
 
 /**
@@ -387,7 +393,7 @@ const SUMMARY_WORDS = {
   current: (s) => 'current (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   /* #5635 F2: a stale summary of a member idle now says so, so idle reads differently from overdue (idleNoted). */
   stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes)
-    + (Number.isFinite(s.idleMinutes) ? (s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')',
+    + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? '; last reported idle ' : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')',
   // #4581 N10: the rhythm is while working; this one was current when the member went idle.
   idle: (s) => s.idleKind === 'started'
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'

@@ -1,17 +1,19 @@
 'use strict';
 
 /**
- * The consented refresh of the working rules (#539): what a person's click
- * adds to an instruction file they own, composed here and NOWHERE ELSE.
+ * The refresh of the working rules (#539): what changes the rules Kosmos wrote into an instruction file the person
+ * owns, composed here and NOWHERE ELSE.
  *
- * The constraint the whole card hangs on (Mona Lisa's, on the card): role
- * text is PERSON-OWNED after creation and deliberately never rewritten.
- * This module is allowed near it because nothing here is silent and the
- * person is the author of the change: the click on the ruled dialog is the
- * same act as pasting the missing sections in themselves, with Kosmos
- * holding the pen. Anything that writes without the click, or touches a
- * byte outside the managed span, breaks the ownership rule for real and
- * should be reverted on sight.
+ * The constraint the whole card hangs on (Mona Lisa's, on the card): role text is PERSON-OWNED after creation and
+ * deliberately never rewritten. Two writers, and only two:
+ *   - the person's CLICK (refresh), the same act as pasting the sections in themselves with Kosmos holding the pen;
+ *   - kosmos#5635, with NO click (refreshUnedited, at board start): only where the rules text is, byte for byte, a
+ *     WHOLE earlier block Kosmos wrote (a span holding one exactly, or an unedited plain copy). Text that is Kosmos's
+ *     own and unchanged is not the person's words, so bringing it current takes none of theirs. Josh's 2026-10-07
+ *     feedback found every agent still on a line fixed five days before, because the click never came.
+ * Anything else that writes without the click (a span with a section removed, reordered or reworded, a file with no
+ * rules block, an agent whose person said Not now), or that touches a byte outside the managed span, breaks the
+ * ownership rule for real and should be reverted on sight.
  *
  * Built to Angel's nine constraints (2026-08-24, read from the code, on
  * the card's thread), each carried where it bites:
@@ -59,10 +61,9 @@ function clickDate(now) {
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-/* Mona Lisa's sentences (her ruling, verbatim): the dated one is the FIRST
-   line inside the constant markers, never the marker itself. "Kosmos may
-   update this block" is TRUE: a later consented refresh recomposes the
-   span through this same module. */
+/* Mona Lisa's sentences (her ruling): the dated one is the FIRST line inside the constant markers, never the marker
+   itself. Her "Kosmos may update this block" became, in kosmos#5635, what Kosmos now does (KEEPS below), and it is
+   TRUE: an unedited span is recomposed at board start, an edited one only through the click. */
 /* kosmos#5635: every frame line says what Kosmos now does with the block: keeps it current by itself while nobody has
    edited it, and asks first once somebody has. Each starts with the words sectionContentOf strips. */
 const KEEPS = 'Kosmos keeps this block up to date when the rules change while nobody has edited it, and asks first once someone has; your own words above and below it are never touched.';
@@ -130,12 +131,20 @@ function hasPlainCurrent(body) {
   return plainCurrentAt(body) >= 0;
 }
 
+/* kosmos#5635: rules text that is, byte for byte, a WHOLE earlier block. The only span content refreshUnedited writes
+   over: the per-section match below also accepts a span with a section deleted or the sections reordered (review 1),
+   which is the person's edit and waits for the click. */
+function wholeKnownBlock(content, past) {
+  const rows = past || PAST;
+  const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+  return rows.some((r) => r.length === content.length && sha(content) === r.sha256);
+}
 /* #4890: rules text Kosmos wrote and nobody changed: a whole earlier block, or (a span from an older click that
    added only the headings an agent lacked) sections that are each an earlier block's section, byte for byte. */
 function knownContent(content, past) {
   const rows = past || PAST;
   const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
-  if (rows.some((r) => r.length === content.length && sha(content) === r.sha256)) return true;
+  if (wholeKnownBlock(content, rows)) return true;
   const known = new Set(rows.sections || []);
   return known.size > 0 && content.split('\n### ').every((p, j) => known.has(sha(j === 0 ? p : '### ' + p)));
 }
@@ -186,7 +195,7 @@ function sectionContentOf(spanInner) {
  *   { state: 'current' }                                nothing to add; NO write may follow
  *   { state: 'refresh', sections, spanNext, fileNext, hash, replacing?, updating? }
  *
- * `replacing` (#4890) is true when the click also removes an unedited plain
+ * `replacing` (#4890) is true when the write (a click, or refreshUnedited) also removes an unedited plain
  * copy of an earlier block; `updating` when it rewrites an existing span. `past` is the fingerprint table, for tests only;
  * engine/doctrine-past.js otherwise.
  *
@@ -407,6 +416,18 @@ function refreshUnedited(sessionName, roster, opts) {
     if (!current.exists) return { state: 'could_not', because: current.because || 'it has no instructions file yet' };
     const plan = planFor(current.text || '', opts && opts.now, opts && opts.past, autoLine(opts && opts.now));   // `past`: tests only
     if (plan.state !== 'refresh') return plan;
+    /* Review 1 (the blocker): a span is written over only when its content is a WHOLE earlier block. planFor's
+       `edited` is false for a span whose sections each match an earlier section, which is also true of a span the
+       person deleted a section from or reordered: those wait for the click. A span from an older click that added only
+       missing headings is left too, the safe side. */
+    const span = projects.findBlock(current.text || '', START, END);
+    if (span && !span.ambiguous) {
+      const text = current.text || '';
+      const inner = text.slice(text.indexOf('\n', span.start) + 1, span.end - END.length);
+      if (!wholeKnownBlock(sectionContentOf(inner), opts && opts.past)) {
+        return { state: 'left', because: 'its working rules are not a copy Kosmos wrote whole, so they change only with your OK' };
+      }
+    }
     /* `edited` is checked on EVERY path: a plain copy cut beside a span (replacing) carries the span's plan, edited or not. */
     if (plan.edited === true || !(plan.replacing === true || plan.updating === true)) {
       return { state: 'left', because: plan.edited === true || plan.updating ? 'its working rules were edited, so they change only with your OK' : 'its working rules were never written by Kosmos, so they are added only with your OK' };
@@ -423,6 +444,23 @@ function refreshUnedited(sessionName, roster, opts) {
   }
 }
 
+/**
+ * kosmos#5635 review 1: the board-start sweep, as a function so it can be tested: refreshUnedited for every agent of
+ * ours in `roster`, and `owe(sessionName)` for each one written (the running agent read the old rules). Returns the
+ * verdicts, one per agent of ours; an unreadable roster (not an array) does nothing. Never throws.
+ */
+function refreshFleet(roster, owe, opts) {
+  if (!Array.isArray(roster)) return [];
+  const out = [];
+  for (const a of roster) {
+    if (!a || a.isNamedOurs !== true || typeof a.sessionName !== 'string') continue;
+    const got = refreshUnedited(a.sessionName, roster, opts);
+    if (got && got.state === 'added' && typeof owe === 'function') { try { owe(a.sessionName); } catch { /* the file is right */ } }
+    out.push({ sessionName: a.sessionName, ...got });
+  }
+  return out;
+}
+
 /** "Not now", remembered server-side per agent until the rules themselves
     change: keyed on the version, so a future bump un-hides the banner. */
 function decline(sessionName) {
@@ -434,4 +472,4 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, autoLine, planFor, status, refresh, refreshUnedited, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
+module.exports = { START, END, spanBody, clickDate, autoLine, planFor, status, refresh, refreshUnedited, refreshFleet, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
