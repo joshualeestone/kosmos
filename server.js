@@ -9467,6 +9467,55 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
     return;
   }
+  /* ---- kosmos#5628 (MDM zero-touch, slice 2b): a computer managed by its company's MDM sets up through the company's
+     own sign-in. The page reads whether this Mac is managed (and for which company), starts the setup, opens the
+     address in the browser, shows the code to compare, asks the status, and finishes. The setup's secret stays in the
+     engine; nothing here returns it. ---- */
+  if (pathname === '/api/remote/managed' && req.method === 'GET') {
+    sendJson(res, 200, { managed: remote.managedOrg() });
+    return;
+  }
+  if (pathname === '/api/remote/company/start' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const email = String(body.email || '').trim();
+        if (!email || !EMAIL_RULE.test(email)) {
+          sendJson(res, 400, { error: 'that does not look like an email address' });
+          return;
+        }
+        const got = await remote.companyStart(email);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true, matchCode: got.matchCode, url: got.url, interval: got.interval });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not start the company sign-in' }));
+    return;
+  }
+  if (pathname === '/api/remote/company/status' && req.method === 'POST') {
+    remote.companyStatus()
+      .then((got) => sendJson(res, 200, Object.assign({ ready: got.ready, gone: got.gone, retry: got.retry === true },
+        got.because ? { because: got.because } : {})))
+      .catch(() => sendJson(res, 200, { ready: false, gone: false, retry: true }));
+    return;
+  }
+  if (pathname === '/api/remote/company/complete' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const got = await remote.companyComplete(String(body.name || '').trim(),
+          typeof body.acceptTerms === 'string' ? body.acceptTerms : null,
+          typeof body.second === 'string' ? body.second : null);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        try { remote.ensure(); } catch { /* status says what happened */ }
+        sendJson(res, 200, { ok: true, status: remote.status() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not finish the company sign-in' }));
+    return;
+  }
   /* ---- Sign in THIS computer (#3149 journey 2): the in-app wizard's seam,
      replacing the old jump to the web. Four steps -- email code, then phone
      code, then register -- each relaying the engine's `stage` to the page. The

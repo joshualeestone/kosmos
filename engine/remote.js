@@ -1117,6 +1117,7 @@ async function forget() {
   if (forgetInFlight) return forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
+  companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1241,19 +1242,41 @@ async function setupComplete(code, name) {
      name anyway, so only this app refused "MacbookPro". Lowercase (and trim) FIRST, before the
      recognition below as well as the rule: "Hers" on a Mac enrolled as hers is this Mac (review). */
   if (typeof name === 'string') name = name.trim().toLowerCase();
-  if (enrolled()) {
-    const have = address();
-    if (have && have.split('.')[0] === name) {
-      ensure(localPort);
-      return { ok: true, because: null, alreadySetUp: true, address: have };
-    }
-  }
+  const recognised = alreadySetUpAs(name);
+  if (recognised) return recognised;
   if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
+  return runSetupComplete([
+    'setup', 'complete',
+    '--coordinator', COORDINATOR(),
+    '--email', settings.email,
+    '--code', String(code),
+    '--name', name,
+    '--state-dir', STATE_DIR(),
+  ], null, name);
+}
+
+/* #1010 (shared since kosmos#5628 review 1): a reinstall whose state survived, at the address this name maps to, is
+   this Mac already set up: bring the tunnel up rather than enrol again (a new identity key, a scarce certificate, and
+   the coordinator's 409 about this Mac's own previous life). Both setups ask it; MDM fleets reinstall often. */
+function alreadySetUpAs(name, bringUp = true) {
+  if (!enrolled()) return null;
+  const have = address();
+  if (have && have.split('.')[0] === name) {
+    if (bringUp) ensure(localPort);
+    return { ok: true, because: null, alreadySetUp: true, address: have };
+  }
+  return null;
+}
+
+/* kosmos#5628: the guarded run both setups share (the code one above, the company sign-in one below): the same
+   tracking, the same half-identity rule, the same cancel and identity bookkeeping. `stdin` carries a secret when one
+   is needed (never argv). */
+async function runSetupComplete(args, stdin, name) {
   secureStateDir();
   // Tracked like the in-app register (Forget waits for it; nothing else starts
   // beside it), bounded the same, and a half identity is retired first.
@@ -1265,14 +1288,7 @@ async function setupComplete(code, name) {
     const half = await clearHalfIdentity();
     if (half && half.kept) return KEPT_HALF(half.kept);
     if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
-    return explainStranded(await setupRun([
-      'setup', 'complete',
-      '--coordinator', COORDINATOR(),
-      '--email', settings.email,
-      '--code', String(code),
-      '--name', name,
-      '--state-dir', STATE_DIR(),
-    ], null, registerTimeoutMs()), half, name);
+    return explainStranded(await setupRun(args, stdin, registerTimeoutMs()), half, name);
   })();
   registerInFlight = running;
   // A Forget or Sign out that lands while this waits: the Settings page must not
@@ -1297,6 +1313,205 @@ async function setupComplete(code, name) {
   return result;
 }
 
+
+/* ---- kosmos#5628 (MDM zero-touch, slice 2b): a company's managed Macs set up through the company's own sign-in.
+   The company's MDM pushes a profile (domain com.installkosmos.kosmos) naming the company; it carries no secret.
+   With it, the person signs in with their company account in the browser and approves this computer there by its
+   code; nobody types an email code. The setup's secret lives in THIS engine only (never sent to the page), the same
+   rule the in-app sign-in keeps for its session (#874). ---- */
+
+const MANAGED_DOMAIN = 'com.installkosmos.kosmos';
+const ORG_SLUG_RULE = /^[a-z0-9-]{1,64}$/;
+
+/** The plist a managed preference lives in: the device scope, then this user's. */
+function managedPrefsPaths() {
+  let user = '';
+  try { user = require('node:os').userInfo().username; } catch { user = ''; }
+  const base = '/Library/Managed Preferences';
+  return [base + '/' + MANAGED_DOMAIN + '.plist'].concat(user ? [base + '/' + user + '/' + MANAGED_DOMAIN + '.plist'] : []);
+}
+
+/** Read one managed-preferences plist as an object, or null (macOS only; plutil ships with it). */
+function readManagedPlist(path) {
+  if (process.platform !== 'darwin' || !fs.existsSync(path)) return null;
+  try {
+    const raw = execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', path], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+/* Review 2: the first plist that names a company (a device-scope plist of this domain without OrgSlug does not hide
+   a user-scope one that has it). */
+const defaultManagedReader = () => {
+  for (const p of managedPrefsPaths()) {
+    const v = readManagedPlist(p);
+    if (v && typeof v.OrgSlug === 'string' && ORG_SLUG_RULE.test(v.OrgSlug.trim())) return v;
+  }
+  return null;
+};
+let managedReader = defaultManagedReader;
+
+/** The company this Mac is managed for, from its MDM profile: { orgSlug } or null (a malformed value is no profile).
+    Review 2, decided: the profile's CoordinatorURL is NOT read. This board always sets up against its own coordinator
+    (COORDINATOR()); letting a profile choose where a Mac enrolls is a decision of its own, not this slice's, and two
+    answers to "which coordinator" could disagree. */
+let managedCache = null;   // { at, value }: review 3, the profile read at most every 30 seconds (it runs plutil)
+function managedOrg() {
+  if (managedCache && Date.now() - managedCache.at < 30000) return managedCache.value;
+  const value = readManagedOrg();
+  managedCache = { at: Date.now(), value };
+  return value;
+}
+function readManagedOrg() {
+  let v = null;
+  try { v = managedReader(); } catch { v = null; }
+  if (!v || typeof v !== 'object') return null;
+  const slug = typeof v.OrgSlug === 'string' ? v.OrgSlug.trim() : '';
+  if (!ORG_SLUG_RULE.test(slug)) return null;
+  return { orgSlug: slug };
+}
+
+let companyFinishing = null;   // review 10: the setup whose own finish is running
+let companySetup = null;   // { email, setupId, secret, expiresAt }: engine memory only
+
+/* Review 8: before approval, the board's clock is only an upper bound (the server extends a setup when the person
+   approves, and the board learns it at its next poll, slow in a background tab), so it gets this grace past the
+   poll lag; the server's answer decides inside it. After approval the clock was restarted from the first ready. */
+const COMPANY_PRE_APPROVAL_GRACE_MS = 120000;
+function companyExpired(c) {
+  return !c || Date.now() > c.expiresAt + (c.approved ? 0 : COMPANY_PRE_APPROVAL_GRACE_MS);
+}
+
+/** Start a company sign-in setup for this email. Answers what the page shows (the code to compare, the address to
+    open, how often to ask), never the secret. */
+let companyStartInFlight = null;
+async function companyStart(email) {
+  if (typeof email !== 'string' || !email.includes('@')) {
+    return { ok: false, because: 'that does not look like an email address' };
+  }
+  { const b = busy(); if (b) return b; }
+  // Review 1: one start at a time (a double click, two tabs): the second gets the first one's answer, so the engine
+  // never holds a different setup from the one the page shows. Review 2: only for the SAME address; another one
+  // (a typo corrected) is told to wait rather than handed the first address's setup.
+  if (companyStartInFlight) {
+    if (companyStartInFlight.email === email) return companyStartInFlight.promise;
+    return { ok: false, because: 'a company sign-in is already starting; try again in a moment' };
+  }
+  const running = { email, promise: companyStartRun(email) };
+  companyStartInFlight = running;
+  try { return await running.promise; } finally { if (companyStartInFlight === running) companyStartInFlight = null; }
+}
+async function companyStartRun(email) {
+  const epoch = signinEpoch;
+  // Review 2: bounded like every other one-round-trip call (the tunnel sets no timeout of its own).
+  const r = await setupRun(['setup', 'company-start', '--coordinator', COORDINATOR(), '--email', email], null, retireTimeoutMs());
+  if (olderTunnel(r)) return { ok: false, unsupported: true, because: COMPANY_UNSUPPORTED };
+  if (!r.ok) return r;
+  // Review 1: a Forget or a sign out that landed while this waited: nothing of it is kept.
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
+  const a = (lastJsonLine(r.said) || {}).value;
+  // Review 1: the address the page opens in the browser is an https page; review 2: on the coordinator's own origin.
+  if (!a || typeof a.setupId !== 'string' || typeof a.secret !== 'string' || typeof a.url !== 'string'
+    || !sameOriginHttps(a.url, COORDINATOR())
+    // Review 4: a code to compare is the point of the approval page; none is refused.
+    || typeof a.matchCode !== 'string' || !a.matchCode.trim()) {
+    return { ok: false, because: 'Kosmos+ answered in a way this version does not understand' };
+  }
+  // Review 3: the server's lifetime, kept within sense (a minute to an hour).
+  const ttl = Math.min(3600, Math.max(60, Number.isFinite(a.expiresIn) ? a.expiresIn : 900));
+  companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000 };
+  return { ok: true, because: null, matchCode: a.matchCode.trim(), url: a.url,
+    interval: Math.min(60, Math.max(1, Number.isFinite(a.interval) ? a.interval : 5)) };
+}
+
+/* Review 6 (#4756's rule): a tunnel program older than these verbs (the app installs it separately) says so in words. */
+const COMPANY_UNSUPPORTED = 'this version of Kosmos cannot set up through your company yet; update Kosmos';
+function olderTunnel(r) {
+  return !r.ok && /unrecognized subcommand|invalid subcommand|unexpected argument/i.test(String(r.stderr || '') + '\n' + String(r.because || ''));
+}
+
+/** Whether `url` is https on the same origin as `base`. */
+function sameOriginHttps(url, base) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.origin === new URL(base).origin;
+  } catch { return false; }
+}
+
+let companyStatusInFlight = null;
+/** Has the person signed in and approved in the browser? { ready, gone }; `retry` means ask again later (never gone).
+    Review 2: one ask at a time (a slow coordinator never piles up processes holding the secret), each bounded. */
+async function companyStatus() {
+  const c = companySetup;
+  // Review 3: an ask joins one in flight only for the SAME setup (a restart's poll never gets the old setup's answer).
+  if (companyStatusInFlight && companyStatusInFlight.c === c) return companyStatusInFlight.promise;
+  const running = { c, promise: companyStatusRun(c) };
+  companyStatusInFlight = running;
+  try { return await running.promise; } finally { if (companyStatusInFlight === running) companyStatusInFlight = null; }
+}
+async function companyStatusRun(c) {
+  // Review 9: while a finish runs, its grant may already be spent (the server then says gone); the setup is not gone,
+  // it is finishing, and no second process needs the secret meanwhile.
+  if (c && companyFinishing === c) return { ok: true, ready: true, gone: false };
+  if (companyExpired(c)) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true }; }
+  const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
+  // Review 6: an older tunnel program will never answer, so the page stops (with why) instead of polling forever.
+  if (olderTunnel(r)) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true, because: COMPANY_UNSUPPORTED }; }
+  if (!r.ok) return { ok: true, ready: false, gone: false, retry: true };
+  const a = (lastJsonLine(r.said) || {}).value || {};
+  if (a.gone === true && companySetup === c) companySetup = null;
+  // Review 4: approval gives the setup fresh time on the server (its whole life from approval), so the engine's own
+  // clock restarts when it first sees ready. Review 6: that is AFTER the approval (a background tab polls slowly), so
+  // it can outlive the server's by that lag; a finish the server then refuses as expired clears the setup (below).
+  // Review 5: once, at the first ready (a page still polling must not keep pushing it out).
+  if (a.ready === true && companySetup === c && !c.approved) { c.approved = true; c.expiresAt = Date.now() + c.ttl * 1000; }
+  return { ok: true, ready: a.ready === true, gone: a.gone === true, retry: a.retry === true };
+}
+
+/** Finish the approved setup: this computer gets its identity and its name, as the code setup does. */
+async function companyComplete(name, acceptTerms, second) {
+  { const b = busy(); if (b) return b; }
+  const c = companySetup;
+  if (companyExpired(c)) {
+    if (companySetup === c) companySetup = null;
+    return { ok: false, because: 'that company sign-in has expired; start again' };
+  }
+  if (typeof name === 'string') name = name.trim().toLowerCase();
+  // Review 1: a reinstall already set up at this name is recognised here too (#1010), the setup then not needed.
+  if (alreadySetUpAs(name, false)) {
+    // Review 10 (replacing reviews 5, 7 and 9): the board cannot tell which account owns the identity on this computer
+    // (its saved email is written before anything is proven, and is empty after a reset), so recognising a reinstall
+    // changes nothing: no email recorded, nothing switched on, exactly as the code path. A reset reinstall is switched
+    // on in Settings; another account's computer is not taken over by its name.
+    if (companySetup === c) companySetup = null;
+    return alreadySetUpAs(name);
+  }
+  if (typeof name !== 'string' || !NAME_RULE.test(name)) {
+    return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
+  }
+  const args = ['setup', 'complete', '--coordinator', COORDINATOR(), '--email', c.email,
+    '--sso-setup', c.setupId, '--name', name, '--state-dir', STATE_DIR()];
+  if (typeof acceptTerms === 'string' && acceptTerms.trim()) args.push('--accept-terms=' + acceptTerms.trim());
+  // Review 4: an existing account with a second step needs its current code to add a computer (#3830); the grant is
+  // still unspent when that is refused, so the page asks for it and finishes again.
+  if (typeof second === 'string' && second.trim()) args.push('--second=' + second.trim());
+  const offAt = offEpoch;   // review 6: an Off pressed while this runs stands (#3827, as the in-app register)
+  companyFinishing = c;
+  let result;
+  try { result = await runSetupComplete(args, c.secret + '\n', name); } finally { if (companyFinishing === c) companyFinishing = null; }
+  // Review 6: the server refused it as finished or expired: nothing more can come of this setup, so start again.
+  // Review 8: whether this setup can still finish is the SERVER's answer, not a match on its sentences (a refused finish
+  // may already have spent the grant; a wait for too many second-step codes leaves it good): ask once, and a gone
+  // setup is cleared (companyStatusRun does that).
+  if (!result.ok && companySetup === c) await companyStatusRun(c);
+  // Review 4: as the in-app sign-in's register (#3827): set up means switched on, or the managed Mac is enrolled and
+  // unreachable until someone finds the switch.
+  if (result.ok) {
+    if (companySetup === c) companySetup = null;   // review 7: never a newer setup
+    write({ email: c.email }, { repair: true });
+    if (offEpoch === offAt) turnOnAfterSignin();
+  }
+  return result;
+}
 
 /* ---- Devices (#567): the Allow moment. The tunnel binary is the ONLY
    writer of this Mac's allow_list; this module asks it in the shape setup
@@ -1952,6 +2167,7 @@ function pushDeviceName(args, deviceName) {
 function signinCancel() {
   signinEpoch += 1;
   signinSession = null;
+  companySetup = null;   // kosmos#5628 review 1: as the session: no secret is left behind a sign out
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
@@ -2549,6 +2765,10 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   status,
   setupStart,
   setupComplete,
+  managedOrg,
+  companyStart,
+  companyStatus,
+  companyComplete,
   signinStart,
   signinVerify,
   signinSecond,
@@ -2594,8 +2814,9 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
+  setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
   /* test seam: the live child's pid, or null. spawn() sets the handle

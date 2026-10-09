@@ -59,7 +59,32 @@ if (args[0] === 'setup' && args[1] === 'start') {
   console.log('if the address is reachable, a code is on its way');
   process.exit(0);
 }
+// kosmos#5628: the company sign-in setup. Each verb that takes the secret records what it read on stdin (never argv).
+// An older tunnel (company-old): clap's usage error, exit 2, as for any verb it does not know.
+if (mode.includes('company-old') && args[0] === 'setup' && (args[1] === 'company-start' || args[1] === 'company-status')) {
+  process.stderr.write("error: unrecognized subcommand '" + args[1] + "'\\n\\nUsage: kosmos-tunnel setup <COMMAND>\\n\\nFor more information, try '--help'.\\n");
+  process.exit(2);
+}
+if (args[0] === 'setup' && args[1] === 'company-start') {
+  if (mode.includes('company-http-url')) { console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S', matchCode: 'K7-3M', url: 'javascript:alert(1)', interval: 5, expiresIn: 900 })); process.exit(0); }
+  if (mode.includes('slow-company-start')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 1500); while (Date.now() < until) { /* wait */ } }
+  if (mode.includes('company-other-origin')) { console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S', matchCode: 'K7-3M', url: 'https://elsewhere.example/v1/sso/begin', interval: 5, expiresIn: 900 })); process.exit(0); }
+  if (mode.includes('company-unavailable')) { process.stderr.write('Kosmos+ said no (404): this address does not sign in through a company provider here\\n'); process.exit(1); }
+  console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S3CRET-only-in-the-engine', matchCode: 'K7-3M',
+    url: flag('--coordinator').replace(/\\/+$/, '') + '/v1/sso/begin?email=x&device_id=setup-abc', interval: 5, expiresIn: 900 }));
+  process.exit(0);
+}
+if (args[0] === 'setup' && args[1] === 'company-status') {
+  fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
+  if (mode.includes('slow-company-status')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 1200); while (Date.now() < until) { /* wait */ } }
+  if (mode.includes('company-gone')) { console.log(JSON.stringify({ ready: false, gone: true })); process.exit(0); }
+  if (mode.includes('company-fail')) { process.stderr.write('Kosmos+ is unreachable\\n'); process.exit(1); }
+  console.log(JSON.stringify({ ready: true, gone: false }));
+  process.exit(0);
+}
 if (args[0] === 'setup' && args[1] === 'complete') {
+  if (flag('--sso-setup') && mode.includes('company-complete-refused')) { fs.readFileSync(0, 'utf8'); process.stderr.write('Kosmos+ said no (409): your account was just set up on another computer; start setting up this one again\\n'); process.exit(1); }
+  if (flag('--sso-setup')) fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
   if (mode.includes('setup-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a computer on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this computer, it is already set up and there is nothing more to do here. If it is a different computer, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('setup-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a Mac on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this Mac, it is already set up and there is nothing more to do here. If it is a different Mac, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('slow-setup')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
@@ -3909,4 +3934,190 @@ test('#4756: a tunnel binary older than the verb reads as "update Kosmos", not c
       assert.doesNotMatch(r.because, /--help/);
     });
   } finally { fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: [] })); remote.resetForTests(); }
+});
+
+/* ---- kosmos#5628 (MDM slice 2b): a managed Mac sets up through the company's sign-in ---- */
+
+test('kosmos#5628: the managed profile is read only when it plainly names a company', () => {
+  // Review 2, decided: only the company is read; a CoordinatorURL in the profile steers nothing.
+  remote.setManagedReaderForTests(() => ({ OrgSlug: 'acme', CoordinatorURL: 'https://elsewhere.example' }));
+  assert.deepEqual(remote.managedOrg(), { orgSlug: 'acme' });
+  for (const bad of [null, {}, { OrgSlug: 'Acme Corp' }, { OrgSlug: '../x' }, { OrgSlug: 7 }]) {
+    remote.setManagedReaderForTests(() => bad);
+    assert.equal(remote.managedOrg(), null, JSON.stringify(bad));
+  }
+  remote.setManagedReaderForTests(() => { throw new Error('unreadable'); });
+  assert.equal(remote.managedOrg(), null, 'an unreadable profile is no profile');
+});
+
+test('kosmos#5628: the company setup keeps its secret in the engine and gives it to the binary only on stdin', async () => {
+  const started = await remote.companyStart('ann@acme.test');
+  assert.equal(started.ok, true, started.because);
+  assert.equal(started.matchCode, 'K7-3M');
+  assert.match(started.url, /^https:\/\/[^/]+\/v1\/sso\/begin\?/);
+  assert.equal(JSON.stringify(started).includes('S3CRET'), false, 'the secret reached the page');
+  const st = await remote.companyStatus();
+  assert.deepEqual([st.ready, st.gone], [true, false]);
+  assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8').trim(), 'S3CRET-only-in-the-engine', 'the secret was not on stdin');
+  for (const call of recorded()) assert.equal(call.join(' ').includes('S3CRET'), false, 'the secret was on a command line: ' + call.join(' '));
+  // Finishing sets this computer up through the same guarded run as the code setup.
+  const done = await remote.companyComplete('Ann', '2026-09-28', '123456');
+  assert.equal(done.ok, true, done.because);
+  const complete = recorded().find((c) => c[0] === 'setup' && c[1] === 'complete');
+  assert.deepEqual([complete[complete.indexOf('--sso-setup') + 1], complete.includes('--code')], ['setup-abc', false]);
+  assert.equal(complete[complete.indexOf('--name') + 1], 'ann', 'the name is lowercased as the code setup does');
+  assert.equal(complete.includes('--accept-terms=2026-09-28'), true, complete.join(' '));
+  // Review 4: an account's second step reaches the binary; and set up means switched on (#3827), as the register does.
+  assert.equal(complete.includes('--second=123456'), true, complete.join(' '));
+  assert.equal(remote.read().on, true, 'a company setup left Kosmos+ switched off');
+  assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8').trim(), 'S3CRET-only-in-the-engine');
+  // Spent: a second finish has nothing to finish.
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/);
+  // Review 1: the secret was on no command line, the finish's included.
+  for (const call of recorded()) assert.equal(call.join(' ').includes('S3CRET'), false, 'the secret was on a command line: ' + call.join(' '));
+});
+
+test('kosmos#5628 review 1: one start at a time, a Forget leaves nothing to finish, and only an https address is opened', async () => {
+  const [a, b] = await Promise.all([remote.companyStart('ann@acme.test'), remote.companyStart('ann@acme.test')]);
+  assert.equal(a.ok && b.ok, true);
+  assert.equal(recorded().filter((c) => c[1] === 'company-start').length, 1, 'two starts ran the binary twice');
+  await remote.forget();
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/, 'a Forget left the setup to finish');
+  assert.equal((await remote.companyStatus()).gone, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-http-url';
+  const bad = await remote.companyStart('ann@acme.test');
+  assert.equal(bad.ok, false, 'a javascript: address reached the page');
+});
+
+test('kosmos#5628: status says retry on a failure and gone once the setup has ended; nothing to finish without a start', async () => {
+  assert.deepEqual(await remote.companyStatus(), { ok: true, ready: false, gone: true });
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/);
+  await remote.companyStart('ann@acme.test');
+  process.env.FAKE_TUNNEL_MODE = 'company-fail';
+  const st = await remote.companyStatus();
+  assert.deepEqual([st.ready, st.gone, st.retry], [false, false, true], 'a failed ask read as gone');
+  process.env.FAKE_TUNNEL_MODE = 'company-gone';
+  assert.equal((await remote.companyStatus()).gone, true);
+  assert.equal((await remote.companyStatus()).gone, true, 'gone stays gone');
+  process.env.FAKE_TUNNEL_MODE = 'company-unavailable';
+  const refused = await remote.companyStart('x@elsewhere.test');
+  assert.equal(refused.ok, false);
+  assert.match(refused.because, /company provider/);
+});
+
+test('kosmos#5628 review 2: a Forget during a start, a sign out before the finish, another address, another origin', async () => {
+  // A Forget landing while the start is out: the start's answer is dropped and nothing can be finished.
+  process.env.FAKE_TUNNEL_MODE = 'slow-company-start';
+  const starting = remote.companyStart('ann@acme.test');
+  // Another address while it runs is told to wait, never handed this one's setup.
+  assert.match((await remote.companyStart('bob@acme.test')).because, /already starting/);
+  await new Promise((r) => setTimeout(r, 300));
+  await remote.forget();
+  const started = await starting;
+  assert.equal(started.ok, false, 'a start that finished after a Forget was kept');
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/);
+  // A sign out between start and finish leaves nothing to finish.
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  remote.signinCancel();
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/, 'a sign out left the setup to finish');
+  // An address on another origin is not relayed.
+  process.env.FAKE_TUNNEL_MODE = 'company-other-origin';
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, false, 'another origin reached the page');
+});
+
+test('kosmos#5628 review 3: a status ask joins one in flight only for the same setup', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'slow-company-status';
+  const slow = remote.companyStatus();   // setup A's ask, still out
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);   // start over: setup B
+  await remote.companyStatus();   // B's own ask
+  await slow;
+  assert.equal(recorded().filter((c) => c[1] === 'company-status').length, 2, "the restart's poll joined the old setup's ask");
+});
+
+test('kosmos#5628 review 10: a reinstall recognised by the company setup changes nothing', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyComplete('ann')).ok, true);
+  remote.setOn(false);   // the reinstall's settings reset; its identity survived
+  assert.equal(remote.read().on, false, 'CONTROL: switched off before the second finish');
+  // Review 7: not approved in the browser: only "already set up", and nothing switches on (review 9: another account
+  // is refused outright, tested below).
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  const unapproved = await remote.companyComplete('ann');
+  assert.equal(unapproved.alreadySetUp, true);
+  assert.equal(remote.read().email, 'ann@acme.test', 'an unproven address was recorded');
+  assert.equal(remote.read().on, false, 'an unapproved setup switched Kosmos+ on');
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);   // approved
+  const again = await remote.companyComplete('ann');
+  assert.equal(again.alreadySetUp, true, JSON.stringify(again));
+  assert.equal(remote.read().on, false, 'a recognised reinstall switched Kosmos+ on (the board cannot prove the owner)');
+});
+
+test('kosmos#5628 review 6: an older tunnel says update, and an Off pressed while the finish runs stands', async () => {
+  process.env.FAKE_TUNNEL_MODE = 'company-old';
+  const old = await remote.companyStart('ann@acme.test');
+  assert.deepEqual([old.ok, old.unsupported], [false, true]);
+  assert.match(old.because, /update Kosmos/);
+  // A setup started on a newer tunnel, whose status then meets an older one: gone, with why, not retry forever.
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-old';
+  const st = await remote.companyStatus();
+  assert.deepEqual([st.gone, Boolean(st.retry)], [true, false]);
+  assert.match(st.because, /update Kosmos/);
+  // The Off: the finish is slow; Off is pressed while it runs; it stays off.
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  const finishing = remote.companyComplete('ann');
+  await new Promise((r) => setTimeout(r, 300));
+  remote.setOn(false);
+  const done = await finishing;
+  assert.equal(done.ok, true, done.because);
+  assert.equal(remote.read().on, false, 'an Off pressed during the finish was undone');
+});
+
+test('kosmos#5628 review 8: after a refused finish the server decides whether the setup lives', async () => {
+  // Refused, and the server says the setup is gone (its grant was spent): cleared, nothing more to finish.
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-complete-refused company-gone';
+  assert.equal((await remote.companyComplete('ann')).ok, false);
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/, 'a spent setup was kept');
+  // Refused, and the server says it is still ready (e.g. a second step to enter): kept, the finish can be retried.
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-complete-refused';
+  assert.equal((await remote.companyComplete('ann')).ok, false);
+  delete process.env.FAKE_TUNNEL_MODE;
+  const retried = await remote.companyComplete('ann');
+  assert.equal(retried.ok, true, 'a setup the server still holds was dropped: ' + retried.because);
+});
+
+test('kosmos#5628 review 9: another account cannot take over a computer by its name, and a finish in progress is not gone', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyComplete('ann')).ok, true);
+  assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);   // Bob approved
+  remote.setOn(false);
+  const taken = await remote.companyComplete('ann');
+  assert.equal(taken.alreadySetUp, true);
+  assert.equal(remote.read().email, 'ann@acme.test', 'another account was recorded on this computer');
+  assert.equal(remote.read().on, false, 'another account switched this computer on');
+  // Review 10: with the saved settings gone (email empty), still nothing is recorded or switched on.
+  fs.unlinkSync(remote.FILE);   // the reinstall's settings are gone; the identity (remote/) stays
+  assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);
+  assert.equal((await remote.companyComplete('ann')).alreadySetUp, true);
+  assert.deepEqual([remote.read().email || '', remote.read().on], ['', false], 'an empty owner let another account in');
+  // A status asked while a finish runs answers "finishing", never gone.
+  assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup company-gone';
+  const finishing = remote.companyComplete('bob-mac');
+  await new Promise((r) => setTimeout(r, 300));
+  const st = await remote.companyStatus();
+  assert.deepEqual([st.ready, st.gone], [true, false], 'a finish in progress read as gone');
+  await finishing;
 });
