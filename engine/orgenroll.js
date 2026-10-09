@@ -92,9 +92,10 @@ function eventsStopped(opts) {
   try { require('./agentevents').markWithdrawn(storeRoot(opts)); } catch { /* the board's timer and tick also look */ }
 }
 function writeEnrollment(rec, opts) {
-  /* Marked BEFORE a record with no accepted words lands, so no tick can read it as reporting in between. */
-  if (!rec || typeof rec.consentHash !== 'string' || !/^[0-9a-f]{64}$/.test(rec.consentHash)) eventsStopped(opts);
   writeWhole(path.join(storeRoot(opts), ENROLLMENT_FILE), JSON.stringify(rec) + '\n');
+  /* Marked once a record with no accepted words HAS landed (review 40: marked before, a write that then failed left
+     the words in place and the state withdrawn). Write and mark are synchronous, so no tick runs in between. */
+  if (!rec || typeof rec.consentHash !== 'string' || !/^[0-9a-f]{64}$/.test(rec.consentHash)) eventsStopped(opts);
 }
 /* The world id, the enrollment record and the small marker files are all written whole through here (review 35: a
    torn pending leave would still count as pending but lose its undo flag and the consent it carries). #5434 slice 15:
@@ -107,10 +108,10 @@ function writeWhole(file, text) {
 const policyMod = (opts) => (opts && opts.orgpolicy) || require('./orgpolicy');
 
 function clearEnrollment(opts) {
-  eventsStopped(opts);   // #5683 review 38: before the record goes
   try { fs.rmSync(path.join(storeRoot(opts), ENROLLMENT_FILE), { force: true }); } catch { /* already gone */ }
   // #5534 review 1: every end of an enrollment comes through here, so the company's policy ends with it.
   try { policyMod(opts).clear(); } catch { /* best effort */ }
+  eventsStopped(opts);   // #5683 review 38/40: once the record is gone (synchronous: no tick runs in between)
 }
 
 /* This world's id if it was ever minted; never mints (the gate and a page read must not write). */

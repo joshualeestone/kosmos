@@ -117,10 +117,10 @@ function targetClass(tool, input, ctx) {
     let rsync = false;
     /* A command walks folders when its program always does, or when a flag of its own says so (ls -a is not recursive;
        ls -R is). Its folder words, or the agent's own folder when it names none, are trees. */
-    const ALWAYS = /^(find|du|tree|rg|ag|ack|tar)$/;
+    const ALWAYS = /^(find|du|tree|rg|ag|ack)$/;
     const FLAG = { grep: /^-[A-Za-z]*[rR]|^--(recursive|dereference-recursive)$/, egrep: /^-[A-Za-z]*[rR]/, fgrep: /^-[A-Za-z]*[rR]/,
       ls: /^-[A-Za-z]*R/, cp: /^-[A-Za-z]*[rRa]|^--(recursive|archive)$/, rsync: /^-[A-Za-z]*[ra]|^--(recursive|archive)$/,
-      scp: /^-[A-Za-z]*r/, zip: /^-[A-Za-z]*r/, chmod: /^-[A-Za-z]*R/, chown: /^-[A-Za-z]*R/, chgrp: /^-[A-Za-z]*R/ };
+      scp: /^-[A-Za-z]*r/, zip: /^-[A-Za-z]*r/, tar: /^-[A-Za-z]*[cru]|^--(create|append|update)$/, chmod: /^-[A-Za-z]*R/, chown: /^-[A-Za-z]*R/, chgrp: /^-[A-Za-z]*R/ };   // tar walks only to create or add (review 40)
     const cmds = [];   // per command: { walks, words }
     let cur = null;
     const look = (words, depth) => {
@@ -145,19 +145,25 @@ function targetClass(tool, input, ctx) {
           /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
              URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
           prog = path.basename(w);
-          cur = { prog, walks: ALWAYS.test(prog), words: [], skip: false }; cmds.push(cur);
+          cur = { prog, walks: ALWAYS.test(prog), words: [], skip: false, bare: true, base: null }; cmds.push(cur);
           if (/^(ssh|scp|sftp|nc|ncat)$/.test(prog)) { net = true; url = true; }
           else if (/^(curl|wget|git)$/.test(prog)) net = true;   // git with a URL (push, clone, fetch to it)
           else if (prog === 'rsync') rsync = true;
           continue;   // the program run, not what it was aimed at (review 8)
         }
+        if (cur && cur.prog === prog) {
+          /* tar's old style: its first argument is its letters without a dash (tar czf out.tgz dir). */
+          if (prog === 'tar' && cur.bare && /^[A-Za-z]+$/.test(w)) { if (/[cru]/.test(w)) cur.walks = true; if (/f/.test(w)) cur.skip = 'f'; cur.bare = false; continue; }
+          cur.bare = false;
+        }
         if (cur && cur.prog === prog && FLAG[prog] && FLAG[prog].test(w)) cur.walks = true;
         /* tar's archive (-f) and its target folder (-C) are not walked (review 39: tar -C ~ -xf a.tgz read as a walk of ~). */
         let notTree = false;   // still a path, only not walked
         if (cur && cur.prog === prog && prog === 'tar') {
-          if (cur.skip) { cur.skip = false; notTree = true; }
-          else if (/^(-[A-Za-z]*[fC]|--file|--directory)$/.test(w)) { cur.skip = true; continue; }
-          else if (/^(--file|--directory)=|^-C./.test(w)) notTree = true;
+          if (cur.skip) { if (cur.skip === 'C') cur.base = w; cur.skip = false; notTree = true; }
+          else if (/^(-[A-Za-z]*C|--directory)$/.test(w)) { cur.skip = 'C'; continue; }
+          else if (/^(-[A-Za-z]*f|--file)$/.test(w)) { cur.skip = 'f'; continue; }
+          else if (/^(--file|--directory)=|^-C./.test(w)) { notTree = true; if (/^(--directory=|-C)/.test(w)) cur.base = w.replace(/^--directory=|^-C/, ''); }
         }
         if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) { url = true; continue; }
         if (rsync && /^([^\s/@]+@)?[A-Za-z0-9.-]+::?[^\s]*$/.test(w) && !w.startsWith('/')) { net = true; url = true; }
@@ -185,8 +191,13 @@ function targetClass(tool, input, ctx) {
         if (/[*?$`[{]/.test(v)) hidden.push(v);   // [ and { are globs too (review 32: Kosm[o]s, Kosmo{s,})
         /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
            space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
-        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) { paths.push(v); if (cur && cur.prog === prog && !notTree) cur.words.push(v); }
-        else if (cur && cur.prog === prog && !notTree && /^(~|\.|\.\.)$/.test(v)) cur.words.push(v);   // ~, . and .. alone are folders too
+        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) paths.push(v);
+        /* A command's operands, in order: every word that is not an option, plain names included (review 40: tar -C ~
+           Documents named no path, so the walk fell back to the whole of ~). find's come before its first test. */
+        if (cur && cur.prog === prog) {
+          if (/^-/.test(w)) cur.sawOpt = true;
+          else if (!notTree && !(prog === 'find' && cur.sawOpt)) cur.words.push(v);
+        }
         if (paths.length >= 64) return;
       }
     };
@@ -196,13 +207,20 @@ function targetClass(tool, input, ctx) {
     let cwd = ctx.agentDir || path.sep;
     const res = (x) => path.resolve(cwd, x === '~' || x.startsWith('~/') ? path.join(ctx.home || os.homedir(), x.slice(1)) : x);
     for (const c of cmds) {
-      if (c.prog === 'cd') { if (c.words[0] && !/[*?$`[{]/.test(c.words[0])) cwd = res(c.words[0]); continue; }
+      if (c.prog === 'cd' || c.prog === 'pushd') {   // a bare cd is the home folder (review 40)
+        const d = c.words[0] || (c.bare ? '~' : null);
+        if (d && !/[*?$`[{]/.test(d)) cwd = res(d);
+        continue;
+      }
       if (!c.walks) continue;
       let ws = c.words;
+      if (/^(grep|egrep|fgrep|rg|ag|ack)$/.test(c.prog)) ws = ws.slice(1);   // the first operand is the pattern
       if (/^(cp|rsync|scp|mv|ditto|install)$/.test(c.prog)) ws = ws.slice(0, -1);
       else if (c.prog === 'zip') ws = ws.slice(1);
-      if (!ws.length && c.words.length) continue;   // only a destination named: nothing walked that we know of
-      trees.push(...(ws.length ? ws : ['.']).map((x) => (/[*?$`[{]/.test(x) ? x : res(x))));
+      if (!ws.length && c.words.length && /^(cp|rsync|scp|mv|ditto|install|zip)$/.test(c.prog)) continue;   // only a destination named
+      /* tar -C moves where its own relative words resolve (review 40: tar -czf out.tgz -C ~ Library archives ~/Library). */
+      const base = c.base && !/[*?$`[{]/.test(c.base) ? res(c.base) : null;
+      trees.push(...(ws.length ? ws : ['.']).map((x) => (/[*?$`[{]/.test(x) ? x : base && !path.isAbsolute(x) && !x.startsWith('~') ? path.resolve(base, x) : res(x))));
     }
     /* A network command is network-host before any path it names (decided, review 5): sending something out is the
        telling part, whatever it sends. */
@@ -536,7 +554,12 @@ function readState(root) {
    refused wrote the SAME record back, and the reads in between were sent): a state that was reporting is marked
    withdrawn with no queue kept (review 19), so reporting again starts from then and nothing from the gap is sent.
    Reads only the state file; no transcript is opened. Called through withdrawIfStopped (review 37). */
+/* Every stop in this process, counted in memory whatever the disk says (review 40: the count on disk moved only when the
+   disk already said "reporting", so a Leave during an enrollment's FIRST tick, or a stop whose write failed, went
+   uncounted and the gap was sent). The tick and every enrollment writer run in the board process. */
+let STOPS = 0;
 function markWithdrawn(root0) {
+  STOPS++;
   const root = root0 || require('./store').ROOT;
   const w = readState(root);
   /* stops counts every stop, so a tick that read while one happened can see it even after the same record came back
@@ -666,6 +689,7 @@ async function tick(opts) {
     let st = readState(root);
     const stRaw = JSON.stringify(st);
     const stops0 = st.stops;   // review 39: a stop marked while this tick reads makes it write and send nothing
+    const gen0 = STOPS;   // review 40: and the in-memory count, which moves on every stop
     /* Words withdrawn and then accepted again under the SAME hash (review 3): the key alone would not change, so the
        withdrawal itself is recorded and a resumed tick starts clean as for new words. */
     if (st.withdrawn) st.enrolledAs = null;
@@ -826,7 +850,14 @@ async function tick(opts) {
     /* Review 39: a Leave run while the transcripts were read marks the stop on disk, and a refused Leave writes the SAME
        record back, so the enrollment check below cannot see it. The state this tick loaded must not overwrite that mark:
        if a stop was counted meanwhile, nothing is written or sent, and the next tick starts clean from the mark. */
-    if (readState(root).stops !== stops0) return { sent: 0, because: 'reporting stopped while reading; nothing written or sent' };
+    if (STOPS !== gen0 || readState(root).stops !== stops0) {
+      /* Recorded as withdrawn, so the next tick starts from then, not from the enrollment (review 40: on a first tick
+         nothing on disk said "reporting", and the next tick read the gap from the start). */
+      const a = readState(root);
+      a.enrolledAs = a.enrolledAs || enrolledAs; a.withdrawn = true; a.pending = [];
+      writeState(root, a);
+      return { sent: 0, because: 'reporting stopped while reading; nothing written or sent' };
+    }
     /* Written only when it changed (review 9: thousands of offsets rewritten every five minutes for nothing). */
     if (JSON.stringify(st) !== stRaw && !writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
     /* The calls are kept only now: had the write failed, the next tick re-reads those lines WITH their calls (review 23:
