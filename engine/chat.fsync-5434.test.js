@@ -69,8 +69,10 @@ test('#5434: an append whose flush fails keeps the thread as it was', () => {
   const file = chat.threadFile(chat.DIRECT, agent);
   const before = fs.readFileSync(file, 'utf8');
   const isTemp = (p) => p.startsWith(file + '.kosmos-') && p.endsWith('.tmp');
-  const { events } = recording(() => chat.appendMessage(chat.DIRECT, agent, { text: 'lost?', at: t(3), delivery: { state: 'placed' } }), isTemp);
+  const { events, out } = recording(() => chat.appendMessage(chat.DIRECT, agent, { text: 'lost?', at: t(3), delivery: { state: 'placed' } }), isTemp);
   assert.ok(events.some((e) => e[0] === 'fsync' && isTemp(e[1] || '')), 'the temp was never flushed, so this tests nothing');
+  assert.equal(out.recorded, false, 'a message whose save failed was reported as recorded (review 1)');
+  assert.match(out.because, /could not write this conversation down/);
   assert.equal(fs.readFileSync(file, 'utf8'), before, 'a save whose flush failed changed the thread');
   assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((n) => n.endsWith('.tmp')), [], 'a temp was left beside the thread');
 });
