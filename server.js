@@ -9488,7 +9488,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/remote/company/status' && req.method === 'POST') {
     remote.companyStatus()
-      .then((got) => sendJson(res, 200, { ready: got.ready, gone: got.gone, retry: got.retry === true }))
+      .then((got) => sendJson(res, 200, Object.assign({ ready: got.ready, gone: got.gone, retry: got.retry === true },
+        got.because ? { because: got.because } : {})))
       .catch(() => sendJson(res, 200, { ready: false, gone: false, retry: true }));
     return;
   }

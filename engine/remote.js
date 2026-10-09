@@ -1395,6 +1395,7 @@ async function companyStartRun(email) {
   const epoch = signinEpoch;
   // Review 2: bounded like every other one-round-trip call (the tunnel sets no timeout of its own).
   const r = await setupRun(['setup', 'company-start', '--coordinator', COORDINATOR(), '--email', email], null, retireTimeoutMs());
+  if (olderTunnel(r)) return { ok: false, unsupported: true, because: COMPANY_UNSUPPORTED };
   if (!r.ok) return r;
   // Review 1: a Forget or a sign out that landed while this waited: nothing of it is kept.
   if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
@@ -1411,6 +1412,12 @@ async function companyStartRun(email) {
   companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000 };
   return { ok: true, because: null, matchCode: a.matchCode.trim(), url: a.url,
     interval: Math.min(60, Math.max(1, Number.isFinite(a.interval) ? a.interval : 5)) };
+}
+
+/* Review 6 (#4756's rule): a tunnel program older than these verbs (the app installs it separately) says so in words. */
+const COMPANY_UNSUPPORTED = 'this version of Kosmos cannot set up through your company yet; update Kosmos';
+function olderTunnel(r) {
+  return !r.ok && /unrecognized subcommand|invalid subcommand|unexpected argument/i.test(String(r.stderr || '') + '\n' + String(r.because || ''));
 }
 
 /** Whether `url` is https on the same origin as `base`. */
@@ -1435,11 +1442,14 @@ async function companyStatus() {
 async function companyStatusRun(c) {
   if (!c || Date.now() > c.expiresAt) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true }; }
   const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
+  // Review 6: an older tunnel program will never answer, so the page stops (with why) instead of polling forever.
+  if (olderTunnel(r)) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true, because: COMPANY_UNSUPPORTED }; }
   if (!r.ok) return { ok: true, ready: false, gone: false, retry: true };
   const a = (lastJsonLine(r.said) || {}).value || {};
   if (a.gone === true && companySetup === c) companySetup = null;
   // Review 4: approval gives the setup fresh time on the server (its whole life from approval), so the engine's own
-  // clock restarts when it sees ready; it can never outlive the server's, which started earlier.
+  // clock restarts when it first sees ready. Review 6: that is AFTER the approval (a background tab polls slowly), so
+  // it can outlive the server's by that lag; a finish the server then refuses as expired clears the setup (below).
   // Review 5: once, at the first ready (a page still polling must not keep pushing it out).
   if (a.ready === true && companySetup === c && !c.approved) { c.approved = true; c.expiresAt = Date.now() + c.ttl * 1000; }
   return { ok: true, ready: a.ready === true, gone: a.gone === true, retry: a.retry === true };
@@ -1471,10 +1481,17 @@ async function companyComplete(name, acceptTerms, second) {
   // Review 4: an existing account with a second step needs its current code to add a computer (#3830); the grant is
   // still unspent when that is refused, so the page asks for it and finishes again.
   if (typeof second === 'string' && second.trim()) args.push('--second=' + second.trim());
+  const offAt = offEpoch;   // review 6: an Off pressed while this runs stands (#3827, as the in-app register)
   const result = await runSetupComplete(args, c.secret + '\n', name);
+  // Review 6: the server refused it as finished or expired: nothing more can come of this setup, so start again.
+  if (!result.ok && /expired|not finished|start again/i.test(String(result.because || '')) && companySetup === c) companySetup = null;
   // Review 4: as the in-app sign-in's register (#3827): set up means switched on, or the managed Mac is enrolled and
   // unreachable until someone finds the switch.
-  if (result.ok) { companySetup = null; write({ email: c.email }, { repair: true }); turnOnAfterSignin(); }
+  if (result.ok) {
+    companySetup = null;
+    write({ email: c.email }, { repair: true });
+    if (offEpoch === offAt) turnOnAfterSignin();
+  }
   return result;
 }
 

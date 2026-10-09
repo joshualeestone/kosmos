@@ -60,6 +60,11 @@ if (args[0] === 'setup' && args[1] === 'start') {
   process.exit(0);
 }
 // kosmos#5628: the company sign-in setup. Each verb that takes the secret records what it read on stdin (never argv).
+// An older tunnel (company-old): clap's usage error, exit 2, as for any verb it does not know.
+if (mode.includes('company-old') && args[0] === 'setup' && (args[1] === 'company-start' || args[1] === 'company-status')) {
+  process.stderr.write("error: unrecognized subcommand '" + args[1] + "'\\n\\nUsage: kosmos-tunnel setup <COMMAND>\\n\\nFor more information, try '--help'.\\n");
+  process.exit(2);
+}
 if (args[0] === 'setup' && args[1] === 'company-start') {
   if (mode.includes('company-http-url')) { console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S', matchCode: 'K7-3M', url: 'javascript:alert(1)', interval: 5, expiresIn: 900 })); process.exit(0); }
   if (mode.includes('slow-company-start')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 1500); while (Date.now() < until) { /* wait */ } }
@@ -4040,4 +4045,28 @@ test('kosmos#5628 review 5: a reinstall recognised by the company setup is switc
   const again = await remote.companyComplete('ann');
   assert.equal(again.alreadySetUp, true, JSON.stringify(again));
   assert.equal(remote.read().on, true, 'a recognised reinstall was left switched off');
+});
+
+test('kosmos#5628 review 6: an older tunnel says update, and an Off pressed while the finish runs stands', async () => {
+  process.env.FAKE_TUNNEL_MODE = 'company-old';
+  const old = await remote.companyStart('ann@acme.test');
+  assert.deepEqual([old.ok, old.unsupported], [false, true]);
+  assert.match(old.because, /update Kosmos/);
+  // A setup started on a newer tunnel, whose status then meets an older one: gone, with why, not retry forever.
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-old';
+  const st = await remote.companyStatus();
+  assert.deepEqual([st.gone, Boolean(st.retry)], [true, false]);
+  assert.match(st.because, /update Kosmos/);
+  // The Off: the finish is slow; Off is pressed while it runs; it stays off.
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  const finishing = remote.companyComplete('ann');
+  await new Promise((r) => setTimeout(r, 300));
+  remote.setOn(false);
+  const done = await finishing;
+  assert.equal(done.ok, true, done.because);
+  assert.equal(remote.read().on, false, 'an Off pressed during the finish was undone');
 });
