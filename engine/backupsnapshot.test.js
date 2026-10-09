@@ -390,11 +390,12 @@ test('a skipped list that would push the manifest over its ceiling stops the run
   const w = workKosmos(), k = keys();
   try {
     // Control: the same work Kosmos without the extra skipped files fits the same ceiling.
-    const control = await take(k, w.root, store(), { deps: { maxManifestJson: 16 * 1024 } });
+    const control = await take(k, w.root, store(), { deps: { maxManifestJson: 16 * 1024, batchBytes: 1 } });
     assert.equal(control.ok, true, `control: ${control.because}`);
     for (let i = 0; i < 400; i++) fs.writeFileSync(path.join(w.root, 'agents', 'a', `k${String(i).padStart(3, '0')}.env`), 'X=1');
     const st = store();
-    const r = await take(k, w.root, st, { deps: { maxManifestJson: 16 * 1024 } });
+    // batchBytes 1: every chunk is its own batch, so a skip charged late would let batches go up mid-walk.
+    const r = await take(k, w.root, st, { deps: { maxManifestJson: 16 * 1024, batchBytes: 1 } });
     assert.equal(r.ok, false); assert.equal(r.tooLarge, true);
     assert.equal(st.batches.length, 0, 'nothing was locked for a manifest that could not be stored');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
