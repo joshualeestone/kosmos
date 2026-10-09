@@ -310,7 +310,7 @@ test('review 2: a kept title is said, so a slip in it is not missed', async () =
 
 /* #5636 follow-up: an unconfirmed post is asked about again only with the live key of the agent that sent it
    (settleUnconfirmed), so "try again after its next send" is said only when that send will come. */
-test('#5636: an unconfirmed post of a refused agent, or one with no key, is told why it cannot be edited; CONTROL: with a key, wait', async () => {
+test('#5636: an unconfirmed post of a refused agent is told why it cannot be edited; with a key, or none yet, wait', async () => {
   await on();
   const p = post('ava', { topic: 'T' });
   await cs.sweep();
@@ -326,8 +326,14 @@ test('#5636: an unconfirmed post of a refused agent, or one with no key, is told
   const refused = await edit();
   assert.equal(refused.notEligible, true, JSON.stringify(refused));
   assert.equal(refused.because, 'The community refused this agent, so Kosmos cannot edit its posts');
+  // Review 1: with no key the next sweep registers a new one and resends the post, so waiting is the true answer.
   writeJson(cs._paths.keysFile(), {});
   const keyless = await edit();
-  assert.equal(keyless.because, 'Kosmos no longer holds the registration that sent this post, so it cannot edit it');
+  assert.match(keyless.because, /try again after its next send/, 'an agent that will get a key back was told it never can');
+  // Review 1: keys that cannot be read are a retry, not a crash read as "may or may not have been made".
+  fs.writeFileSync(cs._paths.keysFile(), '{not json');
+  const unreadable = await edit();
+  assert.equal(unreadable.retryable, true, JSON.stringify(unreadable));
+  assert.match(unreadable.because, /could not read its community registrations/);
   assert.equal(patches().length, 0, 'an edit went out');
 });
