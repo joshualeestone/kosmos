@@ -34,7 +34,7 @@ const WRITERS = [
   ['trustFolder', {
     creates: true,
     prep: () => { pending = fresh('work'); },
-    save: (cfg) => ({ file: path.join(cfg, '.claude.json'), ok: trust.trustFolder(pending, { configDir: cfg, createIfAbsent: true }).ok }),
+    save: (cfg) => ({ file: path.join(cfg, '.claude.json'), ...pick(trust.trustFolder(pending, { configDir: cfg, createIfAbsent: true })) }),
   }],
   ['forgetFolder (the undo)', {
     prep: (cfg) => {
@@ -49,7 +49,7 @@ const WRITERS = [
       const prevEnv = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
       process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = file;   // forgetFolder takes no config dir: point the seam at it
       // the key trustFolder returned, as the real callers pass it: on Windows it is spelled with '/' (#2281), not the folder path
-      try { return { file, ok: trust.forgetFolder(pending.w.key, pending.w.displaced, pending.w.madeEntry).ok }; }
+      try { return { file, ...pick(trust.forgetFolder(pending.w.key, pending.w.displaced, pending.w.madeEntry)) }; }
       finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prevEnv; }
     },
   }],
@@ -59,7 +59,7 @@ const WRITERS = [
       const file = path.join(cfg, 'settings.json');
       try { const d = JSON.parse(fs.readFileSync(file, 'utf8')); delete d[trust.BYPASS_KEY]; fs.writeFileSync(file, JSON.stringify(d)); } catch { /* absent: a new file */ }
     },
-    save: (cfg) => ({ file: path.join(cfg, 'settings.json'), ok: trust.preacceptBypass(cfg).ok }),
+    save: (cfg) => ({ file: path.join(cfg, 'settings.json'), ...pick(trust.preacceptBypass(cfg)) }),
   }],
   ['preacceptOnboarding', {
     creates: true,
@@ -67,10 +67,13 @@ const WRITERS = [
       const file = path.join(cfg, '.claude.json');
       try { const d = JSON.parse(fs.readFileSync(file, 'utf8')); delete d[trust.ONBOARDING_KEY]; fs.writeFileSync(file, JSON.stringify(d)); } catch { /* absent: a new file */ }
     },
-    save: (cfg) => ({ file: path.join(cfg, '.claude.json'), ok: trust.preacceptOnboarding(cfg).ok }),
+    save: (cfg) => ({ file: path.join(cfg, '.claude.json'), ...pick(trust.preacceptOnboarding(cfg)) }),
   }],
 ];
-function ok(r) { assert.equal(r.ok, true, 'the save was refused'); return r.file; }
+const pick = (r) => ({ ok: r.ok, already: r.already });
+// A save must be accepted AND have written: an `already: true` (nothing to change, e.g. an undo given the wrong key)
+// would let a mode or flush arm pass without a write.
+function ok(r) { assert.equal(r.ok, true, 'the save was refused'); assert.equal(r.already, false, 'the save wrote nothing'); return r.file; }
 
 /* Record each fsync (with the path of the fd) and each rename, in order, while `fn` runs. */
 function recording(fn) {

@@ -223,6 +223,9 @@ function withWriteLock(target, inner) {
  * whose writer's pid is dead is unlinked, a planted one included (a link is unlinked, never followed).
  * The old writers deleted nothing they had not created. It narrows, not retires, "a crash can leave a
  * stray file": old-named `.new` temps are never reaped, nor is a temp whose dead writer's pid was reused.
+ * The mode stays the callers' `st.mode & 0o7777` on every platform, as the old writers carried it; on
+ * Windows that is only the read-only bit, so a read-only file is refused as before (now after three
+ * attempts). store.js passes no mode there; aligning the two is left for its own change.
  * Returns false on any failure; the callers turn that into their own refusal.
  */
 function saveConfig(target, data, prevMode) {
