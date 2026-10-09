@@ -454,3 +454,23 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: a segment holding a brace sequence ({1..3}) matches anything, the same over-claim as a deep glob of stars
   (~/Library/{1..3}/* reads as board-files); the brace-bomb timing test guards a blow-up only (the pre-fix code passed
   it at 636 ms), not the budget itself, which the 65th-alternative test covers.
+
+## Review 36 (opus), all fixed unless stated
+- Review 20's "nothing from the old queue is ever sent" was false for a Leave the company refused: the server's timer
+  stopped ticking (not enrolled here), so nothing marked the state, and the SAME record written back resumed the old
+  offsets, sending the refusals made in between. markWithdrawn() (state file only, no transcript) is called by the
+  server's timer whenever this is not the work Kosmos, and by the tick when it may not report. Test with both arms (the
+  unmarked arm sends the gap), and a wiring test on server.js.
+- A path held in a variable (T=.../board.token; cat "$T", export T=...) or behind a command substitution ($(echo ~)/...)
+  was classed other or home: NAME=value words have their value looked at, and $( ... ) stays inside its word in
+  shellWords (balanced) while its inside is looked at as a command. Tests. (A whole-command name match was tried and
+  reverted: it overrode review 1's decision that a resolvable path is classed by the real roots.)
+- Three tests could not fail (each passed with its line removed): the future-event and time-filter tests ran in the
+  agent's first-listed tick, where a file skips to its end unread; the mid-scan withdrawal test's sources lacked the
+  agent-list checks, so the tick returned first. Each now has a control arm. New tests for the halved send size
+  resetting and for a withdrawal keeping no queue. Each verified red by mutating its line, with an unmutated control.
+- Queue entries without a numeric at, and a send size below 1, are dropped on read (a null entry threw every tick).
+- What I got wrong in flight: a // comment placed mid-way through a chained replace commented out the -C/dir and @file
+  handling; my probes did not use either and passed, the suite caught it.
+- Stated: the "listed this tick" first-sight clause has no test of its own (it is exercised by every test that lists an
+  agent, but removing it is not caught); backticks are not kept inside their word as $( ) now is.

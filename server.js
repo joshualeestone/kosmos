@@ -21156,7 +21156,9 @@ function agentEventsTick() {
   if (AGENT_EVENTS_RUNNING) return;
   if (!liveExecution.liveExecutionAllowed()) return;
   try {
-    if (!require('./engine/orgenroll').isEnrolledHere()) return;   // not the work Kosmos: no transcript is read
+    /* Not the work Kosmos (or no longer: a Leave): no transcript is read, and a state that was reporting is marked
+       withdrawn so that nothing from the gap is sent if the same enrollment comes back (#5683 review 36). */
+    if (!require('./engine/orgenroll').isEnrolledHere()) { require('./engine/agentevents').markWithdrawn(); return; }
     AGENT_EVENTS_RUNNING = true;
     require('./engine/agentevents').tick().catch(() => { /* best effort */ }).finally(() => { AGENT_EVENTS_RUNNING = false; });
   } catch { AGENT_EVENTS_RUNNING = false; }
