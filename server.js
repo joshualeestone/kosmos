@@ -2154,15 +2154,12 @@ function sentenceForWhoami(account, model, runner) {
       // #3939: no Kosmos account either; Muse has one sign-in per person on this Mac.
       : runner === 'muse' ? 'it uses the Muse sign-in on this computer'
       : 'we cannot tell which account it runs on') : why));
-  /* #5636 F5 (0.7.33 report: "names the provider, not the model"): Muse names its model only inside a turn, and Kosmos
-     keeps it once a turn has (engine/musefront.js keepModel). Say so, with the one step that fixes a helper started
-     before it kept the model: a restart. Every other runner's words are unchanged. */
+  /* #5636 F5 (0.7.33 report: "names the provider, not the model"): Kosmos keeps a Muse agent's model as soon as a turn
+     names it (engine/musefront.js keepModel, mid-turn), and forgets it when the agent's helper starts. The agent reads
+     this about itself, so its one step is to tell its person; a restart helps only if the helper predates that keeping,
+     and the sentence says what it means if a later turn still says so after one, so nobody restarts in a loop. */
   parts.push(model && model.name ? 'and its model is ' + model.name
-    /* Review 1: the AGENT reads this about itself, so the step is for its person (never a command it could run), and it
-       says what to do if a restart does not help, so it cannot loop. */
-    /* Review 2: a restart clears the kept model (musefront forgetModel) until the next turn, so the check comes after a
-       turn, and the agent's step is one message to its person, never a loop of its own. */
-    : runner === 'muse' ? 'and we cannot tell which model it is running: Muse names it only during a turn, and Kosmos shows it after one. If this still says so after a turn, tell your person, who can restart this agent from its page in Kosmos and check again after its next turn'
+    : runner === 'muse' ? 'and we cannot tell which model it is running: Kosmos keeps a Muse agent\'s model as soon as a turn names it, and none has been kept for this one. Tell your person: a restart from its page in Kosmos may fix it, and if a later turn still says so after that, Kosmos cannot read this agent\'s model'
       : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
