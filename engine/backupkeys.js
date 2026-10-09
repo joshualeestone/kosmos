@@ -15,32 +15,31 @@
  *         naming key  KBN1 | enc(32) | ct(32 + 16)      both with HPKE info "kosmos-backup v1 key-wrap"
  * Distinct magic AND a context line that names its kind: a member-key wrap can never open as a naming key.
  *
- * Wraps are NOT authenticated (HPKE base mode): anyone with a recipient's public key can make one that opens. A
- * member key must therefore derive to the expected public key. A naming key cannot be checked that way, so:
- *   - unwrapNamingKey is for RESTORE only and requires the naming-key id the signed manifest records, so a forged
- *     naming key (which cannot have that id) is refused outright; even without that, it would just make chunk
- *     names fail to verify
- *     (backupformat's openVerifiedChunk) and never yields other data. That rests on restore taking every chunk
- *     name from the device-SIGNED, verified manifest: chunks are HPKE-sealed too, so anyone with the member public
- *     key can forge one, and only a name fixed by the signed manifest makes a match a preimage search against the
- *     HMAC. A restore path that listed names from storage instead would not be safe;
- *   - a Mac must NEVER unwrap a naming key from storage to name NEW chunks: a forged one would make those names
- *     predictable to whoever forged it. A Mac that lost its naming key mid-period makes a fresh one (newNamingKey),
- *     at the cost of deduplication within that period. A period can then hold more than one naming key under the
- *     same context, so each manifest records namingKeyId(nk) and restore uses the wrap whose key has that id;
- *   - if a stored wrap is ever reused for new data, it first needs an authenticator (a device signature, or carrying
- *     it inside the device-signed manifest).
+ * Wraps are NOT authenticated (HPKE base mode): anyone with a recipient's public key can make one that opens. So
+ * every unwrap is anchored to a value from an AUTHENTICATED source, never from key storage or a record kept beside
+ * the wrap (whoever can write there could supply a forged wrap and a matching value together):
+ *   - unwrapMemberKey REQUIRES the public key the result must derive to, taken from the coordinator-signed policy
+ *     bundle (decision 7). A wrap of the wrong key (a forgery, a wrapper bug, another epoch's key under this
+ *     context) is refused. (Equal up to X25519 clamping: secrets differing only in clamped bits are the same key.)
+ *   - unwrapNamingKey REQUIRES the naming-key id, taken from the device-SIGNED, verified manifest. A forged naming
+ *     key cannot have that id, so it is refused outright.
+ *
+ * unwrapNamingKey is for RESTORE only. Restore must also take every chunk NAME from that signed manifest: chunks
+ * are HPKE-sealed too, so anyone with the member public key can forge one, and only a name fixed by the manifest
+ * makes a match a preimage search against the HMAC. A restore path that listed names from storage would not be safe.
+ *
+ * A Mac must NEVER unwrap a naming key from storage to name NEW chunks: a forged one would make those names
+ * predictable to whoever forged it. A Mac that lost its naming key mid-period makes a fresh one (newNamingKey), at
+ * the cost of deduplication within that period. A period can then hold more than one naming key under one context,
+ * so each manifest records namingKeyId(nk), and restore passes that id. If a stored wrap is ever reused for new
+ * data, it first needs an authenticator (a device signature, or carrying it inside the device-signed manifest).
  *
  * Context ids are STRINGS of letters, digits and . _ : - (1 to 128): epoch '1' and '01' are different contexts, and
  * a number throws on wrap and reads as null on unwrap, so whatever stores them must write one canonical form.
  *
  * wrap* throw on a caller mistake (a key that is not 32 bytes, a bad context, a non-canonical recipient key, which
  * hpke.js refuses because it could never be opened). unwrap* return null on ANY failure and never throw, as hpke.js
- * and backupformat.js do. unwrapMemberKey REQUIRES the public key the result must derive to: a wrap of the wrong key
- * (a wrapper bug, another epoch's key under this context) is refused rather than restored. That key MUST come from
- * an authenticated source (the coordinator-signed policy bundle, decision 7), never from key storage or a record
- * kept beside the wrap: whoever can write there could supply a forged wrap and its matching public key together. (Equal up to X25519
- * clamping: secrets differing only in clamped bits are the same key and pass, which is harmless.)
+ * and backupformat.js do.
  *
  * Secrets come back as fresh Buffers (never views over an input), so a caller may zero them; Node cannot reliably
  * zero memory, and this module does not try. A small Buffer usually sits in Node's shared pool, so its .buffer is a
