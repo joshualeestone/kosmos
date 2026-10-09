@@ -8,7 +8,7 @@
     },
     {
       "icon": "tasks",
-      "title": "A stuck agent says so on its card",
+      "title": "Kosmos says when an agent is stuck",
       "line": "An agent stuck on sign-in or a rate limit for a while says how long and what to do on its card, and shows under Issue."
     },
     {
