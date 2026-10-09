@@ -64,8 +64,8 @@ function clickDate(now) {
 /* Mona Lisa's sentences (her ruling): the dated one is the FIRST line inside the constant markers, never the marker
    itself. Her "Kosmos may update this block" became, in kosmos#5635, what Kosmos now does (KEEPS below), and it is
    TRUE: an unedited span is recomposed at board start, an edited one only through the click. */
-/* kosmos#5635: every frame line says what Kosmos now does with the block: keeps it current by itself while nobody has
-   edited it, and asks first once somebody has. Each starts with the words sectionContentOf strips. */
+/* kosmos#5635: every frame line says what Kosmos now does with the block: it may bring it up to date while it is exactly
+   as Kosmos wrote it, and asks first otherwise. Each starts with the words sectionContentOf strips. */
 const KEEPS = 'Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.';
 function openingLine(now) {
   return `<!-- Kosmos added the working rules below on ${clickDate(now)}, with your OK. ${KEEPS} -->`;
@@ -77,12 +77,20 @@ function autoLine(now) {
 const CLOSING_LINE = '<!-- end of the working rules -->';
 /* kosmos#5635 review 2: every frame line Kosmos has ever written, exactly (the date varies). sectionContentOf drops ANY
    line with the frame's prefix, so a person's words added inside that comment would read as frame; the write with no
-   click requires each such line to be one of these. */
-const FRAME_TAILS = [
+   click requires each such line to be one of these.
+   🛑 FROZEN LITERALS, AND THE LIST ONLY GROWS (review 7). An entry built from KEEPS would change with it, and every
+   frame already written into agents' files under the old words would stop counting as Kosmos's own. When KEEPS or a
+   frame changes, ADD its new tails here and keep the old ones; doctrine.refreshunedited-5635.test.js fails if a frame
+   Kosmos writes today is missing from this list. */
+const FRAME_TAILS = Object.freeze([
+  // #539 / #4890 wording, before kosmos#5635
   'with your OK. Kosmos may update this block when the rules change; your own words above and below it are never touched.',
   'when it set up this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched.',
-  'with your OK. ' + KEEPS, 'when it set up this agent. ' + KEEPS, 'bringing its own earlier copy up to date. ' + KEEPS,
-];
+  // kosmos#5635
+  'with your OK. Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.',
+  'when it set up this agent. Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.',
+  'bringing its own earlier copy up to date. Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.',
+]);
 function isKosmosFrame(line) {
   const m = /^<!-- Kosmos added the working rules below on \d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}, (.*) -->$/.exec(line);
   return !!m && FRAME_TAILS.includes(m[1]);
@@ -443,8 +451,15 @@ function refreshUnedited(sessionName, roster, opts) {
   try {
     if (!projects.heldExactly(sessionName, roster)) return { state: 'could_not', because: 'we could not tell that this agent is ours' };
     const current = instructions.read(sessionName);
-    // Review 6: no file is nothing to bring up to date (a fresh agent), not a failure to report at every boot.
-    if (!current.exists) return { state: 'left', because: current.because || 'it has no instructions file yet' };
+    /* Review 6/7: nothing there yet (no file, `editable`; or no folder for it at all) is nothing to bring up to date, not
+       a failure to report at every boot. A file that IS there and cannot be read (a symlink, unreadable, too large)
+       is a failure. */
+    if (!current.exists) {
+      const noFolder = !current.path || !require('node:fs').existsSync(require('node:path').dirname(current.path));
+      return (current.editable || noFolder)
+        ? { state: 'left', because: current.because || 'it has no instructions file yet' }
+        : { state: 'could_not', because: current.because || 'we could not read its instructions file' };
+    }
     const plan = planFor(current.text || '', opts && opts.now, opts && opts.past, autoLine(opts && opts.now));   // `past`: tests only
     if (plan.state !== 'refresh') return plan;
     /* Review 1 (the blocker): a span is written over only when its content is a WHOLE earlier block. planFor's
@@ -473,9 +488,15 @@ function refreshUnedited(sessionName, roster, opts) {
     /* Review 5: on EVERY replace, a span in the file too: the copy being cut is the one outside the span. */
     if (plan.replacing === true) {
       const text = current.text || '';
-      const old = pastBlockIn(text, opts && opts.past, span && !span.ambiguous ? span : null);
+      const skip = span && !span.ambiguous ? span : null;
+      const old = pastBlockIn(text, opts && opts.past, skip);
       const rest = old ? text.slice(old.end).replace(/^\r?\n/, '') : '';
       if (!old || !(rest === '' || /^(?:\r?\n|#{1,6} |<!--)/.test(rest))) return notWhole;
+      /* Review 7: planFor cuts a SECOND earlier copy too (it plans again on what remains), and only the first is checked
+         above. Two copies of the rules is not a file Kosmos wrote that way: the click. */
+      const cut = old.end - old.start;
+      const shifted = skip ? (skip.start >= old.end ? { start: skip.start - cut, end: skip.end - cut } : skip) : null;   // the span, where it sits after the cut
+      if (pastBlockIn(text.slice(0, old.start) + text.slice(old.end), opts && opts.past, shifted)) return notWhole;
     }
     /* A last guard on the plan itself: the checks above already leave every edited span, so `edited` is not reached
        today; a plan that is neither an update nor a replace (sections missing from a file with no block) is the
