@@ -7769,9 +7769,10 @@ html.has-voice .micbtn { display: grid; }
 .convbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-speak .convbtn { display: grid; }
-.convbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
+.convbtn:hover { background: color-mix(in srgb, var(--k-ink) 8%, transparent); color: var(--k-ink); }
 .convbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.convbtn[aria-pressed="true"] { color: var(--k-ink); background: color-mix(in srgb, var(--k-ink) 14%, transparent); }
+.convbtn[aria-pressed="true"] { color: var(--k-ink); background: color-mix(in srgb, var(--k-ink) 14%, transparent);
+  box-shadow: inset 0 0 0 2px var(--k-ink); }   /* review 2: a ring, so "on" is plain in both themes */
 /* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
    one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
    no box changes size where the mic is not drawn; the box gets room on the right only where it is (html.has-voice). */
@@ -66494,7 +66495,9 @@ function voiceSpeakWatch() {
   VOICE_WATCH = setInterval(() => {
     if (VOICE.btn && VOICE.box && voiceWhere(VOICE.box) !== VOICE.where) voiceCancel();
     if (SPEAK.btn) speakFollow();
-    if (!VOICE.btn && !SPEAK.btn) { clearInterval(VOICE_WATCH); VOICE_WATCH = 0; }
+    const conv = typeof CONV !== 'undefined' && CONV.key;   // #5624 review 2: conversation mode stops when the view changes
+    if (conv && viewKey() !== CONV.where) convStop();
+    if (!VOICE.btn && !SPEAK.btn && !(typeof CONV !== 'undefined' && CONV.key)) { clearInterval(VOICE_WATCH); VOICE_WATCH = 0; }
   }, 500);
 }
 /* #4409 slice 2 (Josh, 2026-10-01 17:02: "press and hold a microphone and dictate into the input boxes"): hold the
@@ -66816,6 +66819,9 @@ function convSeedEmpty(key) {
   CONV.last = key;
 }
 function convSpeak(row, key, waited) {
+  if (!convIsOn(key)) return;   // review 2: off during a voice-list wait means nothing is read
+  if (typeof VOICE !== 'undefined' && VOICE.btn) return;   // review 2: re-checked after the wait too
+  if (typeof document !== 'undefined' && document.hidden === true) return;
   const text = convOpening(speechTextOfRow(row), CONV_MAX);
   if (!text) return;
   const mine = ++CONV.seq;
@@ -66826,12 +66832,16 @@ function convSpeak(row, key, waited) {
     if (!waited && (vs.getVoices() || []).length === 0 && typeof vs.addEventListener === 'function') {
       const where = viewKey();
       vs.addEventListener('voiceschanged', () => { if (CONV.seq === mine && viewKey() === where) convSpeak(row, key, true); }, { once: true });
+      return;
     }
-    return;   // no on-device voice: the per-message button says why when pressed
+    // Review 2: on, but nothing can be read: the button says so rather than sitting silently on.
+    document.querySelectorAll('.convbtn[aria-pressed="true"]').forEach((b) => { b.title = 'No voice on this computer can read new messages aloud'; });
+    return;
   }
   if (SPEAK.btn) speakStop();   // a per-message reading gives way to the new message
   try { window.speechSynthesis.cancel(); } catch { /* nothing playing */ }
   CONV.key = key; CONV.where = viewKey();
+  voiceSpeakWatch();   // review 2: the half-second watch stops it as soon as the view changes
   const parts = speechChunks(text, 220);
   parts.forEach((part, i) => {
     const u = new SpeechSynthesisUtterance(part);
@@ -66876,7 +66886,7 @@ document.addEventListener('click', (e) => {
   if (!key) return;
   const on = !convIsOn(key);
   convSet(key, on);
-  if (!on && CONV.key === key) convStop();
+  if (!on) { CONV.seq++; if (CONV.key === key) convStop(); }   // review 2: also voids a pending voice-list wait
   convPaint();
 });
 /* #2700: fold a run of consecutive room refusals that share one reason into a
