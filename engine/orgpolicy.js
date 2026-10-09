@@ -114,7 +114,9 @@ function refresh({ now, pinned } = {}) {
       stale = !!(old.ok && old.payload.org === applied.org && old.payload.version === applied.version
         && JSON.stringify(old.payload.policy) === JSON.stringify(applied.policy));
     }
-    return { applied, refused: v.why, ...(stale ? { stale: true } : {}) };
+    // `local` too when this computer has no coordinator key to check with: nothing the company sent was refused.
+    const local = v.why === 'no pinned coordinator key';
+    return { applied, refused: v.why, ...(stale ? { stale: true } : {}), ...(local ? { local: true } : {}) };
   }
   const p = v.payload;
   if (p.v !== 1 || typeof p.org !== 'string' || !p.org || !Number.isInteger(p.version) || p.version < 1 || !shapeOk(p.policy)) {
@@ -197,8 +199,7 @@ function appliedOrg() { const a = readApplied(); return a && typeof a.org === 's
 /** The company the bundle on disk names, unverified (review 5: a mix-up check before it is applied), or null. */
 function bundleOrg() { const b = bundleInfo(); return b ? b.org : null; }
 
-/** The company and version the bundle on disk names, unverified, or null (#5534 slice 2: an expired copy of the policy
- *  in force is not a refusal of something new). */
+/** The company and version the bundle on disk names, unverified, or null. bundleOrg's reader. */
 function bundleInfo() {
   const t = readText(BUNDLE());
   if (!t) return null;

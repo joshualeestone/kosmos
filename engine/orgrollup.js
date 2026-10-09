@@ -459,8 +459,9 @@ async function tick(opts) {
      create reads it (orgpolicy.refresh: the bundle on disk verified, the last good one kept; it may apply a newer
      bundle, as a create would, and reads the shared data folder, not o.root). Only this company's: a policy another
      company left behind is not reported as this one's. A refusal counts unless it is the policy in force merely
-     expired (orgpolicy `stale`, signature checked) or this Kosmos failing to save it (`local`). A read that throws
-     leaves both fields out, so the company keeps what it had. Never throws. Not reported, decided: refusals
+     expired (orgpolicy `stale`, signature checked) or a fault on this computer (`local`: a failed save, no pinned
+     key). A read that throws sends what was last sent (review 3: leaving them out would change the signature and
+     send twice for a passing fault), or nothing when none was; the company keeps what it had. Never throws. Not reported, decided: refusals
      applyPolicy makes before saving, a bundle over 64 KB or naming another company, which a working coordinator never
      sends (it caps a policy at 16 KB and signs each company's own) and which never reach the disk. */
   delete g.policyVersion; delete g.policyRefused;
@@ -471,7 +472,11 @@ async function tick(opts) {
       const mine = pr.applied && rec.org && pr.applied.org === rec.org.id ? pr.applied : null;
       g.policyVersion = mine ? mine.version : null;
       g.policyRefused = !!pr.refused && pr.local !== true && pr.stale !== true;
-    } catch { delete g.policyVersion; delete g.policyRefused; }
+    } catch {
+      delete g.policyVersion; delete g.policyRefused;
+      const lp = st.lastPolicy;
+      if (lp && typeof lp === 'object' && 'version' in lp) { g.policyVersion = lp.version; g.policyRefused = lp.refused === true; }
+    }
   }
   if (due && g.partial) {
     const since = Number.isFinite(st.partialSince) && st.partialSince <= now ? st.partialSince : null;
@@ -503,7 +508,9 @@ async function tick(opts) {
   let r;
   try { r = await remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
   if (r && r.ok) {
-    writeState(root, { enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig });
+    writeState(root, Object.assign({ enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig },
+      // #5534: what was reported, so a read that fails next time sends the same (review 3).
+      'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true } } : {}));
     return { sent: true, reason: body.reason };
   }
   const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
