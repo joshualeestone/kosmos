@@ -97,7 +97,8 @@ const KOSMOS_STORES = [
   // (the verified account name, not the signed token), peers.json (public keys), devices.json, mac_id.
   [{ test: (p) => PAIRING_FILE.test(p) && REMOTE_DIR.test(p.slice(0, p.lastIndexOf('/') + 1)) }, 'Kosmos pairing state'],
   // Kosmos's secrets folder (tokendoor's env/, githubdevice's and cloudflare's tokens), copied or renamed like any other
-  // store. Keyed on what is inside it too, so a person's own trade-secrets/ folder of notes is untouched.
+  // store. Keyed on what is inside it too, so a person's own trade-secrets/ folder of notes is kept, except an env/
+  // subfolder in it or a github or cloudflare token file directly in it.
   [new RegExp(`(^|\\/)${TOKEN('secrets')}\\/(env\\/|(github|cloudflare)\\.token)`, 'i'), 'Kosmos secrets folder'],
   [STORE_FOLDER('win32-channel'), 'Kosmos Windows channel keys'],
   [STORE_FOLDER('undo-saved'), 'Kosmos undo copies (the files are backed up at their own paths)'],
@@ -120,6 +121,11 @@ const DENY = [
   // keeps its sign-in file.
   [/(^|\/)\.(removed-)?claude(-[^/]*)?\/\.credentials\.json$/i, 'provider sign-in'],
   [/(^|\/)\.(removed-)?(codex|gemini|grok)(-[^/]*)?\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
+  // Codex keeps MCP OAuth refresh tokens in $CODEX_HOME/.credentials.json where no keyring is available, and Kosmos
+  // puts each Codex agent's home in its data root (engine/codexruntime.js, codex-homes/<session>); Gemini keeps MCP
+  // tokens in mcp-oauth-tokens.json. A dotted .credentials.json is a credential wherever it sits.
+  [/(^|\/)\.credentials\.json$/i, 'provider sign-in'],
+  [/(^|\/)mcp-oauth-tokens[^/]*\.json$/i, 'provider sign-in'],
   [new RegExp(`(^|\\/)(credentials?|secrets?|tokens?|auth)(\\.[a-z0-9]+)*\\.${CONFIGISH}$`, 'i'), 'credential-named config file'],
   [/(^|\/)(credentials?|secrets?)$/i, 'credential-named file'],
   [/(^|\/)client_secret[^/]*\.json$/i, 'OAuth client secret'],

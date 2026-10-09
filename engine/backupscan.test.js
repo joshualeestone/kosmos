@@ -75,7 +75,10 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     // review 15: a forgotten account's folder keeps its sign-in
     'acct/.removed-claude-work/.credentials.json', 'acct/.removed-gemini-x/oauth_creds.json', 'acct/.removed-claude-work-2/.credentials.json',
     // review 16: a random tail glued straight onto the ending
-    'x/id_rsa.tmp1a', 'x/id_rsa.tmpk3j9z', 'x/id_rsa.bak2x']) {
+    'x/id_rsa.tmp1a', 'x/id_rsa.tmpk3j9z', 'x/id_rsa.bak2x',
+    // review 17: MCP OAuth tokens in a Codex home Kosmos keeps in its data root, and Gemini's
+    'Kosmos/codex-homes/angel/.credentials.json', 'Kosmos/codex-homes/angel/.credentials.json.kosmos-1-t0-2-3.tmp',
+    'acct/.gemini-x/mcp-oauth-tokens.json', 'notes/trade-secrets/env/plan.md']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
@@ -87,7 +90,8 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md',
     'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/undo/blobs.md', 'notes/mac_keyboard2.md', 'notes/trade-secrets/plan.md', 'notes/trade-secrets/env.md', 'Kosmos/remote/account', 'Kosmos/remote/peers.json',
     'Kosmos/remote/devices.json', 'projects/site/pairing.json', 'Kosmos/remote/old/pairing.json',
-    'acct/.removed-claude-notes/readme.md', 'notes/plan.template', 'notes/id_rsa.temperature.md', 'Kosmos/secrets/readme.example', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    'acct/.removed-claude-notes/readme.md', 'Kosmos/codex-homes/angel/sessions/2026/10/09/rollout-x.jsonl',
+    'Kosmos/codex-homes/angel/config.toml', 'notes/plan.template', 'notes/id_rsa.temperature.md', 'Kosmos/secrets/readme.example', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
 });
