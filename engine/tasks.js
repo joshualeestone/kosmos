@@ -830,7 +830,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (repeating) return { ok: false, because: 'that task repeats, so it is never built and waiting: record each run with kosmos task ran instead' };
   if (unsaid) {
     return { ok: false, needsNote: true, because: 'this task has ' + (unsaid === 1 ? 'a done-when check' : unsaid + ' done-when checks')
-      + ', so mark it built with a note saying how ' + (unsaid === 1 ? 'it' : 'each') + ' went: kosmos task built ' + projectId + ' ' + n + " '1 met. 2 not met: <why>'" };   // review 1: single quotes, which the Mac command's error reader keeps
+      + ', so mark it built with a note saying how ' + (unsaid === 1 ? 'it' : 'each') + ' went: kosmos task built ' + projectId + ' ' + n + (unsaid === 1 ? " '1 met.'" : " '1 met. 2 not met: <why>'") };   // review 1: single quotes, which the Mac command's error reader keeps
   }
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };

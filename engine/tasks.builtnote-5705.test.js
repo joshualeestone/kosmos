@@ -35,7 +35,7 @@ test('#5705: a bare agent mark on a task with one check is refused, writes nothi
   const out = tasks.setBuilt(id, n, { by: 'rex' });
   assert.equal(out.ok, false);
   assert.equal(out.needsNote, true);
-  assert.equal(out.because, `this task has a done-when check, so mark it built with a note saying how it went: kosmos task built ${id} ${n} '1 met. 2 not met: <why>'`);
+  assert.equal(out.because, `this task has a done-when check, so mark it built with a note saying how it went: kosmos task built ${id} ${n} '1 met.'`);
   assert.equal('builtAt' in stored(id, n), false);
   assert.ok(!taskchat.read(id, n).some((e) => e.kind === 'built'), 'a refused mark wrote a history line');
   assert.equal(tasks.setBuilt(id, n, { by: 'rex', note: '1 met.' }).ok, true);
