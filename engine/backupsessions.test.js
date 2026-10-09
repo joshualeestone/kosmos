@@ -89,9 +89,16 @@ test('#5686 review 6: a session folder that is a link out of its provider\'s fol
     const chats = path.join(w.gemini, 'tmp', 'mikey-slug', 'chats');
     fs.rmSync(chats, { recursive: true }); fs.symlinkSync(w.other, chats);
     assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude], geminiHome: w.gemini }).roots, []);
-    // CONTROL: a link that stays inside the provider's folder is followed (another account's folder in the same root).
+    // Review 7: a link inside the provider's folder is refused too: to another agent's folder, or to all of projects/.
     fs.rmSync(flat); fs.symlinkSync(path.join(w.claude, 'projects', bs.flatten(w.other)), flat);
-    assert.equal(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] }).roots.length, 1);
+    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] }).roots, []);
+    fs.rmSync(flat); fs.symlinkSync(path.join(w.claude, 'projects'), flat);
+    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] }).roots, []);
+    // CONTROL: the config folder itself kept elsewhere behind a link is fine; the real path is what is returned.
+    fs.rmSync(flat); fs.mkdirSync(flat);
+    const linkedRoot = path.join(w.base, 'claude-link');
+    fs.symlinkSync(w.claude, linkedRoot);
+    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [linkedRoot] }).roots.map((r) => r.path), [flat]);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
