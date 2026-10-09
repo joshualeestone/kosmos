@@ -91,3 +91,4 @@ That the test agents' stale text was a known earlier block. If the multi-model t
     - the fleet message now says why a copy is left;
     - constraint 3 cross-references the third writer;
     - the endsWith guard is marked defence in depth.
+- **Round 10 (sonnet):** nothing above NIT, CONVERGED. The NIT taken: the fleet message goes back to its neutral wording, since it also covers a Not now or a restore.

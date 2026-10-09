@@ -343,9 +343,10 @@ function status(sessionName, now, past) {   // `past`: tests only
   };
 }
 
-/* kosmos#5635 review 9: a copy Kosmos can prove is its own is replaced at board start with no click; what the fleet click
-   still sees here is one that check left (see refreshUnedited), so it goes to the agent's own page. */
-const FLEET_LEAVES_REPLACE = 'its older copy of the rules has something beside it Kosmos cannot check on its own, so it is replaced only from its own page, where the change is shown';
+/* kosmos#5635 reviews 9/10: a copy Kosmos can prove is its own is replaced at board start with no click; what the fleet
+   click still sees here was left by that check or by a choice on record (a Not now, a restore), so the wording names no
+   one reason. */
+const FLEET_LEAVES_REPLACE = 'its older copy of the rules is replaced only from its own page, where the change is shown';
 const FLEET_LEAVES_EDITED = 'its working rules are not a copy Kosmos recognises as its own, so they are updated only from its own page, where the change is shown';
 /* #4890: why the fleet click (names only, no dialog hash) leaves this plan for the agent's own page, or null. The
    fleet list (server.js) reads the same answer, so the list and the click agree. */
