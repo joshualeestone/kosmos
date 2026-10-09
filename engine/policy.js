@@ -119,7 +119,7 @@ function entriesOf(rec) {
 
 function persist(policies) {
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  // #5434 slice 17: store.saveFlushed (securewrite: flushed before the rename, the folder after on POSIX; a unique temp; the existing mode kept), so a crash cannot leave it at full length but zero-filled (#5431).
+  // #5434 slice 17: flushed before it replaces the file (store.saveFlushed), so a crash cannot leave it zero-filled.
   store.saveFlushed(FILE, JSON.stringify({ version: 2, policies }, null, 2) + '\n');
 }
 
