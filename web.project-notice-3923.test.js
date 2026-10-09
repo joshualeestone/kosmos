@@ -420,7 +420,7 @@ test('#3948: Try again in the rail notice repaints the rail, says it in the rail
 });
 
 test('#3948: the rail notice paints only in the consolidated layout with a project open, and its success line clears on a switch', () => {
-  const run = ({ consolidated, current, said, coord }) => {
+  const run = ({ consolidated, current, said, coord, needs }) => {
     const rn = { html: null };
     const rs = { textContent: said ? 'Kosmos updated leo’s instructions.' : '', dataset: { pj: said || '' } };
     // pjNotice is a stand-in here, so the roster is only counted: one placeholder member, not a card.
@@ -428,8 +428,9 @@ test('#3948: the rail notice paints only in the consolidated layout with a proje
     const doc = { body: { classList: { contains: (c) => c === 'consolidated' && consolidated } },
       getElementById: (id) => (id === 'alist-pj-notice' ? rn : id === 'alist-pj-notice-said' ? rs : null) };
     // eslint-disable-next-line no-new-func
-    new Function('document', 'PJ_CURRENT', 'pjById', 'pjNotice', 'pjCoordNotice', 'setIfChanged', pageFn('function paintRailPjNotice(') + '\npaintRailPjNotice();')(
-      doc, current, (id) => projects[id] || null, (roster, id) => 'NOTICE:' + id + ':' + roster.length,
+    new Function('document', 'PJ_CURRENT', 'pjById', 'pjNeedsNotice', 'pjNotice', 'pjCoordNotice', 'setIfChanged', pageFn('function paintRailPjNotice(') + '\npaintRailPjNotice();')(
+      // #5688: the needs-you block is a stand-in too; empty unless a case asks for it.
+      doc, current, (id) => projects[id] || null, (roster) => (needs ? 'NEEDS:' + roster.length + ';' : ''), (roster, id) => 'NOTICE:' + id + ':' + roster.length,
       // #4583: the two-coordinator warning is a stand-in too; empty unless a case asks for it.
       (p) => (coord ? 'COORD:' + p.id + ';' : ''), (el, html) => { el.html = html; });
     return { rn, rs };
@@ -438,6 +439,8 @@ test('#3948: the rail notice paints only in the consolidated layout with a proje
   assert.equal(on.rn.html, 'NOTICE:p1:1', 'the open project’s notice, from its own roster');
   // #4583: the rail shows the open project's coordinator warning, ahead of the instructions notice.
   assert.equal(run({ consolidated: true, current: 'p1', said: 'p1', coord: true }).rn.html, 'COORD:p1;NOTICE:p1:1');
+  // #5688: who needs you leads the rail notice too, from the same roster.
+  assert.equal(run({ consolidated: true, current: 'p1', said: 'p1', coord: true, needs: true }).rn.html, 'NEEDS:1;COORD:p1;NOTICE:p1:1');
   assert.equal(on.rs.textContent, 'Kosmos updated leo’s instructions.', 'CONTROL: the same project keeps its success line');
   const tab = run({ consolidated: false, current: 'p1', said: 'p1' });
   assert.equal(tab.rn.html, '', 'the tab layout says it in the Members card; the rail must be empty');
