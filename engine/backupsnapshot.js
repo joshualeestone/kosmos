@@ -322,11 +322,11 @@ async function snapshotInner(input, deps, added, state, fail) {
       added.set(name, { key, lockedUntilMs: lockOf(name) });
       usedKeys.add(key);
       objects[name] = key;
-      if (pending.has(name)) estimate += Buffer.byteLength(key) - MAX_KEY_LEN;   // charged at MAX_KEY_LEN when it was sealed
+      estimate += Buffer.byteLength(key) - MAX_KEY_LEN;   // charged at MAX_KEY_LEN when it was sealed (only pending names reach here)
     }
     if (badKey) return fail(`a granted key is not one this snapshot can name (${badKey})`, spent);
     if (noLock) return fail('a stored chunk came back without its lock end', spent);
-    if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period`, Object.assign({ newPeriod: true }, spent));
+    if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period (chunks granted there are not kept: they stay stored, unnamed, until their lock ends)`, Object.assign({ newPeriod: true }, spent));
     if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {}, spent));
     for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk');
     uploaded += pending.size;
@@ -337,6 +337,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   for (const f of listed.files) {
     const got = readListed(fs, rootReal, f, maxFile);
     if (!got.buf) { skip({ path: f.path, why: got.why }); reserve -= ub(f); continue; }
+    // Grown since the walk: its reserve was sized from the walk's size, and it is being written to (review 6).
+    if (got.buf.length > f.size) { skip({ path: f.path, why: 'it grew while the snapshot was taken' }); reserve -= ub(f); continue; }
     const d = scanFile(f.path, got.buf);
     if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); reserve -= ub(f); continue; }
     const data = d.data;
