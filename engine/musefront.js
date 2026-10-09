@@ -60,7 +60,7 @@ function keepModel(workspace, model) {
     if (got && got.ok && got.buf.toString('utf8').trim() === model) return true;
   }
   // Review 3: securewrite's temp is a unique name opened exclusively ('wx'), so nothing planted at a predictable name is
-  // followed, and review 4 holds there too: only its own temp is removed, never a file already at that name.
+  // followed. Review 4, restated: the only files ever removed are this file's own temps whose writer is provably dead.
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     // #5434 slice 23: flushed before the rename (mode 0600; ownTempsOnly, the person's workspace is not Kosmos's folder)
