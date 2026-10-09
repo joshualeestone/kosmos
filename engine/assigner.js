@@ -143,19 +143,34 @@ function liveProjects(records) {
    some other agent marked is still busy (review round 4: the mark is on the task, the work is per part). New work on
    it (a part added, put back, or given to somebody) drops the mark (tasks.writeParts), and it counts again. */
 /* #5678 review 2: does `who` holding an open part of `t` keep it busy, by hasOpenWork's own rules (on hold, between
-   runs, built and freed: not busy) and the project's swarm switch? A tree is locked only by holds like that, so a
-   parked hold (or a holder switched off here) never locks a tree for good, and "holds the tree" agrees with "is busy". */
+   runs, built and freed: not busy)? A tree is locked only by holds like that, so a parked hold never locks a tree for
+   good. One more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
+   holds nothing here, because the person turned its swarm work off; its tree is free to the others. */
 function busyHold(p, t, who) {
   if (tasks.isOnHold(t) || require('./taskrepeat').waitingForNextRun(t)) return false;
   if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
   return !isSwarmOff(p, who);
+}
+/* The task's own reasons it is never handed out, in ONE place (#5678 review 5: pick and willMove read the same set, so
+   a filter added here is seen by both, and no parent waits for good on a subtask pick would never give out). */
+function handOutable(t) {
+  if (!t || typeof t.number !== 'number') return false;
+  if (tasks.isOnHold(t)) return false;   // #4771: a task on hold is never handed out
+  /* #1307: a task a webhook added waits for a person to give it out. Anyone holding the link
+     can write its words, so it is never typed into an agent's pane unseen. */
+  if (t.addedVia === 'webhook') return false;
+  /* #3951: a built task is not handed out again: the work is done and waits on a release or a check. */
+  if (tasks.progressOf(t).closed || tasks.whoOf(t).length || t.builtAt) return false;
+  /* #5456: a repeating task with nobody on it is run by a schedule (the board shows it "On a schedule"), not
+     waiting for an agent, so it is not handed out. A person can still give it to an agent by hand. */
+  return !t.repeat;
 }
 /* #5678 review 4: will this open subtask move without a person: pick could hand it out (the same filters pick uses), or
    one of the project's agents holds it busy? */
 function willMove(p, c) {
   const members = new Set(Array.isArray(p.agents) ? p.agents : []);
   if (tasks.whoOf(c).length) return tasks.progressOf(c).parts.some((x) => x.who && !x.closedAt && members.has(x.who) && busyHold(p, c, x.who));
-  return !(tasks.isOnHold(c) || c.addedVia === 'webhook' || c.repeat || c.builtAt);
+  return handOutable(c);
 }
 /* #5678 review 3: the numbers above `t` (its parent, theirs, ...), so a broken loop of parent links is not read as
    "this task still has open subtasks" (each task on a loop is the other's child). */
@@ -222,18 +237,9 @@ function pick(session, projects, taken) {
     const tree = tasks.treeOf(p);
     const holdersOf = tasks.treeHolders(p, tree, (t, who) => busyHold(p, t, who));
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
-      if (typeof t.number !== 'number') continue;
-      if (tasks.isOnHold(t)) continue;   // #4771: a task on hold is never handed out
+      if (!handOutable(t)) continue;   // the task's own filters, shared with willMove (#5678 review 5)
       if (taken.has(p.id + '#' + t.number)) continue;
-      /* #1307: a task a webhook added waits for a person to give it out. Anyone holding the link
-         can write its words, so it is never typed into an agent's pane unseen. */
-      if (t.addedVia === 'webhook') continue;
       const prog = tasks.progressOf(t);
-      /* #3951: a built task is not handed out again: the work is done and waits on a release or a check. */
-      if (prog.closed || tasks.whoOf(t).length || t.builtAt) continue;
-      /* #5456: a repeating task with nobody on it is run by a schedule (the board shows it "On a schedule"), not
-         waiting for an agent, so it is not handed out. A person can still give it to an agent by hand. */
-      if (t.repeat) continue;
       /* #5678 (user feedback 10-09): never a second builder on one tree. Its holder may take more of it when free
          (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
       /* #5678 review 3: a parent whose subtasks are still open is not handed out: given first (it is the oldest), its
