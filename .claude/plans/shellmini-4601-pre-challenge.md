@@ -38,3 +38,21 @@ arm), and removing the misspelt-value log line. Each went red; each was reverted
 5: substring shard match (1/2x routed); precondition named only another Mac; matrix names unpinned: FIXED (d4f9c3d02).
 6: tr parse untested on GNU; runs-on only pinned as text; a misspelling silent in the log: FIXED (1919758ff, b105e4841).
 7: the deferred enforcement item re-raised (dedup); stale header, arm count, evaluator wording NITs: FIXED (171e0eb62).
+
+## Final Ledger
+
+### Round 7 (opus) findings, as reported
+[WARNING] .github/workflows/test.yml:122 - Running shell shards on the self-hosted Mac is argued in comments, not enforced (pattern pkill in some shell tests, launchctl reads); the job guard checks only where the code comes from. DEDUP of the round 4 deferral; the precondition and audit file list are also posted on #4601.
+[NIT] tools/test-ci-runner-route-5488.sh:6-7 - Header said runs-on is not evaluated. FIXED.
+[NIT] .claude/plans/shellmini-4601-20261009.md:13 - Arm count stale. FIXED.
+[NIT] tools/test-ci-runner-route-5488.sh:104-115 - Evaluator fails as "unknown term" on a respaced edit. FIXED (header says how to read it).
+[STRENGTH] - A shell shard reaches the Mac only through $mac, so the fork and switch rules are inherited; every runs-on alternative falls back to macos-latest.
+[STRENGTH] - Strict whole-token parse with set -f and a planted fixture; builtins only; only matched names logged.
+[STRENGTH] - The test runs the real decide body under GitHub's shell flags; 0 failures.
+
+### Round 6 (sonnet) findings, as reported
+[WARNING] .github/workflows/test.yml:162 - tr parse unmeasured on GNU tr. FIXED (shell builtins only).
+[WARNING] tools/test-ci-runner-route-5488.sh:27 - runs-on pinned as text, never evaluated. FIXED (evaluator, red-checked).
+[WARNING] .github/workflows/test.yml:119-124 - shell-on-mini safety argued, not shown. DEDUP of the round 4 deferral.
+[NIT] .github/workflows/test.yml:163-165 - misspelt value and unset look identical in the log. FIXED.
+[NIT] plan - red-check numbers not re-run by the reviewer. Noted; mutants re-run in this round.
