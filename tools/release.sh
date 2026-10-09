@@ -673,8 +673,8 @@ kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has be
   "$KOSMOS_STEP1_PAST_BOUND" "$KOSMOS_ENTRY_FILE" || exit 1
 
 step "== 1b-ii. the What's new highlights are for this version (#3955) =="
-# The "Kosmos has been updated" window shows web/whats-new.json's highlights, written by the operator
-# and committed to main before the cut, beside the versions entry (agreed with Baron, #3955). A file
+# The "Kosmos has been updated" window shows web/whats-new.json's highlights, built from
+# release/whats-new-pool.json (tools/whats-new-pool.js, #5711) and committed to main before the cut, beside the versions entry (agreed with Baron, #3955). A file
 # left from the last release would show nothing (the board serves it only for its own version), so a
 # cut whose file is not for $V stops HERE, before anything is built or bumped.
 # KOSMOS_CUT_NO_WHATS_NEW=1 is the hotfix opt-out: the check is not enforced. With no highlights file for

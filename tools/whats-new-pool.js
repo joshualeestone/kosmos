@@ -36,6 +36,12 @@ function readPool(file) {
       throw new Error(file + ': every item needs a title, a numeric rank and a status (' + STATUSES.join(', ') + ')');
     }
   }
+  // Titles are how `shown` finds what prod showed: two items with one title would be marked together.
+  const seen = new Set();
+  for (const it of pool.items) {
+    if (seen.has(it.title)) throw new Error(file + ': the title "' + it.title + '" appears twice');
+    seen.add(it.title);
+  }
   return pool;
 }
 
@@ -80,6 +86,9 @@ function main(argv) {
     }
     const obj = { version, highlights: choose(pool, max) };
     const bad = whatsnew.problems(obj, version);
+    // The cut also checks each platform has a highlight (release.sh --platform=mac; the Windows build --platform=windows).
+    const per = whatsnew.countsByPlatform(obj);
+    for (const p of whatsnew.PLATFORMS) if (!per[p]) bad.push('no highlight for ' + p + ' (every chosen one is tagged for another platform)');
     if (bad.length) {
       process.stderr.write('the pool cannot make a What\'s New for ' + version + ':\n' + bad.map((b) => '  - ' + b).join('\n') + '\n');
       return 3;
@@ -87,7 +96,10 @@ function main(argv) {
     const out = opt(argv, 'out', whatsnew.FILE);
     fs.writeFileSync(out, JSON.stringify(obj, null, 2) + '\n');
     process.stdout.write(path.relative(process.cwd(), out) + ': ' + obj.highlights.length + ' highlight(s) for ' + version
-      + ' since prod ' + (pool.lastProd || '?') + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n');
+      + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n'
+      + 'The pool says the last PROD release was ' + (pool.lastProd || 'not recorded') + '. If a newer version reached prod, run'
+      + ' `node tools/whats-new-pool.js shown <that version>` from its tree first, or prod users see its highlights again.\n'
+      + 'Edit titles and lines in release/whats-new-pool.json and build again, never in the built file: `shown` matches by title.\n');
     return 0;
   }
   // shown: the titles this PROD version showed leave the pool's eligible set for good.
@@ -95,6 +107,18 @@ function main(argv) {
   const shownObj = JSON.parse(fs.readFileSync(from, 'utf8'));
   if (!shownObj || shownObj.version !== version || !Array.isArray(shownObj.highlights)) {
     process.stderr.write(from + ' is not the What\'s New of ' + version + '; nothing marked\n');
+    return 3;
+  }
+  if (pool.lastProd && newerFirst(version, pool.lastProd) > 0) {   // > 0: lastProd is the newer of the two
+    process.stderr.write('the pool already records prod ' + pool.lastProd + ', newer than ' + version + '; nothing marked\n');
+    return 3;
+  }
+  // Every highlight prod showed must be found in the pool, or a reworded one would stay pending and show again.
+  const byTitle = new Set(pool.items.map((it) => it.title));
+  const unmatched = shownObj.highlights.map((h) => h.title).filter((t) => !byTitle.has(t));
+  if (unmatched.length) {
+    process.stderr.write('these highlights of ' + version + ' are not in the pool (reworded after the build?): '
+      + unmatched.map((t) => '"' + t + '"').join(', ') + '. Make the pool titles match, then run this again; nothing marked\n');
     return 3;
   }
   const titles = new Set(shownObj.highlights.map((h) => h.title));

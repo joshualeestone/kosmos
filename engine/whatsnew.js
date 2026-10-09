@@ -2,9 +2,10 @@
 /**
  * #3955: the release's highlights, for the "Kosmos has been updated" window.
  *
- * web/whats-new.json is written by the operator and committed to main before a cut, beside the
- * versions entry (agreed with Baron, 2026-09-26 08:32 CDT). release.sh never writes it: it is
- * ruled, user-facing wording. Its shape:
+ * web/whats-new.json is committed to main before a cut, beside the versions entry (agreed with Baron,
+ * 2026-09-26 08:32 CDT). Since #5711 it is BUILT from release/whats-new-pool.json by tools/whats-new-pool.js (one
+ * cumulative top 5 since the last PROD release): edit wording in the pool, never in the built file. release.sh
+ * never writes it: it is ruled, user-facing wording. Its shape:
  *
  *   {"version":"0.6.98","highlights":[{"icon":"spark","title":"...","line":"..."}]}
  *   (a highlight about one platform adds "platforms":["mac"] or ["windows"], #5224 below)

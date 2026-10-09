@@ -71,14 +71,38 @@ test('#5711: after a PROD promote, exactly the titles that version showed become
     assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['B', 'C']);
     // A What's New of ANOTHER version marks nothing.
     assert.equal(quiet(() => tool.main(['shown', '0.7.37', `--pool=${t.file}`, `--from=${shown}`])), 3);
+    // Review 1: a highlight reworded after the build is not in the pool: refused, nothing marked.
+    fs.writeFileSync(shown, JSON.stringify({ version: '0.7.37', highlights: [{ icon: 'tasks', title: 'B, reworded', line: 'x' }] }));
+    assert.equal(quiet(() => tool.main(['shown', '0.7.37', `--pool=${t.file}`, `--from=${shown}`])), 3);
+    assert.equal(JSON.parse(fs.readFileSync(t.file, 'utf8')).items.find((i) => i.title === 'B').status, 'pending');
+    assert.equal(JSON.parse(fs.readFileSync(t.file, 'utf8')).lastProd, '0.7.36', 'lastProd did not move');
+    // Review 1: an OLDER version than the recorded prod is refused.
+    fs.writeFileSync(shown, JSON.stringify({ version: '0.7.35', highlights: [{ icon: 'tasks', title: 'B', line: 'x' }] }));
+    assert.equal(quiet(() => tool.main(['shown', '0.7.35', `--pool=${t.file}`, `--from=${shown}`])), 3);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
 
 test('#5711: the real pool builds a window the cut accepts, without the held conversation mode', () => {
   const pool = tool.readPool(path.join(__dirname, 'release', 'whats-new-pool.json'));
   const chosen = tool.choose(pool, 5);
-  assert.equal(chosen.length, 5);
+  // Live data: as many as are pending, at most 5 (a promote can leave fewer).
+  assert.equal(chosen.length, Math.min(5, pool.items.filter((i) => i.status === 'pending').length));
+  assert.ok(chosen.length >= 1);
   assert.deepEqual(whatsnew.problems({ version: '0.7.36', highlights: chosen }, '0.7.36'), []);
   assert.ok(!chosen.some((h) => /aloud|conversation mode/i.test(h.title + h.line)), 'the held mode never resurfaces');
   assert.ok(pool.items.some((i) => i.status === 'held' && /aloud/i.test(i.title)), 'CONTROL: the held item is in the pool');
+});
+
+test('#5711 review 1: a top 5 that leaves a platform with no highlight is refused, as the cut would refuse it', () => {
+  const t = tmp({ items: [item('Mac one', 1, 'pending', { platforms: ['mac'] }), item('Mac two', 2, 'pending', { platforms: ['mac'] })] });
+  try {
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 3);
+    assert.equal(fs.existsSync(t.out), false);
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711 review 1: a pool with one title twice is refused', () => {
+  const t = tmp({ items: [item('Same', 1, 'pending'), item('Same', 2, 'pending')] });
+  try { assert.throws(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`]), /appears twice/); }
+  finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
