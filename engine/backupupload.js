@@ -411,6 +411,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
         // Out of time on this grant. A chunk that met bucket or network trouble does NOT get a new grant (that spends
         // allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
         const remaining = deadline - now();
+        // (Out of time before any attempt still re-grants here, unlike uploadManifestInner: chunk grants are 200,000 a week.)
         if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else if (preOnly) unreached.push(c); else left.push(c); return; }
         // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
         // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
