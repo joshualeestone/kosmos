@@ -9,7 +9,8 @@
  *
  * Each upload is a presigned PUT. Its query signature covers content-length, the digest header (content-md5 for a
  * chunk, x-amz-checksum-sha256 for a manifest), host, if-none-match and the two lock headers (six, all required
- * here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are NOT in it). Measured on #5535: a matching body 200, a different body 400 BadDigest, a dropped signed header 403, a
+ * here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are NOT in it).
+ * Measured on #5535: a matching body 200, a different body 400 BadDigest, a dropped signed header 403, a
  * second PUT 412. Keys are random per upload (two new ids), and each url's path ends with its key.
  *
  * What this module owns, and what it does not:
@@ -332,16 +333,17 @@ function clockSkew(nowMs, expiresAtMs) {
    lockedUntil a Map from each name to its lock's end (ms), bucket the bucket path they are all under. Or
    { ok: false, because, code?, retryLater?, grantSpent?, keys, lockedUntil, bucket } with the chunks stored so far,
    their lock ends and bucket (null if none was granted), so a later manifest can name them without uploading them
-   again. grantSpent: true when any grant in this run answered (its allowance is spent), as for uploadManifest; absent
-   when none did. Never throws. */
+   again. grantSpent has uploadManifest's three states: true when any grant in this run answered (its allowance is
+   spent); false when the run refused before asking for any; absent when a grant request failed or was refused (it
+   may still have spent one). Never throws. */
 async function uploadChunks(deps, objects, opts) {
   const keys = new Map();
   // Run-wide: chunks that met trouble and are not stored (their write may have landed), and every key granted.
-  const run = { troubled: new Map(), seenKeys: new Set(), bucket: { prefix: null }, locked: new Map(), granted: false };
+  const run = { troubled: new Map(), seenKeys: new Set(), bucket: { prefix: null }, locked: new Map(), asked: false, granted: false };
   // Every result carries what was stored: each stored chunk's lock end, the bucket, and whether a grant was spent.
   const withStored = (r) => Object.assign(r, {
     lockedUntil: new Map([...keys.keys()].map((n) => [n, run.locked.get(n)])), bucket: run.bucket.prefix,
-  }, !r.ok && run.granted ? { grantSpent: true } : {});
+  }, r.ok ? {} : run.granted ? { grantSpent: true } : run.asked ? {} : { grantSpent: false });
   try {
     return withStored(await uploadInner(deps, objects, opts, keys, run));
   } catch (err) {
@@ -383,6 +385,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // The grant's clock starts when it is ASKED for (the coordinator signs between then and its answer), on this Mac's
     // clock, so the deadline below never runs past the real expiry because the answer was slow.
     const asked = now();
+    run.asked = true;
     const g = await askGrant(deps.macRequest, pending, run.seenKeys, run.bucket);
     if (g.ok || (g.out && g.out.grantSpent)) run.granted = true;
     if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
@@ -623,7 +626,13 @@ async function uploadManifestInner(deps, bytes, o, st) {
       }
       const r = await putOne(fetchFn, up, bytes, troubled, timeoutMs);
       if (r.kind === 'stored' || r.kind === 'present') return { ok: true, key: up.key, sha256, lockedUntilMs: up.retainMs };
-      if (r.kind === 'expired') { cleanRanOut = !troubled; break; }
+      if (r.kind === 'expired') {
+        // S3 checks expiry when a request ARRIVES, and a PUT is only started before the deadline: "expired" on the very
+        // first attempt means S3's clock and the coordinator's disagree by more than the window. A new grant would hit
+        // the same wall (and the chunk worker, at 200,000 grants a week, may re-grant; manifests are 50).
+        if (attempt === 0) return { ok: false, retryLater: true, grantSpent: true, because: 'S3 said the manifest grant had expired on the first attempt: its clock and the coordinator\'s disagree; try again later' };
+        cleanRanOut = !troubled; break;
+      }
       if (r.kind === 'refused') return Object.assign({ ok: false, grantSpent: true, because: `the bucket refused the manifest (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that` }, troubled ? { unsure: [{ key: up.key }] } : {});
       // The chunk worker in uploadInner carries the same rules: change both together.
       if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; st.unsureKey = up.key; }
