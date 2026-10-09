@@ -108,7 +108,7 @@ test('#5711: the real pool builds a window the cut accepts, without the held con
   }
 });
 
-test('#5711 review 6: --from-history takes the NEWEST commit naming the version, in a throwaway repo (no real history needed)', () => {
+test('#5711 review 6: --from-history reads EXACTLY at --ref and refuses another version's file, in a throwaway repo (no real history needed)', () => {
   const { execFileSync } = require('node:child_process');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-git-'));
   const git = (...a) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { stdio: 'ignore' });
