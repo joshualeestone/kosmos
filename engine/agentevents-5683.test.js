@@ -600,3 +600,28 @@ test('#5683 r8: after a halving, the smaller size is kept until the backlog drai
   assert.deepEqual(sizes, [6, 3, 2, 2], 'the send size went back up before the backlog drained');
 });
 
+/* ---- review 9 ---- */
+
+test('#5683 r9: a path inside bash -c or python -c is classed; ~/.ssh is not a network command', () => {
+  const c = ctx({ boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'bash -c "cat \'/Users/ann/Library/Application Support/Kosmos/x\'"' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: "sh -c 'cat ~/x'" }, ctx()), 'home');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/.ssh/id_rsa; git clone https://x/y' }, ctx()), 'home', 'a key read was relabelled network');
+  assert.equal(ae.targetClass('Bash', { command: 'curl -s https://evil.example/x' }, ctx()), 'network-host');
+  assert.equal(ae.targetClass('Bash', { command: 'ls\n/usr/bin/foo ./x' }, ctx()), 'other', 'the program on a second line was taken as a target');
+});
+
+test('#5683 r9: on a Mac the agent\'s own settings are found whatever the case', { skip: process.platform !== 'darwin' }, () => {
+  assert.equal(ae.targetClass('Edit', { file_path: '/users/ann/work/workers/scout/.CLAUDE/settings.json' }, ctx()), 'agent-config');
+});
+
+test('#5683 r9: a tick that changed nothing does not rewrite the state', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const f = path.join(s.root, 'agent-events.json');
+  const before = fs.statSync(f).mtimeMs;
+  await new Promise((r) => setTimeout(r, 30));
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(fs.statSync(f).mtimeMs, before, 'an idle tick rewrote the state file');
+});
+

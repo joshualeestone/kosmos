@@ -147,3 +147,15 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - (With relay review 7) the two references are ids only: 1 to 128 of [A-Za-z0-9_-], as the coordinator now requires;
   an event whose session or tool use id is not one is not sent. Test.
 - The kept-size test uses a backlog of 6, so the size going back up would show (with 4 it could not). P39.
+
+## Review 9 (sonnet), all fixed unless stated
+- agent-config was case-sensitive under the case-blind fold: the relative test folds too. Test (darwin).
+- A path inside a shell wrapper (bash -c "...", python -c '...') read as 'other': a quoted argument holding spaces is
+  split once more. Test.
+- `\bssh\b` matched ~/.ssh, relabelling a private-key read as network: a network command is the PROGRAM word (curl,
+  wget, nc, ncat, ssh, scp, sftp, rsync) with a URL among the words; the old regex is gone (still linear). Test.
+- The state was rewritten every tick: the rotation counter lives in memory, and the state is written only when it
+  changed. Test.
+- A newline ends a command (the program on a second line is not a target). Test. The module doc says a tool's own
+  output that starts with the refusal text is read as one (bounded by the fixed classes).
+- Stated: Windows-style paths in a Bash command are mangled by the backslash escape, and case folding is darwin-only.
