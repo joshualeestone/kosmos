@@ -133,9 +133,7 @@ function readRecordForWrite(file = RECORD_FILE) {
 /** Written beside and renamed, so a reader never sees half a record. */
 function writeRecord(entries, file = RECORD_FILE) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.new`;
-  fs.writeFileSync(tmp, `${JSON.stringify({ entries }, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, file);
+  store.saveFlushed(file, `${JSON.stringify({ entries }, null, 2)}\n`);   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX)
 }
 
 /**
