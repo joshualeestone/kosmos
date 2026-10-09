@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: winrunnav-5492
-diff_hash: 1208face88b9b08a03c953474b01f59e4da86886efa5f84988839887fe4aba77
+diff_hash: 1edfd83007f9cf274b9ff057e496a995d0d2d76dc9ead7cbc7f46500437186be
 validation: passed (validation_log PASSED for stack=typescript hash=1208face88b9, full tools/run-tests.sh on main after #5610; tools.windows-computer-mode-4381.test.js 11 pass, Windows-only probe rows skip off Windows)
 subdir_audit: passed
-timestamp: 2026-10-09T04:21:54Z
+timestamp: 2026-10-09T07:08:10Z
 iterations: 2
 converged: true
 ---
@@ -41,3 +41,9 @@ converged: true
 1. open a board on the Windows box (or Josh's PC laptop);
 2. click an outside link: the browser should open;
 3. confirm a provider sign-in still completes.
+
+**Rebased onto main after #5647 (02:06 CDT):** the Windows CI job failed four times on a runner-dependent path spelling
+(long vs 8.3 temp path) in the installer and launcher probes, main included; #5645 / #5647 (Baron) fixed the probes. A
+re-run re-tests the old merge commit, so this is a fresh push. This branch's own lines are unchanged; the local full
+validation ran on the previous base, and CI's full run on this head validates the rebased diff.
+
