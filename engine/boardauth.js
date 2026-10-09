@@ -179,6 +179,13 @@ function legacyTokenPath() {
    read-only from here; the risk is bounded to an external mode-loosening event on a deprecated
    path, and is documented in the plan rather than maintained. */
 
+/* #5434 slice 14: a token with a NUL byte in it is not a token. A crash after an unflushed write can leave
+   board.token at full length but zero-filled (#5431), and `.trim()` keeps NULs, so that file read as a token, and
+   the empty-file heal never fired because the file was not empty. Read as absent instead, so the heal replaces it.
+   Applied on every path that reads the token (readToken, readTokenFrom, enforcedTokenPath), and matches() refuses
+   a NUL-filled or empty expected token. */
+const usableToken = (t) => (t && !t.includes('\0') ? t : '');
+
 /** #3838: the path of the file readToken() actually reads the token from: the
  * primary leaf, or the legacy leaf when only it holds one (the backfill to the
  * primary is best-effort and can fail silently). Handed to the tunnel, so it
@@ -193,13 +200,6 @@ function enforcedTokenPath() {
   if (lp && nonEmpty(lp)) return lp;
   return primary;
 }
-
-/* #5434 slice 14: a token with a NUL byte in it is not a token. A crash after an unflushed write can leave
-   board.token at full length but zero-filled (#5431), and `.trim()` keeps NULs, so that file read as a token, and
-   the empty-file heal never fired because the file was not empty. Read as absent instead, so the heal replaces it.
-   Applied on every path that reads the token (readToken, readTokenFrom, enforcedTokenPath), and matches() refuses
-   a NUL-filled or empty expected token. */
-const usableToken = (t) => (t && !t.includes('\0') ? t : '');
 
 /* #5434 slice 14: write a token temp and flush it before anything publishes it (link or rename). */
 function writeTokenTemp(tmp, data) {
