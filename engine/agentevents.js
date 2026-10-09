@@ -67,7 +67,9 @@ function resultText(c) {
 /* Which class of target a refused call aimed at: never the path itself. */
 function targetClass(tool, input, ctx) {
   if (tool === 'WebFetch' || tool === 'WebSearch') return 'network-host';
-  if (tool === 'Bash' && input && typeof input.command === 'string' && /\b(curl|wget|nc|ssh|scp)\b[^\n]*\b[a-z]+:\/\//i.test(input.command)) return 'network-host';
+  /* Bounded (Renet, review 8 of slice 3): an unbounded [^\n]* backtracked quadratically on a long command with no URL
+     (2.5 s for 100 KB on the synchronous tick), and a command can be shaped by injected content. */
+  if (tool === 'Bash' && input && typeof input.command === 'string' && /\b(curl|wget|nc|ssh|scp)\b[^\n]{0,200}?\b[a-z]+:\/\//i.test(input.command.slice(0, 4096))) return 'network-host';
   let p = null;
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) { p = input[k]; break; }
   if (!p && tool === 'Bash' && input && typeof input.command === 'string') {
