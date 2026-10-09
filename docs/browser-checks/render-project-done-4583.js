@@ -208,8 +208,10 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
     await p.evaluate(() => loadProjects());
     await p.waitForTimeout(300);
     ok('coordinators: a stale repaint between the add and the next read does not swallow the warning', (await notice()).includes('Two coordinators on this project'), await notice());
-    await p.unroute('**/api/projects');
-    await p.unroute('**/api/project/*/agent/*');
+    /* #5688: unroute() does not wait for a handler already running, so a poll's route.fetch still in flight at
+       b.close() threw "Request context disposed" AFTER every assertion passed (CI, twice). Wait for in-flight handlers
+       to finish while the page is still open, then drop the stubs. */
+    await p.unrouteAll({ behavior: 'wait' });
 
     ok('no page errors', errs.length === 0, errs.join(' | '));
   } finally {
