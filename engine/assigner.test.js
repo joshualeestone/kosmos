@@ -718,9 +718,12 @@ test('#5678 pick: nobody else is given a task from a tree somebody holds; the ho
   // Review 1 (W3): a HELD child keeps its unheld parent from a second builder too.
   assert.equal(a.pick('idle5678', proj([{ number: 1, sentence: 'Parent' }, { number: 2, sentence: 'Held child', parent: 1, who: 'builderA' }]), new Set()), null,
     'the parent of a held subtask was handed to a second builder');
+  // Review 5: the SIBLING of a held subtask (only the tree gate stops this one; the parent is held back on its own).
+  assert.equal(a.pick('idle5678', proj([{ number: 1, sentence: 'Parent' }, { number: 2, sentence: 'Held child', parent: 1, who: 'builderA' }, { number: 3, sentence: 'Sibling', parent: 1 }]), new Set()), null,
+    'the sibling of a held subtask was handed to a second builder');
   // Review 1 (W2): the holder itself may be given more of its own tree (built, on hold, between runs: it reads free).
   const own = a.pick('builderA', proj([{ ...parentHeld, builtAt: '2026-10-09T00:00:00Z', builtWho: ['builderA'] }, child]), new Set());
-  assert.ok(own && own.n === 2, 'the holder was shut out of its own subtask: ' + JSON.stringify(own));
+  assert.ok(own && own.n === 2, 'a built parent\'s subtask was not handed to its own holder: ' + JSON.stringify(own));
   // Review 1 (W2): a holder no longer on the project holds nothing here.
   const left = a.pick('idle5678', proj([{ number: 1, sentence: 'Parent', who: 'gone' }, child], ['idle5678']), new Set());
   assert.ok(left && left.n === 2, 'work held by an agent who left the project stays stuck: ' + JSON.stringify(left));
@@ -738,7 +741,9 @@ test('#5678 step: two idle agents and an unheld parent with a subtask: the tree 
   const w = world([{ name: 'tree1' }, { name: 'tree2' }]);
   try {
     const top = addTask(w.pid, 'Tree parent');
-    addTask(w.pid, 'Tree child', { parent: top.number });
+    // Review 5: TWO open subtasks, so only the same-pass tree guard keeps the second idle agent off this tree.
+    addTask(w.pid, 'Tree child one', { parent: top.number });
+    addTask(w.pid, 'Tree child two', { parent: top.number });
     const out = afterIdle(w).toAssign.filter((x) => x.projectId === w.pid);
     assert.equal(out.length, 1, 'the parent and its subtask went to two builders in one pass: ' + JSON.stringify(out.map((x) => [x.session, x.n])));
     assert.equal(out[0].treeKey, undefined, 'the internal tree key leaked into the assignment');
