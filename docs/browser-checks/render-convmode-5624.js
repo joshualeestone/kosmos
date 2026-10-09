@@ -17,6 +17,7 @@
  *   C10 an agent's first reply in an EMPTY direct thread is read (review 1)
  *   C11 going to another agent and back does not read what arrived meanwhile (review 1)
  *   C12 a hidden window reads nothing, and nothing it missed is read late when it shows again (review 1)
+ *   C12b hiding the window while a message is read stops it (review 1)
  *   C13 an empty voice list (Chrome before voiceschanged) reads once the list arrives (review 1)
  *   C14 nothing is read while the mic is listening (review 1)
  *   C9 no page errors
@@ -210,6 +211,18 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await paint(page, thread);
     const nowSaid = await spoken(page);
     chk(!/while hidden/.test(hiddenSaid) && !/while hidden/.test(lateSaid) && /once visible/.test(nowSaid), 'C12 a hidden window reads nothing, misses nothing late, then reads again', JSON.stringify({ hiddenSaid, lateSaid, nowSaid }));
+
+    // C12b: hiding the window WHILE a message is being read stops it (review 1).
+    await resetSpoken(page);
+    thread = [...thread, agentRow(35, 'Being read when the window hides.')];
+    await paint(page, thread);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+    const c12b = await page.evaluate(() => window.__spoken);
+    const iSaid = c12b.findIndex((x) => x.text && /window hides/.test(x.text));
+    const iStop = c12b.findIndex((x, i) => i > iSaid && x.cancel);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); });
+    await paint(page, thread);
+    chk(iSaid >= 0 && iStop > iSaid, 'C12b hiding the window while a message is read stops it', JSON.stringify(c12b));
 
     // C13: no voices yet, then they arrive.
     await resetSpoken(page);
