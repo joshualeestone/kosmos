@@ -1370,6 +1370,7 @@ function readManagedOrg() {
   return { orgSlug: slug };
 }
 
+let companyFinishing = null;   // review 10: the setup whose own finish is running
 let companySetup = null;   // { email, setupId, secret, expiresAt }: engine memory only
 
 /* Review 8: before approval, the board's clock is only an upper bound (the server extends a setup when the person
@@ -1450,7 +1451,7 @@ async function companyStatus() {
 async function companyStatusRun(c) {
   // Review 9: while a finish runs, its grant may already be spent (the server then says gone); the setup is not gone,
   // it is finishing, and no second process needs the secret meanwhile.
-  if (registerInFlight && c && companySetup === c) return { ok: true, ready: true, gone: false };
+  if (c && companyFinishing === c) return { ok: true, ready: true, gone: false };
   if (companyExpired(c)) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true }; }
   const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
   // Review 6: an older tunnel program will never answer, so the page stops (with why) instead of polling forever.
@@ -1477,20 +1478,11 @@ async function companyComplete(name, acceptTerms, second) {
   if (typeof name === 'string') name = name.trim().toLowerCase();
   // Review 1: a reinstall already set up at this name is recognised here too (#1010), the setup then not needed.
   if (alreadySetUpAs(name, false)) {
-    // Review 9: only this account's own computer is "already set up" here; another account's computer at the same
-    // name is not taken over by recording a new email on it (switching accounts is what Forget is for, #1010).
-    const was = String(read().email || '').toLowerCase();
-    if (was && was !== c.email.toLowerCase()) {
-      return { ok: false, because: 'this computer is already set up for another Kosmos+ account; use Forget in Settings first' };
-    }
+    // Review 10 (replacing reviews 5, 7 and 9): the board cannot tell which account owns the identity on this computer
+    // (its saved email is written before anything is proven, and is empty after a reset), so recognising a reinstall
+    // changes nothing: no email recorded, nothing switched on, exactly as the code path. A reset reinstall is switched
+    // on in Settings; another account's computer is not taken over by its name.
     if (companySetup === c) companySetup = null;
-    // Review 7: only a setup the person APPROVED in the browser (they signed in as this email) may record the email and
-    // switch on; otherwise this is only "already set up", exactly as the code path says it, and changes nothing.
-    // Review 5: set up means switched on here too (a reinstall whose settings reset has `on` false), then up.
-    if (c.approved) {
-      write({ email: c.email }, { repair: true });
-      turnOnAfterSignin();
-    }
     return alreadySetUpAs(name);
   }
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
@@ -1503,7 +1495,9 @@ async function companyComplete(name, acceptTerms, second) {
   // still unspent when that is refused, so the page asks for it and finishes again.
   if (typeof second === 'string' && second.trim()) args.push('--second=' + second.trim());
   const offAt = offEpoch;   // review 6: an Off pressed while this runs stands (#3827, as the in-app register)
-  const result = await runSetupComplete(args, c.secret + '\n', name);
+  companyFinishing = c;
+  let result;
+  try { result = await runSetupComplete(args, c.secret + '\n', name); } finally { if (companyFinishing === c) companyFinishing = null; }
   // Review 6: the server refused it as finished or expired: nothing more can come of this setup, so start again.
   // Review 8: whether this setup can still finish is the SERVER's answer, not a match on its sentences (a refused finish
   // may already have spent the grant; a wait for too many second-step codes leaves it good): ask once, and a gone
@@ -2820,7 +2814,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */

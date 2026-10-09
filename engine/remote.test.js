@@ -4037,7 +4037,7 @@ test('kosmos#5628 review 3: a status ask joins one in flight only for the same s
   assert.equal(recorded().filter((c) => c[1] === 'company-status').length, 2, "the restart's poll joined the old setup's ask");
 });
 
-test('kosmos#5628 review 5: a reinstall recognised by the company setup is switched on too', async () => {
+test('kosmos#5628 review 10: a reinstall recognised by the company setup changes nothing', async () => {
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
   assert.equal((await remote.companyComplete('ann')).ok, true);
   remote.setOn(false);   // the reinstall's settings reset; its identity survived
@@ -4053,7 +4053,7 @@ test('kosmos#5628 review 5: a reinstall recognised by the company setup is switc
   assert.equal((await remote.companyStatus()).ready, true);   // approved
   const again = await remote.companyComplete('ann');
   assert.equal(again.alreadySetUp, true, JSON.stringify(again));
-  assert.equal(remote.read().on, true, 'a recognised reinstall was left switched off');
+  assert.equal(remote.read().on, false, 'a recognised reinstall switched Kosmos+ on (the board cannot prove the owner)');
 });
 
 test('kosmos#5628 review 6: an older tunnel says update, and an Off pressed while the finish runs stands', async () => {
@@ -4101,10 +4101,17 @@ test('kosmos#5628 review 9: another account cannot take over a computer by its n
   assert.equal((await remote.companyComplete('ann')).ok, true);
   assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
   assert.equal((await remote.companyStatus()).ready, true);   // Bob approved
+  remote.setOn(false);
   const taken = await remote.companyComplete('ann');
-  assert.equal(taken.ok, false);
-  assert.match(taken.because, /another Kosmos\+ account/);
+  assert.equal(taken.alreadySetUp, true);
   assert.equal(remote.read().email, 'ann@acme.test', 'another account was recorded on this computer');
+  assert.equal(remote.read().on, false, 'another account switched this computer on');
+  // Review 10: with the saved settings gone (email empty), still nothing is recorded or switched on.
+  fs.unlinkSync(remote.FILE);   // the reinstall's settings are gone; the identity (remote/) stays
+  assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);
+  assert.equal((await remote.companyComplete('ann')).alreadySetUp, true);
+  assert.deepEqual([remote.read().email || '', remote.read().on], ['', false], 'an empty owner let another account in');
   // A status asked while a finish runs answers "finishing", never gone.
   assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
   process.env.FAKE_TUNNEL_MODE = 'slow-setup company-gone';
