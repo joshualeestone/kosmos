@@ -10,15 +10,23 @@
  *
  *   NODE_PATH=$HOME/work/pw-runtime/node_modules \
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
- *       [--sizes se,iphone15,promax,android,desktop] [--themes light,dark]
+ *       [--sizes se,iphone15,promax,android,android360,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
- *       [--data sample|store] [--scale css|device]
+ *       [--data sample|store] [--scale css|device] [--remote]
  *
  * Output: DIR/<screen>--<size>--<theme>--<engine>.png plus DIR/report.md (every
  * shot, and every overflow found). Default DIR is a new temp folder, printed at
  * the end. --strict exits 1 when anything overflows. --list prints the screens.
  * --keep leaves the throwaway board running afterwards (address printed) so you
  * can explore it by hand; Ctrl-C stops it and deletes its data.
+ * --remote opens the board as the phone apps do, over Kosmos+ (kosmos#5510): at an address that is not this
+ * computer's, so the board takes its remote phone layout (html.kremote: the Kosmos+ bar and its menu, agents
+ * as a list of cards). The Android app ALWAYS shows that layout (it opens <computer>.kosmosplus.com), so
+ * shots of the Android app need --remote; without it you get the board as it looks at the computer itself.
+ * The address is a made-up host served from the throwaway board through the browser's own router, so nothing
+ * leaves this computer. Two differences from a real phone, neither shown by any screen today: a board redirect is
+ * followed by the router (the page never sees the 3xx), and the made-up http host is not a secure context, so no
+ * service worker registers.
  * --data store seeds a clean fleet for App Store and Play screenshots instead
  * of the stress-test sample (no stopped agent, no overlong names, no code
  * block); --scale device saves at the device's pixels, not CSS pixels. The
@@ -78,6 +86,8 @@ const SIZES = {
   iphone15: { width: 393, height: 852, dpr: 3, label: 'iPhone 15' },
   promax: { width: 430, height: 932, dpr: 3, label: 'iPhone Pro Max' },
   android: { width: 412, height: 915, dpr: 2.625, label: 'mid Android' },
+  // A narrow Android phone (360 CSS px wide, the common small-Android width): the tightest width the Android app is opened at.
+  android360: { width: 360, height: 800, dpr: 3, label: 'narrow Android' },
   // The 6.9-inch iPhone screenshot App Store Connect requires: 1320x2868 at --scale device.
   appstore: { width: 440, height: 956, dpr: 3, label: 'App Store 6.9-inch' },
   // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
@@ -85,6 +95,21 @@ const SIZES = {
   // rules) are skipped for it. Not in the default sweep.
   desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
 };
+/* --remote's address (kosmos#5510): .test is reserved and never resolves, so a slip can only fail, never reach a real host. */
+const REMOTE_BASE = 'http://kosmos-shots.kosmosplus.test';
+/* Set once the board is up. Every stub below fetches through fetchBoard and passes requests on with fallback(), never
+   route.fetch() or continue() bare: under --remote those would go to the made-up host, which does not exist (a page's
+   own routes run before the context's proxy). fallback() hands the request to the proxy; without --remote it is the
+   same as continue(). The Origin is the board's own, since the board refuses a write from any other site. */
+const REMOTE = { on: false, board: '' };
+const boardUrl = (u) => (REMOTE.on && u.startsWith(REMOTE_BASE) ? REMOTE.board + u.slice(REMOTE_BASE.length) : u);
+function fetchBoard(route) {
+  if (!REMOTE.on) return route.fetch();
+  const headers = { ...route.request().headers() };
+  if (headers.origin) headers.origin = REMOTE.board;
+  if (headers.referer) headers.referer = boardUrl(headers.referer);
+  return route.fetch({ url: boardUrl(route.request().url()), headers });
+}
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
@@ -98,6 +123,14 @@ const OVERFLOW_SELECTORS = ['html', 'body', 'main', '.view', '.panel', '[role="m
 /* On a phone the areas sit behind the ☰ (#burger, controls #tabs): open it
    first when it is showing, then choose the area. */
 async function openTab(page, tab) {
+  // Over Kosmos+ (--remote) a phone has the Kosmos+ bar's own menu (#pnav) instead of the burger (kosmos#5510).
+  if (await page.isVisible('#kplus-menu')) {
+    await page.click('#kplus-menu');
+    await page.waitForSelector(`#pnav [data-pnav-tab="${tab}"]`, { state: 'visible', timeout: 5000 });
+    await page.click(`#pnav [data-pnav-tab="${tab}"]`);
+    await page.waitForSelector(`#panel-${tab}`, { state: 'visible', timeout: 5000 });
+    return;
+  }
   if (await page.isVisible('#burger')) {
     await page.click('#burger');
     await page.waitForSelector(`[data-tab="${tab}"]`, { state: 'visible', timeout: 5000 });
@@ -131,9 +164,9 @@ const newLook = async (page) => {
    with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
 async function openConsAgents(page) {
   await page.route('**/api/style', async (r) => {
-    if (r.request().method() !== 'GET') return r.continue();
+    if (r.request().method() !== 'GET') return r.fallback();
     let resp;
-    try { resp = await r.fetch(); } catch { return r.continue(); }   // never leave the request hanging
+    try { resp = await fetchBoard(r); } catch { return r.fallback(); }   // never leave the request hanging
     const j = await resp.json().catch(() => null);
     if (!j) return r.fulfill({ response: resp });
     return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
@@ -221,7 +254,7 @@ const SCREENS = [
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
     await page.route('**/api/status', async (route) => {
       let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      try { res = await fetchBoard(route); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = adv;
       await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
     });
@@ -240,7 +273,7 @@ const SCREENS = [
     await stubRebootNote(page);
     await page.route('**/api/status', async (route) => {
       let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      try { res = await fetchBoard(route); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = [{ agents: ['roo-lane'], names: ['Roo'], provider: 'Claude', service: 'Claude Code-credentials',
         email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
       await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
@@ -259,6 +292,13 @@ const SCREENS = [
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
   { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, go: async (page) => {
+    if (await page.isVisible('#kplus-menu')) {   // --remote: the Kosmos+ bar's menu (kosmos#5510)
+      await page.click('#kplus-menu');
+      await page.waitForSelector('#pnav:not([hidden])', { timeout: 5000 });
+      // Its items fade in (pnav-drop); a shot taken mid-fade shows grey words that are not on any phone.
+      await page.waitForFunction(() => document.getElementById('pnav').getAnimations({ subtree: true }).every((a) => a.playState !== 'running'), null, { timeout: 5000 });
+      return;
+    }
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
   } },
@@ -340,8 +380,10 @@ const SCREENS = [
   } },
   { name: 'ask-waiting', owner: 'Kano', go: async (page, data) => {
     // The board re-renders cards on its tick, so scroll inside the page.
-    await page.waitForSelector(`.acard[data-agent="${data.askAgent}"]`, { timeout: 5000 });
-    await page.evaluate((a) => document.querySelector(`.acard[data-agent="${a}"]`).scrollIntoView({ block: 'start' }), data.askAgent);
+    // A card in the grid, or a row in the list (--remote shows agents as a list only, kosmos#5510).
+    const card = `.acard[data-agent="${data.askAgent}"], .lrow[data-agent="${data.askAgent}"]`;
+    await page.waitForSelector(card + ' >> visible=true', { timeout: 5000 });
+    await page.evaluate((c) => [...document.querySelectorAll(c)].find((e) => e.getClientRects().length).scrollIntoView({ block: 'start' }), card);
   } },
   /* Where a push tap lands: the needs-you agent's page, shot once it has
      settled (the conversation scrolls to the top after load). */
@@ -442,6 +484,9 @@ const SCREENS = [
   } },
   /* #5531: Your company, a join code checked: the consent before anything binds. */
   { name: 'plus-org-consent', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
+    // A computer with no company sees one line first (10-08): open it the person's way.
+    await page.waitForSelector('#plus-org-open', { state: 'visible', timeout: 10000 });
+    await page.click('#plus-org-open');
     await page.waitForSelector('#plus-org-code', { state: 'visible', timeout: 10000 });
     await page.fill('#plus-org-code', 'NW-JOIN-4821');
     await page.click('#plus-org-check');
@@ -514,7 +559,7 @@ const SCREENS = [
      sweep would act on the seeded agents while it is on: `after` turns it off once the shot is
      taken, before any other screen. */
   { name: 'settings-recommender', owner: 'Mona Lisa', go: async (page) => {
-    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+    const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/recommender-setting',   // page.request is not routed: boardUrl for --remote (#5510)
       { data: { on: true }, headers: { 'sec-fetch-site': 'same-origin' } });
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender on (' + put.status() + ')');
     await at(page, '?tab=settings&sec=automation');
@@ -523,7 +568,7 @@ const SCREENS = [
     await page.mouse.move(1, 1);
     await page.waitForTimeout(300);
   }, after: async (page) => {
-    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+    const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/recommender-setting',   // page.request is not routed: boardUrl for --remote (#5510)
       { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
   } },
@@ -889,9 +934,9 @@ const SCREENS = [
     ] };
     await page.route('**/api/project/*/task/*/receipt', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(receipt) }));
     await page.route('**/api/projects', async (route) => {
-      if (route.request().method() !== 'GET') return route.continue();
+      if (route.request().method() !== 'GET') return route.fallback();
       let res, body;
-      try { res = await route.fetch(); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      try { res = await fetchBoard(route); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       for (const proj of body.projects || []) {
         if (proj.id !== data.projectId) continue;
         for (const t of proj.tasks || []) {
@@ -942,7 +987,7 @@ const SCREENS = [
   /* #5153 slice 4: the undo switch in Settings > Advanced, shown on (only this page's read of the setting is faked). */
   { name: 'settings-undo', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/undo-setting', (r) => (r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ on: true, ok: true }) }) : r.continue()));
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ on: true, ok: true }) }) : r.fallback()));
     await at(page, '?tab=settings&sec=advanced');
     await page.waitForSelector('#undo-toggle:not([hidden])', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('undo-row').scrollIntoView({ block: 'start' }));
@@ -957,7 +1002,7 @@ const SCREENS = [
 
 /* ------------------------------------------------------------------ args */
 function parseArgs(argv) {
-  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css' };
+  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css', remote: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = () => argv[++i];
@@ -971,6 +1016,7 @@ function parseArgs(argv) {
     else if (k === '--keep') a.keep = true;
     else if (k === '--data') a.data = v();
     else if (k === '--scale') a.scale = v();
+    else if (k === '--remote') a.remote = true;
     else throw new Error('unknown argument ' + k);
   }
   for (const s of a.sizes) if (!SIZES[s]) throw new Error('unknown size ' + s + ' (have ' + Object.keys(SIZES).join(', ') + ')');
@@ -1573,6 +1619,7 @@ async function run() {
   const skipped = [];   // phone-only screens at desktop, desktop-only ones at a phone size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
   try {
+    Object.assign(REMOTE, { on: args.remote, board: board.base });   // --remote: where fetchBoard sends the stubs (#5510)
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
     for (const en of args.engines) {
@@ -1599,9 +1646,16 @@ async function run() {
                 // A page.route stub needs the service worker off in WebKit (see allow-card).
                 ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
               });
+              /* --remote (kosmos#5510): every request to the made-up Kosmos+ host is answered by the throwaway board
+                 itself, so the page's own address is not loopback (kplusRemote() true -> html.kremote) while every
+                 byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
+                 (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
+              if (args.remote) {
+                await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }), () => r.abort()));   // board gone: fail now, not at the screen's timeout
+              }
               if (DATA.connected) {
                 await ctx.route('**/api/status', async (r) => {
-                  const res = await r.fetch();
+                  const res = await fetchBoard(r);
                   const body = await res.json().catch(() => null);
                   if (!body || typeof body !== 'object') return r.fulfill({ response: res });
                   body.connection = { ...(body.connection || {}), state: 'connected' };
@@ -1617,7 +1671,7 @@ async function run() {
               let fit = { taps: [], fields: [], covers: [] };
               let audited = false;   // true only once the phone audits have actually run on this screen
               try {
-                await page.goto(board.base + '/', { waitUntil: 'load' });
+                await page.goto((args.remote ? REMOTE_BASE : board.base) + '/', { waitUntil: 'load' });
                 await page.waitForTimeout(900);
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);

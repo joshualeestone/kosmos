@@ -9,7 +9,8 @@
  *   - E, plus a PreToolUse hook answering "allow": did NOT run (a PreToolUse allow does not beat an ask rule), though the
  *     hook fired.
  *   - F, plus a PermissionRequest hook answering { behavior: "allow" }: the rm RAN, no prompt.
- * So Kosmos gives its own Claude agents (and only them) a settings file with one PermissionRequest hook, passed at launch
+ * So Kosmos gives its own Claude agents (and only them) a settings file with one PermissionRequest hook (and, since
+ * #5495, two env names the report hook reads), passed at launch
  * with `--settings <file>` (bin/agent-supervisor.sh on macOS and Linux, win32launch on Windows). Claude Code merges it
  * with the person's own settings, so everything else they set (their other rules, connectors, hooks) still applies, and
  * the person's own ~/.claude/settings.json is never written. A deny rule still blocks: it never reaches a prompt.
@@ -42,11 +43,22 @@ function hookEntry(opts) {
   return { matcher: '', hooks: [{ type: 'command', command: '"' + node + '" "' + script + '"', timeout: 15 }] };
 }
 
-/** The file's text: one PermissionRequest hook, nothing else (no permission rules, no other settings). */
+/* #5495: the report hook (install/kosmos-report-hook.sh, engine/kosmos-report-hook.js) also fires on every
+   PermissionRequest and would show the agent as "needs you" for a request this hook has just allowed. Claude Code hands
+   a settings file's `env` to its hook processes (measured, 2.1.293), so these two names tell the report hook that THIS
+   agent runs with Kosmos's allow hook and where it is; the report hook then asks the same decide() and, for a request it
+   allows, reports working instead. The env also reaches the agent's own tool processes, and so any Claude started from
+   its shell inherits the names (a residual the plan accepts). Measured on macOS only. */
+const ENV_NODE = 'KOSMOS_PERMISSION_ALLOW_NODE';
+const ENV_SCRIPT = 'KOSMOS_PERMISSION_ALLOW_SCRIPT';
+
+/** The file's text: one PermissionRequest hook and the two env names above (no permission rules, no other settings). */
 function settingsText(opts) {
   const entry = hookEntry(opts);
   if (!entry) return null;
-  return JSON.stringify({ hooks: { PermissionRequest: [entry] } }, null, 2) + '\n';
+  const o = opts || {};
+  const env = { [ENV_NODE]: o.node || process.execPath, [ENV_SCRIPT]: o.script || HOOK_SCRIPT };
+  return JSON.stringify({ env, hooks: { PermissionRequest: [entry] } }, null, 2) + '\n';
 }
 
 /**
@@ -70,4 +82,4 @@ function ensureSettings(opts) {
   } catch { return null; }
 }
 
-module.exports = { MARKER, HOOK_SCRIPT, settingsPath, hookEntry, settingsText, ensureSettings };
+module.exports = { MARKER, HOOK_SCRIPT, ENV_NODE, ENV_SCRIPT, settingsPath, hookEntry, settingsText, ensureSettings };

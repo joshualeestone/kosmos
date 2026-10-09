@@ -265,10 +265,12 @@ else
   # `kosmos start` reclaim a silent holder of our port instead of calling it "already running".
   # --force on both: the watchdog is not an agent, so the #4466 agent guard must not refuse it (the guard
   # reads the environment, and a watchdog launched from an agent's shell would otherwise inherit its markers).
+  # #5450: KOSMOS_START_BY=supervisor: bringing back a board nobody stopped is not a person's start, so the restart
+  # note can still say it came back by itself.
   if [ "$STATUS_RC" -eq 4 ]; then
-    KOSMOS_RECLAIM_BUSY=1 bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
+    KOSMOS_START_BY=supervisor KOSMOS_RECLAIM_BUSY=1 bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
   else
-    bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
+    KOSMOS_START_BY=supervisor bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
   fi
 fi
 # Count the attempt for the backoff/crash-loop guard; keep the down streak (the next

@@ -5031,6 +5031,10 @@ const ASSUMED_LIMIT_MODELS = /^claude-(opus|sonnet|fable)-/;
  * exists — `CONTEXT_LIMITS` is where an observed ceiling belongs.
  */
 const HAIKU_ASSUMED_LIMIT = 200000;
+/* #5626: the Haiku models that are NOT the 200K Haiku above. Anthropic's models page (2026-10-08) lists Haiku 5.5's
+   context window as 1M, like the current Opus, Sonnet and Fable, so it takes the same 1M, still marked an assumption
+   until one is watched. The next 1M Haiku is added here. Matched against the undated id. */
+const HAIKU_1M_MODELS = /^claude-haiku-5-5$/;
 const HAIKU_MODELS = /^claude-haiku-/;
 
 function limitFor(model) {
@@ -5039,6 +5043,7 @@ function limitFor(model) {
   const undated = model.replace(/-\d{8}$/, '');
   if (CONTEXT_LIMITS[undated]) return { limit: CONTEXT_LIMITS[undated], assumed: false };
   if (ASSUMED_LIMIT_MODELS.test(model)) return { limit: ASSUMED_LIMIT, assumed: true };
+  if (HAIKU_1M_MODELS.test(undated)) return { limit: ASSUMED_LIMIT, assumed: true };
   // Its own figure, for the reason above: the 1M assumption is not Haiku's.
   if (HAIKU_MODELS.test(model)) return { limit: HAIKU_ASSUMED_LIMIT, assumed: true };
   return null;
@@ -6268,6 +6273,7 @@ const MODEL_NAMES = {
   'claude-fable-5': 'Claude Fable 5',
   'claude-fable-5-1': 'Claude Fable 5.1', // #1356: added to the picker; name it here too so a running 5.1 agent is not shown its raw id
   'claude-opus-4-8': 'Claude Opus 4.8',
+  'claude-haiku-5-5': 'Claude Haiku 5.5', // #5626: added to the picker; named here so a running 5.5 agent is not shown its raw id
   'claude-haiku-4-5': 'Claude Haiku 4.5',
 };
 
@@ -8577,7 +8583,16 @@ function snapshot() {
 
   agents.sort((a, b) => a.name.localeCompare(b.name));
   /* #5154 slice A: every row states crashLoop. The snapshot cannot know about runs (the supervisor's run file is
-     read by the route, engine/crashloop.js), so it says null; /api/status fills the real value for agents we started. */
+     read by the route, engine/crashloop.js), so it says null; /api/status fills the real value for agents we started.
+     #5154 slice C: stuckError is deliberately NOT normalised here. Adding it to snapshot()'s emitted shape would
+     drift the golden card fixture (render-talk-goldencard-2519) and force a live re-capture, for a field that is
+     always null in snapshot() anyway. safeRoster attaches the real stuckError (via peek) for the agents we started
+     -- the only rows where "stuck" can be true. A consumer reading stuckError over a BARE snapshot row (needsPerson,
+     reached via waitingOnPerson in tasks.js and via projects.js) therefore GUARDS the read on presence
+     (hasOwnProperty): a bare read of an absent field is the silent-`undefined` defect that test-support/fleet.js's
+     strict proxy throws on, so the absence is handled explicitly rather than by `undefined` coercion. The weak point
+     of this choice is the asymmetry with crashLoop (which IS normalised and so is read unguarded); it is accepted
+     because normalising stuckError buys nothing but a hazardous re-capture, the field being null here regardless. */
   for (const a of agents) if (a && !Object.prototype.hasOwnProperty.call(a, 'crashLoop')) a.crashLoop = null;
 
   return {
@@ -8599,7 +8614,16 @@ function needsPerson(a) {
   return Boolean(a) && (a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
     || (a.state === STATE.CONNECTION_LOST && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up')
     // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
-    || (Boolean(a.crashLoop) && a.crashLoop.looping === true));
+    || (Boolean(a.crashLoop) && a.crashLoop.looping === true)
+    // #5154 slice C: an agent stuck past the threshold on the same terminal error (auth_failed / rate_limited).
+    // Behaviourally aligned with web/index.html agentNeedsAttention (the crashloop-5154 parity harness pins them
+    // equal). UNLIKE crashLoop, stuckError is NOT normalised into snapshot()'s shape: server.js attaches it (via
+    // peek) only to the /api/status rows, where "stuck" can be true. needsPerson ALSO runs over BARE snapshot().agents
+    // rows (waitingOnPerson in tasks.js, projects.js), which omit it -- so the read is GUARDED on presence. A bare read
+    // of an absent field is the silent-`undefined` defect that test-support/fleet.js's strict proxy throws on; the
+    // hasOwnProperty check handles the absence explicitly instead of relying on `undefined` coercion. (agentNeedsAttention
+    // needs no guard: it runs over wire rows that always carry stuckError, never bare snapshot rows.)
+    || (Object.prototype.hasOwnProperty.call(a, 'stuckError') && Boolean(a.stuckError) && a.stuckError.stuck === true));
 }
 /**
  * The numbers on the summary line, for a given set of cards.

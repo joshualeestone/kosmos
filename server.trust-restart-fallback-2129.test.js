@@ -26,10 +26,6 @@
  */
 
 const test = require('node:test');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -116,7 +112,9 @@ function born(name, { runner = 'claude', configDir = null } = {}) {
    re-checks and refuses to claim a restart over a live window -- lands every
    call on its partial branch. This answers the way a real tmux does once the
    session is closed. */
-const fakeRun = (_file, args) => (Array.isArray(args) && args[0] === 'has-session'
+// #5500: and systemctl, as systemd answers it, for the Linux job (on a Mac it answers nothing and falls through).
+const systemd = jobfix.systemdStub();
+const fakeRun = (file, args) => systemd(file, args) || (Array.isArray(args) && args[0] === 'has-session'
   ? { ok: false, code: 1 }
   : { ok: true, stdout: '' });
 create.setRunner(fakeRun);
@@ -146,7 +144,7 @@ async function trustAndRestart(name) {
   return { status: res.status, body: await res.json() };
 }
 
-test('a Claude default-account agent: the trust key is the NATIVE realpath, and it restarts', LINUX_PLIST_5432, async () => {
+test('a Claude default-account agent: the trust key is the NATIVE realpath, and it restarts', async () => {
   const name = 'tr-claude-default';
   const folder = born(name);
   const r = await trustAndRestart(name);
@@ -173,7 +171,7 @@ test('a Claude default-account agent: the trust key is the NATIVE realpath, and 
     'the folder was not marked trusted under the native key: ' + JSON.stringify(cfg.projects[nativeKey]));
 });
 
-test('a codex agent: a trusted [projects."…"] block is written, and it restarts', LINUX_PLIST_5432, async () => {
+test('a codex agent: a trusted [projects."…"] block is written, and it restarts', async () => {
   const name = 'tr-codex-default';
   const folder = born(name, { runner: 'codex' });
   const r = await trustAndRestart(name);
@@ -198,7 +196,7 @@ test('a codex agent: a trusted [projects."…"] block is written, and it restart
   assert.match(toml, /trust_level = "trusted"/, 'the block does not mark the folder trusted: ' + toml);
 });
 
-test('BEST-EFFORT / NON-GATING: a failed trust write still restarts the agent', LINUX_PLIST_5432, async () => {
+test('BEST-EFFORT / NON-GATING: a failed trust write still restarts the agent', async () => {
   /* Force a soft trust-write REFUSAL without touching any real file: a
      non-default claude account whose .claude.json is a SYMLINK. trustFolder
      refuses a symlinked config (it will not replace somebody's arrangement) and

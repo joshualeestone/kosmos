@@ -344,11 +344,6 @@ function labelsFor(projectId) {
   for (const r of rows) if (r && typeof r.member === 'string' && r.member && r.label) out.set(r.member, r.label);   // rows are oldest first
   return out;
 }
-/** One account's label, or null (a convenience over labelsFor; never call it per row). */
-function labelForMember(projectId, member) {
-  if (typeof member !== 'string' || !member) return null;
-  return labelsFor(projectId).get(member) || null;
-}
 
 /** The owner's room line when a member's computer first arrives (slice 1b, Q-K1): the owner's label for that invite,
     or a plain sentence. Called by fedseats when it pins the member, which is when someone has really joined. */
@@ -405,4 +400,4 @@ async function withdraw(remote, projectId, inviteId, now = Date.now()) {
   return { status: 200, body: { withdrawn: true } };
 }
 
-module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget, memberView, joinedLine, noteMember, noteMembers, labelForMember, labelsFor };
+module.exports = { FILE, LABEL_MAX, MAC_REVOKE, MAC_WITHDRAW, cleanLabel, invite, members, remove, withdraw, rowsFor, forget, memberView, joinedLine, noteMember, noteMembers, labelsFor };

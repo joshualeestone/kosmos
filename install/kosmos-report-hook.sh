@@ -13,7 +13,9 @@
 #   PreToolUse        -> working  "running <tool>"  (throttled heartbeat)
 #   PermissionRequest -> needs_you, with the command in the sentence
 #                        (fires BEFORE the box renders; the Notification
-#                        hook is ~6 seconds late by design and is unused)
+#                        hook is ~6 seconds late by design and is unused);
+#                        working "running <tool>" instead when Kosmos's own
+#                        allow hook answers the request (#5495, no box shows)
 #   Stop              -> idle     (never erases a DELIBERATE blocked/needs_you or
 #                        an auto blocked; DOES clear a standing auto needs_you, a
 #                        permission prompt, once the turn moves on; #900/#1949/#2456)
@@ -339,6 +341,33 @@ MARK="$THROTTLE_DIR/$(printf '%s' "${TMUX_PANE:-nopane}" | tr -c 'A-Za-z0-9_-' '
 # needs the verdict.
 report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/null & ) 2>/dev/null || true; }
 
+# #5495: true when this agent runs with Kosmos's PermissionRequest allow hook (Kosmos's settings file sets these two
+# names, engine/agentpermission.js; Claude Code hands a settings file's env to its hooks) AND that hook allows this
+# request: the same decide(), asked by running the hook itself on the same input, with the node and script the
+# environment names (Kosmos's settings file sets them to what it runs as the allow hook). A path relative to this hook
+# would not do, because copies of this hook are deployed elsewhere (#1467). The script must be the allow hook by name.
+# Anything missing or failing is false, so the report says needs-you as before #5495; with no CLI to report through
+# there is nothing to decide. The grep matches decide()'s compact JSON.stringify output.
+# Bounded by the clock (macOS has no `timeout`): this hook's own entry is capped at 15 s, and a run that stalls past
+# it would send no report at all. A run still going at 6 ticks of $SECONDS (5 to 6 s real) is stopped by the pid this
+# function started, and reads false.
+kosmos_allows() {
+  [ -n "$KOSMOS" ] || return 1
+  [ -n "${KOSMOS_PERMISSION_ALLOW_NODE:-}" ] && [ -n "${KOSMOS_PERMISSION_ALLOW_SCRIPT:-}" ] || return 1
+  case "$KOSMOS_PERMISSION_ALLOW_SCRIPT" in */kosmos-permission-allow.js) ;; *) return 1 ;; esac
+  [ -f "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -x "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -f "$KOSMOS_PERMISSION_ALLOW_SCRIPT" ] || return 1
+  local out p r start=$SECONDS
+  out=$(mktemp "${TMPDIR:-/tmp}/kosmos-allow.XXXXXX" 2>/dev/null) || return 1
+  printf '%s' "$INPUT" | "$KOSMOS_PERMISSION_ALLOW_NODE" "$KOSMOS_PERMISSION_ALLOW_SCRIPT" > "$out" 2>/dev/null &
+  p=$!
+  while kill -0 "$p" 2>/dev/null && [ $((SECONDS - start)) -lt 6 ]; do sleep 0.1; done
+  if kill -0 "$p" 2>/dev/null; then kill "$p" 2>/dev/null; rm -f "$out" 2>/dev/null; return 1; fi
+  wait "$p" 2>/dev/null
+  grep -q '"behavior":"allow"' "$out" 2>/dev/null; r=$?
+  rm -f "$out" 2>/dev/null
+  return "$r"
+}
+
 heartbeat_due() {
   mkdir -p "$THROTTLE_DIR" 2>/dev/null || return 0
   if [ -f "$MARK" ]; then
@@ -436,7 +465,11 @@ case "$EVENT" in
     TOOL=$(json_field '.tool_name' 'tool_name'); TOOL="${TOOL:-a tool}"
     CMD=$(json_field '.tool_input.command' 'command' | head -c 200)
     rm -f "$MARK" 2>/dev/null || true
-    report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}" ;;
+    # #5495: Kosmos's own allow hook answered this request (no prompt shows), so the agent is working, not waiting.
+    if kosmos_allows; then
+      mkdir -p "$THROTTLE_DIR" 2>/dev/null; date +%s > "$MARK" 2>/dev/null || true
+      report working --auto "running ${TOOL}"
+    else report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}"; fi ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true
     # #900: --auto, so this end-of-turn idle cannot erase a `blocked` or

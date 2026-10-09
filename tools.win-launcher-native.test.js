@@ -448,7 +448,7 @@ const WEBVIEW2_SLOTS = {
     'get_IsWebMessageEnabled', 'put_IsWebMessageEnabled', 'get_AreDefaultScriptDialogsEnabled', 'put_AreDefaultScriptDialogsEnabled',
     'get_IsStatusBarEnabled', 'put_IsStatusBarEnabled']],
   ICoreWebView2NavigationStartingEventArgs: ['5b495469-e119-438a-9b18-7604f25f2e49', ['get_Uri', 'get_IsUserInitiated',
-    'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel']],
+    'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel', 'get_NavigationId']],
   ICoreWebView2NewWindowRequestedEventArgs: ['34acb11c-fc37-4418-9132-f9c21d1eafb9', ['get_Uri', 'put_NewWindow', 'get_NewWindow', 'put_Handled']],
   ICoreWebView2ProcessFailedEventArgs: ['8155a9a4-1474-4a86-8cae-151b0fa6b8ca', ['get_ProcessFailedKind']],
   /* #3996: the page's count for the taskbar badge (chrome.webview.postMessage). */
@@ -456,7 +456,10 @@ const WEBVIEW2_SLOTS = {
   ICoreWebView2WebMessageReceivedEventArgs: ['0f99a40c-e962-4207-9e92-e3d542eff849', ['get_Source', 'get_WebMessageAsJson']],
   /* #4381: whether a connect computer's Kosmos Plus sign-in loaded. */
   ICoreWebView2NavigationCompletedEventHandler: ['d33a35bf-1c49-4f98-93ab-006e0533fe1c', ['Invoke']],
-  ICoreWebView2NavigationCompletedEventArgs: ['30d68b7d-20d9-4752-a9ca-ec8448fbb5c1', ['get_IsSuccess', 'get_WebErrorStatus']],
+  ICoreWebView2NavigationCompletedEventArgs: ['30d68b7d-20d9-4752-a9ca-ec8448fbb5c1', ['get_IsSuccess', 'get_WebErrorStatus', 'get_NavigationId']],
+  /* #5483: when a connect window's page commits (the Mac's didCommit). */
+  ICoreWebView2ContentLoadingEventHandler: ['364471e7-f2be-4910-bdba-d72077d51c4b', ['Invoke']],
+  ICoreWebView2ContentLoadingEventArgs: ['0c8a1275-9b6b-4901-87ad-70df25bafa6e', ['get_IsErrorPage', 'get_NavigationId']],
 };
 
 test('#1118: every WebView2 interface the launcher declares has WebView2.h\'s id and slot order', () => {

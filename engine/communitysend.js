@@ -263,7 +263,12 @@ function sinceForOnPeriod(st) {
   const fresh = loadJson(stateFile());
   if (fresh && typeof fresh.since === 'string') { st.since = fresh.since; loggedOnce.delete('start'); return fresh.since; }
   const now = new Date().toISOString();
-  try { saveJson(stateFile(), { ...(fresh || st), since: now }); }
+  // #5460 review 3: a period starts only on a read that found the switch ON, so an unreadable window still open ends here.
+  const next = { ...(fresh || st), since: now };
+  if (Array.isArray(next.endedUnreadable)) {
+    next.endedUnreadable = next.endedUnreadable.map((w) => (w && typeof w.until !== 'string' ? { ...w, until: now } : w));
+  }
+  try { saveJson(stateFile(), next); }
   catch (err) {
     // #5435 review 2: named in the log, as the words the agent gets promise ("the board's log says which record").
     logOnce('start', 'communitysend: cannot write ' + stateFile() + ' (' + ((err && err.code) || 'write failed') + '), so this ON period has no start and nothing is sent until it can be written');
@@ -271,14 +276,36 @@ function sinceForOnPeriod(st) {
   }
   loggedOnce.delete('start');
   st.since = now;
+  if (next.endedUnreadable) st.endedUnreadable = next.endedUnreadable;
   return now;
 }
 
 // A sweep that finds the switch OFF ends the ON period, so posts published while OFF
 // are not due when it comes back ON.
-function endOnPeriod(st) {
+// #5460: when it ends because the switch could not be READ (not the person switching it off), the period is kept in
+// `endedUnreadable` ({ since, at, until }; `at`, when the sweep ended it, is kept for the log reader and read by no
+// code), so `kosmos community status` still says why its unsent items did not go after the switch is repaired and a
+// new period starts. The newest ENDED_UNREADABLE_KEEP are kept.
+const ENDED_UNREADABLE_KEEP = 20;
+function endOnPeriod(st, why) {
   if (typeof st.since !== 'string') return;
+  if (why === 'unreadable') {
+    const prior = Array.isArray(st.endedUnreadable) ? st.endedUnreadable : [];
+    // A period only starts on a read that found the switch ON, so an earlier window still open ended then (review 1).
+    for (const w of prior) if (w && typeof w.until !== 'string') w.until = st.since;
+    st.endedUnreadable = prior.concat([{ since: st.since, at: new Date().toISOString() }]).slice(-ENDED_UNREADABLE_KEEP);
+  }
   delete st.since;
+  try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
+}
+/* #5460: the first sweep that reads the switch again closes every open `endedUnreadable` window (`until`), so an item
+   made after the period ended but while the switch still could not be read is inside it too. */
+function closeUnreadableWindow(st) {
+  const open = (Array.isArray(st.endedUnreadable) ? st.endedUnreadable : []).filter((w) => w && typeof w.until !== 'string');
+  if (!open.length) return;
+  const now = new Date().toISOString();
+  // Review 3: a period that started after the window (a route's ON read) ended it then, not at this later sweep.
+  for (const w of open) w.until = typeof st.since === 'string' && st.since > w.since && st.since < now ? st.since : now;
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
 }
 /* #4373 part B: the person turned Community OFF. End the ON period now, not at the next sweep: an OFF-then-ON between
@@ -287,7 +314,11 @@ function endOnPeriod(st) {
    Best effort; the sweep still ends it too. */
 function endOnPeriodNow() {
   const st = loadJson(stateFile());
-  if (st) endOnPeriod(st);
+  if (!st) return;
+  // #5460 review 2: the switch was just read (to turn it OFF), so an open window ends here; review 3: before endOnPeriod
+  // drops `since`, so a window a later period started ends at that start.
+  closeUnreadableWindow(st);
+  endOnPeriod(st);
 }
 
 /** 🛑 A TEST RUN MUST NEVER PHONE HOME: node's test runner sets this, and nothing else does. */
@@ -1447,9 +1478,10 @@ async function sweepOnce(now) {
   // #5435 review 5: a switch file that cannot be read ends the period too, as OFF does. Keeping it (review 3) let a post
   // made while the board's pages showed OFF go public once the switch was repaired, and every way found of fencing
   // that stretch off leaked. Ending it loses what was made since the start and not yet sent: status says so
-  // (`switch_unreadable` while the switch cannot be read; #5460: `before_on` after a repair) and the agent can post it
+  // (`switch_unreadable`, also after a repair: #5460 records the ended period in `endedUnreadable`) and the agent can post it
   // again, while a public post the person never meant cannot be taken back.
-  if (!on && st) endOnPeriod(st);
+  if (!on && st) endOnPeriod(st, sw);
+  if (sw !== 'unreadable' && st) closeUnreadableWindow(st);
   if (!endpointAllowed()) {
     if (!reportedCorrupt.has('insecure:' + endpoint())) {
       reportedCorrupt.add('insecure:' + endpoint());

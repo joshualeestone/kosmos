@@ -204,23 +204,44 @@ test('#4381: "Run agents on this computer" is in the system menu only on a conne
 
 test('#4381: a connect window follows the connect link rules; Kosmos Plus not answering is said', () => {
   const nav = method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)');
-  inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect)', 'args.get_IsUserInitiated(out userInitiated);', 'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0)',
-    'if (decided == KosmosLauncher.ConnectLink.InApp) return;', 'args.put_Cancel(1);', 'OpenInPersonsBrowser(uri, true)', 'return;', 'KosmosLauncher.IsBoardAddress(uri, port)'], 'the connect rules');
+  inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect)', 'args.get_IsUserInitiated(out userInitiated);', 'args.get_IsRedirected(out redirected);',
+    'args.get_NavigationId(out navId);',
+    'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage))',
+    'if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; return; }',
+    'args.put_Cancel(1);', 'OpenInPersonsBrowser(uri, true)', 'return;', 'KosmosLauncher.IsBoardAddress(uri, port)'], 'the connect rules');
   const popup = method('internal void OnNewWindowRequested(ICoreWebView2NewWindowRequestedEventArgs args)');
   assert.match(popup, /KosmosLauncher\.ConnectLinkDecision\(uri, true\)/);
   const done = method('internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)');
-  assert.match(done, /if \(mode != KosmosLauncher\.ComputerMode\.Connect \|\| !connectLoadPending\) return;/);
-  assert.match(done, /connectLoadFailed = success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED;/);
+  assert.match(done, /if \(mode != KosmosLauncher\.ComputerMode\.Connect\) return;/);
+  assert.match(done, /connectLoadFailed = \(success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED\) \|\| connectLoadRefused;/);
+  // #5483: a first load the connect rules refused counts as failed (box + Reopen), set only while it is pending.
+  // Scoped to the first load's own navigation (one id across its redirects), never another nav's refusal.
+  assert.match(nav, /if \(decided == KosmosLauncher\.ConnectLink\.Block && connectLoadPending && connectLoadNavKnown && navId == connectLoadNavId\) connectLoadRefused = true;/);
+  assert.match(method('void LoadConnect()'), /connectLoadPending = true;\s*connectLoadRefused = false;\s*connectLoadNavKnown = false;\s*committedPage = null;\s*connectInWindow\.Clear\(\);/);
+  // NavigationCompleted only drops the navigation's in-window entry; only the first load's OWN completion settles
+  // the first load. (The committed page moves at ContentLoading, pinned just below, NOT here: a completion lags
+  // the page's own load-time scripts.)
+  inOrder(done, ['args.get_NavigationId(out navId);', 'connectInWindow.Remove(navId);',
+    'if (!connectLoadPending || (connectLoadNavKnown && navId != connectLoadNavId)) return;', 'connectLoadPending = false;'], 'the first load, by its own id');
+  // The committed page moves when a document COMMITS (ContentLoading, before its scripts), as the Mac's didCommit.
+  assert.match(method('internal void OnContentLoading(ICoreWebView2ContentLoadingEventArgs args)'),
+    /committedPage = isErrorPage == 0 && connectInWindow\.TryGetValue\(navId, out inWindow\) \? inWindow : null;/);
+  assert.match(SOURCE, /webView\.add_ContentLoading\(new ContentLoading\(this\), out token\);/);
+  // The first load is captured by its own address, not as whichever navigation starts first.
+  assert.match(nav, /if \(connectLoadPending && !connectLoadNavKnown && redirected == 0 && string\.Equals\(uri\.TrimEnd\('\/'\), KosmosLauncher\.KosmosPlusSignIn\.TrimEnd\('\/'\), StringComparison\.OrdinalIgnoreCase\)\)/);
+  // Cleared where the Mac clears committedPageURL: a switch either way, a crashed page, a fresh first load.
+  assert.match(method('void SwitchToConnect()'), /mode = KosmosLauncher\.ComputerMode\.Connect;[\s\S]*?committedPage = null;\s*connectInWindow\.Clear\(\);/);
+  assert.match(method('internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)'), /committedPage = null;/);
   assert.match(done, /KosmosLauncher\.KosmosPlusUnreachableMessage/);
   /* WebView2.h 1.0.4191.47: the handler's and the args' ids, and add_NavigationCompleted's slot. */
   assert.match(SOURCE, /\[ComImport, Guid\("d33a35bf-1c49-4f98-93ab-006e0533fe1c"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface ICoreWebView2NavigationCompletedEventHandler/);
-  assert.match(SOURCE, /\[ComImport, Guid\("30d68b7d-20d9-4752-a9ca-ec8448fbb5c1"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface ICoreWebView2NavigationCompletedEventArgs\n\{\n    void get_IsSuccess\(out int isSuccess\);\n    void get_WebErrorStatus\(out int webErrorStatus\);\n\}/);
+  assert.match(SOURCE, /\[ComImport, Guid\("30d68b7d-20d9-4752-a9ca-ec8448fbb5c1"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface ICoreWebView2NavigationCompletedEventArgs\n\{\n    void get_IsSuccess\(out int isSuccess\);\n    void get_WebErrorStatus\(out int webErrorStatus\);\n    void get_NavigationId\(out ulong navigationId\);\n\}/);
   const core = slice('public interface ICoreWebView2\n{', '\n}\n');
   const slots = core.split('\n').map((l) => l.match(/^\s+void (?:_unused_)?(\w+)\(/)).filter(Boolean).map((m) => m[1]);
   assert.equal(slots.indexOf('add_NavigationCompleted'), 12, 'add_NavigationCompleted is not ICoreWebView2\'s 13th method');
   const starting = slice('public interface ICoreWebView2NavigationStartingEventArgs\n{', '\n}\n');
   assert.deepEqual(starting.split('\n').map((l) => l.match(/^\s+void (?:_unused_)?(\w+)\(/)).filter(Boolean).map((m) => m[1]),
-    ['get_Uri', 'get_IsUserInitiated', 'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel']);
+    ['get_Uri', 'get_IsUserInitiated', 'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel', 'get_NavigationId']);   // WebView2.h 1.0.4191.47
 });
 
 test('#4381: the updater\'s board starts obey the mode too (engine/win32apply.js), so an update never brings a connect computer\'s board back', () => {
@@ -248,6 +269,10 @@ static class ModeProbe
     static byte[] B(string s) { return s == null ? null : Encoding.UTF8.GetBytes(s); }
     static void Mode(byte[] bytes, KosmosLauncher.ComputerMode want, string why) { var got = KosmosLauncher.ComputerModeFromBytes(bytes); Row(got == want, got.ToString().ToLowerInvariant(), why); }
     static void Link(string s, bool clicked, KosmosLauncher.ConnectLink want, string why) { var got = KosmosLauncher.ConnectLinkDecision(s, clicked); Row(got == want, got.ToString(), why); }
+    // #5483: the Mac's navCase and siteIs: fromKosmosPlusPage computed from the PAGE, so these pin the whole
+    // chain (which page counts as the site), as the launcher's OnNavigationStarting computes it.
+    static void Nav(string s, bool clicked, string page, KosmosLauncher.ConnectLink want, string why) { var got = KosmosLauncher.ConnectLinkDecision(s, clicked, KosmosLauncher.IsKosmosPlusSiteAddress(page)); Row(got == want, got.ToString(), why); }
+    static void Site(string s, bool want, string why) { bool got = KosmosLauncher.IsKosmosPlusSiteAddress(s); Row(got == want, got ? "site" : "not-site", why); }
 
     static int Main(string[] a)
     {
@@ -289,16 +314,17 @@ static class ModeProbe
         Link("https://josh.kosmosplus.com/#kst=abc", false, KosmosLauncher.ConnectLink.InApp, "a computer's board, after the handoff");
         Link("https://LOGIN.KosmosPlus.com/", false, KosmosLauncher.ConnectLink.InApp, "hosts are not case sensitive");
         Link("https://josh.kosmosplus.com:443/", false, KosmosLauncher.ConnectLink.InApp, "443 is the default port");
-        Link("https://josh.kosmosplus.com:8443/", false, KosmosLauncher.ConnectLink.Browser, "another port is not ours");
-        Link("https://a.b.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Browser, "two labels deep is not a computer");
-        Link("https://-x.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Browser, "a label must not start with a hyphen");
-        Link("https://x-.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Browser, "nor end with one");
-        Link("https://a_b.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Browser, "an underscore is not a host label (iOS refuses it too)");
-        Link("https://xn--80ak6aa92e.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Browser, "a punycode lookalike goes to the browser");
-        Link("https://" + new string('a', 64) + ".kosmosplus.com/", false, KosmosLauncher.ConnectLink.Browser, "a label over 63 characters is not a host");
-        Link("https://kosmosplus.com.evil.example/", false, KosmosLauncher.ConnectLink.Browser, "a lookalike suffix goes to the browser");
-        Link("https://user@login.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Browser, "a user part is not ours");
-        Link("https://stripe.com/pay", false, KosmosLauncher.ConnectLink.Browser, "any other site goes to the browser, even from a redirect");
+        Link("https://josh.kosmosplus.com:8443/", false, KosmosLauncher.ConnectLink.Block, "another port is not ours; an unclicked nav to it is refused");
+        Link("https://a.b.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "two labels deep is not a computer; refused unclicked");
+        Link("https://-x.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "a label must not start with a hyphen; refused unclicked");
+        Link("https://x-.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "nor end with one; refused unclicked");
+        Link("https://a_b.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "an underscore is not a host label (iOS refuses it too); refused unclicked");
+        Link("https://xn--80ak6aa92e.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "a punycode lookalike is refused (#5169), not sent to the browser");
+        Link("https://" + new string('a', 64) + ".kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "a label over 63 characters is not a host; refused unclicked");
+        Link("https://kosmosplus.com.evil.example/", false, KosmosLauncher.ConnectLink.Block, "a lookalike suffix is refused unclicked, not browsered (#5169)");
+        Link("https://user@login.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "a user part is not ours; refused unclicked");
+        Link("https://stripe.com/pay", false, KosmosLauncher.ConnectLink.Block, "#5169: an UNCLICKED foreign nav (a redirect or script) is refused, not sent to the browser");
+        Link("https://stripe.com/pay", true, KosmosLauncher.ConnectLink.Browser, "#5169: a CLICKED foreign link still opens in the browser (only an unclicked nav is refused)");
         Link("http://127.0.0.1:16180/", false, KosmosLauncher.ConnectLink.Block, "THIS COMPUTER'S STOPPED BOARD IS NEVER LOADED by a script or redirect");
         Link("http://example.com/", true, KosmosLauncher.ConnectLink.Browser, "plain http, clicked, goes to the browser");
         Link("mailto:help@kosmosplus.com", true, KosmosLauncher.ConnectLink.Browser, "a clicked mail link opens Mail");
@@ -306,8 +332,17 @@ static class ModeProbe
         Link("javascript:alert(1)", true, KosmosLauncher.ConnectLink.Block, "javascript: is refused");
         Link("file:///etc/passwd", true, KosmosLauncher.ConnectLink.Block, "file: is refused");
         Link("about:blank", false, KosmosLauncher.ConnectLink.InApp, "about:blank for the page's own use");
+        Nav("https://checkout.stripe.com/pay", false, "https://login.kosmosplus.com/signin", KosmosLauncher.ConnectLink.Browser, "#5169 MERGE GATE: an UNCLICKED checkout hand-off from the Kosmos+ sign-in page opens in the browser, so Buy works (fails on the pre-fix WIP, which blocked it)");
+        Nav("https://checkout.stripe.com/pay", false, "https://kosmosplus.com/", KosmosLauncher.ConnectLink.Browser, "#5169: the apex is the site too; its scripted checkout hand-off opens in the browser");
+        Nav("https://evil.example/", false, "https://josh.kosmosplus.com/", KosmosLauncher.ConnectLink.Block, "#5169: an unclicked foreign nav from a COMPUTER board (josh.kosmosplus.com, not the site) is still refused");
+        Nav("https://evil.example/", false, "http://127.0.0.1:27500/", KosmosLauncher.ConnectLink.Block, "#5169: an unclicked foreign nav from the local board page is refused");
+        Nav("https://evil.example/", false, null, KosmosLauncher.ConnectLink.Block, "#5169: an unclicked foreign nav with no current page is refused");
+        Nav("https://checkout.stripe.com/", true, "http://127.0.0.1:27500/", KosmosLauncher.ConnectLink.Browser, "#5169: a CLICKED foreign link opens in the browser even from the board (the person chose it)");
+        Site("https://login.kosmosplus.com/signin", true, "#5169: the sign-in coordinator IS the Kosmos+ site");
+        Site("https://josh.kosmosplus.com/", false, "#5169: a computer's board address is NOT the site (so a board page stays blocked)");
+        Site("https://checkout.stripe.com/", false, "#5169: a foreign host is not the site");
         // Windows' own.
-        Link("https://j\u00f6sh.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Browser, "WINDOWS: a non-ASCII host is not ours");
+        Link("https://j\u00f6sh.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "WINDOWS: a non-ASCII host is not ours; refused unclicked");
         Link("http://127.0.0.1:16180/", true, KosmosLauncher.ConnectLink.Browser, "WINDOWS: even a click on this board goes to the browser, never this window");
         Link("tel:+15555550100", true, KosmosLauncher.ConnectLink.Browser, "WINDOWS: a clicked phone link opens the phone app");
         Link("ms-settings:privacy", true, KosmosLauncher.ConnectLink.Block, "WINDOWS: an app scheme is refused, clicked or not");
@@ -330,7 +365,7 @@ static class ModeProbe
         KosmosLauncher.computerModeFile = () => file;
         Row(KosmosLauncher.LaunchComputerMode() == KosmosLauncher.ComputerMode.Run, "switch", "WITH THE SWITCH OFF every computer runs agents, whatever the file holds");
 
-        const int expected = 53;
+        const int expected = 63;
         if (ran != expected) { Console.WriteLine("\nmode-check: only " + ran + " of " + expected + " rows ran, so this proved nothing"); return 1; }
         if (bad > 0) { Console.WriteLine("\nmode-check: " + bad + " row(s) wrong"); return 1; }
         Console.WriteLine("\nmode-check: all good (" + ran + " rows)");
@@ -365,36 +400,35 @@ test('#4381: the Mac selftest\'s rows, and Windows\' own, all run and all pass (
   if (!needsProbe(t)) return;
   const r = probe(['rows', fs.mkdtempSync(path.join(probeDir, 'disk-'))]);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /\nmode-check: all good \(53 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);
-  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 53, r.stdout);
+  assert.match(r.stdout, /\nmode-check: all good \(63 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);
+  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 63, r.stdout);
   assert.doesNotMatch(r.stdout, /^FAIL /m, r.stdout);
   /* The Mac's rows are all here, by their words: a row dropped on one side is a rule the two no longer share. */
   const mac = fs.readFileSync(path.join(REPO, 'native-app', 'main.swift'), 'utf8');
   const selftest = mac.slice(mac.indexOf('if CommandLine.arguments.contains("--kosmos-app-mode-selftest")'), mac.indexOf('/* #3996: the Dock badge\'s number'));
-  const macWhys = [...selftest.matchAll(/^\s+(?:mode|link)\([^\n]*, "([^"]+)"\)$/gm)].map((m) => m[1]);
-  // #5169 (follow-up #5483): the Mac now BLOCKS an unclicked foreign nav where the Windows launcher
-  // still opens it in the browser. Windows cancels the in-window nav either way, so it has no
-  // board-replacement bug; KosmosLauncher.cs is simply not ported yet (#5483). These exact Mac 'why'
-  // strings therefore have no Windows counterpart today, so skip ONLY them in the parity loop below.
-  // Every other shared rule is still enforced. The assertion right after keeps this list honest: an
-  // entry that no longer names a real Mac row fails here, so the exception cannot outlive its rows.
-  const MAC_ONLY_WHYS = new Set([
-    'another port is not ours; an unclicked nav to it is refused',
-    'two labels deep is not a computer; refused unclicked',
-    'a label must not start with a hyphen; refused unclicked',
-    'nor end with one; refused unclicked',
-    'an underscore is not a host label (iOS refuses it too); refused unclicked',
-    'a punycode lookalike is refused (#5169), not sent to the browser',
-    'a label over 63 characters is not a host; refused unclicked',
-    'a lookalike suffix is refused unclicked, not browsered (#5169)',
-    'a user part is not ours; refused unclicked',
-    '#5169: an UNCLICKED foreign nav (a redirect or script) is refused, not sent to the browser',
-    '#5169: a CLICKED foreign link still opens in the browser (only an unclicked nav is refused)',
+  // #5483: navCase and siteIs too, not only mode and link: the #5169 checkout exception lives in navCase.
+  const macWhys = [...selftest.matchAll(/^\s+(?:mode|link|navCase|siteIs)\([^\n]*, "([^"]+)"\)$/gm)].map((m) => m[1]);
+  // Mac selftest rows that Windows deliberately does NOT share, each with the one condition that would
+  // make its exception wrong. #5483 ported #5169's connect rules, so only the two run/both board rows
+  // remain (#5492: Windows applies these rules on connect computers only). A green run reads as full
+  // parity only while this is empty, and the test says so, naming every excused rule, whenever it is not.
+  //   ['<the Mac why, verbatim>', { card: '#NNNN', wrongIf: '<the one condition that makes this wrong>' }],
+  const MAC_ONLY_WHYS = new Map([
+    ["#5169: a run/both computer's OWN local board stays in-app, even unclicked", { card: '#5492', wrongIf: 'the Windows launcher applies ConnectLinkDecision on run/both computers with the board host:port' }],
+    ["#5169: a DIFFERENT local port is not this computer's board; refused unclicked", { card: '#5492', wrongIf: 'the Windows launcher applies ConnectLinkDecision on run/both computers with the board host:port' }],
   ]);
-  assert.equal(macWhys.length, 35, 'the Mac selftest\'s rows could not be read');   // 34 before #5169; +1 for the clicked-foreign link row
-  for (const why of MAC_ONLY_WHYS) assert.ok(macWhys.includes(why), 'a MAC_ONLY_WHYS entry (#5483) is no longer a Mac selftest row; remove it: ' + why);
+  assert.equal(macWhys.length, 46, 'the Mac selftest\'s rows could not be read');   // 35 mode and link rows, 8 navCase, 3 siteIs (#5483)
+  for (const [why, x] of MAC_ONLY_WHYS) {
+    assert.ok(macWhys.includes(why), 'a MAC_ONLY_WHYS entry is no longer a Mac selftest row; remove it: ' + why);
+    assert.ok(x && /^#\d+$/.test(x.card) && x.wrongIf, 'a MAC_ONLY_WHYS entry needs its card and the condition that makes it wrong: ' + why);
+  }
+  // #5483 (review of #5482): an excused rule must be visible in a green run, not hidden in it.
+  if (MAC_ONLY_WHYS.size > 0) {
+    t.diagnostic('Windows matches the Mac EXCEPT ' + MAC_ONLY_WHYS.size + ' rule(s): ' +
+      [...MAC_ONLY_WHYS].map(([why, x]) => why + ' (' + x.card + '; wrong if ' + x.wrongIf + ')').join(' | '));
+  }
   for (const why of macWhys) {
-    if (MAC_ONLY_WHYS.has(why)) continue;   // #5169: diverged on Windows, tracked by #5483
+    if (MAC_ONLY_WHYS.has(why)) continue;
     assert.ok(r.stdout.includes(why), 'the Mac row "' + why + '" is not run on Windows');
   }
 });

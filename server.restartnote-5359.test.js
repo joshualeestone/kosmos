@@ -31,9 +31,18 @@ fs.writeFileSync(rn._files.noteFile(), JSON.stringify({
    for hours before the computer died never makes a note. server.js requires this same cached module, so wrapping it
    here records the call without waiting a minute. */
 let beatsArmed = 0;
+// #5450 review 3: and start() passes the launcher's word, taken from the environment at load, to atStart.
+let atStartGot = null;
+const realAtStart = rn.atStart;
+rn.atStart = (deps) => { atStartGot = deps || null; return realAtStart(deps); };
 const realStartBeating = rn.startBeating;
 rn.startBeating = (...a) => { beatsArmed++; const t = realStartBeating(...a); if (t && t.unref) t.unref(); return t; };
+// #5450: the launcher's word is taken out of the environment when server.js loads, before anything could inherit it.
+process.env.KOSMOS_BOARD_STARTED_BY = 'supervisor';
+process.env.KOSMOS_BOARD_PERSON_MARK = '/nonexistent/board.person-start';
+process.env.KOSMOS_START_BY = 'supervisor';
 const { start, server } = require('./server');
+const STARTED_BY_LEFT = 'KOSMOS_BOARD_STARTED_BY' in process.env || 'KOSMOS_BOARD_PERSON_MARK' in process.env || 'KOSMOS_START_BY' in process.env;
 
 test('#5359: the board serves the restart note, records a dismiss, and says it is alive at start', async (t) => {
   await start(0);
@@ -54,4 +63,12 @@ test('#5359: the board serves the restart note, records a dismiss, and says it i
 
   const after = await (await fetch(`${base}/api/board/restart-note`)).json();
   assert.equal(after.note, null, 'the note was served after it was dismissed');
+});
+
+test('#5450: loading server.js removes the launcher\'s word from the environment (no agent it starts inherits it)', () => {
+  assert.equal(STARTED_BY_LEFT, false);
+  // Review 3: and start() handed it to atStart (the first test started the board).
+  assert.ok(atStartGot, 'start() never called atStart');
+  assert.equal(atStartGot.startedBy, 'supervisor', 'atStart was not told who started the board');
+  assert.equal(atStartGot.personMark, '/nonexistent/board.person-start');
 });

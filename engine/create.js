@@ -102,9 +102,10 @@ const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos lau
  */
 /* #2140 (Josh, 0.6.35 feedback item 10): the Claude picker is ordered
    MOST-POWERFUL-FIRST, in Josh's exact order. #3459 (2026-09-23) added Opus 5.5
-   ahead of Opus 5, and #4439 (2026-09-28) added Sonnet 5.5 ahead of Sonnet 5, so
-   the order is now: Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5,
-   Sonnet 5, Haiku. The array order IS the display order (the picker
+   ahead of Opus 5, #4439 (2026-09-28) added Sonnet 5.5 ahead of Sonnet 5,
+   and #5626 (2026-10-08) added Haiku 5.5 ahead of Haiku 4.5, so the order is
+   now: Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5,
+   Haiku 5.5, Haiku 4.5. The array order IS the display order (the picker
    renders MODELS in sequence), so this list is the single source of that order;
    create.test.js and model-sort-order-2284.test.js assert it exactly. The DEFAULT
    is unchanged (Sonnet 5,
@@ -143,8 +144,14 @@ const MODELS = [
     why: 'The newest Sonnet, with more recent knowledge (to June 2026). Quick, and good at most work.' },
   { key: 'sonnet', provider: 'anthropic', label: 'Claude Sonnet 5', arg: 'claude-sonnet-5', default: true,
     why: 'The everyday choice. Quick, and good at most work.' },
+  // #5626 (Josh, 2026-10-08): add Haiku 5.5, the newest Haiku. Id claude-haiku-5-5, as Anthropic's models page and
+  // models API list it (released 2026-10-07; dateless, its own pinned snapshot). Placed ahead of Haiku 4.5 as the
+  // newest of its tier. Haiku 4.5 STAYS (Josh: "let's not delete any other Claude models"), and the DEFAULT stays
+  // Sonnet 5. Named in status.js MODEL_NAMES and priced in engine/usageprice.js and web/index.html too.
+  { key: 'haiku55', provider: 'anthropic', label: 'Claude Haiku 5.5', arg: 'claude-haiku-5-5',
+    why: 'The newest Haiku, with more recent knowledge (to June 2026). The quickest and the cheapest, for small jobs done often.' },
   { key: 'haiku', provider: 'anthropic', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001',
-    why: 'The quickest and the cheapest. For small, simple jobs done often.' },
+    why: 'The previous Haiku generation. Quick, for small, simple jobs done often.' },
 ];
 
 /**
@@ -217,6 +224,25 @@ function modelFor(provider, modelKey) {
 function defaultModelKeyFor(provider) {
   const m = modelsFor(provider).find((x) => x.default);
   return m ? m.key : null;
+}
+/**
+ * #5534: whether the company policy in force allows an agent on this provider and model. The model may be given by
+ * its key or its full id; both names are checked so a policy may list either. Given no model, an agent runs what its
+ * runner picks: Gemini and Grok are pinned by the supervisor (win32keyed.DEFAULT_MODEL), so that model is the one
+ * asked about; Claude Code, Codex and Antigravity choose their own (it depends on the account), so no list can name it and a
+ * provider with a model list refuses a model-less agent. A failure inside the policy code never blocks a create.
+ */
+function policyAllows(provider, modelKey) {
+  try {
+    const given = modelKey == null ? '' : String(modelKey).trim();
+    const pinned = require('./win32keyed').DEFAULT_MODEL;
+    const key = given || (provider === 'google' ? pinned.gemini : provider === 'xai' ? pinned.grok : '');
+    // Both names of a model in this provider's own list (modelsFor answers Claude's list for providers without one).
+    const known = key ? modelsFor(provider).find((x) => x.provider === provider && (x.key === key || x.arg === key)) : null;
+    return require('./orgpolicy').allows({ provider, model: known ? [known.key, known.arg] : [key] });
+  } catch {
+    return { ok: true };
+  }
 }
 // ⚠️ The ROSTER, from the module that defines what an agent name is. A second
 // reading of tmux here would be a second definition of "who is already
@@ -1828,6 +1854,18 @@ function setProvider(name, provider, opts) {
     && !(provider === 'antigravity' && antigravityEnabled())) { // #3568: behind its flag
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
+  /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
+  {
+    // The model the person picked with the switch (set right after it, #5429); none picked is what the runner picks.
+    const picked = opts && typeof opts.model === 'string' ? opts.model.trim() : '';
+    const allowed = policyAllows(provider, picked);
+    if (!allowed.ok) {
+      // Gemini and Grok take no model with a switch (they start on their pinned default), so say that is what was asked.
+      const pinnedNote = !picked && (provider === 'google' || provider === 'xai')
+        ? `. A switch starts it on its default model; to use another, create a new agent on an allowed model` : '';
+      return { outcome: OUTCOME.REFUSED, because: allowed.because + pinnedNote };
+    }
+  }
   /* #3564: a swarm's meter and stop keys are Claude Code's, so it stays on Claude, as at birth. */
   if (provider !== 'anthropic') {
     let profile = null;
@@ -2364,6 +2402,12 @@ function setModel(name, modelKey, opts) {
     }
   }
 
+  /* #5534: switching onto a model the company policy does not allow is refused like creating an agent on it. */
+  {
+    // The one definition (policyAllows): an empty choice is the runner's own pick, pinned for Gemini and Grok.
+    const allowed = policyAllows(agentProvider, m.key || m.arg || '');
+    if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
+  }
   const unwritten = rewriteAgentJob(clean, spoken, {
     runnerBin: job.claude, tmux: job.tmux, model: m.arg, configDir: job.configDir, runner: job.runner,
   }, platform);
@@ -4371,6 +4415,12 @@ function createAgentInner(opts) {
     && !(provider === 'meta' && museEnabled(opts && opts.platform))) { // #3939: behind its flag, Mac only
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
   }
+  // #5534 (Enterprise E0.5): a company policy in force on this board may not allow this provider or model. Refused
+  // before anything is written, with the policy's own sentence; agents already running are never stopped by it.
+  {
+    const allowed = policyAllows(provider, opts && opts.model);
+    if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because, steps };
+  }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
      when its settings are wrong or it is not on Claude (v1). */
   const kind = opts && opts.kind !== undefined && opts.kind !== null && opts.kind !== '' ? String(opts.kind) : 'agent';
@@ -4957,6 +5007,7 @@ function createAgentInner(opts) {
      hides nothing; while a create that ends PARTIAL leaves a launch file (so a card), which must not inherit it. */
   try { require('./disruption').clear(name); } catch { /* best-effort */ }
   try { require('./crashloop').forget(name); } catch { /* #5154: a new agent never inherits an old loop */ }
+  try { require('./stuckterminal').forget(name); } catch { /* #5154 slice C: nor an old stuck-terminal episode's clock */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
     return {
@@ -6187,7 +6238,7 @@ module.exports = {
   // exists because two definitions of one fact is where its worst defects came
   // from. The menu, the create check and the change check now all read one.
   modelsFor,
-  defaultModelKeyFor,
+  defaultModelKeyFor, policyAllows,
   modelFor,
   SELF_STARTS,
   selfStarts,

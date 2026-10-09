@@ -68,15 +68,19 @@ test('#5406 the hook script itself answers on stdout and always exits 0', () => 
   assert.equal(junk.stdout, '');
 });
 
-test('#5406 the settings file holds one PermissionRequest hook and nothing else, per platform', () => {
+test('#5406 the settings file holds one PermissionRequest hook and #5495\'s env names, nothing else, per platform', () => {
   const mac = JSON.parse(ap.settingsText({ platform: 'darwin', node: '/opt/kosmos/node', script: '/opt/kosmos/engine/kosmos-permission-allow.js' }));
-  assert.deepEqual(Object.keys(mac), ['hooks']);
+  assert.deepEqual(Object.keys(mac), ['env', 'hooks'], 'the hook and the #5495 env names, nothing else');
+  assert.deepEqual(mac.env, { [ap.ENV_NODE]: '/opt/kosmos/node', [ap.ENV_SCRIPT]: '/opt/kosmos/engine/kosmos-permission-allow.js' },
+    '#5495: the report hook learns from these which allow hook this agent runs');
   assert.deepEqual(Object.keys(mac.hooks), ['PermissionRequest'], 'no permission rules, no other hooks');
   assert.equal(mac.hooks.PermissionRequest[0].hooks[0].command, '"/opt/kosmos/node" "/opt/kosmos/engine/kosmos-permission-allow.js"');
   const win = JSON.parse(ap.settingsText({ platform: 'win32', node: 'C:\\Kosmos\\node.exe', script: 'C:\\Kosmos\\engine\\kosmos-permission-allow.js' }));
   const h = win.hooks.PermissionRequest[0].hooks[0];
   assert.equal(h.command, 'C:\\Kosmos\\node.exe', 'Windows: the exec form, no shell (as the report hook, #570)');
   assert.deepEqual(h.args, ['C:\\Kosmos\\engine\\kosmos-permission-allow.js']);
+  assert.deepEqual(win.env, { [ap.ENV_NODE]: 'C:\\Kosmos\\node.exe', [ap.ENV_SCRIPT]: 'C:\\Kosmos\\engine\\kosmos-permission-allow.js' },
+    '#5495: Windows carries the env names too (the Windows report hook gates on them)');
   assert.equal(ap.settingsText({ platform: 'darwin', node: '/odd"path/node' }), null, 'a path that cannot ride in a command: no file');
 });
 

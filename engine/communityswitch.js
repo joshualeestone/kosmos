@@ -27,17 +27,59 @@ const FILE = path.join(store.ROOT, 'community.json');
 /**
  * No file is a never-asked machine, fresh or existing, and reads ON (Josh's default). A present
  * file that cannot be read or parsed reads OFF with ok:false: it could be hiding an OFF we cannot
- * see, and what it gates is posts leaving the machine (the feedbacksend split, #2037).
+ * see, and what it gates is posts leaving the machine (the feedbacksend split, #2037). A brief failure is read again
+ * first (#5460, see RETRIES below).
  */
 function read() {
+  let r = readOnce();
+  if (r.ok) { lastFailed = null; return { on: r.on, ok: true }; }
+  if (!r.retry) return { on: r.on, ok: r.ok };
+  // The same failure on the same file as last time (review 1: a file that stays corrupt, or a lasting EACCES) is not
+  // read again: every reader would wait RETRIES pauses on every call until the person rewrites it. A file a writer is
+  // part way through changes its size or time between reads, so it is retried.
+  if (failureKey(r) === lastFailed) return { on: r.on, ok: r.ok };
+  // Review 2: a file that keeps changing (a slow writer) is a new failure every time, so retry rounds are spaced at
+  // least RETRY_GAP_MS apart: a reader never waits on more than one round in that span.
+  // Review 3: only a round that ended in failure starts the gap, so a brief failure after one that recovered is retried.
+  if (Date.now() - lastRound < RETRY_GAP_MS) return { on: r.on, ok: r.ok };
+  for (let attempt = 0; attempt < RETRIES; attempt++) {
+    pause(RETRY_MS);
+    r = readOnce();
+    if (r.ok) { lastFailed = null; return { on: r.on, ok: true }; }
+    if (!r.retry) break;
+  }
+  lastRound = Date.now();
+  lastFailed = failureKey(r);
+  return { on: r.on, ok: r.ok };
+}
+let lastFailed = null;
+let lastRound = 0;
+const RETRY_GAP_MS = 2000;
+function failureKey(r) {
+  let st = 'nostat';
+  try { const x = fs.statSync(FILE); st = x.size + ':' + x.mtimeMs + ':' + x.ctimeMs; } catch { /* keyed on the error alone */ }
+  return (r.code || '') + '|' + st;
+}
+
+/* #5460: an unreadable switch ends the ON period for every agent (communitysend's sweep), so one brief failure must not
+   count. A read error that usually passes (a Windows scanner holding the file: EBUSY, EPERM, EACCES; too many open
+   files; EIO; EAGAIN) and a file that does not parse (caught mid-write by a writer that is not ours) are read again,
+   RETRIES more times RETRY_MS apart, before the switch reads as unreadable. Other errors are not retried. The pause is
+   synchronous, so it holds the whole board process (every request), not only this reader: hence the bounds below. */
+const RETRIES = 3;
+const RETRY_MS = 50;
+const TRANSIENT = new Set(['EBUSY', 'EPERM', 'EACCES', 'EMFILE', 'ENFILE', 'EIO', 'EAGAIN']);
+let pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function readOnce() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
   catch (err) {
     if (err && err.code === 'ENOENT') return { on: true, ok: true };
-    return { on: false, ok: false };
+    return { on: false, ok: false, retry: Boolean(err && TRANSIENT.has(err.code)), code: err && err.code };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false }; }
+  try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false, retry: true, code: 'PARSE' }; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, ok: false };
   return { on: parsed.on === true, ok: true };
 }
@@ -80,4 +122,10 @@ function participating() {
   return r.ok === true && r.on === true;
 }
 
-module.exports = { read, setOn, participating, migrate, FILE };
+/* Tests only: replace the pause between retries (null puts the real one back), and forget the last failure. */
+const realPause = pause;
+function _setPause(f) { pause = f || realPause; lastFailed = null; lastRound = 0; }
+/* Tests only: as if RETRY_GAP_MS had passed, keeping the remembered failure. */
+function _endRetryGap() { lastRound = 0; }
+
+module.exports = { read, setOn, participating, migrate, FILE, RETRIES, _setPause, _endRetryGap };

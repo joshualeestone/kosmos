@@ -209,7 +209,7 @@ test('GET /api/tasks?view=tasks: a project whose claims cannot be read says so o
 test('GET /api/tasks?view=tasks leaves out archived projects (and pays nothing for them); the plain list keeps them', async () => {
   const p = projects.create({ name: 'Set aside' });
   tasks.create(p.id, { sentence: 'In an archived project' });
-  projects.setArchived(p.id, true);
+  projects.edit(p.id, { archived: true });
   assert.equal(projects.readAll().find((x) => x.id === p.id).archived, true, 'the fixture did not archive the project; update this test');
   const real = projects.joinTaskClaims;
   const seen = [];

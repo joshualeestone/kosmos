@@ -302,6 +302,18 @@ test('#4439: claude-sonnet-5-5 is priced like claude-sonnet-5 (tier_2_10), not u
   assert.notStrictEqual(p5, p, 'claude-sonnet-5 and claude-sonnet-5-5 resolved to the same row');
 });
 
+test('#5626: claude-haiku-5-5 is priced at its published base rates, not unpriced and not as Haiku 4.5', () => {
+  // platform.claude.com pricing (2026-10-08), prompts up to 100,000 tokens: in 0.10 / out 0.50 / 5-minute write 0.125 /
+  // cache read 0.01. Longer prompts cost 5x; a usage day has no per-request size, so the base rate is used (on #5626).
+  const p = U.usageModelPrice('claude-haiku-5-5');
+  assert.deepEqual(p, { in: 0.10, out: 0.50, cw: 0.125, cr: 0.01 });
+  const r = U.usageApiCost({ d: { 'claude-haiku-5-5': { input_tokens: 1e6, output_tokens: 1e6, cache_creation_input_tokens: 1e6, cache_read_input_tokens: 1e6 } } });
+  assert.ok(Math.abs(r.cost - 0.735) < 1e-9, 'haiku-5-5 1M-each -> $0.735, got ' + r.cost);
+  assert.deepEqual(r.unpriced, [], 'haiku-5-5 is not in unpriced');
+  // CONTROL: Haiku 4.5 keeps its own, different row.
+  assert.deepEqual(U.usageModelPrice('claude-haiku-4-5-20251001'), { in: 1, out: 5, cw: 1.25, cr: 0.10 });
+});
+
 /* #2840: the scrollable usage-history list. FIXTURE per-row 4-class totals:
    2026-09-01: 2,140,559 + 760,331 + 9,401,220 + 1,023,445,990 = 1,035,748,100
    2026-08-31: 2,010,445 + 701,558 + 8,702,558 +   940,558,112 =   951,972,673 */
@@ -505,4 +517,19 @@ test('#2617: two agents with the same display name are named apart', () => {
   const one = U.usageAgentRows({ ...BY_AGENT, elsewhere: Z,
     agents: [{ name: 'pm-a', shown: 'PM', ...B(9, 0) }, { name: 'pm-b', shown: 'PM', ...Z }] });
   assert.deepEqual(one.map((r) => r.name), ['PM'], 'a zero-token namesake still forced a suffix');
+});
+
+test('#5158: the models Codex, Gemini CLI and Grok agents run carry their published prices; an unpublished id stays unpriced', () => {
+  // $ per million tokens, from each provider's own page (fetched 2026-10-03; the sources are in the comment above the table).
+  assert.deepEqual(U.usageModelPrice('gpt-5.6-sol'), { in: 4, out: 20, cw: 5.00, cr: 0.40 });
+  assert.deepEqual(U.usageModelPrice('gemini-3.8-flash'), { in: 0.75, out: 3.75, cw: 0.75, cr: 0.075 });
+  assert.deepEqual(U.usageModelPrice('grok-4.6'), { in: 2, out: 6, cw: 2, cr: 0.50 });
+  assert.equal(U.usageModelPrice('grok-4.6-build'), null, 'grok-4.6-build has no published price and must not borrow one');
+  // A Codex day: 1M fresh input, 1M cache reads, 0.1M output = 4 + 0.40 + 2 = $6.40, and grok-4.6-build named as unpriced.
+  const cost = U.usageApiCost({ '2026-10-02': {
+    'gpt-5.6-sol': { input_tokens: 1e6, output_tokens: 1e5, cache_creation_input_tokens: 0, cache_read_input_tokens: 1e6 },
+    'grok-4.6-build': { input_tokens: 1e6, output_tokens: 1e5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+  } });
+  assert.ok(Math.abs(cost.cost - 6.40) < 1e-9, 'gpt-5.6-sol priced from its published rates: ' + JSON.stringify(cost));
+  assert.ok((cost.unpriced || []).includes('grok-4.6-build'), 'the unpriced model is named: ' + JSON.stringify(cost));
 });

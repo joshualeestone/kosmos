@@ -748,3 +748,22 @@ test('#1401: a pre-existing provider is RESTORED, not blanked', () => {
     else process.env.AGENT_WORKFORCE_CODEX_BIN = prev;
   }
 });
+
+test('#5534: a company policy that does not allow a folder\'s provider refuses connecting it, before anything is written', () => {
+  const orgpolicy = require('./orgpolicy');
+  fs.mkdirSync(path.dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: ['anthropic'], models_allowed: null } }));
+  try {
+    const dir = agentFolder('policycodex', 'AGENTS.md', '# You are Policy Codex\n');
+    const r = discover.connect(dir);
+    assert.equal(r.ok, false, 'a Codex folder was connected under a policy that allows only anthropic');
+    assert.match(String(r.because), /policy does not allow openai/);
+    assert.equal(create.hasJob('policycodex'), false, 'a refused connect installed a job');
+    assert.equal((store.readProfile('policycodex') || {}).dir, undefined, 'a refused connect wrote a profile');
+    const ok = discover.connect(agentFolder('policyclaude', 'CLAUDE.md', '# You are Policy Claude\n'));
+    assert.equal(ok.ok, true, 'CONTROL: an allowed provider connects: ' + ok.because);
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+});

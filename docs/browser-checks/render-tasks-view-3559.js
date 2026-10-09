@@ -98,7 +98,7 @@ function chk(ok, label, extra) {
   // An ARCHIVED project's task must not appear anywhere in the view.
   const old = projects.create({ name: 'Old catalog' });
   tasks.create(old.id, { sentence: 'Archived away task' });
-  projects.setArchived(old.id, true);
+  projects.edit(old.id, { archived: true });
   const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, built: 1, scheduled: 0, held: 1, closed: 1 };   // #5456: no repeating task here (render-onhold-4771 counts one)
 
   const server = await srv.start(0);

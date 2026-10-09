@@ -1413,6 +1413,10 @@ if boot_board "$sb7" "$P8"; then
   # without dropping to "gone". Read-only (drives card() with fixture agents shaped
   # to the engine contract, reads computed styles), so it runs on this board.
   run_one "render-restart-timedout-2019" node docs/browser-checks/render-restart-timedout-2019.js "$B8"
+  # #5154 slice C: an agent stuck past the threshold on a terminal error (expired login / rate limit that has
+  # not lifted) names what is wrong + what to do and counts as an Issue; a brief one does not. Read-only (drives
+  # card() + agentNeedsAttention() with fixture agents carrying stuckError, reads the DOM), so it runs on this board.
+  run_one "render-stuck-terminal-5154" node docs/browser-checks/render-stuck-terminal-5154.js "$B8"
   # #1652: the import-my-existing-agent walk. A create-flow check like
   # render-create-form (fills the form, never presses Create, so it persists
   # nothing on this shared board). It POSTs /api/first-run/complete itself, so

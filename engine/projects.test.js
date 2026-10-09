@@ -180,11 +180,11 @@ test('archiving sets the flag and the date; restoring clears BOTH', () => {
   reset();
   const p = projects.create({ name: 'Season', folder: folder('season') });
 
-  const on = projects.setArchived(p.id, true);
+  const on = projects.edit(p.id, { archived: true });
   assert.equal(on.archived, true);
   assert.ok(on.archivedAt, 'the date the person will read in the disclosure row');
 
-  const off = projects.setArchived(p.id, false);
+  const off = projects.edit(p.id, { archived: false });
   assert.equal(off.archived, false);
   // A stale "archived at" beside a project that is not archived would be a
   // sentence about a thing that is no longer true.
@@ -201,7 +201,7 @@ test('archiving touches nothing else: record, folder, and members stay as they a
   // whether the agent was visible at add time is another test's question.
   projects.addAgent(p.id, 'mara');
 
-  projects.setArchived(p.id, true);
+  projects.edit(p.id, { archived: true });
 
   const row = projects.readAll().find((x) => x.id === p.id);
   assert.ok(row, 'archived is a state, not a removal');
@@ -216,7 +216,7 @@ test('re-archiving a record with a stray distrusted date stamps NOW, not the str
   Object.assign(all.find((x) => x.id === p.id), { archived: false, archivedAt: '2019-03-04T00:00:00.000Z' });
   projects.writeAll(all);
   // The read side heals this to null; the write side must not republish it.
-  const on = projects.setArchived(p.id, true);
+  const on = projects.edit(p.id, { archived: true });
   assert.ok(!String(on.archivedAt).startsWith('2019'),
     'the distrusted stray date was published as the archive date');
 });
@@ -236,7 +236,7 @@ test('a mangled archivedAt VALUE never becomes a confident date', () => {
   projects.writeAll(all2);
   assert.equal(projects.get(p.id, []).archivedAt, null, 'an unparseable stray published as a date');
   // And the WRITE side: re-archiving over the numeric stray stamps now.
-  const on = projects.setArchived(p.id, true);
+  const on = projects.edit(p.id, { archived: true });
   assert.equal(typeof on.archivedAt, 'string');
   assert.ok(!Number.isNaN(new Date(on.archivedAt).getTime()));
 });
@@ -295,8 +295,8 @@ test('a record written before archiving existed reads as not archived, not as un
 test('anything but a boolean is refused, because "false" the string is not false', () => {
   reset();
   const p = projects.create({ name: 'Strict', folder: folder('strict') });
-  assert.throws(() => projects.setArchived(p.id, 'false'), /true or false/);
-  assert.throws(() => projects.setArchived(p.id, 1), /true or false/);
+  assert.throws(() => projects.edit(p.id, { archived: 'false' }), /true or false/);
+  assert.throws(() => projects.edit(p.id, { archived: 1 }), /true or false/);
   const row = projects.get(p.id, []);
   assert.equal(row.archived, false, 'a refused write changes nothing');
 });
@@ -1300,7 +1300,7 @@ test('null means absence for a description, as it does for name and folder', () 
   reset();
   const made = projects.create({ name: 'Nullable', folder: folder('nullable'), description: null });
   assert.strictEqual(made.description, '', 'null on create is not-provided, not malformed');
-  projects.setDescription(made.id, 'words');
+  projects.edit(made.id, { description: 'words' });
   assert.strictEqual(projects.edit(made.id, { description: null }).description, '',
     'null on edit clears, the same deliberate act as the explicit empty');
 });
@@ -1346,22 +1346,22 @@ test('a description is stored trimmed, one-line, capped, and optional', () => {
   'over-length is refused with the sentence, never silently cut');
 });
 
-test('setDescription updates, clears on explicit empty, and heals legacy records', () => {
+test('edit({ description }) updates, clears on explicit empty, and heals legacy records', () => {
   reset();
   const made = projects.create({ name: 'Mutable', folder: folder('mutable'), description: 'first words' });
-  assert.equal(projects.setDescription(made.id, '  second words  ').description, 'second words');
+  assert.equal(projects.edit(made.id, { description: '  second words  ' }).description, 'second words');
   // ⚠️ Explicit empty CLEARS -- a description is optional by design and the
   // settings screen offers clearing; this is deliberately unlike the profile
   // displayName's blank-drop, whose field is an identity that must survive
   // accidents.
-  assert.strictEqual(projects.setDescription(made.id, '').description, '');
+  assert.strictEqual(projects.edit(made.id, { description: '' }).description, '');
   // A record written before the field existed simply gains it.
   const storeFile = path.join(store.ROOT, projects.FILE);
   const all = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
   delete all.find((p) => p.id === made.id).description;
   fs.writeFileSync(storeFile, JSON.stringify(all));
-  assert.equal(projects.setDescription(made.id, 'added later').description, 'added later');
-  assert.throws(() => projects.setDescription(made.id, 'x'.repeat(1001)), /longer than 1000/,
+  assert.equal(projects.edit(made.id, { description: 'added later' }).description, 'added later');
+  assert.throws(() => projects.edit(made.id, { description: 'x'.repeat(1001) }), /longer than 1000/,
     'the refusal holds on update too');
 });
 

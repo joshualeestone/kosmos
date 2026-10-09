@@ -26,7 +26,9 @@
  *                        a compaction or resume must not clear a waiting state.
  *   UserPromptSubmit  -> working  "answering a prompt"
  *   PreToolUse        -> working  "running <tool>"  (throttled heartbeat, 60s)
- *   PermissionRequest -> needs_you "asking permission to use <tool>[: <cmd>]"
+ *   PermissionRequest -> needs_you "asking permission to use <tool>[: <cmd>]",
+ *                        or working "running <tool>" when Kosmos's own allow
+ *                        hook answers the request (#5495, no prompt shows)
  *   Stop              -> idle     "finished responding"
  *   StopFailure       -> blocked  --on "provider api (<kind>)" --owner provider
  *   SessionEnd        -> stopped
@@ -117,6 +119,8 @@ function reportFor(evt, ctx) {
     }
     case 'PermissionRequest': {
       const tool = field(evt, 'tool_name') || 'a tool';
+      // #5495: Kosmos's own allow hook answered this request, so no prompt shows and the agent goes on: say so.
+      if (c.kosmosAllows) return { ...base, state: 'working', text: 'running ' + tool };
       const cmd = field(evt, 'tool_input.command').slice(0, 200);
       return { ...base, state: 'needs_you', text: 'asking permission to use ' + tool + (cmd ? ': ' + cmd : '') };
     }
@@ -131,6 +135,19 @@ function reportFor(evt, ctx) {
     default:
       return null;
   }
+}
+
+/**
+ * #5495: true when this agent runs with Kosmos's own PermissionRequest allow hook (its settings file sets the env names,
+ * engine/agentpermission.js) AND this install's decide(), called in-process, allows this request. Any failure reads
+ * as false: the report says needs-you, as before #5495.
+ */
+function kosmosAllows(input, env) {
+  try {
+    const ap = require('./agentpermission');
+    if (!env || !env[ap.ENV_NODE] || !env[ap.ENV_SCRIPT]) return false;   // presence only: the values are not used here
+    return Boolean(require('./kosmos-permission-allow').decide(input));
+  } catch { return false; }
 }
 
 /** The /api/report body, matching the CLI's POST exactly. */
@@ -313,16 +330,18 @@ async function main(io) {
   // Throttle bookkeeping mirrors the bash hook: PreToolUse consults the mark;
   // every state-change event clears it; UserPromptSubmit sets it (a prompt is a
   // fresh "working", so the next PreToolUse heartbeat waits a full window).
+  // #5495: a request Kosmos's own allow hook answers reports working, so it starts a heartbeat window like a prompt does.
+  const allows = event === 'PermissionRequest' && kosmosAllows(o.input, env);
   let due = false;
   if (event === 'PreToolUse') {
     due = heartbeatDue(ctx);
-  } else if (event === 'UserPromptSubmit') {
+  } else if (event === 'UserPromptSubmit' || allows) {
     setMark(ctx);
   } else if (event === 'PermissionRequest' || event === 'Stop' || event === 'StopFailure' || event === 'SessionEnd' || event === 'SessionStart') {
     resetMark(ctx);
   }
 
-  const report = reportFor(evt, { heartbeatDue: due });
+  const report = reportFor(evt, { heartbeatDue: due, kosmosAllows: allows });
   if (!report) return 0;
 
   const url = o.url || resolveUrl(env, typeof o.uid === 'number' ? o.uid : safeUid());
@@ -399,7 +418,7 @@ function attachStdin(stream, onDone) {
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
   readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
-  attachStdin, main,
+  attachStdin, main, kosmosAllows,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 

@@ -1043,6 +1043,10 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    as a stub next to it, and the known cost is that the row wraps. #5429: `#d-provider-model`, the switch's model,
    sits beside it on the same terms. */
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+/* #5510: the kind-of-business select sizes to its longest option ("A construction or trades business", 290px), which
+   ran 3px past the Settings panel on a 360px phone. It may be no wider than its row; a long option is then shortened
+   in the closed select only (the open list shows it whole). render-settings-fit-5510.js holds it. */
+#community-industry { max-width: 100%; }
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
    What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
@@ -6604,6 +6608,12 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    descenders (the "g" in "Sourcing"). Same fix as #3415 on the agent name: a
    proportional line-height that clears descenders, unitless so it tracks the size. */
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+/* #5510: on a phone the name gets two lines before it is cut: one line held 14 characters at 360px ("Launch the
+   spring c..."), so most real project names never showed whole. Three-plus lines still end in an ellipsis. */
+@media (max-width: 40rem) {
+  .pjtitle #pj-one-name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2; }
+}
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 /* kosmos#5287: the joined project's "Shared by" block takes its own row under the made line in every header layout, and
    the owner's description (up to DESC_MAX, newlines kept) wraps even a long unbroken word and scrolls past ~8 lines
@@ -7418,6 +7428,9 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   font: var(--text-caption) var(--font-ui); }
 .pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
 .att.haspic[data-att] { cursor: zoom-in; }
+/* #5510: a phone's own keyboard has emoji, so on a phone touchscreen the room's emoji button gives its 34px back to
+   the text box, where the hint was being cut after "Write something c". The picker stays on every other screen. */
+@media (max-width: 40rem) and (hover: none) { #pj-emoji-btn { display: none; } }
 .attachbtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
@@ -10603,6 +10616,13 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg.you .msg-bd { background-color: var(--nl-grey); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg .msg-bd::after { background: var(--k-bg); }
+/* #5551: an agent's question in the project room, toward the Sep 28 drawing's "Needs you" card: the corners as soft
+   as the look's other boxes. The hairline and the warm tint STAY, though the drawing has no hairline: #3692 marks a
+   warning by both, and the tint alone is about 1.1:1 against the white page, a box a person can miss. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-question { border-radius: 24px; padding: 16px 20px; }
+/* The screen inside: corners eased to match (outer 24 less the inset), so the two curves read as one shape. Seen in a real
+   board: at today's 8px padding the label crowded the 24px curve. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-question .pj-screen { border-radius: 12px; }
 /* The composer: a grey pill on the page ground in both themes (the drawing's #f5f5f7 / #2c2c2e),
    no black strip around it. Scoped through #pj-one-view so it outranks the dark composer rules
    AND their generated forced-dark twins, which sit later in the sheet at the same weight. */
@@ -10620,6 +10640,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #panel-detail #d-talk-box { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg.you .msg-bd { background-color: var(--nl-grey); }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
+/* #5551: your own messages carry no avatar under the look, as Josh's v9 drawing has them: the side and the grey
+   already say they are yours, so the ink dot (.msg-av.mine) or your photo beside each one is decoration. An agent's
+   message keeps its avatar (it says who). The time stays inside the bubble (the timestamp-inside rulings). */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg.you > .msg-av { display: none; }
+/* With the avatar gone the bubble would end at the thread's edge, and its tail wing (8px past it) and the wing's
+   ground mask (14px past it) would be clipped by the scroller and make it scroll sideways (review 1: the DM has 4px of
+   padding, the room 6px on a phone). So the bubble keeps 14px clear on its right, the mask's full reach. */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg.you > .msg-b { margin-right: 14px; }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg .msg-bd::after { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox { border: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox:not(.dragging) { background: var(--nl-grey); }
@@ -10684,8 +10712,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):disabled { background: transparent; border-color: currentColor; box-shadow: none; }
 /* #4470, the last page in the card's order, the phone (and what it showed on a desktop too). An agent's message has
    no bubble in the new look, so its avatar no longer sits beside a bubble's tail: it goes to the top, beside the name
-   and time, as Josh's drawing draws it (Files/kosmos-project-two-col-v9). Your own messages keep their bubble and
-   today's foot-aligned avatar, and so does an outside sender's message, which keeps its drawn box. Tasks' "+ New task"
+   and time, as Josh's drawing draws it (Files/kosmos-project-two-col-v9). Your own messages keep their bubble
+   (their avatar is hidden by #5551's rule above, as the drawing has none); an outside sender's message keeps its
+   drawn box and its foot-aligned avatar. Tasks' "+ New task"
    is the drawing's main action, a gold pill ("Post"). Up to 60rem, where the project header stacks (the 60rem block
    for .pjmidhead), the project's gear sits in the crumb's row instead of a line of its own; "Made by" stays below. */
 :root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg:not(.you):not(.ext) { align-items: flex-start; }   /* .ext keeps its drawn box, so its foot avatar */
@@ -10699,8 +10728,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjhead,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle { display: contents; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .pjmidhead > .pj-crumbrow { flex: 1 1 0; min-width: 0; }   /* .pjmid: outweighs the look's later flex: 1 1 auto */
-  /* 4px of room on the right: on touch the cog's tap area is 36px centred on its 28px (#4663, "room all round"),
-     and at the row's end it would reach 4px past the page. */
+  /* 4px of room on the right: on touch the cog's tap area is at least 36px centred on it (#4663, "room all round").
+     Under this look the cog is 40px (#5551), so the area is its own box and the margin is only breathing room. */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
@@ -10734,6 +10763,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .pj-crumb-rootwrap { display: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pj-crumbrow { margin: 0; gap: 0; flex: 1 1 auto; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-back { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); display: grid; place-items: center; flex: none; margin-right: 14px; }
+/* #5551: the project's settings cog is the same round 40px button as Back, as the drawing pairs them; a plain
+   button on the white page keeps its edge in this look (the create-flow note above). The search field is NOT
+   turned into the drawing's icon: that is a behaviour change (a button that opens a field), and fields keep
+   their edge in the look. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-settings-cog { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: none; font-size: 1.625rem; line-height: 1.2; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root { font: inherit; color: var(--nl-ink-3); padding: 0; text-decoration: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root:hover { color: var(--k-ink); text-decoration: underline; text-underline-offset: 4px; }
@@ -11237,6 +11271,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #s-sec-plus .plus-org-g { margin-top: 12px; }
 #s-sec-plus .plus-org-h { font-weight: 600; color: #E6EBF7; font-size: .8125rem; margin: 0 0 4px; }
 #s-sec-plus .plus-org-lists ul { margin: 0; padding-left: 20px; }
+#s-sec-plus .plus-org-lists li.plus-org-none { list-style: none; margin-left: -20px; color: var(--k-ink-2); }   /* a statement, not an item */
 #s-sec-plus .plus-org-box .frow { margin-top: 16px; }   /* Mona's NIT: room above the two buttons */
 @media (max-width: 600px) {
   #s-sec-plus .plus-org-lists { grid-template-columns: 1fr; }
@@ -11734,6 +11769,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   html.kremote #boardbar.boardbar > .viewctl { flex-wrap: nowrap; gap: 12px; }
   /* Two ids: the new look's toolbar rules carry one id and up to six classes, and two ids beat any of them. */
   html.kremote #boardbar#boardbar .sortctl select { height: 44px; padding: 0 36px 0 14px; border-radius: 10px; }
+  /* #5510: the sort menu fills the row between + and the view buttons. At its own width it sat 3px from the + on a
+     360px phone and 55px from it on a 412px one; filling, the gaps are the row's own 12px at every width. */
+  html.kremote #boardbar#boardbar .sortctl { flex: 1 1 auto; min-width: 0; }
+  html.kremote #boardbar#boardbar .sortctl select { width: 100%; }
   html.kremote #boardbar#boardbar .viewtoggle { border-radius: 10px; }
   html.kremote #boardbar#boardbar .viewtoggle .vt { width: 44px; height: 44px; border-radius: 0; }
   /* With the grid button gone the list button is the first one shown, so it loses the separator it drew from it. */
@@ -15563,6 +15602,14 @@ window.kosmosMeasureScrollbarWidth();
             <button class="btn uprime" type="button" id="orgchart-undo-go" hidden>Remove them</button>
             <button class="btn" type="button" id="orgchart-undo-keep" hidden>Keep them</button>
           </div>
+          <!-- #5590: the import tells installkosmos.com the agent count moved, so the sheet's "Let Kosmos know" choice is
+               shown where it is made, as the team step does (Review 27, #tc-tell): kept equal to #create-tell, which
+               stays the one the creates read. orgchartTell: open with a preview that can be created, fixed while its create
+               runs, gone once any result is on screen. -->
+          <label class="tellrow" for="orgchart-tell" id="orgchart-tell-row">
+            <input type="checkbox" id="orgchart-tell">
+            <span id="orgchart-tell-say">Let Kosmos know these agents were created</span>
+          </label>
           <!-- #4559: more than the usual team size is started only on this explicit yes (Liu Kang m3436). -->
           <div class="orgchart-consent" id="orgchart-many" role="group" aria-labelledby="orgchart-many-say" hidden>
             <p id="orgchart-many-say"></p>
@@ -18884,7 +18931,11 @@ window.kosmosMeasureScrollbarWidth();
            checked it); nothing joins until the person has read
            what the company would see and pressed Join. Connected computers only: joining is a signed request. -->
       <div id="plus-org" hidden style="margin-top:16px;">
-        <p class="setname">Your company</p>
+        <!-- Splinter/Josh 10-08 (0.7.29): a person with no company sees one quiet line, not an Enterprise box. The full
+             block shows when this Kosmos is a company's work Kosmos, a code is being checked or reviewed, a company note
+             is waiting, or the person opened it. -->
+        <button type="button" class="plus-lost-link" id="plus-org-open">Joining a company? Enter its join code</button>
+        <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
@@ -18896,7 +18947,7 @@ window.kosmosMeasureScrollbarWidth();
             </div>
           </div>
         </div>
-        <div id="plus-org-out">
+        <div id="plus-org-out" hidden>
           <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code asks your company through this Kosmos's Kosmos+ connection; nothing joins, and none of this Kosmos's data is sent, until you have read what your company would see and pressed Join.</p>
           <div class="frow">
             <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
@@ -19819,6 +19870,21 @@ function pnavThemeRove() {
   const on = opts.find((b) => b.getAttribute('aria-checked') === 'true') || opts[0];
   for (const b of opts) b.tabIndex = b === on ? 0 : -1;
 }
+/* #5510: on a phone the room composer's hint, "Write something or @name to message someone...", is cut after "Write
+   something c". There it reads as the agent chat's does; wider screens keep the @name tip. The query is the portrait
+   phone width only, the same as the CSS that hides the room's emoji button on a phone; not PNAV_PHONE_MQ, which also
+   takes a phone turned sideways, where the row has room for the long hint. */
+const ROOM_HINT_MQ = '(max-width: 40rem)';
+(function roomHintFits() {
+  const box = document.getElementById('pj-post');
+  if (!box || !window.matchMedia) return;
+  const long = box.placeholder;
+  const mq = window.matchMedia(ROOM_HINT_MQ);
+  const fit = () => { box.placeholder = mq.matches ? 'Write something\u2026' : long; };
+  fit();
+  if (mq.addEventListener) mq.addEventListener('change', fit);
+  else if (mq.addListener) mq.addListener(fit);   // Safari before 14
+})();
 /* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
 const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
 /* The level on screen, and the trail back to the first one. */
@@ -20516,6 +20582,19 @@ function stateReason(a, opts) {
     const n = Number(a.crashLoop.count) || 3;
     return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
+  /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
+     names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
+     STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
+     Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
+     the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
+     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
+     "Paused"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
+     paused states wholesale, which is out of this slice's scope. */
+  if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
+    const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
+    if (a.stuckError.state === 'auth_failed') return 'Kosmos has seen this agent unable to sign in for about ' + mins + ' minutes. It cannot work until you reconnect its account. Open Settings to reconnect it.';
+    if (a.stuckError.state === 'rate_limited') return 'Kosmos has seen this agent paused by a rate limit for about ' + mins + ' minutes. It will keep trying when the limit lifts. You can wait, or switch its model.';
+  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -20937,7 +21016,10 @@ function agentNeedsAttention(a) {
   return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
     || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')
     // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
-    || (a.crashLoop && a.crashLoop.looping === true)));
+    || (a.crashLoop && a.crashLoop.looping === true)
+    // #5154 slice C: an agent stuck past the threshold on the same terminal error (auth_failed / rate_limited).
+    // Keep byte-for-byte aligned with engine/status.js needsPerson.
+    || (a.stuckError && a.stuckError.stuck === true)));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
@@ -21155,7 +21237,8 @@ function memWhy(ctx) {
  * as an unhelpful sentence; this one shows up as a confident number.
  *
  * `limitFor` returns `assumed: true` for every model nobody has watched hit its
- * ceiling (today every Opus, Sonnet and Fable model except the measured Opus 4.8, all assumed at 1M), and the
+ * ceiling (today every Opus, Sonnet and Fable model except the measured Opus 4.8, and Haiku 5.5, all assumed at 1M;
+ * other Haiku models at 200K), and the
  * engine even writes the wording ("measured, against a limit we have assumed
  * rather than watched") and sets `ceilingAssumed`. `grep assumed web/index.html`
  * matched one unrelated comment. The rule the assumption was allowed under is
@@ -39994,13 +40077,24 @@ function usageCharts4Html(series, totals, grandTotal) {
    🛑 SOURCE + DATE, because published prices change (Splinter's requirement):
      - Anthropic (claude.com/pricing, fetched 2026-09-14): all four classes are
        separately published (input / output / 5-min cache write / cache read).
-     - OpenAI (developers.openai.com/api/docs/pricing, 2026-09-14): input / cached
+     - OpenAI (developers.openai.com/api/docs/pricing, 2026-09-14; the pre-5.6 rows): input / cached
        input / output are published; there is NO separate cache-WRITE charge, so
        cw is the input rate (how OpenAI bills a first-seen token) and cr is the
        published cached-input rate -- a mapping of published behaviour, not a guess.
      - Google (ai.google.dev/gemini-api/docs/pricing, 2026-09-14): input / output /
        cached are published (per-token); cache storage is billed per-hour, not per
        write-token, so cw is the input rate here too.
+     - #5158 (fetched 2026-10-03), the models Codex, Gemini CLI and Grok agents run:
+       gpt-5.6-sol from developers.openai.com/api/docs/models/gpt-5.6-sol, which now
+       publishes cache writes at 1.25x the uncached input rate (so cw = 5.00), at a
+       promotional price "available at least through November 21, 2026" (check it then);
+       gemini-3.8-flash from ai.google.dev/gemini-api/docs/pricing, an introductory
+       rate through 2026-12-31 that DOUBLES on 2027-01-01 (update this row then);
+       grok-4.6 from docs.x.ai/docs/models/grok-4.6, cached input published, no
+       cache-write price, so cw is the input rate. All three charge more above a
+       long-context threshold (OpenAI >272K, xAI >=200K); the standard rate is used.
+       grok-4.6-build, the id Grok's own usage file records, has NO published price,
+       so it stays unpriced and named rather than borrowing grok-4.6's.
    🛑 NO GUESSING (Splinter): a model with no published price is EXCLUDED from the
    figure and named in `unpriced`, never estimated. gpt-5.1-codex is the live case:
    OpenAI does not list a Codex price, so its tokens are left out and flagged. */
@@ -40018,6 +40112,11 @@ const USAGE_MODEL_PRICES = {
   'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
+  // #5626: claude-haiku-5-5 at the published Anthropic base rates (platform.claude.com pricing, 2026-10-08): input 0.10,
+  // 5-minute write 0.125, cache read 0.01, output 0.50. Haiku 5.5 is priced by PROMPT LENGTH and costs 5x past 100,000
+  // tokens. A usage day here carries no per-request prompt size, so the base rate is used and a long-context day is
+  // under-estimated. Said on #5626.
+  'claude-haiku-5-5': { in: 0.10, out: 0.50, cw: 0.125, cr: 0.01 },
   'claude-haiku-4-5': { in: 1, out: 5, cw: 1.25, cr: 0.10 },
   // fable-5-1 cache read is $0.25 (0.025x input), NOT the 0.1x input the other tiers use.
   // Verified against claude.com/pricing 2026-09-14: Fable 5.1 cr=$0.25, legacy Fable 5 cr=$1.00.
@@ -40026,6 +40125,9 @@ const USAGE_MODEL_PRICES = {
   'claude-fable-5': { in: 10, out: 50, cw: 12.50, cr: 1.00 },
   'gpt-5.1': { in: 1.25, out: 10, cw: 1.25, cr: 0.125 },
   'gemini-2.5-flash': { in: 0.375, out: 1.875, cw: 0.375, cr: 0.0375 },
+  'gpt-5.6-sol': { in: 4, out: 20, cw: 5.00, cr: 0.40 },
+  'gemini-3.8-flash': { in: 0.75, out: 3.75, cw: 0.75, cr: 0.075 },
+  'grok-4.6': { in: 2, out: 6, cw: 2, cr: 0.50 },
 };
 /* Resolve a model id to a price row: exact match first, then strip a trailing
    -YYYYMMDD date-stamp (Claude Code writes e.g. claude-haiku-4-5-20251001). Returns
@@ -47282,14 +47384,14 @@ async function paintPlus() {
 }
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while the person is reading a consent or a call is out. */
-var PLUS_ORG = { at: 0, busy: false, state: null, preview: null };
+var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
 function plusOrgMaybe() {
   if (PLUS_ORG.busy || PLUS_ORG.preview) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
   fetch('/api/org').then((res) => res.json()).then((j) => {
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
-    PLUS_ORG.state = j; plusOrgPaint();
+    PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was) msg.textContent = '';
@@ -47301,20 +47403,32 @@ function plusOrgMaybe() {
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
       ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
+    plusOrgPaint();   // once more, now the message is set: the block shows or folds to match it at once
   }).catch(() => { /* the next minute tries again */ });
 }
-function plusOrgList(id, items) {
+function plusOrgList(id, items, none) {
   const ul = document.getElementById(id);
   ul.textContent = '';
   for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
+  /* #5531 follow-up: a group with a sentence for "none" says it rather than vanish (a company that backs up nothing
+     yet sends an empty list, and a missing heading reads as "not shown", not "nothing"). */
+  if (!(items && items.length) && none) { const li = document.createElement('li'); li.className = 'plus-org-none'; li.textContent = none; ul.appendChild(li); }
   // The whole group, heading and list; the Never group always shows, for this Kosmos's own line under it.
-  ul.parentElement.hidden = !(items && items.length) && id !== 'plus-org-never';
+  ul.parentElement.hidden = !(items && items.length) && !none && id !== 'plus-org-never';
 }
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
   const here = st.enrolled === true && st.org;
+  // The whole block only for someone it concerns (Splinter/Josh 10-08); everyone else gets the one-line opener.
+  /* A line on screen opens the block, so the person sees what it is about (a company note, "Not joined", "You left").
+     🛑 Every writer of #plus-org-msg relies on this: a NEW message for a computer with no company would reveal the
+     block (review 2). Write one only for something this person did here or a company note about this Kosmos. */
+  const msgOn = (document.getElementById('plus-org-msg').textContent || '') !== '';
+  const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
+  document.getElementById('plus-org-open').hidden = full;
+  document.getElementById('plus-org-title').hidden = !full;
   document.getElementById('plus-org-in').hidden = !here;
-  document.getElementById('plus-org-out').hidden = !!here || !!PLUS_ORG.preview;
+  document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   // A record with no consent recorded here sends nothing, and the joined view says so (review 34).
@@ -47346,7 +47460,7 @@ async function plusOrgCheck() {
     ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
     : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
   plusOrgList('plus-org-reports', r.consent.reports);
-  plusOrgList('plus-org-backsup', r.consent.backsUp);
+  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
   plusOrgList('plus-org-readers', r.consent.readers);
   plusOrgList('plus-org-never', r.consent.never);
   plusOrgPaint();
@@ -47410,6 +47524,7 @@ async function plusOrgLeave() {
   plusOrgPaint();
 }
 document.getElementById('plus-org-check').addEventListener('click', plusOrgCheck);
+document.getElementById('plus-org-open').addEventListener('click', () => { PLUS_ORG.open = true; plusOrgPaint(); document.getElementById('plus-org-code').focus(); });
 document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgCheck(); } });
 document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
 document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
@@ -52789,6 +52904,12 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
   const tellBox = document.getElementById('create-tell');
   if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
 });
+/* #5590: the import's box, the same as #tc-tell's handler: #create-tell is the one choice the creates read. The box is
+   set from #create-tell each time a preview is painted (orgchartTell('open') in orgchartPaint). */
+document.getElementById('orgchart-tell').addEventListener('change', (e) => {
+  const tellBox = document.getElementById('create-tell');
+  if (tellBox) tellBox.checked = e.currentTarget.checked;
+});
 
 /* #4936 "Go to your team": the agents view with the members marked (tcGoToTeam), not one agent's page. */
 document.getElementById('tc-hello').addEventListener('click', () => {
@@ -53583,6 +53704,21 @@ let ORGCHART_RESULT_RESTORED = false;
 let ORGCHART_RESULT = null;
 // True while /api/team is answering: Preview waits, so a late create result is never thrown away.
 let ORGCHART_CREATING = false;
+/* #5590: the import's "Let Kosmos know" box is the choice for the create about to be made, so it is shown only then:
+   'open' with a preview (set from #create-tell, the one the creates read), 'locked' while that create runs (as #tc-tell
+   is fixed once a team run starts), 'gone' once a result is on screen, so it never shows a choice beside agents it
+   may not have been made with (a kept result reappears after the sheet's choice could have changed). */
+function orgchartTell(state) {
+  const b = document.getElementById('orgchart-tell');
+  const row = document.getElementById('orgchart-tell-row');
+  if (!b || !row) return;
+  if (state === 'open') {
+    const tellBox = document.getElementById('create-tell');
+    b.checked = tellBox ? tellBox.checked === true : true;
+  }
+  b.disabled = state !== 'open';
+  row.hidden = state === 'gone';
+}
 // #4559: true while Undo asks or removes (orgchartUndoAsking), so a file read waits.
 let ORGCHART_UNDO_BUSY = false;
 /* #4559: the file flow's state, declared here, above resetOrgchartPreview, which clears it (a let read before its
@@ -53615,6 +53751,7 @@ function orgchartEndFileFlow() {
   if (note && note.dataset.idle) note.textContent = note.dataset.idle;
 }
 function resetOrgchartPreview() {
+  orgchartTell('gone');
   ORGCHART_PARSED = null;
   ORGCHART_MANY_OK = false;
   const many = document.getElementById('orgchart-many');
@@ -53678,6 +53815,7 @@ function orgchartSayUndoExpired() {
    removed. Used when the panel is reopened (and by openCreate's reset, into the still-hidden panel), and when a create answered after the person had left lands while the
    panel is open again and idle. A no-op otherwise. */
 function orgchartRestoreCreated() {
+  orgchartTell('gone');   // #5590: a kept result is on screen (or nothing is kept and the preview box stays hidden)
   if (orgchartDropExpiredUndo()) ORGCHART_RESULT = null;
   if (!ORGCHART_CREATED.length || !ORGCHART_RESULT) return false;
   const box = document.getElementById('orgchart-preview-box');
@@ -53819,12 +53957,18 @@ function orgchartPaint() {
   document.getElementById('orgchart-many').hidden = true;
   const rows = ORGCHART_PARSED || [];
   if (rows.length > ORGCHART_TEAM_MAX) {
+    orgchartTell('gone');   // #5590: a list past the limit cannot be created, so there is no choice to make
     document.getElementById('orgchart-count').textContent = 'This list has ' + rows.length + ' people. Kosmos makes at most '
       + ORGCHART_TEAM_MAX + ' agents at a time, so remove some or split the file, then preview again.';
     document.getElementById('orgchart-list').replaceChildren();
     document.getElementById('orgchart-create').disabled = true;
     return;
   }
+  /* #5590: a new preview is the create about to be made, so its choice is shown and open; a repaint while a create
+     runs (a "reports to" change mid-flight) keeps it fixed, since that create's choice was already sent. */
+  orgchartTell(ORGCHART_CREATING ? 'locked' : 'open');
+  document.getElementById('orgchart-tell-say').textContent = rows.length === 1   // as #tc-tell-say reads
+    ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
   const loops = orgchartLoops(rows);
   const open = rows.filter((r, i) => (r.why && !r.confirmed) || loops.has(i)).length;
   const count = document.getElementById('orgchart-count');
@@ -54144,20 +54288,25 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   const previewBtn = document.getElementById('orgchart-preview');
   ORGCHART_CREATING = true;
   previewBtn.disabled = true;
+  orgchartTell('locked');
   try {
+    const tellBox = document.getElementById('create-tell');
     const res = await fetch('/api/team', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       /* cap only after the person's yes above: #2972's raise (the board token may, an agent never), to this chart's
          size. orgchartPaint already refused a chart past ORGCHART_TEAM_MAX. */
-      body: JSON.stringify(Object.assign({ creator: 'operator', purpose: 'Imported from an org chart', members },
+      /* #5590: the "Let Kosmos know an agent was created" box is the person's choice for this create too (the team
+         route now tells the agent count; without this an import ignored an unticked box). As the seeded team does. */
+      body: JSON.stringify(Object.assign({ creator: 'operator', purpose: 'Imported from an org chart', members,
+        notifyCreated: tellBox ? tellBox.checked === true : true },
         raise ? { cap: Math.min(members.length, ORGCHART_TEAM_MAX) } : {})),
     });
     result = await res.json().catch(() => null);
     /* Still CREATING: the reporting-line fix-ups below are part of this create, and a Preview or a file read
        during them would supersede the screen and lose this batch's Undo. Released after them. */
   } catch (err) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (gen !== ORGCHART_GEN) { orgchartCreateWaitEnded('We could not reach Kosmos to create the team. Try again.'); return; }   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
@@ -54169,7 +54318,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      the panel), but a team that WAS created still gets its reporting-line fix-ups, which correct data (create stores reportsTo as sent) rather than the screen. */
   const superseded = gen !== ORGCHART_GEN;
   if (!result) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (superseded) { orgchartCreateWaitEnded('Kosmos did not answer in a way we could read. Try again.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -54184,7 +54333,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      and read as a bare "No agents were created", hiding the real reason on a 15-20 person
      import. So: no `outcome` means it is not a team result -- surface its error plainly. */
   if (result.outcome === undefined) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (superseded) { orgchartCreateWaitEnded(result.error ? String(result.error) : 'Kosmos refused the request.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -54232,6 +54381,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     else if (!f.to) orphans.push(f.name);
   }
   ORGCHART_CREATING = false; previewBtn.disabled = false;
+  orgchartTell('gone');   // #5590: a result is on screen (made or refused); Back to the list and Preview offer the choice again
   /* #4688: the result is worked out as text first, whether or not the person is still here, so a create that
      answers after they left the panel still records its agents and its Undo (they come back with the panel). */
   let countText;
@@ -57842,7 +57992,8 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   /* #5154: the crash loop. The projection carries it (projects.js, from safeRoster); one that never had the field (`in`)
      borrows it from the latest /api/status, so the members row and the card agree. Before liveM, which keeps its shape. */
   if (m && typeof m === 'object' && !('crashLoop' in m) && typeof LAST !== 'undefined' && Array.isArray(LAST)) {
-    m = Object.assign({}, m, { crashLoop: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).crashLoop || null });
+    const lastRow = (LAST.find((a) => a && a.sessionName === m.sessionName)) || {};
+    m = Object.assign({}, m, { crashLoop: lastRow.crashLoop || null, stuckError: lastRow.stuckError || null });   // #5154 slice C: stuckError too
   }
   /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
      (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the

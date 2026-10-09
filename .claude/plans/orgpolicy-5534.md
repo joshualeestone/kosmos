@@ -1,0 +1,81 @@
+# orgpolicy-5534: the board applies the signed company policy (Enterprise E0.5, board side, slice 1)
+
+Addresses #5534 (part of #5529). The card stays open: the enrollment gate (E0.2), version report (E0.3) and console
+(E0.4) are later slices.
+
+## Finished looks like
+An enrolled board's coordinator-signed policy bundle (KST1, typ org_policy, at <tunnel state>/org_policy.kst) is
+verified on the board against the pinned coordinator key; a tampered, foreign-signed, expired, older or malformed
+bundle is refused and the last good one stays in force; creating an agent, switching its provider or switching its
+model onto something the policy does not allow is refused with the policy's sentence; with no policy nothing changes.
+
+## Built
+- engine/kst1.js: verify(token, pinned, typ, now) per kosmos-relay docs/token-format.md. Never throws.
+- engine/orgpolicy.js: refresh() (verify, shape check, no rollback, keep last good, atomic write of
+  <store>/org-policy-applied.json), current(), allows({provider, model}) (model may be several names; any listed
+  allows it).
+- engine/create.js: policyAllows(provider, model) (key or full id; no model = the provider default); createAgentInner,
+  setProvider and setModel ask it before writing anything. engine/discover.js connect and engine/worldstarts.js
+  firstStartOfImport ask it too (both create agents); register.repair does not (it re-registers existing ones).
+- Tests: engine/orgpolicy-5534.test.js (7, one: a bundle written since applies with no refresh call), create.test.js '#5534' (create, provider switch, model create, model
+  switch, controls; red with the setModel gate removed).
+
+## Decided (also on the card)
+- Names: the board's provider ids; models by key or full id.
+- Running agents are never stopped and keep relaunching (nothing bricked).
+- antigravity is its own id (strict direction).
+- Weakest premise: admins may expect a dropped provider to stop existing agents at restart.
+
+## Not in this slice
+Enrollment gate (E0.2 #5531), version report (E0.3), AI policy text via policy.js, the console (E0.4 #5533), the
+fetch on start and daily (the tunnel's job: it writes the bundle). The board needs no timer: allows() re-reads and
+re-verifies the bundle each time it is asked (inForce), so a bundle written since applies at the next create or switch.
+
+## Review log
+### Review 1 (opus): 2 BLOCKERs, 4 WARNINGs, 3 CONVENTIONs
+- BLOCKER fixed: connecting a folder and importing from another Kosmos created agents without asking the policy. Both ask now; tests in discover.adopt.test.js and worldstarts.test.js, each red with its gate removed.
+- BLOCKER fixed in part: the rollback guard compared only within the applied org, so another org's bundle in between reopened an older one. The applied record keeps the highest version per org (test, red without it). Deleting the record still reopens it: stated in the header as what this is not trusted for; closing it is E0.3 (the coordinator checks the reported version).
+- WARNING fixed: a model list was dodged by naming no model. No model now means the provider default (create.policyAllows), and a vendor default no list can name is refused under a list. Tests: create with no model under a list without the default refused; red with the default lookup removed.
+- WARNING documented: the policy is per Kosmos on a Mac, as enrollment is (header).
+- WARNING documented: no way out of an applied policy until E0.2 (leaving a company); header.
+- WARNING: the coordinator side does not exist yet; the payload now uses iat as docs/token-format.md does. The token-format section for org_policy is for the relay PR (noted on the card).
+- CONVENTION fixed: create by key when listed by full id (test); stateDir comment says it is a copy and why; header no longer says LAUNCHED.
+- NITs left: applied_at uses the clock not the injected now; a failed rename leaves a .tmp; the "never throws" fallbacks.
+- Focused: orgpolicy 7/7, discover.adopt 29/29, worldstarts 48/48, create 224/224 (23:56 CDT 2026-10-07).
+### Review 2 (sonnet): 3 WARNINGs, 1 CONVENTION
+- WARNING fixed: modelsFor answers Claude's list for providers without their own, so Gemini's "default" was sonnet; only a provider's own list gives a default now. And the provider switch was asked about the default before the model picked with it was set (server.js sets it right after), so every switch onto a listed provider was refused: setProvider takes opts.model and the route passes it. Tests red under each mutation.
+- WARNING fixed: Repair restores agents that lost their job and is not gated, so it would start an import the policy held. The import marks the profile policyHeld; Repair asks the policy for such agents only; the mark clears once allowed. Test (with an agent that ran before restored as the control), red without the check.
+- WARNING decided, not changed: setModel refuses an empty choice (the vendor's own default) under a model list, also when it is the current choice. No list can name a vendor default, so allowing it would be the loophole review 1 closed. An agent on a disallowed model can still move to a listed one.
+- CONVENTION fixed: the connect test makes its folder first, so it passes run alone.
+- NITs left: the applied record is trusted as written (stated in the header); exp == now accepted (matches the format doc).
+- Focused: register 23/23, create 225/225, worldstarts 48/48, discover.adopt 29/29, orgpolicy 7/7 (00:04 CDT 2026-10-08).
+### Review 3 (opus): 1 BLOCKER, 5 WARNINGs
+- BLOCKER fixed: a Claude agent with no model does not run sonnet (that is only the form's preselection); Claude Code picks per account. A model-less Claude or Codex agent is now refused under a model list (no list can name what it runs). Decided: strict, so connecting a Claude folder under an Anthropic model list is refused until a model can be picked there; weakest premise: a pilot company may list models and still expect folders to connect.
+- WARNING fixed: Gemini and Grok are pinned by the supervisor; policyAllows asks about win32keyed.DEFAULT_MODEL for them.
+- WARNING fixed: Repair now clears policyHeld once it has started the agent (an agent that ran is never blocked later).
+- WARNING fixed: tests for the mark being written and cleared, the route passing the picked model (server.switch-model-5429.test.js), version 0. Each measured red under its mutation, and the pinned-default lookup too.
+- WARNING fixed: the header states plainly what this is not trusted for (another org's valid bundle, editing the record, replacing the pinned key) until E0.2/E0.3.
+- WARNING left (low): if setModel fails after a switch for a non-policy reason, the route restarts on the runner's own pick. Rare; stated here.
+- NITs left: policy sentence before "already runs on X"; the applied.org mark line is redundant for records written by this code (kept for any record without marks).
+- Focused: orgpolicy 7, create 225, worldstarts 48, register 23, discover.adopt 29, server.switch-model-5429 9, all green (00:13 CDT 2026-10-08).
+### Review 4 (sonnet): 2 WARNINGs, NITs
+- WARNING fixed: setModel asked allows() directly, so a Gemini or Grok agent set back to its (listed) pinned default was refused while a create was allowed. It goes through policyAllows now, the one definition.
+- WARNING fixed in wording: a switch to Gemini or Grok carries no model (the route refuses one), so it is asked about the pinned default; the refusal now says so and points to creating an agent on an allowed model. Decided: no model on a Gemini/Grok switch stays the route's rule (#5429), not changed here.
+- NITs fixed: tests for a missing or non-integer exp, Grok's pinned default, the fail-open path; the held mark records the provider and clears only after a successful install (test across a failed then a successful install).
+- NIT left: a switch to the model an agent already runs is refused when the policy now drops it (consistent: only new switches are gated).
+- Mutations: setModel route, exp check, Grok default, fail-open, early clear: each red. Focused: orgpolicy 7, create 226, worldstarts 48, register 23, discover.adopt 29, server.switch-model-5429 9 (00:24 CDT 2026-10-08).
+### Review 5 (opus): 2 WARNINGs (tests), NITs
+- No code defect; no-policy path re-checked clean; every create/switch path gated (grep of every installJob, setProvider, setModel, createAgent, rewriteAgentJob caller). 18 of 20 mutations red.
+- WARNING fixed: the rollback test used two orgs, so either half of the per-org marks passed alone. It crosses three orgs and an old record without marks; each half measured red when removed.
+- WARNING fixed: the switch test switched a Claude agent to Claude (the "already runs on" refusal hid behind the policy check). It starts on OpenAI now and the control asserts the switch is not refused.
+- NITs fixed: comments name Antigravity; kst1 no longer claims the contract's check order.
+- NITs left: refusal order on a same-provider "switch"; the trim in setProvider is an equivalent mutant (policyAllows trims too); a held import of an unrecognized runner records anthropic (the runner floor predates this); a failed rename leaves a .tmp.
+- Focused: orgpolicy 7, create '5534' 3 (00:32 CDT 2026-10-08).
+### Review 6 (sonnet): nothing above NIT. CONVERGED.
+- Every create/switch path re-checked gated; no-policy path clean; 23 of 24 mutations red.
+- NITs left, stated: Repair's model argument is untested (a held agent's model alone never decides it in the tests); the "switch starts on its default model" note is also appended when the provider itself is refused (follow-up on the card); connecting a folder under a model list for a provider without a pinned default always refuses (no model choice there yet, by design); a job registered but not started keeps the held mark (safe direction).
+- Final (00:37 CDT 2026-10-08), rebased on origin/main: orgpolicy 7, create 226, discover.adopt 29, worldstarts 48, register 23, server.switch-model-5429 9; guards cli.sandbox-data-4796, engine.reachable, win32-separator-guard, windows-coupling-audit-1732, windows-tests-1777, fixture-discipline, no-brand-refs-1881, no-name-refs-3071: all green.
+### After convergence: Windows CI (00:53 CDT 2026-10-08)
+- PR #5569's windows job failed two #5534 create tests: they drive a provider or model switch, which this file's win32 stub always refuses. They now carry WIN_TASK_STUB, as the file's other switch tests do (windows-tests-1777 guard green). A test-guard change only, no code change; not re-reviewed. The installer test that also failed there passes on main's windows run of the same base and is untouched by this diff (re-run).
+### After convergence: macOS CI (07:00 CDT 2026-10-08)
+- PR #5569's node suite failed two #5534 tests that passed locally only because this Mac has Codex installed: the switch test created an agent on OpenAI, and the import test let a real install run. The switch test now stays on Claude and pins the policy-before-"already runs" order; the import test stands in for create.installJob (failed, then succeeded) and counts both calls. Tests only, no code change; create 226/226 and worldstarts 48/48. The #4417 failure there is the #5560 flake.

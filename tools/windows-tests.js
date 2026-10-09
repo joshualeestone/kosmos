@@ -45,14 +45,18 @@ const cp = require('node:child_process');
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
+  'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
+  'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
   'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too
-  'restoresink.test.js'];   // #5536: the restore sink's Windows duties (Unicode names, link on NTFS, junction refusal) are measured here
+  'restoresink.test.js',   // #5536: the restore sink's Windows duties (Unicode names, link on NTFS, junction refusal) are measured here
+  'accounts.wiredefaulthooks-5612.test.js'];   // #5612: the default account's reporting hooks, wired on the real win32 platform
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
-const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'test-support.remove-tree.test.js',
+const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
+  'test-support.remove-tree.test.js',
   'tools.cleanup-fixture-tokens-5418.test.js'];   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.

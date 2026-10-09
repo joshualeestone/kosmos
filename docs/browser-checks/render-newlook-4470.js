@@ -1,4 +1,4 @@
-// Browser-check-surface: look-toggle look-row tsk-tile tsk-list d-talk-box d-dmthread
+// Browser-check-surface: look-toggle look-row tsk-tile tsk-list d-talk-box d-dmthread pj-question
 'use strict';
 /**
  * The new look's hidden switch (#4470, Josh 2026-09-28), on a real board in a real browser.
@@ -32,6 +32,8 @@
  *    strokes (the could-not-read dash at least 1.5:1 off its ground, measured by EDGE_RATIO); the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
  *    the grey box while a could-not-read note keeps its solid border (and a note in a project page keeps today's
  *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
+ *  - an agent's question in the project room (QUESTION_LOOK, #5551): today's warm ground and hairline kept (#3692), 24px
+ *    corners; with the look off, today's corners (the control),
  *  - an agent's page in the new look (DM_LOOK): the conversation on the page's ground, your message grey, an agent's
  *    with no bubble, the composer a grey pill with no stroke; with the look off, today's (the control),
  *  - an agent's left column in the new look (DLEFT_LOOK): one grey box with 28px corners, the open section a tile in the
@@ -43,8 +45,9 @@
  *    labels; with the look off, today's (the control),
  *  - the controls in the new look (CTRL_LOOK): a plain button a pill in the page's ground with no edge, the main one a
  *    pill keeping its fill, a danger one keeping its edge; with the look off, today's (the control),
- *  - the phone slice (PHONE_LOOK): an agent message's avatar at the top, New task a pill, and on a phone the project's
- *    gear on the crumb's line inside the page; with the look off, today's foot-aligned avatar and New task (the control),
+ *  - the phone slice (PHONE_LOOK): an agent message's avatar at the top, your own with no avatar and its tail with room
+ *    inside the thread (no sideways scroll, #5551), New task a pill, and on a phone the project's gear on the crumb's line
+ *    inside the page; with the look off, today's foot-aligned avatars and New task (the control),
  *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
  *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
  *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
@@ -143,6 +146,27 @@ const BUBBLES = `(() => {
   const out = { you: getComputedStyle(a.querySelector('.msg-bd')).backgroundColor, agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor };
   a.remove(); b.remove();
   return out;
+})()`;
+/* #5551: the project room's question box, unhidden for the read and put back (it is painted only while an agent asks).
+   Its thread section can itself be hidden at this point, so `shown` is reported, not required: computed style answers
+   either way, and the control below proves the read can tell the two looks apart. */
+const QUESTION_LOOK = `(() => {
+  const q = document.getElementById('pj-question');
+  if (!q) return { found: false };
+  const was = q.hidden; q.hidden = false;
+  const cs = getComputedStyle(q);
+  const scr = q.querySelector('.pj-screen');
+  const out = { found: true, shown: q.getClientRects().length > 0, bg: cs.backgroundColor, edge: cs.borderTopColor, edgeW: cs.borderTopWidth, radius: cs.borderTopLeftRadius,
+    padL: parseFloat(cs.paddingLeft), padT: parseFloat(cs.paddingTop), screenRadius: scr ? getComputedStyle(scr).borderTopLeftRadius : null };
+  q.hidden = was;
+  return out;
+})()`;
+/* #5551: the project header's two round buttons, Back and the settings cog, read side by side. */
+const HEAD_BUTTONS = `(() => {
+  const b = document.getElementById('pj-back'), c = document.getElementById('pj-settings-link');
+  if (!b || !c) return { found: false };
+  const rd = (e) => { const cs = getComputedStyle(e); return { w: cs.width, h: cs.height, radius: cs.borderTopLeftRadius, edgeW: cs.borderTopWidth, edge: cs.borderTopColor }; };
+  return { found: true, back: rd(b), cog: rd(c) };
 })()`;
 /* #4470, an agent's page: its conversation read off the DM's own elements (they exist, hidden, before any agent is
    opened, and computed style still answers): the talk box's ground, a hand-made message of yours and of an agent's,
@@ -256,8 +280,9 @@ const CTRL_LOOK = `(() => {
 })()`;
 /* #4470, the phone slice, measured as drawn (round 1: a property read is not a position). In each thread (the room and
    the DM, shown for the read), an agent's message and one of yours are made with a two-line body: an agent's avatar
-   top against its name's top (the avatar at the top), yours against the body's bottom (the foot). While the project
-   page is shown: whether the gear shares the crumb's line, its right edge and its row's right margin (the touch tap
+   top against its name's top (the avatar at the top); yours: whether its avatar shows, whether the bubble's tail and
+   its ground mask (14px past the bubble) fit inside the thread, and whether the thread scrolls sideways (#5551).
+   While the project page is shown: whether the gear shares the crumb's line, its right edge and its row's right margin (the touch tap
    area needs 4px; a plain viewport cannot show the overflow itself), and the same with a long project name. New
    task's corners. Everything made is removed and every panel put back. */
 const PHONE_LOOK = `(() => {
@@ -272,8 +297,9 @@ const PHONE_LOOK = `(() => {
     const a = mk(false), y = mk(true);
     try {
       const ab = a.querySelector('.msg-av').getBoundingClientRect(), an = a.querySelector('.msg-b').getBoundingClientRect();
-      const yb = y.querySelector('.msg-av').getBoundingClientRect(), yn = y.querySelector('.msg-b').getBoundingClientRect();
-      return { agentAvTopOff: Math.round(ab.top - an.top), yourAvBottomOff: Math.round(yn.bottom - yb.bottom), tall: Math.round(an.height) };
+      const yav = y.querySelector('.msg-av'), yb = yav.getBoundingClientRect(), yn = y.querySelector('.msg-b').getBoundingClientRect();
+      const tr = th.getBoundingClientRect(), inner = tr.left + th.clientLeft + th.clientWidth;
+      return { tailRoom: Math.round(inner - yn.right), sideways: th.scrollWidth - th.clientWidth, agentAvTopOff: Math.round(ab.top - an.top), yourAvBottomOff: Math.round(yn.bottom - yb.bottom), yourAvShown: yav.getClientRects().length > 0, agentAvShown: a.querySelector('.msg-av').getClientRects().length > 0, tall: Math.round(an.height) };
     } finally { a.remove(); y.remove(); if (sec) sec.hidden = sh; panel.hidden = hid; }
   };
   out.room = one('pj-room', 'panel-projects'); out.dm = one('d-dmthread', 'panel-detail');
@@ -727,6 +753,13 @@ const AGENTS_LOOK = `(() => {
         chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor && tabs.onWeight > tabs.offWeight, `${tag} On: the current tab is marked by ink and weight, not an underline`, JSON.stringify(tabs));
       }
       const dmOn = await page.evaluate(DM_LOOK);
+      const qOn = await page.evaluate(QUESTION_LOOK);
+      const hbOn = await page.evaluate(HEAD_BUTTONS);
+      chk(hbOn.found && hbOn.cog.w === '40px' && hbOn.cog.h === '40px' && hbOn.cog.radius === '50%' && hbOn.cog.edgeW === '1px' && hbOn.cog.edge !== 'rgba(0, 0, 0, 0)' && JSON.stringify(hbOn.cog) === JSON.stringify(hbOn.back),
+        `${tag} On: the settings cog is the same round 40px button as Back, edge and all (#5551)`, JSON.stringify(hbOn));
+      const warmOf = { light: 'rgba(176, 116, 0, 0.1)', dark: 'rgba(255, 190, 60, 0.12)' };   // --warn-bg, today's ground (the Off read shows the same)
+      chk(qOn.found && qOn.radius === '24px' && qOn.edge !== 'rgba(0, 0, 0, 0)' && parseFloat(qOn.edgeW) > 0 && qOn.bg === warmOf[theme] && qOn.padL >= 16 && qOn.padT >= 16 && qOn.screenRadius === '12px',
+        `${tag} On: an agent's question in the room keeps its warm ground and its hairline (#3692), with 24px corners, room inside them and the screen's corners eased (#5551)`, JSON.stringify(qOn));
       const bub = await page.evaluate(BUBBLES);
       const PAGE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(0, 0, 0)' };
       chk(bub.you === GREY_OF[theme] && bub.agent === PAGE_OF[theme], `${tag} On: your message is grey, an agent's is the page's own ground (no bubble)`, JSON.stringify(bub));
@@ -828,9 +861,9 @@ const AGENTS_LOOK = `(() => {
       chk(partOf.found && partOf.above, `${tag} On: a subtask's "Part of" line sits above its title, as it reads`, JSON.stringify(partOf));
       const hdOn = await page.evaluate(HEAD_PLACE);
       const phOn = await page.evaluate(PHONE_LOOK);
-      const top = (t) => !!t && t.agentAvTopOff <= 4 && t.tall > 40, foot = (t) => !!t && t.yourAvBottomOff <= 4;
-      chk(phOn.found && top(phOn.room) && top(phOn.dm) && foot(phOn.room) && foot(phOn.dm) && phOn.newTaskRadius === '999px',
-        `${tag} On: an agent's message has its avatar at the top (room and DM), yours keeps it at the foot, and New task is a pill`, JSON.stringify(phOn));
+      const top = (t) => !!t && t.agentAvTopOff <= 4 && t.tall > 40, noAv = (t) => !!t && t.yourAvShown === false && t.agentAvShown === true && t.tailRoom >= 14 && t.sideways <= 0;
+      chk(phOn.found && top(phOn.room) && top(phOn.dm) && noAv(phOn.room) && noAv(phOn.dm) && phOn.newTaskRadius === '999px',
+        `${tag} On: an agent's message has its avatar at the top (room and DM), yours has none (#5551, the drawing) with room for its tail and no sideways scroll, and New task is a pill`, JSON.stringify(phOn));
       if (width <= 960) chk(phOn.found && phOn.cog !== 'hidden' && phOn.cog.on && phOn.cog.right <= phOn.vw && phOn.cog.sw <= phOn.vw
         && phOn.cogLong && phOn.cogLong.on && phOn.cogLong.sw <= phOn.vw && phOn.cogRowMarginRight === '4px',
         `${tag} On, a phone: the project's gear sits on the crumb's line inside the page, with a long name too, and keeps 4px for its touch area`, JSON.stringify(phOn));
@@ -1052,8 +1085,14 @@ const AGENTS_LOOK = `(() => {
       const pjOff = await page.evaluate(TASKS_PLACE);   // read with the project OPEN, where a stuck move would show
       const stOff = await page.evaluate(MEMBER_WORD);
       const hdOff = await page.evaluate(HEAD_PLACE);
+      const qOff = await page.evaluate(QUESTION_LOOK);
+      const hbOff = await page.evaluate(HEAD_BUTTONS);
+      chk(hbOff.found && hbOff.cog.w === '28px' && hbOff.cog.radius === '8px' && hbOff.cog.edgeW === '0px',
+        `${tag} Off: the settings cog is today's 28px icon (the control, #5551)`, JSON.stringify(hbOff));
       chk(hdOff.aboveCols && !hdOff.rootShown && hdOff.nameShown, `${tag} Off: the crumb row is back above the columns, no "Projects" root, the name shows`, JSON.stringify(hdOff));
       chk(!stOff.shown, `${tag} Off: the member row prints no state word, as today (#3212)`, JSON.stringify(stOff));
+      chk(qOff.found && qOff.radius !== '24px' && qOff.edge !== 'rgba(0, 0, 0, 0)' && parseFloat(qOff.edgeW) > 0 && qOff.padL < 16 && qOff.screenRadius !== '12px',
+        `${tag} Off: an agent's question in the room is today's box, today's corners (the control, #5551)`, JSON.stringify(qOff));
       chk(pjOff.order === 'members,files' && pjOff.tasksLast, `${tag} Off: Tasks is back at the end of the project page, as today`, JSON.stringify(pjOff));
       chk(back.look === null && back.kbg === before.kbg, `${tag} Off and a reload give today's page back`, JSON.stringify(back));
       /* Control for the Agents arms: with the look off, the idle card keeps its border and New agent has no round. */
@@ -1084,8 +1123,8 @@ const AGENTS_LOOK = `(() => {
       chk(ctlOff.found && ctlBefore.found && JSON.stringify(ctlOff) === JSON.stringify(ctlBefore) && ctlOff.plainEdge !== 'rgba(0, 0, 0, 0)' && ctlOff.plainRadius !== '999px',
         `${tag} Off, the controls: exactly today's gold-edged buttons, as before the switch was touched (the control)`, JSON.stringify({ off: ctlOff, before: ctlBefore }));
       const phOff = await page.evaluate(PHONE_LOOK);
-      chk(phOff.found && phOff.room && phOff.dm && phOff.room.agentAvTopOff > 4 && phOff.dm.agentAvTopOff > 4 && phOff.newTaskRadius !== '999px',
-        `${tag} Off: an agent's message keeps its avatar at the bubble's foot (room and DM) and New task its corners (the control)`, JSON.stringify(phOff));
+      chk(phOff.found && phOff.room && phOff.dm && phOff.room.agentAvTopOff > 4 && phOff.dm.agentAvTopOff > 4 && phOff.room.yourAvShown && phOff.dm.yourAvShown && phOff.room.yourAvBottomOff <= 4 && phOff.dm.yourAvBottomOff <= 4 && phOff.newTaskRadius !== '999px',
+        `${tag} Off: an agent's message keeps its avatar at the bubble's foot (room and DM), yours keeps its avatar at the foot too, and New task its corners (the control)`, JSON.stringify(phOff));
       await page.mouse.move(0, 0);
       const crOff = await page.evaluate(CREATE_LOOK);
       chk(crOff.found && crBefore.found && JSON.stringify(crOff) === JSON.stringify(crBefore) && crOff.restEdge !== 'rgba(0, 0, 0, 0)' && crOff.continueRadius !== '999px',

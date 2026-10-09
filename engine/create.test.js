@@ -250,23 +250,67 @@ const LX = (win, why) => Object.assign({}, win, onLinux(why));
    is-active, a read that changes nothing). Anything else counts as having run something. A Mac never makes that call,
    so there this is the old a[0] !== 'print' filter exactly. */
 const notARead = ([, a]) => a && a[0] !== 'print' && !a.includes('is-active');
-/* #5432: a test whose FIXTURE is the launchd job (it seeds or reads a plist, or its runner answers launchctl only) but
-   whose assertion is platform-neutral. Skipped on Linux until #5500 ports it; the reason says it is not tested there. */
-const LINUX_UNPORTED_WHY = 'launchd is only this test\'s fixture (a plist, launchctl answers); what it asserts is platform-neutral and is '
-  + 'tested on macOS, but NOT yet on Linux: #5500 ports it';
-/* #5432 review 3: these assert the launchd job itself, and the Linux unit's equivalent is NOT tested yet (no Linux
-   test checks it); #5500 lists them beside the fixture-only ones. */
-const LINUX_UNIT_UNTESTED_WHY = 'it asserts the launchd job itself; the systemd unit\'s equivalent (the same value carried, or '
-  + 'the same refusal) is NOT tested on Linux yet: #5500';
 /* #5432 review 4: the #4279 leftover-job rules read launchctl print output and plist paths (macOS temp folders, the
    printed first-level path). A Linux create has no such sweep, so these have no Linux equivalent to test. */
 const LINUX_NO_EQUIVALENT_WHY = 'the #4279 leftover-job rules read launchctl print output and plist paths (boot out a temp '
   + 'leftover, never our own); a Linux create has no such sweep, it refuses an already-loaded or orphan unit instead '
   + '(create.linux-4918.test.js reviews 7 and 27)';
-const LINUX_LAUNCHD_WHY = 'it reads or drives the launchd job itself (plist, launchctl, the launchd runner seam); this behaviour is NOT '
-  + 'tested on Linux yet: #5500 (the Linux job in general is tested in create.linux-4918, linuxjob and linuxwiring-4918)';
-const LINUX_TASK_STUB_WHY = 'it switches an agent by rewriting its launchd job; the switch is NOT tested on Linux yet: #5500 '
-  + '(linuxjob.test.js tests rewriteAgentJob on Linux in general)';
+
+/* #5500: the agent's startup job as THIS platform keeps it (test-support/jobfixture): the launchd plist on macOS, the
+   systemd user unit on Linux. A test whose assertion is platform-neutral reads and drives the job through these, so it
+   runs on both. On a Mac each one is exactly the plist read or launchctl filter it replaced. */
+const jobfixture = require('../test-support/jobfixture');
+const linuxHost = () => process.platform === 'linux';
+const jobText = (name) => fs.readFileSync(jobfixture.jobPath(name), 'utf8');
+/* Every value the job carries, compared whole: each <string> of the plist; on Linux each ExecStart argument, each
+   Environment value, and every other directive's whole value (Description, WorkingDirectory and the rest). */
+function jobStrings(name) {
+  const text = jobText(name);
+  if (!linuxHost()) return [...text.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
+  const out = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(\w+)=(.*)$/);
+    if (!m) continue;
+    if (m[1] === 'ExecStart') out.push(...[...m[2].matchAll(/"([^"]*)"|(\S+)/g)].map((t) => (t[1] !== undefined ? t[1] : t[2])));
+    else if (m[1] === 'Environment') { const e = m[2].replace(/^"|"$/g, ''); out.push(e.slice(e.indexOf('=') + 1)); }
+    else out.push(m[2]);
+  }
+  return out;
+}
+/* One environment variable the job sets for the agent (a plist key, a unit Environment= line), or undefined. */
+function jobEnv(name, key) {
+  const m = linuxHost()
+    ? jobText(name).match(new RegExp(`^Environment="${key}=([^"\\n]*)"$`, 'm'))
+    : jobText(name).match(new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`));
+  return m ? m[1] : undefined;
+}
+/* #5500: the job's argument vector (the plist's ProgramArguments, the unit's ExecStart); the positions are the same on
+   both. A declaration, so tests above its first use can call it. */
+function jobArgv(name) {
+  const text = jobText(name);
+  if (linuxHost()) {
+    const line = text.match(/^ExecStart=(.*)$/m);
+    return [...line[1].matchAll(/"([^"]*)"|(\S+)/g)].map((t) => (t[1] !== undefined ? t[1] : t[2]));
+  }
+  const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+  return [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]);
+}
+/* The model the job starts on. plannedModelArg is the plist's reader; on Linux the same slot (argument 7) is read back
+   out of the unit by readJob. */
+const plannedModel = (name) => (linuxHost() ? ((create.readJob(name) || {}).model || null) : create.plannedModelArg(name));
+/* A command that STARTS the job: launchd's bootstrap, systemd's start. A "start fails" runner fails exactly these. */
+const startsJob = (file, a) => Array.isArray(a) && (a[0] === 'bootstrap' || (/systemctl$/.test(String(file)) && a[1] === 'start'));
+/* The job a command UNLOADS (launchd's bootout, systemd's stop), or null; and the name the job is unloaded by. */
+const unloadTarget = (file, a) => (!Array.isArray(a) ? null : a[0] === 'bootout' ? a[1]
+  : (/systemctl$/.test(String(file)) && a[1] === 'stop') ? a[2] : null);
+const jobLabel = (name) => (linuxHost() ? require('./linuxjob').unitName(name) : create.serviceLabel(name));
+/* Everything a successful create runs besides its one start: launchd's print (a read) and enable (#4254, starts
+   nothing) are excluded by name; on Linux the reads (is-active, loginctl show-user) and what starts nothing
+   (daemon-reload, enable, loginctl enable-linger). On a Mac this is the old a[0] !== 'print' && a[0] !== 'enable'. */
+const LINUX_NOT_A_START = new Set(['is-active', 'show-user', 'daemon-reload', 'enable', 'enable-linger']);
+const notAReadOrPrep = ([, a]) => a && (linuxHost()
+  ? !a.some((x) => LINUX_NOT_A_START.has(x))
+  : a[0] !== 'print' && a[0] !== 'enable');
 
 const roles = require('./roles');
 const status = require('./status');
@@ -473,7 +517,7 @@ test('dry-run cannot be left without a runner in place', () => {
 // Creating
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('creating an agent writes its folder, its instructions and its startup job', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('creating an agent writes its folder, its instructions and its startup job', WIN_LAUNCHD, () => {
   const calls = recorder();
   create.setDryRun(false);
 
@@ -485,7 +529,7 @@ test('creating an agent writes its folder, its instructions and its startup job'
   assert.match(text, /You are \*\*fixture-agent\*\*, a project manager/,
     'the instructions were not written for this agent by name');
 
-  assert.ok(fs.existsSync(create.plistPath('fixture-agent')), 'no launchd job');
+  assert.ok(fs.existsSync(jobfixture.jobPath('fixture-agent')), 'no startup job');
 });
 
 test('the launchd job carries PATH and LANG, or the board reports nothing or nonsense', () => {
@@ -506,7 +550,7 @@ test('the launchd job carries PATH and LANG, or the board reports nothing or non
   assert.match(plist, /<key>RunAtLoad<\/key>/, 'the agent will not survive a reboot');
 });
 
-test('the session is claimed for Kosmos, and claimed as ITSELF, at every start', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('the session is claimed for Kosmos, and claimed as ITSELF, at every start', WIN_LAUNCHD, () => {
   // ⚠️ A NAME OF ITS OWN. These tests share one sandbox, so reusing `casey`
   // meant the second creation was refused as a duplicate -- and the assertion
   // then failed for a reason that has nothing to do with claims. A test whose
@@ -533,8 +577,8 @@ test('the session is claimed for Kosmos, and claimed as ITSELF, at every start',
     + 'recognising this agent the first time it restarts');
   // The AGENT is now an argument rather than baked in, so what pins "as itself"
   // is the job passing this agent's name and the script claiming "$SESSION".
-  const plist = fs.readFileSync(create.plistPath('claimed-one'), 'utf8');
-  assert.match(plist, /<string>claimed-one<\/string>/,
+  const plist = jobText('claimed-one');
+  assert.ok(jobStrings('claimed-one').includes('claimed-one'),
     'the job does not tell the supervisor which agent it is for');
 
   // And the board agrees that this is a claim.
@@ -567,7 +611,7 @@ test('the session is claimed for Kosmos, and claimed as ITSELF, at every start',
   assert.ok(fs.statSync(create.supervisorPath()).mode & 0o100, 'the supervisor is not executable');
 });
 
-test('the agent is started the same way it will be started every time after', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('the agent is started the same way it will be started every time after', WIN_LAUNCHD, () => {
   // ⚠️ ONE PATH. The previous version ran tmux itself and left the launchd job
   // on disk unloaded: the agent ran now and was gone after a reboot, and the
   // session a person got at creation was set up by different code from the one
@@ -578,6 +622,23 @@ test('the agent is started the same way it will be started every time after', LX
   const r = create.createAgent({ ...BINS, name: 'one-path', role: 'pm' });
 
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  if (linuxHost()) {
+    /* #5500: systemd's equivalent (linuxjob.start): enable the unit (it starts at every boot), then start it. The one
+       command that starts anything is that start, of this agent's own unit. */
+    const unit = jobLabel('one-path');
+    const starting = calls.filter(notAReadOrPrep);
+    assert.equal(starting.length, 1, 'creation ran more than the one command that starts the agent');
+    const enableAt = calls.findIndex(([f, a]) => /systemctl$/.test(String(f)) && a && a[1] === 'enable');
+    const startAt = calls.findIndex(([f, a]) => startsJob(f, a));
+    assert.ok(enableAt !== -1, 'the unit was never enabled, so the agent will not start again at boot');
+    assert.ok(enableAt < startAt, 'the unit was started before it was enabled');
+    assert.equal(calls[enableAt][1][2], unit, 'a different unit was enabled');
+    const [file, args] = starting[0];
+    assert.match(file, /systemctl$/, 'the agent was started by something other than its own unit');
+    assert.deepEqual(args, ['--user', 'start', unit], 'a different unit was started');
+    assert.ok(fs.existsSync(jobfixture.jobPath('one-path')), 'the unit that started it is not on disk');
+    return;
+  }
   // ⚠️ Exactly ONE command STARTS anything. The other call is the read-only
   // `launchctl print` probe that asks whether this name already has a service
   // loaded, so it is excluded by name rather than by count -- counting alone
@@ -621,13 +682,13 @@ test('no COMMAND is handed to a shell to reinterpret', WIN_LAUNCHD, () => {
   }
 });
 
-test('an agent that will not start is reported as PARTIAL, not as created', LX(WIN_LAUNCHD_FAIL, LINUX_UNPORTED_WHY), () => {
+test('an agent that will not start is reported as PARTIAL, not as created', WIN_LAUNCHD_FAIL, () => {
   // ⚠️ "Created" is a claim about us; "it is running" is a claim about the
   // agent. A setup that wrote three files and could not start the session has
   // not given the person an agent, and saying so is the whole difference
   // between this product and a wizard that always says Done.
   create.setRunner((file, args) => {
-    if (args && args[0] === 'bootstrap') return { ok: false, stderr: 'Load failed: 5: Input/output error' };
+    if (startsJob(file, args)) return { ok: false, stderr: 'Load failed: 5: Input/output error' };
     return { ok: true };
   });
   create.setDryRun(false);
@@ -1143,7 +1204,7 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   }
 });
 
-test('a machine we cannot ask about running agents is refused, not risked', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('a machine we cannot ask about running agents is refused, not risked', WIN_LAUNCHD, () => {
   // ⚠️ FAIL CLOSED. "We could not check" is not "the name is free", and this is
   // the one place where guessing wrong makes a second agent under a live name.
   //
@@ -1163,7 +1224,7 @@ test('a machine we cannot ask about running agents is refused, not risked', LX(W
 
     assert.equal(r.outcome, create.OUTCOME.REFUSED, `${label}: created an agent anyway`);
     assert.match(r.because, /could not check which agents are already running/);
-    assert.equal(calls.filter(([, a]) => a && a[0] !== 'print').length, 0,
+    assert.equal(calls.filter(notARead).length, 0,
       `${label}: ran a command despite refusing`);
     assert.ok(!fs.existsSync(create.workerDir('fixture-blind')),
       `${label}: made a folder despite refusing`);
@@ -1297,7 +1358,7 @@ test('an agent is refused when the programs it is made of are not on this machin
     create.OUTCOME.CREATED, 'this name is refused whatever the paths, so the above proves nothing');
 });
 
-test('a write that fails stops the creation instead of loading a job that cannot work', LX(WIN_LAUNCHD_FAIL, LINUX_UNPORTED_WHY), () => {
+test('a write that fails stops the creation instead of loading a job that cannot work', WIN_LAUNCHD_FAIL, () => {
   // ⚠️ Only the folder and the start gated the outcome, so a failed write still
   // returned CREATED -- "set up and starting" over an agent whose startup
   // script was never written. That is worse than untrue: bash exits at once on
@@ -1322,7 +1383,7 @@ test('a write that fails stops the creation instead of loading a job that cannot
     assert.match(r.because, /could not write everything/);
     assert.ok(r.steps.some((s) => s.label === 'wrote its instructions' && !s.ok),
       'the failing step is not visible in the record');
-    assert.equal(calls.filter(([, a]) => a && a[0] !== 'print').length, 0,
+    assert.equal(calls.filter(notARead).length, 0,
       'the job was loaded anyway, so launchd now retries a missing script every thirty seconds');
   } finally {
     fs.writeFileSync = realWrite;
@@ -1336,8 +1397,10 @@ test('a write that fails stops the creation instead of loading a job that cannot
   assert.equal(ok.outcome, create.OUTCOME.CREATED, ok.because);
   // `enable` is excluded by name, as in the start test: a successful create also
   // runs it first (#4254), and it starts nothing. Everything else still counts.
-  assert.equal(calls2.filter(([, a]) => a && a[0] !== 'print' && a[0] !== 'enable').length, 1,
+  assert.equal(calls2.filter(notAReadOrPrep).length, 1,
     'the control did not actually load a job');
+  // #5500 review 5: and that one call is the start, not some other command the filter let through.
+  assert.ok(calls2.filter(notAReadOrPrep).every(([f, a]) => startsJob(f, a)), 'the one remaining call is not a start');
 });
 
 test('the startup script will not kill a session it cannot prove is ours', () => {
@@ -1872,7 +1935,7 @@ test('every name this module accepts is one the rest of the system can address',
   assert.ok(accepted > 0, 'nothing was accepted, so the assertions above never ran');
 });
 
-test('a creation that fails leaves nothing behind, so the same name can be tried again', LX(WIN_LAUNCHD_FAIL, LINUX_UNPORTED_WHY), () => {
+test('a creation that fails leaves nothing behind, so the same name can be tried again', WIN_LAUNCHD_FAIL, () => {
   // ⚠️ TWO half-states shipped before this, and both were worse than the
   // failure they followed:
   //
@@ -1894,7 +1957,7 @@ test('a creation that fails leaves nothing behind, so the same name can be tried
     const halfWritten = create.createAgent({ ...BINS, name: 'rollback-a', role: 'pm' });
     assert.equal(halfWritten.outcome, create.OUTCOME.PARTIAL);
     assert.ok(!fs.existsSync(create.workerDir('rollback-a')), 'the folder was left behind');
-    assert.ok(!fs.existsSync(create.plistPath('rollback-a')), 'the launchd job was left behind');
+    assert.ok(!fs.existsSync(jobfixture.jobPath('rollback-a')), 'the startup job was left behind');
   } finally {
     fs.writeFileSync = realWrite;
   }
@@ -1906,12 +1969,12 @@ test('a creation that fails leaves nothing behind, so the same name can be tried
     create.OUTCOME.CREATED, 'a failed attempt blocked the name it failed on');
 
   // And a failed START rolls back too.
-  create.setRunner((file, args) => (args && args[0] === 'bootstrap'
+  create.setRunner((file, args) => (startsJob(file, args)
     ? { ok: false } : { ok: true, stdout: '' }));
   create.setDryRun(false);
   const notStarted = create.createAgent({ ...BINS, name: 'rollback-b', role: 'pm' });
   assert.equal(notStarted.outcome, create.OUTCOME.PARTIAL);
-  assert.ok(!fs.existsSync(create.plistPath('rollback-b')),
+  assert.ok(!fs.existsSync(jobfixture.jobPath('rollback-b')),
     'a job that could not be started was left installed, so it starts at the next login anyway');
   // ⚠️ And UNLOADED, not just deleted. `bootstrap` can register a service and
   // still exit non-zero; removing the plist alone would leave that job
@@ -1920,18 +1983,18 @@ test('a creation that fails leaves nothing behind, so the same name can be tried
   // again" would be false forever.
   const bootouts = [];
   create.setRunner((file, args) => {
-    if (args && args[0] === 'bootout') bootouts.push(args[1]);
-    return args && args[0] === 'bootstrap' ? { ok: false } : { ok: true, stdout: '' };
+    if (unloadTarget(file, args)) bootouts.push(unloadTarget(file, args));
+    return startsJob(file, args) ? { ok: false } : { ok: true, stdout: '' };
   });
   create.setDryRun(false);
   create.createAgent({ ...BINS, name: 'rollback-c', role: 'pm' });
-  assert.ok(bootouts.some((t) => String(t).endsWith('com.kosmos.agent.rollback-c')),
+  assert.ok(bootouts.some((t) => String(t).endsWith(jobLabel('rollback-c'))),
     'the service this creation installed was left loaded after the start failed');
   assert.ok(!fs.existsSync(create.workerDir('rollback-b')), 'the folder was left behind');
   assert.match(notStarted.because, /try that name again/);
 });
 
-test('a name whose startup job is loaded with nothing on disk is refused by name', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('a name whose startup job is loaded with nothing on disk is refused by name', WIN_LAUNCHD, () => {
   // ⚠️ This is what the README's own removal recipe produces if the `rm` runs
   // without the `bootout`, or before it. Without this check the creation goes
   // ahead, `bootstrap` fails with "service already bootstrapped", the rollback
@@ -1948,12 +2011,27 @@ test('a name whose startup job is loaded with nothing on disk is refused by name
   create.setRunner((file, args) => {
     calls.push([file, args]);
     if (args && args[0] === 'print') return { ok: true, stdout: 'com.kosmos.agent.ghost = { ... }' };
+    // #5500: on Linux, loaded is systemd answering active for a unit whose file is not there.
+    if (/systemctl$/.test(String(file)) && args && args[1] === 'is-active') return { ok: true, stdout: 'active\n' };
     return { ok: true, stdout: '' };
   });
   create.setDryRun(false);
 
   const r = create.createAgent({ ...BINS, name: 'ghost-job', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED, 'a name whose service is loaded was accepted');
+  if (linuxHost()) {
+    // Linux says it in its own words, and gives the one command that frees the name (#4918 review 7).
+    assert.match(r.because, /systemd is still running something called ghost-job, though its startup file is gone/);
+    assert.match(r.because, /systemctl --user stop 'kosmos-agent-ghost-job\.service'/);
+    assert.ok(!calls.some(([f, a]) => startsJob(f, a)), 'it tried to start a second job');
+    assert.ok(!fs.existsSync(create.workerDir('ghost-job')), 'it made a folder for a name it refused');
+    assert.ok(!calls.some(([f, a]) => unloadTarget(f, a)), 'it stopped a unit this creation did not install');
+    recorder();
+    create.setDryRun(false);
+    assert.equal(create.createAgent({ ...BINS, name: 'ghost-job', role: 'pm' }).outcome,
+      create.OUTCOME.CREATED, 'CONTROL: this name is refused whatever systemd says, so the above proves nothing');
+    return;
+  }
   /* ⚠️ THE ADVERB IS NOT THE DISCRIMINATOR. Two refusals now share this
      clause and differ only by still/already: :715 is a plist FILE on disk with
      no folder, :761 (this one) is a LOADED service with nothing on disk. One
@@ -2022,7 +2100,7 @@ test('a name that shares a KEY with a live session is refused, not just an ident
     create.OUTCOME.CREATED, 'every name is refused while that session runs, so the above proves nothing');
 });
 
-test('the supervisor is installed once and shared, not copied per agent', LX(WIN_BASH_SUPERVISOR, LINUX_UNPORTED_WHY), () => {
+test('the supervisor is installed once and shared, not copied per agent', WIN_BASH_SUPERVISOR, () => {
   // ⚠️ THE WHOLE POINT OF THE CHANGE. Each agent used to get its own copy of a
   // 151-line generated script, so every defect in it shipped as many times as
   // there were agents and every FIX reached only the ones created afterwards --
@@ -2035,10 +2113,10 @@ test('the supervisor is installed once and shared, not copied per agent', LX(WIN
   for (const name of ['shared-one', 'shared-two']) {
     assert.ok(!fs.existsSync(nodePath.join(create.workerDir(name), 'start.sh')),
       `${name} has its own copy of the supervisor`);
-    const plist = fs.readFileSync(create.plistPath(name), 'utf8');
+    const plist = jobText(name);
     assert.match(plist, new RegExp(create.supervisorPath().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       `${name}'s job does not run the shared supervisor`);
-    assert.match(plist, new RegExp(`<string>${name}</string>`),
+    assert.ok(jobStrings(name).includes(name),
       `${name}'s job does not tell the supervisor which agent it is for`);
   }
 
@@ -2052,7 +2130,7 @@ test('the supervisor is installed once and shared, not copied per agent', LX(WIN
     'an older supervisor was left in place, so every agent keeps running it');
 });
 
-test('a supervisor that cannot be installed stops the creation', LX(WIN_BASH_SUPERVISOR, LINUX_UNPORTED_WHY), () => {
+test('a supervisor that cannot be installed stops the creation', WIN_BASH_SUPERVISOR, () => {
   // ⚠️ A job pointing at a script that is not there IS the respawn loop: bash
   // exits at once and KeepAlive retries every thirty seconds for as long as the
   // machine is on. So this refuses before the job is written, and rolls back.
@@ -2075,9 +2153,9 @@ test('a supervisor that cannot be installed stops the creation', LX(WIN_BASH_SUP
     // and saying so matters: removing the gate that stops the job being written
     // leaves this assertion green, because the rollback removes it either way.
     // The load-bearing assertion is the next one -- nothing was ever STARTED.
-    assert.ok(!fs.existsSync(create.plistPath('no-supervisor')),
+    assert.ok(!fs.existsSync(jobfixture.jobPath('no-supervisor')),
       'a job pointing at a supervisor that is not there was left on the machine');
-    assert.equal(calls.filter(([, a]) => a && a[0] !== 'print').length, 0, 'it started something anyway');
+    assert.equal(calls.filter(notARead).length, 0, 'it started something anyway');
   } finally {
     fs.copyFileSync = realCopy;
   }
@@ -2201,7 +2279,7 @@ test('the supervisor trims its own log rather than growing it forever', WIN_BASH
 // the thing worth testing is exactly which name reaches which place.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('a capitalised name makes its folder, job and session under the LOWER-CASE name', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('a capitalised name makes its folder, job and session under the LOWER-CASE name', WIN_LAUNCHD, () => {
   const calls = recorder();
   create.setDryRun(false);
 
@@ -2210,7 +2288,7 @@ test('a capitalised name makes its folder, job and session under the LOWER-CASE 
 
   // Everything the operating system touches.
   assert.ok(fs.existsSync(create.workerDir('bex')), 'the folder is not under the machine name');
-  assert.ok(fs.existsSync(create.plistPath('bex')), 'the job is not under the machine name');
+  assert.ok(fs.existsSync(jobfixture.jobPath('bex')), 'the job is not under the machine name');
   assert.equal(create.serviceLabel('bex'), 'com.kosmos.agent.bex');
   /**
    * ⚠️ ASSERTED ON THE DIRECTORY LISTING, NOT ON `existsSync('Bex')`, and the
@@ -2231,11 +2309,10 @@ test('a capitalised name makes its folder, job and session under the LOWER-CASE 
 
   // And the session tmux is asked for. The supervisor takes the agent as its
   // first argument, so this is the name the window will be called.
-  const launched = calls.find(([, args]) => Array.isArray(args) && args.includes('bootstrap'));
+  const launched = calls.find(([file, args]) => startsJob(file, args));
   assert.ok(launched, 'nothing was bootstrapped, so the assertions above are about nothing');
-  const plist = fs.readFileSync(create.plistPath('bex'), 'utf8');
-  assert.match(plist, /<string>bex<\/string>/, 'the supervisor is passed the machine name');
-  assert.doesNotMatch(plist, /<string>Bex<\/string>/, 'the typed name reached the launchd job');
+  assert.ok(jobStrings('bex').includes('bex'), 'the supervisor is passed the machine name');
+  assert.ok(!jobStrings('bex').includes('Bex'), 'the typed name reached the startup job');
 });
 
 test('and it is CALLED Casey: the instruction file and the stored record both say so', () => {
@@ -2764,11 +2841,24 @@ test('a chosen label lands in the profile only on a completed creation', () => {
     'the label the person chose is not what the board will read');
 });
 
-test('the model choice writes a sixth supervisor argument, and no choice writes the five every existing agent runs', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('the model choice writes a sixth supervisor argument, and no choice writes the five every existing agent runs', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const chosen = create.createAgent({ ...BINS, name: 'modelled', role: 'pm', model: 'haiku' });
   assert.equal(chosen.outcome, create.OUTCOME.CREATED, chosen.because);
+  if (linuxHost()) {
+    // #5500: on Linux the model is ExecStart's eighth word (linuxjob.unitFor); no choice leaves the seven.
+    const withModel = jobArgv('modelled');
+    assert.equal(withModel[7], 'claude-haiku-4-5-20251001',
+      'the chosen model never reached the job, so the agent runs on the default while the menu claims otherwise');
+    const plain = create.createAgent({ ...BINS, name: 'unmodelled', role: 'pm' });
+    assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+    assert.ok(!/--model|claude-haiku|claude-sonnet/.test(jobText('unmodelled')),
+      'an agent created without a choice carries a model flag anyway');
+    assert.equal(jobArgv('unmodelled').length, withModel.length - 1,
+      'the shape every existing agent runs did not survive');
+    return;
+  }
   const plist = fs.readFileSync(create.plistPath('modelled'), 'utf8');
   assert.match(plist, /claude-haiku-4-5-20251001/,
     'the chosen model never reached the job, so the agent runs on the default while the menu claims otherwise');
@@ -3258,14 +3348,14 @@ test('the birth splice never pushes a boot file past the size its own reader acc
  * shift, silently, together. Creating the agent for real is what makes the
  * writer and the reader one contract with two ends.
  */
-test('the planned model survives the round trip through the real job file', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('the planned model survives the round trip through the real job file', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const r = create.createAgent({ ...BINS, name: 'plannedone', role: 'pm', model: 'opus' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
   // The exact string `claude --model` is handed, not the key the route accepts:
   // showing a person the key would show them "opus".
-  assert.equal(create.plannedModelArg('plannedone'), 'claude-opus-5');
+  assert.equal(plannedModel('plannedone'), 'claude-opus-5');
 });
 
 /**
@@ -3273,14 +3363,14 @@ test('the planned model survives the round trip through the real job file', LX(W
  * a hardcoded string, or read the wrong index and happen to be right for one
  * model, and both tests would pass. This asserts the value TRACKS the choice.
  */
-test('a different choice comes back different, and every model in the list round-trips', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('a different choice comes back different, and every model in the list round-trips', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   for (const m of create.MODELS) {
     const name = `rt${m.key}`;
     const r = create.createAgent({ ...BINS, name, role: 'pm', model: m.key });
     assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
-    assert.equal(create.plannedModelArg(name), m.arg,
+    assert.equal(plannedModel(name), m.arg,
       `${m.key} did not come back as the argument the job runs with`);
   }
 });
@@ -3288,17 +3378,33 @@ test('a different choice comes back different, and every model in the list round
 /* #4439: the card's own acceptance line, asserted for the one new model by name rather than
    left to the loop above: an agent created on Sonnet 5.5 is launched with claude-sonnet-5-5,
    and its card calls it "Claude Sonnet 5.5". The control is the Sonnet 5 agent beside it. */
-test('#4439: an agent created on Sonnet 5.5 launches with claude-sonnet-5-5 and is named Claude Sonnet 5.5', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+
+test('#4439: an agent created on Sonnet 5.5 launches with claude-sonnet-5-5 and is named Claude Sonnet 5.5', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const status = require('./status');
   const r = create.createAgent({ ...BINS, name: 'sonnetfivefive', role: 'pm', model: 'sonnet55' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
-  assert.equal(create.plannedModelArg('sonnetfivefive'), 'claude-sonnet-5-5');
-  assert.equal(status.modelDisplayName(create.plannedModelArg('sonnetfivefive')), 'Claude Sonnet 5.5');
+  assert.equal(plannedModel('sonnetfivefive'), 'claude-sonnet-5-5');
+  assert.equal(status.modelDisplayName(plannedModel('sonnetfivefive')), 'Claude Sonnet 5.5');
   const c = create.createAgent({ ...BINS, name: 'sonnetfive', role: 'pm', model: 'sonnet' });
   assert.equal(c.outcome, create.OUTCOME.CREATED, c.because);
-  assert.equal(create.plannedModelArg('sonnetfive'), 'claude-sonnet-5', 'CONTROL: Sonnet 5 is still Sonnet 5');
+  assert.equal(plannedModel('sonnetfive'), 'claude-sonnet-5', 'CONTROL: Sonnet 5 is still Sonnet 5');
+});
+
+/* #5626: the card's acceptance line for Haiku 5.5, as #4439's for Sonnet 5.5 above: an agent created on Haiku 5.5 is
+   launched with claude-haiku-5-5 and its card calls it "Claude Haiku 5.5". The control is the Haiku 4.5 agent beside it. */
+test('#5626: an agent created on Haiku 5.5 launches with claude-haiku-5-5 and is named Claude Haiku 5.5', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const status = require('./status');
+  const r = create.createAgent({ ...BINS, name: 'haikufivefive', role: 'pm', model: 'haiku55' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(plannedModel('haikufivefive'), 'claude-haiku-5-5');
+  assert.equal(status.modelDisplayName(plannedModel('haikufivefive')), 'Claude Haiku 5.5');
+  const c = create.createAgent({ ...BINS, name: 'haikufourfive', role: 'pm', model: 'haiku' });
+  assert.equal(c.outcome, create.OUTCOME.CREATED, c.because);
+  assert.equal(plannedModel('haikufourfive'), 'claude-haiku-4-5-20251001', 'CONTROL: Haiku 4.5 is still Haiku 4.5');
 });
 
 /**
@@ -3308,25 +3414,25 @@ test('#4439: an agent created on Sonnet 5.5 launches with claude-sonnet-5-5 and 
  * whose model nobody ever chose — the exact could-not-look versus is-not-there
  * confusion this product refuses everywhere else.
  */
-test('no job, no model argument, and an unreadable file all answer null', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('no job, no model argument, and an unreadable file all answer null', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
 
   // 1. No job at all.
-  assert.equal(create.plannedModelArg('never-made-at-all'), null);
+  assert.equal(plannedModel('never-made-at-all'), null);
 
   // 2. A job written without a model choice — the five-argument form every
   //    agent created before the picker existed still runs.
   const r = create.createAgent({ ...BINS, name: 'nomodelpick', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
-  const plist = fs.readFileSync(create.plistPath('nomodelpick'), 'utf8');
+  const plist = jobText('nomodelpick');
   assert.ok(!/claude-(opus|sonnet|fable|haiku)/.test(plist),
     'this agent was supposed to be created without a model choice');
-  assert.equal(create.plannedModelArg('nomodelpick'), null);
+  assert.equal(plannedModel('nomodelpick'), null);
 
   // 3. Present but unparseable.
-  fs.writeFileSync(create.plistPath('nomodelpick'), 'not a plist at all', 'utf8');
-  assert.equal(create.plannedModelArg('nomodelpick'), null);
+  fs.writeFileSync(jobfixture.jobPath('nomodelpick'), 'not a plist at all', 'utf8');
+  assert.equal(plannedModel('nomodelpick'), null);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3470,7 +3576,7 @@ test('a config we cannot write does not cost the person their agent', () => {
   assert.equal(fs.readFileSync(trustCfg(), 'utf8'), '{ not json at all', 'and their file is untouched');
 });
 
-test('an agent that will not start takes its trust entry back off the machine with it', LX(WIN_LAUNCHD_FAIL, LINUX_UNPORTED_WHY), () => {
+test('an agent that will not start takes its trust entry back off the machine with it', WIN_LAUNCHD_FAIL, () => {
   /**
    * ⚠️ THE SENTENCE IS THE TEST. A failed start tells the person "we have taken
    * it back off your computer rather than leave something half installed" —
@@ -3480,7 +3586,7 @@ test('an agent that will not start takes its trust entry back off the machine wi
    * false in exactly the case that produces it.
    */
   create.setRunner((file, args) => {
-    if (args && args[0] === 'bootstrap') return { ok: false, stderr: 'Load failed: 5: Input/output error' };
+    if (startsJob(file, args)) return { ok: false, stderr: 'Load failed: 5: Input/output error' };
     return { ok: true };
   });
   create.setDryRun(false);
@@ -3519,7 +3625,7 @@ test('an agent that will not start takes its trust entry back off the machine wi
   create.setRunner(null);
 });
 
-test('a rollback leaves a trust decision THEY already made for that same path', LX(WIN_LAUNCHD_FAIL, LINUX_UNPORTED_WHY), () => {
+test('a rollback leaves a trust decision THEY already made for that same path', WIN_LAUNCHD_FAIL, () => {
   /**
    * 🛑 THE CONTROL ON THE UNDO, and the first version of it could not fail. It
    * seeded somebody's entry at a DIFFERENT path — which `forgetFolder` would
@@ -3536,7 +3642,7 @@ test('a rollback leaves a trust decision THEY already made for that same path', 
    * deleting THEIR answer, not ours.
    */
   create.setRunner((file, args) => {
-    if (args && args[0] === 'bootstrap') return { ok: false, stderr: 'nope' };
+    if (startsJob(file, args)) return { ok: false, stderr: 'nope' };
     return { ok: true };
   });
   create.setDryRun(false);
@@ -3601,7 +3707,7 @@ test('a folder that appears in the window between the check and the mkdir is not
     'we answered a safety question about a folder that appeared under us');
 });
 
-test('a rollback removes only the key it added, not the entry it found', LX(WIN_LAUNCHD_FAIL, LINUX_UNPORTED_WHY), () => {
+test('a rollback removes only the key it added, not the entry it found', WIN_LAUNCHD_FAIL, () => {
   /**
    * 🛑 THE BLOCKER THIS REPLACES WAS IN THE FIX FOR A BLOCKER. The rollback
    * deleted the whole `projects[…]` entry on the reasoning that we must have
@@ -3616,7 +3722,7 @@ test('a rollback removes only the key it added, not the entry it found', LX(WIN_
    * shape that loses data is the key ABSENT, which is this fixture.
    */
   create.setRunner((file, args) => {
-    if (args && args[0] === 'bootstrap') return { ok: false, stderr: 'nope' };
+    if (startsJob(file, args)) return { ok: false, stderr: 'nope' };
     return { ok: true };
   });
   create.setDryRun(false);
@@ -3635,7 +3741,7 @@ test('a rollback removes only the key it added, not the entry it found', LX(WIN_
   create.setRunner(null);
 });
 
-test('an undo that could not run is recorded, because the sentence says it did', LX(WIN_LAUNCHD_FAIL, LINUX_UNPORTED_WHY), () => {
+test('an undo that could not run is recorded, because the sentence says it did', WIN_LAUNCHD_FAIL, () => {
   /**
    * 🛑 THE TEST THIS REPLACES ASSERTED THE ABSENCE OF A STEP NOTHING PUSHED.
    * `assert.ok(!r.steps.some(s => s.label === 'took back the folder trust'))`
@@ -3648,7 +3754,7 @@ test('an undo that could not run is recorded, because the sentence says it did',
    * unwritable fails both, and then there is nothing to take back.
    */
   create.setRunner((file, args) => {
-    if (args && args[0] === 'bootstrap') { rollbackStarted = true; return { ok: false, stderr: 'nope' }; }
+    if (startsJob(file, args)) { rollbackStarted = true; return { ok: false, stderr: 'nope' }; }
     return { ok: true };
   });
   create.setDryRun(false);
@@ -3688,7 +3794,7 @@ test('an undo that could not run is recorded, because the sentence says it did',
     'the entry was NOT removed, because the injected failure reached the undo');
 });
 
-test('a successful undo adds no step, so the failure step means something', LX(WIN_LAUNCHD_FAIL, LINUX_UNPORTED_WHY), () => {
+test('a successful undo adds no step, so the failure step means something', WIN_LAUNCHD_FAIL, () => {
   /**
    * ⚠️ THE VERSION BEFORE THIS PASSED WITH THE WHOLE TRUST FEATURE DELETED. Its
    * two assertions were "projects is empty" and "no failure step" — and a
@@ -3709,7 +3815,7 @@ test('a successful undo adds no step, so the failure step means something', LX(W
     'CONTROL: this fixture never produces a trust entry, so the emptiness below proves nothing');
 
   create.setRunner((file, args) => {
-    if (args && args[0] === 'bootstrap') return { ok: false, stderr: 'nope' };
+    if (startsJob(file, args)) return { ok: false, stderr: 'nope' };
     return { ok: true };
   });
   create.setDryRun(false);
@@ -3724,7 +3830,7 @@ test('a successful undo adds no step, so the failure step means something', LX(W
 });
 
 
-test('setModel rewrites the startup file and keeps everything else about the job', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('setModel rewrites the startup file and keeps everything else about the job', WIN_LAUNCHD, () => {
   /**
    * 🔑 THE MODEL WAS ALWAYS WRITTEN INTO THE JOB and always parsed back out;
    * what was missing was the ability to change it. Josh, 2026-08-21, with an
@@ -3742,6 +3848,33 @@ test('setModel rewrites the startup file and keeps everything else about the job
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, name, role: 'pm', model: 'opus' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  if (linuxHost()) {
+    // #5500: the same rewrite of the systemd unit (create.rewriteAgentJob's Linux arm, through linuxjob.unitFor).
+    const was = jobArgv(name);
+    const otherLines = () => jobText(name).split('\n').filter((l) => !l.startsWith('ExecStart='));
+    const restBefore = otherLines();
+    const out = create.setModel(name, 'haiku');
+    assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+    assert.equal(out.model.arg, 'claude-haiku-4-5-20251001');
+    const now = jobArgv(name);
+    assert.equal(now[7], 'claude-haiku-4-5-20251001', 'the new model was not written into ExecStart');
+    assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001',
+      'the reader beside the writer does not agree with what was written');
+    assert.equal(now[4], was[4], 'the claude path was not preserved across the rewrite');
+    assert.equal(now[5], was[5], 'the tmux path was not preserved across the rewrite');
+    assert.equal(now[2], name, 'the job stopped being about this agent');
+    assert.deepEqual(otherLines(), restBefore, 'the rewrite changed something about the unit besides its model');
+    const bad = create.setModel(name, 'gpt-9');
+    assert.equal(bad.outcome, create.OUTCOME.REFUSED);
+    assert.match(bad.because, /pick a model/);
+    assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001', 'a refused change still altered the file');
+    // An agent with no unit is refused in Linux's words (create.noJobRefusal), not regenerated.
+    const nobody = create.setModel('neverexisted', 'opus');
+    assert.equal(nobody.outcome, create.OUTCOME.REFUSED);
+    assert.match(nobody.because, /has no startup unit in systemd \(kosmos-agent-neverexisted\.service\)/);
+    assert.equal(fs.existsSync(jobfixture.jobPath('neverexisted')), false, 'a refused change wrote a unit');
+    return;
+  }
   const before = fs.readFileSync(create.plistPath(name), 'utf8');
   const argsOf = (text) => [...text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)[1]
     .matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]);
@@ -3799,12 +3932,13 @@ function seedAccounts() {
   return { home };
 }
 
-const cfgOf = (text) => {
-  const m = text.match(/<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/);
-  return m ? m[1] : null;
+// #5500: read out of the agent's own job (a plist on macOS, a systemd unit on Linux).
+const cfgOf = (name) => {
+  const v = jobEnv(name, 'CLAUDE_CONFIG_DIR');
+  return v === undefined ? null : v;
 };
 
-test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.PORT;
@@ -3815,9 +3949,15 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   } finally {
     if (before === undefined) delete process.env.PORT; else process.env.PORT = before;
   }
-  const plist = fs.readFileSync(create.plistPath('sandboxed'), 'utf8');
-  assert.match(plist, /<key>KOSMOS_PORT<\/key><string>16245<\/string>/,
-    'the job does not tell the agent which board made it, so its replies go to :16180');
+  if (linuxHost()) {
+    // #5500: the unit's Environment= line (linuxjob.unitFor).
+    assert.equal(jobEnv('sandboxed', 'KOSMOS_PORT'), '16245',
+      'the job does not tell the agent which board made it, so its replies go to :16180');
+  } else {
+    const plist = fs.readFileSync(create.plistPath('sandboxed'), 'utf8');
+    assert.match(plist, /<key>KOSMOS_PORT<\/key><string>16245<\/string>/,
+      'the job does not tell the agent which board made it, so its replies go to :16180');
+  }
   // And the supervisor hands it INTO the pane: tmux gives a session made on
   // a running server the server\'s environment, not the client\'s, so the
   // launchd environment alone never reaches the agent.
@@ -3850,7 +3990,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // build that contained the line, whatever the loop did (#587).
 });
 
-test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.PORT;
@@ -3861,11 +4001,18 @@ test('a job made by the default board carries no KOSMOS_PORT: absent means the d
   } finally {
     if (before !== undefined) process.env.PORT = before;
   }
+  if (linuxHost()) {
+    // #5500: the unit, whose environment is read whole (CONTROL: it has one, so the absence below is not an empty read).
+    const unit = jobText('ordinary');
+    assert.match(unit, /^Environment="HOME=/m, 'CONTROL: the unit carries no environment at all');
+    assert.doesNotMatch(unit, /KOSMOS_PORT/);
+    return;
+  }
   const plist = fs.readFileSync(create.plistPath('ordinary'), 'utf8');
   assert.doesNotMatch(plist, /KOSMOS_PORT/);
 });
 
-test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.TMUX_TMPDIR;
@@ -3876,6 +4023,12 @@ test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions la
   } finally {
     if (before === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = before;
   }
+  if (linuxHost()) {
+    // #5500: the unit's Environment= line (linuxjob.unitFor), the value whole.
+    assert.equal(jobEnv('pinned', 'TMUX_TMPDIR'), '/socket/dir & <odd>',
+      'the job does not carry the creating server\'s socket directory (#668)');
+    return;
+  }
   const plist = fs.readFileSync(create.plistPath('pinned'), 'utf8');
   assert.match(plist, /<key>TMUX_TMPDIR<\/key><string>\/socket\/dir &amp; &lt;odd&gt;<\/string>/,
     'the job does not carry the creating server\'s socket directory, so the supervisor '
@@ -3883,7 +4036,7 @@ test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions la
     + 'creation says "started it" and the board says "Not running" forever (#668)');
 });
 
-test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.TMUX_TMPDIR;
@@ -3893,6 +4046,13 @@ test('a job made with no TMUX_TMPDIR carries none: absent means the default sock
     assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   } finally {
     if (before !== undefined) process.env.TMUX_TMPDIR = before;
+  }
+  if (linuxHost()) {
+    // #5500: the unit, whose environment is read whole (CONTROL: it has one, so the absence below is not an empty read).
+    const unit = jobText('unpinned');
+    assert.match(unit, /^Environment="HOME=/m, 'CONTROL: the unit carries no environment at all');
+    assert.doesNotMatch(unit, /TMUX_TMPDIR/);
+    return;
   }
   const plist = fs.readFileSync(create.plistPath('unpinned'), 'utf8');
   assert.doesNotMatch(plist, /TMUX_TMPDIR/);
@@ -3926,7 +4086,7 @@ test('runningJobs reads which of our jobs launchd holds a live process for, and 
   }
 });
 
-test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default home the add path never writes', LX(WIN_TASK_STUB, LINUX_UNPORTED_WHY), () => {
+test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default home the add path never writes', WIN_TASK_STUB, () => {
   /* 🛑 JOSH'S SHIP BLOCKER, 2026-08-28. He added an OpenAI account, it said it
      signed in, he switched an agent, and got "nobody is signed in to OpenAI on
      this computer". Both sentences were true and they were about DIFFERENT
@@ -3960,8 +4120,7 @@ test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default ho
   assert.equal(sw.outcome, create.OUTCOME.CREATED,
     'the switch refused on a machine that HAS a signed-in OpenAI account, which is #1313: '
     + String(sw.because));
-  const plist = fs.readFileSync(create.plistPath(name), 'utf8');
-  const carried = (plist.match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+  const carried = jobEnv(name, 'CODEX_HOME');
   assert.ok(carried, 'the switch carried no CODEX_HOME at all, so the agent runs on the empty default home');
   assert.ok(fs.existsSync(nodePath.join(carried, 'auth.json')),
     `the switch carried ${carried}, which has no sign-in in it`);
@@ -3981,7 +4140,7 @@ test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default ho
    ⚠️ ASSERTING BOTH ROUTES RATHER THAN JUST THE FIXED ONE. A test that only checked
    the switch would go green if somebody later "fixed" the create path to pin instead,
    which is the same divergence pointing the other way. The equality is the invariant. */
-test('#1600: switching onto the DEFAULT OpenAI row writes no CODEX_HOME, exactly like creating on it', LX(WIN_TASK_STUB, LINUX_UNPORTED_WHY), () => {
+test('#1600: switching onto the DEFAULT OpenAI row writes no CODEX_HOME, exactly like creating on it', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   /* The DEFAULT codex home is `~/.codex`; a labelled `~/.codex-<x>` is not default.
@@ -4002,8 +4161,7 @@ test('#1600: switching onto the DEFAULT OpenAI row writes no CODEX_HOME, exactly
      spelling. Comparing one resolved against one raw fails on a match. */
   assert.equal(fs.realpathSync(def.dir), fs.realpathSync(home));
 
-  const homeOf = (n) => (fs.readFileSync(create.plistPath(n), 'utf8')
-    .match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+  const homeOf = (n) => jobEnv(n, 'CODEX_HOME');
 
   // ROUTE 1: switched onto the default row.
   const switched = 'defrowswitch';
@@ -4036,7 +4194,7 @@ test('#1600: switching onto the DEFAULT OpenAI row writes no CODEX_HOME, exactly
    ⇒ With an override in force the home MUST be written even though the row is
    "default". #1373 catches this too; this arm states it as its own requirement so a
    future reader sees why the condition is not simply `isDefault`. */
-test('#1600: with an override home in force, the default row still writes CODEX_HOME', LX(WIN_TASK_STUB, LINUX_UNPORTED_WHY), () => {
+test('#1600: with an override home in force, the default row still writes CODEX_HOME', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-overridden');
@@ -4055,8 +4213,7 @@ test('#1600: with an override home in force, the default row still writes CODEX_
 
     const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
     assert.equal(sw.outcome, create.OUTCOME.CREATED, String(sw.because));
-    const carried = (fs.readFileSync(create.plistPath(name), 'utf8')
-      .match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+    const carried = jobEnv(name, 'CODEX_HOME');
     assert.ok(carried,
       'the default row wrote no home while an override was in force, so the agent will resolve ~/.codex instead of the home an operator named');
     assert.equal(fs.realpathSync(carried), fs.realpathSync(home));
@@ -4067,8 +4224,7 @@ test('#1600: with an override home in force, the default row still writes CODEX_
     const madeName = 'overriderowcreate';
     const made = create.createAgent({ ...BINS, name: madeName, role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: home });
     assert.equal(made.outcome, create.OUTCOME.CREATED, String(made.because));
-    const madeCarried = (fs.readFileSync(create.plistPath(madeName), 'utf8')
-      .match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+    const madeCarried = jobEnv(madeName, 'CODEX_HOME');
     assert.ok(madeCarried, 'the create route omitted the home under an override, so the two routes disagree again');
     assert.equal(fs.realpathSync(madeCarried), fs.realpathSync(carried),
       'the two routes disagree under an override');
@@ -4078,7 +4234,7 @@ test('#1600: with an override home in force, the default row still writes CODEX_
 /* CONTROL for the test above: a NON-default row must still carry its home, or the
    change would have silently stopped recording every account rather than just the
    default. */
-test('#1600 control: switching onto a NON-default OpenAI row still writes CODEX_HOME', LX(WIN_TASK_STUB, LINUX_UNPORTED_WHY), () => {
+test('#1600 control: switching onto a NON-default OpenAI row still writes CODEX_HOME', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-notdefault');
@@ -4093,12 +4249,11 @@ test('#1600 control: switching onto a NON-default OpenAI row still writes CODEX_
      reason that looked like the fix going too wide. */
   const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN, accountDir: home, pickedByPerson: true });
   assert.equal(sw.outcome, create.OUTCOME.CREATED, String(sw.because));
-  const carried = (fs.readFileSync(create.plistPath(name), 'utf8')
-    .match(/<key>CODEX_HOME<\/key><string>([^<]*)<\/string>/) || [])[1];
+  const carried = jobEnv(name, 'CODEX_HOME');
   assert.ok(carried, 'a non-default row stopped carrying its home, so the fix went too wide');
 });
 
-test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, and its folder is trusted in THAT home (#540)', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, and its folder is trusted in THAT home (#540)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-team');
@@ -4106,8 +4261,8 @@ test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, a
   fs.writeFileSync(nodePath.join(home, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttestTEAM' }), 'utf8');
   const made = create.createAgent({ ...BINS, name: 'onteam', role: 'pm', provider: 'openai', codexBin: CODEX_BIN, account: home });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  const plist = fs.readFileSync(create.plistPath('onteam'), 'utf8');
-  assert.match(plist, new RegExp('<key>CODEX_HOME</key><string>' + home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '</string>'));
+  const plist = jobText('onteam');
+  assert.equal(jobEnv('onteam', 'CODEX_HOME'), home);
   assert.doesNotMatch(plist, /CLAUDE_CONFIG_DIR/, 'a codex agent must not be handed a Claude account variable');
   const toml = fs.readFileSync(nodePath.join(home, 'config.toml'), 'utf8');
   assert.match(toml, /trust_level = "trusted"/, 'the trust entry went somewhere other than the account codex will read');
@@ -4237,7 +4392,7 @@ test('#1629: moving back to the default account trusts the folder in the default
   assert.equal(back.trust.ok, true, back.trust.because);
 });
 
-test('an agent can be moved to another account, and the model comes with it', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('an agent can be moved to another account, and the model comes with it', WIN_LAUNCHD, () => {
   const { home } = seedAccounts();
   const name = 'mover';
   recorder();
@@ -4248,13 +4403,13 @@ test('an agent can be moved to another account, and the model comes with it', LX
   /* ⚠️ THE PREMISE: an agent starts with NO key at all, and absent has always
      meant the default account. A rewrite that started stamping the default
      would make every unrelated edit look like an account change. */
-  assert.equal(cfgOf(fs.readFileSync(create.plistPath(name), 'utf8')), null);
+  assert.equal(cfgOf(name), null);
 
   const out = create.setAccount(name, nodePath.join(home, '.claude-work'));
   assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
   assert.equal(out.account.email, 'work@example.com');
-  assert.equal(cfgOf(fs.readFileSync(create.plistPath(name), 'utf8')), nodePath.join(home, '.claude-work'));
-  assert.equal(create.plannedModelArg(name), 'claude-opus-5',
+  assert.equal(cfgOf(name), nodePath.join(home, '.claude-work'));
+  assert.equal(plannedModel(name), 'claude-opus-5',
     'moving accounts dropped the model the agent was created with');
 
   /* 🛑 AND THE OTHER DIRECTION, WHICH IS THE ONE THAT WOULD HAVE SHIPPED.
@@ -4264,19 +4419,19 @@ test('an agent can be moved to another account, and the model comes with it', LX
      account. Neither setter is safe without the other being tested. */
   const modelled = create.setModel(name, 'haiku');
   assert.equal(modelled.outcome, create.OUTCOME.CREATED, modelled.because);
-  assert.equal(cfgOf(fs.readFileSync(create.plistPath(name), 'utf8')), nodePath.join(home, '.claude-work'),
+  assert.equal(cfgOf(name), nodePath.join(home, '.claude-work'),
     'changing the model moved the agent back to the default account');
-  assert.equal(create.plannedModelArg(name), 'claude-haiku-4-5-20251001');
+  assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001');
 
   // Back to the default is a real choice, and it removes the key rather than
   // writing the default path.
   const back = create.setAccount(name, '');
   assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
   assert.equal(back.account.isDefault, true);
-  assert.equal(cfgOf(fs.readFileSync(create.plistPath(name), 'utf8')), null);
+  assert.equal(cfgOf(name), null);
 });
 
-test('an account that keeps its own history is refused, and the refusal says what to do', LX(WIN_TASK_STUB, LINUX_UNPORTED_WHY), () => {
+test('an account that keeps its own history is refused, and the refusal says what to do', WIN_TASK_STUB, () => {
   const { home } = seedAccounts();
   const name = 'stayer';
   recorder();
@@ -4291,11 +4446,11 @@ test('an account that keeps its own history is refused, and the refusal says wha
      saying why. */
   assert.match(out.because, /nothing it has ever done/);
   assert.match(out.because, /Point that account at your agents' history first/);
-  assert.equal(cfgOf(fs.readFileSync(create.plistPath(name), 'utf8')), null,
+  assert.equal(cfgOf(name), null,
     'a refused move still wrote the file');
 });
 
-test('an account we do not know, and an agent Kosmos did not start, are both refused', LX(WIN_TASK_STUB, LINUX_UNPORTED_WHY), () => {
+test('an account we do not know, and an agent Kosmos did not start, are both refused', WIN_TASK_STUB, () => {
   seedAccounts();
   const name = 'refusals';
   recorder();
@@ -4308,7 +4463,10 @@ test('an account we do not know, and an agent Kosmos did not start, are both ref
 
   const nobody = create.setAccount('neverexisted', '');
   assert.equal(nobody.outcome, create.OUTCOME.REFUSED);
-  assert.match(nobody.because, /could not read how neverexisted is started/);
+  // #5500: Linux finds no unit and says so in its own words.
+  assert.match(nobody.because, linuxHost()
+    ? /neverexisted has no startup unit in systemd \(kosmos-agent-neverexisted\.service\), so there is nothing to change/
+    : /could not read how neverexisted is started/);
 });
 
 /* 🔑 #2826: setAccount can now swap a CODEX agent's OpenAI account, resolving it
@@ -4319,7 +4477,7 @@ test('an account we do not know, and an agent Kosmos did not start, are both ref
    trusts the new home; the default row writes no CODEX_HOME (#1600); an unknown
    codex home is refused; and a CLAUDE agent handed a codex dir is STILL refused,
    because a runner switch is setProvider's job, not this. */
-test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still refuses a claude agent a codex dir', LX(WIN_TASK_STUB, LINUX_UNPORTED_WHY), () => {
+test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still refuses a claude agent a codex dir', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   /* No override home: the ordinary machine, so the default codex home is
@@ -4352,8 +4510,7 @@ test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still r
   const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
   assert.equal(sw.outcome, create.OUTCOME.CREATED, `switch to openai refused: ${sw.because}`);
   const idBefore = store.readProfile(name).id;
-  const homeOf = () => (fs.readFileSync(create.plistPath(name), 'utf8')
-    .match(/<key>CODEX_HOME<\/key>\s*<string>([\s\S]*?)<\/string>/) || [])[1];
+  const homeOf = () => jobEnv(name, 'CODEX_HOME');
   // On the default row it carries no CODEX_HOME (#1600).
   assert.equal(homeOf(), undefined, 'the switch onto the default row should not pin a CODEX_HOME');
 
@@ -4391,7 +4548,7 @@ test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still r
   assert.match(wrong.because, /do not know that account/);
 });
 
-test('a new agent can be created on another account, and its history is still shared', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('a new agent can be created on another account, and its history is still shared', WIN_LAUNCHD, () => {
   const { home } = seedAccounts();
   const name = 'bornelsewhere';
   recorder();
@@ -4400,8 +4557,8 @@ test('a new agent can be created on another account, and its history is still sh
     ...BINS, name, role: 'pm', model: 'opus', account: nodePath.join(home, '.claude-work'),
   });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  assert.equal(cfgOf(fs.readFileSync(create.plistPath(name), 'utf8')), nodePath.join(home, '.claude-work'));
-  assert.equal(create.plannedModelArg(name), 'claude-opus-5', 'the model and the account both landed');
+  assert.equal(cfgOf(name), nodePath.join(home, '.claude-work'));
+  assert.equal(plannedModel(name), 'claude-opus-5', 'the model and the account both landed');
 });
 
 test('creating on an account that keeps its own history is refused before anything is made', () => {
@@ -4426,13 +4583,13 @@ test('creating on an account that keeps its own history is refused before anythi
   assert.equal(fs.existsSync(create.workerDir(name)), false, 'the refusal left a worker folder behind');
 });
 
-test('the default account writes no key, exactly as every existing agent has', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('the default account writes no key, exactly as every existing agent has', WIN_LAUNCHD, () => {
   const { home } = seedAccounts();
   const name = 'plainborn';
   recorder();
   create.setDryRun(false);
   create.createAgent({ ...BINS, name, role: 'pm', account: nodePath.join(home, '.claude') });
-  assert.equal(cfgOf(fs.readFileSync(create.plistPath(name), 'utf8')), null,
+  assert.equal(cfgOf(name), null,
     'choosing the default account stamped a path where absence has always been the answer');
 });
 
@@ -4646,13 +4803,10 @@ test('an existing agent is backfilled on first write, and a restored profile is 
 
 /* ── the OpenAI provider (#245) ──────────────────────────────────────────── */
 
-const plistArgs = (name) => {
-  const text = fs.readFileSync(create.plistPath(name), 'utf8');
-  const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
-  return [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]);
-};
+/* #5500: the job's argument vector on either platform (jobArgv, at the top). */
+const plistArgs = jobArgv;
 
-test('#245: an OpenAI agent is created on the codex runner, recorded everywhere, with the right launch vector', LX(WIN_CODEX_POSIX_KEY, LINUX_UNPORTED_WHY), () => {
+test('#245: an OpenAI agent is created on the codex runner, recorded everywhere, with the right launch vector', WIN_CODEX_POSIX_KEY, () => {
   recorder();
   create.setDryRun(false);
   const codexHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-'));
@@ -4704,7 +4858,7 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
     'the auto (empty) OpenAI model must have a real label, got ' + JSON.stringify(setAuto.model && setAuto.model.label));
 });
 
-test('#3296: a Gemini agent is created on the gemini runner, recorded, with the right launch vector, brief, and self-report settings', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('#3296: a Gemini agent is created on the gemini runner, recorded, with the right launch vector, brief, and self-report settings', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const name = 'gemini-kid';
@@ -4765,7 +4919,7 @@ test('#3296: a Gemini create is refused when the runner is missing, and an unkno
   assert.match(bad.because, /pick a provider/);
 });
 
-test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', WIN_LAUNCHD, () => {
   // The accounts slice (engine/geminiaccounts.js) REPLACED the old default-account-only
   // behavior: a supplied account is now VALIDATED, not ignored. A known account routes
   // to its per-account home; an unknown one is refused rather than silently created default.
@@ -4783,8 +4937,7 @@ test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that pe
   // account dir VERBATIM (the `.gemini` storage append is the reader/birth-writer's
   // job, never the plist's). plistArgs reads ProgramArguments only, so read the whole
   // plist text.
-  const plistText = fs.readFileSync(create.plistPath('g-acct'), 'utf8');
-  assert.ok(plistText.includes(`<key>GEMINI_CLI_HOME</key><string>${acctDir}</string>`),
+  assert.equal(jobEnv('g-acct', 'GEMINI_CLI_HOME'), acctDir,
     'the per-account gemini home must ride the plist as GEMINI_CLI_HOME = the account dir');
   // The birth settings write landed in the account's `.gemini` STORAGE subdir
   // (geminiStorageHome), NOT the default home and NOT the account root directly.
@@ -4797,7 +4950,7 @@ test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that pe
   assert.match(bad.because, /do not know that Gemini account/);
 });
 
-test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-backfill', role: 'pm', provider: 'google' });
@@ -4805,10 +4958,10 @@ test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not cla
   // Simulate the missing-job state installJob (backfill/repair) exists for: remove the
   // plist so jobPresence is 'no' and the backfill path is reached. recordedRunner then
   // falls to profile.provider=google, so the agent's TRUE runner is gemini.
-  fs.rmSync(create.plistPath('g-backfill'), { force: true });
+  fs.rmSync(jobfixture.jobPath('g-backfill'), { force: true });   // #5500: the plist, or the unit on Linux
   const r = create.installJob('g-backfill', { ...BINS, geminiBin: GEMINI_BIN });
   assert.equal(r.ok, true, 'installJob must backfill a gemini agent on Mac: ' + r.because);
-  assert.ok(fs.existsSync(create.plistPath('g-backfill')), 'installJob did not write the backfilled job');
+  assert.ok(fs.existsSync(jobfixture.jobPath('g-backfill')), 'installJob did not write the backfilled job');
   // THE anti-mis-launch assertion: the plist names gemini, NOT claude (writing a claude
   // job for a gemini agent was the exact bug the old root refusal guarded against).
   assert.equal(create.readJob('g-backfill').runner, 'gemini', 'installJob backfilled a gemini agent as the WRONG runner');
@@ -4842,7 +4995,7 @@ test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLA
   assert.equal(back.account.isDefault, true);
 });
 
-test('#3296 accounts slice: setAccount to an EXPLICIT credentialed-default dir writes NO account-env line (configDir null, like createAgentInner)', LX(WIN_TASK_STUB, LINUX_UNPORTED_WHY), () => {
+test('#3296 accounts slice: setAccount to an EXPLICIT credentialed-default dir writes NO account-env line (configDir null, like createAgentInner)', WIN_TASK_STUB, () => {
   // The internal-consistency guard: setGeminiAccount must apply isDefault->null just as
   // createAgentInner's google arm and setCodexAccount do. Reachable only when the default home is
   // credentialed (unusual), so construct exactly that and assert the plist carries no
@@ -4858,7 +5011,7 @@ test('#3296 accounts slice: setAccount to an EXPLICIT credentialed-default dir w
   const sw = create.setAccount('g-defmove', defDir); // explicit default dir, not the empty string
   assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
   assert.equal(sw.account.isDefault, true);
-  const plistText = fs.readFileSync(create.plistPath('g-defmove'), 'utf8');
+  const plistText = jobText('g-defmove');
   assert.ok(!plistText.includes('GEMINI_CLI_HOME'), 'a default-account agent must carry NO GEMINI_CLI_HOME (configDir null), not ~/.gemini');
   // Clean up the credentialed default so it does not leak into sibling #3296 default-home tests.
   try { fs.rmSync(gemini.keyFile(defDir), { force: true }); } catch { /* best effort */ }
@@ -4877,7 +5030,7 @@ test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trus
     'the gemini launch line must pass yolo, skip-trust, and the pinned -m model');
 });
 
-test('#3391: a Grok agent is created on the grok runner, recorded, with the right launch vector, brief, and self-report hook file', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('#3391: a Grok agent is created on the grok runner, recorded, with the right launch vector, brief, and self-report hook file', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const name = 'grok-kid';
@@ -4957,7 +5110,7 @@ test('#3568: with the flag off, an Antigravity create is refused as an unknown p
   assert.match(r.because, /pick a provider/);
   assert.equal(create.readJob('agy-off'), null, 'a refused create must not write a job');
 });
-test('#3568: with the flag on, an Antigravity agent is created on the antigravity runner, with AGENTS.md and no Claude trust', LX(WIN_AGY_STANDIN, LINUX_UNPORTED_WHY), () => {
+test('#3568: with the flag on, an Antigravity agent is created on the antigravity runner, with AGENTS.md and no Claude trust', WIN_AGY_STANDIN, () => {
   recorder();
   create.setDryRun(false);
   const name = 'agy-kid';
@@ -5135,7 +5288,7 @@ test('#3391: a Grok create is refused when the runner is missing', () => {
   assert.match(r.because, /could not find the Grok runner/);
 });
 
-test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', WIN_LAUNCHD, () => {
   // The accounts slice (engine/grokaccounts.js) REPLACED the default-account-only
   // behavior: a supplied account is VALIDATED. grok's home (GROK_HOME) is read verbatim,
   // so the account dir rides the plist and the hook write with no transform.
@@ -5149,8 +5302,7 @@ test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-
   assert.equal(plistArgs('gk-acct')[8], 'grok');
   assert.equal(store.readProfile('gk-acct').provider, 'xai');
   // The per-account home rides the plist as GROK_HOME = the account dir verbatim.
-  const plistText = fs.readFileSync(create.plistPath('gk-acct'), 'utf8');
-  assert.ok(plistText.includes(`<key>GROK_HOME</key><string>${acctDir}</string>`),
+  assert.equal(jobEnv('gk-acct', 'GROK_HOME'), acctDir,
     'the per-account grok home must ride the plist as GROK_HOME = the account dir');
   // The birth hook write landed in the ACCOUNT home (GROK_HOME is verbatim, no subdir).
   assert.ok(fs.existsSync(nodePath.join(acctDir, 'hooks', 'kosmos-report-bridge.json')),
@@ -5162,15 +5314,15 @@ test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-
   assert.match(bad.because, /do not know that Grok account/);
 });
 
-test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-backfill', role: 'pm', provider: 'xai' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  fs.rmSync(create.plistPath('gk-backfill'), { force: true });
+  fs.rmSync(jobfixture.jobPath('gk-backfill'), { force: true });   // #5500: the plist, or the unit on Linux
   const r = create.installJob('gk-backfill', { ...BINS, grokBin: GROK_BIN });
   assert.equal(r.ok, true, 'installJob must backfill a grok agent on Mac: ' + r.because);
-  assert.ok(fs.existsSync(create.plistPath('gk-backfill')), 'installJob did not write the backfilled job');
+  assert.ok(fs.existsSync(jobfixture.jobPath('gk-backfill')), 'installJob did not write the backfilled job');
   assert.equal(create.readJob('gk-backfill').runner, 'grok', 'installJob backfilled a grok agent as the WRONG runner');
 });
 
@@ -5248,7 +5400,7 @@ test('#245: openai refuses a model choice, an account choice, a missing runner, 
   assert.match(r.because, /pick a provider/);
 });
 
-test('#2140: an OpenAI agent can be CREATED on a chosen model, empty means auto, a bad id is refused', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('#2140: an OpenAI agent can be CREATED on a chosen model, empty means auto, a bad id is refused', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const codexHome = mkTemp('codex-home-2140-');
@@ -5418,7 +5570,7 @@ test('#2245: a provider switch MOVES the brief to the file the new runner boots 
   }
 });
 
-test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', LX(WIN_TASK_STUB, LINUX_TASK_STUB_WHY), () => {
+test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const codexHome = mkTemp('codex-home-sw-');
@@ -5592,7 +5744,7 @@ test('#548: an OpenAI-only Mac creates an OpenAI agent; Claude\'s absence is not
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
 });
 
-test('#245: a claude agent\'s launch vector is untouched by the runner feature', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#245: a claude agent\'s launch vector is untouched by the runner feature', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const name = 'claude-classic';
@@ -5607,12 +5759,29 @@ test('#245: a claude agent\'s launch vector is untouched by the runner feature',
   assert.equal(store.readProfile(name).provider, 'anthropic');
 });
 
-test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', WIN_LAUNCHD, () => {
   /* The function's whole reason to exist over !hasJob(): existsSync swallows
      EACCES into false, so the negation would stamp a provenance claim on
      every agent the moment LaunchAgents cannot be read. Forced here with a
      chmod-000 directory; a "simplification" back to !hasJob goes red on the
      EACCES leg while every fixture-state test stays green. */
+  if (linuxHost()) {
+    // #5500: the same rule on Linux (create.jobPresence's unit arm): only ENOENT on the unit file is an absence.
+    const udir = process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+    assert.ok(udir && udir.startsWith(SANDBOX), 'this test chmods the unit dir and must never aim at the real one');
+    fs.writeFileSync(jobfixture.jobPath('jmhere'), '[Service]\n', 'utf8');
+    assert.equal(create.jobMissing('jmhere'), false, 'a present unit read as missing');
+    assert.equal(create.jobMissing('jmgone'), true, 'a proven absence was not counted');
+    fs.chmodSync(udir, 0o000);
+    try {
+      assert.equal(create.jobMissing('jmgone'), false,
+        'an unreadable unit folder was reported as "never recorded", the provenance claim the ENOENT rule exists to prevent');
+    } finally {
+      fs.chmodSync(udir, 0o700);
+      fs.rmSync(jobfixture.jobPath('jmhere'), { force: true });
+    }
+    return;
+  }
   const dir = process.env.AGENT_WORKFORCE_LAUNCH;
   assert.ok(dir && dir !== require('node:os').homedir() + '/Library/LaunchAgents',
     'this test chmods the launch dir and must never aim at the real one');
@@ -5633,13 +5802,14 @@ test('jobMissing counts only a proven absence: EACCES answers false, never "neve
   }
 });
 
-test('an agent born without the messaging block is SAID, not silent (#182)', onLinux(LINUX_UNPORTED_WHY), () => {
+test('an agent born without the messaging block is SAID, not silent (#182)', () => {
   const messagesMod = require('./messages');
   const orig = messagesMod.blockBody;
   messagesMod.blockBody = () => { throw new Error('forced for the test'); };
   /* Real mode: the splice region sits inside the wrote-its-instructions step,
      whose DRY_RUN arm returns before any block is composed. */
-  create.setRunner(() => ({ ran: true, spawnFailed: false, status: 0, out: '', err: '' }));
+  // #5500: ok as well, which systemd's start reads (linuxjob.start); launchd's bootstrap reads only ok !== false.
+  create.setRunner(() => ({ ok: true, ran: true, spawnFailed: false, status: 0, out: '', err: '' }));
   create.setDryRun(false);
   try {
     const r = create.createAgent({ ...BINS, name: 'blockless-said', role: 'pm' });
@@ -5725,7 +5895,8 @@ test("#1026: modelsFor scopes to the provider, and today OpenAI's list is empty"
   // #1356: six anthropic models after Opus 4.8 and Fable 5.1 were added.
   // #3459: seven, after Opus 5.5 was added.
   // #4439: eight, after Sonnet 5.5 was added.
-  assert.equal(create.modelsFor('anthropic').length, 8);
+  // #5626: nine, after Haiku 5.5 was added (Haiku 4.5 kept).
+  assert.equal(create.modelsFor('anthropic').length, 9);
   assert.deepEqual(create.modelsFor('openai'), [],
     'an OpenAI model appeared without anyone adding one, or the filter is wrong');
   // Every entry carries one, or the filter silently drops it from both lists.
@@ -5776,6 +5947,26 @@ test('#4439: the picker offers Claude Sonnet 5.5 by its verified id, and the def
   assert.deepEqual(def.map((m) => m.arg), ['claude-sonnet-5'], 'CONTROL: Sonnet 5 is still the one default');
 });
 
+test('#5626: the picker offers Claude Haiku 5.5 by its published id, keeps Haiku 4.5 and every other model, and the default stays Sonnet 5', () => {
+  const create = require('./create');
+  const status = require('./status');
+  const row = create.MODELS.find((m) => m.arg === 'claude-haiku-5-5');
+  assert.ok(row, 'claude-haiku-5-5 is not offered by the picker');
+  assert.equal(row.provider, 'anthropic');
+  assert.equal(row.label, 'Claude Haiku 5.5');
+  assert.ok(!row.default, 'Haiku 5.5 must not be the default');
+  // The why line states a dated fact, the knowledge cutoff (June 2026, Anthropic's models page): pinned, so a change to it
+  // is deliberate and re-checked against the source.
+  assert.equal(row.why, 'The newest Haiku, with more recent knowledge (to June 2026). The quickest and the cheapest, for small jobs done often.');
+  assert.equal(create.MODELS.find((m) => m.arg === 'claude-haiku-4-5-20251001').why, 'The previous Haiku generation. Quick, for small, simple jobs done often.', 'Haiku 4.5 still claims to be the cheapest');
+  assert.equal(status.modelDisplayName('claude-haiku-5-5'), 'Claude Haiku 5.5', 'the board names it as the picker does');
+  // Josh, 10-08: "Let's not delete any other Claude models". Every model that was offered is still offered.
+  for (const kept of ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001']) {
+    assert.ok(create.MODELS.some((m) => m.arg === kept), kept + ' was removed from the picker');
+  }
+  assert.deepEqual(create.MODELS.filter((m) => m.default).map((m) => m.arg), ['claude-sonnet-5'], 'CONTROL: Sonnet 5 is still the one default');
+});
+
 test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact order (item 10)', () => {
   const create = require('./create');
   // Josh, 0.6.35 feedback item 10: Fable 5.1, Fable 5, Opus 5, Opus 4.8, Sonnet, Haiku.
@@ -5794,7 +5985,8 @@ test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact o
     'claude-opus-4-8',    // Opus 4.8
     'claude-sonnet-5-5',  // Sonnet 5.5 (#4439: newest Sonnet, leads the Sonnet tier)
     'claude-sonnet-5',    // Sonnet (still the default, mid-list by power)
-    'claude-haiku-4-5-20251001', // Haiku (least, last)
+    'claude-haiku-5-5',   // Haiku 5.5 (#5626: newest Haiku, leads the Haiku tier)
+    'claude-haiku-4-5-20251001', // Haiku 4.5 (kept: Josh 10-08, delete no Claude model)
   ], 'the Claude model menu is not in Josh\'s most-powerful-first order (#2140 item 10)');
   // The reorder must NOT have changed the default: Sonnet 5 stays pre-selected.
   const defaults = create.MODELS.filter((m) => m.default);
@@ -6463,9 +6655,14 @@ test('#1672 CONTROL: a normal create reports no such failure', () => {
 
 // Write a minimal launchd plist readJob can parse. Index 8 is the runner
 // (#245); omit it for claude. args[4]/args[5] must be truthy and length >= 7.
+// #5500: on Linux the same arguments go in a minimal systemd unit's ExecStart, which readJob reads there.
 function rrWritePlist(name, { runner } = {}) {
   const args = ['/bin/bash', '/sup', name, '/tmp/wd', '/bin/echo', 'sess:0.0', '/tmp/log', ''];
   if (runner) args[8] = runner;
+  if (linuxHost()) {
+    fs.writeFileSync(jobfixture.jobPath(name), '[Service]\nExecStart=' + args.map((a) => `"${a}"`).join(' ') + '\n', 'utf8');
+    return;
+  }
   const body = args.map((a) => `<string>${a}</string>`).join('');
   const xml = `<?xml version="1.0"?>\n<plist version="1.0"><dict>`
     + `<key>ProgramArguments</key><array>${body}</array></dict></plist>`;
@@ -6507,7 +6704,7 @@ test('#2250 CONTROL: a NAME_RE-failing name with no provider stays claude (fail-
   assert.ok(create.instructionFile(name).endsWith('CLAUDE.md'));
 });
 
-test('#2250 CONTROL: a live plist stays authoritative over a contradictory profile fallback', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('#2250 CONTROL: a live plist stays authoritative over a contradictory profile fallback', WIN_LAUNCHD, () => {
   const store = require('./store');
   // A codex plist with a silent profile: the plist decides.
   rrWritePlist('rr-codexjob', { runner: 'codex' });
@@ -6594,4 +6791,108 @@ test('#4006: a new agent never inherits a failed-restart record left under its n
   const made = create.createAgent({ ...BINS, name: 'failheir', role: 'pm' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because || '');
   assert.equal(disruption.read('failheir').found, false, 'the new agent was born under an old failed-restart record');
+});
+
+test('#5534: a company policy in force refuses creating or switching an agent onto a provider it does not allow', WIN_TASK_STUB, () => {
+  recorder();
+  create.setDryRun(false);
+  const orgpolicy = require('./orgpolicy');
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: ['anthropic'], models_allowed: null } }));
+  try {
+    const r = create.createAgent({ ...BINS, name: 'policyblocked', role: 'pm', provider: 'openai' });
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, r.because);
+    assert.match(r.because, /policy does not allow openai/);
+    assert.equal(fs.existsSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS || '', 'policyblocked')), false, 'a refused agent left a folder');
+    const ok = create.createAgent({ ...BINS, name: 'policyok', role: 'pm' });
+    assert.equal(ok.outcome, create.OUTCOME.CREATED, 'CONTROL: an allowed provider is created: ' + ok.because);
+    const sw = create.setProvider('policyok', 'openai', BINS);
+    assert.equal(sw.outcome, create.OUTCOME.REFUSED, 'a switch onto a disallowed provider went through');
+    assert.match(sw.because, /policy does not allow openai/);
+    // Models: the policy lists one Claude model by its full id; its key is accepted for it, another model is not.
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: ['anthropic'], models_allowed: { anthropic: ['claude-sonnet-5'] } } }));
+    const badModel = create.createAgent({ ...BINS, name: 'policymodel', role: 'pm', model: 'haiku' });
+    assert.equal(badModel.outcome, create.OUTCOME.REFUSED, 'an agent on a disallowed model was created');
+    assert.match(badModel.because, /does not allow the model haiku/);
+    const toHaiku = create.setModel('policyok', 'haiku');
+    assert.equal(toHaiku.outcome, create.OUTCOME.REFUSED, 'a switch onto a disallowed model went through');
+    assert.match(toHaiku.because, /does not allow the model haiku/);
+    const toSonnet = create.setModel('policyok', 'sonnet');
+    assert.equal(toSonnet.outcome, create.OUTCOME.CREATED, 'CONTROL: the listed model (by its key) is allowed: ' + toSonnet.because);
+    const bySonnetKey = create.createAgent({ ...BINS, name: 'policysonnet', role: 'pm', model: 'sonnet' });
+    assert.equal(bySonnetKey.outcome, create.OUTCOME.CREATED, 'a create by key, listed by full id, was refused: ' + bySonnetKey.because);
+    // Review 3: no model named runs whatever Claude Code picks for the account, which no list can name: refused.
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 3, applied_at: 1,
+      policy: { providers_allowed: ['anthropic', 'openai'], models_allowed: { anthropic: ['opus'] } } }));
+    const noModel = create.createAgent({ ...BINS, name: 'policydefault', role: 'pm' });
+    assert.equal(noModel.outcome, create.OUTCOME.REFUSED, 'a model-less Claude agent was created under a model list');
+    assert.match(noModel.because, /allows only some models on anthropic/);
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+  const after = create.createAgent({ ...BINS, name: 'policygone', role: 'pm', provider: 'openai' });
+  assert.doesNotMatch(String(after.because || ''), /company's policy/, 'CONTROL: with no policy in force the provider is not refused for policy');
+  const plain = create.createAgent({ ...BINS, name: 'policynone', role: 'pm' });
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, 'CONTROL: with no policy an ordinary create succeeds: ' + plain.because);
+});
+
+test('#5534 review 2/3: Gemini without a model is its pinned default, and a switch is asked about the model picked with it', WIN_TASK_STUB, () => {
+  recorder();
+  create.setDryRun(false);
+  const orgpolicy = require('./orgpolicy');
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-pro'], anthropic: ['opus'] } } }));
+  try {
+    const g = create.policyAllows('google', '');
+    assert.equal(g.ok, false);
+    assert.match(g.because, /does not allow the model gemini-2\.5-flash on google/, 'Gemini without a model was not asked about its pinned default');
+    assert.equal(create.policyAllows('xai', '').ok, true, 'CONTROL: a provider with no list needs no model');
+    assert.equal(create.policyAllows('google', 'gemini-2.5-pro').ok, true, 'CONTROL: the listed Gemini model');
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-flash'], anthropic: ['opus'] } } }));
+    assert.equal(create.policyAllows('google', '').ok, true, 'Gemini without a model runs its pinned default, which is listed');
+    // The agent is on Claude. Creating it on OpenAI here only passed where Codex is installed (CI found no runner),
+    // and a real cross-provider switch under a policy is the route test's (server.switch-model-5429.test.js).
+    // Here: the policy is asked BEFORE the "already runs on Claude" refusal, so the model-less switch is refused by
+    // the policy's own sentence, and the switch with a listed model gets past the policy to that refusal.
+    const made = create.createAgent({ ...BINS, name: 'switchpick', role: 'pm', model: 'opus' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    const noPick = create.setProvider('switchpick', 'anthropic', BINS);
+    assert.equal(noPick.outcome, create.OUTCOME.REFUSED, 'a switch onto the default model, which the list leaves out, went through');
+    assert.match(noPick.because, /allows only some models on anthropic/);
+    const picked = create.setProvider('switchpick', 'anthropic', { ...BINS, model: ' opus ' });
+    assert.match(String(picked.because), /already runs on/, 'CONTROL: a switch with a listed model got past the policy: ' + picked.because);
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+});
+
+test('#5534 review 4: a Gemini agent set back to its default is the pinned model; Grok too; a failing policy never blocks', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const orgpolicy = require('./orgpolicy');
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-flash', 'gemini-2.5-pro'], xai: ['grok-4.6'] } } }));
+  try {
+    const name = 'gemini-policy';
+    const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name, role: 'pm', provider: 'google', model: 'gemini-2.5-pro' });
+    assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+    const back = create.setModel(name, '');
+    assert.equal(back.outcome, create.OUTCOME.CREATED, 'setting Gemini back to its pinned default, which is listed, was refused: ' + back.because);
+    assert.equal(create.policyAllows('xai', '').ok, true, 'Grok without a model runs its pinned default, which is listed');
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-pro'], xai: ['grok-9'] } } }));
+    assert.match(String(create.policyAllows('xai', '').because), /does not allow the model grok-4\.6 on xai/);
+    assert.equal(create.setModel(name, '').outcome, create.OUTCOME.REFUSED, 'CONTROL: the default, now unlisted, is refused');
+    const realAllows = orgpolicy.allows;
+    orgpolicy.allows = () => { throw new Error('policy code broke'); };
+    try {
+      assert.equal(create.policyAllows('xai', '').ok, true, 'a throwing policy check blocked a create');
+    } finally {
+      orgpolicy.allows = realAllows;
+    }
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
 });

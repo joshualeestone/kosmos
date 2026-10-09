@@ -4,7 +4,10 @@
  * Kosmos to a company. Runs the real page (web/index.html, file://) with fetch answered by a stand-in for the board's
  * /api/org routes, so nothing reaches a board or a coordinator, and drives the block directly.
  *
- *   O1  not joined: the code field shows; the consent and the joined line do not.
+ *   O0  no company: only a one-line opener shows; no heading, code field, consent or joined line (10-08).
+ *   O1  opened: the heading and the code field show; the consent and the joined line do not.
+ *   O17 on a fresh page: a failed /api/org read still shows only the opener; an already joined Kosmos shows its joined
+ *       view and heading at once, with no opener (review 1).
  *   O2  Check code shows the company, the role and the four consent lists, drawn as TEXT (a string with markup in it
  *       stays visible text, no element is made), and moves focus to Join.
  *   O3  Not now sends NOTHING more (no enroll request) and says nothing was sent about this Kosmos.
@@ -21,6 +24,8 @@
  *       the consent (and its "Not now", which would say nothing was joined) is gone (#5531 review 25).
  *   O12 a retried leave the company refused as the last admin (leaveRefused from /api/org) says so, as text, with the
  *       joined view back: the person was told it had stopped (#5531 review 21).
+ *   O13 a company that SAID it backs up nothing (backsUpNone) gets "Nothing is backed up." under its heading, muted and
+ *       unbulleted; an empty list it did not state (backsUpNone false) hides the group; with a list, the list.
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -49,9 +54,11 @@ function harness() {
       const u = String(url);
       const body = init && init.body ? JSON.parse(init.body) : null;
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
-      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
+      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : window.__noBackup ? Object.assign({}, consent, { backsUp: [], backsUpNone: window.__noBackup === 'said' }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc(window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
+      if (u.endsWith('/api/org') && window.__orgFail) throw new Error('offline');
+      if (u.endsWith('/api/org') && window.__orgState) return enc(window.__orgState);
       if (u.endsWith('/api/org')) return enc(window.__refused
         ? { enrolled: true, reporting: window.__notReporting !== true, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
         : { enrolled: false, stoppedFor: window.__stopped || null, leaveRefused: null, org: null, role: null, enrolledAt: null });
@@ -75,9 +82,16 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     // (a connected computer, from the stubbed /api/remote) show the block and fetch /api/org.
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }   // as sibling checks do
     await page.evaluate(() => { showTab('settings'); settingsGo('plus'); });
+    // Wait for the paint itself (review 1): the page's first read of /api/org, then a frame.
+    await page.waitForFunction(() => (window.__org || []).some((x) => x.path === '/api/org' && x.method === 'GET'), null, { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(200);
+    // A person with no company sees ONE quiet line, not an Enterprise box (Splinter/Josh 10-08, before 0.7.29 ships).
+    const o0 = { opener: await shown(page, 'plus-org-open'), heading: await shown(page, 'plus-org-title'), out: await shown(page, 'plus-org-out'), consent: await shown(page, 'plus-org-consent'), in: await shown(page, 'plus-org-in') };
+    chk(o0.opener && !o0.heading && !o0.out && !o0.consent && !o0.in, 'O0 no company: only the one-line opener shows, no "Your company" box', JSON.stringify(o0));
+    await page.click('#plus-org-open');
     await page.waitForFunction(() => { const el = document.getElementById('plus-org-out'); return el && !el.hidden && el.getClientRects().length > 0; }, null, { timeout: 10000 }).catch(() => {});
-    const o1 = { out: await shown(page, 'plus-org-out'), consent: await shown(page, 'plus-org-consent'), in: await shown(page, 'plus-org-in') };
-    chk(o1.out && !o1.consent && !o1.in, 'O1 not joined: the code field shows, and neither the consent nor the joined line', JSON.stringify(o1));
+    const o1 = { out: await shown(page, 'plus-org-out'), consent: await shown(page, 'plus-org-consent'), in: await shown(page, 'plus-org-in'), heading: await shown(page, 'plus-org-title'), opener: await shown(page, 'plus-org-open') };
+    chk(o1.out && o1.heading && !o1.opener && !o1.consent && !o1.in, 'O1 opened: the heading and code field show, and neither the consent nor the joined line', JSON.stringify(o1));
 
     await page.fill('#plus-org-code', 'ACME-JOIN-1234');
     await page.click('#plus-org-check');
@@ -221,6 +235,56 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     }
     await page.evaluate(() => { window.__enrollAnswer = null; });
 
+    // O13: a stated empty backsUp says "Nothing is backed up." under its heading; an unstated empty one hides the group.
+    // CONTROL: with the base consent's list, the list shows and the none line does not.
+    const backup = () => page.evaluate(() => ({ shown: !document.getElementById('plus-org-backsup').parentElement.hidden,
+      items: [...document.querySelectorAll('#plus-org-backsup li')].map((li) => li.textContent) }));
+    await page.evaluate(() => { window.__noNever = false; window.__noBackup = 'said'; document.getElementById('plus-org-msg').textContent = ''; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-6666');
+    await page.click('#plus-org-check');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const none = await backup();
+    const look = await page.evaluate(() => { const li = document.querySelector('#plus-org-backsup li.plus-org-none'); return li ? getComputedStyle(li).listStyleType : 'no line'; });
+    await page.click('#plus-org-notnow');
+    // Not stated (a missing field or lines cleaned to nothing reach the page as an empty list without the flag): hidden.
+    await page.evaluate(() => { window.__noBackup = 'unsaid'; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-6667');
+    await page.click('#plus-org-check');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const unsaid = await backup();
+    await page.click('#plus-org-notnow');
+    await page.evaluate(() => { window.__noBackup = false; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-7777');
+    await page.click('#plus-org-check');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const some = await backup();
+    await page.click('#plus-org-notnow');
+    chk(none.shown && none.items.length === 1 && none.items[0] === 'Nothing is backed up.' && look === 'none'
+      && !unsaid.shown && unsaid.items.length === 0
+      && some.shown && some.items.length === 2 && !some.items.includes('Nothing is backed up.'),
+      'O13 a stated empty backsUp says nothing is backed up (unbulleted); an unstated one hides; a list shows the list', JSON.stringify({ none, look, unsaid, some }));
+
+
+    // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the opener. (b) This Kosmos is
+    // already its company's work Kosmos: the heading and the joined view show at once, no opener.
+    for (const [label, init, want] of [
+      ['a read that fails', () => { window.__orgFail = true; }, { opener: true, title: false, out: false, in: false }],
+      ['already joined', () => { window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-07T00:00:00.000Z' }; }, { opener: false, title: true, out: false, in: true }],
+      // (c) review 3: a company note opens the block on its own: the company stopped naming this Kosmos.
+      ['a company note (stopped)', () => { window.__stopped = 'Acme'; }, { opener: false, title: true, out: true, in: false }]]) {
+      const p2 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+      p2.on('pageerror', (e) => errs.push('O17 ' + label + ': ' + e.message));   // into O6, below
+      await p2.addInitScript(harness(), [CONSENT]);
+      await p2.addInitScript(init);
+      await p2.goto(PAGE);
+      if (await p2.$('#firstrun:not([hidden])')) { await p2.keyboard.press('Escape'); await p2.waitForTimeout(400); }
+      await p2.evaluate(() => { showTab('settings'); settingsGo('plus'); });
+      await p2.waitForFunction(() => (window.__org || []).some((x) => x.path === '/api/org' && x.method === 'GET'), null, { timeout: 10000 }).catch(() => {});
+      await p2.waitForTimeout(300);
+      const got = { opener: await shown(p2, 'plus-org-open'), title: await shown(p2, 'plus-org-title'), out: await shown(p2, 'plus-org-out'), in: await shown(p2, 'plus-org-in') };
+      chk(JSON.stringify(got) === JSON.stringify(want), 'O17 ' + label + ': ' + JSON.stringify(want), JSON.stringify(got));
+      await p2.close();
+    }
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {
     await browser.close();

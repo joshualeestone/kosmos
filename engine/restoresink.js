@@ -21,8 +21,9 @@
  * ACLs on the folders above the root are not read (the root's own are: stripped on macOS, masked by 0700 on Linux).
  * On Linux, a folder above the root in the user's private group with an ACL naming another user reports group
  * write, which the private-group exemption then allows; only a user who granted that ACL themselves is exposed.
- * The root is made 0700 (and its macOS ACL removed) before the temp folder and hard-link probe; if a probe then
- * refuses, the folder keeps that tighter mode.
+ * On macOS a root on a volume that ignores ownership is refused first. The root is then made 0700, the mode read
+ * back (refused if the drive ignored it), and its macOS ACL removed, before the temp folder and hard-link probe; if a
+ * probe then refuses, the folder keeps that tighter mode.
  * Every call is synchronous (writes, fsyncs, and on Windows short retry sleeps), so a large restore blocks its thread:
  * the restore engine should run it in a worker or a child process, not on the board's event loop. On macOS fsync does
  * not force data to the platters (that is F_FULLFSYNC), so a power loss can still lose recent files.
@@ -87,6 +88,27 @@ function stripAclDarwin(dir) {
   }
 }
 
+/* macOS: whether the volume holding dir ignores ownership (mount flag noowners, "Ignore ownership on this volume",
+   common on external drives): there 0700 and the owner check keep nobody out. df -P names dir's mount point (so no
+   case or Unicode matching of paths here); its flags come from that exact mount's line in /sbin/mount. Anything it
+   cannot read or find refuses (fails closed). */
+function ignoresOwnershipDarwin(dir) {
+  const run = (cmd, args) => {
+    const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 10 * 1000 });
+    if (r.error || r.status !== 0) throw new Error(`restoresink: could not check the root's volume (${cmd}: ${r.error ? r.error.code || r.error.message : 'exited ' + r.status})`);
+    return String(r.stdout || '');
+  };
+  const dfLast = run('/bin/df', ['-P', dir]).trim().split('\n').pop();
+  const mp = (/\d+%\s+(\/.*)$/.exec(dfLast) || [])[1];
+  if (!mp) throw new Error("restoresink: could not check the root's volume (df named no mount point)");
+  // Exactly this mount point: the " (" after it must be the line's LAST, so "/Volumes/foo (bar)" never matches
+  // "/Volumes/foo". The last such line, as on stacked mounts the visible one is listed last.
+  const exact = (l) => { const at = l.lastIndexOf(` on ${mp} (`); return at >= 0 && at + 4 + mp.length === l.lastIndexOf(' (') && l.endsWith(')'); };
+  const line = run('/sbin/mount', []).split('\n').filter(exact).pop();
+  if (!line) throw new Error(`restoresink: could not check the root's volume (no mount line for ${mp})`);
+  return line.slice(line.lastIndexOf(' (') + 2, -1).split(', ').map((f) => f.trim()).includes('noowners');
+}
+
 /** A sink over the empty folder at root. Throws unless root is a fresh folder. Call close() when the restore ends. */
 function createRestoreSink(root) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) throw new Error('restoresink: the root must be an absolute path');
@@ -129,10 +151,17 @@ function createRestoreSink(root) {
   }
   // Trust the root before writing anything in it: refuse one other users can write in (a drive without
   // permissions, such as exFAT, reports every folder that way), make it 0700 so a shared group (macOS staff) cannot
-  // write in it either, then check it is still empty, so nothing planted before the chmod survives it.
+  // write in it either, confirm the mode took, then check it is still empty, so nothing planted before the chmod survives it.
   if (process.platform !== 'win32') {
     if (st.mode & 0o002n) throw new Error('restoresink: the root must not be writable by other users (or the drive keeps no permissions, such as exFAT)');
+    // On a volume that ignores ownership 0700 means nothing: refused before the chmod.
+    if (process.platform === 'darwin' && ignoresOwnershipDarwin(rootReal)) throw new Error("restoresink: the root is on a volume that ignores ownership (Get Info: \"Ignore ownership on this volume\"), so it cannot be made private; choose a folder on this computer's own disk");
     try { fs.chmodSync(rootReal, 0o700); } catch (e) { throw new Error(`restoresink: could not make the root private (${e.code || e.message})`); }
+    // Read the mode back, from the same folder (dev/ino): a mount can accept chmod and ignore it. The mask is 0o077,
+    // not 0o022, on purpose: a restore is someone's work, so a root others can READ is refused too.
+    const st3 = fs.lstatSync(rootReal, { bigint: true });
+    if (st3.dev !== st.dev || st3.ino !== st.ino) throw new Error('restoresink: the root changed after it was made private');
+    if (st3.mode & 0o077n) throw new Error("restoresink: the root could not be made private (the drive ignored the permission change); choose a folder on this computer's own disk");
     if (process.platform === 'darwin') stripAclDarwin(rootReal);
     if (fs.readdirSync(rootReal).length) throw new Error('restoresink: something appeared in the root while it was being made private');
   }

@@ -223,7 +223,8 @@ function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os')
    default is), and production passes none of these. `home` reaches the older folder of this world (when
    AGENT_WORKFORCE_DATA is unset: dataRootFor ignores the home otherwise); the
    worlds' base comes from the environment the process was started with (`preWorldEnv`), whatever `home` says. */
-function guideDenyRules(opts = {}) { return guideDenyRulesFor(opts).rules; }
+// for inspection and tests only: twins of every `Read(//x/...)` rule, before the own-folder check (guardGuideFolder twins only the safe ones)
+function guideDenyRules(opts = {}) { return withNativeTwins(guideDenyRulesFor(opts).rules); }
 /* The rules, and the default world's store they name entry by entry (null when none is), so guardGuideFolder
    can drop earlier per-entry rules for that store instead of keeping one for every entry that ever existed. */
 function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase, legacyRoots } = {}) {
@@ -263,9 +264,15 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
      copies, which are always named. */
   /* The same folder, spelt differently (case on a case-insensitive disk, a link) or not: real paths when both exist. */
   const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || realOr(a) === realOr(b));
-  /* A folder whose path the rule syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. */
-  /* The platform's own separator is not the syntax, so it is taken out before the check. */
-  const plain = (p) => { if (!RULE_SYNTAX.test(String(p).split(path.sep).join('/'))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
+  /* A folder whose rule the syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. Checked on
+     what ruleAbs writes (its leading // taken off), so the check and the rule are one spelling (the platform's own
+     separator is gone by then; an extended-length \\?\ path is checked after its `?` is gone). Nothing else is refused, on
+     any platform, as on main: a share, a device form or a drive-relative path is written as it is. */
+  const plain = (p) => {
+    if (!ruleUnwritable(p)) return true;
+    process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`);
+    return false;
+  };
   let extra = [];
   let entryBase = null;
   let listed = false;   // earlier per-entry rules are dropped only when this list is complete
@@ -298,7 +305,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
       }
       const worldsDir = path.join(base, worlds.WORLDS_SUBDIR);
       // every named world's store: a `*` in the middle of a path, measured refused on Claude Code 2.1.285 only (#4752).
-      // On Windows this joins `/` onto a `\` path, as the data folder rule always has; not measured there.
+      // On Windows ruleAbs writes the POSIX form Claude Code's docs say it matches (`//c/...`), so the `/*/` joins one form.
       for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${ruleAbs(worldsDir)}/*/${leaf}/**)`);
     }
     rules.push(...more);
@@ -309,25 +316,165 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
        so a guide written without them can be told apart from one written with them. */
     process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds' stores were left out: ${(err && err.message) || err}\n`);
   }
-  return { rules, entryBase, extra };
+  return { rules, entryBase, extra };   // twins are added in guardGuideFolder, only to rules that pass the own-folder check
+}
+/* Whether `p` cannot be written as a rule: once written (ruleAbs), it has a character the rule syntax reads as a
+   pattern. Nothing else is refused, on any platform, as on main: a share, a device form or an unusual Windows path is
+   written as it is (an extra deny costs nothing; refusing one would leave that folder with no rule at all). ruleAbs
+   never turns a bare drive-relative C: into the whole drive. Pure, the platform passed in. */
+function ruleUnwritable(p, platform = process.platform) {
+  return RULE_SYNTAX.test(ruleAbs(p, platform).slice(2));
 }
 /* The characters the rule syntax reads as a pattern or a bracket (and a backslash): a path with one gets no rule. */
 const RULE_SYNTAX = /[*?[\](){}!\\]/;
 /* A folder's real path when it can be read, else the path as given. */
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
-/* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes. */
-function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
+/* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes.
+   On Windows Claude Code matches a rule against the path in POSIX form (its permissions docs: C:\Users\alice
+   becomes /c/Users/alice), so a drive path is written that way: C:\Users\x becomes //c/Users/x. The native
+   spelling (//C:\Users\x) is not a form its docs say it matches (not measured on Windows here). The extended-length
+   forms \\?\C:\ and \\?\UNC\host\share are written as their plain paths; the device form \\.\C:\ is written with its
+   separators converted (//./C:/...), not refused (not a likely store). */
+function ruleAbs(p, platform = process.platform) {
+  let s = String(p);
+  if (platform === 'win32') {
+    s = s.replace(/^[\\/]{2}\?[\\/]UNC[\\/]/i, '//');   // \\?\UNC\host\share: the same share as \\host\share
+    s = s.replace(/^[\\/]{2}\?[\\/]/, '');   // the extended-length prefix (\\?\C:\...): its `?` is a glob in a rule
+    s = s.replace(/\\/g, '/');
+    const drive = /^([A-Za-z]):\//.exec(s);   // only a drive WITH its separator: a bare C: is drive-relative, never the whole drive
+    if (drive) s = drive[1].toLowerCase() + '/' + s.slice(drive[0].length);
+  }
+  // no trailing slash, so a drive root's folder rule is //d/** and not //d//**
+  return '//' + s.replace(/^\/+/, '').replace(/\/+$/, '');
+}
+/* Every path a rule can stand for: rulePath's reading and, on Windows, for a rule that starts with one letter, the
+   share that letter could also be the host of (\\s\share is written //s/share, the same as drive S:). */
+function rulePaths(inner, platform = process.platform) {
+  const out = [];
+  const back = rulePath(inner, platform);
+  if (back !== null) out.push(back);
+  const t = String(inner);
+  // for an ordinary drive rule (c/Users/x) this reading never matches: `own` is a drive path, compared as text
+  // (the device form and a drive-relative C:foo are written too, as inert rules that match nothing)
+  if (platform === 'win32' && /^[A-Za-z]\/[^/]+/.test(t)) out.push('\\\\' + t.replace(/\//g, '\\'));
+  return out;
+}
+/* Whether any reading of a rule (rulePaths) holds the guide's own folder `own`. The first reading is resolved with
+   `real` (realpath; case-sensitive is safe, since `own` is a realpath too and a missing folder cannot contain the
+   guide), unless it is a share; every share reading is compared as TEXT, case-blind, and never resolved: resolving
+   \\c\Users would send Windows to the network for a host named c on every drive rule. Pure, `real` and `sep` passed in. */
+function readingsHoldGuide(backs, own, real, sep) {
+  const under = (a, b) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
+  const text = (t) => under(own.toLowerCase(), t.toLowerCase());
+  if (!backs.length) return false;
+  // returns the reading that holds the guide (truthy), so the refusal can say which, or false
+  // a share reading (\\\\host\\...) is never resolved either: resolving it is a network lookup that can send this
+  // person's Windows credentials to the host it names (Claude Code's permissions docs say so of UNC paths)
+  const first = backs[0];
+  if (/^[\\/]{2}/.test(first) ? text(first) : under(own, real(first))) return first;
+  return backs.slice(1).find(text) || false;
+}
+/* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
+   path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
+   before this change) is read as it is. Elsewhere it is `/` plus the rest. A share's rule (host/share/...) reads back as
+   its UNC path (\\host\share\...), so the own-folder check compares real paths; a one-letter host reads back as a drive
+   (S:), the one form that cannot be told apart. */
+function rulePath(inner, platform = process.platform) {
+  const t = String(inner);
+  if (platform === 'win32') {
+    if (/^[A-Za-z]:/.test(t)) return t;   // native already, or a bare/drive-relative C: or c:foo (resolved as given)
+    const d = /^([A-Za-z])(\/|$)/.exec(t);
+    if (d) return d[1].toUpperCase() + ':\\' + t.slice(d[0].length).replace(/\//g, '\\');
+    // no drive: a share (host/share/...) reads back as its UNC path, so the own-folder check compares real paths;
+    // anything shorter is not a form ruleAbs writes, and is never resolved against the current drive
+    if (/^[^/]+\/[^/]+/.test(t)) return '\\\\' + t.replace(/\//g, '\\');
+    return null;
+  }
+  return '/' + t;
+}
+/* Before #4752's follow-up a Windows rule was written in the native form (`Read(//C:\...)`), which is not the form
+   Claude Code documents as matched. For such a rule, the same rule in the form ruleAbs writes now (`Read(//c/...)`,
+   same suffix), else null. migrateKept keeps an old rule beside its equivalent and drops it only when the
+   equivalent is a per-entry rule for an entry that is gone; finalDeny leaves it out when its equivalent was refused.
+   Uses the win32 conversion on any host. */
+function legacyWinEquivalent(rule) {
+  // A drive then a backslash or a slash (C:\..., C:/...), or a share in main's spelling (\\host\share\...), then the
+  // suffix the writer adds (`/**`, `/*/...`, `.*`); the path may hold a `)`, so it is lazy and anchored on the known
+  // suffix and the rule's last `)`. The path is converted alone, as ruleAbs converts it (a drive root maps to //c/**).
+  const m = /^Read\(\/\/([A-Za-z]:[\\/].*?|\\\\[^\\/]+[\\/].*?)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(String(rule));
+  if (!m) return null;
+  return `Read(${ruleAbs(m[1], 'win32')}${m[2]})`;
+}
+/* #4752: on Windows every absolute rule is ALSO written in the older native spelling, beside the //c/ form Claude
+   Code's docs say it matches: these are deny rules, the new form is not measured on Windows here, and an extra deny
+   costs nothing (a new install then has the same belt-and-braces an older one keeps through migrateKept). The twin
+   is exactly what the writer before this change wrote, so migrateKept and finalDeny already treat it as the old form
+   of its rule. Pure, with the platform passed in. */
+function withNativeTwins(rules, platform = process.platform) {
+  if (platform !== 'win32') return rules;
+  const out = [];
+  const seen = new Set(rules);
+  for (const r of rules) {
+    out.push(r);
+    // The path is a drive (c, or c/...) or a share (host/share/... with a host longer than one letter; a one-letter
+    // host is read as a drive, a small over-deny recorded in the plan), then the suffix the writer added. It may hold
+    // a `)` (a folder like `Jo (work)`): lazy, anchored on the known suffix and the rule's last `)`. The twin is main's
+    // spelling of the same path, so a new install keeps a fallback for a drive and for a share.
+    const m = /^Read\(\/\/([a-z](?:\/.*?)??|[^/.][^/]+\/[^/].*?)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(r);
+    if (!m) continue;
+    const native = rulePath(m[1], 'win32');
+    if (native) { const twin = `Read(//${native}${m[2]})`; if (!seen.has(twin)) { seen.add(twin); out.push(twin); } }
+  }
+  return out;
+}
 /* #4752: is `rule` one this code writes for a single entry directly in `base` (either form), for a name
-   baseEntryToName lets through? Built from the same ruleAbs(path.join(...)) as the writer, so it matches on
-   Windows too. */
-function wasEntryRule(rule, base) {
-  const prefix = `Read(${ruleAbs(path.join(base, 'x')).slice(0, -1)}`;   // the writer's own spelling, separator included
+   baseEntryToName lets through? Built from ruleAbs over the platform's own join (the writer's on that platform), so it
+   matches on Windows too. Case-sensitive: a rule spelt in another case is not recognised, and stays (the safe way). */
+function wasEntryRule(rule, base, platform = process.platform) {
+  const join = platform === 'win32' ? path.win32.join : path.join;
+  const prefix = `Read(${ruleAbs(join(base, 'x'), platform).slice(0, -1)}`;   // the writer's own spelling, separator included
   if (!rule.startsWith(prefix) || !rule.endsWith(')')) return false;
   let name = rule.slice(prefix.length, -1);
   if (name.endsWith('/**')) name = name.slice(0, -3);
-  if (!name || name.includes('/') || name.includes(path.sep)) return false;
+  // a backslash is refused on every platform: no POSIX rule ever held one (`plain` refuses them), so none is orphaned
+  if (!name || name.includes('/') || name.includes('\\') || name.includes(path.sep)) return false;
   const worlds = require('./worlds');
   return baseEntryToName(name, worlds.WORLDS_SUBDIR, path.basename(worlds.registryPath(base)), require('./boardauth').TOKEN_FILE);
+}
+/* #4752: the deny list written: the kept earlier rules and the safe new ones, less every refused rule. On Windows an
+   earlier rule in the older native form whose new-form equivalent was refused (it would take in the guide's own
+   folder) is left out too: migrateKept keeps old rules beside their new form, so the refusal must reach both
+   spellings or the old one would cut the guide off. Pure, with the platform passed in. */
+function finalDeny(kept, safe, refused, platform = process.platform) {
+  // on Windows a path's case does not matter, so an old rule spelt in another case still reaches its refused new form
+  const refusedLower = new Set([...refused].map((x) => x.toLowerCase()));
+  const earlier = new Set(kept);   // only an earlier rule is removed by case (its removal is said by the caller)
+  return [...new Set([...kept, ...safe])].filter((r) => {
+    if (refused.has(r)) return false;
+    // a new-form path rule spelt in another case (Read rules only: a refusal is only ever a Read rule)
+    if (platform === 'win32' && earlier.has(r) && r.startsWith('Read(') && refusedLower.has(r.toLowerCase())) return false;
+    if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refusedLower.has(eq.toLowerCase())) return false; }
+    // two spellings of one rule (an old `//c:\` beside the `//C:\` twin) both stay: whether Claude Code matches case-
+    // blind is not documented, and a duplicate deny costs nothing, while folding could drop a person's own rule
+    return true;
+  });
+}
+/* #4752: which of the rules already in the guide's settings stay, given the rules just made (`fresh`).
+   - An earlier rule for one entry of the default world's store is dropped (wasEntryRule) unless just made again,
+     so a deleted or renamed entry does not leave a rule for ever; any other rule stays.
+   - On Windows, a rule in the older native form STAYS beside its new-form equivalent during migration: the new form is
+     the one Claude Code's docs say it matches (trusted for new rules too), and keeping the old one beside it is a
+     cheap belt-and-braces while that is unmeasured on Windows here (a duplicate deny costs nothing). It is dropped only when its equivalent is a
+     per-entry rule for an entry gone from the store just listed in full: nothing is left to protect there.
+   Pure, with the platform passed in, so the Windows answer is pinned from any host. */
+function migrateKept(had, fresh, platform = process.platform) {
+  const kept = fresh.entryBase ? had.filter((r) => fresh.rules.includes(r) || !wasEntryRule(r, fresh.entryBase, platform)) : had;
+  if (platform !== 'win32') return kept;
+  return kept.filter((r) => {
+    const eq = legacyWinEquivalent(r);
+    if (!eq || fresh.rules.includes(eq)) return true;   // not an old rule, or its path is still protected: keep both
+    return !(fresh.entryBase && wasEntryRule(eq, fresh.entryBase, platform));   // an entry that is gone
+  });
 }
 /* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
    registry (the guide's own folder is under the first), nor the token (it has its own rule), nor a dot-named
@@ -384,25 +531,36 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        as it is now, so an entry that was deleted or renamed (a dated backup, a rotated log) does not leave a rule
        behind for ever. Only a rule this code could have written for one entry is dropped (wasEntryRule); any
        other rule stays, a person's own rule for the registry or for a name this code leaves alone included. */
-    const kept = fresh.entryBase ? had.filter((r) => fresh.rules.includes(r) || !wasEntryRule(r, fresh.entryBase)) : had;
+    const plat = process.platform;   // the platform the rules above were written for (ruleAbs uses the same)
+    const kept = migrateKept(had, fresh, plat);
     /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
-       naming one folder or file, compared by real path (a Windows rule is read with its drive letter); a rule
-       with a `*` is not checked, and the rules from before #4752 are left as they were. */
+       naming one folder or file, compared through every reading of the rule (rulePaths, readingsHoldGuide: a drive
+       reading by real path, a share reading as text); a rule
+       with a `*` is not checked, and an earlier rule removed for taking in this folder
+       (equal to a refused rule in either spelling or case, by finalDeny) is said by the loop after it; migrateKept
+       drops an earlier per-entry rule for a gone entry without a word, as on main. */
     const own = realOr(dir);
     const safe = fresh.rules.filter((r) => {
       if (!fresh.extra.includes(r)) return true;
       const m = /^Read\(\/\/([^*?]*?)(\/\*\*)?\)$/.exec(r);
       if (!m) return true;
-      const target = realOr(/^[A-Za-z]:/.test(m[1]) ? m[1] : '/' + m[1]);   // a Windows rule keeps its drive
-      if (own !== target && !own.startsWith(target.endsWith(path.sep) ? target : target + path.sep)) return true;
-      process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
+      // every path the rule can stand for (a one-letter share host reads as a drive too): refused if ANY holds the guide
+      const backs = rulePaths(m[1], plat);
+      if (!backs.length) return true;      // not a form ruleAbs writes: nothing to compare
+      const held = readingsHoldGuide(backs, own, realOr, path.sep);
+      if (!held) return true;
+      process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r} (read as ${held})\n`);
       return false;
     });
     /* A refused rule is kept out of the earlier rules too, or a rule written on an earlier start would come back. */
     const refused = new Set(fresh.rules.filter((r) => !safe.includes(r)));
-    const deny = [...new Set([...kept, ...safe])].filter((r) => !refused.has(r));
+    // a twin is made only from a rule that passed the own-folder check, so a refused rule never gets one
+    const deny = finalDeny(kept, withNativeTwins(safe, plat), refused, plat);
+    // an earlier rule (the guide's, or a person's own) removed because it equals a refused one is said, never silent
+    const written = new Set(deny);
+    for (const r of new Set(kept)) if (!written.has(r)) process.stderr.write(`#4752: an earlier rule that would take in the guide's own folder was removed: ${r}\n`);
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not
@@ -876,6 +1034,15 @@ function mergeSetting(stored, patch) {
 }
 
 module.exports = {
+  ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
+  rulePath,
+  rulePaths,
+  readingsHoldGuide,
+  legacyWinEquivalent,
+  withNativeTwins,
+  ruleUnwritable,
+  migrateKept,
+  finalDeny,
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIXES,

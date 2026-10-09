@@ -971,3 +971,20 @@ test('#5531 follow-up b review 4: the served hash is echoed only when the person
   const notList = Object.assign({}, CONSENT, { backsUp: 'everything' });
   assert.equal((await org.preview('ACME-JOIN-1234', { root: a, remote: serve(notList) })).served, null, 'a hash was echoed for a list the person saw as empty');
 });
+
+test('#5531 follow-up: backsUpNone is set only when the company SENT an empty backed-up list', () => {
+  const base = { reports: ['agent names'], readers: ['you'], never: [] };
+  assert.equal(org.cleanConsent(Object.assign({}, base, { backsUp: [] })).backsUpNone, true, 'a stated empty list was not recorded as stated');
+  // Not a statement: the page must not say "nothing is backed up" for the company on any of these.
+  assert.equal(org.cleanConsent(base).backsUpNone, false, 'a missing field read as "backs up nothing"');
+  assert.equal(org.cleanConsent(Object.assign({}, base, { backsUp: 'files' })).backsUpNone, false, 'a non-list read as "backs up nothing"');
+  const cleaned = org.cleanConsent(Object.assign({}, base, { backsUp: ['\u200b\u200b'] }));   // two zero-width spaces
+  assert.deepEqual(cleaned.backsUp, [], 'CONTROL: the line did clean away to nothing');
+  assert.equal(cleaned.backsUpNone, false, 'lines cleaned to nothing read as "backs up nothing"');
+  // Review 3: "Nothing is backed up." is shown words, so a stated empty list hashes apart from an unstated one.
+  const stated = org.cleanConsent(Object.assign({}, base, { backsUp: [] }));
+  assert.notEqual(org.consentHash(stated), org.consentHash(org.cleanConsent(base)), 'two different screens recorded as the same words');
+  // CONTROL: a consent with a list keeps the hash it had before the flag existed (the four lists only).
+  const listed = org.cleanConsent(Object.assign({}, base, { backsUp: ['agent folders'] }));
+  assert.equal(org.consentHash(listed), require('node:crypto').createHash('sha256').update(JSON.stringify([['reports', listed.reports], ['backsUp', listed.backsUp], ['readers', listed.readers], ['never', listed.never]])).digest('hex'));
+});
