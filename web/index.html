@@ -23688,7 +23688,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  setIfChanged(rn, op ? pjNeedsNotice(op.agents || []) + pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : '');   // #5688: who needs you, first
+  pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || []) + pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -58053,13 +58053,25 @@ function pjCoordNotice(p) {
    it is resolved, so hiding one would hide something still true. */
 const PJ_NEEDS_WHY = {
   question: ['Waiting for your answer.', 'Answer'],   // not "about this project": the project can be inferred from membership
-  trust: ['Waiting on a trust prompt before it can start.', 'Open'],
+  trust: ['Waiting for you to approve it before it can start.', 'Open'],
   gave_up: ['Lost its connection, and Kosmos stopped trying to reconnect it.', 'Open'],
   crash_loop: ['Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.', 'Open'],
-  stuck_auth: ['Cannot sign in, so it cannot work until its account is reconnected.', 'Open'],
-  stuck_rate: ['Paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.', 'Open'],
-  other: ['Needs you.', 'Open'],
+  stuck_auth: ['Kosmos has seen it unable to sign in for a while. It cannot work until its account is reconnected.', 'Open'],   // "has seen": read from its screen, as the agent page says it
+  stuck_rate: ['Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.', 'Open'],
+  other: ['Kosmos needs you to look at it.', 'Open'],
 };
+/* #5688 review 2: the notice is rebuilt whenever a member's reason changes, which drops a focused Open/Answer to the
+   page. Put focus back on the same agent's button when it is still there; if that agent no longer needs you, on the
+   first Open left, so a keyboard user is not sent back to the top. */
+function pjKeepOpenFocus(box, paint) {
+  const a = document.activeElement;
+  const had = box && a && box.contains(a) && a.dataset && a.dataset.pnOpen ? a.dataset.pnOpen : null;
+  paint();
+  if (!had || box.contains(document.activeElement)) return;
+  const btns = [...box.querySelectorAll('[data-pn-open]')];
+  const back = btns.find((b) => b.dataset.pnOpen === had) || btns[0];
+  if (back) back.focus();
+}
 function pjNeedsNotice(roster) {
   const rows = (roster || []).filter((m) => m && typeof m.needsYouHere === 'string' && m.needsYouHere);
   if (!rows.length) return '';
@@ -62964,7 +62976,7 @@ function paintOneProject() {
   const notice = pjNeedsNotice(roster) + pjCoordNotice(p) + pjNotice(roster, p.id);   // #5688: who needs you, first
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
-  setIfChanged(noticeBox, notice);
+  pjKeepOpenFocus(noticeBox, () => setIfChanged(noticeBox, notice));   // #5688: a repaint keeps a focused Open
   // A success line from another project is not about this one.
   { const said = document.getElementById('pj-one-notice-said');
     if (said && said.dataset.pj && said.dataset.pj !== String(p.id)) { said.textContent = ''; said.dataset.pj = ''; } }

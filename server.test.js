@@ -7624,7 +7624,7 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
   // present branch, so an absent key would fall through to STATE_COPY.unknown
   // rather than fail; the stub names each one so the test does not lean on that.
   const prelude = TOLD_PRELUDE
-    + 'const STATE_COPY = { working: { label: "Working" }, needs_you: { label: "Issue" }, idle: { label: "Idle" }, rate_limited: { label: "Paused" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
+    + 'const STATE_COPY = { question: { label: "Question" }, working: { label: "Working" }, needs_you: { label: "Issue" }, idle: { label: "Idle" }, rate_limited: { label: "Paused" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
     + pageConstSource('DISC_TINTS') + '\n'
     + pageConstSource('DISC_INKS') + '\n'
     // LROW_WARN is a string const (pageConstSource lifts only object/array consts),
@@ -7701,6 +7701,11 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
   assert.equal(row('rlm').needsYouHere, null, 'CONTROL: the fixture member is not counted');
   const counted = member({ ...row('rlm'), needsYouHere: 'stuck_rate' });
   assert.ok(counted.includes('pjm-attn') && counted.includes('lwarn'), 'a counted member is not red: ' + counted);
+  // #5688 review: an agent's OWN question about this project is counted but keeps its calm row (#2808); the needs-you
+  // block names it. A scraped one (no stateReportedBy) stays red, the CONTROL.
+  const calmQ = member({ ...row('ndy'), stateReportedBy: 'agent', needsYouHere: 'question' });
+  assert.ok(!/pjm-attn/.test(calmQ) && !calmQ.includes('lwarn'), 'an agent\'s own question turned red: ' + calmQ);
+  assert.ok(member({ ...row('ndy'), needsYouHere: 'question' }).includes('pjm-attn'), 'CONTROL: a scraped question about this project is not red');
 
   // CONTROL: an UNSEEN member takes no wash -- an unseen row says why (its dashed
   // border + reason), not a state colour, so the wash class is gated on presence.
@@ -8064,7 +8069,7 @@ test('the project notice is wired into paintOneProject, not just extractable', (
   const src = pageFnSource('paintOneProject');
   // #4583: the coordinator warning (two coordinating roles on one project) leads the same notice.
   assert.ok(/const notice = pjNeedsNotice\(roster\) \+ pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice (the #4583 coordinator warning, then the member notice) for this project');
-  assert.ok(/setIfChanged\(noticeBox, notice\);/.test(src), 'the notice is not written into its region');
+  assert.ok(/pjKeepOpenFocus\(noticeBox, \(\) => setIfChanged\(noticeBox, notice\)\);/.test(src), 'the notice is not written into its region (#5688: through pjKeepOpenFocus, so a focused Open survives a repaint)');
   assert.ok(!/noticeBox\.hidden/.test(src), 'the live region is hidden again: a notice written into a hidden region is not announced on its first appearance');
   assert.ok(src.includes("getElementById('pj-one-notice')"), 'paintOneProject paints a different box');
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');

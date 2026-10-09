@@ -19,6 +19,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json'
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 const fleet = require('./test-support/fleet');
+test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
@@ -64,7 +65,7 @@ test('#5688: nothing counted, nothing said', () => {
 test('#5688: one member: named in the heading, the reason, and one Open that names the agent', () => {
   const html = pjNeedsNotice([m('dario', null), m('elon', 'stuck_auth', 'Elon')]);
   assert.match(html, /<b>Elon needs you on this project\.<\/b>/);
-  assert.match(html, /Cannot sign in, so it cannot work until its account is reconnected\./);
+  assert.match(html, /Kosmos has seen it unable to sign in for a while\. It cannot work until its account is reconnected\./);
   assert.match(html, /data-pn-open="elon"/);
   assert.match(html, /aria-label="Open Elon">Open<\/button>/);
   assert.equal((html.match(/data-pn-open=/g) || []).length, 1, 'only the counted member gets a row');
@@ -76,7 +77,7 @@ test('#5688: several members: counted in the heading, each with its own reason; 
   assert.match(html, /<b>5 agents need you on this project\.<\/b>/);
   assert.match(html, /aria-label="Answer Elon">Answer<\/button>/);
   for (const w of ['Waiting for your answer.', 'keeps restarting it', 'stopped trying to reconnect it',
-    'Paused by a rate limit', 'Waiting on a trust prompt']) assert.ok(html.includes(w), w);
+    'Kosmos has seen it paused by a rate limit', 'Waiting for you to approve it']) assert.ok(html.includes(w), w);
 });
 
 test('#5688: no reason sentence carries an em dash', () => {
@@ -87,7 +88,7 @@ test('#5688: no reason sentence carries an em dash', () => {
 
 test('#5688: a reason the page does not know yet still gets a row, worded generally', () => {
   const html = pjNeedsNotice([m('elon', 'something_new', 'Elon')]);
-  assert.match(html, /Needs you\./);
+  assert.match(html, /Kosmos needs you to look at it\./);
   assert.match(html, /data-pn-open="elon"/);
 });
 
@@ -110,4 +111,21 @@ test('#5688 (Josh 08:50/08:51): "Done not set" is gone from the projects list an
   assert.equal(/['"][^'"\n]*Done not set[^'"\n]*['"]/.test(PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '')), false, 'the words are back in a string');
   assert.equal(/\.pj-doneunset\b|class="pj-doneunset"/.test(PAGE.replace(/\/\*[\s\S]*?\*\//g, '')), false, 'the tag class is back');
   assert.ok(PAGE.includes('doneSet') || PAGE.includes('What does done look like?'), 'CONTROL: the done field itself is still on the page');
+});
+
+test('#5688 review 2: a repaint puts focus back on the same agent\'s Open, or the first one left', () => {
+  // eslint-disable-next-line no-new-func
+  const keep = new Function('document', slice('function pjKeepOpenFocus(') + '\nreturn pjKeepOpenFocus;');
+  const run = (focusedOn, after) => {
+    const doc = { activeElement: null };
+    const btn = (id) => ({ dataset: { pnOpen: id }, focus() { doc.activeElement = this; } });
+    let btns = focusedOn ? [btn('dario'), btn(focusedOn)] : [];
+    doc.activeElement = btns.find((b) => b.dataset.pnOpen === focusedOn) || null;
+    const box = { contains: (el) => btns.includes(el), querySelectorAll: () => btns };
+    keep(doc)(box, () => { btns = after.map(btn); });   // the repaint replaces every button
+    return doc.activeElement ? doc.activeElement.dataset.pnOpen : null;
+  };
+  assert.equal(run('elon', ['dario', 'elon']), 'elon', 'focus went back to the same agent');
+  assert.equal(run('elon', ['dario']), 'dario', 'that agent is gone: the first Open left');
+  assert.equal(run(null, ['dario']), null, 'CONTROL: nothing focused in the notice, nothing is focused after');
 });
