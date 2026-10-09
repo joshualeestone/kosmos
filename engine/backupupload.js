@@ -85,6 +85,9 @@ const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-A
 // locks to the end of the week plus 30 days plus the window, or the next week's end in a week's last day, so about
 // 31 days 15 minutes to 38 days 15 minutes. Outside [29, 39] days is a coordinator bug that would lock for the wrong time.
 const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
+// Mirrors the coordinator's retain_until_for (coordinator/src/backup.rs): period_end + RETAIN_AFTER_PERIOD_SECS (30 d)
+// + GRANT_SECS (15 min). If either changes there, change MANIFEST_LOCK_FLOOR_MS and GRANT_WINDOW_MS here, or a correct
+// manifest is refused before its grant (fail-closed; the exact check after the grant stays the real guard).
 // The coordinator locks every object to its period's end plus 30 days plus the grant window, and a period ends no
 // earlier than now: so a manifest granted now locks for at least this long plus GRANT_WINDOW_MS, and chunks whose
 // lock ends sooner are ones it would outlast (checked before a grant is asked for, so no allowance is spent on a
