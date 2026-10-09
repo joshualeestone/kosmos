@@ -18,10 +18,14 @@
  * Wraps are NOT authenticated (HPKE base mode): anyone with a recipient's public key can make one that opens. A
  * member key must therefore derive to the expected public key. A naming key cannot be checked that way, so:
  *   - unwrapNamingKey is for RESTORE only, where a forged naming key just makes chunk names fail to verify
- *     (backupformat's openVerifiedChunk) and never yields other data;
+ *     (backupformat's openVerifiedChunk) and never yields other data. That rests on restore taking every chunk
+ *     name from the device-SIGNED, verified manifest: chunks are HPKE-sealed too, so anyone with the member public
+ *     key can forge one, and only a name fixed by the signed manifest makes a match a preimage search against the
+ *     HMAC. A restore path that listed names from storage instead would not be safe;
  *   - a Mac must NEVER unwrap a naming key from storage to name NEW chunks: a forged one would make those names
  *     predictable to whoever forged it. A Mac that lost its naming key mid-period makes a fresh one (newNamingKey),
- *     at the cost of deduplication within that period;
+ *     at the cost of deduplication within that period. A period can then hold more than one naming key under the
+ *     same context, so each manifest records namingKeyId(nk) and restore uses the wrap whose key has that id;
  *   - if a stored wrap is ever reused for new data, it first needs an authenticator (a device signature, or carrying
  *     it inside the device-signed manifest).
  *
@@ -31,7 +35,8 @@
  * wrap* throw on a caller mistake (a key that is not 32 bytes, a bad context, a non-canonical recipient key, which
  * hpke.js refuses because it could never be opened). unwrap* return null on ANY failure and never throw, as hpke.js
  * and backupformat.js do. unwrapMemberKey REQUIRES the public key the result must derive to: a wrap of the wrong key
- * (a wrapper bug, another epoch's key under this context) is refused rather than restored.
+ * (a wrapper bug, another epoch's key under this context) is refused rather than restored. (Equal up to X25519
+ * clamping: secrets differing only in clamped bits are the same key and pass, which is harmless.)
  *
  * Not here: where keys and wraps are stored, the org key pair and escrow, delivering the member public key in the
  * coordinator-signed policy bundle (decision 7), rotation policy, and the walker.
@@ -55,10 +60,12 @@ const asBuf = (x) => (Buffer.isBuffer(x) ? x : (x instanceof Uint8Array ? Buffer
 
 /* The associated data for one kind of wrap: a fixed line naming the kind, then each field. Throws on a bad ctx. */
 function contextBytes(kind, fields, ctx) {
-  for (const k of fields) {
-    if (!ctx || !Object.hasOwn(ctx, k) || typeof ctx[k] !== 'string' || !ID_RE.test(ctx[k])) throw new Error(`backupkeys: the ${kind} context needs a non-empty ${k} of letters, digits and . _ : -`);
-  }
-  return Buffer.from(`kosmos-backup v${FORMAT} ${kind}\n` + fields.map((k) => `${k}=${ctx[k]}`).join('\n'));
+  // Each value is read ONCE, then checked and used: a getter could not pass the check and then return a newline.
+  const vals = fields.map((k) => (ctx && Object.hasOwn(ctx, k) ? ctx[k] : undefined));
+  fields.forEach((k, i) => {
+    if (typeof vals[i] !== 'string' || !ID_RE.test(vals[i])) throw new Error(`backupkeys: the ${kind} context needs a non-empty ${k} of letters, digits and . _ : -`);
+  });
+  return Buffer.from(`kosmos-backup v${FORMAT} ${kind}\n` + fields.map((k, i) => `${k}=${vals[i]}`).join('\n'));
 }
 const memberContext = (ctx) => contextBytes('member-key', MEMBER_FIELDS, ctx);
 const namingContext = (ctx) => contextBytes('naming-key', NAMING_FIELDS, ctx);
@@ -81,6 +88,15 @@ function newMemberKey() { return hpkeKeyPair(); }
 
 /** A fresh naming key for one period: 32 random bytes. */
 function newNamingKey() { return crypto.randomBytes(KEY_LEN); }
+
+// A naming key's id: a domain-tagged SHA-256, first 16 bytes, hex. It reveals nothing about a random key, and lets
+// a manifest say WHICH of a period's naming keys names its chunks (a period can hold more than one, see the header).
+const NAMING_ID_TAG = Buffer.from(`kosmos-backup v${FORMAT} naming-key-id\0`);
+/** The id of a naming key (32 hex characters), for a manifest to record and restore to match. Throws on a bad key. */
+function namingKeyId(namingKey) {
+  const nk = key32(namingKey, 'the naming key');
+  return crypto.createHash('sha256').update(NAMING_ID_TAG).update(nk).digest().subarray(0, 16).toString('hex');
+}
 
 function wrap(magic, info, aad, secret, recipientPk) {
   const { enc, ct } = hpkeSeal(recipientPk, info, aad, secret);   // throws on a bad or non-canonical recipient key
@@ -134,6 +150,7 @@ function unwrapNamingKey(memberSk, wrapped, ctx) {
 module.exports = {
   newMemberKey,
   newNamingKey,
+  namingKeyId,
   wrapMemberKey,
   unwrapMemberKey,
   wrapNamingKey,
