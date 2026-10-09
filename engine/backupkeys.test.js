@@ -157,7 +157,10 @@ test('wraps are not authenticated, so a FORGED wrap (made by anyone with the pub
   const forge = (magic, pk, aad, secret) => { const { enc, ct } = hpkeSeal(pk, info, aad, secret); return Buffer.concat([Buffer.from(magic), enc, ct]); };
   // A forged member-key wrap of ANOTHER key, under the right context: refused by the expected public key.
   const other = keys.newMemberKey();
-  assert.strictEqual(keys.unwrapMemberKey(escrow.sk, forge('KBK1', escrow.pk, keys.memberContextBytes(mctx), other.sk), mctx, member.pk), null);
+  const forgedOther = forge('KBK1', escrow.pk, keys.memberContextBytes(mctx), other.sk);
+  assert.strictEqual(keys.unwrapMemberKey(escrow.sk, forgedOther, mctx, member.pk), null);
+  // CONTROL: the same forged wrap opens when asked for the key it holds, so the refusal above is the public-key check.
+  assert.ok(keys.unwrapMemberKey(escrow.sk, forgedOther, mctx, other.pk));
   // A forged wrap of a secret that is not 32 bytes: refused for both kinds.
   assert.strictEqual(keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), Buffer.alloc(31, 7)), nctx, idOf(Buffer.alloc(31, 7))), null);
   assert.strictEqual(keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), Buffer.alloc(33, 7)), nctx, idOf(Buffer.alloc(33, 7))), null);
@@ -241,4 +244,12 @@ test('unwrapped secrets are fresh Buffers: changing the input wrap afterwards do
   const ngot = keys.unwrapNamingKey(member.sk, nw, nctx, keys.namingKeyId(nk));
   nw.fill(0);
   assert.ok(ngot.equals(nk));
+});
+
+test('the clamping contract: a secret differing only in a clamped bit unwraps against the same public key, as the bytes wrapped', () => {
+  const member = keys.newMemberKey(), r = hpkeKeyPair();
+  const variant = Buffer.from(member.sk); variant[0] ^= 0x01;   // bit 0 is cleared by X25519 clamping
+  assert.ok(!variant.equals(member.sk));
+  const got = keys.unwrapMemberKey(r.sk, keys.wrapMemberKey(variant, r.pk, mctx), mctx, member.pk);
+  assert.ok(got && got.equals(variant), 'the variant passes and comes back as wrapped (not clamped, not the original)');
 });
