@@ -468,6 +468,8 @@ async function sweepOnce(o) {
                   // while the service is told "seen" only for a placed line; so the board can list a person the service
                   // does not count as that agent's silence. The board's report is the cautious side.
                   if (!Array.isArray(rec[id].told) || rec[id].told.length === 0) { answered.push(id); continue; }
+                  // Review 15: marked on this pass's copy of the record (readPersons returns a fresh object each call); if
+                  // the write below fails, the next pass reads the stored record and marks it again.
                   rec[id] = { ...rec[id], unanswered: true };
                   expiredNow.push(id);
                 }
@@ -487,7 +489,7 @@ async function sweepOnce(o) {
               // Review 3 (board half): an expiry says what happened, with the real number of tells (it may be fewer than three).
               for (const id of expiredNow) {
                 const n = Array.isArray(rec[id] && rec[id].told) ? rec[id].told.length : 0;
-                say({ name: who, session, act: 'unanswered-person', because: whatOf(id) + ' passed its answer window unanswered, told ' + n + (n === 1 ? ' time' : ' times') });
+                say({ name: who, session, act: 'unanswered-person', because: whatOf(id) + ' passed its answer window unanswered, a line sent ' + n + (n === 1 ? ' time' : ' times') });
               }
             }
           }

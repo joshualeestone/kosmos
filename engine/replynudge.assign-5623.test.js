@@ -231,3 +231,14 @@ test('#5623 Rule 2 review 11: a line with a comment and an assignment reports on
   await rn.sweepOnce(o);
   assert.deepEqual(state.seen, [P1], 'a comment id went to the service\'s seen report');
 });
+
+test('#5623 Rule 2 review 15: an assignment told PERSON_TELLS times is marked unanswered and listed as a post', () => {
+  const key = ca.ASSIGNED_PREFIX + P1;
+  const at = 1e12;
+  const rec = { [key]: { remoteId: P1, title: '', author: '', parent: '', firstSeen: at, told: [at, at + rn.PERSON_RETELL_MS, at + 2 * rn.PERSON_RETELL_MS] } };
+  const u = rn.personsUpdate(rec, [asg(P1)], at + 3 * rn.PERSON_RETELL_MS, []);
+  assert.deepEqual(u.unanswered, [key], 'the third tell did not mark the assignment unanswered');
+  const root = path.join(SANDBOX, 'sent-root-3');
+  rn.writePersons(root, 'kim', u.owed);
+  assert.deepEqual(rn.unansweredFor(root, ['kim']).map((x) => [x.kind, x.post, x.comment]), [['post', P1, '']]);
+});
