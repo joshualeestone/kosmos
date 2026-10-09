@@ -104,7 +104,26 @@ test('#5711: the real pool builds a window the cut accepts, without the held con
   }
 });
 
-test('#5711 review 5: --from-history finds the What\'s New a version shipped in this checkout\'s history', () => {
+test('#5711 review 6: --from-history takes the NEWEST commit naming the version, in a throwaway repo (no real history needed)', () => {
+  const { execFileSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-git-'));
+  const git = (...a) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...a], { stdio: 'ignore' });
+  const put = (version, title) => {
+    fs.mkdirSync(path.join(dir, 'web'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'web', 'whats-new.json'), JSON.stringify({ version, highlights: [{ icon: 'tasks', title, line: 'x' }] }));
+    git('add', 'web/whats-new.json'); git('commit', '-q', '-m', version + ' ' + title);
+  };
+  try {
+    git('init', '-q');
+    put('0.7.1', 'First wording'); put('0.7.1', 'Fixed wording'); put('0.7.2', 'Next');
+    assert.equal(tool.fromHistory('0.7.1', dir).highlights[0].title, 'Fixed wording', 'the newest commit for 0.7.1, not the first');
+    assert.equal(tool.fromHistory('0.7.2', dir).highlights[0].title, 'Next');
+    assert.equal(tool.fromHistory('0.7.9', dir), null, 'CONTROL: a version never committed');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+const shallow = (() => { try { return require('node:child_process').execFileSync('git', ['-C', __dirname, 'rev-parse', '--is-shallow-repository'], { encoding: 'utf8' }).trim() !== 'false'; } catch { return true; } })();
+test('#5711 review 5: --from-history finds the What\'s New a version shipped in this checkout\'s history', { skip: shallow && 'a shallow clone (CI) has no history of web/whats-new.json; the throwaway-repo test above covers the logic' }, () => {
   const got = tool.fromHistory('0.7.35');
   assert.ok(got, 'found 0.7.35');
   assert.equal(got.version, '0.7.35');
