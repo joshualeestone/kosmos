@@ -667,7 +667,7 @@ function removeAvatar(name) {
     const key = safeKey(name);
     for (const f of fs.readdirSync(originalsDir())) {
       // tempWriterGone: null is an ordinary kept original (taken, as before), true a dead writer's temp (taken), false a
-      // writer that may be alive (kept)
+      // writer that may be alive, or another thread of this process (kept)
       if (f.startsWith(key + '.') && securewrite.tempWriterGone(f) !== false) { try { fs.unlinkSync(path.join(originalsDir(), f)); } catch { /* one held open (Windows) does not stop the rest */ } }
     }
   } catch { /* none kept */ }
