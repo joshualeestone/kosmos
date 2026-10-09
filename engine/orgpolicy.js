@@ -143,6 +143,10 @@ function refresh({ now, pinned } = {}) {
   return { applied: rec, refused: null };
 }
 
+/** #5534 slice 3: the applied record as it is ({ org, version, applied_at, policy }), or null. A read only: it never
+ *  applies a bundle (inForce does), so composing an agent's instructions has no side effect. */
+function appliedNow() { return readApplied(); }
+
 /** The policy in force, or null when there is none. */
 function current() {
   const a = readApplied();
@@ -226,4 +230,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, inForce, allows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

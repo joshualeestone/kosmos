@@ -9942,6 +9942,7 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           r = await oe.leave();
+          companyPolicySync();   // #5534 slice 3: leaving clears the company's policy, and its AI policy text with it
         }
         /* The page gets the company's name and slug, never the world id or org id. */
         /* What the page may see, by name (review 12): a field added to the engine's answer later is not sent by default. */
@@ -20968,8 +20969,27 @@ function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
-    return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
+    return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => { companyPolicySync(); return r; });
   } catch { /* best effort */ }
+}
+/* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
+   every agent's policy block when it changes: a new version applied by a refresh, or cleared by leaving. Compared by
+   what agents would be handed (name, text, version), so a refresh that changed nothing writes nothing. The first call
+   (at board start, after the boot sweep wrote every file) only records it. */
+let COMPANY_POLICY_SEEN;
+function companyPolicySync() {
+  try {
+    const c = policyEngine.companyEntry();
+    const now = c ? JSON.stringify([c.name, c.text, c.version]) : null;
+    if (COMPANY_POLICY_SEEN === undefined || now === COMPANY_POLICY_SEEN) { COMPANY_POLICY_SEEN = now; return; }
+    COMPANY_POLICY_SEEN = now;
+    const told = policyEngine.syncEveryone(safeRoster());
+    instructionRereadOweEach(told, 'policy');
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) process.stderr.write(`Kosmos could not hand your company's AI policy to ${stuck.length} of ${told.length} agent(s); they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${(stuck[0] && stuck[0].because) || 'no reason given'}\n`);
+  } catch (err) {
+    process.stderr.write(`Kosmos could not hand your company's AI policy to its agents: ${String(err && err.message)}\n`);
+  }
 }
 /** #5532: how often the work Kosmos checks whether its rollup is due (it sends daily, and on a change at most every
     ten minutes; engine/orgrollup.js decides). */
@@ -22208,6 +22228,20 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they report to: ${String(err && err.message)}\n`);
   }
+  /* #5534 slice 3: the AI policy block at boot, as reports and connections are: before this, an agent that existed when a
+     policy was saved was the only one that had it, and the company's policy text reaches every agent's next start. */
+  try {
+    const told = policyEngine.syncEveryone(safeRoster());
+    instructionRereadOweEach(told, 'policy');
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh the AI policies of ${stuck.length} of ${told.length} agent(s); they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh the AI policies agents are handed: ${String(err && err.message)}\n`);
+  }
+  companyPolicySync();   // records what was handed out, so a later refresh writes only on a change
   try {
     const told = connections.syncEveryone(safeRoster());
     instructionRereadOweEach(told, 'connections');
