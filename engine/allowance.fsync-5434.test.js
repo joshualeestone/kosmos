@@ -94,7 +94,9 @@ for (const [name, write] of WRITERS) {
       if (flags === 'wx' && String(target).startsWith(file)) { planted += 1; throw Object.assign(new Error('planted'), { code: 'EEXIST' }); }
       return realOpen.call(fs, target, flags, ...rest);
     };
-    try { write(dir); } catch { /* the writer's own contract on failure is checked by the file staying as it was */ }
+    // the writer helper's own `record(...) === true` assertion fails here by design (the save failed); swallowed, and
+    // the planted count and the unchanged bytes below are what this arm checks
+    try { write(dir); } catch { /* expected, see above */ }
     finally { fs.openSync = realOpen; }
     assert.equal(planted, 3, 'the planted failure did not fire on all three atomic attempts');
     assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file was rewritten in place');
