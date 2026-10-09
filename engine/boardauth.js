@@ -185,7 +185,8 @@ function legacyTokenPath() {
  * presents the token this board ENFORCES rather than a missing file. Falls back
  * to tokenPath() when neither holds one (a board that does not enforce). */
 function enforcedTokenPath() {
-  const nonEmpty = (p) => { try { return !!fs.readFileSync(p, 'utf8').trim(); } catch { return false; } };
+  // #5434 slice 14: the same test readToken applies (usableToken), so this names the file readToken really reads.
+  const nonEmpty = (p) => { try { return !!usableToken(fs.readFileSync(p, 'utf8').trim()); } catch { return false; } };
   const primary = tokenPath();
   if (nonEmpty(primary)) return primary;
   const lp = legacyTokenPath();
@@ -193,11 +194,11 @@ function enforcedTokenPath() {
   return primary;
 }
 
-/** Read the token file, or null if it is absent or empty. */
 /* #5434 slice 14: a token with a NUL byte in it is not a token. A crash after an unflushed write can leave
-   board.token at full length but zero-filled (#5431), and `.trim()` keeps NULs, so that file read as a "token"
-   nobody holds: every request was refused, and the empty-file heal below never fired because the file was not
-   empty. Read as absent instead, so the heal replaces it. */
+   board.token at full length but zero-filled (#5431), and `.trim()` keeps NULs, so that file read as a token, and
+   the empty-file heal never fired because the file was not empty. Read as absent instead, so the heal replaces it.
+   Applied on every path that reads the token (readToken, readTokenFrom, enforcedTokenPath), and matches() refuses
+   a NUL-filled or empty expected token. */
 const usableToken = (t) => (t && !t.includes('\0') ? t : '');
 
 /* #5434 slice 14: write a token temp and flush it before anything publishes it (link or rename). */
@@ -209,6 +210,7 @@ function writeTokenTemp(tmp, data) {
   finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
 }
 
+/** Read the token file, or null if it is absent, empty or NUL-filled. */
 function readToken() {
   try {
     const t = usableToken(fs.readFileSync(tokenPath(), 'utf8').trim());
@@ -318,13 +320,14 @@ function ownerOnlyModeIsEnforced(platform = process.platform) {
  * temp FIRST (full, mode 0o600), so a reader never sees a half-written token --
  * `link` publishes an already-complete file atomically.
  *
- * ⚠️ ONE PATH IS BEST-EFFORT, NOT RACE-SAFE, and it is only reachable by outside
- * corruption: a target that EXISTS but is empty/whitespace (external truncation).
+ * ⚠️ ONE PATH IS BEST-EFFORT, NOT RACE-SAFE: a target that EXISTS but is empty,
+ * whitespace or NUL-filled (external truncation, or a crash before a pre-#5434
+ * write reached disk, #5431).
  * `link` cannot adopt an unreadable token, so we replace it with `rename` and then
  * re-read to return whatever is on disk. Under TRUE concurrency (two boards
  * recovering the SAME corrupt file at once) a later rename can still land after our
- * re-read, so the two may briefly disagree until one restarts. This never arises
- * from our own writes (they publish complete content), needs a corrupt file AND a
+ * re-read, so the two may briefly disagree until one restarts. It needs a corrupt
+ * file (our own writes are flushed before they publish, #5434) AND a
  * concurrent different-port boot, and self-heals on the next single boot -- so it
  * is accepted as a bounded recovery rather than guarded with a lock.
  */
@@ -389,7 +392,7 @@ function ensureTokenPrimary() {
     if (err && err.code === 'EEXIST') {
       const winner = readToken();     // a racer published first; adopt its token
       if (winner) return winner;
-      // The target EXISTS but readToken() found it empty/whitespace (external
+      // The target EXISTS but readToken() found it empty/whitespace/NUL-filled (external
       // truncation) -- link() would EEXIST here forever and the board would 403
       // every request with no self-recovery short of a human deleting the file.
       // Replace the useless file (rename clobbers) and RE-READ, so we return the
@@ -448,6 +451,7 @@ function queryToken(req, routingBase) {
  */
 function matches(presented, expected) {
   if (typeof presented !== 'string' || typeof expected !== 'string') return false;
+  if (!usableToken(expected)) return false;   // #5434 slice 14: never accept against a NUL-filled expected token
   const a = Buffer.from(presented);
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false;

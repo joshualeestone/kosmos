@@ -69,8 +69,14 @@ test('#5434: a zero-filled board.token reads as no token, and ensureToken replac
   const { events, out } = recording(() => boardauth.ensureToken());
   assert.match(out, /^[0-9a-f]{64}$/, 'no real token came back');
   assert.equal(fs.readFileSync(boardauth.tokenPath(), 'utf8'), out, 'the zero-filled file was not replaced');
-  const p = events.findIndex((e) => e[0] === 'publish' && e[2] === boardauth.tokenPath() && e[1] !== boardauth.tokenPath());
-  assert.ok(events.slice(0, Math.max(p, 0)).some((e) => e[0] === 'fsync' && e[1] === events[p][1]), 'the replacement was not flushed before it was published');
+  // The LAST publish onto board.token is the heal's rename (the link before it got EEXIST) (review 1).
+  let p = -1;
+  events.forEach((e, i) => { if (e[0] === 'publish' && e[2] === boardauth.tokenPath()) p = i; });
+  assert.ok(p >= 0, 'nothing published the replacement');
+  assert.ok(events.slice(0, p).some((e) => e[0] === 'fsync' && e[1] === events[p][1]), 'the replacement was not flushed before it was published');
+  if (process.platform !== 'win32') {
+    assert.ok(events.slice(p + 1).some((e) => e[0] === 'fsync' && e[1] === store.ROOT), 'the folder was not flushed after the heal');
+  }
 });
 
 test('#5434: a flush that fails leaves no token published and no temp behind', () => {
@@ -89,4 +95,28 @@ test('#5434: an existing real token is returned as is and not rewritten', () => 
   const { events, out } = recording(() => boardauth.ensureToken());
   assert.equal(out, first);
   assert.equal(events.filter((e) => e[0] === 'publish').length, 0, 'a good token was rewritten');
+});
+
+test('#5434: matches() refuses a NUL-filled or empty expected token, and still matches a real one', () => {
+  const zeros = Buffer.alloc(64).toString('utf8');
+  assert.equal(boardauth.matches(zeros, zeros), false, 'matches() accepted a NUL-filled expected token');
+  assert.equal(boardauth.matches('', ''), false, 'matches() accepted an empty expected token');
+  const real = boardauth.generateToken();
+  assert.equal(boardauth.matches(real, real), true, 'control: a real token must still match');
+});
+
+test('#5434: a zero-filled primary with a good legacy-leaf token: the legacy token is enforced and backfilled', () => {
+  fresh();
+  const legacyRoot = store.resolveDataRoot(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env, store.LEGACY_APP);
+  assert.ok(legacyRoot && legacyRoot !== store.ROOT, 'no distinct legacy leaf, so this would test nothing');
+  fs.mkdirSync(legacyRoot, { recursive: true });
+  const good = boardauth.generateToken();
+  fs.writeFileSync(path.join(legacyRoot, boardauth.TOKEN_FILE), good, { mode: 0o600 });
+  fs.writeFileSync(boardauth.tokenPath(), Buffer.alloc(64), { mode: 0o600 });
+  try {
+    assert.equal(boardauth.readToken(), good, 'readToken did not fall through to the legacy leaf');
+    assert.equal(boardauth.ensureToken(), good);
+    assert.equal(fs.readFileSync(boardauth.tokenPath(), 'utf8'), good, 'the zero-filled primary was not backfilled');
+    assert.equal(boardauth.enforcedTokenPath(), boardauth.tokenPath());
+  } finally { fs.rmSync(path.join(legacyRoot, boardauth.TOKEN_FILE), { force: true }); }
 });
