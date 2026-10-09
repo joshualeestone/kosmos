@@ -337,3 +337,20 @@ test('#5531 review 37: the screen\'s ticket carries the previewed company to the
   assert.notEqual(r.json.ok, true, 'Alpha (named here) was taken as the Beta join landing: ' + JSON.stringify(r.json));
   assert.equal(oe.isEnrolledHere(), false, 'Alpha was recorded on Beta\'s consent');
 });
+
+test('#5531 follow-up: a company\'s stated empty backed-up list reaches the screen through the real preview route', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  let backsUp = [];
+  remote.macRequest = async (method, route) => (route === oe.ROUTES.redeem
+    ? { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: { reports: ['agent names'], backsUp, readers: ['you'], never: [] } } }
+    : { ok: false, because: 'unexpected ' + route });
+  t.after(() => { remote.macRequest = orig; });
+  const said = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  assert.equal(said.json.ok, true, JSON.stringify(said.json));
+  assert.equal(said.json.consent.backsUpNone, true, 'the stated empty list did not reach the screen: ' + JSON.stringify(said.json.consent));
+  // CONTROL: a company that sends a list is not told "nothing is backed up".
+  backsUp = ['agent folders'];
+  const listed = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  assert.equal(listed.json.consent.backsUpNone, false);
+});
