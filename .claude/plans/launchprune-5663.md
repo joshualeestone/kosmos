@@ -87,3 +87,13 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - The absent-on-purpose class from review 7 reached launch inputs too. The pane PATH is the tmux server's global PATH, so a folder like a tool's bin before it is installed could be on one launch's PATH and not the next. It would then be pruned, a program planted there during that session, and the program would run at the following launch. Now only a path that exists at record time is recorded. A removed version existed when it was recorded, so the upgrade case still prunes. Test: an absent launch folder is not recorded and survives a launch without it. Both mutations go red.
 - The plan's premise sentence is replaced: launch inputs are not stable.
 - Not changed: the record's Edit rule uses the agent folder's unresolved spelling, like the existing settings-file Edit rules. The sandbox's whole-folder deny on `.claude` is what protects it in every spelling.
+
+## Review 10 (Sonnet) and what changed
+
+- A record that does not parse was read as none and then overwritten, so everything it named was forgotten. Now a dated copy is kept beside it first, and the log says so, as the settings file does (#4491 review 18). Test: a dated copy holds the bad text, with a control that a parseable record is not copied. Removing the copy goes red.
+- The warning reaching only the logs (raised in reviews 4, 5, 6 and 10) is now its own card, #5668.
+- Duplicates of decided points: a person's identical rule string; a path recreated mid-session (review 8); existing unrecorded rules (review 5); the lock-free record.
+- Not taken:
+  - The use-strict guard's dependence on `git ls-files`. Every test here runs from a checkout.
+  - The ceiling test's 1,400 folders. It is the through-the-guard arm, and its boundary twin is the synthetic one.
+  - Review-number comments. That is the file's style.

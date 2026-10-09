@@ -1133,11 +1133,20 @@ function launchPathGone(p) {
 }
 function readLaunchRecord(file) {
   const none = { deny: [], denyWrite: [] };
-  try {
-    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
-    return { deny: strings(j && j.deny), denyWrite: strings(j && j.denyWrite) };
-  } catch { return none; }
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return none; }   // none yet (a guard from before #5663)
+  let j;
+  try { j = JSON.parse(raw); } catch { j = undefined; }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) {
+    /* Review 10: a record that does not parse is read as none, which prunes nothing, and the next write replaces it;
+       a dated copy is kept first (as the settings file does, #4491 review 18) so what it named is not lost unseen. */
+    const keep = `${file}.unreadable-${Date.now()}`;
+    try { fs.writeFileSync(keep, raw, { mode: 0o600 }); } catch { /* the log still says it */ }
+    process.stderr.write(`#5663: ${file} could not be read; kept a copy at ${keep}; nothing is pruned this time\n`);
+    return none;
+  }
+  const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  return { deny: strings(j.deny), denyWrite: strings(j.denyWrite) };
 }
 function writeLaunchRecord(file, rec) {
   try {

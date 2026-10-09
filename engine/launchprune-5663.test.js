@@ -199,6 +199,13 @@ test('#5663: a corrupt or wrong-shaped record prunes nothing, even a gone path',
     fs.writeFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), bad);
     assert.deepEqual(setup.guardTokenOnlyFolder(dir, name, { ...BASE, panePath: a }), { ok: true });
     assert.ok(readSettings(dir).permissions.deny.includes(rb), 'a corrupt record pruned a rule: ' + bad);
+    // Review 10: one that does not parse as an object is kept as a dated copy before it is replaced.
+    const copies = fs.readdirSync(path.join(dir, '.claude')).filter((f) => f.startsWith('kosmos-launch-rules.json.unreadable-'));
+    if (bad === '{"deny":"x","denyWrite":7}') assert.deepEqual(copies, [], 'CONTROL: a parseable record is not copied');
+    else {
+      assert.equal(copies.length, 1, 'no dated copy of the unreadable record: ' + bad);
+      assert.equal(fs.readFileSync(path.join(dir, '.claude', copies[0]), 'utf8'), bad);
+    }
   }
 });
 
