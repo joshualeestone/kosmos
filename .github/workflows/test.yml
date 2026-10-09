@@ -150,12 +150,15 @@ jobs:
           # kill-switch rules, inherited through $mac). Anything else, the variable unset included, is macos-latest.
           # Measured 2026-10-09 (numbers on #4601): a shell shard queued a median 56 to 77 min for macos-latest.
           s1='"macos-latest"'; s2='"macos-latest"'
+          shards="$(printf '%s' "$CI_SHELL_SHARDS" | tr -d ' ')"   # "1/2, 2/2" reads as "1/2,2/2"
           if [ "$mac" != '"macos-latest"' ]; then
-            case ",$CI_SHELL_SHARDS," in *,1/2,*) s1="$mac" ;; esac
-            case ",$CI_SHELL_SHARDS," in *,2/2,*) s2="$mac" ;; esac
+            case ",$shards," in *,1/2,*) s1="$mac" ;; esac
+            case ",$shards," in *,2/2,*) s2="$mac" ;; esac
           fi
           echo "shell1_runner=$s1" >> "$GITHUB_OUTPUT"
           echo "shell2_runner=$s2" >> "$GITHUB_OUTPUT"
+          # Said in the log, so a misspelt value (one that routes nothing) is visible.
+          echo "shell shards: 1/2 -> $s1, 2/2 -> $s2 (KOSMOS_CI_SHELL_SHARDS='$CI_SHELL_SHARDS')"
 
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
   # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
