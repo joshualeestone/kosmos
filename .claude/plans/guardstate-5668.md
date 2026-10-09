@@ -60,3 +60,10 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 - The default account's file is read only through `trust.defaultAgentSettings`; the test-only `home` branch is gone, so the test runs the production path (mutation red).
 - Pruning reads the folder's own listing, so a malformed file for an unlisted agent goes. It also re-reads the list just before it prunes; that re-read is not staged by a test.
 - A reason that already ends in a full stop gets no second one (browser-check arm).
+
+## Review 4 (Sonnet) and what changed
+- **Decided, not changed: a launch's line stays until the next launch**, even if a board start now reads better or worse. The running agent keeps the PATH it was launched with, and Claude Code built its sandbox profile at that launch. So the launch's reading is what the running agent has, and a fix (or a new problem) takes effect at its next launch, which writes the next line. What would change it: a measurement that Claude Code rebuilds the profile mid-session.
+- **The board start's check-then-write left a race.** A launch's line could land in between and be written over. A board-start write is now an exclusive create, so it never replaces a line (mutation red).
+- **An empty token-only list prunes nothing.** `tokenOnlyList` reads an unreadable list as empty, and one bad read must not wipe every agent's line; the route shows only listed agents anyway. Tested with a control that a list without the agent prunes it.
+- **The route re-reads the record only when its folder changed** (a write is a rename into it, which moves the folder's mtime), not on every poll. Tested; a never-invalidating cache goes red.
+- The two comments spliced onto one line are split.

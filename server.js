@@ -135,11 +135,17 @@ function withoutStamp(m) {
    denied paths are past the measured sandbox size, so its shell may not run) or 'guarded'. Read from the record every
    guard run writes (setup-assistant.recordGuardState), never recomputed here: a run scans the PATH. Only an agent on
    the token-only list carries it, and only once a run has recorded it. */
+let TOKEN_GUARD_CACHE = null;
 function withTokenGuard(rows) {
   let listed;
   try { listed = new Set(require('./engine/sendertoken').tokenOnlyList()); } catch { return rows; }
   if (!listed.size) return rows;
-  const rec = setupAssistant.readGuardState();
+  // Review 4: read again only when the record folder changed (a write is a rename into it, which moves its mtime).
+  let mt = null;
+  try { mt = fs.statSync(path.join(store.ROOT, setupAssistant.GUARD_STATE_DIR)).mtimeMs; } catch { mt = null; }
+  if (mt === null) return rows;
+  if (!TOKEN_GUARD_CACHE || TOKEN_GUARD_CACHE.mt !== mt) TOKEN_GUARD_CACHE = { mt, rec: setupAssistant.readGuardState() };
+  const rec = TOKEN_GUARD_CACHE.rec;
   return rows.map((r) => {
     const g = r && listed.has(r.sessionName) ? rec[r.sessionName] : null;
     if (!g) return r;

@@ -214,3 +214,19 @@ test('#5668 review 3: pruning reads the folder itself, so a malformed file for a
   assert.ok(!left.includes('gs-junk.json'), 'a malformed file for an unlisted agent stayed: ' + left.join(','));
   // gs-later has no folder, so its line goes too (review 2); listed agents with a folder keep theirs (tested above).
 });
+
+test('#5668 review 4: an empty token-only list (none listed, or unreadable) prunes nothing', () => {
+  const sendertoken = require('./sendertoken');
+  const dir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'gs-kept.json'), JSON.stringify({ ok: false, because: 'x', at: 't' }));
+  for (const list of ['{not json', JSON.stringify({ agents: [] })]) {
+    fs.writeFileSync(sendertoken.tokenOnlyFile(), list);
+    quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, workerDir: () => null }));
+    assert.ok(fs.existsSync(path.join(dir, 'gs-kept.json')), 'an empty or unreadable list pruned every line: ' + list);
+  }
+  // CONTROL: a list that names someone else does prune it.
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-other'] }));
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, workerDir: () => null }));
+  assert.ok(!fs.existsSync(path.join(dir, 'gs-kept.json')), 'CONTROL: a list without it did not prune it');
+});

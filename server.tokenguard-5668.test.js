@@ -78,3 +78,18 @@ test('#5668: a whole guard past the size is state warning on the route', async (
   fs.rmSync(sendertoken.tokenOnlyFile(), { force: true });
   assert.equal((await cards()).Big.tokenGuard, undefined);
 });
+
+test('#5668 review 4: the route reads the record again once a run has written (the folder changed)', async (t) => {
+  const b = fleet.install([fleet.agent('Cache', { state: 'idle' })]);
+  t.after(() => { b.restore(); fs.rmSync(sendertoken.tokenOnlyFile(), { force: true }); fs.rmSync(path.join(store.ROOT, setup.GUARD_STATE_DIR), { recursive: true, force: true }); });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['Cache'] }));
+  record({ Cache: { ok: false, because: 'first', at: 't1' } });
+  assert.equal((await cards()).Cache.tokenGuard.state, 'notWhole');
+  assert.equal((await cards()).Cache.tokenGuard.state, 'notWhole', 'CONTROL: a second poll with nothing written reads the same');
+  // A run writes as the guard does: temp file, then rename into the folder.
+  const d = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  await new Promise((r) => setTimeout(r, 20));
+  fs.writeFileSync(path.join(d, 'Cache.json.tmp'), JSON.stringify({ ok: true, at: 't2' }));
+  fs.renameSync(path.join(d, 'Cache.json.tmp'), path.join(d, 'Cache.json'));
+  assert.deepEqual((await cards()).Cache.tokenGuard, { state: 'guarded', at: 't2' }, 'the route kept serving the old line after a run wrote');
+});

@@ -1363,6 +1363,11 @@ function recordGuardState(agentName, r, deps = {}) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = guardStateFileFor(agentName, deps);
     const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
+    if (deps.exclusive) {
+      // Only when there is no line: an exclusive create, so a line another run wrote first is kept (review 4).
+      try { fs.writeFileSync(file, JSON.stringify(line, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); } catch (e) { if (e && e.code === 'EEXIST') return; throw e; }
+      return;
+    }
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
     fs.writeFileSync(tmp, JSON.stringify(line, null, 2) + '\n', { mode: 0o600 });
     try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
@@ -1426,8 +1431,11 @@ function accountSettingsFile(agentName, deps = {}) {
 function guardTokenOnlyFolder(dir, agentName, deps = {}) {
   const r = guardTokenOnlyFolderNow(dir, agentName, deps);
   /* Review 3: a board-start run measures the board's own PATH, not the one the agent was launched with, so it records
-     only an agent with no line yet; a launch (what the running agent has) and creation always record. */
-  if (!(deps.boardStart && fs.existsSync(guardStateFileFor(agentName, deps)))) recordGuardState(agentName, r, deps);
+     only an agent with no line yet (created exclusively, review 4: a launch's line that lands first is never written
+     over); a launch and creation always record. Review 4, decided: a launch's line stays until the next launch even if
+     a board start now reads better, because the running agent keeps its launch PATH and Claude Code built its sandbox
+     profile at that launch, so the launch's reading IS what the running agent has. */
+  recordGuardState(agentName, r, { ...deps, exclusive: !!deps.boardStart });
   return r;
 }
 function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
@@ -1643,8 +1651,9 @@ function refreshTokenOnlyGuards(deps = {}) {
   let names;
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
   // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.
+  // Review 23: notes said at board start, not each launch.
   if (deps.only) { names = names.filter((n) => n === deps.only); deps = { ...deps, atLaunch: true }; }
-  else deps = { ...deps, boardStart: true };   // #5668 review 3: its record does not replace a launch's   // review 23: notes said at board start, not each launch
+  else deps = { ...deps, boardStart: true };   // #5668 review 3: its record does not replace a launch's
   if (!(deps.launchCache instanceof Map)) deps = { ...deps, launchCache: new Map() };   // #5516: one PATH scan per pass
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
@@ -1661,7 +1670,9 @@ function refreshTokenOnlyGuards(deps = {}) {
   }
   // #5668 review 1: at board start (the whole list), lines for agents no longer listed leave the record. The list is read
   // again here (review 3), so an agent listed during this pass keeps the line its launch just wrote.
-  if (!deps.only) { try { pruneGuardState(require('./sendertoken').tokenOnlyList(), deps); } catch { /* best effort */ } }
+  // An empty list (none listed, or a list that could not be read) prunes nothing (review 4): the route shows only listed
+  // agents anyway, and one bad read must not wipe every agent's line.
+  if (!deps.only) { try { const now = require('./sendertoken').tokenOnlyList(); if (now.length) pruneGuardState(now, deps); } catch { /* best effort */ } }
   /* Review 21: the person's own user settings (~/.claude, ~/.claude-<label>) also reach a token-only agent. They are
      the person's, so the guard never edits them; it says when one holds a key that weakens the sandbox. Board start
      only, not at each launch (review 22). */
