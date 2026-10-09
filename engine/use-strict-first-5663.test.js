@@ -4,8 +4,8 @@
  * #5663 review 3: a block inserted above 'use strict' turned a 2,000-line module into sloppy mode, silently: a directive
  * that is not the first statement does nothing, and nothing else fails. Every tracked .js file that carries the
  * directive must carry it first (after a shebang, comments and whitespace).
- * Known false red: an unindented line that is only the directive, inside a template literal of a file with no real
- * directive. None exists; an indented (function-level) directive is not matched.
+ * Known false red: an unindented line that is only the directive, inside a template literal or a block comment of a
+ * file with no real directive. None exists; an indented (function-level) directive is not matched.
  */
 
 const test = require('node:test');

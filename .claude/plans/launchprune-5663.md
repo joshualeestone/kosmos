@@ -112,3 +112,14 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - The mode-000 arm runs only for an ordinary user, because root reads a mode-000 file.
 - Decided risk, stated so nobody reads pruning as strictly safe: once a removed path's rule is pruned, the path is unguarded until a launch names it again. The file tools could create something there in that window. A later launch runs it only if that exact path (a removed version's folder) is back on the launch PATH, and that launch denies it again before the agent starts. This is inherent to pruning at all, the card's purpose. Before #5663 the rule stayed for good, which is the growth this card removes.
 - Duplicates of decided points: the lock-free record; the warning reaching only the log (#5668); the use-strict guard's scope; other rule spellings not counted (review 11); review-number comments.
+
+## Review 13 (Opus) and what changed
+
+- "Is this path there" was worked out twice: once to record (present) and once to prune (gone). The two disagreed on errors other than ENOENT. Now one helper, `launchPathState`, answers present, gone or unknown for both. Unknown (EACCES on a parent, ELOOP) is neither recorded nor pruned. Test: a path under a mode-000 folder is not recorded at the launch that names it, and is not pruned at a launch without it. Three mutations go red.
+- `ruleTarget` now strips the rule wrapper and reads the path back with `rulePath`, the one inverse of `ruleAbs`, so it would agree with the rest of the guard if this ever ran on Windows.
+- The dated-copy dedupe checks file size before comparing bytes.
+- The use-strict test header names the block-comment false-red shape too.
+- Not changed:
+  - The plan file name, a known conflict between the PR hook and CLAUDE.md; the plan explains it.
+  - The commit subjects. The squash merge takes the PR title, which will use the `#5663: ...` form.
+  - The test's local `realOr`/`ruleAbs`, the existing test pattern.

@@ -1088,9 +1088,10 @@ const LAUNCH_RECORD_FILE = 'kosmos-launch-rules.json';
 const SANDBOX_DENY_PREFIX_MAX = 40 * 1024;
 const SANDBOX_DENY_RAW_MAX = 160 * 1024;
 // A rule's path, for the rule shapes this guard writes (a path with a pattern character is never written, #4491 review 14).
-function ruleTarget(r) {
+// Review 13: the wrapper is stripped here and the path read back by rulePath, the one inverse of ruleAbs.
+function ruleTarget(r, platform = process.platform) {
   const m = /^(?:Edit|Read)\(\/\/(.*?)(?:\/\*\*)?\)$/.exec(String(r));
-  return m ? '/' + m[1] : null;
+  return m ? rulePath(m[1], platform) : null;
 }
 /* The paths THIS AGENT'S settings file sends to the profile, counted per clause as the profile is likely built (review 5).
    Review 11: the person's user-level settings files (~/.claude, ~/.claude-<label>) also reach it and are not counted
@@ -1137,10 +1138,13 @@ function sandboxDenySize(fsb, deny, home) {
    removed version folder, or a removed version file in a folder that stays); a path that cannot be read is kept.
    Review 2: a folder only gone for now (an unmounted volume) is on the launching PATH if the agent runs from it, so it
    is current and kept. "Gone" is lstat ENOENT: a dangling link still exists, so its rule is kept (the safe direction). */
-function launchPathGone(p) {
-  if (typeof p !== 'string' || !p.startsWith('/')) return false;
-  try { fs.lstatSync(p); return false; } catch (e) { return !!(e && e.code === 'ENOENT'); }
+/* Review 13: one answer to "is this path there", for both recording (only 'present' is recorded) and pruning (only
+   'gone' is pruned). Any other lstat error (EACCES on a parent, ELOOP) is 'unknown': neither recorded nor pruned. */
+function launchPathState(p) {
+  if (typeof p !== 'string' || !path.isAbsolute(p)) return 'unknown';
+  try { fs.lstatSync(p); return 'present'; } catch (e) { return e && e.code === 'ENOENT' ? 'gone' : 'unknown'; }
 }
+function launchPathGone(p) { return launchPathState(p) === 'gone'; }
 function readLaunchRecord(file) {
   const none = { deny: [], denyWrite: [] };
   let raw;
@@ -1158,7 +1162,7 @@ function readLaunchRecord(file) {
        a dated copy is kept first (as the settings file does, #4491 review 18) so what it named is not lost unseen. */
     // Review 11: one copy per content, so a record that also cannot be written is not copied again at every refresh.
     let keep = null;
-    try { keep = fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith(path.basename(file) + '.unreadable-')).map((f) => path.join(path.dirname(file), f)).find((f) => { try { return fs.readFileSync(f, 'utf8') === raw; } catch { return false; } }) || null; } catch { keep = null; }
+    try { keep = fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith(path.basename(file) + '.unreadable-')).map((f) => path.join(path.dirname(file), f)).find((f) => { try { return fs.statSync(f).size === Buffer.byteLength(raw) && fs.readFileSync(f, 'utf8') === raw; } catch { return false; } }) || null; } catch { keep = null; }
     if (!keep) {
       keep = `${file}.unreadable-${Date.now()}`;
       try { fs.writeFileSync(keep, raw, { mode: 0o600 }); } catch { /* the log still says it */ }
@@ -1398,7 +1402,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        stable between launches, so a folder denied while absent on purpose (what is later made there would run) could
        leave one launch's PATH, be pruned, and be planted during that session. Never recorded, it is never pruned; a
        removed version existed when it was recorded, so the upgrade case is unchanged. */
-    const present = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
+    const present = (p) => launchPathState(p) === 'present';
     const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? [...launchDenyNow].filter((r) => present(ruleTarget(r))) : [])])];
     const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...(rules.launchKnown ? launchWritesNow.filter(present) : [])])];
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];

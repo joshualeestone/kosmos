@@ -367,3 +367,25 @@ test('#5663 review 12: a launch that prunes says so in the log (counts only), an
   assert.equal(lines.length, 1, said.join(''));
   assert.match(lines[0], /lp-log: pruned [1-9]\d* file-tool and [1-9]\d* sandbox launch rule/);
 });
+
+test('#5663 review 13: a path whose state cannot be read (EACCES on its parent) is neither recorded nor pruned', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads through mode 000' : false }, () => {
+  const dir = agentDir('lp-eacces');
+  const parent = binDir('eacces/locked');
+  const c = binDir('eacces/locked/bin');
+  const other = binDir('eacces/other/bin');
+  const recFile = path.join(dir, '.claude', 'kosmos-launch-rules.json');
+  const rc = dirRule(c);
+  try {
+    // Unreadable at the launch that names it: not recorded.
+    fs.chmodSync(parent, 0o000);
+    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, panePath: c });
+    fs.chmodSync(parent, 0o755);
+    assert.ok(!JSON.parse(fs.readFileSync(recFile, 'utf8')).deny.includes(rc), 'an unreadable path was recorded');
+    // Readable: recorded. Unreadable at a launch without it: kept, not pruned.
+    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, panePath: c });
+    assert.ok(JSON.parse(fs.readFileSync(recFile, 'utf8')).deny.includes(rc), 'CONTROL: a readable path is recorded');
+    fs.chmodSync(parent, 0o000);
+    setup.guardTokenOnlyFolder(dir, 'lp-eacces', { ...BASE, panePath: other });
+    assert.ok(readSettings(dir).permissions.deny.includes(rc), 'an unreadable path was pruned');
+  } finally { fs.chmodSync(parent, 0o755); }
+});
