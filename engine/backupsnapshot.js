@@ -103,8 +103,8 @@ const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WE
 const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". (The
-    coordinator falls back to "p<start>" for a time its time crate cannot hold, outside years -9999 to 9999; takeSnapshot refuses any year past 9998 either way, a
-    clock that far off before using this.) */
+    coordinator falls back to "p<start>" for a time its time crate cannot hold, outside years -9999 to 9999; takeSnapshot refuses a clock whose year is past 9998, either way,
+    before using this.) */
 function periodOf(ms) {
   const start = MONDAY_EPOCH + Math.floor((ms - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
   // ISO week-numbering year: the year of the Thursday of that week.
@@ -150,9 +150,6 @@ const onlyPeriodDiffers = (key, ctx) => periodOfKey(key) !== null && periodOfKey
    by name and content as usual. */
 const folderDenied = (rel) => { const d = denied(`${rel}/x`); return d.include ? null : d.why; };
 
-/** Every regular file under root (absolute) the deny-list allows, as sorted '/'-separated relative paths with the
-    device and inode seen, and what was skipped (links, denied folders and files, anything not a file or folder, a
-    folder that could not be read). Nothing is opened but folders. fs is injectable for tests. */
 /* Gives the event loop a turn once YIELD_MS of synchronous work has passed (review 34: the board's process runs this, and
    a large walk would otherwise hold it for seconds). Real time, not the injected clock. */
 const YIELD_MS = 20;
@@ -161,6 +158,9 @@ function yielder() {
   return async () => { if (Date.now() - last >= YIELD_MS) { await new Promise((r) => setImmediate(r)); last = Date.now(); } };
 }
 
+/** Every regular file under root (absolute) the deny-list allows, as sorted '/'-separated relative paths with the
+    device and inode seen, and what was skipped (links, denied folders and files, anything not a file or folder, a
+    folder that could not be read). Nothing is opened but folders. fs is injectable for tests. */
 async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_SKIPPED, exclude = [] } = {}) {
   const pause = yielder();
   // Folders the caller leaves out (review 34: a large dependency tree could otherwise make every snapshot tooLarge),
@@ -559,7 +559,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     }
     const entry = { path: f.path, size: data.length, sha256: crypto.createHash('sha256').update(data).digest('hex'), chunks: names };
     estimate += entryBytes(entry);
-   
+
     files.push(entry);
   }
   const stop = await flush();
