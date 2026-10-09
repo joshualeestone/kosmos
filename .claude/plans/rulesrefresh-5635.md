@@ -19,7 +19,7 @@ A test proves that a changed template section reaches an existing agent's file. 
 - **Kept on the click:** a span the person edited (`edited`), and a file with no rules block (appending sections to a file Kosmos never wrote rules into is adding to the person's text).
 - **A Not now for this version is honoured:** no auto-refresh for that agent until the version changes.
 - **At board start, beside the community sweep** (a board restart is the update, the same moment the other sweeps use). Each changed agent is owed the re-read line (instructionRereadOwe, #5297).
-- **The frame line** written at birth and on a click says "Kosmos may update this block when the rules change, with your OK". It changes to say that Kosmos keeps the block current while it is unedited, and asks first once the person has edited it. sectionContentOf strips the frame line, so this changes no comparison.
+- **The frame line** written at birth and on a click said "Kosmos may update this block when the rules change, with your OK". It now says Kosmos "may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise", and an automatic write has its own frame (no "with your OK"). sectionContentOf strips frame lines, so no comparison changes. FRAME_TAILS holds every frame ever written, as frozen literals that only grow (review 7), and a test fails if a frame Kosmos writes today is missing from it.
 
 ## F2 decisions (Angel)
 - **Measured first: the existing fixes shipped.** #4581's `idleExcused` and its R9 `quietExcused` (019251f45) are both in 0.7.27, whose app commit b2a018cb8 is in the served manifest. Josh's project still read all five stale. Each rule leaves cases out on purpose: `idleExcused` only covers runners that report working (not Codex), and `quietExcused` needs the project to have had a task. The test project's work most likely went through the room, which leaves no task time.
@@ -69,3 +69,11 @@ That the test agents' stale text was a known earlier block. If the multi-model t
   - C fixed: the wholeKnownBlock comment is back above it.
   - NITs fixed: "may bring this block up to date" (no overclaim); the clean boundary takes a real heading line only (`#{1,6} `).
   - NIT decided: the source-level pin that the board calls refreshFleet stays; the behaviour is tested through refreshFleet itself.
+- **Round 7 (opus):** 0 blockers, 3 warnings, all fixed.
+  - W1: three FRAME_TAILS were built from KEEPS, so the next rewording would strand every frame written by this release. Now frozen literals, with a test pasting today's three frames.
+  - W2: only the first of two plain copies had its boundary checked. A second earlier copy now leaves the file for the click; a whole span plus one clean copy still updates (span excluded and shifted for the cut).
+  - W3: round 6 silenced real read failures. Only "nothing there yet" (no file, or no folder) is quiet; a file that is there and unreadable (a symlink) is could_not.
+  - NIT 1 fixed: comment and plan wording.
+  - NIT 4 fixed: the re-read line is pinned never to claim consent.
+  - NIT 2 decided: a span whose frame comment was deleted is still rewritten. The rules are untouched, and the frame is Kosmos's own line.
+  - NIT 3 decided: a crash between the record and the write reads as a restore until the next block ships. Accepted: the cost is one block's delay through the click, never a write over a person's restore.

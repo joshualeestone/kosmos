@@ -309,3 +309,55 @@ test('#5635 review 6: a line starting with # that is not a heading, typed under 
   assert.equal(run('hashnote').state, 'left');
   assert.equal(read(f), typed);
 });
+
+test('#5635 review 7: every frame Kosmos writes TODAY counts as its own (pasted as literals, so a change to the wording fails here)', () => {
+  const K = 'Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.';
+  const today = [
+    '<!-- Kosmos added the working rules below on 8 Oct 2026, with your OK. ' + K + ' -->',
+    '<!-- Kosmos added the working rules below on 8 Oct 2026, when it set up this agent. ' + K + ' -->',
+    '<!-- Kosmos added the working rules below on 8 Oct 2026, bringing its own earlier copy up to date. ' + K + ' -->',
+  ];
+  // The functions write exactly these (so the literals above are today's words, not a guess).
+  assert.equal(doctrine.spanBody([], NOW).split('\n')[0], today[0]);
+  assert.equal(doctrine.birthLine(NOW), today[1]);
+  assert.equal(doctrine.autoLine(NOW), today[2]);
+  const born = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const frame = born.split('\n').find((l) => l.startsWith('<!-- Kosmos added the working rules below on '));
+  today.forEach((line, i) => {
+    const name = 'todayframe' + i;
+    const f = agentFile(name, born.replace(frame, () => line));
+    assert.equal(run(name).state, 'added', 'a frame Kosmos writes today is not recognised as its own: ' + line.slice(0, 90));
+    assert.ok(read(f).includes(BLOCK));
+  });
+});
+
+test('#5635 review 7: two earlier plain copies, the second with a line typed under it, are left; a whole span plus one clean copy is updated', () => {
+  const two = `# Mine\n\n${OLD}\n\n${OLD}\n- my own bullet under the last rule\n`;
+  const f = agentFile('twocopies', two);
+  assert.equal(run('twocopies').state, 'left');
+  assert.equal(read(f), two);
+  // CONTROL: one plain copy beside a whole known span (the span is not mistaken for a second copy).
+  const span = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const g = agentFile('spanplusone', `${span}\n${OLD}\n`);
+  assert.equal(run('spanplusone').state, 'added', 'a whole span beside one clean copy was left');
+  assert.ok(read(g).includes(BLOCK) && !read(g).includes(OLD));
+});
+
+test('#5635 review 7: an instructions file that is there but cannot be read is a failure the board reports, not left quietly', () => {
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'symlinked');
+  fs.mkdirSync(dir, { recursive: true });
+  const real = path.join(SANDBOX, 'elsewhere.md');
+  fs.writeFileSync(real, doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD));
+  fs.symlinkSync(real, path.join(dir, 'CLAUDE.md'));
+  const got = run('symlinked');
+  assert.equal(got.state, 'could_not', JSON.stringify(got));
+});
+
+test('#5635 review 7: the re-read line about the rules never claims the person agreed', () => {
+  const ir = require('./instructionreread');
+  const src = fs.readFileSync(path.join(__dirname, 'instructionreread.js'), 'utf8');
+  const rulesLine = /rules: '([^']*)'/.exec(src);
+  assert.ok(rulesLine, 'CONTROL: the rules entry was not found, so this checks nothing');
+  assert.doesNotMatch(rulesLine[1], /OK|consent|agreed|approv/i);
+  assert.ok(ir, 'module loads');
+});
