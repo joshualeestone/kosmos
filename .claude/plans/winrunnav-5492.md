@@ -15,7 +15,7 @@ So refusing unclicked foreign navigations on run/both breaks no flow the board h
 - KosmosLauncher.ConnectLinkDecision gains `int boardPort = 0`: when given, IsBoardAddress(address, boardPort) is InApp before any scheme rule. Connect passes none (its board is stopped), so connect is unchanged.
 - OnNavigationStarting: Run and Both take the connect branch with `runsBoard ? port : 0`; the about:/data: Starting page is let through first (ConnectLinkDecision refuses data:). The first-load bookkeeping stays connect's (`!runsBoard &&`). Unset and Unreadable keep the older rule.
 - OnContentLoading and OnNavigationCompleted run for Run and Both too, so a Kosmos Plus page opened in their window can hand off to checkout (committedPage), and the in-window record is forgotten.
-- Parity test: the Mac's two `board:` navCase rows are ported as probe rows (plus WINDOWS: localhost is the same board), 63 -> 66 rows; MAC_ONLY_WHYS is empty. Source-text assertions updated; a #5492 test pins the run/both wiring.
+- Parity test: the Mac's two `board:` navCase rows are ported as probe rows (plus WINDOWS: localhost is the same board), 63 -> 67 rows (incl. review 1's clicked-board row); MAC_ONLY_WHYS is empty. Source-text assertions updated; a #5492 test pins the run/both wiring.
 
 ## Behaviour changes on a Windows run/both computer, stated
 - An unclicked redirect or script nav to another site is refused instead of opening the browser.
@@ -49,3 +49,8 @@ NITs, decided:
 - [NIT] IsBoardAddress accepts localhost/[::1] (stated as a WINDOWS row) and ignores a user part: still this computer's loopback board.
 - [NIT] two comments in tools.win-launcher-native.test.js:545 and tools.win-open-board-2007.test.js:61 describe the older rule without saying it now covers only Unset/Unreadable: fix at rebase, when the stack lands.
 - [NIT] no probe row for a CLICKED board link: add `Board(".../", true, 27500, InApp, ...)` at rebase.
+
+## Review 1's deferred nits, done at rebase (22:4x)
+- [NIT] a probe row for a CLICKED link to this computer's own board -> added (InApp).
+- [NIT] tools.win-launcher-native.test.js and tools.win-open-board-2007.test.js comments described the older rule as if it
+  covered every mode -> each now says it covers only Unset / Unreadable; run, both and connect use ConnectLinkDecision.
