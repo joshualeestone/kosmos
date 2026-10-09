@@ -409,21 +409,22 @@ async function uploadInner(deps, objects, opts, keys, run) {
     const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
     const unreached = [];           // chunks that met only pre-connect failures until the deadline: nothing written
     const troubledNow = run.troubled; // name -> { c, key } for chunks that met trouble and are not (yet) stored
-    let stop = null, stored = 0;
+    // anyReached: some attempt on THIS grant, by any chunk, got past connecting (S3 answered, or the request may have
+    // left). Then the bucket is reachable, and chunks that only failed to connect are re-granted like any chunk left.
+    let stop = null, stored = 0, anyReached = false;
     await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
-      // preOnly: an attempt failed before connecting. reached: one got past connecting. Only preOnly && !reached is
-      // "could not be reached"; a bucket that answered once (say 400 IncompleteBody, nothing committed) is reachable.
-      let troubled = false, preOnly = false, reached = false;
+      let troubled = false, preOnly = false;
       for (let attempt = 0; ; attempt++) {
         if (stop) return;
         // Out of time on this grant. A chunk that met bucket or network trouble does NOT get a new grant (that spends
         // allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
         const remaining = deadline - now();
         // (Out of time before any attempt still re-grants here, unlike uploadManifestInner: chunk grants are 200,000 a week.)
-        if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else if (preOnly && !reached) unreached.push(c); else left.push(c); return; }
+        if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else if (preOnly) unreached.push(c); else left.push(c); return; }
         // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
         // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
         const r = await putOne(fetchFn, up, c.object, troubled, timeoutFor(c.object.length));
+        if (!r.preconnect) anyReached = true;
         if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); run.locked.set(c.name, up.retainMs); troubledNow.delete(c.name); stored++; return; }
         // S3 says the grant expired. After trouble that is the same case as above: an earlier attempt may have landed.
         if (r.kind === 'expired') { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
@@ -431,7 +432,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
         // (uploadManifestInner carries the same retry rules for its one upload: change both together.)
         // troubled: an attempt that may have written this chunk (a lost answer, a failure after S3 got the request).
         // Not a pre-connect failure, and not S3 saying it committed nothing.
-        if (r.preconnect) { preOnly = true; } else { reached = true; if (!r.nothingCommitted) { troubled = true; troubledNow.set(c.name, { c, key: up.key }); } }
+        if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; troubledNow.set(c.name, { c, key: up.key }); }
         // Jittered, so workers that met the same SlowDown do not retry in lockstep.
         await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
       }
@@ -443,9 +444,11 @@ async function uploadInner(deps, objects, opts, keys, run) {
     }
     // unsure: chunks whose write may have landed under these keys (an answer was lost). A later run uploads them again
     // under new keys, so a landed one becomes a locked orphan until its lock ends; the caller may record them.
-    // The bucket could not even be reached: no new grant (it could not be reached either), and nothing is unsure.
-    if (unreached.length && !stuck.length) return { ok: false, retryLater: true, because: `the bucket could not be reached (${unreached.length} chunks never connected before their grant ran out); try again later`, keys };
+    // The bucket could not even be reached by ANY attempt on this grant: no new grant (it could not be reached either),
+    // and nothing is unsure. If some attempt did reach it, a connect failure was passing: those chunks are left.
+    if (unreached.length && !stuck.length && !anyReached) return { ok: false, retryLater: true, because: `the bucket could not be reached (${unreached.length} chunks never connected before their grant ran out); try again later`, keys };
     if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys, unsure: stuck.map((x) => ({ name: x.c.name, key: x.key })) };
+    for (const c of unreached) left.push(c);
     // The next grant is sized from the RATE this one achieved: about 80% of what the link carries in one window,
     // never more than double this grant (so it settles instead of swinging), at least 1, at most MAX_PER_GRANT.
     // A grant that ran out (chunks left) counts as having used its whole window, whatever the clock says: S3 can end a
