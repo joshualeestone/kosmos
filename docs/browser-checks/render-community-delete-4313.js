@@ -345,12 +345,14 @@ async function run() {
       row('k2', { state: 'unconfirmed', deleteRequested: true, agentKeyless: true, canDelete: false }),
       row('k3', { state: 'unconfirmed', deleteRequested: true, agentOtherRegistration: true, canDelete: false }),
       row('k4', { state: 'withheld', deleteRequested: true, canDelete: false }),   // CONTROL: plainly never sent
+      row('k5', { state: 'unconfirmed', deleteRequested: true, canDelete: false }),   // CONTROL: its own key, the sweep removes it
     ], comments: [] }));
     await openAutomation(p9);
     const dz = await readList(p9);
     const DOUBT = /Taken back, so it won't be sent again\. If an earlier try reached the community, that copy may still be up, and Kosmos can no longer take it down\./;
-    check('DOUBT: the three doubtful take-backs say the one sentence, with no Delete', dz.rows.length === 4 && dz.rows.slice(0, 3).every((x) => DOUBT.test(x.text) && !x.del && !/Deleting|Deleted before/.test(x.text)), JSON.stringify(dz.rows));
+    check('DOUBT: the three doubtful take-backs say the one sentence, with no Delete', dz.rows.length === 5 && dz.rows.slice(0, 3).every((x) => DOUBT.test(x.text) && !x.del && !/Deleting|Deleted before/.test(x.text)), JSON.stringify(dz.rows));
     check('DOUBT CONTROL: a post plainly withheld keeps "Deleted before it was sent"', /Deleted before it was sent/.test(dz.rows[3].text) && !DOUBT.test(dz.rows[3].text), JSON.stringify(dz.rows[3]));
+    check('DOUBT CONTROL: an unanswered post taken back with its own key still promises it comes down', /Deleting\. It comes down/.test(dz.rows[4].text) && !DOUBT.test(dz.rows[4].text), JSON.stringify(dz.rows[4]));
     await p9.close();
   } finally {
     await browser.close();
