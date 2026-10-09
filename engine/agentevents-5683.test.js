@@ -37,7 +37,7 @@ test('#5683 scan: a deny-rule refusal is the token-only guard, a Bash EPERM is t
   ].join('\n');
   const got = ae.scanText(lines, new Map(), ctx());
   assert.deepEqual(got.map((e) => [e.toolUseRef, e.rule, e.action, e.targetClass]), [
-    ['tu-1', 'token-only-guard', 'run', 'board-files'],   // a board.token read (review 19's hint)
+    ['tu-1', 'token-only-guard', 'run', 'home'],   // resolvable: classed by the real roots (in this ctx, none covers it)
     ['tu-2', 'sandbox', 'run', 'system'],
     ['tu-4', 'token-only-guard', 'write', 'other-agent'],
   ]);
@@ -828,5 +828,15 @@ test('#5683 r19: the denial test is linear on a large result', () => {
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.equal(got, null, 'a result that does not END with the denial was read as one');
   assert.ok(ms < 200, 'classifying a 3.6 MB result took ' + ms.toFixed(0) + ' ms');
+});
+
+/* ---- review 20 ---- */
+
+test('#5683 r20: in a named world an agent\'s own file by absolute path is not the board\'s', () => {
+  const base = '/Users/ann/Library/Application Support/Kosmos';
+  const c = ctx({ boardRoot: base + '/worlds/work/Kosmos', boardRoots: [base], agentDir: base + '/worlds/work/workers/scout' });
+  assert.equal(ae.targetClass('Bash', { command: 'cp "' + base + '/worlds/work/workers/scout/r.pdf" ~/Desktop/' }, c), 'home');
+  assert.equal(ae.targetClass('Bash', { command: 'cat "' + base + '/worlds/work/workers/scout/.claude/settings.json"' }, c), 'agent-config');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/App*/Kosmos/board.token' }, c), 'board-files', 'the hidden-path hint still works');
 });
 

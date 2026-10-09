@@ -23,7 +23,7 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   agent the guard shares its deny list with the person's own rules and the refusal text is the same, so a refusal by
   the person's own rule there is reported as the guard's (review 6). WEAKEST PREMISES: this, and the EPERM text match.
 - Nothing from before the enrollment, the current accepted words, or the agent joining the token-only list: each is a
-  time an event must be at or after (whole seconds). A transcript first seen is read from its start only if written
+  time an event must be at or after (compared in milliseconds since review 18). A transcript first seen is read from its start only if written
   after that time; an older one is skipped to its end unread.
 - The PermissionDenied hook is not used: it fires only for the auto-mode classifier (measured), so it cannot see a
   deny-rule refusal.
@@ -274,3 +274,12 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - The duplicate guardTokenOnlyFolder export key removed; the r16 and r18 tests have positive arms.
 - Stated: a path under a dropped base outside worlds/ is board-files even for a non-token-only agent's folder there
   (over-claims, hides nothing); `world` is the enrollment's own id, unchecked here.
+
+## Review 20 (opus), all fixed unless stated
+- The review-19 hint matched the whole command, so in a named world (whose agent folders sit under
+  Application Support/Kosmos) an agent's own file read as the board's: the hint looks only at the words a glob, a
+  variable or a substitution hides. Test with the named-world layout.
+- A garbled comment on TURN / UNGUARDED_SAID; the Decided time-bounds line says milliseconds.
+- Stated: after a Leave the ticks stop (isEnrolledHere), so the old queue stays on disk until the next enrollment resets
+  it (nothing is ever sent from it); a file truncated and then grown past its old offset misses its new lines up to it;
+  a file read before a collision resumes from its old offset (the millisecond filter keeps that from leaking).
