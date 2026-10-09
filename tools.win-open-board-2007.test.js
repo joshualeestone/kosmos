@@ -107,6 +107,11 @@ test('the helper is staged into the zip and checked for presence', () => {
 // A fixture board: GET / answers with `getStatus`, POST /api/board-nonce answers
 // with `nonceBody`. Both are per-test knobs so we can model an enforcing board, a
 // 403'ing board, and a board that returns a junk nonce.
+// How long a test waits for a fixture board that does answer. #5710: under the full
+// suite's load a 4 s wait could run out and the helper then fell back to the plain url.
+// A pass returns as soon as the board answers.
+const BOARD_WAIT_MS = 30000;
+
 function startFixtureBoard({ getStatus = 200, nonceBody = '{"nonce":"abc123def456"}' } = {}) {
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/') {
@@ -151,7 +156,6 @@ function makeOpener(dir) {
   const out = path.join(dir, 'opened.txt');
   if (process.platform !== 'win32') {
     const stub = path.join(dir, 'opener.sh');
-    // Write then rename, so a reader never sees a half-written or empty file (#5710).
     fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s' "$1" > ${JSON.stringify(out + '.part')} && mv ${JSON.stringify(out + '.part')} ${JSON.stringify(out)}\n`);
     fs.chmodSync(stub, 0o755);
     return stub;
@@ -172,7 +176,7 @@ test('enforcing board (token present): opens the nonced url', async () => {
   const { server, port } = await startFixtureBoard();
   const { appDir } = makeAppDir({ withToken: true });
   try {
-    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 });
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
     assert.equal(url, `http://127.0.0.1:${port}/?boot=abc123def456`);
   } finally { server.close(); }
 });
@@ -183,7 +187,7 @@ test('enforcing board that 403s GET / STILL gets a nonce (the real Windows case)
   const { server, port } = await startFixtureBoard({ getStatus: 403 });
   const { appDir } = makeAppDir({ withToken: true });
   try {
-    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 });
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
     assert.equal(url, `http://127.0.0.1:${port}/?boot=abc123def456`);
   } finally { server.close(); }
 });
@@ -192,7 +196,7 @@ test('non-enforcing board (no token): opens the PLAIN url', async () => {
   const { server, port } = await startFixtureBoard();
   const { appDir } = makeAppDir({ withToken: false });
   try {
-    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 });
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
     assert.equal(url, `http://127.0.0.1:${port}`);
   } finally { server.close(); }
 });
@@ -221,7 +225,7 @@ test('an UNREADABLE token warns (not a silent 403), but a MISSING one is silent'
     fs.chmodSync(tokFile, 0o000);
     try {
       let url;
-      const err = await captureStderr(async () => { url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 }); });
+      const err = await captureStderr(async () => { url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS }); });
       // The permission only forces EACCES for a NON-root user; root reads a 000
       // file regardless, defeating the permission (not the logic), so assert only
       // when the file is genuinely unreadable to THIS process. On non-root that is
@@ -239,7 +243,7 @@ test('an UNREADABLE token warns (not a silent 403), but a MISSING one is silent'
     const { server, port } = await startFixtureBoard();
     const { appDir } = makeAppDir({ withToken: false });
     try {
-      const err = await captureStderr(async () => { await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 }); });
+      const err = await captureStderr(async () => { await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS }); });
       assert.doesNotMatch(err, /board\.token exists but could not be read/, 'a missing token must not warn (it is the normal non-enforcing case)');
     } finally { server.close(); }
   }
@@ -251,7 +255,7 @@ test('CONTROL: a non-hex nonce is refused, url falls back to plain', async () =>
   const { server, port } = await startFixtureBoard({ nonceBody: '{"nonce":"not a nonce!"}' });
   const { appDir } = makeAppDir({ withToken: true });
   try {
-    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 });
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
     assert.equal(url, `http://127.0.0.1:${port}`,
       'a junk nonce was accepted onto the url');
   } finally { server.close(); }
@@ -313,7 +317,7 @@ test('a mint that returns a non-2xx (stale/wrong token -> 403) falls back to pla
   const port = server.address().port;
   const { appDir } = makeAppDir({ withToken: true });
   try {
-    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 4000 });
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
     assert.equal(url, `http://127.0.0.1:${port}`, 'a 403 mint should fall back to the plain url');
   } finally { server.close(); }
 });
@@ -358,7 +362,7 @@ test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url
     const stdout = await new Promise((resolve, reject) => {
       execFile(
         process.execPath,
-        [path.join(__dirname, 'tools', 'kosmos-open-board.js'), '--port', String(port), '--app', appDir, '--timeout-ms', '4000'],
+        [path.join(__dirname, 'tools', 'kosmos-open-board.js'), '--port', String(port), '--app', appDir, '--timeout-ms', String(BOARD_WAIT_MS)],
         { env: { ...process.env, KOSMOS_OPEN_BIN: stub } },
         (err, so) => (err ? reject(err) : resolve(so)),
       );
@@ -367,9 +371,8 @@ test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url
     assert.equal(stdout.trim(), `http://127.0.0.1:${port}`, 'stdout was not the plain url');
     assert.doesNotMatch(stdout, /boot=/, 'the single-use nonce leaked into stdout');
     // The opener (a detached grandchild) receives the NONCED url. It may lag the
-    // subprocess exit, so wait for its receipt: the stub renames the file into place
-    // only once it is written. #5710: a 4 s window was too short under the full
-    // suite's load. The deadline only bounds a failure; a pass returns on receipt.
+    // subprocess exit, so poll until it arrives. #5710: a 4 s window was too short
+    // under the full suite's load; a pass returns on receipt.
     let opened = '';
     const deadline = Date.now() + 30000;
     while (!opened && Date.now() < deadline) { try { opened = fs.readFileSync(out, 'utf8'); } catch (_e) { /* not yet */ } if (!opened) await napms(50); }
@@ -388,7 +391,7 @@ test('#1118: --print-url hands the NONCED url to the board window on stdout and 
     const { stdout, stderr } = await new Promise((resolve, reject) => {
       execFile(
         process.execPath,
-        [path.join(__dirname, 'tools', 'kosmos-open-board.js'), '--port', String(port), '--app', appDir, '--timeout-ms', '4000', '--print-url'],
+        [path.join(__dirname, 'tools', 'kosmos-open-board.js'), '--port', String(port), '--app', appDir, '--timeout-ms', String(BOARD_WAIT_MS), '--print-url'],
         { env: { ...process.env, KOSMOS_OPEN_BIN: path.join(os.tmpdir(), 'no-such-opener-' + process.pid) } },
         (err, so, se) => (err ? reject(err) : resolve({ stdout: so, stderr: se })),
       );
