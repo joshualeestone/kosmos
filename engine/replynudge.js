@@ -484,7 +484,7 @@ async function sweepOnce(o) {
               : 'a person\'s comment ' + id);
             if (wrote) {
               for (const id of u.unanswered) {
-                say({ name: who, session, act: 'unanswered-person', because: whatOf(id) + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+                say({ name: who, session, act: 'unanswered-person', because: whatOf(id) + ' had a line sent ' + PERSON_TELLS + ' times and is still not answered' });
               }
               // Review 3 (board half): an expiry says what happened, with the real number of tells (it may be fewer than three).
               for (const id of expiredNow) {
