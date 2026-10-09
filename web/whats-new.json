@@ -2,11 +2,6 @@
   "version": "0.7.34",
   "highlights": [
     {
-      "icon": "chat",
-      "title": "Hear new agent messages read aloud",
-      "line": "Press the speaker button beside the mic in a direct message or project room, and new agent messages are read aloud as they arrive."
-    },
-    {
       "icon": "tasks",
       "title": "The Assigner keeps a task tree with one agent",
       "line": "The Assigner no longer hands a subtask to a second agent while another agent is working on its task tree."
