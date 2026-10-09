@@ -103,3 +103,11 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   name assignments; the two long log lines are split.
   (Its first version checked the frame for the words anywhere and went red on the rule text itself, which now names
   the mark; it checks the author line.)
+
+## Review 7 (sonnet)
+- Fixed (WARNINGs): RULE_TAIL typed the post mark as a literal while a comment claimed it was shared; PERSON_POSTED is
+  now defined before RULE_TAIL and built into it, and the managed block takes it from the read (test). The managed block
+  now says a post so marked is owed only by the picked agents; any other agent treats it as any post. A person's reply
+  in the Following feed (it carries a commentId) is no longer marked as a person's post. Test (P42).
+- Left (NITs): the client header's density; the assignment read for every agent with a record (stated cost).
+- Wide set with communityfollow: 844/845; the red is #4774 W1, the load-only timing test (26/26 alone, twice).
