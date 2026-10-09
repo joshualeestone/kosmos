@@ -2695,7 +2695,6 @@ trust_level = "trusted"
       : { ok: true, removed: false, because: 'no entry for that folder' };
   }
   const next = text;
-  const tmp = `${cfg}.tmp-${process.pid}`;
   /* 🛑 THE RENAME CARRIES THE TEMP FILE'S MODE, NOT THE TARGET'S, AND THIS
      REALLY HAPPENED. Caught in cross-review after the first version of this
      function had already run against the operator's own `~/.codex/config.toml`
@@ -2708,23 +2707,22 @@ trust_level = "trusted"
      the private one. */
   let mode = 0o600;
   try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
+  /* #5434 slice 7: saved through securewrite, so the temp is flushed before the rename and the folder
+     after it, and a crash cannot leave the config at full length but zero-filled (#5431). It keeps
+     what this writer had: the temp is BORN at `mode` (#1797: no window where the whole config sits
+     world-readable) and the mode is then set on the fd, best effort. It adds what this writer lacked:
+     the temp is created `wx` under a unique name (the old fixed `.tmp-<pid>` followed a link planted
+     there), and only a temp this save created is ever unlinked.
+     The old reason for keeping this off securewrite (#1797: its "nothing legitimately symlinks this"
+     premise is false for the person's own config.toml) was about `refuseSymlinkTarget`, which runs
+     only in the in-place fallback. `atomicOnly` never takes that fallback: a config.toml that is a
+     link is replaced by a regular file by the rename, exactly as the old writeFileSync+rename did.
+     `ownTempsOnly`: this is the person's folder, so only this file's own dead temps are reaped (the
+     one delete path this adds there; see engine/trust.js saveConfig). The old `.tmp-<pid>` leftovers
+     are not reaped. */
   try {
-    /* 🛑 THE MODE ON CREATE, NOT ONLY AFTER (#1797). `writeFileSync(tmp, next)`
-       with no mode created the temp at the umask default (0644), and the
-       `chmodSync` below only closed that window a line later. The temp holds
-       the whole config -- trust entries, beside auth.json -- so for the moment
-       between the two calls the rewritten config sat world-readable at a
-       pid-named path. Passing the mode on create lands the temp private with no
-       window; the chmod stays as belt-and-suspenders (and is what re-asserts on
-       the rare path where the create mode is a no-op, the same reasoning as
-       securewrite's fchmod). Not routed through securewrite.js on purpose: that
-       is a Kosmos-secret writer whose "nothing legitimately symlinks this"
-       premise is false for the user's own config.toml. See #1797. */
-    fs.writeFileSync(tmp, next, { mode });
-    fs.chmodSync(tmp, mode);
-    fs.renameSync(tmp, cfg);
+    require('./securewrite').writeSecret(cfg, next, mode, { atomicOnly: true, ownTempsOnly: true });
   } catch (e) {
-    try { fs.unlinkSync(tmp); } catch { /* the rename never happened */ }
     return { ok: false, removed: false, because: 'we could not update the codex config' };
   }
   // #2129/#5: if the OTHER spelling's block was present but hand-edited, we removed
