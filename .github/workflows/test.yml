@@ -94,6 +94,8 @@ jobs:
     outputs:
       reuse: ${{ steps.decide.outputs.reuse }}
       mac_runner: ${{ steps.decide.outputs.mac_runner }}
+      shell1_runner: ${{ steps.decide.outputs.shell1_runner }}
+      shell2_runner: ${{ steps.decide.outputs.shell2_runner }}
     steps:
       # Full history without PAST file contents (only the checked-out tree's files download): the
       # decider diffs trees (--raw needs no blobs), and the one blob `git show` reads is fetched on
@@ -114,6 +116,7 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
           CI_RUNNER: ${{ vars.KOSMOS_CI_RUNNER }}
+          CI_SHELL_SHARDS: ${{ vars.KOSMOS_CI_SHELL_SHARDS }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           THIS_REPO: ${{ github.repository }}
         # The decider runs from the BASE branch, never from this PR's checkout, so a PR's own mistake
@@ -142,6 +145,17 @@ jobs:
             mac='["self-hosted","macOS","arm64","kosmos-ci"]'
           fi
           echo "mac_runner=$mac" >> "$GITHUB_OUTPUT"
+          # #4601: a shell shard joins the node part on the self-hosted Mac only when it is named in the repo variable
+          # KOSMOS_CI_SHELL_SHARDS ("1/2", "2/2" or "1/2,2/2") AND the node part goes there (the same own-code and
+          # kill-switch rules, inherited through $mac). Anything else, the variable unset included, is macos-latest.
+          # Measured 2026-10-09 (numbers on #4601): a shell shard queued a median 56 to 77 min for macos-latest.
+          s1='"macos-latest"'; s2='"macos-latest"'
+          if [ "$mac" != '"macos-latest"' ]; then
+            case ",$CI_SHELL_SHARDS," in *,1/2,*) s1="$mac" ;; esac
+            case ",$CI_SHELL_SHARDS," in *,2/2,*) s2="$mac" ;; esac
+          fi
+          echo "shell1_runner=$s1" >> "$GITHUB_OUTPUT"
+          echo "shell2_runner=$s2" >> "$GITHUB_OUTPUT"
 
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
   # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
@@ -176,11 +190,12 @@ jobs:
     # where the suite is green. (A first attempt on ubuntu-latest went red on exactly
     # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
     # #5488 part b: scope's choice (see there); macos-latest whenever scope gave none (it failed or timed out).
-    # #5488 part c: ONLY the node part may take scope's choice; the shell shards always run on macos-latest.
+    # #5488 part c: the node part takes scope's choice. #4601: a shell shard takes it too, only when named in
+    # KOSMOS_CI_SHELL_SHARDS (see scope); otherwise macos-latest.
     # Measured 2026-10-07: the self-hosted Mac runs the node part in 4.3 min (GitHub: 22.2) but is ONE runner,
     # and every Mac job routed to it ran serially (about 1.8 runs an hour, against about 4.2 on GitHub's 5).
     # Node only keeps the self-hosted Mac short of being the queue (numbers on #5488).
-    runs-on: ${{ fromJSON(matrix.part == 'node' && needs.scope.outputs.mac_runner || '"macos-latest"') }}
+    runs-on: ${{ fromJSON(matrix.part == 'node' && needs.scope.outputs.mac_runner || matrix.shard == '1/2' && needs.scope.outputs.shell1_runner || matrix.shard == '2/2' && needs.scope.outputs.shell2_runner || '"macos-latest"') }}
     # run-tests.sh boots boards and servers; bound a hung run rather than let it
     # sit on the 360-minute default. The suite now runs ~14m (#3499; it has grown well
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
