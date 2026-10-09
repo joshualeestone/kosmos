@@ -107,7 +107,7 @@ test('#5706 review 4: every head ends in an ellipsis, so even a word the list mi
   }
 });
 
-test('#5706 review 5: a head is never only an ellipsis, and one word is "1 word"', () => {
+test('#5706 review 5: a head is never only an ellipsis', () => {
   const r = spillHead(', '.repeat(400));
   assert.notEqual(r.head, '\u2026');
   assert.ok(r.head.length > 1, JSON.stringify(r.head.slice(0, 10)));
