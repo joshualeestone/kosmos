@@ -84,3 +84,30 @@ test('#5643: a late unchanged run is still marked late, and its row says both', 
   assert.equal(last.unchanged, true);
   assert.equal(last.late, true, 'fixture: this run should be late against an hourly rule on the hour');
 });
+
+test('#5643 review 1: a repeated note with a number in it is NOT unchanged (it can count new things); only the flag says so', () => {
+  const { id, n } = freshRepeating();
+  tasks.recordRun(id, n, 'mara', 'found 2 new errors', T0);
+  tasks.recordRun(id, n, 'mara', 'found 2 new errors', T0 + 60 * MIN);
+  assert.equal(stored(id, n).unchangedRuns, undefined, 'a repeated count was rolled up as nothing new');
+  tasks.recordRun(id, n, 'mara', 'found 2 new errors', T0 + 120 * MIN, { unchanged: true });   // CONTROL: the agent can say so
+  assert.equal(stored(id, n).unchangedRuns, 1);
+});
+
+test('#5643 review 1: clearing the repeat, or changing the rule, drops the streak and the last change (they belonged to the old job)', () => {
+  const { id, n } = freshRepeating();
+  tasks.recordRun(id, n, 'mara', 'found a thing', T0);
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 60 * MIN, { unchanged: true });
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 120 * MIN, { unchanged: true });
+  tasks.setRepeat(id, n, { every: 'hour', minute: 30 });   // a changed rule
+  let t = stored(id, n);
+  assert.deepEqual([t.unchangedRuns, t.lastChangeAt, t.lastChangeNote, t.lastRunUnchanged], [undefined, undefined, undefined, undefined], JSON.stringify(t));
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 210 * MIN, { unchanged: true });
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 270 * MIN, { unchanged: true });
+  tasks.setRepeat(id, n, null);   // cleared
+  tasks.setRepeat(id, n, { every: 'hour' });
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 24 * 60 * MIN, { unchanged: true });
+  t = stored(id, n);
+  assert.equal(t.unchangedRuns, 1, 'the old streak carried over into a rule set again');
+  assert.equal(t.lastChangeAt, undefined, 'a change from the cleared rule was kept');
+});

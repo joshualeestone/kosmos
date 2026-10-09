@@ -992,10 +992,13 @@ function setRepeat(projectId, n, rule, opts = {}) {
       changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson;
       if (didChange) changed.repeatSetAt = new Date().toISOString();   // review 4: a first run is due from when the rule was set
       if (didChange) delete changed.lastRunLate;   // slice 2 review 1: "late" was measured against the old rule
+      // kosmos#5643 review 1: and the streak of runs that found nothing new belonged to the old rule's job.
+      if (didChange) { delete changed.unchangedRuns; delete changed.lastRunUnchanged; delete changed.lastChangeAt; delete changed.lastChangeNote; }
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
       delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
+      delete changed.unchangedRuns; delete changed.lastRunUnchanged; delete changed.lastChangeAt; delete changed.lastChangeNote;   // kosmos#5643 review 1
       // slice 3: the reviewer reviewed this rule's results, so it goes with the rule.
       dropReviewer(changed);
     }
@@ -1109,7 +1112,9 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
        text as the run before it (whitespace aside), which is how an agent that repeats "all clear" says it. A run with no
        note and no flag is not unchanged: nothing says so. Unchanged runs keep the last CHANGE (lastChangeAt / Note) apart
        from the last run, and count how many in a row found nothing new (unchangedRuns), for the status line. */
-    const sameNote = !!said && typeof t.lastRunNote === 'string' && t.lastRunNote.replace(/\s+/g, ' ').trim() === said;
+    /* Review 1: never a note with a digit in it. "found 2 new errors" can repeat word for word over two different
+       pairs of errors; a count or a reading is what a run reports, so only the agent can say it is nothing new. */
+    const sameNote = !!said && !/\d/.test(said) && typeof t.lastRunNote === 'string' && t.lastRunNote.replace(/\s+/g, ' ').trim() === said;
     const unchanged = opts.unchanged === true || sameNote;
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
     if (unchanged) {

@@ -15,7 +15,9 @@ From a user's feedback (2026-10-09, triaged by Splinter). A long monitoring task
 - **How an agent marks a run unchanged: two ways.**
   - The explicit `--unchanged` flag, which an agent uses when it knows nothing changed.
   - Automatic: a run whose note is the same text as the run before it (whitespace aside) is unchanged. That is how an
-    agent that has not been taught the flag ("all clear", "no new items") gets the rollup today.
+    agent that has not been taught the flag ("all clear", "no new items") gets the rollup today. Never a note with a
+    digit in it (review 1): "found 2 new errors" can repeat word for word over two different pairs of errors, so a
+    repeated count or reading is unchanged only when the agent says so.
   - A run with no note and no flag is not unchanged: nothing says so.
   - Rejected: guessing from words like "no change". A note saying "no change in X, but Y is down" would roll up a
     finding.
@@ -28,7 +30,17 @@ From a user's feedback (2026-10-09, triaged by Splinter). A long monitoring task
   merges. Until then, the automatic match covers agents that repeat the same note.
 
 ## Weakest premise
-That repeating agents write the same note when nothing changed. One that varies its wording each time ("checked at
+That repeating agents write the same note, with no number in it, when nothing changed. One that varies its wording each time ("checked at
 10:05, nothing new") gets no automatic rollup until slice 2 teaches the flag.
 
 ## Review log
+- **Round 1 (opus):** 0 blockers, 3 warnings, all fixed.
+  - W1: clearing the repeat left the streak; it is now dropped on a clear and, like `lastRunLate`, on a rule change.
+  - W2: a repeated note with a digit can hide a finding; such notes are never automatic.
+  - W3: the status line said the same note twice; now once.
+  - Conventions fixed: both CLIs read "found nothing new" from the board's answer, so an automatic one says so; the rule-change reset (above).
+  - NITs fixed:
+    - a redraw keeps an opened rollup open (keyed by place and time, browser-checked);
+    - the disclosure mark has empty alt text;
+    - a comment on the count versus the history;
+    - the route test's name.
