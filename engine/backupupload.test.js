@@ -1386,3 +1386,28 @@ test('the production bucket shape (virtual-hosted, test seam off) passes the man
     assert.strictEqual(asked, 1);
   } finally { up.allowHttpForTests(true); }
 });
+
+test('a manifest grant already out of time before any attempt (a slow answer) ends retryLater with no re-grant', async () => {
+  const b = await bucket();
+  try {
+    const ck = clock();
+    const mc = manifestCoordinator(b);
+    const real = mc.macRequest;
+    mc.macRequest = async (...a) => { const r = await real(...a); await ck.sleep(15 * 60 * 1000); return r; };   // the answer takes the grant's whole life
+    const r = await up.uploadManifest(deps(mc, ck), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true); assert.strictEqual(r.grantSpent, true);
+    assert.match(r.because, /before a single upload attempt/);
+    assert.strictEqual(mc.bodies.length, 1, 'a new grant was asked for');
+    assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
+test('a chunk key with an empty third segment has no owner (refused before any grant)', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(undefined, 'org1/acct1/') }));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /not all under one/);
+    assert.strictEqual(mc.bodies.length, 0);
+  } finally { await b.close(); }
+});

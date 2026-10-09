@@ -500,10 +500,10 @@ function parseManifestGrant(data, bytes, runPrefix) {
   return { ok: true, expiresAtMs, lifetimeMs: c.expiresS * 1000, upload: Object.assign(c.upload, { retainMs: c.retainMs }) };
 }
 
-/* A key's <org>/<account> (its first two segments), or null when it has fewer than three. */
+/* A key's <org>/<account> (its first two segments), or null when it has fewer than three non-empty leading ones. */
 function ownerOf(key) {
   const parts = String(key).split('/');
-  return parts.length >= 3 && parts[0] && parts[1] ? `${parts[0]}/${parts[1]}` : null;
+  return parts.length >= 3 && parts[0] && parts[1] && parts[2] ? `${parts[0]}/${parts[1]}` : null;
 }
 
 /* Upload one sealed manifest. deps as uploadChunks. opts (both required):
@@ -613,7 +613,13 @@ async function uploadManifestInner(deps, bytes, o, st) {
     for (let attempt = 0; ; attempt++) {
       // Out of time after only pre-connect failures: the bucket cannot be reached, and a new grant could not reach it
       // either, so no re-grant (below). Unlike S3 answering "expired" (next arm), which proves the bucket answers.
-      if (deadline - now() <= 0) { cleanRanOut = !troubled && !preOnly; break; }
+      if (deadline - now() <= 0) {
+        // Out of time before a single attempt: the grant's answer itself took its whole life, so a new grant would be
+        // as slow. Stop rather than spend another of the period's 50 manifest grants. (The chunk worker re-grants
+        // here; its allowance is 200,000 a week, and that path is reviewed separately.)
+        if (attempt === 0) return { ok: false, retryLater: true, grantSpent: true, because: 'the manifest grant ran out before a single upload attempt (its answer was too slow); try again later' };
+        cleanRanOut = !troubled && !preOnly; break;
+      }
       const r = await putOne(fetchFn, up, bytes, troubled, timeoutMs);
       if (r.kind === 'stored' || r.kind === 'present') return { ok: true, key: up.key, sha256, lockedUntilMs: up.retainMs };
       if (r.kind === 'expired') { cleanRanOut = !troubled; break; }
