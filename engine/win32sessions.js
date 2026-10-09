@@ -124,9 +124,7 @@ function rewrite(failure, change) {
       const next = change(read());
       if (!next) return { ok: true };
       try {
-        const tmp = file() + '.' + process.pid + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify(next) + '\n', { mode: FILE_MODE });
-        fs.renameSync(tmp, file());
+        require('./securewrite').writeSecret(file(), JSON.stringify(next) + '\n', FILE_MODE, { atomicOnly: true });   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX); exact FILE_MODE
       } catch (e) { return fail(e); }
       return { ok: true };
     }, { busy: failure + ' (the record is busy, ELOCKBUSY)', cannotAccess: failure + ' (we could not lock it)', waitMs: RECORD_LOCK_WAIT_MS });
