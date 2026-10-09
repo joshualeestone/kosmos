@@ -994,6 +994,39 @@ test('an unconfirmed post is settled after an OFF-then-ON cycle, not stranded', 
   assert.equal(cs.statuses()[r.id].lastStatus, undefined, 'a settled post still carries an old failure status');
 });
 
+/* #5636 F3b: `kosmos community status` now tells the agent an unconfirmed post is asked about again "on its next pass,
+   within 5 minutes", whatever the switch says, and that a refused agent's is never asked about again. These hold the
+   send layer to both promises, each with the other arm as its control. */
+test('#5636: an unconfirmed post is settled on the very next pass, with the switch OFF too (the words promise both)', async () => {
+  await on();
+  const r = agentPost('fay', { topic: 't', body: 'b' });
+  losePostAnswers();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'unconfirmed', 'fixture: the answer was lost');
+  SW = { on: false, ok: true };
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'one pass with the switch OFF did not settle it');
+});
+
+test('#5636: a refused agent\'s unconfirmed post is never asked about again (the words must not promise a check)', async () => {
+  await on();
+  const r = agentPost('gus', { topic: 't', body: 'b' });
+  losePostAnswers();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'unconfirmed', 'fixture: the answer was lost');
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.ok(keys.gus && keys.gus.apiKey, 'fixture: gus registered');
+  keys.gus.refused = true;
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  cs.setSender((url, init) => fetch(url, init));
+  const before = be.st.seen.length;
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'unconfirmed', 'a refused agent\'s post was settled after all');
+  const asked = be.st.seen.slice(before).filter((x) => x.auth === 'Bearer ' + keys.gus.apiKey);
+  assert.deepEqual(asked.map((x) => x.method + ' ' + x.url), [], 'the refused agent\'s key was used to ask about it');
+});
+
 test('requests are made with redirect: error, so a login key is not re-sent to a redirect target (fetch following a redirect is simulated here)', async () => {
   await on();
   agentPost('gil', { topic: 't', body: 'b' });

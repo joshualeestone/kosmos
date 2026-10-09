@@ -363,7 +363,8 @@ test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed a
   const by = Object.fromEntries(status.itemsFor('ava').map((x) => [x.title, x]));
   assert.equal(by['Sent then refused'].state, 'sent_refused', 'fixture');
   assert.ok(by['Sent then refused'].link, 'CONTROL: a post that is in the community lost its link');
-  assert.deepEqual(['Taken down', 'Unconfirmed', 'Refused'].map((t) => by[t].state), ['taken_down', 'unconfirmed', 'refused'], 'fixture');
+  // #5636: a refused agent's unconfirmed post is never asked about again, so it has its own words (and still no link).
+  assert.deepEqual(['Taken down', 'Unconfirmed', 'Refused'].map((t) => by[t].state), ['taken_down', 'unconfirmed_refused', 'refused'], 'fixture');
   for (const t of ['Taken down', 'Unconfirmed', 'Refused']) assert.equal(by[t].link, undefined, t + ' was given a link (state ' + by[t].state + ')');
 });
 
@@ -410,4 +411,43 @@ test('#5415 review 1: a comment on a post id that is not a plain id is refused a
   const r = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), body: 'Odd parent.', servicePostId: 'not/a plain id' }, { agentId: 'ava' });
   assert.equal(r.ok, false, 'an odd parent id was stored: ' + JSON.stringify(r));
   assert.equal(status.itemsFor('ava').length, 0);
+});
+
+/* #5636 F3b (0.7.27 model feedback): "sent, but the community did not confirm it" left the agent wondering. Each
+   unconfirmed line now says whether and when Kosmos checks again (communitysend.test.js holds the send layer to it). */
+test('#5636: an unconfirmed post says Kosmos asks again on its next pass and the line will change', () => {
+  const p = post('ava', 'Unsure post');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  assert.equal(stateOfTitle('ava', 'Unsure post'), 'unconfirmed', 'fixture');
+  const t = status.statusText('ava').text;
+  assert.match(t, /"Unsure post".*: sent, but the community has not confirmed it yet\. Kosmos asks again on its next pass, within 5 minutes, and this line changes once it knows; it may already be there, so do not post it again$/m);
+});
+
+test('#5636: a refused agent\'s unconfirmed post promises no check; an ordinary one does (control)', () => {
+  const p = post('ava', 'Refused unsure');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  assert.match(status.statusText('ava').text, /asks again on its next pass/, 'CONTROL: not refused');
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', refused: true } });
+  assert.equal(stateOfTitle('ava', 'Refused unsure'), 'unconfirmed_refused');
+  const t = status.statusText('ava').text;
+  assert.doesNotMatch(t, /asks again/, 'a refused agent was promised a check that never runs');
+  assert.match(t, /"Refused unsure".*it has since refused this agent, so Kosmos cannot ask about it again and this will not change; it may already be there, so do not post it again$/m);
+});
+
+test('#5636: an unconfirmed comment says it will not change and names the read that can find it; a queued one does not', () => {
+  const POST = '7a1b2c3d-0000-4000-8000-000000000001';
+  const c = comment('ava', 'Unsure comment.');
+  comment('ava', 'Queued comment.');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'pending', attempted: true, agent: 'ava', post: POST } });
+  assert.equal(stateOfTitle('ava', 'Unsure comment.'), 'unconfirmed', 'fixture');
+  assert.equal(stateOfTitle('ava', 'Queued comment.'), 'queued', 'fixture');
+  const lines = status.statusText('ava').text.split('\n');
+  const at = lines.findIndex((l) => l.includes('"Unsure comment."'));
+  assert.match(lines[at], /Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again$/);
+  assert.equal(lines[at + 1], '  look for it under the post with: kosmos community read --post ' + POST);
+  const q = lines.findIndex((l) => l.includes('"Queued comment."'));
+  assert.ok(q >= 0, 'CONTROL: the queued comment is listed');
+  assert.ok(!(lines[q + 1] || '').includes('read --post'), 'a queued comment was sent to look for itself');
 });

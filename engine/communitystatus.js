@@ -45,7 +45,11 @@ const POST_WORDS = Object.freeze({
   sent: 'in the community',
   sent_refused: 'in the community; the community has since refused this agent, so nothing more it writes is sent',
   taken_down: 'taken down by the community\'s moderators',
-  unconfirmed: 'sent, but the community did not confirm it; it may already be there, so do not post it again',
+  /* #5636 F3b: say when it is checked again. settleUnconfirmed (communitysend) asks the community about every such post
+     at the start of each pass, every 5 minutes, whatever the switch says, until it knows; then this line changes. */
+  unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos asks again on its next pass, within 5 minutes, and this line changes once it knows; it may already be there, so do not post it again',
+  // #5636: settleUnconfirmed skips a refused agent, so this one is never asked about again and must not promise it.
+  unconfirmed_refused: 'sent, but the community did not confirm it, and it has since refused this agent, so Kosmos cannot ask about it again and this will not change; it may already be there, so do not post it again',
   withheld: 'not sent: your person removed it before it went',
   refused: 'not sent: the community refused it',
   refused_empty: 'not sent: it had no text to send',
@@ -68,7 +72,10 @@ const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   sending: 'being sent now',
   // #5435 review 9: a comment is sent again, not posted again.
   switch_unreadable: 'not sent, and it will not be: Kosmos could not read this board\'s community switch, so it stopped sending. Tell your person; once the community is on again you can send it again',
-  unconfirmed: 'sent, but the community did not confirm it; it may already be there, so do not send it again',
+  /* #5636 F3b: a comment is never checked again: the community has no way to look one up (sendComment, "AT MOST ONCE"),
+     so the words say this will not change, and statusText names the read that can find it. */
+  unconfirmed: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
+  unconfirmed_refused: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
 }));
 
 /* The send layer's files, read raw so a MISSING file (nothing recorded yet: empty) is told from a CORRUPT one (null:
@@ -122,6 +129,8 @@ function stateOf(kind, rec, item, ctx) {
     if (rec.takenDown) return 'taken_down';
     if (st === 'sent' && rec.agentRefused) return 'sent_refused';
     if (st === 'refused' && Array.isArray(rec.reasons) && rec.reasons.includes('empty')) return 'refused_empty';
+    // #5636: a refused agent's unconfirmed post is never settled (settleUnconfirmed skips it), so it gets words that do not promise a check.
+    if (st === 'unconfirmed' && kind === 'post' && (rec.agentRefused || (ctx.key && ctx.key.refused))) return 'unconfirmed_refused';
     return st;
   }
   // Not sent yet. Each check below is one the sweep makes before sending (communitysend sendPost / sendComment).
@@ -214,6 +223,8 @@ function statusText(sessionName) {
     const words = (x.kind === 'post' ? POST_WORDS : COMMENT_WORDS)[x.state] || ('unknown (' + x.state + ')');
     lines.push('- ' + x.kind + ' ' + JSON.stringify(x.title || '(no title)') + (x.at ? ' (' + x.at.slice(0, 16).replace('T', ' ') + ' UTC)' : '') + ': ' + words);
     if (x.link) lines.push('  ' + (x.kind === 'comment' ? 'on the post at ' : 'see it at ') + x.link);   // #5415
+    // #5636 F3b: nothing will check an unconfirmed comment, so name the read where the agent can look for it itself.
+    else if (x.kind === 'comment' && x.state === 'unconfirmed' && PLAIN_ID.test(String(x.post || ''))) lines.push('  look for it under the post with: kosmos community read --post ' + x.post);
   }
   if (items.length > SHOWN) lines.push('', '(and ' + (items.length - SHOWN) + ' older)');
   return { ok: true, count: items.length, text: lines.join('\n') };
