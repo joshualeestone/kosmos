@@ -36,3 +36,4 @@ as before; the board wires the gate; a test proves both arms.
   - NIT fixed: the per-seat gate now sits after the removed-project cleanup (local), as the plan said.
   - NIT left: the wiring check reads server.js's text; the start order was checked by hand and by the reviewer.
   - Recorded, not changed: ensureAll has the same gap for `enrolled()` (it predates this card; a signed edges request from an unenrolled board is refused by the coordinator).
+- **Round 2 (sonnet):** nothing above NIT. Converged. No path reaches Kosmos+ or starts a seat while allowed() is false (each traced). Left: the top-of-pass return also defers two LOCAL cleanups (stopping a seat whose link is gone, which cannot exist before the first allowed pass; dropping a stale #3851 link), invisible on a real board, which states live execution before start(); the wiring check reads server.js's text (round 1's NIT).
