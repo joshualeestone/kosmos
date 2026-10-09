@@ -78,6 +78,7 @@ if (args[0] === 'setup' && args[1] === 'company-start') {
 if (args[0] === 'setup' && args[1] === 'company-second') {
   if (mode.includes('company-old-second')) { process.stderr.write("error: unrecognized subcommand 'company-second'\\n"); process.exit(2); }
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
+  if (mode.includes('slow-company-second')) { const until = Date.now() + 1200; while (Date.now() < until) { /* wait */ } }
   if (mode.includes('company-second-nojson')) { console.log('ok'); process.exit(0); }
   if (mode.includes('company-second-404')) { process.stderr.write('Kosmos+ said no (404): \\n'); process.exit(1); }
   if (mode.includes('company-second-401')) { process.stderr.write('Kosmos+ said no (401): that company sign-in is not approved yet, or has expired; start again on the computer\\n'); process.exit(1); }
@@ -4209,4 +4210,17 @@ test('kosmos#5651 board review 3: no text is asked for while this computer is fi
   delete process.env.FAKE_TUNNEL_MODE;
   assert.equal(t.ok, false);
   assert.match(t.because, /finishing/);
+});
+
+test('kosmos#5651 board review 4: no finish while a text is being asked for (from any tab)', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-sms slow-company-second';
+  const texting = remote.companySecond();
+  await new Promise((r) => setTimeout(r, 200));
+  const done = await remote.companyComplete('ann-mac', null, '123456');
+  await texting;
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal(done.ok, false);
+  assert.match(done.because, /being texted/);
 });

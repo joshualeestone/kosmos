@@ -352,3 +352,11 @@ test('kosmos#5651 board review 3: a late text answer for an older setup does not
   releases[1]();
   await b;
 });
+
+test('kosmos#5651 board review 4: "all the texts ... or start again" keeps the person on the code step', async () => {
+  const { w } = await atSecondStep(() => [400, { error: 'that is all the texts this setup can send; enter the code you have, or start again on the computer' }]);
+  await w.ctx.finish(w.el('plus-si-company-go'));
+  assert.deepEqual(w.shown, ['plus-si-company'], 'a person holding a good code was sent back to the email step');
+  assert.equal(w.el('plus-si-company-resend').hidden, true, 'Text me again offered after all the texts');
+  assert.equal(w.el('plus-si-company-second-row').hidden, false);
+});

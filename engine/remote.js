@@ -1540,6 +1540,8 @@ async function companySecondRun(c) {
 /** Finish the approved setup: this computer gets its identity and its name, as the code setup does. */
 async function companyComplete(name, acceptTerms, second) {
   { const b = busy(); if (b) return b; }
+  // Board review 4: never beside a text request for this setup (its new code could replace the one being checked).
+  if (companySecondInFlight && companySecondInFlight.c === companySetup) return { ok: false, because: 'a code is being texted; wait a moment, then finish' };
   const c = companySetup;
   if (companyExpired(c)) {
     if (companySetup === c) companySetup = null;
