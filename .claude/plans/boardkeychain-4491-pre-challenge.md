@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: b4e5323755c96dcd717f58f052ead88073fa312808d620510cb61727dd497cf3
+diff_hash: ec5abceecb6b064fab38b6c21b59df494e3d7c902ff9083c7e283c4c937d8179
 validation: passed (focused, at the rebased head 2026-10-07 20:2x CDT: guard/token/auth/undo/file-scanning guards 327 pass 0 fail, undo-credential 69/69, setup-assistant 27/27, undo routes 16/16, supervisor 156/156; the full suites run in PR CI and merge waits on them green)
 subdir_audit: passed
 timestamp: 2026-10-08T01:25:11Z
@@ -145,3 +145,4 @@ Twenty-fifth review (sonnet), CONVERGED: no BLOCKER; [WARNING] off-macOS ok mean
 Rebased onto main again 2026-10-07 20:2x (27 new commits on main; one conflict in tools/windows-tests.js HOST_BRANCH_EXCLUDED, both lines kept); every focused set above re-run green after the rebase.
 - Rebased onto origin/main after #5563 (13:22 CDT 2026-10-08). One conflict, engine/sendertoken.js's exports line: main added revokeIfUnchanged, this branch added tokenOnlyList; both kept. Main's engine.reachable now reads every exports block (#5548), so this branch's undo.js test seam _setBeforeWriteForTests is excused there with its reason (one commit, test file only). Built main + this branch with git merge-tree: engine.reachable then fails only on main's own known costOf line (#5600). diff_hash recomputed.
 - Rebased onto origin/main after #5600 (15:27 CDT 2026-10-08). Conflict in engine.reachable.test.js EXCUSED: main added reachForAgent, this branch _setBeforeWriteForTests; both kept. An empty commit carries the #1720 Browser-check trailer for the two new TKU_WHY reason strings (copy-only); both browser-check gates pass. Merge-tree check: engine.reachable adds nothing. diff_hash recomputed.
+- Rebased onto origin/main (19:22 CDT 2026-10-08) after #5514 merged: one conflict in engine.reachable.test.js EXCUSED (main's #5514 seams beside this branch's undo seam), both kept. diff_hash recomputed.
