@@ -408,8 +408,9 @@ function refresh(sessionName, roster, opts) {
 
 /**
  * kosmos#5635 F1: bring an agent's working rules current with NO click, when the text being replaced is provably
- * Kosmos's own and unedited: a span whose content is a known earlier block (planFor's `updating && !edited`), or a
- * plain, unedited copy of an earlier block (`replacing`). Josh's 2026-10-07 feedback found every agent on a test
+ * Kosmos's own and unedited: a span whose content is, byte for byte, a WHOLE earlier block (wholeKnownBlock, with exact
+ * marker and frame lines), or a plain, unedited copy of one ending at a clean boundary (`replacing`). At most ONCE per
+ * version per agent: a person who puts the earlier rules back after it has their way (review 3). Josh's 2026-10-07 feedback found every agent on a test
  * project still carrying a line fixed on main five days before (#4582), the third report of that staleness (#4890,
  * #5297): the click that would have fixed it is not happening, so the person never gets the fix.
  *
@@ -448,16 +449,31 @@ function refreshUnedited(sessionName, roster, opts) {
     /* Review 2: a plain copy is replaced only when EVERY section is written: a heading the person also has elsewhere
        leaves one out, which the dialog shows and a write with no click would not. */
     if (plan.replacing === true && !plan.updating && plan.sections.length !== defaults.sections().length) return notWhole;
-    /* `edited` is checked on EVERY path: a plain copy cut beside a span (replacing) carries the span's plan, edited or not. */
+    /* Review 3: and only when the copy ends at a clean boundary (the end of the file, a blank line, a heading or a marker
+       line): a line the person typed under its last section reads as part of it for pastBlockIn, and would be cut off
+       from it by the write. */
+    if (plan.replacing === true && !span) {
+      const text = current.text || '';
+      const old = pastBlockIn(text, opts && opts.past);
+      const rest = old ? text.slice(old.end).replace(/^\r?\n/, '') : '';
+      if (!old || !(rest === '' || /^(?:\r?\n|#|<!--)/.test(rest))) return notWhole;
+    }
+    /* A last guard on the plan itself: the checks above already leave every edited span, so `edited` is not reached
+       today; a plan that is neither an update nor a replace (sections missing from a file with no block) is the
+       person's text to add to, and waits for the click. */
     if (plan.edited === true || !(plan.replacing === true || plan.updating === true)) {
       return { state: 'left', because: plan.edited === true || plan.updating ? 'its working rules were edited, so they change only with your OK' : 'its working rules were never written by Kosmos, so they are added only with your OK' };
     }
     let profile = {};
     try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
     if (profile.doctrineDeclined === defaults.DOCTRINE_VERSION) return { state: 'left', because: 'you said Not now to these rules for this agent' };
+    /* Review 3: once per version. If this agent was already brought to this version with no click and holds an earlier
+       block again, a person put it back (the Instructions tab's previous version, #4406): that is their choice, and the
+       click is how it changes now. */
+    if (profile.doctrineAuto === defaults.DOCTRINE_VERSION) return { state: 'left', because: 'the earlier rules were put back after Kosmos updated them, so they change only with your OK' };
     instructions.write(sessionName, plan.fileNext, current.version, undefined,
       { who: 'kosmos', because: 'brought its working rules up to date (they were Kosmos\'s own text, unedited)' });
-    try { store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION }); } catch { /* the file is the truth */ }
+    try { store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION, doctrineAuto: defaults.DOCTRINE_VERSION }); } catch { /* the file is the truth */ }
     return { state: 'added', sections: plan.sections.map((x) => x.heading) };
   } catch (err) {
     return { state: 'could_not', because: (err && err.message) || 'we could not write to its instructions' };

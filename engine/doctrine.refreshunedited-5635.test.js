@@ -90,8 +90,7 @@ test('#5635: what still waits for the click is left byte for byte, and says why'
     editedspan: doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD.replace(LINE, () => LINE + ' My own edit.')),
     // no rules block at all: sections would be added to the person's own text
     norules: '# Mine\n\nMy own words, no rules here.\n',
-    // an unedited plain copy beside an EDITED span: the replace carries the span's plan, edited (the case refreshUnedited
-    // checks on every path)
+    // an unedited plain copy beside an EDITED span: left by the whole-block check on the span (review 3: not by `edited`)
     plainandedited: `# Mine\n\n${OLD}\n\n` + doctrine.atBirth('', NOW).replace(BLOCK, () => OLD.replace(LINE, () => LINE + ' Mine.')),
   };
   for (const [name, text] of Object.entries(cases)) {
@@ -199,5 +198,38 @@ test('#5635 review 2: a span born under the OLD frame wording (before this chang
   const text = born.replace(now, () => oldFrame);
   const f = agentFile('oldframe', text);
   assert.equal(run('oldframe').state, 'added');
+  assert.ok(read(f).includes(BLOCK));
+});
+
+test('#5635 review 3: a person who puts the earlier rules back after the update keeps them (once per version, no loop)', () => {
+  const oldText = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const f = agentFile('undone', oldText);
+  assert.equal(run('undone').state, 'added', 'CONTROL: the first boot did not update it');
+  fs.writeFileSync(f, oldText);   // the Instructions tab's previous version, saved by the person
+  const again = run('undone');
+  assert.equal(again.state, 'left', 'the person\'s restore was undone at the next boot: ' + JSON.stringify(again));
+  assert.equal(read(f), oldText);
+  // CONTROL: the click still offers it, so the person can change their mind.
+  assert.equal(doctrine.planFor(read(f), NOW, OLD_TABLE).state, 'refresh');
+});
+
+test('#5635 review 3: a plain copy with a line the person typed under its last section is left; one ending cleanly is replaced', () => {
+  const typed = `# Mine\n\n${OLD}\n- my own bullet under the last rule\n`;
+  const f = agentFile('typedunder', typed);
+  assert.equal(doctrine.planFor(typed, NOW, OLD_TABLE).replacing, true, 'fixture: the click would replace it');
+  assert.equal(run('typedunder').state, 'left');
+  assert.equal(read(f), typed);
+  for (const [name, text] of [['endsfile', `# Mine\n\n${OLD}\n`], ['blankafter', `# Mine\n\n${OLD}\n\nMine after.\n`], ['headingafter', `# Mine\n\n${OLD}\n## My section\n`]]) {
+    agentFile(name, text);
+    assert.equal(run(name).state, 'added', name + ': a copy ending cleanly was not replaced');
+  }
+});
+
+test('#5635 review 3: a span refreshed by a CLICK before this change (the old click frame) is still Kosmos\'s own', () => {
+  const oldClick = '<!-- Kosmos added the working rules below on 24 Aug 2026, with your OK. Kosmos may update this block when the rules change; your own words above and below it are never touched. -->';
+  const born = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const frame = born.split('\n').find((l) => l.startsWith('<!-- Kosmos added the working rules below on '));
+  const f = agentFile('oldclick', born.replace(frame, () => oldClick));
+  assert.equal(run('oldclick').state, 'added');
   assert.ok(read(f).includes(BLOCK));
 });
