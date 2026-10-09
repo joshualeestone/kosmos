@@ -406,13 +406,13 @@ const SUMMARY_WORDS = {
     /* Review 2: the overdue fact stays; being rate limited now is added, never offered as why it is old. */
     if (s.limitedNow) return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + '); rate limited now, so it cannot work until the limit lifts';
     if (Number.isFinite(s.idleMinutes) && !s.idleReported && s.beforeIdleGap === true) {
-      /* Review 1/2: beforeIdleGap is measured in idleNoted: written more than the rhythm before the idle report, so it
-         says that plainly: it went past its rhythm while working, then went idle. */
+      /* Review 1/2: beforeIdleGap is measured in idleNoted: written more than the rhythm before the idle report, and
+         the line says exactly that. */
       return (s.idleKind === 'started' ? 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before this session started (' : 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before it went idle (') + one(s.file) + ', ' + ago(s.ageMinutes)
         + (s.idleKind === 'started' ? '; started ' + ago(s.idleMinutes) + ' and idle since then)' : '; idle since ' + ago(s.idleMinutes) + ')');
     }
     return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes)
-      + (Number.isFinite(s.idleMinutes) ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') + ago(s.idleMinutes) : '') + ')';
+      + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')';   // review 3: as before for every runner
   },
   // #4581 N10: the rhythm is while working; this one was current when the member went idle.
   idle: (s) => s.idleKind === 'started'

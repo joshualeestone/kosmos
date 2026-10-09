@@ -579,7 +579,7 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   const show = (report, member) => {
     const d = member ? { ...described, agents: described.agents.map((m) => ({ ...m, ...member })) } : described;
     const view = v.overviewOf(d, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report });
-    return { m: view.members[0], text: v.renderShow({ project: view }).join('\n') };
+    return { m: view.members[0], view, text: v.renderShow({ project: view }).join('\n') };
   };
   const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
   // Idle 14h ago, long after the summary went stale: still stale (excused by nothing), now with when it went idle.
@@ -609,6 +609,11 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   assert.doesNotMatch(show({ found: false }, { state: 'rate_limited', present: false }).text, /rate limited now/, 'a member not running was said to be rate limited');
   // Review 1: rate limited wins over an idle or working self-report (it cannot work either way); untied says nothing.
   assert.match(show({ found: true, state: 'working', at: at(30) }, { state: 'rate_limited' }).text, /rate limited now/);
+  // Review 3: with no measured gap (an unreadable write time), a reporting runner keeps the old "idle since" form,
+  // never the idle-only runner's "last reported idle".
+  const noGap = { ...idle.m, summary: { ...idle.m.summary, beforeIdleGap: false } };
+  const noGapText = v.renderShow({ project: { ...show({ found: true, state: 'idle', at: at(840) }).view, members: [noGap] } }).join('\n');
+  assert.match(noGapText, /summary: older than the 4-hour rhythm \(summaries\/2026-09-28-07\.md, 33h 20m ago; idle since 14h 0m ago\)$/m, noGapText);
   // Review 2: an untied member's summary is not read at all, so nothing about it can be said: no limit, no idle.
   assert.doesNotMatch(show({ found: true, state: 'idle', at: at(840) }, { state: 'rate_limited', tied: false }).text, /rate limited now|idle since/);
   // CONTROL: working, an operator's clear, no report, and a future time say nothing more than before.
