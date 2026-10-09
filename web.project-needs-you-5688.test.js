@@ -71,3 +71,11 @@ test('#5688 wiring: both notice boxes paint it first, and its Open opens the age
   assert.match(PAGE, /getElementById\('pj-one-notice'\)\.addEventListener\('click', pjNeedsOpenClick\)/);
   assert.match(PAGE, /rn\.addEventListener\('click', pjNeedsOpenClick\)/);
 });
+
+test('#5688 (Josh 08:50/08:51): "Done not set" is gone from the projects list and Roadmap, markup and styles', () => {
+  // A deletion with no guard gets undone: the tag's class and words must not come back into the page's markup or CSS.
+  // Comments may still NAME it (history); a quoted string or a CSS selector may not.
+  assert.equal(/['"][^'"\n]*Done not set[^'"\n]*['"]/.test(PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '')), false, 'the words are back in a string');
+  assert.equal(/\.pj-doneunset\b|class="pj-doneunset"/.test(PAGE.replace(/\/\*[\s\S]*?\*\//g, '')), false, 'the tag class is back');
+  assert.ok(PAGE.includes('doneSet') || PAGE.includes('What does done look like?'), 'CONTROL: the done field itself is still on the page');
+});
