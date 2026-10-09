@@ -9,7 +9,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const nodePath = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-needsyou-5688-'));
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
+const fleet = require('./test-support/fleet');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
@@ -28,15 +37,32 @@ function slice(start) {
 const pjNeedsNotice = new Function(slice('function esc(') + '\n' + slice('const PJ_NEEDS_WHY = ') + '\n'
   + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
 
-const m = (name, needsYouHere) => ({ sessionName: name.toLowerCase(), name, present: true, needsYouHere });
+/* Real member rows (fixture-discipline): a real board from test-support/fleet, described by the real projects engine.
+   The reason under test is then set on each row; the engine's own derivation of it is tested in engine/projects.test.js. */
+const ROWS = (() => {
+  const projectsEngine = require('./engine/projects');
+  const names = ['elon', 'dario', 'sam', 'mark', 'demis', 'a0', 'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'xss'];
+  const board = fleet.install(names.map((n) => fleet.agent(n, { state: 'idle' })));
+  try {
+    const dir = nodePath.join(SANDBOX, 'proj');
+    fs.mkdirSync(dir, { recursive: true });
+    projectsEngine.create({ name: 'Five', folder: dir, agents: names, roster: board.agents });
+    return projectsEngine.list(board.agents).find((x) => x.name === 'Five').agents;
+  } finally { board.restore(); }
+})();
+const m = (session, needsYouHere, name) => {
+  const row = ROWS.find((r) => r.sessionName === session);
+  assert.ok(row && row.present, 'CONTROL: the real row for ' + session + ' is there and present');
+  return { ...row, needsYouHere, ...(name ? { name } : {}) };
+};
 
 test('#5688: nothing counted, nothing said', () => {
-  assert.equal(pjNeedsNotice([m('Dario', null), m('Demis', null)]), '');
+  assert.equal(pjNeedsNotice([m('dario', null), m('demis', null)]), '');
   assert.equal(pjNeedsNotice([]), '');
 });
 
 test('#5688: one member: named in the heading, the reason, and one Open that names the agent', () => {
-  const html = pjNeedsNotice([m('Dario', null), m('Elon', 'stuck_auth')]);
+  const html = pjNeedsNotice([m('dario', null), m('elon', 'stuck_auth', 'Elon')]);
   assert.match(html, /<b>Elon needs you on this project\.<\/b>/);
   assert.match(html, /Cannot sign in, so it cannot work until its account is reconnected\./);
   assert.match(html, /data-pn-open="elon"/);
@@ -46,7 +72,7 @@ test('#5688: one member: named in the heading, the reason, and one Open that nam
 });
 
 test('#5688: several members: counted in the heading, each with its own reason; a question says Answer', () => {
-  const html = pjNeedsNotice([m('Elon', 'question'), m('Sam', 'crash_loop'), m('Mark', 'gave_up'), m('Demis', 'stuck_rate'), m('Dario', 'trust')]);
+  const html = pjNeedsNotice([m('elon', 'question', 'Elon'), m('sam', 'crash_loop'), m('mark', 'gave_up'), m('demis', 'stuck_rate'), m('dario', 'trust')]);
   assert.match(html, /<b>5 agents need you on this project\.<\/b>/);
   assert.match(html, /aria-label="Answer Elon">Answer<\/button>/);
   for (const w of ['Waiting for your answer.', 'keeps restarting it', 'stopped trying to reconnect it',
@@ -54,19 +80,19 @@ test('#5688: several members: counted in the heading, each with its own reason; 
 });
 
 test('#5688: no reason sentence carries an em dash', () => {
-  const html = pjNeedsNotice(['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate', 'other'].map((r, i) => m('A' + i, r)));
+  const html = pjNeedsNotice(['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate', 'other'].map((r, i) => m('a' + i, r)));
   assert.equal((html.match(/data-pn-open=/g) || []).length, 7, 'CONTROL: every reason drew a row');
   assert.equal(html.includes('\u2014'), false);
 });
 
 test('#5688: a reason the page does not know yet still gets a row, worded generally', () => {
-  const html = pjNeedsNotice([m('Elon', 'something_new')]);
+  const html = pjNeedsNotice([m('elon', 'something_new', 'Elon')]);
   assert.match(html, /Needs you\./);
   assert.match(html, /data-pn-open="elon"/);
 });
 
 test('#5688: names are escaped', () => {
-  const html = pjNeedsNotice([m('<b>x</b>', 'trust')]);
+  const html = pjNeedsNotice([m('xss', 'trust', '<b>x</b>')]);
   assert.equal(html.includes('<b>x</b>'), false);
 });
 
