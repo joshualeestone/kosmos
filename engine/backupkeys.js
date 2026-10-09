@@ -19,6 +19,9 @@
  * member key must therefore derive to the expected public key, and a forged naming-key wrap can only make a
  * restore fail its chunk-name checks (backupformat's openVerifiedChunk), never yield other data.
  *
+ * Context ids are STRINGS of letters, digits and . _ : - (1 to 128): epoch '1' and '01' are different contexts, and
+ * a number throws on wrap and reads as null on unwrap, so whatever stores them must write one canonical form.
+ *
  * wrap* throw on a caller mistake (a key that is not 32 bytes, a bad context, a non-canonical recipient key, which
  * hpke.js refuses because it could never be opened). unwrap* return null on ANY failure and never throw, as hpke.js
  * and backupformat.js do. unwrapMemberKey REQUIRES the public key the result must derive to: a wrap of the wrong key
@@ -31,12 +34,11 @@ const crypto = require('crypto');
 const { hpkeSeal, hpkeOpen, hpkeKeyPair } = require('./hpke');
 
 const FORMAT = 1;
-const KEY_LEN = 32, ENC_LEN = 32, TAG_LEN = 16;
+const KEY_LEN = 32, ENC_LEN = 32;
 const MEMBER_MAGIC = Buffer.from('KBK1');   // Kosmos Backup Key: a wrapped member private key, format 1
 const NAMING_MAGIC = Buffer.from('KBN1');   // Kosmos Backup Naming key, wrapped, format 1
 // One HPKE info for both kinds: what separates them is the magic and the kind line in the associated data.
 const INFO = Buffer.from(`kosmos-backup v${FORMAT} key-wrap`);
-const WRAP_LEN = 4 + ENC_LEN + KEY_LEN + TAG_LEN;
 const MEMBER_FIELDS = ['org', 'member', 'epoch'];
 const NAMING_FIELDS = ['org', 'member', 'epoch', 'period'];
 // backupformat.js's id alphabet: a lone surrogate would become U+FFFD in the bytes (two contexts, one byte string),
@@ -123,7 +125,6 @@ function unwrapNamingKey(memberSk, wrapped, ctx) {
 }
 
 module.exports = {
-  WRAP_LEN,
   newMemberKey,
   newNamingKey,
   wrapMemberKey,
