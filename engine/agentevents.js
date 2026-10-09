@@ -50,8 +50,8 @@ const UNLISTABLE_SAID = new Set();   // said once per agent per process (review 
 const UNGUARDED_SAID = new Set();   // said once per agent per process (review 17: never silent)
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
-const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;
-const GUARD_GAP_MS = 11 * 60 * 1000;   // over two ticks without a guard check: it may have lapsed unseen (review 24)   // a send that failed waits this long before the next (as the rollup)
+const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
+const GUARD_GAP_MS = 11 * 60 * 1000;   // over two ticks without a guard check: it may have lapsed unseen (review 24)
 
 /* A deny-rule refusal: it starts "Permission to use <Tool>" and ends "has been denied." Tested on the head and the tail
    only (review 19: one regex over a 4 MB result could backtrack on agent-shaped text). */
@@ -158,12 +158,19 @@ function targetClass(tool, input, ctx) {
     /* Each hidden word on its own (review 21: anchored to the end of all of them joined, a later hidden word hid it). */
     /* A hidden word whose fixed start resolves inside the agent's own folder is the agent's (review 24: a globbed
        worlds.json under the agent's own maps folder read as the board's registry). */
-    const own = (w) => { const pre = w.split(/[*?$`]/)[0]; if (!pre || !ctx.agentDir) return false; const r = path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir())); return r === ctx.agentDir || r.startsWith(ctx.agentDir + path.sep); };
+    // $PWD, ${PWD} and $(pwd) are the agent's own folder (review 25).
+    const own = (w0) => { const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.'); const pre = w.split(/[*?$`]/)[0]; if (!pre || !ctx.agentDir) return false; const r = path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir())); return r === ctx.agentDir || r.startsWith(ctx.agentDir + path.sep); };
     hidden = hidden.filter((w) => !own(w));
     const board = hidden.some((w) => /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(w));
     const config = hidden.some((w) => /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(w));
     if (board && RANK.indexOf('board-files') < RANK.indexOf(best)) best = 'board-files';
     else if (config && RANK.indexOf('agent-config') < RANK.indexOf(best)) best = 'agent-config';
+  }
+  /* The first 4096 characters are classed word by word; past them, the board token's exact file name anywhere in the
+     command still counts (review 25: padding a command past the limit hid a token read). One linear search. */
+  if (tool === 'Bash' && input && typeof input.command === 'string' && input.command.length > 4096 &&
+      RANK.indexOf('board-files') < RANK.indexOf(best) && /(^|[\/\s'"])(board\.token|agent-token-only\.json)(['"\s;|&)]|$)/.test(input.command.slice(4096 - 64, 1024 * 1024))) {
+    best = 'board-files';
   }
   return best;
 }
@@ -464,7 +471,9 @@ async function tick(opts) {
           /* Review 24: a guard confirmed long ago (the board was down) may have lapsed and been rewritten unseen; the gap's
              refusals could be the person's own, so the agent counts from now, as if newly listed. */
           if (Number.isFinite(st.confirmed[n]) && now - st.confirmed[n] > GUARD_GAP_MS) collidedNow.add(n), gapNow.add(n);
-          if (!Number.isFinite(st.confirmed[n]) || now - st.confirmed[n] > 4 * 60 * 1000) st.confirmed[n] = now;   // not every tick (the review-9 write rule)
+          /* Refreshed at half the gap (review 25: at 4 minutes every five-minute tick rewrote the state): every other tick,
+             well inside the 11-minute check. */
+          if (!Number.isFinite(st.confirmed[n]) || now - st.confirmed[n] > GUARD_GAP_MS / 2) st.confirmed[n] = now;
           continue;
         }
         dirs.delete(n); collidedNow.add(n); unguarded.push(d);
