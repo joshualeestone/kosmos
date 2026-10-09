@@ -207,7 +207,7 @@ function boardShows(name, session) {
  * and while the list itself stays readable, which is the whole distinction
  * these tests draw against the read-refusal path.
  *
- * 📌 IT COUPLES TO writeRemoved's TEMP NAME, and that is the safe direction: if
+ * 📌 IT COUPLES TO writeRemoved's TEMP NAME SHAPE (#5434 slice 17: securewrite's `.kosmos-` temp), and that is the safe direction: if
  * the scheme changes, the block stops blocking, and `assertBlocked` -- which
  * probes the module's own path rather than a stand-in -- goes red rather than
  * silently passing. The old `probe.tmp` control could not have said that.
@@ -220,20 +220,29 @@ const WIN32 = process.platform === 'win32';
 function blockListWrites() {
   const dir = nodePath.dirname(remove.REMOVED_FILE);
   fs.mkdirSync(dir, { recursive: true });
-  // The path `writeRemoved` writes beside the list before renaming it into place.
-  const moduleTmp = `${remove.REMOVED_FILE}.${process.pid}.new`;
-  if (WIN32) fs.mkdirSync(moduleTmp, { recursive: true });
-  else fs.chmodSync(dir, 0o500);   // r-x: readable, not writable
+  // The temp `writeRemoved` writes beside the list before renaming it into place. #5434 slice 17: it is now
+  // securewrite's unique `<list>.kosmos-<pid>-...tmp` (store.saveFlushed), so no directory can be planted at it in
+  // advance. On Windows the block is the module's own temp-name SHAPE refused at open, with EISDIR as the planted
+  // directory used to give; the probe below goes through the same shape, so a scheme change still turns it red.
+  const moduleTmpPrefix = `${remove.REMOVED_FILE}.kosmos-`;
+  const probe = `${moduleTmpPrefix}${process.pid}-probe.tmp`;
+  const realOpen = fs.openSync;
+  if (WIN32) {
+    fs.openSync = (p, ...rest) => {
+      if (String(p).startsWith(moduleTmpPrefix)) { const e = new Error("EISDIR: illegal operation on a directory, open '" + p + "'"); e.code = 'EISDIR'; throw e; }
+      return realOpen.call(fs, p, ...rest);
+    };
+  } else fs.chmodSync(dir, 0o500);   // r-x: readable, not writable
   return {
     /* ⚠️ CONTROL: the write really is impossible. On a machine running as root
        chmod 500 does not deny the owner, and on either host a fixture that fails
        to fail is how the previous version of this looked like coverage. */
     assertBlocked() {
-      assert.throws(() => fs.writeFileSync(moduleTmp, 'x'),
+      assert.throws(() => { const fd = fs.openSync(probe, 'wx'); fs.closeSync(fd); fs.rmSync(probe, { force: true }); },
         'the removed list is still writable, so the containment is never tested');
     },
     undo() {
-      if (WIN32) fs.rmSync(moduleTmp, { recursive: true, force: true });
+      if (WIN32) fs.openSync = realOpen;
       else fs.chmodSync(dir, 0o700);
       fs.rmSync(remove.REMOVED_FILE, { force: true });
     },
