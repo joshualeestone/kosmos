@@ -128,7 +128,8 @@ function workersRoot() {
   try { return require('./store').workersRootFor(process.env, require('node:os').homedir()); } catch { return null; }
 }
 
-/* Replace `target` with `body`, keeping its mode, through a temp file removed on failure (agytrust's). */
+/* Replace `target` with `body`, keeping its mode, through a temp file removed on failure. (agytrust.js had the same
+   writer; it moved to securewrite in #5434 slice 9. This one is not flushed yet and is its own slice.) */
 function writeKeepingMode(target, body) {
   let mode = 0o644;
   try { mode = fs.statSync(target).mode & 0o777; } catch { /* a new file */ }
