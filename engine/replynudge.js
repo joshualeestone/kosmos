@@ -196,9 +196,9 @@ function writePersons(root, sessionName, owed) {
     return true;
   } catch { return false; }
 }
-/* #5623: the agent's record brought up to date with a count. persons: freshReplies' list (owed now, unanswered). An entry
-   seen answered (in `answered`) goes; one a count cannot see any more (out of the read's window) goes after
-   PERSONS_KEPT_MS. Pure: returns { owed (the new record), due (to tell now), unanswered (ids just given up on) }. */
+/* #5623: the agent's record brought up to date with a count. persons: what is owed now (freshReplies' comments, and Rule
+   2's open assignments). An entry in `answered` goes (a comment seen answered; an assignment the service settled
+   'answered' or 'gone', or expired before any tell); one no count sees any more goes after PERSONS_KEPT_MS. Pure: returns { owed (the new record), due (to tell now), unanswered (ids just given up on) }. */
 function personsUpdate(owed0, persons, now, answered) {
   const owed = {};
   const seen = new Set();

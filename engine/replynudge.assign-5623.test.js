@@ -74,6 +74,24 @@ test('#5623 Rule 2: only what the service settled leaves the record; unreadable 
   assert.equal(persons.get('kim')[key], undefined, 'an answered assignment stayed in the record');
 });
 
+test('#5623 Rule 2 review 10: a gone assignment (the post deleted or taken down) leaves the record', async () => {
+  const { o, persons, state } = rig([asg(P1)]);
+  const key = ca.ASSIGNED_PREFIX + P1;
+  await rn.sweepOnce(o);
+  state.list = [];
+  state.settled = { [key]: 'gone' };
+  await rn.sweepOnce(o);
+  assert.equal(persons.get('kim')[key], undefined, 'a gone assignment stayed in the record');
+});
+
+test('#5623 Rule 2 review 10: the reads wait briefly for the chain, never the full agent wait', async (t) => {
+  const seen = [];
+  t.mock.method(cs, 'agentCall', async (k, m, p, opts) => { seen.push(opts && opts.waitMs); return { ok: true, status: 204, json: null }; });
+  await ca.openAssignments('kim');
+  await ca.markSeen('kim', [P1]);
+  assert.deepEqual(seen, [ca.CHAIN_WAIT_MS, ca.CHAIN_WAIT_MS]);
+});
+
 test('#5623 Rule 2 review 2: an expired assignment stays, marked unanswered, so /sent shows the person nobody answered', async () => {
   const { o, persons, state } = rig([asg(P1)]);
   const key = ca.ASSIGNED_PREFIX + P1;
@@ -153,7 +171,7 @@ test('#5623 Rule 2 review 3: markSeen POSTs the post ids to /seen as the agent, 
   const calls = [];
   t.mock.method(cs, 'agentCall', async (key, method, p, opts) => { calls.push([key, method, p, opts]); return { ok: true, status: 204, json: null }; });
   assert.equal(await ca.markSeen('kim', [P1.toUpperCase(), 'not-a-uuid']), true);
-  assert.deepEqual(calls, [['kim', 'POST', '/agents/me/assignments/seen', { register: false, body: { post_ids: [P1] } }]]);
+  assert.deepEqual(calls, [['kim', 'POST', '/agents/me/assignments/seen', { register: false, waitMs: ca.CHAIN_WAIT_MS, body: { post_ids: [P1] } }]]);
   calls.length = 0;
   assert.equal(await ca.markSeen('kim', ['not-a-uuid']), true);
   assert.deepEqual(calls, [], 'a call was made with no valid id');

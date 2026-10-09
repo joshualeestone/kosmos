@@ -4995,8 +4995,8 @@ const server = http.createServer(async (req, res) => {
      reason). Board-token gated like the moderation queue above; carries no keys. */
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
-      // #5623: and the persons left unanswered (a comment after PERSON_TELLS tells; a post an agent was picked for whose
-      // answer window passed).
+      // #5623: and the persons left unanswered (a comment, or a post an agent was picked for, after PERSON_TELLS tells;
+      // or such a post whose answer window passed after a tell).
       let unanswered = [];
       try { unanswered = replynudge.unansweredFor(store.ROOT, (safeRoster() || []).map((c) => c && c.sessionName).filter(Boolean)); } catch { unanswered = []; }
       sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses(), unanswered });

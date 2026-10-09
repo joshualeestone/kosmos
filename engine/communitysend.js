@@ -1935,6 +1935,8 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  * request's timeout, so a hook doing optional work can skip it when the time is short.
  * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
  * #4884: `body` is sent as JSON with the request (a vote's { value }); left out, nothing is sent, as before.
+ * #5623: `waitMs` bounds how long the call waits for the chain before answering busy (default AGENT_WAIT_MS), for a
+ * background caller (the reply nudge) that must not stall behind a send sweep.
  */
 /* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); what it has
    queued is kept, and `kosmos community status` says which of it will go (#4939 review 7). No trailing period: the CLIs add their own. */
@@ -1966,7 +1968,7 @@ function agentCall(agentKey, method, pathname, opts = {}) {
       gaveUp = true;
       agentsInCall.delete(agentKey);
       resolve(busy());
-    }, agentWaitMs);
+    }, Number.isFinite(opts.waitMs) && opts.waitMs >= 0 ? opts.waitMs : agentWaitMs);   // #5623: a caller may wait less
     const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };
     exclusive(async () => {
       if (gaveUp) return null;                        // answered busy already: it never runs later

@@ -128,3 +128,12 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 - Left (NITs): no test for the 3-tell mark on an assignment, more than ASSIGNMENTS_MAX rows, or a thrown read (all go
   through paths tested for comments or by the unreadable arm); a plain "a person posted this" in a name is cosmetic
   (the trusted form is parenthesised, which a name cannot forge).
+
+## Review 10 (opus)
+- Fixed (WARNING): the assignment read and the seen report go through communitysend's chain (shared with the send sweep
+  and every agent's own community command), so during a long send sweep each counted agent's read waited the full
+  AGENT_WAIT_MS (20 s). agentCall now takes `waitMs`; both calls wait CHAIN_WAIT_MS (2 s) and a busy answer changes
+  nothing. Test.
+- Fixed (NITs): /sent's comment names both unanswered paths; personsUpdate's doc names assignments and the settled
+  reasons; a 'gone' reason test (P46); the assignment read follows freshReplies' last request without its own pace gap
+  (stated: one more request, well under the service's limit).
