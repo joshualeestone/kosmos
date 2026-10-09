@@ -83,8 +83,6 @@ function resultText(c) {
 
 /* Which class of target a refused call aimed at: never the path itself. */
 function targetClass(tool, input, ctx) {
-  /* A network command is network-host before any path it names (decided, review 5): sending something out is the
-     telling part, whatever it sends. */
   if (tool === 'WebFetch' || tool === 'WebSearch') return 'network-host';
   const paths = [];
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
@@ -96,13 +94,20 @@ function targetClass(tool, input, ctx) {
        with a URL among its words. Linear, on the first 4096 characters (Renet's review 8 of slice 3: no backtracking). */
     let net = false;
     let url = false;
+    let rsync = false;
     const look = (words, depth) => {
       for (const { w, first } of words) {
         if (first) {
-          if (/^(curl|wget|nc|ncat|ssh|scp|sftp|rsync)$/.test(path.basename(w))) net = true;
+          /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
+             URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
+          const prog = path.basename(w);
+          if (/^(ssh|scp|sftp|nc|ncat)$/.test(prog)) { net = true; url = true; }
+          else if (/^(curl|wget)$/.test(prog)) net = true;
+          else if (prog === 'rsync') rsync = true;
           continue;   // the program run, not what it was aimed at (review 8)
         }
         if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) { url = true; continue; }
+        if (rsync && /^([^\s/@]+@)?[A-Za-z0-9.-]+::?[^\s]*$/.test(w) && !w.startsWith('/')) { net = true; url = true; }
         if (depth === 0 && /\s/.test(w)) look(shellWords(w), 1);
         let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^@/, '');
         v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
@@ -287,6 +292,9 @@ function defaultSources() {
       return j.agents.filter((a) => typeof a === 'string' && a);
     },
     dirOf: (name) => { try { return create.workerDir(name); } catch { return null; } },
+    /* Every agent this Kosmos knows (token-only or not), or null when that cannot be read (review 10). */
+    everyAgent: () => { try { const r = require('./register').survey(); return r && r.ok ? r.agents.map((a) => a.name) : null; } catch { return null; } },
+    transcriptDirsOf: (dir) => receipt._transcriptDirs(dir),
     transcripts: async (dir) => {
       const files = [];
       for (const d of receipt._transcriptDirs(dir)) files.push(...await receipt._transcriptsIn(d));
@@ -333,6 +341,24 @@ async function tick(opts) {
     const names = src.agents();
     if (!Array.isArray(names)) return { sent: 0, because: 'the token-only list could not be read; nothing changed' };
     const dirs = new Map(names.map((n) => [n, src.dirOf(n)]));
+    /* Claude Code names a project folder by flattening the agent's folder (every non-alphanumeric character becomes -),
+       so orch.main and orch-main share one transcript folder (review 10). A token-only agent whose folder collides with
+       an agent that is NOT token-only would carry that agent's refusals, by the PERSON's own rules, to the company: it
+       is not read at all (fail closed), and neither is anything when the agent list cannot be read. */
+    if (typeof src.everyAgent === 'function') {
+      const every = src.everyAgent();
+      if (!Array.isArray(every)) return { sent: 0, because: 'the agent list could not be read; nothing changed' };
+      const flat = (d) => new Set((src.transcriptDirsOf ? src.transcriptDirsOf(d) : []));
+      const others = every.filter((n) => !names.includes(n)).map((n) => src.dirOf(n)).filter(Boolean).map(flat);
+      for (const [n, d] of [...dirs]) {
+        if (!d) continue;
+        const mine = flat(d);
+        if (others.some((o) => [...o].some((x) => mine.has(x)))) {
+          dirs.delete(n);
+          console.error('agentevents: ' + n + ' shares its transcript folder with an agent that is not token-only; not read');
+        }
+      }
+    }
     const allDirs = [...dirs.values()].filter(Boolean);
     const seen = new Set();
     /* When each agent was first seen on the token-only list (review 2): before that, a refusal was the PERSON's own

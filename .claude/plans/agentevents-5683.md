@@ -159,3 +159,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - A newline ends a command (the program on a second line is not a target). Test. The module doc says a tool's own
   output that starts with the refusal text is read as one (bounded by the fixed classes).
 - Stated: Windows-style paths in a Bash command are mangled by the backslash escape, and case folding is darwin-only.
+
+## Review 10 (opus), all fixed unless stated
+- Claude Code flattens an agent's folder into its project folder name, so orch.main (token-only) and orch-main (not)
+  share transcripts, and the second's refusals by the PERSON's own rules would go to the company as the first's: a
+  token-only agent whose transcript folder collides with a non-token-only agent's is not read, and nothing is read
+  when the agent list (register.survey) cannot be read. Fails closed. Test.
+- ssh, scp, sftp, nc and ncat never take a URL, so they could not be network: they are network by themselves; curl and
+  wget need a URL; rsync needs a remote host: word. Test (a local rsync is not network).
+- The rotation test asserts that the second tick reverses the first (the starting turn is module-wide).
+- A duplicated comment removed.
+- Stated: after a restart, an error result with "Operation not permitted" and no known call is taken as Bash (a Read
+  error with that text would be read as a sandbox refusal); each tick lists and stats every token-only agent's
+  transcripts (bounded by the session count).
