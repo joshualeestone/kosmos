@@ -95,3 +95,17 @@ test('#5534: an answer with no policy (the company saved none) changes nothing a
   assert.equal(orgpolicy.current(), null);
   assert.equal(fs.existsSync(orgpolicy.BUNDLE()), false, 'a bundle file was written with no policy served');
 });
+
+test('#5534 review 1: when this Kosmos stops being enrolled, the company policy ends with it', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
+  assert.equal(create.policyAllows('openai', null).ok, false, 'premise: the policy is in force');
+  // The company stops naming this Kosmos (member:false), the policy still on the answer: nothing may re-apply it.
+  const gone = { macRequest: async (m, route) => (route === org.ROUTES.status ? { ok: true, data: { member: false, policy: sign(bundle({ version: 5 })) } } : { ok: false }) };
+  const r = await org.refresh({ root, remote: gone });
+  assert.equal(r.enrolled, false);
+  assert.equal(fs.existsSync(orgpolicy.APPLIED()), false, 'the applied policy outlived the enrollment');
+  assert.equal(fs.existsSync(orgpolicy.BUNDLE()), false, 'the bundle outlived the enrollment');
+  assert.equal(create.policyAllows('openai', null).ok !== false, true, 'a former member is still held to the policy');
+});
