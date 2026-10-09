@@ -113,19 +113,18 @@ function readSettings(file) {
   return { settings };
 }
 
-/* Replace `target` with `body`, keeping its mode, through a temp file that is removed on failure. */
+/* Replace `target` with `body`, keeping its mode. #5434 slice 9: through securewrite, so the temp is
+   flushed before the rename and the folder after it (POSIX only): a crash cannot leave agy's settings at
+   full length but zero-filled (#5431). Kept: born at the mode, then set to it on the fd (best effort now;
+   it was a chmod), an atomic rename only (`atomicOnly`), no temp left on failure. Gained: the temp is
+   created `wx`, so a link planted at its name is refused, not written through. `ownTempsOnly`: this is
+   the person's folder, so only this file's own dead temps are reaped (the one new delete path there, as
+   in engine/trust.js saveConfig); old `.kosmos-<pid>-<time>` leftovers are not reaped. securewrite sits
+   beside this file in the engine folder, where the supervisor runs it from (bin/agent-supervisor.sh). */
 function writeKeepingMode(target, body) {
   let mode = 0o600;
   try { mode = fs.statSync(target).mode & 0o777; } catch { /* new file: owner only, like agy's own */ }
-  const tmp = `${target}.kosmos-${process.pid}-${Date.now()}`;
-  try {
-    fs.writeFileSync(tmp, body, { mode });
-    fs.chmodSync(tmp, mode);
-    fs.renameSync(tmp, target);
-  } catch (err) {
-    try { fs.unlinkSync(tmp); } catch { /* never created */ }
-    throw err;
-  }
+  require('./securewrite').writeSecret(target, body, mode, { atomicOnly: true, ownTempsOnly: true });
 }
 
 /* Run this in its own process only (the supervisor does: node agytrust.js <folder>). Waiting on the
