@@ -393,3 +393,8 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   must not be offered to a Kosmos that only waits for its print (reportingWait 'print'): done at this branch's rebase.
   NOT CHANGED: project members are not limited to the listed agents (the coordinator's rules, as the test oracle models
   them, accept a member that is not listed; decided in reviews 7 and 10).
+- Merged main again after #5644 ("Review what your company sees") landed: conflicts resolved keeping both (ticket and
+  enroll carry the rollup's consent and salt and main's review flag; exports united; the export guard keeps neither
+  retired excuse). Two places the two features meet were wired: a review now carries the company's served salt, so its
+  Accept pins a computer print as a join does (engine test with a control), and the Review button is not offered to a
+  Kosmos that only waits for its print (O15c, mutation fails).
