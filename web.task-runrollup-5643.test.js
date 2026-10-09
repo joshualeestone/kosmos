@@ -60,3 +60,8 @@ test('#5643 review 2: the page says an inferred run as the same note, never as f
   assert.match(lib.tskRepeatSentence({ ...t, unchangedInferred: 1 }, NOW), /The last 3 runs found nothing new or repeated the same note;/);
   assert.match(lib.tskRepeatSentence({ ...t, unchangedRuns: 1, unchangedInferred: 1 }, NOW), /It repeated the note before it;/);
 });
+
+test('#5643 review 3: two identical runs the board did NOT mark (no unchanged flag on the rows) are not rolled up', () => {
+  const html = lib.tkActRowsHtml([run(120, { note: 'same' }), run(60, { note: 'same' })], P, NOW);
+  assert.doesNotMatch(html, /tkact-roll/);
+});

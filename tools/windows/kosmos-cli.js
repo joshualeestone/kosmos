@@ -1087,7 +1087,7 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {
-    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + (r.json.task && r.json.task.lastRunUnchanged === true ? (body && body.unchanged === true ? ' that found nothing new.' : ". It repeats the note before it, so the task's page groups it with the runs like it.") : '.'))   // kosmos#5643 review 1/2: the board's answer, and who said it
+    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + (r.json.task && r.json.task.lastRunUnchanged === true ? (body && body.unchanged === true ? ' that found nothing new.' : ". It repeats the note before it.") : '.'))   // kosmos#5643 review 1/2: the board's answer, and who said it
       : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
         : reviewerOnly === 'none' ? 'Nobody is told now when task ' + num + ' on ' + project + ' misses a run.'
         : reviewerOnly ? reviewerOnly + ' will be told when task ' + num + ' on ' + project + ' misses a run.'

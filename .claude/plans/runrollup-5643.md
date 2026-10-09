@@ -52,3 +52,12 @@ That repeating agents write the same note, with no number in it, when nothing ch
   - W fixed: the digit guard was a partial patch. Now the board records which unchanged runs it inferred, and the page and both CLIs say those as "repeated the same note", never "found nothing new"; \p{N} instead of \d.
   - CONVENTION fixed: a plain `content` line before the alt-text form, for older browsers.
   - NIT decided: after a rule change, `lastRunNote` still carries, so the first run with the same note can read "repeated the note before it" with no change named. That is true, and harmless.
+- **Round 3 (opus):** 0 blockers.
+  - W fixed: a run with no note and no flag ended the streak AND was called "the last change". It still ends the streak, but names no change.
+  - C fixed: both CLIs drop "groups it with the runs like it", which a first inferred run or a late run makes untrue.
+  - NITs fixed:
+    - closing a task drops the streak (dropRunStreak, one helper for the four places);
+    - the route, recordRun and history comments;
+    - a test isolating unflagged identical runs;
+    - a test that duplicate is said before unchanged in both CLIs;
+    - one redundant CSS line.

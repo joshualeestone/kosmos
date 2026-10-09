@@ -19405,7 +19405,7 @@ const server = http.createServer(async (req, res) => {
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
      already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
   /* kosmos#4787: a recurring task. POST .../repeat { every, at?, on?, minute?, clear? } sets, changes or stops its rule;
-     POST .../ran { note? } records that its job ran. Either from the screen (the person) or from an agent on the project,
+     POST .../ran { note?, unchanged? } records that its job ran (unchanged: it found nothing new, kosmos#5643). Either from the screen (the person) or from an agent on the project,
      identified the way the built mark is (its token, else its pane); an agent off the project is refused. The rule is
      checked whole in the engine (taskrepeat.repeatProblem), so a bad one is a 400 with the sentence, never stored. */
   const taskRepeat = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(repeat|ran)$/);
