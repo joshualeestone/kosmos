@@ -31,6 +31,20 @@ function transportFor(records) {
 
 test.afterEach(() => fp.setTransport(null));
 
+
+/* #5434 slice 24: a report now saves through securewrite.writeSecret, whose temp is the unique `<file>.kosmos-...tmp`, so
+   a directory planted at the old `<file>.tmp` no longer blocks the write. This refuses that report's own temp-name
+   shape at open instead (EISDIR, as the planted directory gave). The caller unblocks after its pull. */
+function blockReportWrite(dir, name) {
+  const prefix = path.join(dir, name) + '.kosmos-';
+  const realOpen = fs.openSync;
+  fs.openSync = (q, ...rest) => {
+    if (String(q).startsWith(prefix)) { const e = new Error('EISDIR: illegal operation on a directory'); e.code = 'EISDIR'; throw e; }
+    return realOpen.call(fs, q, ...rest);
+  };
+  return () => { fs.openSync = realOpen; };
+}
+
 test('token not filed -> ok:false, a clear message, nothing written', async () => {
   const dir = path.join(SB, 'd-notoken');
   // An explicit empty token forces the not-filed path deterministically (no
@@ -515,12 +529,13 @@ test('#3906: reports read fine but not saved here are said as a local write fail
   fs.mkdirSync(dir, { recursive: true });
   // A directory where the report file (and its .tmp) would go: the write throws.
   const name = fp.fileName(REC('inst-w', '2026-09-26', 'w'));
-  fs.mkdirSync(path.join(dir, name + '.tmp'), { recursive: true });
+  const unblock = blockReportWrite(dir, name);   // #5434 slice 24: the report's save cannot create its temp
   fp.setTransport({
     list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/w.json' }],
     get: async () => JSON.stringify(REC('inst-w', '2026-09-26', 'w')),
   });
   const r = await fp.pull(dir, { token: 'tok' });
+  unblock();
   assert.equal(r.ok, false);
   assert.match(r.because, new RegExp('1 report could not be saved in ' + dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\(last error: '));
   assert.doesNotMatch(r.because, /malformed/, 'a local write failure must not be blamed on the record');
@@ -530,13 +545,14 @@ test('#3906: a partial pull says how many reports could not be saved here, with 
   const dir = path.join(SB, 'd-partial-write');
   fs.mkdirSync(dir, { recursive: true });
   const bad = REC('inst-bad', '2026-09-26', 'b');
-  fs.mkdirSync(path.join(dir, fp.fileName(bad) + '.tmp'), { recursive: true });
+  const unblock = blockReportWrite(dir, fp.fileName(bad));   // #5434 slice 24: the report's save cannot create its temp
   const recs = { 'a.json': REC('inst-good', '2026-09-26', 'g'), 'b.json': bad };
   fp.setTransport({
     list: async () => Object.keys(recs).map((k) => ({ url: 'https://s.private.blob.vercel-storage.com/' + k })),
     get: async (u) => JSON.stringify(recs[u.split('/').pop()]),
   });
   const r = await fp.pull(dir, { token: 'tok' });
+  unblock();
   assert.equal(r.ok, true);
   assert.equal(r.written, 1);
   assert.equal(r.unwritten, 1);
@@ -549,7 +565,7 @@ test('#3906: unreadable, unsaved and malformed together are each counted once', 
   const dir = path.join(SB, 'd-three-ways');
   fs.mkdirSync(dir, { recursive: true });
   const unsaved = REC('inst-u', '2026-09-26', 'u');
-  fs.mkdirSync(path.join(dir, fp.fileName(unsaved) + '.tmp'), { recursive: true });
+  const unblock = blockReportWrite(dir, fp.fileName(unsaved));   // #5434 slice 24: the report's save cannot create its temp
   fp.setTransport({
     list: async () => ['r', 'u', 'm'].map((k) => ({ url: 'https://s.private.blob.vercel-storage.com/' + k + '.json' })),
     get: async (url) => {
@@ -559,6 +575,7 @@ test('#3906: unreadable, unsaved and malformed together are each counted once', 
     },
   });
   const r = await fp.pull(dir, { token: 'tok' });
+  unblock();
   assert.equal(r.ok, false);
   assert.match(r.because, /none was pulled: 1 report could not be read \(last error: blob GET HTTP 500\); 1 report could not be saved in .* \(last error: .*\); 1 report malformed \(not a valid report, or no url\)\./);
   assert.deepEqual([r.unreadable, r.unwritten, r.malformed, r.skipped], [1, 1, 1, 3]);
@@ -584,9 +601,10 @@ test('#3906: the public-store note is a fact about the listing: it follows fromP
   const dir = path.join(SB, 'd-public-unsaved');
   fs.mkdirSync(dir, { recursive: true });
   const rec = REC('inst-pu', '2026-09-26', 'pu');
-  fs.mkdirSync(path.join(dir, fp.fileName(rec) + '.tmp'), { recursive: true });
+  const unblock = blockReportWrite(dir, fp.fileName(rec));   // #5434 slice 24: the report's save cannot create its temp
   fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/pu.json' }], get: async () => JSON.stringify(rec) });
   const failed = await fp.pull(dir, { token: 'tok' });
+  unblock();
   assert.equal(failed.ok, false);
   assert.match(failed.because, /PUBLIC blob store\. That is expected until/);
   fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/c.json' }], get: async () => JSON.stringify(REC('inst-pc', '2026-09-26', 'pc')) });
@@ -606,5 +624,27 @@ test('#3906: a save whose rename fails removes the .tmp it wrote', async () => {
   const r = await fp.pull(dir, { token: 'tok' });
   assert.equal(r.ok, false);
   assert.equal(r.unwritten, 1);
-  assert.equal(fs.existsSync(dest + '.tmp'), false, 'the .tmp this pull wrote was left behind');
+  // #5434 slice 24: the save's temp is securewrite's `<file>.kosmos-...tmp` now; none may be left.
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.startsWith(path.basename(dest) + '.kosmos-')), [], 'the temp this pull wrote was left behind');
+});
+
+test('#5434 slice 24: a pulled report is flushed before the rename makes it the file', async () => {
+  const dir = path.join(SB, 'd-flushed');
+  const rec = REC('inst-fl', '2026-09-26', 'fl');
+  const dest = path.join(dir, fp.fileName(rec));
+  fp.setTransport({ list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/fl.json' }], get: async () => JSON.stringify(rec) });
+  const events = [];
+  const fdPath = new Map();
+  const realOpen = fs.openSync;
+  const realFsync = fs.fsyncSync;
+  const realRename = fs.renameSync;
+  fs.openSync = (p, ...rest) => { const fd = realOpen.call(fs, p, ...rest); fdPath.set(fd, String(p)); return fd; };
+  fs.fsyncSync = (fd) => { events.push(['fsync', fdPath.get(fd)]); return realFsync(fd); };
+  fs.renameSync = (a, b) => { events.push(['rename', String(a), String(b)]); return realRename(a, b); };
+  let r;
+  try { r = await fp.pull(dir, { token: 'tok' }); } finally { fs.openSync = realOpen; fs.fsyncSync = realFsync; fs.renameSync = realRename; }
+  assert.equal(r.written, 1, JSON.stringify(r));
+  const i = events.findIndex((e) => e[0] === 'rename' && e[2] === dest);
+  assert.ok(i >= 0, 'no rename into the report: ' + JSON.stringify(events));
+  assert.ok(events.slice(0, i).some((e) => e[0] === 'fsync' && e[1] === events[i][1]), 'the report was not flushed before its rename');
 });
