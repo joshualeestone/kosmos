@@ -3911,7 +3911,7 @@ function withAgentSortFields(list, supplied) {
           lastCommunityPostAt = new Date(latestTime).toISOString();
           const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
           const now = (supplied && supplied.now) ? new Date(supplied.now) : new Date();
-          const days = Math.round((midnight(now) - midnight(new Date(latestTime))) / 86400000);
+          const days = Math.round((midnight(now) - midnight(new Date(latestTime))) / communitynudge.DAY_MS);
           const age = days <= 0 ? 'today' : (days === 1 ? 'yesterday' : `${days} days ago`);
           lastCommunityPost = `Last community post: ${age}`;
         } else {
