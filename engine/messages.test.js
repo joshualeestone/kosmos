@@ -313,6 +313,9 @@ test('a long body spills to a file and the pane gets the head and the path; the 
     const cleanedLong = chat.cleanMessage(long);
     assert.ok(!typed.includes(cleanedLong.slice(-200)),
       'the pane carries the end of the body, so it got the wall this feature exists to avoid');
+    // #5706: the head the agent reads is the opening at a whole word ("detail", never "detai"), with its size.
+    assert.ok(typed.includes('brief: the lease detail the lease detail'), typed.slice(0, 160));
+    assert.match(typed, /(?:the|lease|detail)\u2026 \(long message, 241 words; /, typed.slice(0, 300));
     assert.match(typed, /long message, \d+ words; the full text is in your own folder at /,   // #5706: with its size
       'the pointer does not say where the rest is');
     const spilled = typed.match(/full text is in your own folder at ([^)]+)\)/)[1];

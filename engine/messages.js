@@ -210,13 +210,21 @@ const SPILL_HEAD = 200;
 function spillHead(text) {
   const t = String(text);
   const words = (t.match(/\S+/g) || []).length;
-  const open = t.slice(0, SPILL_HEAD);
-  const first = open.match(/^[\s\S]*?[.!?](?=\s|$)/);
-  let head;
-  if (first && first[0].trim().length >= 20) head = first[0].trim();
-  else {
-    const sp = open.lastIndexOf(' ');
-    head = (sp >= SPILL_HEAD / 2 ? open.slice(0, sp) : open).trimEnd() + '\u2026';
+  /* Review 1: a sentence ends at . ! or ? followed (in the WHOLE text, not the slice) by a space and a capital, and
+     not when the word it ends is a list number ("1."), a short or dotted abbreviation ("e.g.", "p.m.", "Mr."). */
+  let head = null;
+  const end = /[.!?]\s+(?=["'(\[]?[A-Z])/g;
+  for (let m; (m = end.exec(t)) && m.index < SPILL_HEAD;) {
+    const upto = t.slice(0, m.index + 1).trim();
+    const last = upto.slice(upto.lastIndexOf(' ') + 1);
+    if (/^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || last.replace(/[^A-Za-z]/g, '').length <= 2) continue;
+    if (upto.length >= 20) { head = upto; break; }
+  }
+  if (!head) {
+    /* At a whole word: a space right after the 200th character means the slice already ends on one. */
+    const open = t.slice(0, SPILL_HEAD);
+    const sp = t.charAt(SPILL_HEAD) === ' ' ? SPILL_HEAD : open.lastIndexOf(' ');
+    head = (sp >= SPILL_HEAD / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
   }
   return { head, words };
 }
