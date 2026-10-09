@@ -85,6 +85,8 @@ shard "shards 2/2 alone: shell 1/2 stays on macos-latest (the two case lines not
 shard "shards '1/2, 2/2' (a space): shell 2/2 on the self-hosted Mac" "$SELF" on push "" "1/2, 2/2" shell2_runner
 shard "shards 'all' (not a shard name): macos-latest" "$HOSTED" on push "" "all" shell1_runner
 shard "shards '1/2;2/2' (a wrong separator): macos-latest" "$HOSTED" on push "" "1/2;2/2" shell2_runner
+mkdir -p "$T/cwd/1" && : > "$T/cwd/1/2"   # a file a glob "?/?" would expand to, in the body's working directory
+shard "shards '?/?' (a glob, not a name, even where it would match a file 1/2): macos-latest" "$HOSTED" on push "" "?/?" shell1_runner
 shard "shards with a tab and a newline: still read" "$SELF" on push "" "$(printf '1/2,\t\n2/2')" shell2_runner
 
 # A value that names no shard says so in the log (the value itself is never echoed).
