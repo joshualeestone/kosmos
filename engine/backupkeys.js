@@ -17,7 +17,8 @@
  *
  * Wraps are NOT authenticated (HPKE base mode): anyone with a recipient's public key can make one that opens. A
  * member key must therefore derive to the expected public key. A naming key cannot be checked that way, so:
- *   - unwrapNamingKey is for RESTORE only, where a forged naming key just makes chunk names fail to verify
+ *   - unwrapNamingKey is for RESTORE only and requires the naming-key id the signed manifest records, so a forged
+ *     naming key (which cannot have that id) is refused outright; even without that, it would just make chunk names fail to verify
  *     (backupformat's openVerifiedChunk) and never yields other data. That rests on restore taking every chunk
  *     name from the device-SIGNED, verified manifest: chunks are HPKE-sealed too, so anyone with the member public
  *     key can forge one, and only a name fixed by the signed manifest makes a match a preimage search against the
@@ -37,6 +38,9 @@
  * and backupformat.js do. unwrapMemberKey REQUIRES the public key the result must derive to: a wrap of the wrong key
  * (a wrapper bug, another epoch's key under this context) is refused rather than restored. (Equal up to X25519
  * clamping: secrets differing only in clamped bits are the same key and pass, which is harmless.)
+ *
+ * Secrets come back as fresh Buffers (never views over an input), so a caller may zero them; Node cannot reliably
+ * zero memory, and this module does not try.
  *
  * Not here: where keys and wraps are stored, the org key pair and escrow, delivering the member public key in the
  * coordinator-signed policy bundle (decision 7), rotation policy, and the walker.
@@ -137,13 +141,16 @@ function wrapNamingKey(namingKey, memberPk, ctx) {
   return wrap(NAMING_MAGIC, INFO, namingContext(ctx), nk, pk);
 }
 
-/** One period's naming key from its wrap, with the member private key, FOR RESTORE ONLY (see the header); null on ANY
-    failure. Never throws. */
-function unwrapNamingKey(memberSk, wrapped, ctx) {
+/** One period's naming key from its wrap, with the member private key, FOR RESTORE ONLY (see the header), and only
+    if its namingKeyId is expectedId (REQUIRED: the id the signed manifest records). A forged naming key cannot have
+    the manifest's id, so it is refused here rather than failing chunk names later, and among several wraps for one
+    period only the manifest's key opens. null on ANY failure. Never throws. */
+function unwrapNamingKey(memberSk, wrapped, ctx, expectedId) {
   try {
     const sk = asBuf(memberSk);
-    if (!sk || sk.length !== KEY_LEN) return null;
-    return unwrap(NAMING_MAGIC, INFO, namingContext(ctx), sk, wrapped);
+    if (!sk || sk.length !== KEY_LEN || typeof expectedId !== 'string' || !/^[0-9a-f]{32}$/.test(expectedId)) return null;
+    const nk = unwrap(NAMING_MAGIC, INFO, namingContext(ctx), sk, wrapped);
+    return nk && namingKeyId(nk) === expectedId ? nk : null;
   } catch { return null; }
 }
 
