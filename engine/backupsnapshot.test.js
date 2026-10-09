@@ -1219,6 +1219,8 @@ test('#5686: roots that cannot be used are refused before anything is read or up
       [[{ name: 'con', path: w.roots.data }], /not one every system accepts/],
       [[{ name: 'sessions/aux', path: w.roots.data }], /not one every system accepts/],
       [[{ name: 'secrets', path: w.roots.data }], /never stores/],
+      [[{ name: 'xoxb-1234567890-1234567890-abcd', path: w.roots.data }], /looks like a secret/],
+      [[{ name: 'sessions/glpat-a1b2c3d4e5f6g7h8i9j0', path: w.roots.data }], /looks like a secret/],
       // Review 1: nesting by the folders' identity, not their spelling.
       [[{ name: 'one', path: w.roots.data }, { name: 'two', path: w.roots.data }], /same folder/],
       [[{ name: 'one', path: w.roots.data }, { name: 'two', path: w.roots.data + '/' }], /same folder/],
@@ -1316,6 +1318,20 @@ test('#5686 review 3: a root that IS a provider or credential folder keeps its p
     assert.match(why['sessions/gemini/oauth_creds.json'], /sign-in/);
     assert.match(why['keys/config'], /credential folder/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 4: a single root is judged as before, whatever folders its real path sits in', async () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbroots-legacy-')));
+  const root = path.join(base, 'secrets', 'work');
+  const k = keys(), st = store();
+  try {
+    fs.mkdirSync(path.join(root, 'a'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'a', 'notes.md'), 'notes\n');
+    const r = await take(k, root, st);
+    assert.equal(r.ok, true, r.because);
+    const { sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.deepEqual([...sink.committed.keys()], ['a/notes.md'], 'not skipped for sitting under a folder named secrets');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
 test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
