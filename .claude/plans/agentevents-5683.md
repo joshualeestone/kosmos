@@ -19,7 +19,9 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 
 ## Decided (overturn in one line)
 - Only token-only agents are read: they are the agents the company's rules (the guard and its sandbox) apply to. A
-  person's own deny rules on any other agent, and the auto-mode classifier, are never read or sent.
+  person's own deny rules on any other agent, and the auto-mode classifier, are never read or sent. On a token-only
+  agent the guard shares its deny list with the person's own rules and the refusal text is the same, so a refusal by
+  the person's own rule there is reported as the guard's (review 6). WEAKEST PREMISES: this, and the EPERM text match.
 - Nothing from before the enrollment, the current accepted words, or the agent joining the token-only list: each is a
   time an event must be at or after (whole seconds). A transcript first seen is read from its start only if written
   after that time; an older one is skipped to its end unread.
@@ -110,3 +112,15 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Decided and commented: a network command is network-host before the paths it names.
 - Stated: other-agent covers other token-only agents' folders only (the scan knows no other agent's folder); a refusal
   aimed at another, non-token-only agent's folder reports 'home'.
+
+## Review 6 (opus), all fixed unless stated
+- Bash paths with a space were cut at the space (the board's own folder is under "Application Support"), and $HOME
+  paths were not seen: a linear shell-word split (quotes, backslash escapes), $HOME/${HOME} as ~, and curl's @file.
+  Test.
+- Stated, not fixed: on a token-only agent the person's own deny rules share the guard's list and its refusal text, so
+  a refusal by the person's own rule is reported as the guard's. Telling them apart needs matching Claude Code's rule
+  syntax against the guard's recorded rules; the plan and the module doc now say so (it was claimed never to happen).
+- A session first seen in the tick its agent was listed (or words accepted) starts at its end, not byte 0.
+- After a halving, the smaller send size is kept until the backlog drains (no too-big every other tick).
+- A long agent name keeps 120 characters and a short hash of the whole name (two names no longer merge). Test.
+- The test that pinned `curl -d @~/secrets` as 'other' now expects 'home'.
