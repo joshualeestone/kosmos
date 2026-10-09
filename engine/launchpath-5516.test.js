@@ -129,7 +129,8 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   const sup = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
   const m = sup.match(/\n_phys_dir\(\) \{\n[\s\S]*?\n\}\nabs_path_only\(\) \{\n[\s\S]*?\n\}\n/);
   assert.ok(m, 'abs_path_only (and the helper it calls) is not defined in the supervisor');
-  const run = (input, own) => require('child_process').execFileSync('/bin/bash', ['-c', m[0] + '\nabs_path_only "$1" "$2"', 'x', input, own || ''], { encoding: 'utf8' });
+  // Under set -u, as the supervisor runs it (review 19).
+  const run = (input, own) => require('child_process').execFileSync('/bin/bash', ['-c', 'set -u\n' + m[0] + '\nabs_path_only "$1" "$2"', 'x', input, own || ''], { encoding: 'utf8' });
   assert.equal(run('/a::rel:/b c:.:/d*'), '/a:/b c:/d*', 'empty, relative and dot entries go; spaces and a * stay literal');
   assert.equal(run('rel:.:'), '/usr/bin:/bin:/usr/sbin:/sbin', 'nothing absolute left: the system default');
   // Review 8: a caller's noglob is left as it was, on or off.
@@ -158,8 +159,8 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   // Review 6: with the folder given, an entry with a rule-pattern character or a . or .. segment goes too, though each
   // exists; a dotted name that is not a segment stays (CONTROL).
   const X = binDir('x');
-  for (const d of ['App (Beta)/bin', 'b*', 'b', 'y', '.hidden', '..y']) fs.mkdirSync(path.join(X, d), { recursive: true });
-  assert.equal(run([A, `${X}/App (Beta)/bin`, `${X}/b*`, `${X}/./b`, `${X}/y/../b`, `${X}/..`, `${X}/.hidden`, `${X}/..y`].join(':'), own), `${A}:${X}/.hidden:${X}/..y`, 'an entry the guard cannot name exactly stayed');
+  for (const d of ['App (Beta)/bin', 'b*', 'b', 'y', '.hidden', '..y', 'c]', 'c{', 'c!', 'c\\d']) fs.mkdirSync(path.join(X, d), { recursive: true });
+  assert.equal(run([A, `${X}/App (Beta)/bin`, `${X}/b*`, `${X}/c]`, `${X}/c{`, `${X}/c!`, `${X}/c\\d`, `${X}/./b`, `${X}/y/../b`, `${X}/..`, `${X}/.hidden`, `${X}/..y`].join(':'), own), `${A}:${X}/.hidden:${X}/..y`, 'an entry the guard cannot name exactly stayed');
   // Review 9: an entry written through a link inside the agent folder that points out of it goes too.
   const outOfOwn = binDir('sh-out-of-own');
   try { fs.symlinkSync(outOfOwn, path.join(own, 'outlink')); } catch {}
@@ -176,6 +177,7 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   assert.match(block, /KOSMOS_GUARD_PANE_PATH="\$_guard_path"/, 'the guard is not given the same PATH');
   assert.match(block, /KOSMOS_GUARD_RUN_DIRS="\$\(dirname "\$CLAUDE"\):\$\(dirname "\$TMUX_BIN"\):\$_eng:\$\(dirname "\$NODE_BIN"\)"/, 'the guard is not given the claude, tmux, engine and node folders as the supervisor spells them');
   assert.match(block, /KOSMOS_GUARD_CONFIG_DIRS="\$\{AGENT_WORKFORCE_DATA:-\$\{_app:-\}\}\/launch-secrets"/, 'the guard is not given the launch-secrets folder');
+  assert.match(block, /KOSMOS_GUARD_RUN_PROGS="\$CLAUDE:\$TMUX_BIN:\$NODE_BIN"/, 'the guard is not given the programs the supervisor starts');
   assert.ok(sup.includes('_launch_secret_dir="${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets"'), 'the launch-secrets folder moved: the guard\'s spelling must follow it');
   // Review 8: no later line gives a claude pane a second PATH key (only the codex/gemini/grok line adds one, gated).
   const later = sup.slice(sup.indexOf('unset _guard_path', i)).split('\n').filter((l) => /PANE_ENV\+=\(-e "PATH=/.test(l));
@@ -367,11 +369,12 @@ test('#5516 review 8: the claude and tmux folders the supervisor passes are cove
   const cl = binDir('claude-home');
   const tm = binDir('tmux-home');
   const was = process.env.KOSMOS_GUARD_RUN_DIRS;
-  process.env.KOSMOS_GUARD_RUN_DIRS = [cl, tm, '.'].join(path.delimiter);   // review 13: a bare name's "." is skipped
+  process.env.KOSMOS_GUARD_RUN_DIRS = [cl, tm, '.', 'half-of-a-name'].join(path.delimiter);   // review 13: "." skipped; review 19: any other relative piece said
   try {
     const r = setup.launchPathDirs(agentDir('lp-run'), { ...PIN, ownProgramDirs: undefined, panePath: '/usr/bin', ownPath: '' });
     for (const d of [cl, tm]) assert.ok(r.dirs.includes(realOr(d)), 'not covered: ' + d);
-    assert.ok(!r.unsafe.includes('.'), 'a bare program name made the guard not whole: ' + JSON.stringify(r.unsafe));
+    assert.ok(!r.unsafe.some((x) => x.includes('"\."')), 'a bare program name made the guard not whole: ' + JSON.stringify(r.unsafe));
+    assert.ok(r.unsafe.some((x) => x.includes('"half-of-a-name" is not a full path')), 'a relative piece was dropped silently: ' + JSON.stringify(r.unsafe));
   } finally { if (was === undefined) delete process.env.KOSMOS_GUARD_RUN_DIRS; else process.env.KOSMOS_GUARD_RUN_DIRS = was; }
   // CONTROL: without the variable, neither is named.
   const r2 = setup.launchPathDirs(agentDir('lp-run'), { ...PIN, ownProgramDirs: undefined, panePath: '/usr/bin', ownPath: '' });
@@ -664,4 +667,35 @@ test('#5516 review 18: one pass keeps a separate scan for a different PATH; a sp
   const r = setup.launchPathDirs(agentDir('lp-dotalias'), { ...PIN, panePath: pd, ownPath: '' });
   assert.ok(r.files.includes(path.join(realOr(target), 'tool')), JSON.stringify(r.files));
   assert.ok(!r.linkNames.some((l) => l.split(path.sep).includes('.')), 'a dotted spelling became a rule: ' + JSON.stringify(r.linkNames));
+});
+
+test('#5516 review 19: a link that leads to a folder is never named, wherever it sits on the chain (a link to /tmp)', () => {
+  const pd = binDir('tolink-path');
+  const holder = binDir('tolink-holder');
+  fs.symlinkSync('/tmp', path.join(holder, 'tmplink'));
+  fs.symlinkSync(path.join(holder, 'tmplink'), path.join(pd, 'x'));   // hop 1 is the folder link
+  const dir = agentDir('lp-tolink');
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-tolink', { ...BASE, panePath: pd });
+  const deny = readSettings(dir).permissions.deny;
+  assert.ok(!deny.some((d) => /^Edit\(\/\/(private\/)?tmp\)$/.test(d) || d === `Edit(${ruleAbs(path.join(realOr(holder), 'tmplink'))})`), 'a link to a folder was named: ' + JSON.stringify(deny.filter((d) => /tmp/.test(d))));
+  assert.deepEqual(r, { ok: true }, 'the guard was not whole: ' + JSON.stringify(r));
+  // CONTROL: the same layout with a link to a FILE is named.
+  const f = path.join(binDir('tolink-file'), 'prog');
+  fs.writeFileSync(f, '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(f, path.join(holder, 'filelink'));
+  fs.symlinkSync(path.join(holder, 'filelink'), path.join(pd, 'y'));
+  const r2 = setup.launchPathDirs(agentDir('lp-tolink'), { ...PIN, panePath: pd, ownPath: '' });
+  assert.ok(r2.linkNames.includes(path.join(realOr(holder), 'filelink')), JSON.stringify(r2.linkNames));
+});
+
+test('#5516 review 19: the folder a program the supervisor starts by path ends in (a versions store) is denied whole', () => {
+  const bin = binDir('rp-bin');
+  const versions = binDir('rp-share/claude/versions');
+  fs.writeFileSync(path.join(versions, '1.0.0'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(versions, '1.0.0'), path.join(bin, 'claude'));
+  const r = setup.launchPathDirs(agentDir('lp-rp'), { ...PIN, launchRunProgs: [path.join(bin, 'claude')], panePath: bin, ownPath: '' });
+  assert.ok(r.dirs.includes(realOr(versions)), 'the versions folder is not denied whole: ' + JSON.stringify(r.dirs));
+  // CONTROL: the same program not named as one the supervisor starts: only its file.
+  const r2 = setup.launchPathDirs(agentDir('lp-rp'), { ...PIN, launchRunProgs: [], panePath: bin, ownPath: '' });
+  assert.ok(!r2.dirs.includes(realOr(versions)) && r2.files.includes(path.join(realOr(versions), '1.0.0')), JSON.stringify(r2));
 });

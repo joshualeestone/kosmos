@@ -726,7 +726,10 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
    files (MCP servers, hooks, plugins, the status line) and the code in shell startup files. Both layers match by
    PATH, so a hard link to a user-owned program made under another name is not covered either (as #4491 says of the
-   token); and a rule is written in the disk's own letter case.
+   token), nor is a soft link the agent makes itself in its own folder or in temp and then uses with the file tools
+   (the file-tool layer rests on Claude Code resolving links before it matches; the sandbox layer matches resolved
+   paths); and a rule is written in the disk's own letter case. A program repointed by an update between starts is
+   covered at the next start, except claude's, tmux's and node's own folders, which are denied whole.
    Returned in `unsafe` (the guard then says it is not whole): an empty or relative pane entry; a folder that is the
    agent's own, inside it or above it; a program or link folder that resolves there; a folder that could not be listed;
    a folder past the scan cap; a link chain too long or unreadable; a launch input whose place could not be worked
@@ -746,12 +749,17 @@ const LINK_HOPS_MAX = 40;
 function supervisorRunDirs() {
   const v = process.env.KOSMOS_GUARD_RUN_DIRS;
   // Only absolute folders: a bare program name's dirname is "." (review 13).
-  return typeof v === 'string' && v ? v.split(path.delimiter).filter((d) => path.isAbsolute(d)) : [];
+  return typeof v === 'string' && v ? v.split(path.delimiter) : [];
+}
+// Review 19: the programs themselves the supervisor starts by absolute path (claude, tmux, node).
+function supervisorRunProgs() {
+  const v = process.env.KOSMOS_GUARD_RUN_PROGS;
+  return typeof v === 'string' && v ? v.split(path.delimiter) : [];
 }
 // Review 13: folders the supervisor reads instructions from at the next start (the launch-secrets folder).
 function supervisorConfigDirs() {
   const v = process.env.KOSMOS_GUARD_CONFIG_DIRS;
-  return typeof v === 'string' && v ? v.split(path.delimiter).filter((d) => path.isAbsolute(d)) : [];
+  return typeof v === 'string' && v ? v.split(path.delimiter) : [];
 }
 function launchPathDirs(agentDir, deps = {}) {
   /* Review 12: not on Windows yet. A standard Windows PATH has folders whose names the rules read as patterns and a
@@ -767,15 +775,22 @@ function launchPathDirs(agentDir, deps = {}) {
   // Review 9: a launch input whose place could not be worked out is said (the guard is then not whole), never dropped.
   const missed = [];
   const look = Object.assign({ installedSupervisorDir, browserToolDir, permissionSettingsFile }, deps.launchLookups);   // a test seam
+  /* The supervisor's lists: a bare program name's "." (or an empty piece) is skipped; any other piece that is not a full
+     path (a folder name with a ":" split in two, review 19) is said, so the guard is not whole rather than wrong. */
+  const fromSupervisor = (list, what) => list.filter((d) => {
+    if (path.isAbsolute(d)) return true;
+    if (d !== '.' && d !== '') missed.push(`(${what}: "${d}" is not a full path)`);
+    return false;
+  });
   const need = (what, v) => { if (!v) missed.push(`(${what}: its place could not be worked out)`); return v; };
-  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), need('the installed supervisor', look.installedSupervisorDir()), path.dirname(process.execPath), need('the browser tool', look.browserToolDir()), ...supervisorRunDirs()].filter(Boolean);
+  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), need('the installed supervisor', look.installedSupervisorDir()), path.dirname(process.execPath), need('the browser tool', look.browserToolDir()), ...fromSupervisor(supervisorRunDirs(), 'a folder the supervisor starts from')].filter(Boolean);
   /* Review 11: what the next start reads as instructions, beside what it runs: tmux's config (read when the supervisor
      starts a new tmux server) and the launchd jobs folder (each agent's job names the supervisor, claude and tmux). */
   const home = deps.home || kosmosHome();
   // Both tmux spellings: the board's XDG_CONFIG_HOME need not be the one the tmux server sees (review 12).
   const tmuxConf = [...new Set([path.join(home, '.tmux.conf'), path.join(home, '.config', 'tmux', 'tmux.conf'), ...(process.env.XDG_CONFIG_HOME ? [path.join(process.env.XDG_CONFIG_HOME, 'tmux', 'tmux.conf')] : [])])];
   const fileList = deps.launchFiles || [need('the permission settings file', look.permissionSettingsFile()), ...tmuxConf].filter(Boolean);
-  const configDirs = deps.launchConfigDirs || [...((deps.platform || process.platform) === 'darwin' ? [path.join(home, 'Library', 'LaunchAgents')] : []), ...supervisorConfigDirs()];
+  const configDirs = deps.launchConfigDirs || [...((deps.platform || process.platform) === 'darwin' ? [path.join(home, 'Library', 'LaunchAgents')] : []), ...fromSupervisor(supervisorConfigDirs(), 'a folder the supervisor reads')];
   /* Review 13: folders too widely used to deny whole (the temp roots, the home folder and its everyday folders, the
      Kosmos data root). A program or link that leads straight into one makes the guard NOT whole, said, instead of
      silently denying the agent its temp folder or Downloads. Only these exact folders, not what is inside them. */
@@ -788,9 +803,10 @@ function launchPathDirs(agentDir, deps = {}) {
      each name resolves into) is the same for every agent, so it is cached without the agent folder and done once per
      pass; only the agent-folder check below runs per agent. */
   const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
-  const key = JSON.stringify([pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps]);
+  const runProgs = deps.launchRunProgs || fromSupervisor(supervisorRunProgs(), 'a program the supervisor starts');
+  const key = JSON.stringify([pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps, runProgs]);
   let scan = cache ? cache.get(key) : undefined;
-  if (!scan) { scan = scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps }); if (cache) cache.set(key, scan); }
+  if (!scan) { scan = scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps, runProgs }); if (cache) cache.set(key, scan); }
   // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
   // folder) cannot be covered. Review 7: compared without case on macOS and Windows, whose disks usually ignore it (a
   // not-yet entry keeps the case it was typed in); that only ever reports more as uncoverable.
@@ -848,7 +864,7 @@ function launchPathDirs(agentDir, deps = {}) {
 }
 /* The agent-independent half of launchPathDirs: every candidate folder in order, as { real, shown, written }, and what
    cannot be covered whatever the agent (an empty or relative pane entry, an unlistable folder, the scan cap). */
-function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps }) {
+function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps, runProgs = [] }) {
   const cands = [];
   const files = [];
   const unsafe = [];
@@ -921,8 +937,10 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
   /* Follow one name to where its chain ends: each file link by its own name, the final file by its name. `inCovered`:
      the name sits in a folder already denied whole, so it needs no rule of its own. */
   /* Review 17: a file or file link reached THROUGH a folder link has a second spelling (the one written through the
-     link). It is named too, to the file tools only, as folders are (review 5), so the rules do not depend on how Claude
-     Code matches a linked path. Only a spelling with no . or .. names (path.resolve would fold them by text). */
+     link). It is named too, to the file tools only, as folders are (review 5), so the spellings that already exist do
+     not depend on how Claude Code matches a linked path. A NEW spelling the agent makes itself (a soft link in its own
+     folder or in temp) still does: the #4491 residual this card carries, recorded in the plan. Only a spelling with no
+     . or .. names (path.resolve would fold them by text). */
   const alias = (p, real, shown) => {
     if (p === real || p.split(path.sep).some((x) => x === '.' || x === '..')) return;
     cands.push({ kind: 'alias', link: p, shown });
@@ -941,6 +959,12 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
       const at = covered ? null : folderOf(p, shown);
       const named = at !== null && !wholeDirs.has(at);
       if (!st.isSymbolicLink()) { if (named) { files.push({ real: path.join(at, path.basename(p)), shown }); alias(p, path.join(at, path.basename(p)), shown); } return; }
+      /* Review 19: a link that leads to a FOLDER is never named, wherever it sits on the chain: a rule on its name would
+         cover everything under it (a link to /tmp would deny the whole temp folder). It is a middle link: no rule, and
+         said only where the agent can replace it. */
+      let toFolder = false;
+      try { toFolder = fs.statSync(p).isDirectory(); } catch { /* dangling or unreadable: followed below */ }
+      if (toFolder) { if (at !== null) cands.push({ kind: 'middle', real: at, link: path.join(at, path.basename(p)), shown }); return; }
       if (named) { cands.push({ kind: 'link', link: path.join(at, path.basename(p)), shown }); alias(p, path.join(at, path.basename(p)), shown); }
       if (hop >= LINK_HOPS_MAX) { unsafe.push(`${shown} (a link chain too long to follow)`); return; }
       let t;
@@ -983,6 +1007,20 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
     }
     if (names.length > max) { unsafe.push(`${d} (more than ${max} entries; the rest were not checked, and which ones is not known)`); names = names.slice(0, max); }
     for (const n of names) follow(path.join(d, n), path.join(d, n), true);
+  }
+  /* Review 19: the programs the supervisor starts by absolute path (claude, tmux, node) end their chains in a store of
+     versions that an update repoints into mid-session; that folder is denied whole, so a version written there after
+     the guard was written is covered too. A shared folder still is not (the filter below says so). */
+  for (const prog of runProgs) {
+    let q = prog;
+    for (let hop = 0; hop <= LINK_HOPS_MAX; hop++) {
+      let st;
+      try { st = fs.lstatSync(q); } catch { break; }
+      if (!st.isSymbolicLink()) { if (st.isFile()) push(path.dirname(q), prog); break; }
+      let t;
+      try { t = fs.readlinkSync(q); } catch { break; }
+      q = under(realDir(path.dirname(q)), t);
+    }
   }
   // Review 12: a file the next start reads, followed the same way (a dotfile kept in another tree).
   for (const f of fileList) follow(f, f, false);

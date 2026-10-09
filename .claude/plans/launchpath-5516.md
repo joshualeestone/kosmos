@@ -260,3 +260,18 @@ rest of the guard is still written.
   - MEASURED, not a defect: a PATH handed in through the launch-secrets door would come after the cleaned PATH, but the
     door accepts only names on the engine's token-door allowlist (supervisor, before add_launch_secret), and PATH is not
     one.
+- Round 19 (opus): 0 BLOCKER, 3 WARNING, 2 NIT.
+  - FIXED: a link that leads to a FOLDER is never named, wherever it sits on a chain (it was named at hop 1 or later,
+    and a rule on its name covers everything under it: a PATH folder holding a link to /tmp wrote Edit(//tmp)). It is
+    a middle link: no rule, said only where the agent can replace it. Test with a control; mutation fails.
+  - FIXED: the programs the supervisor starts by absolute path (claude, tmux, node; KOSMOS_GUARD_RUN_PROGS) have the
+    folder their chain ends in denied whole, so a version an update writes into that store mid-session is covered too
+    (claude's versions folder). Test with a control; both sides' mutations fail.
+  - DECIDED, residual (header and here): any other program repointed by an update (a package manager upgrade) between
+    starts is covered from the next start; until then the new target is covered only if it sits in a covered folder.
+  - DECIDED, residual carried from #4491 (its review 24 handed it to this card): a soft link the agent makes itself in
+    its own folder or in temp, then uses with the file tools. The sandbox layer matches resolved paths and is
+    unaffected; the file-tool layer rests on Claude Code resolving links before it matches. Not measured here. The
+    review-17 comment was softened to say so.
+  - FIXED (nits): a piece of the supervisor's lists that is not a full path (a ":" in a folder name) is said, not
+    dropped; the shell test runs the function under set -u with every pattern character. Mutation fails.

@@ -637,7 +637,7 @@ if [ -z "$adopt" ]; then
           # Review 8: and the folders of claude and tmux, which this script starts by absolute path (from the plist);
           # review 11: and the engine and node as THIS script spells them (the guard's own are resolved); review 13: and
           # the launch-secrets folder the pane entry reads its names from (the same spelling prepare_secret_entry uses).
-          KOSMOS_GUARD_PANE_PATH="$_guard_path" KOSMOS_GUARD_RUN_DIRS="$(dirname "$CLAUDE"):$(dirname "$TMUX_BIN"):$_eng:$(dirname "$NODE_BIN")" KOSMOS_GUARD_CONFIG_DIRS="${AGENT_WORKFORCE_DATA:-${_app:-}}/launch-secrets" "$NODE_BIN" -e '
+          KOSMOS_GUARD_PANE_PATH="$_guard_path" KOSMOS_GUARD_RUN_DIRS="$(dirname "$CLAUDE"):$(dirname "$TMUX_BIN"):$_eng:$(dirname "$NODE_BIN")" KOSMOS_GUARD_CONFIG_DIRS="${AGENT_WORKFORCE_DATA:-${_app:-}}/launch-secrets" KOSMOS_GUARD_RUN_PROGS="$CLAUDE:$TMUX_BIN:$NODE_BIN" "$NODE_BIN" -e '
             try {
               const out = require(process.argv[1]).refreshTokenOnlyGuards({ only: process.argv[2] });
               for (const u of out.unguarded) process.stderr.write("#4491: " + u.name + " is listed token-only but is NOT guarded: " + u.because + "\n");
