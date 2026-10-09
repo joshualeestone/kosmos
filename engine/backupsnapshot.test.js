@@ -1583,6 +1583,25 @@ test('#5686 review 15: optional roots never fail the snapshot: too many, a bad n
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('#5686 review 16: an optional root whose SKIPS would push the manifest past its budget is left out, not fatal', async () => {
+  const w = threeRoots(), k = keys();
+  try {
+    const noisy = path.join(w.base, 'noisy');
+    fs.mkdirSync(noisy);
+    // Nothing stored, everything skipped (and named in the manifest): 300 environment files.
+    for (let i = 0; i < 300; i++) fs.writeFileSync(path.join(noisy, `a${String(i).padStart(3, '0')}.env`), 'X=1\n');
+    const required = [{ name: 'data', path: w.roots.data }, { name: 'workers', path: w.roots.workers }];
+    let budget = 1024;
+    for (; budget < 2 ** 26; budget *= 2) if ((await takeRoots(k, required, store(), { maxManifestJson: budget })).ok) break;
+    const st = store();
+    const r = await takeRoots(k, [...required, { name: 'sessions/a/claude', path: noisy, optional: true }], st, { maxManifestJson: budget });
+    assert.equal(r.ok, true, r.because);
+    const { opened } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.ok(opened.skipped.some((x) => x.path === 'sessions/a/claude' && /too large to fit/.test(x.why)));
+    assert.ok(!opened.skipped.some((x) => x.path.startsWith('sessions/a/claude/')), 'its own skips are not recorded either');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
   const w = threeRoots(), k = keys(), st = store();
   try {
