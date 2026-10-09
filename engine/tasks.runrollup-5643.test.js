@@ -21,7 +21,9 @@ const projects = require('../engine/projects');
 const tasks = require('../engine/tasks');
 const taskchat = require('../engine/taskchat');
 
-const T0 = Date.parse('2026-10-09T04:00:00Z');
+/* On the hour, two hours AFTER now (review: CI): lateness is measured from when the rule was set (now), so a fixed clock
+   time made the late-run arm pass or fail by the time of day the suite ran. */
+const T0 = Math.floor(Date.now() / 3600000) * 3600000 + 2 * 3600000;
 const MIN = 60000;
 function freshRepeating() {
   const p = projects.create({ name: 'Roll ' + Math.random().toString(36).slice(2) });
