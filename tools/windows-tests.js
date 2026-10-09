@@ -54,6 +54,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'create.codexlock-5434.test.js',    // #5434 slice 8: one lock for the codex config.toml writers; the trust append flushed
   'trust.fsync-5434.test.js',   // #5434 slice 6: trust.js's Claude Code config and settings saves, on Windows too
   'personfsync-5434.test.js',   // #5434 slice 9: ~/.claude.json and agy settings saves, on Windows too
+  'agyhooks.fsync-5434.test.js',   // #5434 slice 10: agy's .agents/hooks.json save, on Windows too
   'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
   'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too
