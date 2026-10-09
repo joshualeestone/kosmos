@@ -67,6 +67,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'records.fsync-5434.test.js',   // #5434 slice 20: twelve Kosmos records, on Windows too
   'state21.fsync-5434.test.js',   // #5434 slice 21: sign-in state, agent browser config, feedback, Windows records, launch record
   'undoindex.fsync-5434.test.js',   // #5434 slice 22: Undo's switch and index, and the sweep's unreadable-index guard
+  'caches.fsync-5434.test.js',   // #5434 slice 23: caches, markers and nudge records, on Windows too
   'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
   'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too

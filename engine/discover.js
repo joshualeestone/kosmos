@@ -108,9 +108,8 @@ function decline(dir) {
   if (!dirs.includes(given)) dirs.push(given);
   try {
     fs.mkdirSync(path.dirname(DECLINED_FILE), { recursive: true });
-    const tmp = DECLINED_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ dirs }) + '\n');
-    fs.renameSync(tmp, DECLINED_FILE);
+    // #5434 slice 23: flushed before the rename
+    store.saveFlushed(DECLINED_FILE, JSON.stringify({ dirs }) + '\n');
   } catch { return { ok: false, because: 'we could not remember that' }; }
   return { ok: true, declined: given };
 }
@@ -121,9 +120,8 @@ function undecline(dir) {
   const dirs = declined().filter((d) => d !== given);
   try {
     fs.mkdirSync(path.dirname(DECLINED_FILE), { recursive: true });
-    const tmp = DECLINED_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ dirs }) + '\n');
-    fs.renameSync(tmp, DECLINED_FILE);
+    // #5434 slice 23: flushed before the rename
+    store.saveFlushed(DECLINED_FILE, JSON.stringify({ dirs }) + '\n');
   } catch { return { ok: false, because: 'we could not remember that' }; }
   return { ok: true, restored: given };
 }
@@ -180,9 +178,8 @@ function dismiss(dirs) {
     ? [...new Set(dirs.filter((d) => typeof d === 'string'))]
     : [];
   fs.mkdirSync(path.dirname(DISMISS_FILE), { recursive: true });
-  const tmp = DISMISS_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ dismissedAt: new Date().toISOString(), dirs: given }) + '\n');
-  fs.renameSync(tmp, DISMISS_FILE);
+  // #5434 slice 23: flushed before the rename (a failure still throws, as before)
+  store.saveFlushed(DISMISS_FILE, JSON.stringify({ dismissedAt: new Date().toISOString(), dirs: given }) + '\n');
 }
 
 /**
@@ -1154,13 +1151,12 @@ function defaultTccScan(tccRoots, budgets) {
     try {
       // Write tmp+rename so a reader (the app watcher) never sees a torn request (parity with the
       // store's other writers). rename is atomic within the same dir.
-      const tmp = reqPath + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify({
+      // #5434 slice 23: flushed before the rename
+      store.saveFlushed(reqPath, JSON.stringify({
         roots: tccRoots.map((r) => ({ dir: r.dir, maxDepth: r.maxDepth, importOnly: r.importOnly === true })),
         budgets,
         req: nonce,
       }));
-      fs.renameSync(tmp, reqPath);
       tccPendingReq = { nonce, at: Date.now() };
     } catch { /* best effort; the retry re-attempts */ }
   }

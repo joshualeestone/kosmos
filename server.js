@@ -16496,7 +16496,6 @@ const server = http.createServer(async (req, res) => {
         if (!/^\d+\.\d+\.\d+$/.test(v)) { sendJson(res, 400, { error: 'that is not a version we can record' }); return; }
         try {
           fs.mkdirSync(store.ROOT, { recursive: true });
-          const tmp = path.join(store.ROOT, 'seen-version.json.tmp');
           /* #4928: also which highlights this dismissed (the file's main version), kept from before when
              this version has none (#5224: or none for this platform), so the same words are not opened again under
              another number. */
@@ -16505,8 +16504,8 @@ const server = http.createServer(async (req, res) => {
           if (!highlightsFor) {
             try { highlightsFor = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8')).highlightsFor || null; } catch { highlightsFor = null; }
           }
-          fs.writeFileSync(tmp, JSON.stringify(highlightsFor ? { version: v, highlightsFor } : { version: v }) + '\n');
-          fs.renameSync(tmp, path.join(store.ROOT, 'seen-version.json'));
+          // #5434 slice 23: flushed before the rename
+          store.saveFlushed(path.join(store.ROOT, 'seen-version.json'), JSON.stringify(highlightsFor ? { version: v, highlightsFor } : { version: v }) + '\n');
           sendJson(res, 200, { seen: v });
         } catch { sendJson(res, 500, { error: 'we could not record that' }); }
       })

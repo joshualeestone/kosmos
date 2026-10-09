@@ -268,13 +268,11 @@ function refresh(opts = {}) {
       let saveError = null;
       if (changed || storedSerial() !== r.catalogue.serial) {
         const file = cacheFile();
-        const tmp = `${file}.${process.pid}.tmp`;
         try {
           fs.mkdirSync(path.dirname(file), { recursive: true });
-          fs.writeFileSync(tmp, JSON.stringify({ sig: sig.toString('utf8').trim(), text }));
-          fs.renameSync(tmp, file);
+          // #5434 slice 23: flushed before the rename
+          require('./store').saveFlushed(file, JSON.stringify({ sig: sig.toString('utf8').trim(), text }));
         } catch (err) {
-          try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
           saveError = `the downloaded catalogue is in use but could not be saved: ${(err && err.message) || err}`;
         }
       }
@@ -413,13 +411,11 @@ async function portrait(teamKey, slot, opts = {}) {
       if (!isPortrait(bytes, sha)) throw new Error(`the downloaded portrait ${a.image} was refused: it is not the image the catalogue names`);
       // A portrait that verified is used even when saving it fails: it is held in memory instead,
       // so this process does not download it again.
-      const tmp = `${file}.${process.pid}.tmp`;
       try {
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(tmp, bytes);
-        fs.renameSync(tmp, file);
+        // #5434 slice 23: flushed before the rename
+        require('./store').saveFlushed(file, bytes);
       } catch {
-        try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
         portraitUnsaved.set(sha, bytes);
       }
       prunePortraits(sha);

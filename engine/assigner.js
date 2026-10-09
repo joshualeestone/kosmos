@@ -326,19 +326,17 @@ function loadMemory(now) {
 }
 
 /* Writes only when the saved form changed since the last write (`last`, the JSON it returned), so a quiet board does
-   not rewrite the file every minute. Atomic: a pid-scoped temp, then rename (engine/prompternudge.js's pattern). */
+   not rewrite the file every minute. Atomic: securewrite's unique temp, flushed, then renamed (#5434). */
 function saveMemory(mem, last) {
   const json = JSON.stringify(savedForm(mem));
   if (json === last) return last;
   const file = MEMORY_FILE();
-  const tmp = file + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, json + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    // #5434 slice 23: flushed before the rename (mode 0600 kept; a failed save removes its own temp)
+    require('./securewrite').writeSecret(file, json + '\n', 0o600, { atomicOnly: true });
     return json;
   } catch {
-    try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
     return last;
   }
 }

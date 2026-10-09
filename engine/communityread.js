@@ -441,9 +441,8 @@ function writeMarks(sessionName, marks) {
   try {
     const f = seenFile(sessionName);
     fs.mkdirSync(path.dirname(f), { recursive: true });
-    const tmp = f + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ posts: marks }));
-    fs.renameSync(tmp, f);
+    // #5434 slice 23: flushed before the rename
+    store.saveFlushed(f, JSON.stringify({ posts: marks }));
     return true;
   } catch { return false; }
 }
