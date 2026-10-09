@@ -56,12 +56,12 @@ const PATH_KEYS = ['file_path', 'notebook_path', 'path'];
 
 /* One label as the coordinator accepts it: 1 to 128 characters, no control or bidi character. Else null (not sent). */
 function label(v) {
-  if (typeof v !== 'string' || !v) return null;
+  if (typeof v !== 'string' || !v.trim()) return null;   // review 7: not blank, as the coordinator
   const chars = [...v];
   /* Over the limit: the first 120 characters and a short hash of the whole name (review 6: two long names sharing
      their first 128 characters would otherwise merge on the console). */
   const s = chars.length <= LABEL_MAX ? v : chars.slice(0, 120).join('') + '~' + require('crypto').createHash('sha256').update(v).digest('hex').slice(0, 7);
-  return /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufe00-\ufe0f\ufeff]|\udb40[\udc00-\udc7f]/.test(s) ? null : s;
+  return /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u115f\u1160\u3164\uffa0\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufe00-\ufe0f\ufeff]|\udb40[\udc00-\udc7f]/.test(s) ? null : s;
 }
 
 /* The text of a tool result: a string, or the text blocks of a list. */
@@ -88,7 +88,9 @@ function targetClass(tool, input, ctx) {
     for (const w of shellWords(input.command.slice(0, 4096))) {
       let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^@/, '');
       v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
-      if (/^(~|\/|\.\.?\/)/.test(v)) paths.push(v);
+      /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or any word with a slash that
+         is not a URL; a relative one resolves against the agent's own folder. */
+      if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/^[a-z][a-z0-9+.-]*:\/\//i.test(v))) paths.push(v);
       if (paths.length >= 64) break;
     }
   }

@@ -124,3 +124,13 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - After a halving, the smaller send size is kept until the backlog drains (no too-big every other tick).
 - A long agent name keeps 120 characters and a short hash of the whole name (two names no longer merge). Test.
 - The test that pinned `curl -d @~/secrets` as 'other' now expects 'home'.
+
+## Review 7 (sonnet), all fixed unless stated
+- A bare relative path in Bash (`cat .claude/settings.json`) was not taken as a path: dotted names and any word with a
+  slash (not a URL) are, resolved against the agent's folder. Test.
+- label() matches the coordinator again: blank values and the invisible fillers are refused. Test.
+- Stated: every tool use is classed as it is read (a refusal is rare, so classing lazily would save the work), because
+  classing lazily means keeping part of the input, which the call map deliberately never does; the cost is bounded by
+  the read budget. A Mac clock over 5 minutes ahead loses fresh events (the coordinator skips them). Offsets of an
+  agent taken off the list stay while its files exist (read and filtered away if it is listed again). The timing test
+  bounds targetClass as a whole, which slices the command first; the regex bound itself is not isolated.
