@@ -4732,12 +4732,14 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.pj-fold-hidden 
    siblings' rails TOUCH into one continuous line rather than breaking at each flex gap.
    Scope note: one rail at the row's OWN parent level, not a full multi-ancestor ladder --
    CSS cannot know which ancestors have following siblings without per-level markup, so the
-   deeper indents are carried by the padding indent alone. The last child's vertical
-   over-runs its elbow slightly (no CSS "last sibling" selector); an accepted imperfection. */
+   deeper indents are carried by the padding indent alone. #5712 (Josh, 10-09 14:44): the last child's rail
+   stops at its elbow (an elbow, not a tee), marked .pj-lastkid by pjTreeRows, since no CSS selector can tell the last
+   sibling among flat rows. */
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child::before {
   content: ""; position: absolute; top: -2px; height: calc(100% + 2px);
   left: calc((var(--pj-depth, 0) - 1) * 22px + 13px);
   border-left: 2px solid var(--k-rule); pointer-events: none; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child.pj-lastkid::before { height: calc(50% + 3px); }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child::after {
   content: ""; position: absolute; top: 50%; height: 0; width: 11px;
   left: calc((var(--pj-depth, 0) - 1) * 22px + 13px);
@@ -59075,12 +59077,14 @@ function pjTreeRows(active) {
   const rows = [];
   const seen = new Set();
   const emit = (parentId, depth) => {
-    for (const c of (kids.get(parentId) || [])) {
-      if (seen.has(c.id)) continue;     // cycle guard: never render a row twice
+    const sibs = (kids.get(parentId) || []).filter((c) => !seen.has(c.id));
+    sibs.forEach((c, i) => {
+      if (seen.has(c.id)) return;       // cycle guard: never render a row twice
       seen.add(c.id);
-      rows.push(projectCard(c, PJ_AGENTS_UNREADABLE, depth, (kids.get(c.id) || []).length));
+      // #5712: the last child of its parent ends its connector rail in an elbow (CSS .pj-lastkid).
+      rows.push(projectCard(c, PJ_AGENTS_UNREADABLE, depth, (kids.get(c.id) || []).length, i === sibs.length - 1));
       emit(c.id, depth + 1);
-    }
+    });
   };
   emit('', 0);
   // Backstop: anything a cycle kept out of the top-down walk still renders, at
@@ -59377,7 +59381,7 @@ function pjAncestry(p) {
   }
   return names;
 }
-function projectCard(p, unreadable, depth, childCount) {
+function projectCard(p, unreadable, depth, childCount, lastKid) {
   const s = p.summary || {};
   const folder = pjFolderLine(p);
   const pill = pjPillOf(p, unreadable);
@@ -59474,7 +59478,7 @@ function projectCard(p, unreadable, depth, childCount) {
     ? '<span class="pjtreefold" data-pjtreefold="' + esc(p.id) + '" aria-hidden="true">▾</span>'
     : '';
   return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '')
-    + (dep ? ' child' : '') + '"' + (dep ? ' style="--pj-depth:' + dep + '"' : '')
+    + (dep ? ' child' : '') + (dep && lastKid ? ' pj-lastkid' : '') + '"' + (dep ? ' style="--pj-depth:' + dep + '"' : '')
     + (p.id === PJ_CURRENT ? ' aria-current="true"' : '') + ' type="button" data-project="' + esc(p.id) + '">'
     + treeCaret
     + '<span class="pjcard-h"><span class="pjname"><b>' + esc(p.name) + '</b>'
