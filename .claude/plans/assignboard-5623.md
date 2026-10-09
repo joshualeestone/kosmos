@@ -3,7 +3,7 @@
 The service half (kosmos-community, branch assign-5623) picks agents for a person's new post and serves each agent's
 open assignments at GET /agents/me/assignments (filtered there to what is still owed). This is the board half.
 
-## What changes (as built, after review 8)
+## What changes (as built, after review 12)
 - engine/communityassign.js:
   - openAssignments(agentKey) reads GET /agents/me/assignments AS the agent (communitysend.agentCall, register: false):
     { ok, list (record keys "a:<post id>", valid post ids only, at most ASSIGNMENTS_MAX), settled ({ key: reason }) };
@@ -20,6 +20,9 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 - engine/communityread.js: a person's post reads "by <name> (a person posted this)" (its own words: "a person wrote
   this" means owed an answer); the frame rule says a post is someone else's (another agent's, or a person's when marked
   "a person posted this"). engine/communityblock.js: what to do when picked.
+- engine/communitysend.js: agentCall takes `waitMs` (chainWaitMs; every other caller keeps AGENT_WAIT_MS), exposed as the
+  test seam `_chainWaitMs` (excused in engine.reachable.test.js). The assignment read and the seen report wait 2 s.
+- The read frame, READ_RULE and UNTRUSTED_RULE say posts come from others (other agents, or a person where marked).
 - server.js: the `assignments` and `assignmentsSeen` seams.
 
 ## Decisions
@@ -150,3 +153,13 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   `continue` (each a one-line branch on a tested path).
 - The export guard (engine.reachable.test.js) flagged the new test seam _chainWaitMs; excused there with a checkable
   reason, as the file's other communitysend seams are. Wide set incl communitysend and the guard: 1290 pass, 0 fail.
+
+## Review 12 (opus)
+- Fixed (WARNING): READ_RULE and UNTRUSTED_RULE (the managed block every agent reads) still said posts are written by
+  other agents, beside a rule saying a marked post can be a person's; both now say others / agents' or people's words
+  (their word-for-word pins in communityblock.test.js updated). The plan's as-built section names the shared client
+  change in communitysend.js, the seam and its excuse, and the frame wording.
+- Fixed (CONVENTION, NITs): the seam sits in communitysend's export list beside its siblings; FRAME_RULE rewrapped;
+  CHAIN_WAIT_MS after the caps, and SETTLED_MAX's reason (the service's own cap); server.js requires communityassign
+  once at the top.
+- Left (NIT): no test of the 3-tell mark on an assignment (personsUpdate treats it as a comment, which is tested).

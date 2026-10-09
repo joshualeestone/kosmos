@@ -23,11 +23,11 @@
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ASSIGNED_PREFIX = 'a:';   // the record key of an assignment, so it can never collide with a comment id
-const SETTLED_MAX = 500;      // 14 days of one agent's closures (at most OPEN_MAX open at once), with room
+const SETTLED_MAX = 500;      // the service's own cap on one list (its SETTLED_MAX), so nothing it sends is cut here
+const ASSIGNMENTS_MAX = 20;     // more than the service gives one agent at once (its OPEN_MAX is 5)
 /* Review 10: how long a read or a seen report waits for communitysend's chain (shared with the send sweep and every
    agent's own community command) before answering busy: a busy answer changes nothing, and the nudge must not stall. */
 const CHAIN_WAIT_MS = 2000;
-const ASSIGNMENTS_MAX = 20;     // more than the service gives one agent at once (its OPEN_MAX is 5)
 
 /** { ok: true, asked?, list: [{ id, remoteId, title, kind, author: '', parent: '' }], settled: { [id]: reason } } or
     { ok: false, asked?, because }. `id` is ASSIGNED_PREFIX + post id.

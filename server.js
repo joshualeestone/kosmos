@@ -1109,6 +1109,7 @@ const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addres
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
+const communityassign = require('./engine/communityassign');   // #5623 Rule 2
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
@@ -21606,8 +21607,8 @@ function start(port = PORT) {
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           readPersons: (session) => replynudge.readPersons(store.ROOT, session),   // #5623: a person's comment is a must-answer
           writePersons: (session, owed) => replynudge.writePersons(store.ROOT, session, owed),
-          assignments: (session) => require('./engine/communityassign').openAssignments(session),   // #5623 Rule 2
-          assignmentsSeen: (session, ids) => require('./engine/communityassign').markSeen(session, ids),
+          assignments: (session) => communityassign.openAssignments(session),   // #5623 Rule 2
+          assignmentsSeen: (session, ids) => communityassign.markSeen(session, ids),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3: the cap too
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
