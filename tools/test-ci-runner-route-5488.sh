@@ -3,8 +3,8 @@
 # variable KOSMOS_CI_RUNNER is exactly `on` and the code is this repo's own (a push to main, or a PR whose
 # head repo is this repo). (This is the honest path only; the machine's job guard is what refuses fork code:
 # tools/test-ci-runner-job-guard-5488.sh.) This runs the REAL decide step body, under GitHub's own shell flags,
-# taken from the parsed workflow, with each input, and checks the suite's runs-on falls back when scope
-# gave nothing. #4601: and that a shell shard follows the node part there only when KOSMOS_CI_SHELL_SHARDS names it.
+# taken from the parsed workflow, with each input, and pins the suite's runs-on expression (its fallback to
+# macos-latest when scope gave nothing is read from that pinned string, not evaluated). #4601: and that a shell shard follows the node part there only when KOSMOS_CI_SHELL_SHARDS names it.
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 WF="$HERE/../.github/workflows/test.yml"
@@ -72,6 +72,9 @@ shard "shards 1/2: shell 2/2 stays on macos-latest" "$HOSTED" on push "" "1/2" s
 shard "shards 1/2,2/2: shell 2/2 on the self-hosted Mac" "$SELF" on pull_request owner/kosmos "1/2,2/2" shell2_runner
 shard "shards 1/2,2/2 but a FORK PR: macos-latest (follows the node rule)" "$HOSTED" on pull_request someone/kosmos "1/2,2/2" shell1_runner
 shard "shards 1/2,2/2 but the switch off: macos-latest" "$HOSTED" off push "" "1/2,2/2" shell1_runner
+shard "shards 1/2,2/2 but a FORK PR: shell 2/2 on macos-latest too" "$HOSTED" on pull_request someone/kosmos "1/2,2/2" shell2_runner
+shard "shards 1/2,2/2 but the switch off: shell 2/2 on macos-latest too" "$HOSTED" off push "" "1/2,2/2" shell2_runner
+shard "shards '1/2 2/2' (a space only): shell 2/2 on the self-hosted Mac" "$SELF" on push "" "1/2 2/2" shell2_runner
 shard "shards '1/22' (not a listed shard): macos-latest" "$HOSTED" on push "" "1/22" shell1_runner
 shard "shards 2/2 alone: shell 1/2 stays on macos-latest (the two case lines not swapped)" "$HOSTED" on push "" "2/2" shell1_runner
 shard "shards '1/2, 2/2' (a space): shell 2/2 on the self-hosted Mac" "$SELF" on push "" "1/2, 2/2" shell2_runner
