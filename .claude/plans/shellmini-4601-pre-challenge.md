@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 7
 **Converged:** Yes (round 7: no BLOCKER, no CONVENTION; its one WARNING, that running shell shards on the mini is
-argued in comments and not enforced, is the item deferred since round 2 with its reason in the plan, and its
+argued in comments and not enforced, is the item deferred since round 4 with its reason in the plan, and its
 remedy (write the precondition on #4601 where the variable gets set) was already done: the audit file list and the
 precondition are posted on #4601. Its three NITs (a stale test header, an arm count, an evaluator's error wording)
 were fixed in 171e0eb62's commit.)
@@ -29,12 +29,12 @@ dropping the $mac guard, removing the 2/2 case line, swapping shell1/shell2 in r
 reports "want S1, got S2"), removing the runs-on fallback ("no alternative chosen"), dropping set -f (the ?/?
 arm), and removing the misspelt-value log line. Each went red; each was reverted with git checkout.
 
-### Per-Iteration Breakdown
+### Per-Iteration Breakdown (from each round's commit subject)
 
-1: shard routing bypassed the own-code rule on one path; matrix/route mismatch: FIXED.
-2: safety of shell tests on the mini only argued: DEFERRED (ships OFF, precondition stated where the var is read).
-3: plan estimated a shard at ~6 min by ratio; #5488 measured 14 min: FIXED in the plan and corrected publicly on #4601.
-4: fork PR and switch-off arms only on shard 1/2: FIXED (both shards).
-5: substring shard match (1/2x routed); precondition named only "another Mac"; matrix names unpinned: FIXED.
-6: tr parse untested on GNU; runs-on only pinned as text; misspelling silent in the log: FIXED (builtins + set -f, evaluator, log line).
-7: deferred item re-raised (dedup); stale header, arm count, evaluator wording: FIXED.
+1: the plan trusted an estimate (now measures: revert triggers, a skip-count comparison); spaces in the value; routing not logged; two more arms: FIXED (0394e1961).
+2: the log could carry a workflow command (only shard characters kept); a stale node-only comment; three more arms: FIXED (56c6d6ac2).
+3: the plan estimated a shard at ~6 min by ratio, #5488 measured 14 min on the mini: plan rewritten, mechanism ships OFF, corrected publicly on #4601; shell 2/2 gated arms; whitespace as separator; honest red-check record: FIXED (7b5d780f2).
+4: the preconditions for setting KOSMOS_CI_SHELL_SHARDS not stated beside it: FIXED (590f7efea). Enforcement of them: DEFERRED (ships OFF).
+5: substring shard match (1/2x routed); precondition named only another Mac; matrix names unpinned: FIXED (d4f9c3d02).
+6: tr parse untested on GNU; runs-on only pinned as text; a misspelling silent in the log: FIXED (1919758ff, b105e4841).
+7: the deferred enforcement item re-raised (dedup); stale header, arm count, evaluator wording NITs: FIXED (171e0eb62).
