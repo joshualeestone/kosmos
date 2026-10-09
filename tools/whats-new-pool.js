@@ -14,9 +14,10 @@
  *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>]
  *       writes web/whats-new.json: the top --max pending highlights by rank (ties: newest first), checked with
  *       engine/whatsnew.js's own rules (the cut's step 1b-ii runs the same check).
- *   node tools/whats-new-pool.js shown <version> [--pool=<file>] [--from=<file>]
+ *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] [--from=<file>]
  *       after <version> is PROMOTED to prod: every pool entry whose title is in that version's What's New becomes
- *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut.
+ *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut: --promoted is
+ *       required, so it is never run by reflex after a cut (that would retire highlights prod users never saw).
  *
  * Exit 0 on success, 3 when the pool cannot make a showable list (no eligible highlight, or one the window rejects),
  * 2 on a usage error.
@@ -73,9 +74,9 @@ function opt(args, name, dflt) {
 function main(argv) {
   const whatsnew = require('../engine/whatsnew');
   // Only --name=value flags this tool knows: a typo (`--outt=`) or `--max 4` must not silently do something else.
-  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from)=./.test(a));
+  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from)=./.test(a) && a !== '--promoted');
   if (unknown.length) {
-    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE)\n');
+    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --promoted)\n');
     return 2;
   }
   const [cmd, version] = argv.filter((a) => !a.startsWith('--'));
@@ -85,7 +86,9 @@ function main(argv) {
   }
   const poolFile = opt(argv, 'pool', POOL);
   const pool = readPool(poolFile);
+  if (cmd === 'build') {
   // Every pending item must be one the window can show, checked now rather than the day it reaches the top 5.
+  // (Only on build: a malformed pending item must not stop `shown` recording what prod showed.)
   for (const it of pool.items.filter((i) => i.status === 'pending')) {
     const h = { icon: it.icon, title: it.title, line: it.line };
     if (it.platforms) h.platforms = it.platforms;
@@ -95,7 +98,6 @@ function main(argv) {
       return 3;
     }
   }
-  if (cmd === 'build') {
     const max = Number(opt(argv, 'max', String(whatsnew.MAX_HIGHLIGHTS)));
     if (!Number.isInteger(max) || max < 1 || max > whatsnew.MAX_HIGHLIGHTS) {
       process.stderr.write('--max must be 1 to ' + whatsnew.MAX_HIGHLIGHTS + '\n');
@@ -121,12 +123,17 @@ function main(argv) {
       + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n'
       + 'The pool says the last PROD release was ' + (pool.lastProd || 'not recorded') + '. If a newer version reached prod, first'
       + ' run, ON MAIN (main\'s pool, never a release checkout\'s): git show "v<that version>:web/whats-new.json" > /tmp/wn.json &&'
-      + ' node tools/whats-new-pool.js shown <that version> --from=/tmp/wn.json, then commit release/whats-new-pool.json to main.'
+      + ' node tools/whats-new-pool.js shown <that version> --promoted --from=/tmp/wn.json, then commit release/whats-new-pool.json to main.'
       + ' Otherwise prod users see its highlights again.\n'
       + 'Edit titles and lines in release/whats-new-pool.json and build again, never in the built file: `shown` matches by title.\n');
     return 0;
   }
   // shown: the titles this PROD version showed leave the pool's eligible set for good.
+  if (!argv.includes('--promoted')) {
+    process.stderr.write('shown retires highlights for good: run it only after ' + version + ' is PROMOTED to prod, and say so with'
+      + ' --promoted. Nothing marked.\n');
+    return 2;
+  }
   const from = opt(argv, 'from', whatsnew.FILE);
   const shownObj = JSON.parse(fs.readFileSync(from, 'utf8'));
   if (!shownObj || shownObj.version !== version || !Array.isArray(shownObj.highlights)) {
@@ -151,7 +158,10 @@ function main(argv) {
     if (titles.has(it.title) && it.status === 'pending') { it.status = 'shown'; it.shownIn = version; marked++; }
   }
   pool.lastProd = version;
-  fs.writeFileSync(poolFile, JSON.stringify(pool, null, 2) + '\n');
+  // Temp file then rename: a crash mid-write must not truncate the only record of what prod showed.
+  const tmpFile = poolFile + '.tmp-' + process.pid;
+  fs.writeFileSync(tmpFile, JSON.stringify(pool, null, 2) + '\n');
+  fs.renameSync(tmpFile, poolFile);
   process.stdout.write(marked + ' highlight(s) marked shown in prod ' + version + '\n');
   return 0;
 }
@@ -164,4 +174,4 @@ if (require.main === module) {
   }
   process.exit(code);
 }
-module.exports = { main, choose, readPool };
+module.exports = { main, choose, readPool, newerFirst };
