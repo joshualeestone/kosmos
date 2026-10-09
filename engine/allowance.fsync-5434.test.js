@@ -94,10 +94,19 @@ for (const [name, write] of WRITERS) {
       if (flags === 'wx' && String(target).startsWith(file)) { planted += 1; throw Object.assign(new Error('planted'), { code: 'EEXIST' }); }
       return realOpen.call(fs, target, flags, ...rest);
     };
-    // the writer helper's own `record(...) === true` assertion fails here by design (the save failed); swallowed, and
-    // the planted count and the unchanged bytes below are what this arm checks
-    try { write(dir); } catch { /* expected, see above */ }
-    finally { fs.openSync = realOpen; }
+    // The writer's own contract on a failed save, called directly (no helper assertion to swallow): the statusline
+    // returns false and never throws; calibrate still returns the NEW estimate (only its save failed).
+    try {
+      if (name === 'statusline.record') {
+        assert.equal(statusline.record(dir, { usedPct: 9999, resetsAt: FUTURE }, 9e9), false, 'a failed save did not return false (or threw)');
+      } else {
+        const now = Date.now();
+        const dayStart = now - 6 * 3600 * 1000;
+        fs.writeFileSync(path.join(dir, statusline.FILE), JSON.stringify({ usedPct: 44, resetsAt: FUTURE, at: now - 60e3, history: [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE]] }));
+        const got = allowance.calibrate(dir, 9e6, { now, dayStart });
+        assert.ok(got && got.tokens === 9e6, 'a failed save did not still return the new estimate: ' + JSON.stringify(got));
+      }
+    } finally { fs.openSync = realOpen; }
     assert.equal(planted, 3, 'the planted failure did not fire on all three atomic attempts');
     assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file was rewritten in place');
   });
@@ -124,10 +133,11 @@ test('#5434: the statusline copied ALONE (no securewrite beside it) still record
   fs.copyFileSync(path.join(__dirname, 'kosmos-statusline.js'), path.join(home, 'kosmos-statusline.js'));
   const acct = path.join(home, 'acct');
   fs.mkdirSync(acct);
-  const out = require('node:child_process').execFileSync(process.execPath,
+  const r = require('node:child_process').spawnSync(process.execPath,
     ['-e', 'process.stdout.write(String(require(process.argv[1]).record(process.argv[2], { usedPct: 7, resetsAt: Number(process.argv[3]) }, 1)))',
-      path.join(home, 'kosmos-statusline.js'), acct, String(FUTURE)], { encoding: 'utf8' });
-  assert.equal(out, 'true', 'the reading was not recorded');
+      path.join(home, 'kosmos-statusline.js'), acct, String(FUTURE)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  assert.equal(r.stderr, '', 'the statusline printed an error');
+  assert.equal(r.stdout, 'true', 'the reading was not recorded');
   assert.equal(JSON.parse(fs.readFileSync(path.join(acct, statusline.FILE), 'utf8')).usedPct, 7);
 });
 
