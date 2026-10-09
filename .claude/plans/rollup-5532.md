@@ -421,3 +421,6 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   no pinned print is accepted (print_matches returns true when nothing is pinned); and a codeless enroll that sends no
   print UNPINS (the binding is rewritten with a fresh salt and no print), so a review's Accept that sends none rightly
   records no salt and printPinned false.
+- Review 35: the Review prompt for words that ask for no reports says "Accept what it asks now" (not "so this Kosmos
+  can report", which Accept would not do); a partial-read hold does not survive a print wait; README and CLAUDE.md say
+  /api/org reads the rollup's state and gives reportingWait.

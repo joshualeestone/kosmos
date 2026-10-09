@@ -408,6 +408,14 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     // offered (it is how such a Kosmos learns its company's words changed).
     const reviewWhenNoReports = await offeredWhen('noReports');
     const sayNoReports = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
+    // Rollup review 35: opening Review for words that ask for no reports does not promise reporting.
+    await page.evaluate(() => { window.__review = true; });
+    await page.click('#plus-org-review');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const askNoReports = await page.evaluate(() => document.getElementById('plus-org-ask').textContent);
+    await page.click('#plus-org-notnow');
+    await page.evaluate(() => { window.__review = false; });
+    chk(/Accept what it asks now:$/.test(askNoReports) && !/so this Kosmos can report/.test(askNoReports), 'O15c the Review prompt for words that ask for no reports promises no reporting', JSON.stringify(askNoReports));
     // Rollup review 34: a print that cannot be made at all: not offered Review, and said as that (never "once it has read").
     const reviewWhenPrintError = await offeredWhen('printError');
     const sayPrintError = await page.evaluate(() => document.getElementById('plus-org-say').textContent);

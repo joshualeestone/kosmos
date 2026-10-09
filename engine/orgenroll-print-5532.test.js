@@ -307,4 +307,9 @@ test('#5532 rollup review 34: a print that cannot be made at all is said as that
   const tk = await rollup.tick({ root, remote: co, sources: src, now: Date.UTC(2026, 9, 8, 12) });
   assert.equal(tk.sent, false, JSON.stringify(tk));
   assert.equal(rollup.waitingForPrint(root), 'error', 'a print that cannot be made read as a read that will retry');
+  // Review 35: a partial-read hold from an earlier day does not survive a print wait.
+  const sf = path.join(root, rollup.STATE_FILE);
+  fs.writeFileSync(sf, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(sf, 'utf8')), { partialSince: Date.UTC(2026, 9, 7, 12), printWaitWhy: 'later' })));
+  await rollup.tick({ root, remote: co, sources: src, now: Date.UTC(2026, 9, 8, 12, 30) });
+  assert.equal('partialSince' in JSON.parse(fs.readFileSync(sf, 'utf8')), false, 'a partial hold outlived the print wait');
 });

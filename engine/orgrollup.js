@@ -423,7 +423,8 @@ async function tick(opts) {
     // Rewritten when the words changed too (rollup review 33): a note kept from other words would read as no wait.
     // And why (rollup review 34): a read that will retry ('later') is not a print that cannot be made at all ('error').
     const why = pf.send === 'error' ? 'error' : 'later';
-    if (!st.printWaitAt || st.printWaitHash !== (rec.consentHash || null) || st.printWaitWhy !== why) writeState(root, Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: rec.consentHash || null, printWaitWhy: why }));
+    // A partial hold belongs to one day's daily (review 24); one kept across a long print wait would skip the next hold (review 35).
+    if (!st.printWaitAt || st.printWaitHash !== (rec.consentHash || null) || st.printWaitWhy !== why) { const w = Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: rec.consentHash || null, printWaitWhy: why }); delete w.partialSince; writeState(root, w); }
     return { sent: false, because: 'this computer could not be read yet' };
   }
   if (st.printWaitAt) { delete st.printWaitAt; delete st.printWaitWhy; writeState(root, Object.assign({}, st, { enrolledAs })); }   // readable again
