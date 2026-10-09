@@ -97,3 +97,15 @@ test('#5636 F4 review 4: an answer the caller does not mark for resending, a fai
   await readjobs.ask('g', () => Promise.resolve({ status: 200 }), 100, Date.now(), { resend });
   assert.equal(readjobs._size(), 1);
 });
+
+test('#5636 F4 review 5: only a good replies or Following answer is worth resending', () => {
+  const q = (s) => new URLSearchParams(s);
+  assert.equal(readjobs.worthResending(q('following=1'), { status: 200 }), true);
+  assert.equal(readjobs.worthResending(q('replies=1'), { status: 200 }), true);
+  assert.equal(readjobs.worthResending(q('replies=1'), { status: 409 }), false, 'a busy replies read was kept');
+  assert.equal(readjobs.worthResending(q('following=1'), { status: 502 }), false, 'a failed Following read was kept');
+  assert.equal(readjobs.worthResending(q('following=1'), null), false);
+  assert.equal(readjobs.worthResending(q('channel=general'), { status: 200 }), false, 'a channel read was kept');
+  assert.equal(readjobs.worthResending(q('post=1b2c'), { status: 200 }), false, 'a post read was kept');
+  assert.equal(readjobs.worthResending(q('following=0'), { status: 200 }), false);
+});
