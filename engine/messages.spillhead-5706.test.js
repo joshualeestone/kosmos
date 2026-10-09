@@ -56,13 +56,13 @@ test('#5706 review 1: a list number or an abbreviation is not a sentence end, so
 });
 
 test('#5706 review 1: a full stop at the 200th character inside a word (release3.5) is not a sentence end', () => {
-  /* A long word (release3.5), so the abbreviation rule cannot be what refuses it: only reading past the slice can. */
+  /* A long word (release3.5), so the abbreviation rule cannot be what refuses it. */
   const lead = 'z'.repeat(150) + ' ' + 'y'.repeat(39) + ' release3';   // the "." of "release3.5" is the 200th character
   const text = lead + '.5 next ' + 'word '.repeat(200);
   assert.equal(text.indexOf('.'), 199, 'CONTROL: the full stop sits at index 199');
   const r = spillHead(text);
   assert.ok(r.head.endsWith('\u2026'), r.head.slice(-20));
-  assert.ok(!r.head.endsWith('release3.'), r.head.slice(-20));
+  assert.ok(!/release3\.\s*\u2026$/.test(r.head), r.head.slice(-20));   // review 5: every head ends in an ellipsis now
 });
 
 test('#5706 review 1: a slice that already ends on a whole word keeps it, and a trailing comma is dropped', () => {
@@ -105,4 +105,10 @@ test('#5706 review 4: every head ends in an ellipsis, so even a word the list mi
   for (const text of ['A real first sentence that is long enough. ' + 'More. '.repeat(150), 'the lease detail '.repeat(80)]) {
     assert.ok(spillHead(text).head.endsWith('\u2026'), spillHead(text).head);
   }
+});
+
+test('#5706 review 5: a head is never only an ellipsis, and one word is "1 word"', () => {
+  const r = spillHead(', '.repeat(400));
+  assert.notEqual(r.head, '\u2026');
+  assert.ok(r.head.length > 1, JSON.stringify(r.head.slice(0, 10)));
 });
