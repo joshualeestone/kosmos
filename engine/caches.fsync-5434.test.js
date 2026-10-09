@@ -128,6 +128,7 @@ for (const [name, w] of WRITERS) {
 
   if (w.mode) {
     test('#5434 slice 23: ' + name + ' is still saved at mode ' + w.mode.toString(8), { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+      fs.rmSync(w.file(), { force: true });   // review 2: measure a fresh create, not a file an earlier arm left at 0600
       const prev = process.umask(0o022);
       try { w.save(); } finally { process.umask(prev); }
       assert.equal(fs.statSync(w.file()).mode & 0o777, w.mode);
@@ -186,6 +187,16 @@ const EXPECTED = {
   'engine/replynudge.js': { moves: 0, flushed: /saveFlushed\(/ },
   'engine/stuckterminal.js': { moves: 0, flushed: /saveFlushed\(/ },
 };
+// review 2: a file with two owner-only saves must keep BOTH on writeSecret (one regex match would pass with one left).
+const OWNER_ONLY_SITES = { 'engine/communitynudge.js': 2 };
+for (const [rel, n] of Object.entries(OWNER_ONLY_SITES)) {
+  test('#5434 slice 23: ' + rel + ' keeps all ' + n + ' owner-only saves on writeSecret', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    assert.equal((src.match(/writeSecret\([^;]*0o600/g) || []).length, n);
+    assert.doesNotMatch(src, /saveFlushed\(/);
+  });
+}
+
 for (const [rel, want] of Object.entries(EXPECTED)) {
   test('#5434 slice 23: ' + rel + ' saves through a flushed write and keeps exactly ' + want.moves + ' move(s)', () => {
     const src = fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
