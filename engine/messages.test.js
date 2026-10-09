@@ -3409,3 +3409,53 @@ test('#4888: a send that was refused does not hand its id to the next one', () =
     assert.notEqual(next.id, usedId, 'the next send was given the id the refused one had used');
   });
 });
+
+/* ── #5732: a post from the account's own other computer tells the agents to read the room ─────────── */
+
+test('#5732: each member agent gets ONE line naming the room, with no post text, recorded as a nudge', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    messages._resetOwnPostNudgesForTests();
+    const tmux = arm([]);
+    const row = messages.externalPost('henderson-lease', { from: 'Josh', fromKind: 'person', text: 'SECRET-WORDS from my laptop' });
+    assert.ok(row && row.id, 'the external row was not stored');
+    const r = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', row.id, MEMBERS, board.agents);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.nudged.map((n) => n.to).sort(), MEMBERS.slice().sort(), 'not every member agent was told');
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('from your other computer'));
+    assert.equal(typed.length, MEMBERS.length, 'not one line per member');
+    assert.match(typed[0], /read it with: kosmos room henderson-lease/);
+    assert.ok(typed.every((t) => !t.includes('SECRET-WORDS')), 'the post\'s own words reached a pane');
+    const rows = messages.record().rows.filter((m) => m.kind === 'nudge' && m.reason === 'own-computer');
+    assert.equal(rows.length, MEMBERS.length, 'the nudges were not recorded');
+    assert.ok(rows.every((m) => m.post === row.id && m.project === 'henderson-lease'));
+  });
+});
+
+test('#5732: a burst of posts is one line per agent until the gap passes; a non-member is never typed into', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    messages._resetOwnPostNudgesForTests();
+    const tmux = arm([]);
+    const t0 = Date.now();
+    messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-1', ['mara'], board.agents, t0);
+    const again = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-2', ['mara'], board.agents, t0 + 30e3);
+    assert.deepEqual(again.nudged, [], 'a second post inside the gap typed another line');
+    const later = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-3', ['mara'], board.agents, t0 + messages.OWN_POST_NUDGE_GAP_MS + 1);
+    assert.deepEqual(later.nudged.map((n) => n.to), ['mara'], 'after the gap the agent was not told again');
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('from your other computer'));
+    assert.equal(typed.length, 2);
+    // leo and april are not members here: nothing reaches them
+    assert.ok(messages.record().rows.filter((m) => m.kind === 'nudge').every((m) => m.to === 'mara'));
+  });
+});
+
+test('#5732: the server tells agents only for a relay-stamped own post, and only when the switch is on', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('recordExternal: (projectId, msg) => {');
+  assert.ok(at > 0, 'the recordExternal wrapper is gone');
+  const body = src.slice(at, at + 900);
+  assert.match(body, /msg\.sameAccount === true/, 'the nudge is not gated on the relay\'s same_account stamp');
+  assert.match(body, /process\.env\.KOSMOS_OWN_ROOM_NUDGE === '1'/, 'the nudge is not off by default');
+  assert.match(body, /messages\.nudgeOwnComputerPost\(/);
+});

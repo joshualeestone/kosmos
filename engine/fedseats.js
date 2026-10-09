@@ -338,7 +338,10 @@ function handleEvent(projectId, line, heldAt) {
       /* #4649 slice 3: the poster's room member as the RELAY stamped it, top-level beside `data` (the connector never
          takes it from `data`, as #4657's same_account). Anything the sender wrote inside `data` is ignored;
          messages.externalPost keeps only a well-shaped value. Absent from an older relay, and then no key at all. */
-      }, typeof ev.member === 'string' ? { member: ev.member } : {}));
+      }, typeof ev.member === 'string' ? { member: ev.member } : {},
+      /* #5732: the relay's same_account stamp (kosmos#4657), beside `data` so a sender cannot write it: the poster is
+         this account, from another of its computers. Passed only as true; absent otherwise. */
+      ev.same_account === true ? { sameAccount: true } : {}));
     } catch {
       say(projectId, 'A message from ' + farSide(projectId) + ' could not be saved on this computer.');
     }

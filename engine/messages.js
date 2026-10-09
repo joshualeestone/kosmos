@@ -2977,8 +2977,51 @@ function projectOfPost(id) {
   return m && typeof m.project === 'string' && m.project ? m.project : null;
 }
 
+/**
+ * #5732: a post from the account's OWN other computer tells the project's agents to read the room.
+ *
+ * A shared-room post is recorded as an `external` row and, by Josh's #3311 guardrail, nothing else happens
+ * (engine/fedseats.js header): words from outside never arrive in a pane. A post the RELAY stamps
+ * `same_account` (its two members' verified room tickets are one account: the poster is the person, from
+ * another of their computers) is not from outside, so its member agents are told one thing: there is a
+ * post, read the room. The line carries NO post text, so the words still arrive only when the agent reads
+ * the room, marked external, as today. Strangers' posts are never passed here.
+ *
+ * At most one line per agent per room per OWN_POST_NUDGE_GAP_MS, so a burst of posts is one prompt to read.
+ * Removed agents get nothing, and an unreadable removed list tells nobody (the post gate's fail-closed rule).
+ * Recorded as a `nudge` row naming the external post, so what was typed is checkable from the store.
+ * Off unless KOSMOS_OWN_ROOM_NUDGE=1 (server.js decides; this function does not read the switch).
+ */
+const OWN_POST_NUDGE_GAP_MS = 2 * 60 * 1000;
+const ownPostNudgedAt = new Map();
+function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, now = Date.now()) {
+  const ok = (v) => typeof v === 'string' && v.length > 0;
+  if (!ok(projectId) || !ok(postId) || !Array.isArray(members) || !Array.isArray(roster)) return { ok: false, nudged: [] };
+  const room = _roomMembers(members.filter(ok));
+  if (!room.ok) return { ok: false, nudged: [] };
+  const rawName = String(projectName == null ? '' : projectName).trim();
+  const shown = (rawName && /^[A-Za-z0-9._ -]+$/.test(rawName)) ? rawName : projectId;
+  const line = '[a new post from your other computer is in the room ' + shown + '; read it with: kosmos room ' + projectId + ']';
+  const nudged = [];
+  for (const name of room.members) {
+    const key = projectId + '\n' + name;
+    if (now - (ownPostNudgedAt.get(key) || -Infinity) < OWN_POST_NUDGE_GAP_MS) continue;
+    const card = roster.find((c) => c && c.sessionName === name);
+    if (!card || !card.target) continue;   // only an addressable card, as the #185 sweep
+    const sent = chat.deliverAutomatic(name, line, roster);
+    if (sent && sent.held === true) continue;   // held on a shared quota: nothing typed, the gap not spent
+    ownPostNudgedAt.set(key, now);
+    appendLog({ kind: 'nudge', post: postId, to: name, project: projectId, at: new Date(now).toISOString(),
+      outcome: sent && sent.state, reason: 'own-computer' });
+    nudged.push({ to: name, outcome: sent && sent.state });
+  }
+  return { ok: true, nudged };
+}
+function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
+
 module.exports = {
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
+  nudgeOwnComputerPost, OWN_POST_NUDGE_GAP_MS, _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
