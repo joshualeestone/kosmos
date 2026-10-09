@@ -148,6 +148,7 @@ _kosmos_supervisor_tmux() {
 _phys_dir() {
   cd -P "$1" 2>/dev/null && pwd || true
 }
+_path_left_out() { printf '#5516: the PATH entry %s was left out of the agent pane (%s)\n' "$1" "$2" >&2; }
 abs_path_only() {
   local _out="" _e _r _w _own="" _ownp="" _ownw="" _old_ifs="$IFS" _noglob=""
   case "$-" in *f*) _noglob=1 ;; esac   # review 8: put noglob back as it was
@@ -156,20 +157,25 @@ abs_path_only() {
   for _e in $1; do
     case "$_e" in /*) ;; *) continue ;; esac
     if [ -n "$_own" ]; then
+      # Review 22: repeated slashes are one ("///" is "/"), and every entry left out is said once in this launch's log,
+      # with why, so a tool the agent cannot find has a trace.
+      _e="$(printf '%s' "$_e" | tr -s /)"
       # Review 6: an entry the guard cannot name exactly goes too: one with a character the permission rules read as a
       # pattern (its file-tool rule is left out), or a . or .. segment (resolved differently here and in the guard).
-      case "$_e" in *[\*\?\[\]\(\)\{\}\!\\]*|*/./*|*/../*|*/.|*/..) continue ;; esac
-      # Review 7: a folder not made yet goes (the guard is written again at the next start, when it exists), and the
-      # comparison ignores letter case, as the guard does on macOS (dropping more is the safe direction).
-      [ -d "$_e" ] || continue
+      case "$_e" in *[\*\?\[\]\(\)\{\}\!\\]*|*/./*|*/../*|*/.|*/..) _path_left_out "$_e" "its name cannot be carried by the permission rules"; continue ;; esac
+      # Review 7: a folder not made yet goes (the guard is written again at the next start, when it exists: until then
+      # it stays off this pane's PATH), and the comparison ignores letter case, as the guard does on macOS.
+      [ -d "$_e" ] || { _path_left_out "$_e" "it does not exist yet; it is added at the next start once it does"; continue; }
+      # Review 22: a folder that cannot be listed cannot be checked by the guard, which would never be whole.
+      { [ -r "$_e" ] && [ -x "$_e" ]; } || { _path_left_out "$_e" "it cannot be listed"; continue; }
       _r="$(_phys_dir "${_e%/}")"; [ -n "$_r" ] || _r="${_e%/}"   # unresolvable: compare as written
       _r="$(printf '%s' "$_r" | tr '[:upper:]' '[:lower:]')"
       # Review 9: as written too (a link inside the agent folder that points out of it), against both spellings of it.
       _w="$(printf '%s' "${_e%/}" | tr '[:upper:]' '[:lower:]')"
-      case "$_r/" in "$_ownp"/*|"$_ownw"/*) continue ;; esac
-      case "$_w/" in "$_ownp"/*|"$_ownw"/*) continue ;; esac
-      case "$_ownp/" in "${_r%/}"/*|"${_w%/}"/*) continue ;; esac
-      case "$_ownw/" in "${_r%/}"/*|"${_w%/}"/*) continue ;; esac
+      case "$_r/" in "$_ownp"/*|"$_ownw"/*) _path_left_out "$_e" "it is the agent's own folder or inside it"; continue ;; esac
+      case "$_w/" in "$_ownp"/*|"$_ownw"/*) _path_left_out "$_e" "it is the agent's own folder or inside it"; continue ;; esac
+      case "$_ownp/" in "${_r%/}"/*|"${_w%/}"/*) _path_left_out "$_e" "it holds the agent's own folder"; continue ;; esac
+      case "$_ownw/" in "${_r%/}"/*|"${_w%/}"/*) _path_left_out "$_e" "it holds the agent's own folder"; continue ;; esac
     fi
     _out="${_out:+$_out:}$_e"
   done

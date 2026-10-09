@@ -128,7 +128,7 @@ test('#5516 review 1 and 16: a program on PATH that links into another folder ha
 
 test('#5516 review 2: the supervisor cleans the pane PATH with a function this test runs', () => {
   const sup = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
-  const m = sup.match(/\n_phys_dir\(\) \{\n[\s\S]*?\n\}\nabs_path_only\(\) \{\n[\s\S]*?\n\}\n/);
+  const m = sup.match(/\n_phys_dir\(\) \{\n[\s\S]*?\n\}\n_path_left_out\(\) \{[^\n]*\}\nabs_path_only\(\) \{\n[\s\S]*?\n\}\n/);
   assert.ok(m, 'abs_path_only (and the helper it calls) is not defined in the supervisor');
   // Under set -u, as the supervisor runs it (review 19).
   const run = (input, own) => require('child_process').execFileSync('/bin/bash', ['-c', 'set -u\n' + m[0] + '\nabs_path_only "$1" "$2"', 'x', input, own || ''], { encoding: 'utf8' });
@@ -168,6 +168,18 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   assert.equal(run(`${A}:${path.join(own, 'outlink')}:${outOfOwn}`, own), `${A}:${outOfOwn}`, 'an entry written through a link in the agent folder stayed');
   // Review 10: "/" itself goes (it is above every agent folder).
   assert.equal(run(`${A}:/:${sib}`, own), `${A}:${sib}`, '/ stayed');
+  // Review 22: repeated slashes are one ("///" is "/", above every agent folder); a folder that cannot be listed goes;
+  // and every entry left out is said on stderr with why (CONTROL: a kept entry is not).
+  assert.equal(run(`${A}:///:${sib}`, own), `${A}:${sib}`, '/// stayed');
+  const locked = binDir('sh-locked');
+  fs.chmodSync(locked, 0o000);
+  try {
+    if (!(process.getuid && process.getuid() === 0)) assert.equal(run(`${A}:${locked}`, own), A, 'a folder that cannot be listed stayed');
+    const err = require('child_process').spawnSync('/bin/bash', ['-c', 'set -u\n' + m[0] + '\nabs_path_only "$1" "$2" >/dev/null', 'x', `${A}:${never}:${locked}`, own], { encoding: 'utf8' }).stderr;
+    assert.match(err, /PATH entry .*never-made was left out of the agent pane \(it does not exist yet/, err);
+    if (!(process.getuid && process.getuid() === 0)) assert.match(err, /sh-locked was left out of the agent pane \(it cannot be listed\)/, err);
+    assert.doesNotMatch(err, /sh-a was left out/, 'a kept entry was said as left out');
+  } finally { fs.chmodSync(locked, 0o755); }
   // Review 5: an ancestor goes too.
   assert.equal(run(`${A}:${path.dirname(own)}:${sib}`, own), `${A}:${sib}`, 'an ancestor stayed');
   // The pane AND the guard are given its result.

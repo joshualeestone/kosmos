@@ -1078,7 +1078,6 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
  *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
-
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;

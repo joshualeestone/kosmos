@@ -306,3 +306,14 @@ reads. Anything that cannot be covered makes the guard say it is not whole, and 
     supervisor a drop list, rejected in round 9 (it reorders the launch).
   - FIXED (nits): a comment said "shared" for "temp"; the run-programs loop says why a bad link there is quiet. NOT
     CHANGED: the no-token log line names every agent whose mint failed (its wording says "if it is listed").
+- Round 22 (sonnet): 0 BLOCKER, 2 WARNING, 3 NIT. The reviewer ran 49 mutations on a copy; each turned a test red.
+  - FIXED: every PATH entry the supervisor leaves out of the pane is said in that launch's log, with why (so a tool the
+    agent cannot find has a trace). DECIDED: a folder not made yet stays off the pane's PATH until the next start,
+    which is when the guard can cover it; said in the log line.
+  - FIXED: a PATH folder that exists but cannot be listed is left out of the pane (and said), so the launch-time guard
+    is not made never whole by it. The board's own PATH at create time is held as before (an unlistable entry there
+    still refuses creation, said with the folder).
+  - FIXED (nits): repeated slashes are folded before the checks ("///" is "/"); the blank line between the #4491 doc
+    comment and its function is gone. NOT CHANGED: a bare program name is said for RUN_PROGS but skipped for RUN_DIRS
+    (not reachable with the plist's absolute paths).
+  - Each fix has a mutation that fails.
