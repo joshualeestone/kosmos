@@ -794,3 +794,23 @@ test('#5678 failoverPick: a stalled holder that keeps another part of the tree i
   const ok = a.failoverPick('idleC', 'codex', both, proj, new Set(), new Set());
   assert.ok(ok && ok.n === 2, 'CONTROL: with every part it holds there stalled, the move goes ahead: ' + JSON.stringify(ok));
 });
+
+/* #5678 review 4: a subtask that will never move on its own does not keep its parent waiting for good. */
+test('#5678 pick: a parent is not starved by a subtask that never moves; CONTROLS: a pickable or busy-held one holds it back', () => {
+  const proj = (child, agents = ['idleE', 'busyF']) => [{ id: 'p5678d', agents, tasks: [{ number: 1, sentence: 'Parent' }, { number: 2, sentence: 'Child', parent: 1, ...child }] }];
+  const stuck = {
+    webhook: { addedVia: 'webhook' },
+    repeating: { repeat: { every: 'day', at: '09:00' } },
+    onHold: { onHold: true },
+    built: { builtAt: '2026-10-09T00:00:00Z' },
+    heldByOneWhoLeft: { who: 'gone' },
+    heldParked: { who: 'busyF', onHold: true },
+  };
+  for (const [name, child] of Object.entries(stuck)) {
+    const got = a.pick('idleE', proj(child), new Set());
+    assert.ok(got && got.n === 1, name + ': the parent was starved by a subtask that never moves: ' + JSON.stringify(got));
+  }
+  const plain = a.pick('idleE', proj({}), new Set());
+  assert.ok(plain && plain.n === 2, 'CONTROL: a pickable subtask goes first: ' + JSON.stringify(plain));
+  assert.equal(a.pick('idleE', proj({ who: 'busyF' }), new Set()), null, 'CONTROL: a subtask a member holds busy keeps the tree (and the parent) from others');
+});

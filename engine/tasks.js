@@ -226,8 +226,9 @@ function treeOf(p) {
  * loop in the parent links stops the walk (each number is seen once). This is what the task list SHOWS; the Assigner
  * decides by the whole tree (treeHolders), so a held child also keeps its unheld parent from a second builder.
  */
-function ownerIn(tree, task, members) {
-  if (!tree || !task || openHolders(task).length) return null;
+function ownerIn(tree, task, members, treeOwner) {
+  // Review 4: a finished task is nobody's work now, whoever holds the tree.
+  if (!tree || !task || openHolders(task).length || progressOf(task).closed) return null;
   // Review 1: only the project's own agents hold anything (#5034), when the caller passes them.
   const mine = (who) => (members instanceof Set ? who.filter((w) => members.has(w)) : who);
   const seen = new Set([task.number]);
@@ -244,13 +245,21 @@ function ownerIn(tree, task, members) {
   /* #5678 review 3: or anywhere else in its tree (a held sibling, or a held subtask of this unheld parent): the Assigner
      keeps the whole tree from a second builder, so the list says whose it is too. The held open task with the lowest
      number speaks for the tree. */
-  const root = rootIn(tree, task);
+  const owners = treeOwner instanceof Map ? treeOwner : treeOwners(tree, members);
+  return owners.get(rootIn(tree, task)) || null;
+}
+/* #5678 review 4: each tree's speaker for ownerIn's fallback, in ONE pass (it ran per row before: quadratic): root ->
+   { who, from } for the held open task with the lowest number in it, holders limited to `members` when given. */
+function treeOwners(tree, members) {
+  const out = new Map();
   for (const x of [...tree.byNum.values()].sort((m, n) => m.number - n.number)) {
-    if (x === task || progressOf(x).closed || rootIn(tree, x) !== root) continue;
-    const who = mine(openHolders(x));
-    if (who.length) return { who, from: x.number };
+    if (progressOf(x).closed) continue;
+    const r = rootIn(tree, x);
+    if (out.has(r)) continue;
+    const who = openHolders(x).filter((w) => !(members instanceof Set) || members.has(w));
+    if (who.length) out.set(r, { who, from: x.number });
   }
-  return null;
+  return out;
 }
 /* The names on a task's OPEN parts: who is on it now (whoOf also names holders of finished parts). */
 function openHolders(task) {
@@ -1477,6 +1486,8 @@ function allTasks(everyProject) {
     /* #3861: the project's tree is built once (treeOf), so each row's parent and subtask
        count is a lookup rather than a re-scan of the project per task. */
     const tree = treeOf(p);
+    const members = new Set(Array.isArray(p.agents) ? p.agents : []);   // #5678
+    const owners = treeOwners(tree, members);
     for (const t of p.tasks || []) {
       const up = tree.up(t);
       out.push(Object.assign({}, t, {
@@ -1500,7 +1511,7 @@ function allTasks(everyProject) {
         subtasks: tree.progress(t && t.number),
         /* #5678: a task nobody is on directly, under an open task somebody is on, shows that owner (and the task it
            comes through), so a second agent sees whose work it is before starting. Absent otherwise. */
-        ...(() => { const o = ownerIn(tree, t, new Set(Array.isArray(p.agents) ? p.agents : [])); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
+        ...(() => { const o = ownerIn(tree, t, members, owners); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
       }));
     }
   }

@@ -27,7 +27,9 @@ both CLIs.
   the lowest number anywhere in its tree (tasks.ownerIn, members only), so a held subtask's parent and siblings say
   whose they are (review 3).
 - The Assigner hands out subtasks before their parent: a parent with open subtasks waits (review 3), so an umbrella
-  parent's holder does not sit busy on a tree locked to everyone else.
+  parent's holder does not sit busy on a tree locked to everyone else. Only a subtask that will move holds it back
+  (review 4): one pick could hand out, or one a project agent holds busy; never a webhook, repeating, on-hold or built
+  subtask, or one held by an agent who left or parked it.
 - Shown where an agent looks before starting (`kosmos task list`, from the /api/tasks rows' new ownerNames/ownerFrom).
   The page already shows the parent's holder and the child's "under task N" breadcrumb; an owner line on the page is
   a design call for Mona, noted on the card, not built here.
@@ -64,3 +66,7 @@ both CLIs.
   - W2 fixed: the list showed no owner on a held subtask's unheld parent or siblings, while the Assigner kept them from others. ownerIn now falls back to the tree's held open task with the lowest number (red by mutation).
   - W3 fixed in part: an umbrella parent given first held its tree from everyone while its holder sat on it. Subtasks now go before their parent (a loop of parent links is not read as "open subtasks"). The offline-holder case is recorded above.
   - NIT 1 recorded: from `step`, the holder-may-take-more branch is unreachable (a busy holder is never idle); it stays for pick's direct callers and costs nothing. NIT 2 accepted: the list can name a parked holder the Assigner no longer honours, until the next holder takes the task.
+- **Round 4 (sonnet):** 0 blockers, 2 warnings, 2 NITs.
+  - W1 fixed: the subtasks-first rule starved a parent for good behind a subtask that never moves (webhook, repeating, on hold, built, held by one who left or parked). Now only a subtask pick could hand out, or a busy-held one, holds the parent back. Six cases tested (red by mutation), with CONTROLS for a pickable and a busy-held subtask.
+  - W2 fixed: ownerIn's fallback was quadratic per /api/tasks call (measured by the reviewer: 348 ms at 2000 tasks). The tree speakers are computed once per project (treeOwners) and looked up; a test checks the row agrees with ownerIn.
+  - NIT 1 fixed: a finished task names no owner. NIT 2: nothing to change.

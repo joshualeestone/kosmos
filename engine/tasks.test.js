@@ -628,3 +628,14 @@ test('#5678 ownerIn review 3: a held subtask names the owner on its unheld paren
   assert.equal(tasksMod.ownerIn(tree, by(2)), null, 'CONTROL: the held task names its own holder, not an owner');
   assert.equal(tasksMod.ownerIn(tree, by(4)), null, 'CONTROL: another tree names none');
 });
+
+test('#5678 ownerIn review 4: a finished task names no owner; the per-project map gives the same answer as the scan', () => {
+  const tasksMod = require('./tasks');
+  const p = { agents: ['x'], tasks: [{ number: 1, sentence: 'Parent' }, { number: 2, sentence: 'Held', parent: 1, who: 'x' }, { number: 3, sentence: 'Done sibling', parent: 1, closedAt: '2026-10-09T00:00:00Z' }, { number: 4, sentence: 'Open sibling', parent: 1 }] };
+  const tree = tasksMod.treeOf(p);
+  const by = (n) => p.tasks.find((t) => t.number === n);
+  assert.equal(tasksMod.ownerIn(tree, by(3)), null, 'a finished task was given an owner');
+  assert.deepEqual(tasksMod.ownerIn(tree, by(4)), { who: ['x'], from: 2 }, 'CONTROL: an open sibling names it');
+  const row = tasksMod.allTasks([Object.assign({ id: 'pt', name: 'T' }, p)]).find((r) => r.number === 4);
+  assert.deepEqual([row.ownerNames, row.ownerFrom], [['x'], 2], 'the task row disagrees with ownerIn');
+});
