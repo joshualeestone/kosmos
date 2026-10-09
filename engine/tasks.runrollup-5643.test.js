@@ -142,3 +142,25 @@ test('#5643 review 3: a run with no note ends the streak but is not called the l
   t = stored(id, n);
   assert.deepEqual([t.unchangedRuns, t.lastRunUnchanged, t.unchangedInferred], [undefined, undefined, undefined], 'the closed task kept its streak');
 });
+
+test('#5643 review 4: clearing the repeat drops the streak AT ONCE, and a task closed by its last part drops it too', () => {
+  const { id, n } = freshRepeating();
+  tasks.recordRun(id, n, 'mara', 'found a thing', T0);
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 60 * MIN, { unchanged: true });
+  tasks.setRepeat(id, n, null);
+  let t = stored(id, n);
+  assert.deepEqual([t.unchangedRuns, t.lastChangeAt, t.lastRunUnchanged, t.unchangedInferred], [undefined, undefined, undefined, undefined], 'the clear itself kept the streak');
+  // The parts path: a repeating task given to an agent, closed by closing its one part.
+  const p = projects.create({ name: 'Parts ' + Math.random().toString(36).slice(2) });
+  projects.mutate(p.id, (x) => ({ ...x, agents: ['mara'] }));
+  const m = tasks.create(p.id, { sentence: 'Watch it', who: 'mara' }).number;
+  tasks.setRepeat(p.id, m, { every: 'hour' });
+  tasks.recordRun(p.id, m, 'mara', 'found a thing', T0);
+  tasks.recordRun(p.id, m, 'mara', 'checked', T0 + 60 * MIN, { unchanged: true });
+  assert.equal(stored(p.id, m).unchangedRuns, 1, 'fixture: the streak did not start');
+  const part = tasks.partsOf(stored(p.id, m))[0];
+  tasks.setPartClosed(p.id, m, part.id, new Date(T0 + 90 * MIN).toISOString());
+  t = stored(p.id, m);
+  assert.ok(t.closedAt || tasks.progressOf(t).closed, 'fixture: closing the last part did not close the task');
+  assert.deepEqual([t.unchangedRuns, t.lastChangeAt, t.lastRunUnchanged], [undefined, undefined, undefined], 'a task closed by its last part kept the streak');
+});
