@@ -219,3 +219,23 @@ rest of the guard is still written.
   - FIXED: each shared folder is matched in every spelling, including with only its parent resolved (as /tmp is a
     link). Test; mutation fails.
   - FIXED (nit): the header's list of what makes the guard not whole is brought up to date.
+- Round 16 (sonnet): 0 BLOCKER, 2 WARNING, 3 NIT. Both warnings were over-denial by folder: a folder that only holds a
+  link on the way (~/.local when ~/.local/bin is a link) and the real folder of a dev-linked program (a project) were
+  denied whole for every token-only agent, for good (deny lists merge).
+  - DECIDED and FIXED (one model replaces the folder rules of rounds 7, 9, 14 and 15): a folder is denied whole only
+    when its contents run by name (PATH folders, the folders of what the supervisor starts by path, the launchd and
+    launch-secrets folders). A program's own FILE where its chain ends is denied by name, in both layers. A LINK TO A
+    FILE on the chain is named, to the file tools only. A LINK TO A FOLDER on the way gets no rule: a rule on it would
+    cover everything it leads to (gitignore matching), the file tools cannot replace a link, and the sandboxed shell
+    writes only in the agent folder and the temp folders. So such a link held inside the agent folder makes the guard
+    not whole (as before), one held in a temp folder is said, and elsewhere nothing is needed.
+    Weakest premise: that the sandboxed shell cannot write outside the agent folder and the temp folders. The guard
+    writes no allowWrite and removes additionalDirectories (#4491), so that is Claude Code's default scope; if a later
+    Claude Code widened it, a folder link held elsewhere would need covering again.
+    Measured on the real PATH here: whole, 19 folders, 492 program files, 57 file links, 49 ms. Tests rewritten to the
+    model; each part has a mutation that fails.
+  - Cost noted: about 550 rules instead of about 150, and the accumulation follow-up (versioned paths after upgrades)
+    now concerns file paths. Still only over-denial of stale paths.
+  - NOT CHANGED (nits): create-time judges the board's own PATH while launch judges the pane's (launch only adds
+    coverage; recorded); the extracted shell function runs without set -u in the test (checked by hand); the
+    `[ "$RUNNER" = claude ] &&` line relies on there being no set -e (true today).

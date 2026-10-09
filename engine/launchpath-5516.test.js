@@ -31,9 +31,10 @@ function binDir(name) { const d = path.join(SANDBOX, 'bins', name); fs.mkdirSync
 // ownPath is pinned in every call: the test process's own PATH is the runner's, not a fixture.
 // Review 5: the fixed folders and the install's own program folders are pinned too, so no test depends on this host's
 // /opt/homebrew or /usr/local. The W3b test below clears ownProgramDirs to check the real defaults.
-const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '/usr/bin:/bin', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [] };
+const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '/usr/bin:/bin', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [] };
 // Review 7: the same pins for direct launchPathDirs calls.
-const PIN = { launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [] };
+// launchTemps: the fixtures live under the real temp folder, which must not count as one here.
+const PIN = { launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [] };
 
 test('#5516: every folder on the pane PATH is denied to the file tools AND the shell', () => {
   const dir = agentDir('lp-a');
@@ -104,7 +105,7 @@ test('#5516: launchPathDirs resolves symlinks and does not repeat a folder', () 
   assert.deepEqual(unsafe, [], 'an empty board PATH is skipped quietly (review 2); only the pane PATH is held strictly');
 });
 
-test('#5516 review 1: a program on PATH that links into another folder gets that folder covered too', () => {
+test('#5516 review 1 and 16: a program on PATH that links into another folder has its own FILE denied there, not the folder', () => {
   const dir = agentDir('lp-link');
   const pathDir = binDir('link-path');
   const realHome = binDir('cellar-like/tool/1.0/bin');
@@ -113,12 +114,15 @@ test('#5516 review 1: a program on PATH that links into another folder gets that
   const r = setup.guardTokenOnlyFolder(dir, 'lp-link', { ...BASE, panePath: pathDir });
   assert.deepEqual(r, { ok: true });
   const s = readSettings(dir);
-  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOr(realHome))}/**)`), `the link's folder was not covered: ${JSON.stringify(s.permissions.deny)}`);
-  assert.ok(s.sandbox.filesystem.denyWrite.includes(realOr(realHome)));
-  // CONTROL: without the link, that folder is not named.
+  const file = path.join(realOr(realHome), 'tool');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(file)})`), `the program's file was not covered: ${JSON.stringify(s.permissions.deny)}`);
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(file));
+  // Review 16: its folder is not denied whole (it can be a project or a package tree).
+  assert.ok(!s.permissions.deny.includes(`Edit(${ruleAbs(realOr(realHome))}/**)`) && !s.sandbox.filesystem.denyWrite.includes(realOr(realHome)), 'the program\'s whole folder was denied');
+  // CONTROL: without the link, that file is not named.
   const dir2 = agentDir('lp-link-control');
   setup.guardTokenOnlyFolder(dir2, 'lp-link-control', { ...BASE, panePath: binDir('no-link-path') });
-  assert.ok(!readSettings(dir2).permissions.deny.includes(`Edit(${ruleAbs(realOr(realHome))}/**)`));
+  assert.ok(!readSettings(dir2).permissions.deny.includes(`Edit(${ruleAbs(file)})`));
 });
 
 test('#5516 review 2: the supervisor cleans the pane PATH with a function this test runs', () => {
@@ -301,7 +305,7 @@ test('#5516 review 5 and 8: one refresh pass scans a PATH once for ALL its agent
   assert.ok(again.dirs.includes(realOr(d)) && !again.dirs.includes('/changed') && !again.unsafe.includes('changed'), JSON.stringify(again));
 });
 
-test('#5516 review 7: every hop of a link chain is covered, and a program that resolves into the agent folder is reported, not denied', () => {
+test('#5516 review 7 and 16: every hop of a link chain is denied by name, and a program that resolves into the agent folder is reported, not denied', () => {
   const pd = binDir('chain-path');
   const hop = binDir('chain-hop');
   const end = binDir('chain-end');
@@ -309,7 +313,10 @@ test('#5516 review 7: every hop of a link chain is covered, and a program that r
   fs.symlinkSync(path.join(end, 'tool'), path.join(hop, 'tool'));
   fs.symlinkSync(path.join(hop, 'tool'), path.join(pd, 'tool'));
   const r = setup.launchPathDirs(agentDir('lp-chain'), { ...PIN, panePath: pd, ownPath: '' });
-  for (const d of [pd, hop, end]) assert.ok(r.dirs.includes(realOr(d)), 'not covered: ' + d + ' ' + JSON.stringify(r.dirs));
+  assert.ok(r.dirs.includes(realOr(pd)), JSON.stringify(r.dirs));
+  assert.ok(r.linkNames.includes(path.join(realOr(hop), 'tool')), 'the hop link was not named: ' + JSON.stringify(r.linkNames));
+  assert.ok(r.files.includes(path.join(realOr(end), 'tool')), 'the program file was not denied: ' + JSON.stringify(r.files));
+  assert.ok(!r.dirs.includes(realOr(hop)) && !r.dirs.includes(realOr(end)), 'a hop or end folder was denied whole');
   assert.deepEqual(r.unsafe, []);
   // A program on PATH that resolves into the agent's own folder: reported, and that folder is not denied.
   const dir = agentDir('lp-into');
@@ -319,6 +326,15 @@ test('#5516 review 7: every hop of a link chain is covered, and a program that r
   const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: pd2, ownPath: '' });
   assert.ok(r2.unsafe.includes(path.join(realOr(pd2), 'mine')), JSON.stringify(r2.unsafe));
   assert.ok(!r2.dirs.includes(realOr(dir)), 'the agent folder was denied');
+  // A program whose chain passes through a FILE link inside the agent folder: reported, never named as a rule.
+  const pd3 = binDir('into-link-path');
+  const outsideFile = path.join(binDir('into-link-out'), 'real');
+  fs.writeFileSync(outsideFile, '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(outsideFile, path.join(dir, 'hop'));
+  fs.symlinkSync(path.join(dir, 'hop'), path.join(pd3, 'hop'));
+  const r3 = setup.launchPathDirs(dir, { ...PIN, panePath: pd3, ownPath: '' });
+  assert.ok(r3.unsafe.includes(path.join(realOr(pd3), 'hop')), JSON.stringify(r3));
+  assert.ok(!r3.linkNames.includes(path.join(realOr(dir), 'hop')), 'a link in the agent folder became a rule');
   // CONTROL: without that link, nothing is reported.
   fs.unlinkSync(path.join(pd2, 'mine'));
   assert.deepEqual(setup.launchPathDirs(dir, { ...PIN, panePath: pd2, ownPath: '' }).unsafe, []);
@@ -382,8 +398,11 @@ test('#5516 review 9: a link along a path is followed one name at a time; the fo
   fs.symlinkSync(path.join(SANDBOX, 'bins', 'mid-cellar', 'tool', '1.0'), path.join(opt, 'tool'));
   fs.symlinkSync(path.join(opt, 'tool', 'bin', 'tool'), path.join(pd, 'tool'));
   const r = setup.launchPathDirs(agentDir('lp-mid'), { ...PIN, panePath: pd, ownPath: '' });
-  assert.ok(r.dirs.includes(realOr(opt)), 'the folder holding the middle link was not covered: ' + JSON.stringify(r.dirs));
-  assert.ok(r.dirs.includes(realOr(cellar)), JSON.stringify(r.dirs));
+  // Review 16: the program's file is denied by name; the folder link in the middle needs no rule (a rule on it would
+  // cover all it leads to, and neither the file tools nor the sandboxed shell can replace it there).
+  assert.ok(r.files.includes(path.join(realOr(cellar), 'tool')), JSON.stringify(r.files));
+  assert.ok(!r.dirs.includes(realOr(opt)) && !r.linkNames.includes(path.join(realOr(opt), 'tool')), 'the middle link was ruled: ' + JSON.stringify(r));
+  assert.deepEqual(r.unsafe, []);
   // A PATH entry written THROUGH a link inside the agent folder that points out of it: reported, not covered as whole.
   const dir = agentDir('lp-through');
   const outside = binDir('through-out');
@@ -415,8 +434,8 @@ test('#5516 review 10: a ".." after a link in a link target applies to where the
   fs.symlinkSync(away, path.join(base, 'lnk'));
   fs.symlinkSync(base + '/lnk/../target/tool', path.join(pd, 'tool'));   // as text: path.join would fold the .. away
   const r = setup.launchPathDirs(agentDir('lp-dd'), { ...PIN, panePath: pd, ownPath: '' });
-  assert.ok(r.dirs.includes(realOr(real)), 'the folder the program really lives in was not covered: ' + JSON.stringify(r.dirs));
-  assert.ok(!r.dirs.includes(path.join(realOr(base), 'target')), 'the folded spelling was taken as the program folder');
+  assert.ok(r.files.includes(path.join(realOr(real), 'tool')), 'the file the program really is was not covered: ' + JSON.stringify(r.files));
+  assert.ok(!r.files.includes(path.join(realOr(base), 'target', 'tool')), 'the folded spelling was taken as the program');
   // The reason stays readable when one folder names many programs.
   const many = binDir('many-progs');
   const dir = agentDir('lp-many');
@@ -459,7 +478,7 @@ test('#5516 review 11: the disk spelling is used, an ancestor alias is never den
   assert.ok(r2.dirs.includes(realOr(path.join(SANDBOX, 'bins', 'alias-anc-away'))), 'CONTROL: where it really leads is covered: ' + JSON.stringify(r2.dirs));
   // A file to deny: the file, not its whole folder.
   const ff = path.join(binDir('file-home'), 'settings.json');
-  const r3 = setup.launchPathDirs(agentDir('lp-file'), { ...PIN, launchFiles: [ff], panePath: '/usr/bin', ownPath: '' });
+  const r3 = setup.launchPathDirs(agentDir('lp-file'), { ...PIN, launchFiles: [ff], panePath: binDir('empty-11'), ownPath: '' });
   assert.deepEqual(r3.files, [path.join(realOr(path.dirname(ff)), 'settings.json')]);
   assert.ok(!r3.dirs.includes(realOr(path.dirname(ff))), 'the file\'s folder was denied as a whole');
 });
@@ -481,13 +500,14 @@ test('#5516 review 12: a file to deny that is a link is denied where it leads to
   const home = binDir('home-lp12');
   const f = path.join(home, '.tmux.conf');
   fs.symlinkSync(path.join(dots, 'tmux.conf'), f);
-  const r = setup.launchPathDirs(agentDir('lp-dot'), { ...PIN, launchFiles: [f], panePath: '/usr/bin', ownPath: '' });
+  const r = setup.launchPathDirs(agentDir('lp-dot'), { ...PIN, launchFiles: [f], panePath: binDir('empty-12'), ownPath: '' });
   assert.ok(r.files.includes(path.join(realOr(dots), 'tmux.conf')), 'where the link leads is not denied: ' + JSON.stringify(r.files));
-  assert.ok(r.files.includes(path.join(realOr(home), '.tmux.conf')), 'the link itself is not denied');
+  // Review 16: the link itself by its own name, to the file tools (it leads to a file).
+  assert.ok(r.linkNames.includes(path.join(realOr(home), '.tmux.conf')), 'the link itself is not denied: ' + JSON.stringify(r));
   // CONTROL: a plain file is denied once.
   const plain = path.join(home, 'plain.conf');
   fs.writeFileSync(plain, '');
-  assert.equal(setup.launchPathDirs(agentDir('lp-dot'), { ...PIN, launchFiles: [plain], panePath: '/usr/bin', ownPath: '' }).files.length, 1);
+  assert.equal(setup.launchPathDirs(agentDir('lp-dot'), { ...PIN, launchFiles: [plain], panePath: binDir('empty-12'), ownPath: '' }).files.length, 1);
   // Windows: nothing scanned, nothing reported (the Windows lane measures it first).
   const w = setup.launchPathDirs(agentDir('lp-win'), { ...PIN, platform: 'win32', panePath: 'relative;also', ownPath: '' });
   assert.deepEqual(w, { dirs: [], aliases: [], files: [], linkNames: [], unsafe: [] });
@@ -495,23 +515,25 @@ test('#5516 review 12: a file to deny that is a link is denied where it leads to
   const was = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = path.join(SANDBOX, 'elsewhere-xdg');
   try {
-    const t = setup.launchPathDirs(agentDir('lp-xdg'), { ...PIN, launchFiles: undefined, home, panePath: '/usr/bin', ownPath: '' });
+    const t = setup.launchPathDirs(agentDir('lp-xdg'), { ...PIN, launchFiles: undefined, home, panePath: binDir('empty-12'), ownPath: '' });
     for (const tail of ['/home-lp12/.config/tmux/tmux.conf', '/elsewhere-xdg/tmux/tmux.conf']) {
       assert.ok(t.files.some((x) => x.endsWith(tail)), 'missing ' + tail + ' in ' + JSON.stringify(t.files));
     }
   } finally { if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was; }
 });
 
-test('#5516 review 13: a link into a shared folder is said, never denied whole; the launch-secrets folder is covered', () => {
+test('#5516 review 13 and 16: a shared folder is never denied whole; a program in one is denied by its file; launch-secrets is covered', () => {
   const pd = binDir('shared-path');
   const shared = binDir('pretend-tmp');
   fs.writeFileSync(path.join(shared, 'prog'), '#!/bin/sh\n', { mode: 0o755 });
   fs.symlinkSync(path.join(shared, 'prog'), path.join(pd, 'prog'));
   const r = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, launchShared: [shared], panePath: pd, ownPath: '' });
   assert.ok(!r.dirs.includes(realOr(shared)), 'a shared folder was denied whole');
-  assert.ok(r.unsafe.some((u) => u.includes('a shared folder')), JSON.stringify(r.unsafe));
-  // CONTROL: the same layout, the folder not shared: covered.
-  const r2 = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, launchShared: [], panePath: pd, ownPath: '' });
+  assert.ok(r.files.includes(path.join(realOr(shared), 'prog')) && r.unsafe.length === 0, 'the program in a shared folder is not denied by its file: ' + JSON.stringify(r));
+  // A shared folder ON the PATH (its contents run by name) is said, not denied whole. CONTROL: not shared, it is covered.
+  const r1 = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, launchShared: [shared], panePath: shared, ownPath: '' });
+  assert.ok(!r1.dirs.includes(realOr(shared)) && r1.unsafe.some((u) => u.includes('a shared folder')), JSON.stringify(r1));
+  const r2 = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, launchShared: [], panePath: shared, ownPath: '' });
   assert.ok(r2.dirs.includes(realOr(shared)) && r2.unsafe.length === 0, JSON.stringify(r2));
   // The real defaults include the temp root.
   const tmpd = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, panePath: require('os').tmpdir(), ownPath: '' });
@@ -521,7 +543,7 @@ test('#5516 review 13: a link into a shared folder is said, never denied whole; 
   const was = process.env.KOSMOS_GUARD_CONFIG_DIRS;
   process.env.KOSMOS_GUARD_CONFIG_DIRS = ls;
   try {
-    const r3 = setup.launchPathDirs(agentDir('lp-ls'), { ...PIN, launchConfigDirs: undefined, platform: 'linux', panePath: '/usr/bin', ownPath: '' });
+    const r3 = setup.launchPathDirs(agentDir('lp-ls'), { ...PIN, launchConfigDirs: undefined, platform: 'linux', panePath: binDir('empty-13'), ownPath: '' });
     assert.ok(r3.dirs.includes(realOr(ls)), JSON.stringify(r3.dirs));
   } finally { if (was === undefined) delete process.env.KOSMOS_GUARD_CONFIG_DIRS; else process.env.KOSMOS_GUARD_CONFIG_DIRS = was; }
 });
@@ -541,15 +563,15 @@ test('#5516 review 13: a FILE rule the rules cannot carry is reported, and a thr
   assert.ok(readSettings(dir2).sandbox.filesystem.denyWrite.length > 0, 'the rest of the guard was not written');
 });
 
-test('#5516 review 14: a linked dotfile in the home folder keeps the guard whole; a folder holding a shared one is not denied', () => {
+test('#5516 review 14 and 16: a linked dotfile in the home folder keeps the guard whole; a folder holding a shared one is not denied', () => {
   const home = binDir('home-lp14');
   const dots = binDir('dots-lp14');
   fs.writeFileSync(path.join(dots, 'tmux.conf'), '');
   const f = path.join(home, '.tmux.conf');
   fs.symlinkSync(path.join(dots, 'tmux.conf'), f);
-  const r = setup.launchPathDirs(agentDir('lp-dot14'), { ...PIN, launchFiles: [f], launchShared: [home], panePath: '/usr/bin', ownPath: '' });
+  const r = setup.launchPathDirs(agentDir('lp-dot14'), { ...PIN, launchFiles: [f], launchShared: [home], panePath: binDir('empty-14'), ownPath: '' });
   assert.deepEqual(r.unsafe, [], 'a linked dotfile in the home folder made the guard not whole');
-  assert.ok(r.files.includes(path.join(realOr(home), '.tmux.conf')) && r.files.includes(path.join(realOr(dots), 'tmux.conf')), JSON.stringify(r.files));
+  assert.ok(r.linkNames.includes(path.join(realOr(home), '.tmux.conf')) && r.files.includes(path.join(realOr(dots), 'tmux.conf')), JSON.stringify(r));
   // A PATH folder that CONTAINS a shared folder is not denied whole; it is said.
   const parent = binDir('lp14-parent');
   const sharedChild = binDir('lp14-parent/tmp-like');
@@ -561,36 +583,37 @@ test('#5516 review 14: a linked dotfile in the home folder keeps the guard whole
   assert.ok(r3.dirs.includes(realOr(parent)) && r3.unsafe.length === 0, JSON.stringify(r3));
 });
 
-test('#5516 review 15: every link on the way that is not denied by its folder is denied by its own name; a shared holder below the agent is said', () => {
-  // A dotfile whose link leads through a SECOND link beside it in the home folder (a linked dotfiles folder).
+test('#5516 review 15 and 16: a link to a file is named (file tools only); a link to a folder on the way is not, and is said only where the agent\'s shell can write', () => {
+  // A dotfile whose link leads through a FOLDER link beside it (a linked dotfiles folder): the file link is named,
+  // the file it leads to is denied, and the folder link needs no rule (the file tools cannot replace it).
   const home = binDir('home-lp15');
   const store15 = binDir('store-lp15');
   fs.writeFileSync(path.join(store15, 'tmux.conf'), '');
   fs.symlinkSync(store15, path.join(home, '.dotfiles'));
   fs.symlinkSync(path.join(home, '.dotfiles', 'tmux.conf'), path.join(home, '.tmux.conf'));
-  const r = setup.launchPathDirs(agentDir('lp-15a'), { ...PIN, launchFiles: [path.join(home, '.tmux.conf')], launchShared: [home], panePath: '/usr/bin', ownPath: '' });
-  assert.ok(r.linkNames.includes(path.join(realOr(home), '.dotfiles')), 'the second link was neither denied nor said: ' + JSON.stringify(r));
-  assert.deepEqual(r.unsafe, []);
+  const r = setup.launchPathDirs(agentDir('lp-15a'), { ...PIN, launchFiles: [path.join(home, '.tmux.conf')], launchShared: [home], panePath: binDir('empty-15'), ownPath: '' });
+  assert.deepEqual(r.unsafe, [], JSON.stringify(r));
+  assert.ok(r.linkNames.includes(path.join(realOr(home), '.tmux.conf')), 'the file link was not named: ' + JSON.stringify(r.linkNames));
+  assert.ok(r.files.includes(path.join(realOr(store15), 'tmux.conf')), JSON.stringify(r.files));
+  assert.ok(!r.linkNames.includes(path.join(realOr(home), '.dotfiles')), 'a folder link was named (it would cover the whole folder)');
   assert.ok(!r.dirs.includes(realOr(home)), 'the home folder was denied whole');
-  // A PATH entry through a link held in a folder that HOLDS a shared folder but is not above the agent: said.
+  // A PATH entry through a folder link held in a TEMP folder (the agent's shell can write there): said, no rule.
   const lib = binDir('lib-lp15');
-  const appSupport = binDir('lib-lp15/App Support');
   const away = binDir('away-lp15');
   fs.symlinkSync(away, path.join(lib, 'tools'));
-  const r2 = setup.launchPathDirs(agentDir('lp-15b'), { ...PIN, launchShared: [appSupport], panePath: path.join(lib, 'tools'), ownPath: '' });
-  assert.ok(r2.unsafe.some((u) => u.includes('a link on its way is held in')), JSON.stringify(r2.unsafe));
-  assert.ok(r2.linkNames.includes(path.join(realOr(lib), 'tools')), JSON.stringify(r2.linkNames));
-  assert.ok(!r2.dirs.includes(realOr(lib)), 'the folder holding a shared one was denied whole');
-  // A link that IS a shared folder (a /tmp-style link) is never named: a rule on it would cover everything under it.
-  const r4 = setup.launchPathDirs(agentDir('lp-15b'), { ...PIN, launchShared: [path.join(lib, 'tools')], panePath: path.join(lib, 'tools', 'x'), ownPath: '' });
-  assert.ok(!r4.linkNames.includes(path.join(realOr(lib), 'tools')), 'a shared link was named in a rule: ' + JSON.stringify(r4));
-  // CONTROL: nothing shared there: the holder is covered whole and nothing is said.
-  const r3 = setup.launchPathDirs(agentDir('lp-15b'), { ...PIN, launchShared: [], panePath: path.join(lib, 'tools'), ownPath: '' });
-  assert.ok(r3.dirs.includes(realOr(lib)) && r3.unsafe.length === 0, JSON.stringify(r3));
+  const r2 = setup.launchPathDirs(agentDir('lp-15b'), { ...PIN, launchTemps: [lib], panePath: path.join(lib, 'tools'), ownPath: '' });
+  assert.ok(r2.unsafe.some((u) => u.includes('a temp folder the agent')), JSON.stringify(r2.unsafe));
+  assert.ok(!r2.linkNames.includes(path.join(realOr(lib), 'tools')) && !r2.dirs.includes(realOr(lib)), JSON.stringify(r2));
+  assert.ok(r2.dirs.includes(realOr(away)), 'CONTROL: where the entry leads is covered');
+  // CONTROL: not a temp folder: nothing is said and nothing is ruled for the holder.
+  const r3 = setup.launchPathDirs(agentDir('lp-15b'), { ...PIN, launchTemps: [], panePath: path.join(lib, 'tools'), ownPath: '' });
+  assert.ok(r3.unsafe.length === 0 && !r3.dirs.includes(realOr(lib)), JSON.stringify(r3));
   // The guard writes a link name as a file-tool rule only.
   const dir = agentDir('lp-15c');
-  setup.guardTokenOnlyFolder(dir, 'lp-15c', { ...BASE, launchShared: [appSupport], panePath: path.join(lib, 'tools') });
+  setup.guardTokenOnlyFolder(dir, 'lp-15c', { ...BASE, launchFiles: [path.join(home, '.tmux.conf')] });
   const st = readSettings(dir);
-  assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(path.join(realOr(lib), 'tools'))})`), 'no file-tool rule for the link');
-  assert.ok(!st.sandbox.filesystem.denyWrite.includes(path.join(realOr(lib), 'tools')), 'a link name went to the sandbox layer');
+  const ln = path.join(realOr(home), '.tmux.conf');
+  assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(ln)})`), 'no file-tool rule for the link');
+  assert.ok(!st.sandbox.filesystem.denyWrite.includes(ln), 'a link name went to the sandbox layer');
+  assert.ok(st.sandbox.filesystem.denyWrite.includes(path.join(realOr(store15), 'tmux.conf')), 'the file it leads to is not in the sandbox layer');
 });
