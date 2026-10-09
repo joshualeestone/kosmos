@@ -4042,8 +4042,9 @@ test('kosmos#5628 review 5: a reinstall recognised by the company setup is switc
   assert.equal((await remote.companyComplete('ann')).ok, true);
   remote.setOn(false);   // the reinstall's settings reset; its identity survived
   assert.equal(remote.read().on, false, 'CONTROL: switched off before the second finish');
-  // Review 7: not approved in the browser: only "already set up"; the email is not rewritten and nothing switches on.
-  assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
+  // Review 7: not approved in the browser: only "already set up", and nothing switches on (review 9: another account
+  // is refused outright, tested below).
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
   const unapproved = await remote.companyComplete('ann');
   assert.equal(unapproved.alreadySetUp, true);
   assert.equal(remote.read().email, 'ann@acme.test', 'an unproven address was recorded');
@@ -4093,4 +4094,23 @@ test('kosmos#5628 review 8: after a refused finish the server decides whether th
   delete process.env.FAKE_TUNNEL_MODE;
   const retried = await remote.companyComplete('ann');
   assert.equal(retried.ok, true, 'a setup the server still holds was dropped: ' + retried.because);
+});
+
+test('kosmos#5628 review 9: another account cannot take over a computer by its name, and a finish in progress is not gone', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyComplete('ann')).ok, true);
+  assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);   // Bob approved
+  const taken = await remote.companyComplete('ann');
+  assert.equal(taken.ok, false);
+  assert.match(taken.because, /another Kosmos\+ account/);
+  assert.equal(remote.read().email, 'ann@acme.test', 'another account was recorded on this computer');
+  // A status asked while a finish runs answers "finishing", never gone.
+  assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup company-gone';
+  const finishing = remote.companyComplete('bob-mac');
+  await new Promise((r) => setTimeout(r, 300));
+  const st = await remote.companyStatus();
+  assert.deepEqual([st.ready, st.gone], [true, false], 'a finish in progress read as gone');
+  await finishing;
 });

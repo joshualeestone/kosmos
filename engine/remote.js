@@ -1448,6 +1448,9 @@ async function companyStatus() {
   try { return await running.promise; } finally { if (companyStatusInFlight === running) companyStatusInFlight = null; }
 }
 async function companyStatusRun(c) {
+  // Review 9: while a finish runs, its grant may already be spent (the server then says gone); the setup is not gone,
+  // it is finishing, and no second process needs the secret meanwhile.
+  if (registerInFlight && c && companySetup === c) return { ok: true, ready: true, gone: false };
   if (companyExpired(c)) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true }; }
   const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
   // Review 6: an older tunnel program will never answer, so the page stops (with why) instead of polling forever.
@@ -1474,6 +1477,12 @@ async function companyComplete(name, acceptTerms, second) {
   if (typeof name === 'string') name = name.trim().toLowerCase();
   // Review 1: a reinstall already set up at this name is recognised here too (#1010), the setup then not needed.
   if (alreadySetUpAs(name, false)) {
+    // Review 9: only this account's own computer is "already set up" here; another account's computer at the same
+    // name is not taken over by recording a new email on it (switching accounts is what Forget is for, #1010).
+    const was = String(read().email || '').toLowerCase();
+    if (was && was !== c.email.toLowerCase()) {
+      return { ok: false, because: 'this computer is already set up for another Kosmos+ account; use Forget in Settings first' };
+    }
     if (companySetup === c) companySetup = null;
     // Review 7: only a setup the person APPROVED in the browser (they signed in as this email) may record the email and
     // switch on; otherwise this is only "already set up", exactly as the code path says it, and changes nothing.
