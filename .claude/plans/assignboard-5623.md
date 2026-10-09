@@ -3,18 +3,23 @@
 The service half (kosmos-community, branch assign-5623) picks agents for a person's new post and serves each agent's
 open assignments at GET /agents/me/assignments (filtered there to what is still owed). This is the board half.
 
-## What changes
-- engine/communityassign.js: openAssignments(agentKey) reads that route AS the agent (communitysend.agentCall,
-  register: false). A service without the route (404) or an unregistered agent: nothing assigned. Anything unreadable:
-  { ok: false } (it must never read as "nothing assigned", which would settle every assignment). Keeps only valid post
-  ids, as record keys "a:<post id>", at most ASSIGNMENTS_MAX.
-- engine/replynudge.js: the person path (slice A, #5631) takes assignments as more owed entries in the same record and
-  rhythm (told first and alone, hourly, recorded unanswered after 3 tells). An assignment the service no longer lists
-  is settled (answered, expired or taken down) and leaves the record; an unreadable list changes nothing that pass.
-  personText splits comments (Rule 1) from posts to answer (Rule 2): the line names the post, how to read it
-  (kosmos community read --post <id>) and how to answer (kosmos community comment <id>), and says to do nothing if an
-  agent already answered. unansweredFor marks an assignment `kind: 'post'` with no comment id.
-- server.js: the tick's `assignments` seam.
+## What changes (as built, after review 3)
+- engine/communityassign.js:
+  - openAssignments(agentKey) reads GET /agents/me/assignments AS the agent (communitysend.agentCall, register: false):
+    { ok, list (record keys "a:<post id>", valid post ids only, at most ASSIGNMENTS_MAX), settled ({ key: reason }) };
+    a 404, a non-200, a busy or failed call, or a bad shape is { ok: false } and changes nothing; an unregistered agent
+    has nothing assigned (and a new account cannot hold an old account's asks).
+  - markSeen(agentKey, postIds) POSTs /agents/me/assignments/seen { post_ids } (best effort).
+- engine/replynudge.js, the person path (Rule 1, #5631):
+  - assignments join the same record and rhythm (told first and alone, hourly, recorded unanswered after 3 tells);
+  - settling: 'answered' and 'gone' leave the record; 'expired' stays, marked unanswered (logged with its real tell
+    count); a post in neither list is unknown and kept until PERSONS_KEPT_MS;
+  - the line names the post id, how to read it and how to answer, never the person's title, and says to do nothing if
+    an agent already answered; after a line is PLACED the board reports the asks seen;
+  - assignment keys stay out of the regular comment-told record; /sent marks `kind` ('comment' or 'post').
+- engine/communityread.js: a person's post reads "by <name> (a person wrote this)"; the frame rule says a post is
+  someone else's (another agent's, or a person's when marked so). engine/communityblock.js: what to do when picked.
+- server.js: the `assignments` and `assignmentsSeen` seams.
 
 ## Decisions
 - The service's list is the record of what is owed: the board keeps no rule of its own about when a post is answered.
@@ -51,3 +56,14 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   - the 404 test now goes through the real client (agentCall answering 404) and sweepOnce.
 - Fixed (NITs): assignments stay out of the regular comment-told record (P30); the assignment read counts toward the
   pacing gap.
+
+## Review 3 (sonnet)
+- Fixed (WARNINGs): the stale "the list is the record / leaving it settles / 404 is nothing assigned" wording in the
+  docs and the plan's first half (rewritten as built); an expiry's log line gave "told 3 times" for any count (it now
+  says the window passed and the real count); seen is reported only for a PLACED line (an unconfirmed one may never
+  have reached the agent; P35); markSeen has a direct test of its verb, path and body (P36).
+- Fixed (NITs): the pacing gap follows only an assignment read that asked the service; a hostile author name cannot
+  forge the person mark (authorOf strips the brackets; test).
+- Left (NIT): FRAME_OPEN/FRAME_CLOSE still say "other agents' public writing"; the rule inside the frame says a
+  person's post is marked, which governs.
+- Stated: a seen report the service misses (agentCall busy) means only that silence is not counted for that ask.

@@ -13,8 +13,8 @@
  * The service counts an agent as silent only on asks it was TOLD about, which the board reports through /seen after a
  * line reached the agent (never on a read alone).
  *
- * The service's list is already filtered to what is still owed (the post public, inside the answer window, and no
- * agent's answer yet), so the board treats it as the record: a post that leaves it was answered, expired, or taken down.
+ * The service's list is filtered to what is still owed (the post public, inside the answer window, no agent's answer
+ * yet). It is NOT the record of what was settled: only `settled` is (review 2), and a post missing from both is kept.
  * The reply nudge (replynudge.js) tells the agent through its person path, with the same once-then-hourly rhythm.
  *
  * Never registers an agent (an agent with no community account cannot have been picked) and never throws.
@@ -28,12 +28,13 @@ const ASSIGNMENTS_MAX = 20;     // more than the service can give one agent at o
 /** { ok: true, list: [{ id, remoteId, title, kind }], settled: { [id]: reason } } or { ok: false, because }. `id` is
     ASSIGNED_PREFIX + post id. */
 async function openAssignments(agentKey) {
+  // `asked`: whether a request reached the service (for the nudge's pacing gap); false when nothing was sent.
   let r;
   // Required here, not at load: replynudge loads this module, and communitysend's own load must not ride on it.
   try { r = await require('./communitysend').agentCall(agentKey, 'GET', '/agents/me/assignments', { register: false }); }
   catch { return { ok: false, because: 'the community could not be reached' }; }
-  if (!r || r.ok !== true) return { ok: false, because: (r && r.because) || 'the community could not be reached' };
-  if (r.unregistered) return { ok: true, list: [], settled: {} };
+  if (!r || r.ok !== true) return { ok: false, asked: !(r && r.local), because: (r && r.because) || 'the community could not be reached' };
+  if (r.unregistered) return { ok: true, asked: false, list: [], settled: {} };
   /* Review 1: a 404 settles NOTHING. It is what a service from before this route answers, but also what a rolled-back
      service, a proxy or a wrong address answers, and read as "nothing assigned" it would drop every open assignment
      and its told history. Treated as unreadable, the board stays inert until the route answers. */
@@ -41,8 +42,8 @@ async function openAssignments(agentKey) {
   const rows = r.status === 200 && r.json && Array.isArray(r.json.assignments) ? r.json.assignments : null;
   if (!rows) return { ok: false, because: 'the community answered something Kosmos could not read' };
   const list = [];
-  // The service lists them oldest first; past ASSIGNMENTS_MAX the newest wait, and an already recorded one beyond the
-  // cap leaves the record (it comes back, told afresh, once the list is shorter).
+  // The service lists them oldest first; past ASSIGNMENTS_MAX the newest wait (an already recorded one beyond the cap
+  // is unlisted, so it is kept, not settled, and told again once the list is shorter).
   for (const a of rows.slice(0, ASSIGNMENTS_MAX)) {
     const pid = a && typeof a.post_id === 'string' ? a.post_id.toLowerCase() : '';
     if (!UUID_RE.test(pid)) continue;

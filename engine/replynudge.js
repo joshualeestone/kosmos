@@ -42,7 +42,8 @@
  * alone, outside the hourly limit, again every PERSON_RETELL_MS until the agent's reply to them appears, then recorded as an
  * unanswered person (readPersons / writePersons, one record per agent). See the PERSON_* constants and personsUpdate.
  * Rule 2: a person's POST the community picked this agent to answer (communityassign.openAssignments, `o.assignments`)
- * joins the same record under the key "a:<post id>", told the same way, and leaves it when the service stops listing it.
+ * joins the same record under the key "a:<post id>", told the same way; it leaves the record only when the service
+ * reports it settled 'answered' or 'gone' ('expired' stays, marked unanswered; unlisted is unknown and kept).
  *
  * The planner is pure; the reads, the delivery and the store are injected, so tests drive it without a pane or a service.
  */
@@ -438,16 +439,15 @@ async function sweepOnce(o) {
         if (fresh && fresh.ok === true && typeof o.readPersons === 'function' && typeof o.writePersons === 'function') {
           const rec = o.readPersons(session);
           if (rec && typeof rec === 'object') {
-            /* #5623 Rule 2: the persons' posts the service picked this agent to answer join the same record and rhythm. The
-               service's list is already filtered to what is still owed, so an assignment gone from it is settled (answered,
-               expired or taken down) and leaves the record; an unreadable list changes nothing this pass. */
+            /* #5623 Rule 2: the persons' posts the service picked this agent to answer join the same record and rhythm.
+               What settles them is below (the service's `settled` reasons); an unreadable list changes nothing this pass. */
             let persons = Array.isArray(fresh.persons) ? fresh.persons : [];
             let answered = Array.isArray(fresh.answered) ? fresh.answered : [];
             const expiredNow = [];
             if (typeof o.assignments === 'function') {
               let asg = null;
               try { asg = await o.assignments(session); } catch { asg = null; }
-              readOne = true;   // review 2 (board half): this agent's assignment read asked the service too
+              if (!asg || asg.asked !== false) readOne = true;   // review 2/3 (board half): it asked the service, so the gap follows
               if (asg && asg.ok === true && Array.isArray(asg.list)) {
                 persons = persons.concat(asg.list);
                 /* Review 2 (board half): only what the service says was settled leaves the record. 'answered' and 'gone'
@@ -466,7 +466,9 @@ async function sweepOnce(o) {
             const u = personsUpdate(rec, persons, clock(), answered);
             const wrote = o.writePersons(session, u.owed) === true;
             if (wrote) due = u.due;
-            if (wrote) for (const id of u.unanswered.concat(expiredNow)) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: (communityassign.isAssignment(id) ? 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer' : 'a person\'s comment ' + id) + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+            if (wrote) for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: (communityassign.isAssignment(id) ? 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer' : 'a person\'s comment ' + id) + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+            // Review 3 (board half): an expiry says what happened, with the real number of tells (it may be fewer than three).
+            if (wrote) for (const id of expiredNow) { const n = Array.isArray(rec[id] && rec[id].told) ? rec[id].told.length : 0; say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer passed its answer window unanswered, told ' + n + (n === 1 ? ' time' : ' times') }); }
           }
         }
         const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
@@ -551,7 +553,11 @@ async function sweepOnce(o) {
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
           /* Review 2 (board half): the service counts silence only on asks the agent was TOLD about, so the board says so
              once a line reached it, never on a read alone. Best effort: a failed report only means silence is not counted. */
-          if (reached && typeof o.assignmentsSeen === 'function') {
+          // Review 3 (board half): only a line PLACED counts as told; an unconfirmed one may never have reached the agent, and
+          // reporting it would let the service count silence on an ask it never saw (a re-tell follows instead). A report
+          // the service misses (its call busy) means only that silence is not counted for that ask.
+          const placed = !held && !paneBusy && D.PLACED != null && state === D.PLACED;
+          if (placed && typeof o.assignmentsSeen === 'function') {
             const seenIds = due.filter((q) => communityassign.isAssignment(q.id)).map((q) => q.remoteId);
             if (seenIds.length) { try { await o.assignmentsSeen(session, seenIds); } catch { /* best effort */ } }
           }
