@@ -2158,7 +2158,9 @@ function sentenceForWhoami(account, model, runner) {
      keeps it once a turn has (engine/musefront.js keepModel). Say so, with the one step that fixes a helper started
      before it kept the model: a restart. Every other runner's words are unchanged. */
   parts.push(model && model.name ? 'and its model is ' + model.name
-    : runner === 'muse' ? 'and we cannot tell which model it is running yet: Muse names its model only during a turn, and Kosmos shows it once a turn has. If this still says so after its next turn, restart the agent'
+    /* Review 1: the AGENT reads this about itself, so the step is for its person (never a command it could run), and it
+       says what to do if a restart does not help, so it cannot loop. */
+    : runner === 'muse' ? 'and we cannot tell which model it is running yet: Muse names its model only during a turn, and Kosmos shows it once a turn has named it. If this still says so after a turn, ask your person to restart this agent from its page in Kosmos; if it says so after that too, tell them Kosmos cannot read this agent\'s model'
       : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }

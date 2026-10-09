@@ -50,6 +50,9 @@ test('#4603 N12: a Muse agent\'s card and whoami name the model its last turn na
   assert.ok(before, 'the fleet gave no card');
   assert.equal(before.model || null, null, 'a model was claimed before any turn named one');
   assert.equal(whoamiFor(before, [], NO_LIVE()).model, null);
+  // #5636 F5 (0.7.33): the real path from a Muse card with no model reaches the sentence that says why and what to do.
+  const w0 = whoamiFor(before, [], NO_LIVE());
+  assert.match(require('./server').sentenceForWhoami(w0.account, w0.model, w0.resolvedRunner), /ask your person to restart this agent from its page in Kosmos/);
 
   const dir = create.workerDir('mia');
   assert.equal(musefront.keepModel(dir, 'muse-spark-1'), true, 'fixture: the model was not kept');
