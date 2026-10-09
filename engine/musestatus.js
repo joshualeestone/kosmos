@@ -207,8 +207,9 @@ function latest() {
 
 /* One new event file, created by rename so no reader ever sees half of one. Then, best effort,
    events older than the newest of their OWN kind are removed: a remover only removes a file when it
-   sees a strictly newer one of that kind, so the newest of each kind always survives. Leftover
-   temporary files (a process killed between the write and the rename) older than a minute go too. */
+   sees a strictly newer one of that kind, so the newest of each kind always survives. A temp a killed
+   writer left is now securewrite's to reap (its own name shape, a provably dead writer); the dot-temp
+   loop below only clears temps left by releases before #5434 slice 23. */
 function record(kind, at, body) {
   if (!Number.isSafeInteger(at) || at < 0 || at >= MAX_AT) throw new Error('an event time must be a whole number of milliseconds');
   const dir = eventsFolder();

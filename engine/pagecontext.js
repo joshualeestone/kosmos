@@ -122,9 +122,10 @@ function write(agentName, page, now) {
   try { st = fs.lstatSync(dir); } catch { st = null; }
   if (!st || !st.isDirectory()) return { ok: false, because: 'the setup guide has no folder on this computer' };
   try {
-    /* #5434 slice 23: flushed before the rename (the umask-default mode; ownTempsOnly, the guide's folder is the agent's, not
+    /* #5434 slice 23: flushed before the rename (exact 0600: the old create was 0644 less the umask, and neither an exact 0644 nor the
+       umask default reproduces that; 0600 is never wider under any umask and the guide reads it as the same user; ownTempsOnly, the guide's folder is the agent's, not
        Kosmos's). securewrite's temp is unique, so two reports in one millisecond never collide on 'wx'. */
-    require('./securewrite').writeSecret(file, d.text, null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });   // the umask default, as the old 0644 create gave (never wider under a strict umask)
+    require('./securewrite').writeSecret(file, d.text, 0o600, { atomicOnly: true, ownTempsOnly: true });
     return { ok: true, file };
   } catch {
     return { ok: false, because: 'we could not tell the setup guide which screen you are on' };

@@ -169,20 +169,20 @@ test('#5434 slice 23: musefront.keepModel still answers false when the save fail
 const ROOT = path.join(__dirname, '..');
 const EXPECTED = {
   'engine/accountnotify.js': { moves: 0, flushed: /saveFlushed\(/ },
-  'engine/assigner.js': { moves: 0, flushed: /writeSecret\(/ },
+  'engine/assigner.js': { moves: 0, flushed: /writeSecret\([^;]*0o600/ },
   'engine/catalogue.js': { moves: 0, flushed: /saveFlushed\(/ },
   'engine/messages.js': { moves: 0, flushed: /saveFlushed\(SEEN/ },
   'engine/communityfollow.js': { moves: 0, flushed: /saveFlushed\(/ },
-  'engine/communitynudge.js': { moves: 0, flushed: /writeSecret\(/ },
+  'engine/communitynudge.js': { moves: 0, flushed: /writeSecret\([^;]*0o600/ },
   'engine/communityread.js': { moves: 0, flushed: /saveFlushed\(/ },
   'engine/communityturn.js': { moves: 0, flushed: /saveFlushed\(/ },
   'engine/discover.js': { moves: 0, flushed: /saveFlushed\(reqPath/ },
-  'engine/filepreview.js': { moves: 1, flushed: /writeSecret\(/ },
+  'engine/filepreview.js': { moves: 1, flushed: /writeSecret\([^;]*0o600/ },
   'engine/instructionreread.js': { moves: 0, flushed: /saveFlushed\(/ },
-  'engine/musestatus.js': { moves: 0, flushed: /writeSecret\(/ },
+  'engine/musestatus.js': { moves: 0, flushed: /writeSecret\([^;]*0o600/ },
   'engine/musefront.js': { moves: 0, flushed: /ownTempsOnly: true/ },
-  'engine/pagecontext.js': { moves: 0, flushed: /ownTempsOnly: true/ },
-  'engine/prompternudge.js': { moves: 0, flushed: /writeSecret\(/ },
+  'engine/pagecontext.js': { moves: 0, flushed: /writeSecret\([^;]*0o600[^;]*ownTempsOnly: true/ },
+  'engine/prompternudge.js': { moves: 0, flushed: /writeSecret\([^;]*0o600/ },
   'engine/replynudge.js': { moves: 0, flushed: /saveFlushed\(/ },
   'engine/stuckterminal.js': { moves: 0, flushed: /saveFlushed\(/ },
 };
@@ -204,4 +204,13 @@ test('#5434 slice 23: server.js saves seen-version.json flushed, with no temp of
   const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
   assert.match(src, /store\.saveFlushed\(path\.join\(store\.ROOT, 'seen-version\.json'\)/);
   assert.doesNotMatch(src, /seen-version\.json\.tmp/, 'the old fixed temp is still there');
+});
+
+test('#5434 communitynudge: the follows record is exactly 0600 even under umask 0 (review 1: a measured mode, not a scan)', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+  const nudge = require('./communitynudge');
+  const prev = process.umask(0);
+  let ok;
+  try { ok = nudge.noteFollowed('agent-mode', 'someone'); } finally { process.umask(prev); }
+  assert.notEqual(ok, false, 'the follow was not recorded');
+  assert.equal(fs.statSync(nudge.followsFile()).mode & 0o777, 0o600);
 });
