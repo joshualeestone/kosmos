@@ -31,7 +31,8 @@
  * `history` keeps each forward step with the moment it was first seen, which
  * is what the calibration reads (tokens Kosmos measured per point of weekly
  * movement). Concurrent writers can still race: the rename keeps the file
- * whole, and whichever renames last stands until the next reading.
+ * whole, and whichever renames last stands until the next reading. (Since #5434 the flush before the rename widens
+ * that window by a few ms; a lower figure landing last is replaced by the next forward reading.)
  *
  * Never throws and always exits 0: a statusline that errors shows its error
  * in the person's pane, and nothing here is worth that.

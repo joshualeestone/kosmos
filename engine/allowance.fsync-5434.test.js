@@ -17,7 +17,6 @@ const allowance = require('./allowance');
 const statusline = require('./kosmos-statusline');
 
 const FUTURE = Math.floor(Date.now() / 1000) + 3 * 24 * 3600;
-const DAY = 24 * 3600 * 1000;
 
 function scratch(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'allowfsync-'));
@@ -102,16 +101,19 @@ for (const [name, write] of WRITERS) {
   });
 
   test('#5434: ' + name + ': in the provider\'s folder only this file\'s own dead temps are reaped', (t) => {
+    // A FRESH folder and both temps planted BEFORE the first write: securewrite sweeps a folder once per process, so
+    // a write before planting would spend that sweep and a folder-wide reap could no longer show here.
     const dir = scratch(t);
-    const file = write(dir);
+    const file = path.join(dir, name === 'statusline.record' ? statusline.FILE : allowance.CALIBRATION_FILE);
     const own = file + '.kosmos-2147483646-t0-1-1.tmp';
     const other = path.join(dir, 'settings.json.kosmos-2147483646-t0-1-1.tmp');   // the provider's own file's temp
     fs.writeFileSync(own, 'x');
     fs.writeFileSync(other, 'x');
-    write(dir);
+    assert.equal(write(dir), file);
     assert.equal(fs.existsSync(own), false, 'this file\'s dead temp was left');
     assert.equal(fs.existsSync(other), true, 'another file\'s temp in the provider\'s folder was swept');
   });
+
 }
 
 test('#5434: the statusline copied ALONE (no securewrite beside it) still records a reading, never an error', (t) => {
@@ -129,9 +131,14 @@ test('#5434: the statusline copied ALONE (no securewrite beside it) still record
 
 test('#5434: the calibration and the reading are still the same JSON (no change to what is stored)', (t) => {
   const dir = scratch(t);
-  statusline.record(dir, { usedPct: 3, resetsAt: FUTURE }, 5);
-  const w = JSON.parse(fs.readFileSync(path.join(dir, statusline.FILE), 'utf8'));
-  assert.deepEqual(Object.keys(w), ['usedPct', 'resetsAt', 'at', 'history']);
-  assert.ok(fs.readFileSync(path.join(dir, statusline.FILE), 'utf8').endsWith('}\n'), 'the trailing newline changed');
-  void DAY;
+  const now = Date.now();
+  const dayStart = now - 6 * 3600 * 1000;
+  fs.writeFileSync(path.join(dir, statusline.FILE), JSON.stringify({ usedPct: 44, resetsAt: FUTURE, at: now - 60e3, history: [[dayStart - 3600e3, 40, FUTURE], [now - 60e3, 44, FUTURE]] }));
+  const got = allowance.calibrate(dir, 4e6, { now, dayStart });
+  const raw = fs.readFileSync(path.join(dir, allowance.CALIBRATION_FILE), 'utf8');
+  assert.equal(raw, JSON.stringify(got) + '\n', 'the calibration file is not the estimate as before');
+  statusline.record(dir, { usedPct: 45, resetsAt: FUTURE }, 5);
+  const w = fs.readFileSync(path.join(dir, statusline.FILE), 'utf8');
+  assert.deepEqual(Object.keys(JSON.parse(w)), ['usedPct', 'resetsAt', 'at', 'history']);
+  assert.ok(w.endsWith('}\n'), 'the reading\'s trailing newline changed');
 });
