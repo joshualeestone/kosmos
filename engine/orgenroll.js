@@ -824,8 +824,10 @@ async function refreshNow(opts) {
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).
   if (before && before.computerSalt && before.world === world && before.org && before.org.id === org.id) { rec.computerSalt = before.computerSalt; if (before.printPinned === true) rec.printPinned = true; }
-  try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }
-  const policy = applyPolicy(d.policy, opts);
+  let saved = true;
+  try { writeEnrollment(rec, opts); } catch { saved = false; /* keep the old record; the next refresh tries again */ }
+  // Review 1: a policy only once the enrollment it belongs to is on record here, or a later stop would never clear it.
+  const policy = saved ? applyPolicy(d.policy, opts) : null;
   return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
 }
 
