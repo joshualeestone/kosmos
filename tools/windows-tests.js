@@ -60,6 +60,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'undo.fsync-5434.test.js',   // #5434 slice 13: Undo's restore, saved-aside copy and kept copies, on Windows too
   'boardauth.fsync-5434.test.js',   // #5434 slice 14: board.token flushed, a zero-filled one healed, on Windows too
   'secrets.fsync-5434.test.js',   // #5434 slice 15: world id, applied policy and phone-notify state saves, on Windows too
+  'create.supfsync-5434.test.js',   // #5434 slice 16: the supervisor and report bridges install, on Windows too
   'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
   'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too
