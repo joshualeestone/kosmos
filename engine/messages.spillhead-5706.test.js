@@ -71,3 +71,23 @@ test('#5706 review 1: a slice that already ends on a whole word keeps it, and a 
   const comma = spillHead('a'.repeat(150) + ' ' + 'b'.repeat(40) + ', ' + 'c'.repeat(300));
   assert.ok(!/,\u2026$/.test(comma.head), comma.head.slice(-10));
 });
+
+test('#5706 review 2: known abbreviations are not sentence ends, and a short real word still is', () => {
+  for (const text of [
+    'Please forward this to Mrs. Smith before the end of the week, thanks a lot. ' + 'More. '.repeat(150),
+    'The meeting with Acme Inc. Was moved to Thursday at the usual place and time. ' + 'More. '.repeat(150),
+    'The letter came from Prof. Jones about the grant application and its budget. ' + 'More. '.repeat(150),
+  ]) {
+    const r = spillHead(text);
+    assert.ok(!/(?:Mrs|Inc|Prof)\.$/.test(r.head), 'an abbreviation read as a sentence end: ' + r.head);
+  }
+  // CONTROL: a real sentence that ends in a short word is still the head.
+  assert.equal(spillHead('Please send the signed lease back to me. Then we can book the movers for May. ' + 'More. '.repeat(150)).head,
+    'Please send the signed lease back to me.');
+});
+
+test('#5706 review 2: a cut never ends on half of an emoji', () => {
+  const r = spillHead('a' + '\u{1F600}'.repeat(150));
+  assert.ok(!/[\uD800-\uDBFF]\u2026$/.test(r.head), 'a lone high surrogate before the ellipsis');
+  assert.ok(r.head.endsWith('\u{1F600}\u2026'), JSON.stringify(r.head.slice(-4)));
+});
