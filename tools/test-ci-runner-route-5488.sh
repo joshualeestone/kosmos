@@ -23,7 +23,9 @@ if ! ruby -ryaml -e '
   raise "the switch is read from vars" unless d["env"]["CI_RUNNER"] == "${{ vars.KOSMOS_CI_RUNNER }}"
   raise "head repo from the PR" unless d["env"]["HEAD_REPO"] == "${{ github.event.pull_request.head.repo.full_name }}"
   raise "this repo" unless d["env"]["THIS_REPO"] == "${{ github.repository }}"
-  raise "suite runs-on: only the node part takes scope'"'"'s choice" unless j["suite"]["runs-on"] == %q{${{ fromJSON(matrix.part == '"'"'node'"'"' && needs.scope.outputs.mac_runner || '"'"'"macos-latest"'"'"') }}}
+  raise "suite runs-on: node takes scope'"'"'s choice, a shell shard its own (#4601)" unless j["suite"]["runs-on"] == %q{${{ fromJSON(matrix.part == '"'"'node'"'"' && needs.scope.outputs.mac_runner || matrix.shard == '"'"'1/2'"'"' && needs.scope.outputs.shell1_runner || matrix.shard == '"'"'2/2'"'"' && needs.scope.outputs.shell2_runner || '"'"'"macos-latest"'"'"') }}}
+  raise "the shard list is read from vars" unless d["env"]["CI_SHELL_SHARDS"] == "${{ vars.KOSMOS_CI_SHELL_SHARDS }}"
+  raise "scope outputs a runner for each shard" unless j["scope"]["outputs"]["shell1_runner"] == "${{ steps.decide.outputs.shell1_runner }}" && j["scope"]["outputs"]["shell2_runner"] == "${{ steps.decide.outputs.shell2_runner }}"
   raise "test stays on ubuntu" unless j["test"]["runs-on"] == "ubuntu-latest" && j["scope"]["runs-on"] == "ubuntu-latest"
   tmux = j["suite"]["steps"].find { |x| x["name"].to_s.include?("tmux") }
   raise "tmux installed only when missing, and never by brew on the self-hosted runner" unless tmux && tmux["run"].strip == %q{command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner (or not on its PATH); not installing into the machine owner'"'"'s Homebrew, card 5488"; exit 1; }; brew install tmux; }}
@@ -32,17 +34,17 @@ if ! ruby -ryaml -e '
 ' "$WF" "$T/decide.sh" "$T/tmux.sh" 2>"$T/rb.err"; then
   fail "test.yml wiring: $(head -2 "$T/rb.err")"
 else
-  pass "test.yml wiring (parsed): scope picks the runner from vars and the head repo; only the node part takes scope's choice (shell shards stay on macos-latest); tmux never brew-installs on self-hosted; scope and test stay on ubuntu"
+  pass "test.yml wiring (parsed): scope picks the runner from vars and the head repo; the node part takes scope's choice, a shell shard only when KOSMOS_CI_SHELL_SHARDS names it (#4601); tmux never brew-installs on self-hosted; scope and test stay on ubuntu"
 fi
 
 SELF='["self-hosted","macOS","arm64","kosmos-ci"]'
 HOSTED='"macos-latest"'
-route() { # <CI_RUNNER> <EVENT_NAME> <HEAD_REPO> -> the mac_runner the REAL body wrote
+route() { # <CI_RUNNER> <EVENT_NAME> <HEAD_REPO> [<CI_SHELL_SHARDS>] [<output name>] -> that output, as the REAL body wrote it
   : > "$T/out"; mkdir -p "$T/cwd" "$T/runner-temp"
   # RUNNER_TEMP is its own directory: the body writes its own decide.sh there, which must not be this copy.
-  (cd "$T/cwd" && CI_RUNNER="$1" EVENT_NAME="$2" HEAD_REPO="$3" THIS_REPO=owner/kosmos BASE_REF=nope HEAD_SHA=x HEAD_REF=y \
+  (cd "$T/cwd" && CI_SHELL_SHARDS="${4:-}" CI_RUNNER="$1" EVENT_NAME="$2" HEAD_REPO="$3" THIS_REPO=owner/kosmos BASE_REF=nope HEAD_SHA=x HEAD_REF=y \
     RUNNER_TEMP="$T/runner-temp" GITHUB_OUTPUT="$T/out" PATH="/usr/bin:/bin" bash --noprofile --norc -eo pipefail "$T/decide.sh" >/dev/null 2>&1)
-  sed -n 's/^mac_runner=//p' "$T/out"
+  sed -n "s/^${5:-mac_runner}=//p" "$T/out"
 }
 expect() { # <label> <want> <CI_RUNNER> <EVENT_NAME> <HEAD_REPO>
   local got; got="$(route "$3" "$4" "$5")"
@@ -57,6 +59,20 @@ expect "switch unset, push: macos-latest (the default, before the Mac exists)" "
 expect "switch off, a PR from this repo: macos-latest (the kill switch)" "$HOSTED" off pull_request owner/kosmos
 expect "switch 'On' (not exactly on): macos-latest" "$HOSTED" On pull_request owner/kosmos
 expect "switch 'true': macos-latest" "$HOSTED" true push ""
+
+# #4601: a shell shard follows the node part to the self-hosted Mac only when KOSMOS_CI_SHELL_SHARDS names it.
+shard() { # <label> <want> <CI_RUNNER> <EVENT_NAME> <HEAD_REPO> <CI_SHELL_SHARDS> <shell1_runner|shell2_runner>
+  local got; got="$(route "$3" "$4" "$5" "$6" "$7")"
+  [ "$got" = "$2" ] && pass "$1" || fail "$1: want $2, got '$got'"
+}
+shard "shards unset: shell 1/2 on macos-latest" "$HOSTED" on push "" "" shell1_runner
+shard "shards unset: shell 2/2 on macos-latest" "$HOSTED" on push "" "" shell2_runner
+shard "shards 1/2: shell 1/2 on the self-hosted Mac" "$SELF" on push "" "1/2" shell1_runner
+shard "shards 1/2: shell 2/2 stays on macos-latest" "$HOSTED" on push "" "1/2" shell2_runner
+shard "shards 1/2,2/2: shell 2/2 on the self-hosted Mac" "$SELF" on pull_request owner/kosmos "1/2,2/2" shell2_runner
+shard "shards 1/2,2/2 but a FORK PR: macos-latest (follows the node rule)" "$HOSTED" on pull_request someone/kosmos "1/2,2/2" shell1_runner
+shard "shards 1/2,2/2 but the switch off: macos-latest" "$HOSTED" off push "" "1/2,2/2" shell1_runner
+shard "shards '1/22' (not a listed shard): macos-latest" "$HOSTED" on push "" "1/22" shell1_runner
 
 # Both outputs must be JSON, or fromJSON fails the suite job before it starts.
 for v in "$SELF" "$HOSTED"; do
