@@ -156,19 +156,25 @@ jobs:
           # Measured 2026-10-09 (numbers on #4601): a shell shard queued a median 56 to 77 min for macos-latest.
           s1='"macos-latest"'; s2='"macos-latest"'
           # Whole tokens only, split on commas and whitespace: "1/2x" or "v1/2" name no shard. Only the names that
-          # matched are logged, so the log line can never carry a workflow command.
+          # matched are logged, so the log line can never carry a workflow command. Shell builtins only (no tr), so
+          # the parse the route test runs on a Mac is the parse this ubuntu job runs; set -f keeps a "*" literal.
           shards=""
-          while IFS= read -r tok; do
+          set -f
+          for tok in ${CI_SHELL_SHARDS//,/ }; do
             case "$tok" in 1/2|2/2) shards="$shards,$tok" ;; esac
-          done < <(printf '%s\n' "$CI_SHELL_SHARDS" | tr ',[:space:]' '\n\n')
+          done
+          set +f
           if [ "$mac" != '"macos-latest"' ]; then
             case ",$shards," in *,1/2,*) s1="$mac" ;; esac
             case ",$shards," in *,2/2,*) s2="$mac" ;; esac
           fi
           echo "shell1_runner=$s1" >> "$GITHUB_OUTPUT"
           echo "shell2_runner=$s2" >> "$GITHUB_OUTPUT"
-          # Said in the log, so a misspelt value (one that routes nothing) is visible.
+          # Said in the log, so a misspelt value (one that routes nothing) is visible without echoing the value itself.
           echo "shell shards: 1/2 -> $s1, 2/2 -> $s2 (shard names read from KOSMOS_CI_SHELL_SHARDS: '${shards#,}')"
+          if [ -n "${CI_SHELL_SHARDS//[[:space:],]/}" ] && [ -z "$shards" ]; then
+            echo "KOSMOS_CI_SHELL_SHARDS is set but names no shard (only 1/2 and 2/2 count), so both shell shards stay on macos-latest"
+          fi
 
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
   # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
