@@ -787,7 +787,11 @@ function launchPathDirs(agentDir, deps = {}) {
     if (r === ownF || r.startsWith(ownF + path.sep)) { unsafe.push(f.shown); continue; }   // a file in the agent's own folder
     if (!files.includes(f.real)) files.push(f.real);
   }
-  return { dirs, aliases, files, unsafe: [...new Set(unsafe)] };
+  // Review 10: one uncoverable folder can name every program in it; the reason is kept readable.
+  const said = [...new Set(unsafe)];
+  const UNSAFE_SHOWN = 40;
+  if (said.length > UNSAFE_SHOWN) said.splice(UNSAFE_SHOWN, said.length - UNSAFE_SHOWN, `(and ${said.length - UNSAFE_SHOWN} more)`);
+  return { dirs, aliases, files, unsafe: said };
 }
 /* The agent-independent half of launchPathDirs: every candidate folder in order, as { real, shown, written }, and what
    cannot be covered whatever the agent (an empty or relative pane entry, an unlistable folder, the scan cap). */
@@ -801,13 +805,19 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
   const walked = new Map();
   const lst = new Map();
   const lstatOf = (q) => { if (!lst.has(q)) { let st = null; try { st = fs.lstatSync(q); } catch { /* not there */ } lst.set(q, st); } return lst.get(q); };
+  /* Review 10: names are taken as written, never folded first. The system follows a link and THEN applies a later
+     "..", to the link's target, so ".." here steps up from the folder already reached, and a link target is joined
+     as text (path.resolve would fold "lnk/.." away before the link was followed). */
+  const under = (base, t) => (path.isAbsolute(t) ? t : (base.endsWith(path.sep) ? base + t : base + path.sep + t));
   const walk = (q, depth) => {
-    const abs = path.resolve(q);
+    const abs = path.isAbsolute(q) ? q : path.resolve(q);
     if (walked.has(abs)) return walked.get(abs);
     let cur = path.parse(abs).root;
     const holders = [];
     let bad = null;
     for (const part of abs.slice(cur.length).split(path.sep).filter(Boolean)) {
+      if (part === '.') continue;
+      if (part === '..') { cur = path.dirname(cur); continue; }
       const nxt = path.join(cur, part);
       const st = lstatOf(nxt);
       if (st && st.isSymbolicLink()) {
@@ -815,7 +825,7 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
         holders.push(cur);
         let t;
         try { t = fs.readlinkSync(nxt); } catch { bad = 'a link that could not be read'; cur = nxt; continue; }
-        const w = walk(path.resolve(cur, t), depth + 1);
+        const w = walk(under(cur, t), depth + 1);
         holders.push(...w.holders);
         if (w.bad) bad = w.bad;
         cur = w.real;
@@ -878,7 +888,7 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList }) {
         if (hop >= LINK_HOPS_MAX) { unsafe.push(`${shown} (a link chain too long to follow)`); break; }
         let t;
         try { t = fs.readlinkSync(p); } catch { unsafe.push(`${shown} (a link that could not be read)`); break; }
-        p = path.resolve(realDir(path.dirname(p)), t);
+        p = under(realDir(path.dirname(p)), t);   // as text: a ".." in it applies after the link (review 10)
       }
     }
   }

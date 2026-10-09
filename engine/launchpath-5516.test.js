@@ -159,6 +159,8 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   const outOfOwn = binDir('sh-out-of-own');
   try { fs.symlinkSync(outOfOwn, path.join(own, 'outlink')); } catch {}
   assert.equal(run(`${A}:${path.join(own, 'outlink')}:${outOfOwn}`, own), `${A}:${outOfOwn}`, 'an entry written through a link in the agent folder stayed');
+  // Review 10: "/" itself goes (it is above every agent folder).
+  assert.equal(run(`${A}:/:${sib}`, own), `${A}:${sib}`, '/ stayed');
   // Review 5: an ancestor goes too.
   assert.equal(run(`${A}:${path.dirname(own)}:${sib}`, own), `${A}:${sib}`, 'an ancestor stayed');
   // The pane AND the guard are given its result.
@@ -394,4 +396,24 @@ test('#5516 review 9: a link along a path is followed one name at a time; the fo
   const f = path.join(SANDBOX, 'bins', 'a-file');
   fs.writeFileSync(f, '');
   assert.deepEqual(setup.launchPathDirs(dir, { ...PIN, panePath: f, ownPath: '' }).unsafe, []);
+});
+
+test('#5516 review 10: a ".." after a link in a link target applies to where the link leads, as the system does', () => {
+  const pd = binDir('dd-path');
+  const away = binDir('dd-away/inner');           // where the link leads
+  const real = binDir('dd-away/target');          // inner/.. is dd-away, so the program really lives here
+  fs.writeFileSync(path.join(real, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
+  const base = binDir('dd-base');
+  fs.symlinkSync(away, path.join(base, 'lnk'));
+  fs.symlinkSync(base + '/lnk/../target/tool', path.join(pd, 'tool'));   // as text: path.join would fold the .. away
+  const r = setup.launchPathDirs(agentDir('lp-dd'), { ...PIN, panePath: pd, ownPath: '' });
+  assert.ok(r.dirs.includes(realOr(real)), 'the folder the program really lives in was not covered: ' + JSON.stringify(r.dirs));
+  assert.ok(!r.dirs.includes(path.join(realOr(base), 'target')), 'the folded spelling was taken as the program folder');
+  // The reason stays readable when one folder names many programs.
+  const many = binDir('many-progs');
+  const dir = agentDir('lp-many');
+  for (let i = 0; i < 60; i++) { fs.writeFileSync(path.join(dir, 'p' + i), ''); fs.symlinkSync(path.join(dir, 'p' + i), path.join(many, 'p' + i)); }
+  const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: many, ownPath: '' });
+  assert.equal(r2.unsafe.length, 41, JSON.stringify(r2.unsafe.slice(-2)));
+  assert.match(r2.unsafe[40], /^\(and 20 more\)$/);
 });

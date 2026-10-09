@@ -133,3 +133,15 @@ rest of the guard is still written.
   - NOT CHANGED (nits): tr versus toLowerCase on non-ASCII names (they can only disagree toward "not whole"); the
     supervisor's WORKDIR versus create's workerDir (both fail safe if they differ); the unpinned first test checks the
     real fixed list's rules only.
+- Round 10 (sonnet): 0 BLOCKER, 2 WARNING, 3 NIT.
+  - FIXED: a ".." after a link applies to where the link leads, as the system does. The walk takes names as written
+    and joins a link target as text, so "lnk/../x" is no longer folded to the wrong folder before the link is followed
+    (it failed open: the real folder went uncovered). Test with a control; two mutations fail.
+  - FIXED (nit): the reason stays readable when one folder names many programs (40 shown, then "and N more"). Test.
+  - DECIDED, residual (recorded, not logged): a link held in an ANCESTOR of the agent folder is not reported. Every Mac
+    has such links at the top level (/var, /tmp, /etc), so a note would appear on every launch and mean nothing. A link
+    in the person's own home folder that a PATH entry passes through is the case that matters; it belongs with the
+    ancestor residual, and to a later part if it is to be closed (a deny on the link's own path, not its folder, needs
+    measuring first).
+  - NOT CHANGED (nits): "/" as a PATH entry is already dropped by the supervisor's ancestor check (a test pins it);
+    case-only duplicate rules are harmless.
