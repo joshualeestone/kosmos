@@ -23755,7 +23755,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  setIfChanged(rn, op ? pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : '');
+  setIfChanged(rn, op ? pjNeedsNotice(op.agents || []) + pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : '');   // #5688: who needs you, first
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -58364,6 +58364,33 @@ function pjCoordNotice(p) {
     + '<button class="qopt" type="button" data-pn-coord-dismiss="' + esc(String(id)) + '">Dismiss</button></div></div></div>';
 }
 
+/* #5688 (Josh, 10-09 08:45: "There's some issue and I don't know what an issue would be"): the project's Issue
+   count, said member by member. Each reason is the engine's needsYouHere (projects.js needsYouReason), so this block
+   lists exactly the members the red pill counts. One Open per row: the agent's own page holds the fix (the answer box,
+   Restart, the reconnect steps), and its Back returns here. No Dismiss: each reason is live and clears itself once
+   it is resolved, so hiding one would hide something still true. */
+const PJ_NEEDS_WHY = {
+  question: ['Waiting for your answer about this project.', 'Answer'],
+  trust: ['Waiting on a trust prompt before it can start.', 'Open'],
+  gave_up: ['Lost its connection, and Kosmos stopped trying to reconnect it.', 'Open'],
+  crash_loop: ['Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.', 'Open'],
+  stuck_auth: ['Cannot sign in, so it cannot work until its account is reconnected.', 'Open'],
+  stuck_rate: ['Paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.', 'Open'],
+  other: ['Needs you.', 'Open'],
+};
+function pjNeedsNotice(roster) {
+  const rows = (roster || []).filter((m) => m && typeof m.needsYouHere === 'string' && m.needsYouHere);
+  if (!rows.length) return '';
+  const nameOf = (m) => String(m.name || m.sessionName || 'An agent');
+  const head = rows.length === 1 ? esc(nameOf(rows[0])) + ' needs you on this project.' : rows.length + ' agents need you on this project.';
+  const body = rows.map((m) => {
+    const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other;
+    return '<div class="pnrow"><span class="pnwho">' + esc(nameOf(m)) + '</span><span class="pnwhy">' + esc(why) + '</span>'
+      + '<button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button></div>';
+  }).join('');
+  return '<div class="pnotice pn-needs"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + body + '</div></div>';
+}
+
 /** The whole notice: '' when every agent has the folder. */
 function pjNotice(roster, projectId) {
   const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
@@ -58480,7 +58507,14 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
-  const needsYou = m.present === true && cardStOf(liveM).st === 'attn'; // liveM: a given-up connection is red here too (#3410)
+  /* #5688: when the engine says why a member is counted (needsYouHere, present on every answer since #5688), the row
+     is red exactly when the project's Issue pill counts it, so a red pill never sits over calm rows (a terminal error
+     that stood too long and an agent's own question were counted but drawn calm) and a question about ANOTHER project
+     does not redden this one (#763). An answer without the field keeps the card read. */
+  const counted = m && Object.prototype.hasOwnProperty.call(m, 'needsYouHere') ? m.needsYouHere !== null : null;
+  const cardSt = cardStOf(liveM).st;
+  const rowSt = counted === null ? cardSt : (counted ? 'attn' : (cardSt === 'attn' ? '' : cardSt));
+  const needsYou = m.present === true && rowSt === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
   /* #2711 item 16: the member box takes a ground by state, the same read the
      agent homepage cards make (.acard.working/.acard.attn) so the two surfaces
@@ -58492,7 +58526,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      reason line), not a state colour. The CSS scopes these to #pj-one-agents. */
   const present = m.present || m.state === 'restarting';
   const stClass = present
-    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(liveM).st] || '')
+    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[rowSt] || '')
     : '';
   /* #3212 (Josh 6.72): a member the board cannot see (`!present`) is one a room post could
      not reach, so mark the avatar with the question-mark badge instead of a status sentence.
@@ -63246,7 +63280,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjCoordNotice(p) + pjNotice(roster, p.id);
+  const notice = pjNeedsNotice(roster) + pjCoordNotice(p) + pjNotice(roster, p.id);   // #5688: who needs you, first
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   setIfChanged(noticeBox, notice);
@@ -71287,6 +71321,13 @@ async function pjNoticeRetryClick(e) {
   }
 }
 document.getElementById('pj-one-notice').addEventListener('click', pjNoticeRetryClick);
+/* #5688: Open / Answer on the "needs you" block opens that agent, where its fix lives; Back returns to this project. */
+function pjNeedsOpenClick(e) {
+  const b = e.target && e.target.closest ? e.target.closest('[data-pn-open]') : null;
+  if (b && b.dataset.pnOpen) openDetail(b.dataset.pnOpen, undefined, PJ_CURRENT);
+}
+document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenClick);
+{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
 /* #4583: Dismiss on the two-coordinator warning, in either notice. */
 function pjCoordDismissClick(e) {
   const btn = e.target && e.target.closest ? e.target.closest('[data-pn-coord-dismiss]') : null;

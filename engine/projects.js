@@ -881,6 +881,23 @@ function aboutWho(who, row) {
   return row && row.claim ? { ...row, claim: { ...row.claim, about: who } } : row;
 }
 
+/* #5688: why a member needs the person on THIS project, or null. The #3726 rule, unchanged: a needs_you counts only for
+   the project its question named (#763); anything else counts when status.needsPerson holds (a trust wait, a connection
+   Kosmos gave up on, a crash loop, a terminal error that has stood too long). The reason names which, for the page. */
+function needsYouReason(m, projectId) {
+  if (!m || !m.present || !m.tied) return null;
+  if (m.state === 'needs_you') return m.stateProject === projectId ? 'question' : null;
+  if (!require('./status').needsPerson(m)) return null;
+  if (m.state === 'needs_trust') return 'trust';
+  if (m.crashLoop && m.crashLoop.looping === true) return 'crash_loop';
+  if (m.stuckError && m.stuckError.stuck === true) {
+    if (m.stuckError.state === 'auth_failed') return 'stuck_auth';
+    if (m.stuckError.state === 'rate_limited') return 'stuck_rate';
+  }
+  if (m.state === 'connection_lost' && m.reconnect && m.reconnect.phase === 'gave_up') return 'gave_up';
+  return 'other';   // needsPerson learned a condition this list has not: still counted, worded generally
+}
+
 function describe(project, roster, all) {
   const cards = Array.isArray(roster) ? roster : [];
   // ⚠️ Seeing an agent is remembered. `everSeen` was written once, at add time,
@@ -1083,6 +1100,10 @@ function describe(project, roster, all) {
       })(),
     };
   });
+  /* #5688 (Josh, 10-09 08:45: a red Issue on a project whose page never said what it was): WHY each member is counted
+     in summary.needsYou, so the project page can name the member, say why, and open the fix. The count below is the
+     number of members with a reason, so the pill and the page cannot disagree. */
+  for (const m of members) m.needsYouHere = needsYouReason(m, project.id);
 
   // #1994: the parent id (or null), derived once and used both as the `parent`
   // field and to resolve parentName/parentArchived below.
@@ -1232,9 +1253,7 @@ function describe(project, roster, all) {
          it counts on every project the agent is a member of, where its member row is red too. A trust
          wait is counted by the same rule, but today it never reaches this roster (the route builds
          those rows offline, so such a member is not `present`); the rule covers it when it does. */
-      needsYou: members.filter((m) => m.present && m.tied && (m.state === 'needs_you'
-        ? m.stateProject === project.id
-        : require('./status').needsPerson(m))).length,
+      needsYou: members.filter((m) => m.needsYouHere !== null).length,   // #5688: one rule, needsYouReason
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
       /* ...and about no project at all (nothing named, nothing to inherit): read
          on the Agents page. Kept apart from "elsewhere" so a screen sentence
