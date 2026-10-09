@@ -774,3 +774,23 @@ test('#5678 failoverPick: a stalled part is not moved into a tree another agent 
   assert.ok(ok && ok.n === 2, 'CONTROL: with only the stalled holder on the tree, the part moves: ' + JSON.stringify(ok));
   assert.equal(a.failoverPick('idleC', 'codex', stalled, mk(false), new Set(), new Set(['pf#tree#1#otherAgent'])), null, 'a tree given to another agent this pass was moved into');
 });
+
+/* #5678 review 3: subtasks go before their parent, so an umbrella parent's holder does not sit on a locked tree. */
+test('#5678 pick: a parent with open subtasks waits; its subtask goes first; CONTROL: with them done, the parent goes', () => {
+  const proj = (list) => [{ id: 'p5678c', agents: ['idleD'], tasks: list }];
+  const first = a.pick('idleD', proj([{ number: 1, sentence: 'Umbrella' }, { number: 2, sentence: 'Leaf', parent: 1 }]), new Set());
+  assert.ok(first && first.n === 2, 'the umbrella parent was handed out before its open subtask: ' + JSON.stringify(first));
+  const after = a.pick('idleD', proj([{ number: 1, sentence: 'Umbrella' }, { number: 2, sentence: 'Leaf', parent: 1, closedAt: '2026-10-09T00:00:00Z' }]), new Set());
+  assert.ok(after && after.n === 1, 'CONTROL: with its subtasks done the parent was not handed out: ' + JSON.stringify(after));
+});
+
+/* #5678 review 3: failover leaves the stalled holder out of the tree check only if every busy part it holds there moves. */
+test('#5678 failoverPick: a stalled holder that keeps another part of the tree is still its builder; CONTROL: all stalled, it moves', () => {
+  const tasksOf = [{ number: 1, sentence: 'Parent' }, { number: 2, sentence: 'Stalled', parent: 1, who: 'limitedA' }, { number: 3, sentence: 'Kept', parent: 1, who: 'limitedA' }];
+  const proj = [{ id: 'pk', agents: ['limitedA', 'idleC'], tasks: tasksOf }];
+  const only2 = [{ projectId: 'pk', n: 2, partId: 1, from: 'limitedA', fromRunner: 'claude' }];
+  assert.equal(a.failoverPick('idleC', 'codex', only2, proj, new Set(), new Set()), null, 'a part moved while its holder keeps another part of the tree');
+  const both = only2.concat([{ projectId: 'pk', n: 3, partId: 1, from: 'limitedA', fromRunner: 'claude' }]);
+  const ok = a.failoverPick('idleC', 'codex', both, proj, new Set(), new Set());
+  assert.ok(ok && ok.n === 2, 'CONTROL: with every part it holds there stalled, the move goes ahead: ' + JSON.stringify(ok));
+});

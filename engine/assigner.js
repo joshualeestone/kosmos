@@ -150,6 +150,14 @@ function busyHold(p, t, who) {
   if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
   return !isSwarmOff(p, who);
 }
+/* #5678 review 3: the numbers above `t` (its parent, theirs, ...), so a broken loop of parent links is not read as
+   "this task still has open subtasks" (each task on a loop is the other's child). */
+function upChain(tree, t) {
+  const seen = new Set();
+  let up = tree.up(t);
+  while (up !== null && !seen.has(up)) { seen.add(up); up = tree.up(tree.byNum.get(up)); }
+  return seen;
+}
 /* #5678: is this tree (by its root) another builder's: held busy by somebody else, or given to somebody else this pass?
    `except` is a holder to leave out (failover moves that holder's part). */
 function treeIsOthers(p, tree, holdersOf, root, session, taken, except) {
@@ -221,6 +229,9 @@ function pick(session, projects, taken) {
       if (t.repeat) continue;
       /* #5678 (user feedback 10-09): never a second builder on one tree. Its holder may take more of it when free
          (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
+      /* #5678 review 3: a parent whose subtasks are still open is not handed out: given first (it is the oldest), its
+         holder would sit busy on the umbrella while the tree stays locked to everyone else. The subtasks go first. */
+      if (tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !upChain(tree, t).has(c.number))) continue;
       const root = tasks.rootIn(tree, t);
       if (treeIsOthers(p, tree, holdersOf, root, session, taken, null)) continue;
       const part = prog.parts.find((x) => !x.closedAt);
@@ -410,7 +421,13 @@ function failoverPick(session, runner, stalled, projects, movedParts, taken = ne
     const t = tree.byNum.get(s.n);
     if (!t) continue;
     const root = tasks.rootIn(tree, t);
-    if (treeIsOthers(p, tree, tasks.treeHolders(p, tree, (x, who) => busyHold(p, x, who)), root, session, taken, s.from)) continue;
+    /* Review 3: the stalled holder is left out only if every busy part it holds in this tree is stalled (so movable);
+       one it keeps (given after its limit began, say) would make it, and this agent, two builders on the tree. */
+    const keeps = (p.tasks || []).some((x) => x && typeof x.number === 'number' && !tasks.progressOf(x).closed
+      && tasks.rootIn(tree, x) === root && busyHold(p, x, s.from)
+      && tasks.progressOf(x).parts.some((y) => y.who === s.from && !y.closedAt
+        && !stalled.some((z) => z.projectId === p.id && z.n === x.number && z.partId === y.id)));
+    if (treeIsOthers(p, tree, tasks.treeHolders(p, tree, (x, who) => busyHold(p, x, who)), root, session, taken, keeps ? null : s.from)) continue;
     return { ...s, treeKey: p.id + '#tree#' + root + '#' + session };
   }
   return null;

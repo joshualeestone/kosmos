@@ -20,8 +20,14 @@ both CLIs.
   counts (busyHold: hasOpenWork's rules, plus the project's swarm switch), so a parked hold (on hold, built and freed,
   between runs) never locks a tree for good. Failover moves a part only into a tree no other busy agent holds.
 - Not covered on purpose: a busy holder rate-limited with failover off keeps its tree for the reset window (it is
-  still that builder's work; failover is the release, as for its own parts).
-- The task list SHOWS the nearest open held ancestor (tasks.ownerIn, members only) on a task nobody is on directly.
+  still that builder's work; failover is the release, as for its own parts). Likewise a holder whose session stopped
+  but who is still on the project: its tree waits for it, or for a person, as its own part always did. Requiring the
+  holder on the live roster would hand a tree away whenever a pane blinks, which is the bug.
+- The task list SHOWS, on a task nobody is on directly, the nearest open held ancestor, else the held open task with
+  the lowest number anywhere in its tree (tasks.ownerIn, members only), so a held subtask's parent and siblings say
+  whose they are (review 3).
+- The Assigner hands out subtasks before their parent: a parent with open subtasks waits (review 3), so an umbrella
+  parent's holder does not sit busy on a tree locked to everyone else.
 - Shown where an agent looks before starting (`kosmos task list`, from the /api/tasks rows' new ownerNames/ownerFrom).
   The page already shows the parent's holder and the child's "under task N" breadcrumb; an owner line on the page is
   a design call for Mona, noted on the card, not built here.
@@ -53,3 +59,8 @@ both CLIs.
   - W2 fixed: failover could move a part into a tree another busy agent holds. failoverPick now checks the tree (leaving out the stalled holder) and this pass's trees; both paths record the tree in `taken`. Tested both ways (red by mutation).
   - W3: resolved by W1 (the holder exception mattered only in the parked states, which no longer lock).
   - C taken: the plan states what "holds" means. NITs left: `[...taken].some` per candidate and per-pick tree building (bounded; fine at current sizes); `pick`'s choice carries treeKey for step (stripped before it leaves step).
+- **Round 3 (opus):** 0 blockers, 3 warnings, 2 NITs.
+  - W1 fixed: failover left the stalled holder out of the tree check even when it keeps another busy part there (given after its limit began), so two builders could share the tree. It is left out only when every busy part it holds there is stalled (red by mutation; CONTROL with all parts stalled).
+  - W2 fixed: the list showed no owner on a held subtask's unheld parent or siblings, while the Assigner kept them from others. ownerIn now falls back to the tree's held open task with the lowest number (red by mutation).
+  - W3 fixed in part: an umbrella parent given first held its tree from everyone while its holder sat on it. Subtasks now go before their parent (a loop of parent links is not read as "open subtasks"). The offline-holder case is recorded above.
+  - NIT 1 recorded: from `step`, the holder-may-take-more branch is unreachable (a busy holder is never idle); it stays for pick's direct callers and costs nothing. NIT 2 accepted: the list can name a parked holder the Assigner no longer honours, until the next holder takes the task.
