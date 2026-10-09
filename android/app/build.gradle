@@ -16,7 +16,7 @@ def uploadKeyAlias      = System.getenv("KOSMOS_UPLOAD_KEY_ALIAS") ?: "kosmos-up
 
 android {
     namespace 'io.kosmos.app'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         // NOTE: applicationId is the permanent Play-store identity. `io.kosmos.app`
@@ -25,9 +25,9 @@ android {
         // (android/README.md, "Confirm applicationId before the first Play upload").
         applicationId "io.kosmos.app"
         minSdk 24
-        targetSdk 35
-        versionCode 3
-        versionName "0.1.2"
+        targetSdk 36
+        versionCode 4
+        versionName "0.1.3"
     }
 
     signingConfigs {
