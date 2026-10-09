@@ -51,10 +51,12 @@ const UNGUARDED_SAID = new Set();   // said once per agent per process (review 1
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
 const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
-/* Without a guard check for this long, a guard may have lapsed unseen (review 24). The stored confirmation can be up to
-   half this old while the guard IS being checked each tick (it is refreshed only then, review 25), so the gap is that
-   staleness plus two missed five-minute ticks and a margin (review 26: at 11 minutes one missed tick fired it). */
-const GUARD_GAP_MS = 20 * 60 * 1000;
+/* Without a guard check for this long, a guard may have lapsed unseen (review 24). The stored confirmation is refreshed
+   only once it is over GUARD_REFRESH_MS old (review 25: refreshing every tick rewrote the state every tick), so with
+   five-minute ticks it can be 15 minutes old at an ordinary check; the gap is that plus two missed ticks and a margin
+   (reviews 26 and 27: at 11, then 20, minutes a missed tick fired it). */
+const GUARD_GAP_MS = 30 * 60 * 1000;
+const GUARD_REFRESH_MS = 10 * 60 * 1000;
 
 /* A deny-rule refusal: it starts "Permission to use <Tool>" and ends "has been denied." Tested on the head and the tail
    only (review 19: one regex over a 4 MB result could backtrack on agent-shaped text). */
@@ -478,7 +480,7 @@ async function tick(opts) {
              refusals could be the person's own, so the agent counts from now, as if newly listed. */
           if (Number.isFinite(st.confirmed[n]) && now - st.confirmed[n] > GUARD_GAP_MS) collidedNow.add(n), gapNow.add(n);
           /* Refreshed once it is over half the gap old (review 25: refreshing every tick rewrote the state every tick). */
-          if (!Number.isFinite(st.confirmed[n]) || now - st.confirmed[n] > GUARD_GAP_MS / 2) st.confirmed[n] = now;
+          if (!Number.isFinite(st.confirmed[n]) || now - st.confirmed[n] > GUARD_REFRESH_MS) st.confirmed[n] = now;
           continue;
         }
         dirs.delete(n); collidedNow.add(n); unguarded.push(d);

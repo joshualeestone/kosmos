@@ -350,3 +350,11 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   Mac. Test.
 - Confirmations are pruned when an agent leaves the list; the review-24 test has a positive arm.
 - Stated: past 4096 characters, a file named exactly board.token inside the agent's own folder reads as the board's.
+
+## Review 27 (sonnet), all fixed unless stated
+- The review-26 "margin" did not exist: refreshing at half of 20 minutes lets the confirmation be 15 minutes old at an
+  ordinary check, so one missed tick reached the gap exactly. The gap is 30 minutes and the confirmation refreshes at
+  10 (writes every third tick); an ordinary check sees at most 15, two missed ticks 25. Test at the worst case (checks
+  at 5 and 10 minutes, then 25 and a few seconds).
+- Stated: path classing resolves, it does not follow symlinks (a link the agent made to the board's files reads 'other';
+  making the link is itself a write in its own folder); a line larger than the tick's remaining budget waits a tick.
