@@ -181,3 +181,20 @@ test('#5683 tick: enrolled but with no accepted words recorded here opens no tra
   assert.deepEqual(s.read, [], 'a transcript was read under an enrollment with no accepted words');
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false);
 });
+
+test('#5683 tick: a batch the coordinator refuses as unreadable is dropped, so it never holds back later events', async (t) => {
+  const s = setup(t);
+  let bad = true;
+  const c = coordinator(() => (bad ? { ok: false, because: '400 {"code":"org_agent_events_bad"}' } : { ok: true, data: { ok: true } }));
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  append(s.file, use('p1', 'Bash', { command: 'x' }), result('p1', DENIED('x'), true));
+  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  assert.equal(r.dropped, 1, 'the refused batch was kept to be refused again');
+  bad = false;
+  append(s.file, use('p2', 'Bash', { command: 'x' }), result('p2', DENIED('x'), true));
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  const ok = c.sent.filter((x) => x.route === ae.ROUTE).pop();
+  assert.deepEqual(ok.body.events.map((e) => e.toolUseRef), ['p2'], 'a later event waited behind the refused one');
+});
