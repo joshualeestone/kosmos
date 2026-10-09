@@ -34,7 +34,7 @@ const FUTURE_SLACK_MINUTES = 5;
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
  */
-/* #5636 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
+/* #5635 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
    overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
    (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused). Not the member's
    own state, which also reads 'idle'. */
@@ -218,7 +218,7 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
    and the state stays 'stale'. */
 function idleNoted(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale') return summary;
-  /* #5636/#5635 F2 (0.7.33 report: "the flag does not use the idle or rate-limited states"): a member the board reads as
+  /* #5635 F2 (0.7.33 report: "the flag does not use the idle or rate-limited states"): a member the board reads as
      rate limited now cannot work, so its line says that instead of reading as overdue. The board's own state, said as
      what it is now; when it began is not known, so no time is claimed. */
   if (member && member.present && member.tied && member.state === 'rate_limited') return { ...summary, limitedNow: true };
@@ -235,7 +235,10 @@ function idleNoted(summary, member, readReport, nowMs) {
   if (Number.isFinite(wroteAt) && wroteAt > at) return summary;
   /* Review 1: a runner that reports idle only (Codex) or carries none can have worked since; its line says what it
      reported, never that it has been idle since then (idleReported). */
-  return { ...summary, idleKind: rep.state === 'started' ? 'started' : 'idle', idleReported: !REPORTS_WORKING.has(member.runner), idleSince: new Date(at).toISOString(), idleMinutes: Math.max(0, Math.round((now - at) / 60000)) };
+  /* Review 2: whether it was written more than the rhythm before the idle report, measured here (not inferred from
+     idleExcused having refused), so the words that say so are always backed by this read. */
+  const beforeIdleGap = Number.isFinite(wroteAt) && at - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000;
+  return { ...summary, beforeIdleGap, idleKind: rep.state === 'started' ? 'started' : 'idle', idleReported: !REPORTS_WORKING.has(member.runner), idleSince: new Date(at).toISOString(), idleMinutes: Math.max(0, Math.round((now - at) / 60000)) };
 }
 
 /**
@@ -400,9 +403,10 @@ const SUMMARY_WORDS = {
   stale: (s) => {
     /* 0.7.33 report F2: an idle or rate-limited member's line leads with what it is doing now, not with "older than the
        rhythm", which read as overdue. A working member's line is unchanged. */
-    if (s.limitedNow) return 'last written ' + ago(s.ageMinutes) + ' (' + one(s.file) + '); rate limited now, so it cannot work until the limit lifts';
-    if (Number.isFinite(s.idleMinutes) && !s.idleReported) {
-      /* Review 1: reached only when idleExcused refused, i.e. written more than the rhythm before the idle report, so it
+    /* Review 2: the overdue fact stays; being rate limited now is added, never offered as why it is old. */
+    if (s.limitedNow) return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + '); rate limited now, so it cannot work until the limit lifts';
+    if (Number.isFinite(s.idleMinutes) && !s.idleReported && s.beforeIdleGap === true) {
+      /* Review 1/2: beforeIdleGap is measured in idleNoted: written more than the rhythm before the idle report, so it
          says that plainly: it went past its rhythm while working, then went idle. */
       return (s.idleKind === 'started' ? 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before this session started (' : 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before it went idle (') + one(s.file) + ', ' + ago(s.ageMinutes)
         + (s.idleKind === 'started' ? '; started ' + ago(s.idleMinutes) + ' and idle since then)' : '; idle since ' + ago(s.idleMinutes) + ')');
