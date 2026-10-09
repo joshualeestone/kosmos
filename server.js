@@ -2159,7 +2159,7 @@ function sentenceForWhoami(account, model, runner) {
      the one step if that persists. No restart advice (review 4): a restart clears the kept model until the next turn,
      and several causes would not be helped by one, so it could only send the person round in a loop. */
   parts.push(model && model.name ? 'and its model is ' + model.name
-    : runner === 'muse' ? 'and we cannot tell which model it is running: Kosmos has not read one for this Muse agent yet (it reads it once a turn names it). If a later turn still says so, tell your person that Kosmos cannot read this agent\'s model'
+    : runner === 'muse' ? 'and we cannot tell which model it is running: Kosmos has not read one for this Muse agent yet (it normally reads it once a turn names it). If whoami still says this after a later turn, tell your person once that Kosmos cannot read this agent\'s model'
       : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
