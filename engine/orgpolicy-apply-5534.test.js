@@ -42,10 +42,10 @@ const bundle = (over = {}) => ({ typ: 'org_policy', v: 1, org: 'org_1', version:
 const ORG = { id: 'org_1', name: 'Acme', slug: 'acme' };
 
 /* A fake coordinator that confirms THIS world on this computer and serves `policy` on the status answer. */
-function coordinatorServing(root, policy) {
+function coordinatorServing(root, policy, company = ORG) {
   org.worldId({ root });   // this Kosmos's id exists before the refresh asks about it, as on an enrolled board
   return { macRequest: async (m, route) => (route === org.ROUTES.status
-    ? { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root }), thisComputer: true }, ...(policy === undefined ? {} : { policy }) } }
+    ? { ok: true, data: { member: true, org: company, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root }), thisComputer: true }, ...(policy === undefined ? {} : { policy }) } }
     : { ok: false, because: 'unexpected ' + route }) };
 }
 const appliedVersion = () => { try { return JSON.parse(fs.readFileSync(orgpolicy.APPLIED(), 'utf8')).version; } catch { return null; } };
@@ -105,7 +105,7 @@ test('#5534 review 1: when this Kosmos stops being enrolled, the company policy 
   const gone = { macRequest: async (m, route) => (route === org.ROUTES.status ? { ok: true, data: { member: false, policy: sign(bundle({ version: 5 })) } } : { ok: false }) };
   const r = await org.refresh({ root, remote: gone });
   assert.equal(r.enrolled, false);
-  assert.equal(fs.existsSync(orgpolicy.APPLIED()), false, 'the applied policy outlived the enrollment');
+  assert.equal(orgpolicy.current(), null, 'the applied policy outlived the enrollment');
   assert.equal(fs.existsSync(orgpolicy.BUNDLE()), false, 'the bundle outlived the enrollment');
   assert.equal(create.policyAllows('openai', null).ok !== false, true, 'a former member is still held to the policy');
 });
@@ -144,4 +144,58 @@ test('#5534 review 2: a leave the company refuses (last admin) keeps this Kosmos
   assert.equal(r.still, true, JSON.stringify(r));
   assert.ok(org.readEnrollment({ root }), 'premise: the record came back');
   assert.equal(create.policyAllows('openai', null).ok, false, 'a refused leave dropped the policy of a Kosmos still enrolled');
+});
+
+test('#5534 review 3: another company with a refused bundle leaves no policy, not the old company\'s', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
+  assert.equal(create.policyAllows('openai', null).ok, false, 'premise: org_1 policy in force');
+  const org2 = { id: 'org_2', name: 'Beta', slug: 'beta' };
+  const r = await org.refresh({ root, remote: coordinatorServing(root, sign(bundle({ org: 'org_2' }), stranger), org2) });
+  assert.equal(r.ok, true, r.because);
+  assert.ok(r.policy && r.policy.refused, 'premise: the new company\'s bundle was refused');
+  assert.equal(orgpolicy.current(), null, 'the old company\'s policy stayed in force under the new company');
+});
+
+test('#5534 review 3: a refused last-admin leave from a coordinator without the policy field puts the policy back', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
+  const older = coordinatorServing(root, undefined);
+  const lastAdmin = { macRequest: async (m, route, body) => (route === org.ROUTES.leave
+    ? { ok: false, because: '409 {"because":"org_last_admin"}' }
+    : older.macRequest(m, route, body)) };
+  const r = await org.leave({ root, remote: lastAdmin });
+  assert.equal(r.still, true, JSON.stringify(r));
+  assert.equal(create.policyAllows('openai', null).ok, false, 'the policy was not put back on a Kosmos still enrolled');
+});
+
+test('#5534 review 3: the highest version seen survives a clear, so an older bundle replayed after a rejoin is refused', () => {
+  reset();
+  fs.writeFileSync(orgpolicy.BUNDLE(), sign(bundle({ version: 3 })));
+  assert.equal(orgpolicy.refresh().applied.version, 3, 'premise');
+  orgpolicy.clear();
+  assert.equal(orgpolicy.current(), null, 'premise: nothing in force after the clear');
+  fs.writeFileSync(orgpolicy.BUNDLE(), sign(bundle({ version: 2 })));
+  const r = orgpolicy.refresh();
+  assert.ok(r.refused, 'an older bundle was accepted after a clear');
+  assert.equal(orgpolicy.current(), null);
+  fs.writeFileSync(orgpolicy.BUNDLE(), sign(bundle({ version: 3 })));
+  assert.equal(orgpolicy.refresh().applied.version, 3, 'CONTROL: the same version is accepted again after a rejoin');
+});
+
+test('#5534 review 3: joining another company by code ends the old company\'s policy even before any refresh', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
+  assert.equal(create.policyAllows('openai', null).ok, false, 'premise: org_1 policy in force');
+  const org2 = { id: 'org_2', name: 'Beta', slug: 'beta' };
+  const moving = { macRequest: async (m, route, body) => (route === org.ROUTES.enroll
+    ? { ok: true, data: { ok: true, org: org2, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } }
+    : { ok: false, because: 'unreachable' }) };
+  const r = await org.enroll('BETA-JOIN-1234', true, { root, remote: moving });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(org.readEnrollment({ root }).org.id, 'org_2', 'premise: the record is the new company\'s');
+  assert.equal(orgpolicy.current(), null, 'the old company\'s policy stayed in force after a move to another company');
 });
