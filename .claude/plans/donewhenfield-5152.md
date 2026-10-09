@@ -50,3 +50,9 @@ That `kosmos task list` is where an agent reads its checks back. If agents mostl
   - ZWJ emoji sequences are refused by the Cf rule (invisible joiners stay out);
   - the same list re-sent by a member moves the attribution silently, as the person's adoption does;
   - a check starting with "-" goes through `done-when --`.
+- **Round 5 (opus):** 0 blockers, 2 warnings, both fixed.
+  - W1: a task SENTENCE could print a forged "set by the person" mark on the task's line. The checks now print on their own indented line under the task in both CLIs; a sentence is folded onto one line, so it cannot make that line.
+  - W2: HTTP arms where an agent's own token, with and without browser headers, is refused on the person's checks.
+  - NIT 1 fixed: one helper caps the setter's name, by whole characters, on create, change and the transcript.
+  - NIT 2 decided: U+034F and U+2800 pass. They hide nothing a model reads differently from a person, which is what the rule is for.
+  - NIT 3 decided: a task number is echoed as typed, the wording `task built` already uses.

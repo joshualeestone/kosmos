@@ -182,3 +182,16 @@ test('a webhook call that sends doneWhen adds its task with no checks (the route
   assert.ok(t, 'CONTROL: the webhook did not add its task, so the next line proves nothing');
   assert.equal(t.doneWhen, null, 'a webhook body set a task\'s checks');
 });
+
+test('review 5: an agent\'s own token cannot touch the person\'s checks, even when it also sends browser headers', async (t) => {
+  const { id, n } = freshTask();
+  projects.mutate(id, (p) => ({ ...p, agents: ['mara'] }));
+  assert.equal((await setDoneWhen(id, n, { doneWhen: ['the person decides'] }, SCREEN)).status, 200, 'CONTROL: the screen could not set them');
+  const tok = agents(t);
+  for (const headers of [{ 'x-kosmos-agent-token': tok.mara }, { 'x-kosmos-agent-token': tok.mara, ...SCREEN }]) {
+    const w = await setDoneWhen(id, n, { doneWhen: ['easier'] }, headers);
+    assert.equal(w.status, 403, JSON.stringify(headers) + ' ' + JSON.stringify(w.json));
+    assert.match(w.json.error, /only they can change them/, 'refused for another reason, so the person mark was not what held');
+  }
+  assert.deepEqual(storedChecks(id, n), ['the person decides']);
+});

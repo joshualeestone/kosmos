@@ -102,6 +102,11 @@ function doneWhenValue(doneWhen) {
   if (!Array.isArray(doneWhen) || !doneWhen.length) return null;
   return doneWhen.map((c) => c.trim());
 }
+/** Who set the checks, as stored: a name, cut to WHO_MAX whole characters (never half a pair), or null. */
+function doneWhenSetter(by) {
+  if (typeof by !== 'string' || !by) return null;
+  return Array.from(by).slice(0, WHO_MAX).join('');
+}
 /** The checks as one transcript line, "1) ... 2) ...", which is what engine/taskchat.js can keep (a string). */
 function doneWhenWords(list) {
   return Array.isArray(list) && list.length ? list.map((c, i) => (i + 1) + ') ' + c).join(' ') : null;
@@ -292,7 +297,7 @@ function create(projectId, { sentence, detail, who, parent, doneWhen, made: orig
     /* #5152 review 1: checks the person wrote on the screen are theirs (setDoneWhen keeps them from other callers).
        Review 2: an agent's are marked with its name, so the agent the task goes to can see who set its bar. */
     if (made.doneWhen && made.addedVia === 'screen') made.doneWhenByPerson = true;
-    else if (made.doneWhen && made.addedVia === 'process' && made.addedBy) made.doneWhenBy = made.addedBy;
+    else if (made.doneWhen && made.addedVia === 'process' && doneWhenSetter(made.addedBy)) made.doneWhenBy = doneWhenSetter(made.addedBy);
     return {
       ...p,
       taskCounter: number,
@@ -936,7 +941,7 @@ function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {})
     delete changed.doneWhenByPerson;
     delete changed.doneWhenBy;
     if (next && person) changed.doneWhenByPerson = true;
-    else if (next && by) changed.doneWhenBy = String(by).slice(0, WHO_MAX);
+    else if (next && doneWhenSetter(by)) changed.doneWhenBy = doneWhenSetter(by);
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -944,8 +949,8 @@ function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {})
   });
   if (didChange) {
     taskchat.record(projectId, changed.number, next
-      ? { kind: 'done-when-set', doneWhen: doneWhenWords(next), ...(person ? { person: true } : by ? { by } : {}) }
-      : { kind: 'done-when-cleared', ...(person ? { person: true } : by ? { by } : {}) });
+      ? { kind: 'done-when-set', doneWhen: doneWhenWords(next), ...(person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {}) }
+      : { kind: 'done-when-cleared', ...(person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {}) });
   }
   return changed;
 }
