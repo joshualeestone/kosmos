@@ -226,7 +226,18 @@ async function tick(opts) {
     const remote = o.remote || require('./remote');
     let r;
     try { r = await remote.macRequest('POST', ROUTE, { events: batch }); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
-    if (!r || !r.ok) return { sent: 0, because: (r && r.because) || 'the send failed' };
+    if (!r || !r.ok) {
+      /* A batch the coordinator REFUSES as malformed (org_agent_events_bad: an event it does not accept) would be
+         refused on every retry and hold back every later event. Drop exactly that batch; anything else (offline, busy,
+         consent changed, not enrolled) keeps it for the next tick. */
+      if (/\borg_agent_events_bad\b/.test(String((r && r.because) || ''))) {
+        const left = readState(root);
+        left.pending = left.pending.slice(batch.length);
+        writeState(root, left);
+        return { sent: 0, dropped: batch.length, because: 'the company refused these events as unreadable' };
+      }
+      return { sent: 0, because: (r && r.because) || 'the send failed' };
+    }
     /* Sent: drop exactly what went. A repeat would be ignored by the coordinator (one row per session and tool use). */
     const after = readState(root);
     after.pending = after.pending.slice(batch.length);
