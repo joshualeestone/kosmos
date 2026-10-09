@@ -37,7 +37,7 @@ function workKosmos() {
     'agents/a/notes.md': Buffer.from('plain notes\n'),
     // Text, not random bytes: the scanner skips most random binaries (key-shaped runs turn up by chance), so a random
     // file would make this round trip flaky.
-    'agents/a/memory/big.bin': Buffer.from(Array.from({ length: 120000 }, (_, i) => `line ${i} of a long memory file, ${i % 97} more words here\n`).join('')),
+    'agents/a/memory/big.bin': Buffer.from(Array.from({ length: 60000 }, (_, i) => `line ${i} of a long memory file, ${i % 97} more words here\n`).join('')),
     'agents/a/token.md': Buffer.from(`my token is ${TOKEN} ok\n`),
     'agents/a/.env': Buffer.from('SECRET=1\n'),
     'readme.txt': Buffer.from('hello'),
@@ -1131,5 +1131,35 @@ test('a run whose own clock crosses Monday never asks for a manifest grant, even
       assert.equal(r.ok, false, after); assert.equal(r.newPeriod, true, after);
       assert.equal(st.manifests.length, 0, `${after}: a manifest grant was asked for across the boundary`);
     }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('text over the text cap is skipped and named, never scanned; a binary of that size is scanned and stored', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', 'big.log'), 'a log line\n'.repeat(400));          // 4,400 bytes of text
+    const bin = Buffer.alloc(4400); for (let i = 0; i < bin.length; i++) bin[i] = i % 3 === 0 ? 0 : 65 + (i % 7);
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', 'data.bin'), bin);                              // 4,400 bytes with NULs
+    const r = await take(k, w.root, st, { deps: { maxText: 4096 } });
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/big.log' && /text larger than/.test(x.why)));
+    assert.ok(m.files.some((x) => x.path === 'agents/a/data.bin'), 'a binary of the same size is stored');
+    assert.ok(m.files.some((x) => x.path === 'agents/a/notes.md'), 'control: small text is stored');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a name masked on its own still has its split windows checked: a second token across its folder is masked too', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const other = 'ghp_' + 'Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0KkLlMm';
+    const dir = other.slice(0, 4);   // "ghp_": fires nothing alone
+    fs.mkdirSync(path.join(w.root, 'agents', 'a', dir));
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', dir, other.slice(4) + '-' + TOKEN + '.md'), 'x');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    const json = JSON.stringify(m);
+    assert.ok(!json.includes(TOKEN) && !json.includes(other.slice(4)), 'neither token, nor the split one, reaches the manifest');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

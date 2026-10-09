@@ -33,8 +33,9 @@
  *    and back can, with timing luck, have a file from outside read. Such a process can already read those files itself,
  *    and the content scan still runs on what is read.
  *
- * Memory: sealed chunks wait in batches of at most batchBytes; one file is read whole (backupscan works on one
- * buffer), so the per-file peak is a few times maxFile (the bytes, a decoded copy, the redacted copy).
+ * Memory: sealed chunks wait in batches of at most batchBytes; one file is read whole and scanned in one call
+ * (backupscan works on one buffer), so the per-file peak is set by the two caps (see MAX_FILE): about 300 MB resident
+ * at either measured ceiling.
  *
  * Results stay on this Mac. `because` is a sentence for the person or the log here: the walker's own are fixed text (an
  * unexpected error gives only its code, never its message, which can carry paths), and an uploader's refusal is passed
@@ -65,7 +66,24 @@ function nameMasked(name) {
 
 const FORMAT = 1;
 // A file is read whole to be scanned (backupscan works on one buffer), so a bigger one is skipped, and says so.
-const MAX_FILE = 256 * 1024 * 1024;
+// Measured (review 39), backupscan.scanFile on this Mac: a 66 MB real binary (photos) 235 ms and 290 MB resident; text
+// is far dearer: 3 MB 202 ms and 300 MB, 7 MB 1.5 s and about 1 GB, 14 MB 2.5 s and 1.5 GB (secretmask over the whole
+// text), in one synchronous call the walker cannot interrupt. So two caps: 64 MB for a file, 4 MB for one that looks
+// like text. A file over either is skipped and named, never scanned.
+const MAX_FILE = 64 * 1024 * 1024;
+const MAX_TEXT = 4 * 1024 * 1024;
+/* Looks like text to the scanner: no NUL in the first 8 KiB (UTF-8 and the like), or UTF-16 (a BOM, or every other byte
+   NUL), which backupscan decodes and scans as text. A cheap stand-in for the scanner's own decision: a binary with no
+   early NUL is capped as text, which only skips it (the safe side). */
+function looksLikeText(buf) {
+  const head = buf.subarray(0, 8192);
+  if (head.length >= 2 && ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff))) return true;
+  if (!head.includes(0)) return true;
+  let zerosOdd = 0, zerosEven = 0;
+  for (let i = 0; i < Math.min(head.length, 512); i++) if (head[i] === 0) { if (i % 2) zerosOdd++; else zerosEven++; }
+  const half = Math.min(head.length, 512) / 2;
+  return zerosOdd >= half * 0.9 || zerosEven >= half * 0.9;
+}
 // Sealed chunk bytes held before a batch is uploaded.
 const BATCH_BYTES = 64 * 1024 * 1024;
 // Restore's own default ceiling on entries (engine/backuprestore.js MAX_FILES).
@@ -103,8 +121,8 @@ const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WE
 const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". (The
-    coordinator falls back to "p<start>" for a time its time crate cannot hold, outside years -9999 to 9999; takeSnapshot refuses a clock whose year is past 9998, either way,
-    before using this.) */
+    coordinator falls back to "p<start>" for a time its time crate cannot hold, outside years -9999 to 9999; takeSnapshot refuses a clock
+    whose year is past 9998, either way, before using this.) */
 function periodOf(ms) {
   const start = MONDAY_EPOCH + Math.floor((ms - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
   // ISO week-numbering year: the year of the Thursday of that week.
@@ -198,7 +216,6 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
       const r = rel ? `${rel}/${name}` : name;
       // Recorded under the masked name: the skipped list leaves the Mac too.
       const masked = nameMasked(name);
-      if (masked !== null) { skip({ path: rel ? `${rel}/${masked}` : masked, why: 'a name holding something shaped like a credential' }); continue; }
       // And a token split across folder boundaries: secretmask does not read a token across '/', so
       // each name is also checked joined to the 1 to 7 names above it (every window ending here; windows ending higher
       // were checked on the way down). '\\' inside a name is a boundary to restore, so its parts count as segments.
@@ -207,7 +224,9 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
       const segs = asRestored(r).split('/');
       let hit = 0;
       for (let w = 2; w <= Math.min(SPLIT_WINDOW, segs.length) && !hit; w++) if (nameMasked(segs.slice(-w).join('')) !== null) hit = w;
+      // A window hit masks the whole window (it covers this name too); else a name that fired alone is masked by itself.
       if (hit) { skip({ path: segs.slice(0, -hit).concat(['\u2022\u2022\u2022\u2022']).join('/'), why: 'a path holding something shaped like a credential' }); continue; }
+      if (masked !== null) { skip({ path: rel ? `${rel}/${masked}` : masked, why: 'a name holding something shaped like a credential' }); continue; }
       let st;
       // bigint: device and inode compared exactly (a Number loses precision above 2^53).
       try { st = fs.lstatSync(path.join(root, r), { bigint: true }); } catch { skip({ path: r, why: 'an entry that could not be read' }); continue; }
@@ -365,7 +384,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   const putChunks = deps.uploadChunks || uploadChunks;
   const putManifest = deps.uploadManifest || uploadManifest;
   const pos = (n, dflt) => (Number.isSafeInteger(n) && n > 0 ? n : dflt);
-  const batchBytes = pos(deps.batchBytes, BATCH_BYTES), maxFile = pos(deps.maxFile, MAX_FILE);
+  const batchBytes = pos(deps.batchBytes, BATCH_BYTES), maxFile = pos(deps.maxFile, MAX_FILE), maxText = pos(deps.maxText, MAX_TEXT);
   const budget = pos(deps.maxManifestJson, MANIFEST_JSON_BUDGET);
   if (typeof root !== 'string' || !path.isAbsolute(root)) return fail('the work Kosmos folder must be an absolute path');
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
@@ -530,6 +549,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (!got.buf) { skip({ path: f.path, why: got.why }); continue; }
     // Grown since the walk: its reserve was sized from the walk's size, and it is being written to.
     if (got.buf.length > f.size) { skip({ path: f.path, why: 'it grew while the snapshot was taken' }); continue; }
+    if (got.buf.length > maxText && looksLikeText(got.buf)) { skip({ path: f.path, why: `text larger than ${Math.round(maxText / 1024 / 1024)} MB, too large to scan safely` }); continue; }
     const d = scanFile(f.path, got.buf);
     if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); continue; }
     const data = d.data;
