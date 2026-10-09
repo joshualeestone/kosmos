@@ -88,7 +88,8 @@ function record(dir, reading, now) {
   let securewrite = null;
   try { securewrite = require('./securewrite'); } catch { securewrite = null; }
   if (securewrite) {
-    // (the same mode rule as allowance.calibrate's save; kept inline here because this file must work copied alone)
+    // (the same mode rule as allowance.calibrate's save; kept inline here because this file must work copied alone;
+    // statSync follows a link, so a symlinked file is replaced by a regular file at its target's mode)
     let mode = null;
     if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
     try { securewrite.writeSecret(file, data, mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); return true; }
