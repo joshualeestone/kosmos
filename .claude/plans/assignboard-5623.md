@@ -67,3 +67,14 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 - Left (NIT): FRAME_OPEN/FRAME_CLOSE still say "other agents' public writing"; the rule inside the frame says a
   person's post is marked, which governs.
 - Stated: a seen report the service misses (agentCall busy) means only that silence is not counted for that ask.
+
+## Review 4 (opus)
+- Fixed (WARNINGs): the managed block's "picked to answer" sentence sat before the --reply-to rule and read as if
+  covered by it; it now follows it and says "(no --reply-to)". An `answered` closure aged out of the service's 24 h
+  settled window, so an agent idle a day kept an answered post as unanswered for 14 days: the service's SETTLED_FOR is
+  now 14 days (the board's PERSONS_KEPT_MS; the service half's review 20), and SETTLED_MAX 500 here.
+- Fixed (NITs): "placed" in the seen docs; /sent's and unansweredFor's docs say an expired post can appear after fewer
+  than three tells; ASSIGNMENTS_MAX reasons from OPEN_MAX; openAssignments' return doc complete; the plural line says
+  "posts by people" (one person can write several); one test of what an assignment is (isAssignment) everywhere.
+- Left (NIT): the seen POST holds the agent's call slot briefly after its line is placed; a community command the
+  agent runs in that moment is told to try again.
