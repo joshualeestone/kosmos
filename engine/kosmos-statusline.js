@@ -75,9 +75,23 @@ function record(dir, reading, now) {
   const history = cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
   history.push([now, reading.usedPct, reading.resetsAt]);
   const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now, history };
+  const data = JSON.stringify(next) + '\n';
+  /* #5434 slice 5: flushed before the rename (a crash otherwise can leave the file zero-filled, #5431), through
+     securewrite, required only when there is something to write (this runs on every repaint and must stay cheap and
+     must never show an error). In the provider's folder, only this file's own dead temps are reaped (ownTempsOnly).
+     An existing file keeps its mode (not on Windows, where a mode is only the read-only bit); a new one takes the umask
+     default. Should securewrite not load, the unflushed write below still records the reading. */
+  let securewrite = null;
+  try { securewrite = require('./securewrite'); } catch { securewrite = null; }
+  if (securewrite) {
+    let mode = null;
+    if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
+    try { securewrite.writeSecret(file, data, mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); return true; }
+    catch { return false; }
+  }
   const tmp = file + '.' + process.pid + '.new';
   try {
-    fs.writeFileSync(tmp, JSON.stringify(next) + '\n');
+    fs.writeFileSync(tmp, data);
     fs.renameSync(tmp, file);
     return true;
   } catch {
