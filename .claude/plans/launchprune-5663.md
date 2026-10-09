@@ -57,3 +57,10 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - The use-strict guard sees a directive with a trailing comment.
 - The comment says that a dangling link counts as present (kept).
 - Not taken: carrying the warning into the board's page. It is on stderr, as decided in review 4.
+
+## Review 6 (Sonnet) and what changed
+
+- The pruning comment no longer claims the person's own rules are untouched: a rule of theirs that is the same string as a pruned launch rule goes with it. It names a path that no longer exists.
+- The record's temp file name is unique per write, so two refreshes in one process cannot share it.
+- The warning's readers are stated in the doc comment: the board's and the supervisor's logs. No caller carries it further (decided in review 4, raised again in reviews 5 and 6).
+- Not taken: a directive written inline after code on one line (`x; 'use strict';`). The guard covers the class review 3 found, a block inserted above the directive.

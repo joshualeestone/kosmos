@@ -1143,7 +1143,7 @@ function writeLaunchRecord(file, rec) {
     let old = null;
     try { old = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
     if (old === text) return true;
-    const tmp = `${file}.${process.pid}.new`;
+    const tmp = `${file}.${process.pid}.${require('crypto').randomBytes(4).toString('hex')}.new`;   // review 6: two refreshes in one process
     fs.writeFileSync(tmp, text, { mode: 0o600 });
     try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
     return true;
@@ -1346,8 +1346,9 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
     if ((deps.platform || process.platform) !== 'darwin' && !deps.atLaunch) process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
-    /* #5663: last time's launch rules that are not launch rules now are dropped (an upgraded tool's old versioned path);
-       every other rule merges as before, the person's own and the rest of the guard included. */
+    /* #5663: at a launch, a recorded launch rule that is not current and whose path is gone is dropped (an upgraded tool's
+       old versioned path); every other rule merges as before. A rule the person wrote that is the SAME string as a
+       dropped one goes with it (review 6): it names a path that no longer exists. */
     const prev = readLaunchRecord(rules.launchRecord);
     const launchDenyNow = new Set(rules.launchRules || []);
     const launchWritesNow = [...new Set([...(rules.launchDirs || []), ...(rules.launchFiles || [])])];
@@ -1420,7 +1421,8 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     /* #5663: the sandbox profile has size limits (SANDBOX_DENY_PREFIX_MAX). Past them the guard is still whole (the token
        is denied), but the agent's shell may not run, so it is said as a warning, never a refusal: the limits are fitted
        to measurements (review 4), and a refusal would stop an agent being created on an estimate. It is said beside
-       an uncovered PATH entry, not instead of it. */
+       an uncovered PATH entry, not instead of it. Its readers are the logs (stderr: the board's log at board start and
+       creation, the supervisor's at a launch); no caller carries `warning` further today (reviews 5 and 6). */
     const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny) : null;
     const warning = sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)
       ? `its ${sz.paths} denied paths (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
