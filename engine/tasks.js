@@ -241,6 +241,15 @@ function ownerIn(tree, task, members) {
     }
     up = tree.up(a);
   }
+  /* #5678 review 3: or anywhere else in its tree (a held sibling, or a held subtask of this unheld parent): the Assigner
+     keeps the whole tree from a second builder, so the list says whose it is too. The held open task with the lowest
+     number speaks for the tree. */
+  const root = rootIn(tree, task);
+  for (const x of [...tree.byNum.values()].sort((m, n) => m.number - n.number)) {
+    if (x === task || progressOf(x).closed || rootIn(tree, x) !== root) continue;
+    const who = mine(openHolders(x));
+    if (who.length) return { who, from: x.number };
+  }
   return null;
 }
 /* The names on a task's OPEN parts: who is on it now (whoOf also names holders of finished parts). */

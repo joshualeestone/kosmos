@@ -617,3 +617,14 @@ test('#5678 rootIn and treeHolders: a tree is named by its top; holders are the 
   assert.deepEqual([...(h.get(1) || [])], ['a']);
   assert.equal(h.has(4), false, 'a holder not on the project holds nothing');
 });
+
+test('#5678 ownerIn review 3: a held subtask names the owner on its unheld parent and siblings too', () => {
+  const tasksMod = require('./tasks');
+  const p = { tasks: [{ number: 1, sentence: 'Parent' }, { number: 2, sentence: 'Held child', parent: 1, who: 'x' }, { number: 3, sentence: 'Sibling', parent: 1 }, { number: 4, sentence: 'Elsewhere' }] };
+  const tree = tasksMod.treeOf(p);
+  const by = (n) => p.tasks.find((t) => t.number === n);
+  assert.deepEqual(tasksMod.ownerIn(tree, by(1)), { who: ['x'], from: 2 }, 'the parent of a held subtask names no owner');
+  assert.deepEqual(tasksMod.ownerIn(tree, by(3)), { who: ['x'], from: 2 }, 'a sibling of a held subtask names no owner');
+  assert.equal(tasksMod.ownerIn(tree, by(2)), null, 'CONTROL: the held task names its own holder, not an owner');
+  assert.equal(tasksMod.ownerIn(tree, by(4)), null, 'CONTROL: another tree names none');
+});
