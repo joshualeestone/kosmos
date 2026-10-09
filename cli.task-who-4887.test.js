@@ -229,3 +229,27 @@ test('the board answers with the task\'s who before told and heard (the Mac CLI 
     assert.ok(k_at > at, k + ' comes before the task\'s who (or is missing), so the Mac read would pick it up: ' + raw.slice(0, 240));
   }
 });
+
+/* #5678: a subtask nobody is on, under a task somebody is on, lists that owner on both CLIs, so a second agent sees
+   whose work it is before starting. */
+test('#5678 `task list` names the owner of a subtask nobody is on directly, on Mac and Windows; CONTROL: a held one names its own', async () => {
+  const r0 = await mac(['task', 'add', projectId, 'Owned parent', '--who', 'mara']);
+  assert.equal(r0.code, 0, r0.out);
+  const top = (await bySentence('Owned parent')).number;
+  const r1 = await mac(['task', 'add', projectId, 'Loose child', '--parent', String(top)]);
+  assert.equal(r1.code, 0, r1.out);
+  const row = await bySentence('Loose child');
+  assert.deepEqual(row.whoNames, [], 'fixture: the child has nobody on it directly');
+  assert.deepEqual(row.ownerNames, ['mara']);
+  assert.equal(row.ownerFrom, top);
+  const want = new RegExp('Loose child \\(owner: mara, through task ' + top + '\\)');
+  const m = await mac(['task', 'list', projectId]);
+  assert.equal(m.code, 0, m.out);
+  assert.match(m.out, want, 'the Mac list does not name the owner');
+  const w = await win(['task', 'list', projectId]);
+  assert.equal(w.code, 0, w.err);
+  assert.match(w.out, want, 'the Windows list does not name the owner');
+  // CONTROL: the parent names its own holder, not an owner line.
+  assert.match(m.out, /Owned parent \(mara\)/);
+  assert.doesNotMatch(m.out, /Owned parent \(owner:/);
+});

@@ -705,3 +705,22 @@ test('#5456 goalProject: a lone scheduled task does not stop the goal ask, and i
   assert.equal(a.goalProject('s5456g', [{ ...rec, tasks: [{ number: 1, sentence: 'Check prices' }] }], goals, new Map(), T0), null,
     'CONTROL: the same task without its rule (ordinary open work) stops the ask');
 });
+
+/* #5678 (user feedback 10-09): once a builder holds a parent task, its subtasks are that builder's work: the Assigner
+   must not hand one to a second builder. */
+test('#5678 pick: a subtask under an open task somebody is on is not handed to a second builder; CONTROLS for each case', () => {
+  const proj = (list) => [{ id: 'p5678', agents: ['idle5678', 'builderA'], tasks: list }];
+  const parentHeld = { number: 1, sentence: 'Parent', who: 'builderA' };
+  const child = { number: 2, sentence: 'Child', parent: 1 };
+  const grand = { number: 3, sentence: 'Grandchild', parent: 2 };
+  assert.equal(a.pick('idle5678', proj([parentHeld, child]), new Set()), null, 'a subtask of a held parent was handed to a second builder');
+  assert.equal(a.pick('idle5678', proj([parentHeld, child, grand]), new Set()), null, 'a grandchild of a held task was handed out');
+  // CONTROL: with nobody on the parent, the subtask is a candidate (the parent itself comes first, by number).
+  const free = a.pick('idle5678', proj([{ number: 1, sentence: 'Parent' }, child]), new Set(['p5678#1']));
+  assert.ok(free && free.n === 2, 'CONTROL: a subtask of an unheld parent was not handed out: ' + JSON.stringify(free));
+  // CONTROL: a finished parent owns nothing any more.
+  const done = a.pick('idle5678', proj([{ number: 1, sentence: 'Parent', who: 'builderA', closedAt: '2026-10-09T00:00:00Z' }, child]), new Set());
+  assert.ok(done && done.n === 2, 'CONTROL: a subtask of a finished parent was not handed out: ' + JSON.stringify(done));
+  // A loop in the parent links cannot hang the walk.
+  assert.ok(a.pick('idle5678', proj([{ number: 5, sentence: 'Loop A', parent: 6 }, { number: 6, sentence: 'Loop B', parent: 5 }]), new Set()), 'a loop in the parent links stopped the pick');
+});

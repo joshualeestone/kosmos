@@ -218,6 +218,33 @@ function treeOf(p) {
   return { byNum, up, under, progress };
 }
 
+/**
+ * #5678 (user feedback 10-09: two builders on the same work): who owns a task through its parents. A task nobody is on
+ * directly, under an open task somebody holds an open part of, belongs to that holder: the nearest such ancestor wins.
+ * Returns { who: [names], from: <ancestor's number> }, or null (the task has its own holders, or no owned open ancestor).
+ * `tree` is treeOf(p) (built once by the caller). A loop in the parent links stops the walk (each number is seen once).
+ */
+function ownerIn(tree, task) {
+  if (!tree || !task || openHolders(task).length) return null;
+  const seen = new Set([task.number]);
+  let up = tree.up(task);
+  while (up !== null && !seen.has(up)) {
+    seen.add(up);
+    const a = tree.byNum.get(up);
+    if (!a) return null;
+    if (!progressOf(a).closed) {
+      const who = openHolders(a);
+      if (who.length) return { who, from: a.number };
+    }
+    up = tree.up(a);
+  }
+  return null;
+}
+/* The names on a task's OPEN parts: who is on it now (whoOf also names holders of finished parts). */
+function openHolders(task) {
+  return [...new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))];
+}
+
 /** The tasks directly under task `n` on project record `p`, in number order. */
 function childrenOf(p, n) {
   return treeOf(p).under(n);
@@ -1423,6 +1450,9 @@ function allTasks(everyProject) {
         parent: up,
         parentSentence: up === null ? null : (tree.byNum.get(up).sentence || null),
         subtasks: tree.progress(t && t.number),
+        /* #5678: a task nobody is on directly, under an open task somebody is on, shows that owner (and the task it
+           comes through), so a second agent sees whose work it is before starting. Absent otherwise. */
+        ...(() => { const o = ownerIn(tree, t); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
       }));
     }
   }
@@ -1715,7 +1745,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };

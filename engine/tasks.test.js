@@ -581,3 +581,24 @@ test('a bare "task N" is a claim when the number is unambiguous; when it is not,
   // The name must end where it ends: "Midnight Inventory 2" is another project.
   assert.equal(tasks.claimFor(t, mk(['task 1 of Midnight Inventory 2']), { project: pj, ambiguous: true }).claimed, null);
 });
+
+/* #5678: the owner a task inherits through its parents, on the row the CLIs print. */
+test('#5678 ownerIn: nearest open held ancestor; none for a task with its own holder, a finished parent, or no parent', () => {
+  const p = { tasks: [
+    { number: 1, sentence: 'Parent', who: 'builderA' },
+    { number: 2, sentence: 'Child', parent: 1 },
+    { number: 3, sentence: 'Grandchild', parent: 2 },
+    { number: 4, sentence: 'Own holder', parent: 1, who: 'builderB' },
+    { number: 5, sentence: 'Under a finished parent', parent: 6 },
+    { number: 6, sentence: 'Finished', who: 'builderC', closedAt: '2026-10-09T00:00:00Z' },
+    { number: 7, sentence: 'No parent' },
+  ] };
+  const tasksMod = require('./tasks');
+  const tree = tasksMod.treeOf(p);
+  const by = (n) => p.tasks.find((t) => t.number === n);
+  assert.deepEqual(tasksMod.ownerIn(tree, by(2)), { who: ['builderA'], from: 1 });
+  assert.deepEqual(tasksMod.ownerIn(tree, by(3)), { who: ['builderA'], from: 1 }, 'a grandchild inherits through its parent');
+  assert.equal(tasksMod.ownerIn(tree, by(4)), null, 'a task with its own holder');
+  assert.equal(tasksMod.ownerIn(tree, by(5)), null, 'a finished parent owns nothing');
+  assert.equal(tasksMod.ownerIn(tree, by(7)), null, 'no parent');
+});

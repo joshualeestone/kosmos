@@ -184,6 +184,7 @@ function pick(session, projects, taken) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     if (require('./projects').isPaused(p)) continue;   // #4771: nothing in a paused project is handed out
+    const tree = tasks.treeOf(p);   // #5678
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
       if (tasks.isOnHold(t)) continue;   // #4771: a task on hold is never handed out
@@ -197,6 +198,9 @@ function pick(session, projects, taken) {
       /* #5456: a repeating task with nobody on it is run by a schedule (the board shows it "On a schedule"), not
          waiting for an agent, so it is not handed out. A person can still give it to an agent by hand. */
       if (t.repeat) continue;
+      /* #5678 (user feedback 10-09): a subtask under an open task somebody is on is that owner's work, so it is not
+         handed to a second builder. The owner (busy with the parent) takes it, or a person gives it out by hand. */
+      if (tasks.ownerIn(tree, t)) continue;
       const part = prog.parts.find((x) => !x.closedAt);
       if (!part) continue;
       candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t) });
