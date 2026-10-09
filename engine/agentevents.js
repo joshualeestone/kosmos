@@ -143,7 +143,9 @@ function targetClass(tool, input, ctx) {
            space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
         /* A whole quoted command (it holds ; | & or a newline, split above at depth 1) is not one path (review 30: sh -c
            "/usr/bin/true; cat notes.txt" read as a system path). */
-        if (depth === 0 && /\s/.test(w) && /[;|&\n]/.test(w)) continue;
+        /* Unless, whole, it is the board's files or the agent's config (review 31: a quoted path through a folder named
+           "Tom & Jerry" is a path, and its split halves name nothing). */
+        if (depth === 0 && /\s/.test(w) && /[;|&\n]/.test(w) && RANK.indexOf(pathClass(v, ctx)) > RANK.indexOf('agent-config')) continue;
         if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) paths.push(v);
         if (paths.length >= 64) return;
       }
@@ -175,7 +177,18 @@ function targetClass(tool, input, ctx) {
        the home folder, review 30: ~/Library/Application\ Support/Kosmo?/board.token was dropped as the agent's own) is
        kept, as pathClass checks such a root before the agent's own folder (review 28). */
     const inRoots = [ctx.boardRoot, ...(ctx.boardRoots || [])].filter((r) => r && ctx.agentDir && fold2(r).startsWith(fold2(ctx.agentDir) + path.sep));
-    const toBoard = (w0) => { if (!inRoots.length) return false; const pre = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.').split(/[*?$`]/)[0]; if (!pre) return false; const r = fold2(path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir()))); return inRoots.some((b) => { const q = fold2(b); return q.startsWith(r) || r === q || r.startsWith(q + path.sep); }); };
+    /* Segment by segment (review 31: a string prefix kept ./star/worlds.json, which cannot reach the root's depth): the
+       word's first segments, as globs, must match every segment of the root. A segment with a variable or substitution
+       may expand to anything, so it keeps the word. */
+    const seg = (x) => x.split(path.sep).filter(Boolean);
+    const globRe = (g) => new RegExp('^' + g.replace(/[.+^{}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$', process.platform === 'darwin' ? 'i' : '');
+    const toBoard = (w0) => {
+      if (!inRoots.length) return false;
+      const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.').replace(/^~(?=\/|$)/, ctx.home || os.homedir());
+      if (/^[$`]/.test(w)) return false;   // starts with another variable: not the agent's own either (own() keeps it)
+      const ws = seg(path.isAbsolute(w) ? w : path.join(ctx.agentDir, w));
+      return inRoots.some((b) => { const bs = seg(b); for (let i = 0; i < bs.length; i++) { if (i >= ws.length) return false; if (/[$`]/.test(ws[i])) return true; if (!globRe(ws[i]).test(bs[i])) return false; } return true; });
+    };
     hidden = hidden.filter((w) => toBoard(w) || !own(w));
     const board = hidden.some((w) => /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(w));
     const config = hidden.some((w) => /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(w));
@@ -206,9 +219,11 @@ function shellWords(cmd) {
       if (ch === q) q = null;
       /* Inside "..." a backslash escapes only $, a backtick, ", \ and a newline; before anything else it stays, as in
          bash (review 30: dropping it split bash -c "cat Application\ Support/..." at the space). */
-      else if (ch === '\\' && q === '"' && i + 1 < cmd.length) cur += /[$`"\\\n]/.test(cmd[i + 1]) ? cmd[++i] : ch;
+      else if (ch === '\\' && q === '"' && cmd[i + 1] === '\n') i++;   // a line continuation is dropped (review 31)
+      else if (ch === '\\' && q === '"' && i + 1 < cmd.length) cur += /[$`"\\]/.test(cmd[i + 1]) ? cmd[++i] : ch;
       else cur += ch;
     } else if (ch === "'" || ch === '"') { q = ch; any = true; }
+    else if (ch === '\\' && cmd[i + 1] === '\n') i++;   // a line continuation joins the word (review 31: board.\<newline>token)
     else if (ch === '\\' && i + 1 < cmd.length) { cur += cmd[++i]; any = true; }
     else if (/[;|&()\n]/.test(ch)) end(true);   // a newline ends a command too (review 9)
     else if (/\s|[<>]/.test(ch)) end(false);

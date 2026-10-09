@@ -998,3 +998,23 @@ test('#5683 r30: a whole quoted command is not one path', () => {
   assert.equal(ae.targetClass('Bash', { command: 'sh -c "/usr/bin/true; cat notes.txt"' }, c), 'other');
   assert.equal(ae.targetClass('Bash', { command: 'cat "/Users/ann/Library/Application Support/Kosmos/board.token"' }, c), 'board-files');
 });
+
+/* ---- review 31 ---- */
+
+test('#5683 r31: a backslash-newline is a line continuation, quoted or not', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'cat "/Users/ann/Library/Application Support/Kosmos/board.\\\ntoken"' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat /Users/ann/Library/Application\\ Support/Kosmos/board.\\\ntoken' }, c), 'board-files');
+});
+
+test('#5683 r31: a quoted path through a folder with & in its name is still a path', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'cat "/Users/ann/My & Co/../Library/Application Support/Kosmos/board.token"' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'sh -c "/usr/bin/true; cat notes.txt"' }, c), 'other');
+});
+
+test('#5683 r31: a hidden word must reach the board root segment by segment', () => {
+  const c = ctx({ agentDir: '/Users/ann', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'cat ./*/worlds.json' }, c), 'other');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/*/*/*/board.token' }, c), 'board-files');
+});
