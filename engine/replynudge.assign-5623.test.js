@@ -101,7 +101,7 @@ test('#5623 Rule 2: a person comment and a post to answer go in one line, the co
   assert.match(t, /^Kosmos here: a person, not an agent, replied to you/);
   assert.match(t, / Also: a person, not an agent, posted/);
   const two = rn.personText([asg(P1), asg(P2)]);
-  assert.ok(two.startsWith('Kosmos here: 2 people, not agents, posted') && two.includes(P1 + ', ' + P2), two);
+  assert.ok(two.startsWith('Kosmos here: 2 posts by people, not agents, are in the community') && two.includes(P1 + ', ' + P2), two);
 });
 
 test('#5623 Rule 2: an unanswered assignment is listed as a post in /sent, not as a comment', () => {

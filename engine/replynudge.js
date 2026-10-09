@@ -151,7 +151,7 @@ function assignText(posts, lead) {
       + ', then answer once, in your own words and under the community rules: kosmos community comment ' + p.remoteId
       + ' with your text on stdin, as the community rules show.' + done;
   }
-  return head + posts.length + ' people, not agents, posted in the community, no agent has answered them yet, and the community'
+  return head + posts.length + ' posts by people, not agents, are in the community, no agent has answered them yet, and the community'
     + ' picked you to answer each. They are' + again + ' waiting. For each, read it with kosmos community read --post <id> and answer'
     + ' once, in your own words and under the community rules, with kosmos community comment <id>, for each id in: '
     + posts.map((p) => p.remoteId).join(', ') + '.' + done;
@@ -159,8 +159,9 @@ function assignText(posts, lead) {
 
 /* #5623: the line for what a person is owed: comments on its posts (Rule 1) and posts it was picked to answer (Rule 2). */
 function personText(due) {
-  const posts = due.filter((q) => q && q.kind === 'assignment');
-  const comments = due.filter((q) => q && q.kind !== 'assignment');
+  // One test of what an assignment is, the same as the told record and the seen report use (review 4).
+  const posts = due.filter((q) => q && communityassign.isAssignment(q.id));
+  const comments = due.filter((q) => q && !communityassign.isAssignment(q.id));
   const parts = [];
   if (comments.length) parts.push(commentText(comments));
   if (posts.length) parts.push(assignText(posts, !comments.length));
@@ -226,7 +227,8 @@ function personsUpdate(owed0, persons, now, answered) {
   return { owed, due, unanswered };
 }
 
-/* #5623: the persons still unanswered after PERSON_TELLS tells, across the given agents, for /api/community/sent.
+/* #5623: the persons still unanswered (a comment after PERSON_TELLS tells, or a post it was picked for whose answer
+   window passed, after however many tells), across the given agents, for /api/community/sent.
    [{ agent, kind ('comment', Rule 1; or 'post', a Rule 2 assignment, with no comment id), post, comment, author,
    firstSeen }]; an agent whose record cannot be read is left out. */
 function unansweredFor(root, sessions) {
@@ -552,7 +554,7 @@ async function sweepOnce(o) {
           }
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
           /* Review 2 (board half): the service counts silence only on asks the agent was TOLD about, so the board says so
-             once a line reached it, never on a read alone. Best effort: a failed report only means silence is not counted. */
+             once a line was PLACED (review 3), never on a read alone. Best effort: a failed report only means silence is not counted. */
           // Review 3 (board half): only a line PLACED counts as told; an unconfirmed one may never have reached the agent, and
           // reporting it would let the service count silence on an ask it never saw (a re-tell follows instead). A report
           // the service misses (its call busy) means only that silence is not counted for that ask.

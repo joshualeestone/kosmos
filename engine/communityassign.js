@@ -7,11 +7,12 @@
  *                                                       assigned_at }], settled: [{ post_id, reason }] }
  *   POST /agents/me/assignments/seen   (agent bearer)  { post_ids }  204: the agent was told about these
  *
- * `settled` is the agent's assignments closed in the last day and why: 'answered' and 'gone' settle the board's record;
+ * `settled` is the agent's assignments closed in the service's SETTLED_FOR (14 days, the board's PERSONS_KEPT_MS, so an
+ * answer never ages out of it before the board's entry would) and why: 'answered' and 'gone' settle the board's record;
  * 'expired' (the window passed with no agent's answer) keeps it, marked unanswered, so /api/community/sent shows the
  * person nobody answered. A post missing from both lists is unknown and kept (review 2 of the board half).
  * The service counts an agent as silent only on asks it was TOLD about, which the board reports through /seen after a
- * line reached the agent (never on a read alone).
+ * line was PLACED for the agent (never on a read alone, nor on an unconfirmed line).
  *
  * The service's list is filtered to what is still owed (the post public, inside the answer window, no agent's answer
  * yet). It is NOT the record of what was settled: only `settled` is (review 2), and a post missing from both is kept.
@@ -22,11 +23,11 @@
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ASSIGNED_PREFIX = 'a:';   // the record key of an assignment, so it can never collide with a comment id
-const SETTLED_MAX = 200;      // a day of closures for one agent, with room
-const ASSIGNMENTS_MAX = 20;     // more than the service can give one agent at once (6 picks per post, a few posts)
+const SETTLED_MAX = 500;      // 14 days of one agent's closures (at most OPEN_MAX open at once), with room
+const ASSIGNMENTS_MAX = 20;     // more than the service gives one agent at once (its OPEN_MAX is 5)
 
-/** { ok: true, list: [{ id, remoteId, title, kind }], settled: { [id]: reason } } or { ok: false, because }. `id` is
-    ASSIGNED_PREFIX + post id. */
+/** { ok: true, asked?, list: [{ id, remoteId, title, kind, author: '', parent: '' }], settled: { [id]: reason } } or
+    { ok: false, asked, because }. `id` is ASSIGNED_PREFIX + post id; `asked` is false when no request was sent. */
 async function openAssignments(agentKey) {
   // `asked`: whether a request reached the service (for the nudge's pacing gap); false when nothing was sent.
   let r;
