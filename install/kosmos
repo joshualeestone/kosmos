@@ -138,11 +138,16 @@ kosmos_loopback_route() {
 }
 PIDFILE="$KOSMOS_HOME/board.pid"
 # #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes
-# it (before it kills), `kosmos start` clears it (at the very top, before any bind
+# it (before it kills), `kosmos start` clears it (at the top, after only the #5450 person's mark, before any bind
 # that can fail). While it is present the watchdog leaves the board alone, so a
 # stop stays stopped; once any start clears it the watchdog resumes recovering a
 # board that has died. See bin/board-watchdog.sh.
 STOP_MARKER="$KOSMOS_HOME/board.stopped"
+# #5450: left by a person's `kosmos start` (first thing, before the stop marker goes), so board-run can tell a person's
+# start from the login item's or a crash relaunch's. The board removes it once it has used it (engine/restartnote.js
+# atStart) and `kosmos stop` removes it; board-run removes none. Older than PERSON_START_MAX_S it is stale.
+PERSON_START_FILE="$KOSMOS_HOME/board.person-start"
+PERSON_START_MAX_S=120
 LOG_DIR="$KOSMOS_HOME/logs"
 BOARD_LOG="$LOG_DIR/board.log"
 
@@ -1377,6 +1382,14 @@ cmd_start() {
   # brought the board back. Persistent "stopped means stopped" is the intended
   # semantic (the card's requirement); it does not affect crash recovery, which is
   # marker-ABSENT and still relaunches.
+  # #5450 review 3: a person's start is marked FIRST, before the stop marker goes: removing it lets launchd's KeepAlive
+  # relaunch board-run at once, and a board-run that ran before the mark existed would read this start as the
+  # supervisor's (a false "came back by itself"). The watchdog's start says supervisor (KOSMOS_START_BY).
+  # Written whole (temp, then rename), so board-run never reads a half-written mark.
+  if [ "${KOSMOS_START_BY:-}" != supervisor ]; then
+    { date +%s > "$PERSON_START_FILE.$$" && mv -f "$PERSON_START_FILE.$$" "$PERSON_START_FILE"; } 2>/dev/null \
+      || rm -f "$PERSON_START_FILE.$$" 2>/dev/null || true
+  fi
   # #4636, the one exception: a start from a shell that cannot connect to the board, which then refuses (or
   # stops the board it launched there), puts back a marker it cleared. It started nothing, so a person's
   # deliberate stop stands; a start that FAILS to bind still clears it, as above.
@@ -1450,7 +1463,7 @@ cmd_start() {
       # A launchd-supervised holder would be relaunched the instant we kill it. The stop
       # marker makes board-run decline to relaunch (cmd_board_run honors it BEFORE binding,
       # and the job's PathState KeepAlive is keyed on it) -- the same mechanism cmd_stop
-      # uses. cmd_start cleared the marker at the top ("starting means I want it running"),
+      # uses. cmd_start cleared the marker near the top, just after the #5450 person's mark ("starting means I want it running"),
       # so set it for the kill window, then clear it again before we start ours below.
       : > "$STOP_MARKER" 2>/dev/null || true
       kill "$_lpid" 2>/dev/null || true
@@ -1549,7 +1562,10 @@ cmd_start() {
   # starts the child with SIGINT/SIGQUIT ignored; the board handles SIGINT itself, and in its own group a
   # Ctrl-C in the terminal cannot reach it anyway.
   set -m
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  # #5450: a direct start is a person's, unless the watchdog (KOSMOS_START_BY=supervisor) is bringing back a board
+  # nobody stopped.
+  local _start_by=person; [ "${KOSMOS_START_BY:-}" = supervisor ] && _start_by=supervisor
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   local _launched="$!"   # #4636: this launch's pid, handed to the wait below (board.pid could change meanwhile)
   set +m
   printf '%s' "$_launched" > "$PIDFILE"
@@ -1584,7 +1600,7 @@ cmd_board_run() {
   # keyed (PathState) on this SAME #2955 marker, so the supervisor will not
   # relaunch us while it exists; this guard only covers the one-shot RunAtLoad at
   # load, which fires regardless of PathState. `kosmos start` clears the marker
-  # (cmd_start, at the very top) and kickstarts us.
+  # (cmd_start, near the top, just after the #5450 person's mark) and kickstarts us.
   if [ -f "$STOP_MARKER" ]; then
     say "Kosmos was deliberately stopped; not starting. Resume with: kosmos start"
     exit 0
@@ -1643,7 +1659,27 @@ cmd_board_run() {
   _mark_board_started
   # #4466: the same scrub as cmd_start's nohup launch, so a board-run typed in an agent's pane does not hand
   # the board an agent's markers (every later kosmos call from it would read as an agent). exec env keeps the pid.
-  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" "$NODE" "$APP"
+  # #5450: who started this board, for the restart note (engine/restartnote.js): the supervisor (the login item, or a
+  # crash relaunch), unless a person's `kosmos start` left its fresh mark. The board, not this, removes a used mark.
+  # Review 1: nothing here may stop the board (set -e): every read is guarded, the numbers are base 10 and bounded, and
+  # a mark from the future is not a person. No mark is deleted here (review 4: deleting a stale one could delete a
+  # person's fresh one written in between): the board deletes the mark once it has started (KOSMOS_BOARD_PERSON_MARK),
+  # `kosmos stop` deletes it, and a stale one is simply not read as a person.
+  local _started_by=supervisor _ps_at="" _ps_now="" _ps_age=-1
+  if [ -f "$PERSON_START_FILE" ]; then
+    _ps_at="$(cat "$PERSON_START_FILE" 2>/dev/null)" || _ps_at=""
+    _ps_now="$(date +%s 2>/dev/null)" || _ps_now=""
+    case "$_ps_now" in
+      ''|*[!0-9]*) _started_by=person ;;   # no clock to judge the mark by: a mark is there, so a person's (no note)
+      *) case "$_ps_at" in ''|*[!0-9]*) ;; *)
+           if [ "${#_ps_at}" -le 12 ] && [ "${#_ps_now}" -le 12 ]; then _ps_age=$(( 10#$_ps_now - 10#$_ps_at )); fi ;;
+         esac
+         if [ "$_ps_age" -ge 0 ] && [ "$_ps_age" -le "$PERSON_START_MAX_S" ]; then _started_by=person
+         elif [ "$_ps_age" -lt 0 ]; then _started_by=unknown   # review 5: there but not judgeable (unreadable, not a
+         fi ;;                                                # time, from the future): the timer decides, as before
+    esac
+  fi
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
 }
 
 # #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
@@ -1658,6 +1694,8 @@ _kosmos_clear_board_alive() {
 }
 cmd_stop() {
   local pid
+  # #5450: a start's mark does not outlive a stop, on any branch below; nor does the temp of a start killed mid-write.
+  rm -f "$KOSMOS_HOME/board.person-start" "$KOSMOS_HOME"/board.person-start.[0-9]* 2>/dev/null || true
   if pid="$(running_pid)"; then
     # #2955: write the deliberate-stop marker BEFORE the kill, so the board's own
     # port-going-dead moment does not trip the watchdog into treating this stop as

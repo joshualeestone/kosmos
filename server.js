@@ -53,6 +53,14 @@ if (require.main === module) {
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
 }
+/* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
+   can start a process that would inherit it (the log stamp above starts none; #4199 keeps it right after the bootstrap); engine/restartnote.js atStart reads these values. (engine/worldenv.js
+   froze a copy of the environment above; its only reader takes paths from it and starts nothing.) */
+const BOARD_STARTED_BY = process.env.KOSMOS_BOARD_STARTED_BY;
+const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
+delete process.env.KOSMOS_BOARD_STARTED_BY;
+delete process.env.KOSMOS_BOARD_PERSON_MARK;
+delete process.env.KOSMOS_START_BY;   // the watchdog's word to `kosmos start`; the launchers strip it, this is the backstop
 /* #5112: before any tmux is asked anything, forget an inherited $TMUX (engine/sandbox.js says why). The real start only:
    the routing tests require this file, and the test runner's own $TMUX is not this board's to change. */
 if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);
@@ -20699,7 +20707,7 @@ function start(port = PORT) {
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
-  try { const rn = require('./engine/restartnote'); rn.atStart(); rn.startBeating(); } catch { /* best effort */ }
+  try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
   /* #5531: an enrolled work Kosmos asks its company on start and daily whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   orgEnrollRefresh();

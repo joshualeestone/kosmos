@@ -24,6 +24,8 @@
  *       the consent (and its "Not now", which would say nothing was joined) is gone (#5531 review 25).
  *   O12 a retried leave the company refused as the last admin (leaveRefused from /api/org) says so, as text, with the
  *       joined view back: the person was told it had stopped (#5531 review 21).
+ *   O13 a company that SAID it backs up nothing (backsUpNone) gets "Nothing is backed up." under its heading, muted and
+ *       unbulleted; an empty list it did not state (backsUpNone false) hides the group; with a list, the list.
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -52,7 +54,7 @@ function harness() {
       const u = String(url);
       const body = init && init.body ? JSON.parse(init.body) : null;
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
-      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
+      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : window.__noBackup ? Object.assign({}, consent, { backsUp: [], backsUpNone: window.__noBackup === 'said' }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc(window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
       if (u.endsWith('/api/org') && window.__orgFail) throw new Error('offline');
@@ -231,6 +233,35 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       chk(o14.msg === ans.because && !o14.consent && o14.out, 'O14 ' + ans.code + ' goes back to the code field and says so, with no consent (or Not now) left', JSON.stringify(o14));
     }
     await page.evaluate(() => { window.__enrollAnswer = null; });
+
+    // O13: a stated empty backsUp says "Nothing is backed up." under its heading; an unstated empty one hides the group.
+    // CONTROL: with the base consent's list, the list shows and the none line does not.
+    const backup = () => page.evaluate(() => ({ shown: !document.getElementById('plus-org-backsup').parentElement.hidden,
+      items: [...document.querySelectorAll('#plus-org-backsup li')].map((li) => li.textContent) }));
+    await page.evaluate(() => { window.__noNever = false; window.__noBackup = 'said'; document.getElementById('plus-org-msg').textContent = ''; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-6666');
+    await page.click('#plus-org-check');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const none = await backup();
+    const look = await page.evaluate(() => { const li = document.querySelector('#plus-org-backsup li.plus-org-none'); return li ? getComputedStyle(li).listStyleType : 'no line'; });
+    await page.click('#plus-org-notnow');
+    // Not stated (a missing field or lines cleaned to nothing reach the page as an empty list without the flag): hidden.
+    await page.evaluate(() => { window.__noBackup = 'unsaid'; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-6667');
+    await page.click('#plus-org-check');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const unsaid = await backup();
+    await page.click('#plus-org-notnow');
+    await page.evaluate(() => { window.__noBackup = false; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-7777');
+    await page.click('#plus-org-check');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const some = await backup();
+    await page.click('#plus-org-notnow');
+    chk(none.shown && none.items.length === 1 && none.items[0] === 'Nothing is backed up.' && look === 'none'
+      && !unsaid.shown && unsaid.items.length === 0
+      && some.shown && some.items.length === 2 && !some.items.includes('Nothing is backed up.'),
+      'O13 a stated empty backsUp says nothing is backed up (unbulleted); an unstated one hides; a list shows the list', JSON.stringify({ none, look, unsaid, some }));
 
 
     // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the opener. (b) This Kosmos is
