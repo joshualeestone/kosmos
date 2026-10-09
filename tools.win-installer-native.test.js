@@ -999,6 +999,9 @@ test('🛑 Kosmos.exe --uninstall with nobody to confirm does nothing at all, an
 
 test('#5645: the scratch base is the LONG form even when TEMP is spelled as an 8.3 short name', WINDOWS_ONLY, (t) => {
   const long = scratchBase();
+  // The base is already in its expanded form. On a runner whose TEMP is short this fails if scratchBase() ever goes back
+  // to plain os.tmpdir() (the short-form arm below would then only skip); a real folder named with ~1 still passes.
+  assert.strictEqual(fs.realpathSync.native(long), long, 'scratchBase() is not in its expanded (long) form');
   // cmd's %~sI prints the 8.3 short form of a path (the same text as the long form where the volume keeps none).
   const r = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${long}") do @echo %~sI`],
     { encoding: 'utf8', windowsVerbatimArguments: true, windowsHide: true });  // verbatim: node would escape the inner quotes and cmd would read another command
