@@ -116,7 +116,7 @@ function writeState(name, record) {
     const at = statePath(name);
     /* Write-then-rename through store.saveFlushed, as store.writeProfile does, so the board can never read a
        half-written file, and a crash cannot leave it zero-filled (#5434 slice 21); a unique temp per save. */
-    require('./store').saveFlushed(at, JSON.stringify(record));
+    store.saveFlushed(at, JSON.stringify(record));
     return { ok: true };
   } catch (e) {
     return { ok: false, because: (e && e.code) || 'unknown' };

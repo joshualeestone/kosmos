@@ -51,6 +51,7 @@ test('#5434 feedback report: flushed before its rename', () => {
   flushedBeforeRename(events, feedback.pathFor('2026-10-09'));
 });
 
+/* The 0600 assertion is a regression guard (main also created the temp at FILE_MODE), not a check on the flush. */
 test('#5434 Windows session record: flushed before its rename, exactly 0600 over a loose file', () => {
   fs.mkdirSync(path.dirname(win32sessions.FILE), { recursive: true });
   fs.writeFileSync(win32sessions.FILE, '{}\n', { mode: 0o644 });
@@ -66,7 +67,8 @@ test('#5434 Windows session record: flushed before its rename, exactly 0600 over
 
 test('#5434: all six writers save flushed, with no hand-made temp renamed', () => {
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
-  const scan = { 'connect.js': 'STATE_FILE()', 'agentbrowser.js': 'writeConfigIfNeeded', 'feedback.js': 'dest, content', 'win32sessions.js': 'FILE_MODE', 'win32streamstate.js': 'saveFlushed(at', 'setup-assistant.js': 'writeSecret(file, text, 0o600' };
+  // review 1: each marker IS the flushed save call, so a writer simplified back to a bare writeFileSync fails here.
+  const scan = { 'connect.js': 'saveFlushed(STATE_FILE()', 'agentbrowser.js': 'saveFlushed(file, text)', 'feedback.js': 'saveFlushed(dest, content)', 'win32sessions.js': 'writeSecret(file(), JSON.stringify(next)', 'win32streamstate.js': 'saveFlushed(at', 'setup-assistant.js': 'writeSecret(file, text, 0o600' };
   // setup-assistant.js holds other writers (the guard settings, the guard state) owned by other slices: scan only
   // writeLaunchRecord there.
   const only = { 'setup-assistant.js': 'function writeLaunchRecord(' };
@@ -74,9 +76,11 @@ test('#5434: all six writers save flushed, with no hand-made temp renamed', () =
   for (const [f, mark] of Object.entries(scan)) {
     let src = strip(fs.readFileSync(path.join(__dirname, f), 'utf8'));
     if (only[f]) src = body(src, only[f]);
-    assert.ok(src.includes(mark), f + ': the marker ' + mark + ' is gone, so this scan is aimed at nothing');
+    assert.ok(src.includes(mark), f + ': no flushed save (' + mark + ')');
     assert.doesNotMatch(src, /renameSync\(tmp, (?:STATE_FILE\(\)|file\(\)|file|dest|at)\)/, f + ': still renames a hand-made temp');
   }
+  // review 1: the launch record lives in the agent's own .claude folder: only its own dead temps may be reaped there.
+  assert.match(body(strip(fs.readFileSync(path.join(__dirname, 'setup-assistant.js'), 'utf8')), 'function writeLaunchRecord('), /writeSecret\([^;]*ownTempsOnly: true/, 'setup-assistant.js: the launch record must save with ownTempsOnly');
   for (const f of ['win32sessions.js', 'setup-assistant.js']) {
     let src = strip(fs.readFileSync(path.join(__dirname, f), 'utf8'));
     if (only[f]) src = body(src, only[f]);
