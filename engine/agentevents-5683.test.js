@@ -977,3 +977,24 @@ test('#5683 r29: two token-only agents sharing a transcript folder are neither r
   assert.deepEqual(read, [], 'a folder shared by two read agents was read');
 });
 
+
+/* ---- review 30 ---- */
+
+test('#5683 r30: a backslash in double quotes stays unless it escapes a shell character, so bash -c keeps a spaced path', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'bash -c "cat ~/Library/Application\\ Support/Kosmos/board.token"' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'bash -c "cat ~/Library/Application\\ Support/Kosmos/board.tok*"' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'bash -c "cat ~/notes\\ old.txt"' }, c), 'home');
+});
+
+test('#5683 r30: a hidden word toward a board root inside the agent folder is not dropped as the agent\'s own', () => {
+  const c = ctx({ agentDir: '/Users/ann', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosmo?/board.token' }, c), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/notes*.txt' }, c), 'other');
+});
+
+test('#5683 r30: a whole quoted command is not one path', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'sh -c "/usr/bin/true; cat notes.txt"' }, c), 'other');
+  assert.equal(ae.targetClass('Bash', { command: 'cat "/Users/ann/Library/Application Support/Kosmos/board.token"' }, c), 'board-files');
+});
