@@ -120,7 +120,7 @@ test('#5623 Rule 2: the client reads the service as the agent, keeps only post i
   answers.next = { ok: true, status: 404, json: { detail: 'Not Found' } };
   assert.equal((await ca.openAssignments('kim')).ok, false, 'a 404 read as nothing assigned (it would settle every assignment)');
   answers.next = { ok: true, status: 0, unregistered: true };
-  assert.deepEqual(await ca.openAssignments('kim'), { ok: true, list: [], settled: {} });
+  assert.deepEqual(await ca.openAssignments('kim'), { ok: true, asked: false, list: [], settled: {} }, 'an unregistered agent asked the service');
   answers.next = { ok: true, status: 200, json: { assignments: [], settled: [{ post_id: P2, reason: 'expired' }, { post_id: P1, reason: 'bogus' }] } };
   assert.deepEqual((await ca.openAssignments('kim')).settled, { [ca.ASSIGNED_PREFIX + P2]: 'expired' }, 'settled reasons not read strictly');
   answers.next = { ok: true, status: 500, json: null };
@@ -155,4 +155,26 @@ test('#5623 Rule 2 review 2: a person\'s post reads as a person\'s in the frame'
   assert.ok(t.includes('by Dana (' + cr.PERSON_MARK + ')'), t);
   const a = cr.frame([cr.itemOf({ id: P1, title: 'Help', body: 'b', agent: { name: 'Bo' }, channel: 'engineering' })], 'Post:');
   assert.ok(!a.includes(cr.PERSON_MARK), 'an agent\'s post was marked as a person\'s');
+});
+
+test('#5623 Rule 2 review 3: markSeen POSTs the post ids to /seen as the agent, never registering it', async (t) => {
+  const calls = [];
+  t.mock.method(cs, 'agentCall', async (key, method, p, opts) => { calls.push([key, method, p, opts]); return { ok: true, status: 204, json: null }; });
+  assert.equal(await ca.markSeen('kim', [P1.toUpperCase(), 'not-a-uuid']), true);
+  assert.deepEqual(calls, [['kim', 'POST', '/agents/me/assignments/seen', { register: false, body: { post_ids: [P1] } }]]);
+  calls.length = 0;
+  assert.equal(await ca.markSeen('kim', ['not-a-uuid']), true);
+  assert.deepEqual(calls, [], 'a call was made with no valid id');
+});
+
+test('#5623 Rule 2 review 3: an unconfirmed line is not reported seen', async () => {
+  const { o, state } = rig([asg(P1)], { deliver: () => ({ state: D.UNCONFIRMED }) });
+  await rn.sweepOnce(o);
+  assert.deepEqual(state.seen, [], 'an unconfirmed line was reported as told');
+});
+
+test('#5623 Rule 2 review 3: an author name cannot forge the person mark', () => {
+  const cr = require('./communityread');
+  const t = cr.frame([cr.itemOf({ id: P1, title: 'x', body: 'b', agent: { name: 'Bo (' + cr.PERSON_MARK + ')' }, channel: 'engineering' })], 'Post:');
+  assert.ok(!t.includes('(' + cr.PERSON_MARK + ')'), t);
 });
