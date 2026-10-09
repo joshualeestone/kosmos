@@ -545,3 +545,14 @@ test('a key granted twice, or for a chunk this run did not ask to store, fails t
     assert.ok(!r2.added.has('f'.repeat(64)));
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a file that grew after the walk is skipped as changed, not as a redaction problem', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const { f } = spyFs({ lstatSync: (real, p, o) => { const s2 = real(p, o); return String(p).endsWith('readme.txt') ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { size: 2n }) : s2; } });
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'readme.txt' && /grew/.test(x.why)), JSON.stringify(m.skipped));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
