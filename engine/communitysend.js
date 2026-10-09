@@ -2354,6 +2354,7 @@ function statusOf(id, sent, deletes, keys) {
     ...(k && !k.apiKey && k.registering && k.registering.taken ? { agentNameUnclaimed: true } : {}),
     ...(String(rec.agent).startsWith(RETIRED_PREFIX) ? { agentDeleted: true } : {}),   // #4994, likewise
     // #5636: an unconfirmed send whose own agent has no key to ask with (settleUnconfirmed skips it); only then, likewise.
+    // Not gated on the state: settle() drops `attempted` from every record that leaves pending, so only an unconfirmed one has it.
     ...(rec.attempted && rec.agent && !(k && k.apiKey) ? { agentKeyless: true } : {}),
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
