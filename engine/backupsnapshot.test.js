@@ -742,3 +742,14 @@ test('a folder that changes identity between its first look and its listing is s
     assert.ok(!l.files.some((x) => x.path.startsWith('agents/a/memory/')));
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('stored chunks answered without a bucket are a failure, not recorded under an unknown bucket', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const real = st.uploadChunks;
+    const r = await take(k, w.root, st, { deps: { uploadChunks: async (d, batch) => { const res = await real(d, batch); res.bucket = null; res.grantSpent = true; return res; } } });
+    assert.equal(r.ok, false); assert.match(r.because, /without naming their bucket/);
+    assert.equal(r.added.size, 0); assert.equal(r.grantSpent, true);
+    assert.equal(st.manifests.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

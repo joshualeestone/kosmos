@@ -302,7 +302,8 @@ async function snapshotInner(input, deps, added, state, fail) {
         : keyProblem(e.key, ctx) || (e.memberKeyId !== mkid ? 'sealed to another member key' : null)
           || (!Number.isSafeInteger(e.lockedUntilMs) || e.lockedUntilMs < LOCK_FLOOR_MS || e.lockedUntilMs > t + LOCK_MAX_MS + 3600 * 1000 ? 'a lock end no grant could set' : null)
           // A lock that ends before any manifest granted now would (period end + 30 days + the window; at least now + 30
-          // days + 15 min): uploadManifest would refuse it as outlasting it (review 9 NIT).
+          // days + 15 min): uploadManifest would refuse it as outlasting it (review 9 NIT). Mirrors the coordinator's
+          // RETAIN_AFTER_PERIOD_SECS (30 days) and GRANT_SECS (15 minutes) in backup.rs retain_until_for (review 14).
           || (e.lockedUntilMs < t + 30 * 86400 * 1000 + 15 * 60 * 1000 ? 'a lock that ends before this snapshot\'s manifest would' : null);
       if (why) return fail(`the index holds an entry this snapshot cannot name (${why})`, { staleIndex: true });
     }
@@ -375,6 +376,9 @@ async function snapshotInner(input, deps, added, state, fail) {
       return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
+    // Stored keys with no bucket to file them under (review 14): the caller could never index them, and the manifest
+    // has nowhere to go. Not recorded; a malformed answer.
+    if (stored.size && !state.bucket) return fail('the uploader answered stored chunks without naming their bucket', spent);
     // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it (review 2).
     const wrongPeriod = [];
     let noLock = false, badKey = null;
@@ -399,7 +403,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     // retry this period (review 9).
     if (r && r.code === 'backup_quota') return fail(`the period's backup allowance is used up: ${r.because || 'backup_quota'}`, Object.assign({ overAllowance: true }, r.unsure ? { unsure: r.unsure } : {}, spent));
     if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {}, spent));
-    for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk');
+    for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk', spent);
     uploaded += pending.size;
     pending.clear(); pendingBytes = 0;
     return null;
