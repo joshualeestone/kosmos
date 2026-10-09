@@ -104,13 +104,16 @@ test('the helper is staged into the zip and checked for presence', () => {
 
 /* ---- half 2: the helper's logic, against a fixture board ----------------- */
 
+// How long a test waits for an answer from a fixture board, and for the opener's
+// file. #5710: under the full suite's load 4 s could run out. The end-to-end test
+// can wait for both, and tools/windows-tests.js runs this file with a 60 s per-test
+// limit, so the two together stay under it.
+const BOARD_WAIT_MS = 20000;
+const OPENER_WAIT_MS = 20000;
+
 // A fixture board: GET / answers with `getStatus`, POST /api/board-nonce answers
 // with `nonceBody`. Both are per-test knobs so we can model an enforcing board, a
 // 403'ing board, and a board that returns a junk nonce.
-// How long a test waits for something it expects to arrive: an answer from a fixture
-// board, or the opener's file. #5710: under the full suite's load 4 s could run out.
-const BOARD_WAIT_MS = 30000;
-
 function startFixtureBoard({ getStatus = 200, nonceBody = '{"nonce":"abc123def456"}' } = {}) {
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/') {
@@ -373,7 +376,7 @@ test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url
     // subprocess exit, so poll until it arrives. #5710: a 4 s window was too short
     // under the full suite's load; a pass returns on receipt.
     let opened = '';
-    const deadline = Date.now() + BOARD_WAIT_MS;
+    const deadline = Date.now() + OPENER_WAIT_MS;
     while (!opened && Date.now() < deadline) { try { opened = fs.readFileSync(out, 'utf8'); } catch (_e) { /* not yet */ } if (!opened) await napms(50); }
     assert.match(opened, new RegExp(`^http://127\\.0\\.0\\.1:${port}/\\?boot=[0-9a-f]+$`), 'the opener did not receive the nonced url');
   } finally { server.close(); }
