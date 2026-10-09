@@ -626,12 +626,18 @@ test('#5302 saveRefitAvatar: a stale version writes nothing; otherwise the origi
   assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith(store.safeKey('kos') + '.')).length, 2);
   // A keep that fails writes nothing.
   store.saveAvatar('kos', 'image/gif', GIF); bump(20);
-  // (#5434: the original is kept through securewrite, whose temp is written with fs.writeSync in its write loop; if
-  // that primitive ever changes this stub stops matching and assert.throws below fails, never a silent pass)
-  const real = fs.writeSync;
-  fs.writeSync = () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); };
+  // Only the KEEP fails (#5434: it is written through securewrite, which opens its temp 'wx'): the open of a temp in
+  // avatar-originals throws, while the picture's own save is untouched, so a refit that swallowed the failed keep
+  // would overwrite the picture and the assertion below would catch it.
+  const realOpen = fs.openSync;
+  let keepFailed = 0;
+  fs.openSync = (f, flags, ...rest) => {
+    if (flags === 'wx' && String(f).includes(path.sep + 'avatar-originals' + path.sep)) { keepFailed += 1; throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); }
+    return realOpen.call(fs, f, flags, ...rest);
+  };
   try { assert.throws(() => store.saveRefitAvatar('kos', 'image/png', png(6), store.avatarVersion('kos')), /disk full/); }
-  finally { fs.writeSync = real; }
+  finally { fs.openSync = realOpen; }
+  assert.ok(keepFailed > 0, 'the planted keep failure never fired, so this arm tested nothing');
   assert.ok(fs.readFileSync(store.avatarPath('kos')).equals(GIF), 'a failed keep still overwrote the picture');
   assert.ok(!fs.readdirSync(dir).some((f) => f.endsWith('.tmp')), 'a failed copy left a temporary file');
   // Removing the picture takes its originals.
