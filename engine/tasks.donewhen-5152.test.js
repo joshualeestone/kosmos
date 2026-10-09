@@ -189,22 +189,16 @@ test('review 2: who set the checks is kept for the list: the agent by name, the 
   assert.equal(tasks.setDoneWhen(id, n, ['c']).doneWhenBy, undefined, 'a write nobody named named somebody');
 });
 
-test('review 3: the agent a task is given to cannot rewrite the bar another agent set for it; the setter, the person and other members can', () => {
+test('review 4 (decided): between agents the checks are open; the transcript and the list say who changed them', () => {
   const id = freshProject();
-  projects.mutate(id, (p) => ({ ...p, agents: ['mara', 'otto', 'ivy'] }));
+  projects.mutate(id, (p) => ({ ...p, agents: ['mara', 'otto'] }));
   const n = tasks.create(id, { sentence: 'For otto', who: 'otto', doneWhen: ['all 40 tests pass'], made: { via: 'process', by: 'mara' } }).number;
-  assert.equal(stored(id, n).doneWhenBy, 'mara');
-  assert.throws(() => tasks.setDoneWhen(id, n, ['it builds'], { by: 'otto' }), (e) => e.status === 403 && /mara set these done-when checks for you/.test(e.message));
-  assert.throws(() => tasks.setDoneWhen(id, n, null, { by: 'otto' }), (e) => e.status === 403, 'the assignee cleared the bar set for it');
-  assert.deepEqual(stored(id, n).doneWhen, ['all 40 tests pass']);
-  assert.deepEqual(tasks.setDoneWhen(id, n, ['all 41 tests pass'], { by: 'mara' }).doneWhen, ['all 41 tests pass'], 'the agent that set them could not change them');
-  assert.deepEqual(tasks.setDoneWhen(id, n, ['ivy adds a check'], { by: 'ivy' }).doneWhen, ['ivy adds a check'], 'another member could not');
-  // Now ivy's: otto still cannot, and the person can.
-  assert.throws(() => tasks.setDoneWhen(id, n, ['easier'], { by: 'otto' }), (e) => e.status === 403);
-  assert.deepEqual(tasks.setDoneWhen(id, n, ['the person decides'], { person: true }).doneWhen, ['the person decides']);
-  // CONTROL: checks the assignee set itself are its own to change.
-  const own = tasks.create(id, { sentence: 'Otto files its own', who: 'otto', doneWhen: ['a'], made: { via: 'process', by: 'otto' } }).number;
-  assert.deepEqual(tasks.setDoneWhen(id, own, ['b'], { by: 'otto' }).doneWhen, ['b']);
+  assert.equal(tasks.setDoneWhen(id, n, ['it builds'], { by: 'otto' }).doneWhenBy, 'otto', 'the change was not attributed');
+  const row = taskchat.read(id, n).filter((x) => x.kind === 'done-when-set').pop();
+  assert.equal(row.by, 'otto');
+  assert.equal(row.doneWhen, '1) it builds');
+  // An unnamed write leaves the checks attributed to nobody, never to the agent whose checks it replaced.
+  assert.equal(tasks.setDoneWhen(id, n, ['something']).doneWhenBy, undefined);
 });
 
 test('review 3: the same-text note treats different checks as a different ask', () => {

@@ -923,13 +923,10 @@ function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {})
       e.status = 403;
       throw e;
     }
-    /* Review 3: nor does the agent the task is given to rewrite a bar ANOTHER agent set for it (the same reasoning: it
-       is the one judged against them). The agent that set them, the person, and any other member may change them. */
-    if (!person && by && typeof t.doneWhenBy === 'string' && t.doneWhenBy !== by && whoOf(t).includes(by)) {
-      const e = new Error(`${t.doneWhenBy} set these done-when checks for you, so ask them or the person to change them`);
-      e.status = 403;
-      throw e;
-    }
+    /* Between AGENTS there is no such gate, decided (review 4): an agent's name reaches here in more than one spelling
+       (a pane's roster name, a paneless token's store key), and an assignee can let go of the task and take it back, so
+       a gate keyed on "is the assignee" would read as protection it cannot give. Every change is in the transcript with
+       who made it, and the list says who set the checks now. */
     const before = Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
     didChange = JSON.stringify(before) !== JSON.stringify(next);
     changed = { ...t, doneWhen: next };

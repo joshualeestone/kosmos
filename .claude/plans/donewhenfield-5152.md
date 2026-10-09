@@ -16,7 +16,7 @@
 - **Checks the person set are theirs** (review round 1). A screen write, or a screen add with checks, marks them `doneWhenByPerson`. Any other caller is refused (403) until the person changes or clears them. This matches built's person mark, hold and repeat. Josh's ruling lets the agent write the checks and the person edit them; it does not let the agent being judged rewrite the person's bar.
 - **"The person's" means the screen as isViaScreen reads it,** which server.js calls advisory: a local process with no token can send Sec-Fetch-Site. That is the same strength as built's person mark, hold and repeat. The mark keeps an AGENT (any caller with a token) off the person's checks, not every local process (review round 2).
 - **Who set them shows in `kosmos task list`** (review round 2): "set by the person", or "set by <agent>" quoted as [added by] is. Any member may write checks on a task given to another agent, so the agent the task goes to sees whose bar it is. If the person saves the same list an agent wrote, they adopt it: the mark moves, and no transcript row is written because the checks did not change.
-- **The assignee doesn't rewrite a bar another agent set for it** (review round 3, the same reasoning as the person's checks). The agent that set the checks, the person and any other member may change them; the task's own agent gets a 403 naming who set them.
+- **No gate between agents (decided in review round 4, reversing round 3's).** Round 3 added a 403 for the assignee rewriting another agent's checks. Round 4 showed it could not hold: names reach the engine in more than one spelling (a pane's roster name, a paneless token's store key), an unnamed write skips any name test, and an assignee can let go of the task and take it back. A gate that reads as protection and isn't is worse than none. The protection that holds is the person's mark. Between agents, every change is in the transcript with who made it, and the list shows who set the current checks; an unnamed write attributes them to nobody.
 - **Decided, not built (review round 3):**
   - `--done` takes no check starting with "-" (as `--who` takes no name starting with one); `done-when -- "-5 degrees"` covers it.
   - The 200-character limit counts UTF-16 units, as SENTENCE_MAX does.
@@ -46,3 +46,7 @@ That `kosmos task list` is where an agent reads its checks back. If agents mostl
   - W3: a check's brackets print as parentheses, so it cannot forge a set-by mark.
   - W4: the assignee cannot rewrite another agent's bar.
   - Nits fixed: the same-text note compares the checks; the empty-check refusal uses the same words on both CLIs; `by` is capped at WHO_MAX.
+- **Round 4 (sonnet):** 0 blockers, 3 warnings, all about round 3's assignee gate. Resolved by removing the gate and recording why (see Decisions). NITs decided:
+  - ZWJ emoji sequences are refused by the Cf rule (invisible joiners stay out);
+  - the same list re-sent by a member moves the attribution silently, as the person's adoption does;
+  - a check starting with "-" goes through `done-when --`.
