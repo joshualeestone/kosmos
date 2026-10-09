@@ -59,7 +59,8 @@ const TEMPLATE = /\.(example|sample|template|dist)$/i;
 const TOKEN = (name) => `([^/]*[^a-z0-9/])?${name}([^a-z0-9/][^/]*)?`;
 const STORE_NAME = (name) => new RegExp(`(^|\\/)${TOKEN(name)}$`, 'i');
 const STORE_FOLDER = (name) => new RegExp(`(^|\\/)${TOKEN(name)}\\/`, 'i');
-/* Two linear tests rather than one pattern with `(.*\/)?` in it, which is quadratic on a path repeating the folder. */
+/* Two tests rather than one pattern with `(.*\/)?` in it, which is quadratic on a path repeating the folder. (Each
+   TOKEN pattern is quadratic within one long segment; pathDecision refuses a segment over MAX_SEGMENT first.) */
 const COMMUNITY_DIR = STORE_FOLDER('communitysend');
 const KEYS_FILE = STORE_NAME('keys');
 const KOSMOS_STORES = [
@@ -71,6 +72,11 @@ const KOSMOS_STORES = [
   [STORE_NAME('(mac_key|install_key)'), 'Kosmos Mac signing key'],
   [STORE_NAME('phone-notify'), 'Kosmos phone notify token'],
   [STORE_NAME('\\.?kosmos-[a-z0-9]+-apikey'), 'provider API key'],
+  // engine/undo.js keeps a copy of every file an agent edits, under a hash (undo/blobs/<sha256>) or behind a hash prefix
+  // (undo-saved/<stamp>/<sha16>-<name>), so no name rule can see a key or .env inside. The files themselves are backed
+  // up at their own paths; the cost is that a version the person undid is not in the backup.
+  [/(^|\/)undo\/blobs\//i, 'Kosmos undo copies (the files are backed up at their own paths)'],
+  [STORE_FOLDER('undo-saved'), 'Kosmos undo copies (the files are backed up at their own paths)'],
 ];
 
 const DENY = [
@@ -101,7 +107,11 @@ function pathDecision(rel) {
   if (typeof rel !== 'string' || !rel || rel.includes('\0')) return { include: false, why: 'unusable path' };
   const p = rel.split(path.sep).join('/');
   if (p.startsWith('/') || p.split('/').includes('..')) return { include: false, why: 'path outside the work Kosmos' };
-  // Kosmos's own stores are judged BEFORE the template exemption: `mac_key.example` or `board.token.sample` is a copy
+  // No filesystem allows a name this long (255 bytes, so at most 1020 UTF-16 units). Refused before any pattern runs, so
+  // a hostile segment cannot make the token patterns below take quadratic time.
+  if (p.split('/').some((seg) => seg.length > MAX_SEGMENT)) return { include: false, why: 'a name too long to check' };
+  // Kosmos's own stores are judged BEFORE the template exemption (the generic secrets/ folder rule, older, is still
+  // judged after it, so secrets/github.token.example is kept): `mac_key.example` or `board.token.sample` is a copy
   // of a key the content scan cannot see, never a template.
   for (const [re, why] of KOSMOS_STORES) if (re.test(p)) return { include: false, why };
   if (TEMPLATE.test(p)) return { include: true };
@@ -119,10 +129,10 @@ function pathDecision(rel) {
    (engine/securewrite.js), `signin-device.key.new-<pid>-<hex>`, an editor's `.id_rsa.swp` or `id_rsa~`, a download's
    `id_rsa (1)`. So a COPY-SHAPED name (see COPY_SHAPED) is also judged as every name it could be a copy of: each
    leading run of it up to a '.', '-', '_', '~' or space, with and without a leading dot. A tail after the ending (a pid,
-   a random suffix: `.tmp-k3j9z`, `.bak2`) is accepted when it carries a digit, so `secrets.new-approach.md` is ordinary.
+   a random suffix: `.tmp-k3j9z`, `.bak2`) is accepted when it carries a digit anywhere, so `secrets.new-approach.md` is ordinary.
    What this does NOT cover, said so nobody reads it as complete: a copy whose ending is not in COPY_SHAPED, and a copy
    named IN FRONT of its origin (emacs `#id_rsa#` and `.#id_rsa`, `tmp-id_rsa`), and a tail with no digit in it
-   (`.tmp-abcxyz`). For Kosmos's own stores the token and
+   (`.tmp-abcxyz`; a digit anywhere in the tail is enough, so `.new-4711-abcdef` counts). For Kosmos's own stores the token and
    folder rules above (STORE_NAME, STORE_FOLDER) need none of this; for other credentials the content scan and the final raw check
    stand behind it (a PEM key, for one, is found by its content whatever the file is called).
    Over-skip, on the safe side: an origin is judged by EVERY deny rule, so a copy of ordinary work whose name starts
@@ -130,17 +140,16 @@ function pathDecision(rel) {
    cookies-recipe.md.tmp, contract.docx.bak, .git-blame.bak, server.key.md.bak although server.key.md is kept,
    .env.example.bak although .env.example is kept: the template exemption is not applied to an origin).
    Bounded (review 4, review 7): the tail repeats only after a separator, so COPY_SHAPED cannot backtrack
-   exponentially, and a name longer than any filesystem allows is judged on its last 64 characters before the regex
-   sees it. A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
+   exponentially, and pathDecision refuses a name longer than any filesystem allows before any pattern sees it. A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
    tried and a hostile name cannot make the scan quadratic. (Filesystems cap a name in bytes, not characters; this caps
    the work, and a real name over it is rare and skipped on the safe side.) */
-const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)\d*([-.](?=[a-z]*\d)[0-9a-z]+)*|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
+const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)(?:(?=[-.0-9a-z]*\d)\d*([-.][0-9a-z]+)*)?|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
 const MAX_COPY_NAME = 255;
+const MAX_SEGMENT = 1020;
 function tempOrigins(p) {
   const cut = p.lastIndexOf('/') + 1;
   const dir = p.slice(0, cut);
   const base = p.slice(cut);
-  if (base.length > 4 * MAX_COPY_NAME) return COPY_SHAPED.test(base.slice(-64)) ? null : [];
   if (!COPY_SHAPED.test(base)) return [];
   if ([...base].length > MAX_COPY_NAME) return null;
   const out = new Set();

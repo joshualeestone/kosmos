@@ -56,7 +56,11 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     // review 8: a store folder copied with its name in front, a keys backup named before .json, other account dirs,
     // and the documented over-skip of a project's own communitysend/keys.json
     'old sendertokens/a.json', 'x/.sendertokens/a.json', 'Kosmos/communitysend/ep/keys.bak.json',
-    'a/.gemini-work/oauth_creds.json', 'a/.codex-2/auth.json', 'projects/x/communitysend/keys.json']) {
+    'a/.gemini-work/oauth_creds.json', 'a/.codex-2/auth.json', 'projects/x/communitysend/keys.json',
+    // review 9: a staging tail whose random hex is letters only; undo's copies under a hash or a hash prefix
+    'Kosmos/remote/signin-device.key.new-4711-abcdef', 'x/tls.key.new-12-fe', 'Kosmos/undo/blobs/' + 'a1'.repeat(32),
+    'Kosmos/undo-saved/20261009T1200/0123456789abcdef-id_rsa', 'Kosmos/undo-saved/s/0123456789abcdef-.npmrc',
+    'worlds/w1/Kosmos/undo/blobs/' + 'b2'.repeat(32)]) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
@@ -65,7 +69,8 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'agents/a/notes~', 'agents/a/report-final.bak', 'w/' + 'a'.repeat(250) + '.md',
     'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'agents/a/.env.example', 'notes/secrets.tmp-abcxyz.md',
     'notes/keyboard.tokens.csv', 'notes/billboard.token-ideas.md', 'projects/site/remote/api.keys.md',
-    'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md',
+    'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
 });
@@ -79,6 +84,14 @@ test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially 
   bs.pathDecision('communitysend/'.repeat(15000) + 'x');   // 210 KB: a quadratic community pattern took 7 s here
   const ms1 = Number(process.hrtime.bigint() - t1) / 1e6;
   assert.ok(ms1 < 1000, `a path repeating communitysend/ took ${ms1} ms`);
+  const t2 = process.hrtime.bigint();
+  for (const seg of ['mac_key-', 'board.token-', '-kosmos-a-apikey', 'sendertokens-']) {
+    assert.equal(bs.pathDecision('w/' + seg.repeat(32000) + '/x').include, false, 'a segment longer than any name is refused');
+  }
+  const ms2 = Number(process.hrtime.bigint() - t2) / 1e6;
+  assert.ok(ms2 < 1000, `long single segments took ${ms2} ms (uncapped token patterns took 2 to 17 s each)`);
+  assert.equal(bs.pathDecision('w/' + 'a'.repeat(1017) + '.md').include, true, 'CONTROL: a 1020-character name, the most a filesystem allows, is judged, not refused');
+  assert.equal(bs.pathDecision('w/' + 'a'.repeat(1018) + '.md').include, false, 'one character over is refused');
 });
 
 test('#5686 review 4: a copy-shaped name too long for a filesystem is skipped, not widened (uncapped, 100000 dots exhausts the heap)', () => {
