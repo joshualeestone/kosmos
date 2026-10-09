@@ -36,7 +36,7 @@ function slice(start) {
 }
 // eslint-disable-next-line no-new-func
 const pjNeedsNotice = new Function(slice('function esc(') + '\n' + slice('const PJ_NEEDS_WHY = ') + '\n'
-  + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
+  + slice('function pjAlsoWhy(') + '\n' + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
 
 /* Real member rows (fixture-discipline): a real board from test-support/fleet, described by the real projects engine.
    The reason under test is then set on each row; the engine's own derivation of it is tested in engine/projects.test.js. */
@@ -98,8 +98,10 @@ test('#5688: names are escaped', () => {
 });
 
 test('#5688 wiring: both notice boxes paint it first, and its Open opens the agent with the project to return to', () => {
-  assert.match(PAGE, /const notice = pjNeedsNotice\(roster\) \+ pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/);
-  assert.match(PAGE, /setIfChanged\(rn, op \? pjNeedsNotice\(op\.agents \|\| \[\]\) \+ pjCoordNotice\(op\)/);
+  assert.match(PAGE, /const notice = pjNeedsNotice\(roster, pjRedHere\) \+ pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/);
+  assert.match(PAGE, /setIfChanged\(rn, op \? pjNeedsNotice\(op\.agents \|\| \[\], pjRedHere\) \+ pjCoordNotice\(op\)/);
+  // #5692: the red test is the row builder itself, so the block and the rows cannot disagree.
+  assert.match(slice('function pjRedHere('), /pjMember\(m, true, true, true\)/);
   assert.match(slice('function pjNeedsOpenClick('), /openDetail\(b\.dataset\.pnOpen, undefined, PJ_CURRENT\)/);
   assert.match(PAGE, /getElementById\('pj-one-notice'\)\.addEventListener\('click', pjNeedsOpenClick\)/);
   assert.match(PAGE, /rn\.addEventListener\('click', pjNeedsOpenClick\)/);
@@ -128,4 +130,26 @@ test('#5688 review 2: a repaint puts focus back on the same agent\'s Open, or th
   assert.equal(run('elon', ['dario', 'elon']), 'elon', 'focus went back to the same agent');
   assert.equal(run('elon', ['dario']), 'dario', 'that agent is gone: the first Open left');
   assert.equal(run(null, ['dario']), null, 'CONTROL: nothing focused in the notice, nothing is focused after');
+});
+
+test('#5692: a red row whose need is not about this project is named too, after the counted ones, and never as a question it is not', () => {
+  const red = new Set(['sam', 'mark', 'demis']);   // what the row builder draws red (the page passes pjRedHere)
+  const redHere = (r) => red.has(r.sessionName);
+  const sam = { ...m('sam', null), state: 'needs_you', stateProject: 'other-project' };
+  const mark = { ...m('mark', null), state: 'needs_you', stateProject: null, restartFailed: true };
+  const demis = { ...m('demis', null), state: 'needs_you', stateProject: null };
+  const dario = m('dario', null);   // CONTROL: not red, not counted: not listed
+  const html = pjNeedsNotice([m('elon', 'stuck_auth', 'Elon'), sam, mark, demis, dario], redHere);
+  assert.match(html, /<b>Elon needs you on this project\.<\/b>/, 'the heading still speaks for the pill');
+  assert.match(html, /Also waiting on you, not about this project:/);
+  assert.match(html, /Waiting for your answer about another project\./);
+  assert.match(html, /Kosmos restarted it, and it did not come back\./);
+  assert.equal(/data-pn-open="mark"[^>]*>Answer/.test(html), false, 'a dead agent was offered Answer');
+  assert.match(html, /Waiting for you, about nothing on this project\./);
+  assert.equal(/data-pn-open="dario"/.test(html), false);
+  assert.ok(html.indexOf('data-pn-open="elon"') < html.indexOf('data-pn-open="sam"'), 'counted rows come first');
+  // Only uncounted red rows: the heading says so.
+  assert.match(pjNeedsNotice([sam], redHere), /<b>[^<]+ needs you, not about this project\.<\/b>/);
+  // Without the row builder (an older caller), only the counted rows.
+  assert.equal(pjNeedsNotice([sam]), '');
 });
