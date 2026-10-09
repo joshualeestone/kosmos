@@ -6,7 +6,7 @@ Google Play rejected the first internal-testing upload of the Android app: it ta
 
 ## Change (built by Liu Kang, gates are mine)
 
-Two files only, no app code:
+Liu Kang's core change is two files, no app code (the branch also carries the test, CI, and doc follow-ons listed further down):
 
 - `android/app/build.gradle`: `compileSdk` 35 -> 36, `targetSdk` 35 -> 36, `versionCode` 3 -> 4, `versionName` 0.1.2 -> 0.1.3.
 - `android/gradle.properties`: add `android.suppressUnsupportedCompileSdk=36`.
@@ -15,7 +15,7 @@ The suppress flag is needed because AGP 8.6.1 predates API 36 and otherwise refu
 
 ## Risk and what API 36 forces
 
-API 36 makes edge-to-edge mandatory (the opt-out is gone) and turns predictive back on by default. Because the board renders in Chrome (which draws its own system bars), the only native surfaces that can change are the two small screens the launcher draws itself: the address chooser and the load-error page, which may now draw under the status bar. The smoke test checks exactly those plus the back gesture.
+The app already targeted API 35, where edge-to-edge is already enforced, and it never sets the `windowOptOutEdgeToEdgeEnforcement` opt-out, so API 36 removing that opt-out changes nothing visible: the two native screens the launcher draws itself (the address chooser and the load-error page) already draw edge-to-edge today. API 36 also enables predictive back by default, but the app registers no custom back handling, so that is a no-op too. The board itself renders in Chrome, which draws its own system bars. The smoke test is therefore a regression check that the two native screens still render correctly and the back gesture still works on the enforced edge-to-edge regime, not a check of new behaviour, which is why running it on an API 35 AVD is representative (same regime, no opt-out in play). Separately: the native screens use fixed padding rather than window-insets handling. That is a pre-existing layout concern this SDK bump does not introduce or change (the behaviour is identical at 35 and 36 with no opt-out set); it is worth its own card if we want insets-aware padding, not part of this urgent compliance bump.
 
 ## Toolchain consequences (test and CI), beyond the two-file diff
 
@@ -33,5 +33,5 @@ Bumping `targetSdk`/`compileSdk` to 36 has test and CI consequences that the ini
 
 - Challenge-loop converged on this diff; local suite green on the head; this plan plus a hash-matched proof committed.
 - PR opened (Addresses #4090), reviewer joshualeestone, with the suppress-flag note and a pointer to the AGP-upgrade follow-up. CI green, merged by name (squash), worktree and branch cleaned up.
-- 0.1.3 APK smoke-tested on an emulator (install, open, address chooser and load-error screenshots, edge-to-edge and back), result appended to `/tmp/splinter-msg/liukang-android-api36.md` and posted on #4090.
-- Only if the smoke test passes: 0.1.3 APK published as the sideload at installkosmos.com/dist/android/ the way 0.1.2 was, verified by downloading the whole file and checking sha256 `1116634e0037979e13ad69c9ab475bad3ad82f080690df4d700ca3c5c1e20b72`.
+- 0.1.3 APK smoke-tested on an emulator (install, open, address chooser and load-error screenshots, edge-to-edge and back), result posted on #4090.
+- Only if the smoke test passes: 0.1.3 APK published as the sideload at installkosmos.com/dist/android/ the way 0.1.2 was, verified by downloading the whole file and checking its sha256 against the release APK.
