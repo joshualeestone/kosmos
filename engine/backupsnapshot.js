@@ -305,7 +305,8 @@ function rootsOf(input) {
     if (!pathDecision(`${r.name}/x`).include) return `the root name ${r.name} is one the backup never stores`;
     names.push(r.name);
   }
-  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude }));
+  // Sorted by name, so the files (and the manifest) come out in one order whatever order the caller lists the roots in.
+  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude })).sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
 }
 
 /* Every root's listing, merged: each file carries its root's real path and its path inside it (rel), and its stored
