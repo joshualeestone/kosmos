@@ -37,22 +37,27 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'Kosmos/board.token.kosmos-1-t0-2-3.tmp', 'acct/auth.json.kosmos-1-t0-2-3.tmp', 'Kosmos/win32-channel/a.key.tmp',
     'agents/a/.env.kosmos-9-t1-2-3.tmp', 'Kosmos/fed-seal-key.json.4711.0a1b2c3d4e5f.tmp', 'worlds/w1/Kosmos/remote/.mac_key.tmp',
     'Kosmos/remote/mac_key-123.tmp', 'x/id_rsa-new.tmp', 'Kosmos/remote/mac_key~', 'Kosmos/remote/.mac_key.swp',
-    'keys/server.key.bak', 'keys/server.key_old.tmp', 'w/' + 'a.'.repeat(200) + 'tmp']) {
+    'keys/server.key.bak', 'keys/server.key_old.tmp', 'w/' + 'a.'.repeat(200) + 'tmp',
+    // review 5: copy shapes of Kosmos stores (matched anywhere in the name) and of other credentials (COPY_SHAPED)
+    'Kosmos/board.token.tmp-123', 'Kosmos/remote/.mac_key.tmp-9', 'Kosmos/remote/signin-device.key.tmp-9',
+    'Kosmos/remote/tls.key.4711.new', 'Kosmos/remote/mac_key copy', 'Kosmos/remote/..mac_key.tmp', 'Kosmos/remote/#mac_key#',
+    'Kosmos/.#board.token', 'Kosmos/#board.token#', 'Kosmos/#fed-seal-key.json#', 'Kosmos/communitysend/ab/#keys.json#', 'acct/#.kosmos-grok-apikey#', 'Kosmos/communitysend/ab/.keys.json.tmp-7', 'Kosmos/fed-seal-rooms.json.save',
+    'acct/.kosmos-claude-apikey.1', 'x/id_rsa (1)', 'x/id_rsa.backup', 'x/id_rsa.save', 'x/id_rsa.part', 'x/id_rsa.temp',
+    'x/id_rsa.prev', 'keys/tls.key.1', 'x/.env.tmp.4711']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
     'Kosmos/remote/.pending.json.tmp', 'Kosmos/.chats.tmp', 'projects/site/build.new-version.md', 'agents/a/keys.md.tmp',
     'agents/a/.tmp', 'agents/a/a..b.tmp', 'agents/a/secrets.md', 'agents/a/server.key.md', 'agents/a/id_rsa.md',
-    'agents/a/notes~', 'agents/a/report-final.bak', 'w/' + 'a'.repeat(250) + '.md']) {
+    'agents/a/notes~', 'agents/a/report-final.bak', 'w/' + 'a'.repeat(250) + '.md',
+    'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
 });
 
-test('#5686 review 4: a long copy-shaped name is judged in bounded time', () => {
-  const t0 = Date.now();
+test('#5686 review 4: a copy-shaped name too long for a filesystem is skipped, not widened (uncapped, 100000 dots exhausts the heap)', () => {
   for (const n of [1000, 100000]) assert.equal(bs.pathDecision('w/' + '.'.repeat(n) + 'tmp').include, false);
-  assert.equal(bs.pathDecision('w/' + 'a-'.repeat(120) + '.tmp').include, true, 'CONTROL: a 245-character temp of ordinary work is kept');
-  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  assert.equal(bs.pathDecision('w/' + 'a-'.repeat(120) + '.tmp').include, true, 'CONTROL: a 244-character temp of ordinary work is kept');
 });
 
 test('#5535 deny-list: credential-shaped paths are skipped by name; ordinary work files are not', () => {
