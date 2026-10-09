@@ -87,6 +87,48 @@ shard "shards 'all' (not a shard name): macos-latest" "$HOSTED" on push "" "all"
 shard "shards '1/2;2/2' (a wrong separator): macos-latest" "$HOSTED" on push "" "1/2;2/2" shell2_runner
 shard "shards with a tab and a newline: still read" "$SELF" on push "" "$(printf '1/2,\t\n2/2')" shell2_runner
 
+# A value that names no shard says so in the log (the value itself is never echoed).
+log="$(cd "$T/cwd" && CI_SHELL_SHARDS="1/2x" CI_RUNNER=on EVENT_NAME=push HEAD_REPO="" THIS_REPO=owner/kosmos BASE_REF=nope HEAD_SHA=x HEAD_REF=y \
+  RUNNER_TEMP="$T/runner-temp" GITHUB_OUTPUT="$T/out" PATH="/usr/bin:/bin" bash --noprofile --norc -eo pipefail "$T/decide.sh" 2>/dev/null)"
+case "$log" in *"set but names no shard"*) pass "a misspelt KOSMOS_CI_SHELL_SHARDS is named in the log" ;; *) fail "a misspelt KOSMOS_CI_SHELL_SHARDS is silent in the log" ;; esac
+log="$(cd "$T/cwd" && CI_SHELL_SHARDS="" CI_RUNNER=on EVENT_NAME=push HEAD_REPO="" THIS_REPO=owner/kosmos BASE_REF=nope HEAD_SHA=x HEAD_REF=y \
+  RUNNER_TEMP="$T/runner-temp" GITHUB_OUTPUT="$T/out" PATH="/usr/bin:/bin" bash --noprofile --norc -eo pipefail "$T/decide.sh" 2>/dev/null)"
+case "$log" in *"set but names no shard"*) fail "CONTROL: an unset KOSMOS_CI_SHELL_SHARDS reported as misspelt" ;; *) pass "CONTROL: an unset KOSMOS_CI_SHELL_SHARDS is not reported as misspelt" ;; esac
+
+# The suite's runs-on, EVALUATED (not only pinned as text) with GitHub's rules: && binds tighter than ||, each
+# returns an operand, and an empty string is falsy. Every part and shard, with scope's outputs set and empty.
+if ! ruby -ryaml -e '
+  e = YAML.load_file(ARGV[0])["jobs"]["suite"]["runs-on"][/\A\$\{\{ fromJSON\((.*)\) \}\}\z/, 1] or raise "runs-on is not fromJSON(...)"
+  ev = lambda do |ctx|
+    e.split(" || ").each do |alt|
+      v = alt.split(" && ").reduce(true) do |acc, t|
+        next acc unless acc && acc != ""
+        if t =~ /\Amatrix\.(\w+) == '"'"'([^'"'"']*)'"'"'\z/ then ctx[$1] == $2
+        elsif t =~ /\Aneeds\.scope\.outputs\.(\w+)\z/ then ctx.fetch($1)
+        elsif t =~ /\A'"'"'([^'"'"']*)'"'"'\z/ then $1
+        else raise "unknown term #{t}" end
+      end
+      return v if v && v != ""
+    end
+    raise "no alternative chosen"
+  end
+  out = { "mac_runner" => "M", "shell1_runner" => "S1", "shell2_runner" => "S2" }
+  none = { "mac_runner" => "", "shell1_runner" => "", "shell2_runner" => "" }
+  cases = [
+    [{ "part" => "node", "shard" => "" }.merge(out), "M"],
+    [{ "part" => "shell", "shard" => "1/2" }.merge(out), "S1"],
+    [{ "part" => "shell", "shard" => "2/2" }.merge(out), "S2"],
+    [{ "part" => "node", "shard" => "" }.merge(none), "\"macos-latest\""],
+    [{ "part" => "shell", "shard" => "1/2" }.merge(none), "\"macos-latest\""],
+    [{ "part" => "shell", "shard" => "2/2" }.merge(none), "\"macos-latest\""],
+  ]
+  cases.each { |ctx, want| got = ev.call(ctx); raise "#{ctx["part"]} #{ctx["shard"]}: want #{want}, got #{got}" unless got == want }
+' "$WF" 2>"$T/ev.err"; then
+  fail "suite runs-on, evaluated: $(head -2 "$T/ev.err")"
+else
+  pass "suite runs-on, evaluated: node takes mac_runner, 1/2 shell1_runner, 2/2 shell2_runner; each falls back to macos-latest when scope wrote nothing"
+fi
+
 # Both outputs must be JSON, or fromJSON fails the suite job before it starts.
 for v in "$SELF" "$HOSTED"; do
   if printf '%s' "$v" | ruby -rjson -e 'JSON.parse(STDIN.read, quirks_mode: true)' >/dev/null 2>&1; then pass "valid JSON for fromJSON: $v"
