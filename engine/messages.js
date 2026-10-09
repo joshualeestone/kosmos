@@ -232,13 +232,14 @@ function spillHead(text) {
     /* At a whole word: a space right after the 200th character means the slice already ends on one. */
     const open = wholeChars(t.slice(0, SPILL_HEAD));
     const sp = t.charAt(SPILL_HEAD) === ' ' ? SPILL_HEAD : open.lastIndexOf(' ');
-    head = (sp >= SPILL_HEAD / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
+    const cut = sp >= SPILL_HEAD / 2 ? open.slice(0, sp) : open;
+    head = (cut.replace(/[\s,;:]+$/, '') || cut) + '\u2026';   // review 5: never an ellipsis alone
   }
   return { head, words };
 }
 function spillLine(text, file) {
   const { head, words } = spillHead(text);
-  return head + ' (long message, ' + words + ' words; the full text is in your own folder at ' + file + ')';
+  return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')';
 }
 /* The ceiling past which a body is a document, not a message (spill
    relaxes chat's cap, never the idea of one). The log itself has no
