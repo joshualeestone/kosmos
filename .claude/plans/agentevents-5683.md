@@ -34,3 +34,21 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - The sandbox match is by text: a Bash command whose own output says "Operation not permitted" for another reason
   (an EPERM unrelated to the Kosmos profile) on a token-only agent is reported as a sandbox refusal. Weakest premise.
 - The consent words do not yet name these events; they ship with Pete's consent change (#5685).
+
+## Review 1 (sonnet), all fixed unless stated
+- A line over the 4 MB read window wedged its file: now skipped (its tail reads as one unparseable line). Test, P5.
+- A call and its result in different ticks lost the tool (a sandbox refusal was missed): tool uses kept in memory per
+  file across ticks (bounded; lost on a restart, then classified from the denial text). Tick-level test, P6.
+- No upper bound on an event's time (one skewed row cost its batch): events over 5 min ahead are not queued, and a
+  queued event is dropped an hour before the coordinator's 7-day limit. Test, P8.
+- Consent: a 409 org_consent_changed stops the sends (orgenroll.consentWithdrawn), not_enrolled/not_member refresh,
+  as the rollup. The state is keyed on the accepted consent hash too: words accepted again start clean and send
+  nothing from before that moment. Test, P9.
+- Paths resolved before classifying (agentDir/../.. reached the board's files as 'other'); ~user is 'other'; only
+  <agentDir>/.claude/ is agent-config. Test, P7.
+- No readable enrollment time sends nothing (it failed open). Test, P10.
+- A subagent's transcript references its parent session. Test, P11.
+- Every transcript is read from its start the first time (then filtered by time), so a refusal between the enrollment
+  and the first tick is not lost; offsets of transcripts that are gone are dropped.
+- The computer print is sent as the rollup sends it (the coordinator now checks it, relay review 1).
+- The label check is written with escapes (no raw bidi character in the source) and refuses zero-width characters.
