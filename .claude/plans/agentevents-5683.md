@@ -144,3 +144,6 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   tested (it needs fixtures over 16 MB); PENDING_MAX trimming is untested.
 - The module doc names scanText (not pure: it updates the call map); crypto is required once; the plan's queue line
   says 7 days less an hour.
+- (With relay review 7) the two references are ids only: 1 to 128 of [A-Za-z0-9_-], as the coordinator now requires;
+  an event whose session or tool use id is not one is not sent. Test.
+- The kept-size test uses a backlog of 6, so the size going back up would show (with 4 it could not). P39.

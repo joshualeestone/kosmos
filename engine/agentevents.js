@@ -66,6 +66,12 @@ function label(v) {
   return /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u115f\u1160\u3164\uffa0\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufe00-\ufe0f\ufeff]|\udb40[\udc00-\udc7f]/.test(s) ? null : s;
 }
 
+/* A reference (a session or tool use id) as the coordinator accepts it: 1 to 128 of [A-Za-z0-9_-] (relay review 7:
+   free text there could carry content in pieces). Claude Code's session ids and tool use ids are of that form. */
+function ref(v) {
+  return typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v) ? v : null;
+}
+
 /* The text of a tool result: a string, or the text blocks of a list. */
 function resultText(c) {
   if (typeof c === 'string') return c;
@@ -191,8 +197,8 @@ function scanText(text, calls, ctx) {
       const at = Date.parse(row.timestamp);
       if (!Number.isFinite(at) || at < ctx.now - PAST_MS) continue;
       const agent = label(ctx.agent);
-      const sessionRef = label(ctx.session);
-      const toolUseRef = label(b.tool_use_id);
+      const sessionRef = ref(ctx.session);
+      const toolUseRef = ref(b.tool_use_id);
       if (!agent || !sessionRef || !toolUseRef) continue;
       out.push({ agent, at: Math.floor(at / 1000), action: ACTION[tool] || 'run', rule,
         targetClass: call.target || targetClass(tool, {}, ctx), sessionRef, toolUseRef });
@@ -445,4 +451,4 @@ async function tick(opts) {
   }
 }
 
-module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, readFrom, sessionOf, tick };
+module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick };

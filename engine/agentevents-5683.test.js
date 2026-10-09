@@ -64,6 +64,9 @@ test('#5683 target classes: board files, the agent\'s own settings, network, and
 });
 
 test('#5683 labels: a control or bidi character, or an empty one, is not sent', () => {
+  assert.equal(ae.ref('toolu_01ABC-x'), 'toolu_01ABC-x');
+  assert.equal(ae.ref('has space'), null, 'a reference that is not an id was kept (relay review 7)');
+  assert.equal(ae.ref('a.b'), null);
   assert.equal(ae.label('Scout'), 'Scout');
   assert.equal(ae.label('Sco\u202eut'), null);
   assert.equal(ae.label('a\nb'), null);
@@ -590,9 +593,10 @@ test('#5683 r8: after a halving, the smaller size is kept until the backlog drai
   await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   const lines = [];
-  for (let i = 0; i < 4; i++) lines.push(use('k' + i, 'Bash', { command: 'x' }), result('k' + i, DENIED('x'), true));
+  for (let i = 0; i < 6; i++) lines.push(use('k' + i, 'Bash', { command: 'x' }), result('k' + i, DENIED('x'), true));
   append(s.file, ...lines);
   for (let i = 0; i < 4; i++) await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
-  assert.deepEqual(sizes, [4, 2, 2], 'the send size went back up before the backlog drained');
+  /* 6 too big, 3 too big, then 2 and 2: had the size gone back to 50 after the first success, the fourth would be 4. */
+  assert.deepEqual(sizes, [6, 3, 2, 2], 'the send size went back up before the backlog drained');
 });
 
