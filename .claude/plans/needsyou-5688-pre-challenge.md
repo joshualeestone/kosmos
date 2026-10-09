@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: needsyou-5688
-diff_hash: 1e335bdfa2ea6d638c2c623e532d9ebb6475bf28ca5e40ca84b7132ac550fe72
+diff_hash: 52343f396b07f80e946b2979717baeb9880c6bb1ca145f98013cdeb3f272feb7
 validation: passed (full validation, stack=typescript hash=1e335bdfa2ea: node suite 17767 tests, 17533 pass, 0 fail; browser-check gates pass, the surface gate verified by sourcing it: rc 0 on HEAD, rc 1 on the commit before the trailers; the nine affected browser checks run through tools/browser-checks.sh all PASS (render-project-needsyou-2699, render-needsyou-dealarm-2808, render-project-done-4583, render-shell-noscroll-4872, render-working-pulse-3956, render-consolidated-projects-3052, render-phone-taps-5218, render-allagents-4812, render-phone-offline-718); the new arms red on main's page; engine and page tests red by mutation)
 subdir_audit: passed
 timestamp: 2026-10-09T15:56:46Z
@@ -40,3 +40,6 @@ The change (#5688, Josh 08:45; 08:50/08:51 for the tag):
 - [NIT] "trust prompt" jargon --> FIXED. Generic "Needs you." --> FIXED. Temp sandbox not removed --> FIXED.
 - [NIT] the question exception was untested in yarn test --> FIXED (server.test.js).
 - [NIT] stale Roadmap track comment, the lost status-only gap arm, the folded rail, the stuck-state match --> LEFT, with reasons on the card.
+
+#### After PR CI (12:19)
+- [WARNING] render-project-done-4583 failed on the PR's CI twice. Every assertion passed, then a route.fetch still in flight at teardown threw "Request context disposed" (unroute does not wait; the shortened check moved the timing) --> FIXED with unrouteAll({ behavior: 'wait' }). Run three times locally through tools/browser-checks.sh: PASS each time.
