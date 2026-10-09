@@ -13,12 +13,16 @@ const GH = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
 const PEM = '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACDDummyDummyDummyDummyDummyDummyDummyDummyAAAA\n-----END OPENSSH PRIVATE KEY-----';
 
 test('#5686 deny-list: Kosmos credential stores in the data root are skipped by name, under a world prefix too', () => {
-  for (const p of ['Kosmos/sendertokens/a.json', 'Kosmos/sendertokens/a.json.tmp-60291', 'Kosmos/launch-secrets/mikey.env.json',
-    'Kosmos/communitysend/234a7f2dbb0a/keys.json', 'worlds/w1/Kosmos/sendertokens/b.json', 'sendertokens/a.json']) {
+  for (const p of ['Kosmos/sendertokens/a.json', 'Kosmos/sendertokens/a.json.tmp-60291', 'worlds/w1/Kosmos/sendertokens/b.json',
+    'sendertokens/a.json', 'Kosmos/launch-secrets/agent-secrets.Ab12Cd', 'worlds/w1/Kosmos/launch-secrets/agent-secrets.Ab12Cd',
+    'Kosmos/communitysend/234a7f2dbb0a/keys.json', 'worlds/w1/Kosmos/communitysend/234a7f2dbb0a/keys.json',
+    'Kosmos/communitysend/234a7f2dbb0a/keys.json.0a1b2c3d4e5f.tmp', 'Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json',
+    'worlds/w1/Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json.4711.0a1b2c3d4e5f.tmp']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['Kosmos/communitysend/234a7f2dbb0a/sent.json', 'Kosmos/chats/direct..mikey.json', 'Kosmos/messages.jsonl',
-    'Kosmos/task-chats/a.task-7.jsonl', 'Kosmos/agent-token-only.json', 'projects/site/keys.json', 'notes/launch-secrets.md']) {
+    'Kosmos/task-chats/a.task-7.jsonl', 'Kosmos/agent-token-only.json', 'projects/site/keys.json', 'notes/launch-secrets.md',
+    'Kosmos/fed-seal-notes.md', 'projects/site/keys.jsonc.md']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a conversation or ordinary work and is kept`);
   }
 });
