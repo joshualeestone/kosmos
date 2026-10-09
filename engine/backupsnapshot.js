@@ -53,6 +53,8 @@ const MAX_SKIPPED = 100000;
 const MAX_DEPTH = 256;
 // The coordinator's allowance per member per weekly period (docs/coordinator-api.md "Allowances"): chunk objects and
 // bytes, spent at grant time. A snapshot that could pass either is refused before it spends any (review 9).
+// The bound is cautious (chunks at the 256 KiB minimum, redaction doubling every file), so in practice it refuses at
+// about 25 GB of files, though real chunks average 1 MiB; the refusal says so.
 const CHUNK_ALLOWANCE = 200000, BYTE_ALLOWANCE = 64 * 2 ** 30;
 // A sealed chunk object at most: the chunk, Padme padding (at most about 12%, here 13%), framing; never below the floor.
 const sealedMax = (n) => Math.max(4148, Math.ceil(n * 1.13) + 4096);
@@ -88,7 +90,7 @@ function periodOfKey(key) {
 function keyProblem(key, ctx) {
   const parts = typeof key === 'string' ? key.split('/') : [];
   // Plain segments only (review 7): the manifest budget charges a key at its byte length, which JSON keeps only for these.
-  if (parts.length !== 5 || parts.some((x) => !/^[A-Za-z0-9._:-]+$/.test(x))) return 'not a coordinator object key';
+  if (parts.length !== 5 || parts.some((x) => !/^[A-Za-z0-9._:-]+$/.test(x) || x === '.' || x === '..')) return 'not a coordinator object key';
   if (parts[0] !== ctx.org) return `under org ${parts[0]}, not ${ctx.org}`;
   if (parts[2] !== ctx.epoch) return `under key epoch ${parts[2]}, not ${ctx.epoch}`;
   if (parts[3] !== ctx.period) return `in period ${parts[3]}, not ${ctx.period}`;
@@ -178,7 +180,7 @@ function readListed(fs, rootReal, f, maxFile) {
     const st = fs.fstatSync(fd, { bigint: true });
     if (!st.isFile() || st.dev !== f.dev || st.ino !== f.ino) return { why: 'replaced while the snapshot was taken' };
     // A hard link has no real path of its own to check: another name for it may be outside the work Kosmos.
-    if (st.nlink > 1n) return { why: 'a hard link (another name for it may be outside the work Kosmos)' };
+    if (st.nlink > 1n) return { why: 'stored under more than one name (a hard link; another name may be outside the work Kosmos)' };
     // The real path, which must name the very file opened (review 9: a folder swapped for a link during the walk, and
     // back again before this lookup, would otherwise let the path checked differ from the file read). With hard links
     // refused above, the same device and inode mean the same file.
@@ -333,7 +335,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   const chunkBound = index.size + listed.files.reduce((n, f) => n + chunksMax(f, maxFile), 0);
   const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0);
   if (chunkBound > CHUNK_ALLOWANCE || byteBound > BYTE_ALLOWANCE) {
-    return fail(`the work Kosmos could need more than a week's backup allowance (${CHUNK_ALLOWANCE} chunks, 64 GB): ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB`, { tooLarge: true, overAllowance: true });
+    return fail(`the work Kosmos is too large to back up in one week: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could pass the weekly allowance (${CHUNK_ALLOWANCE} chunks, 64 GB) under a cautious estimate; in practice about 25 GB of files fit`, { tooLarge: true, overAllowance: true });
   }
   const tooLargeWhy = () => `the work Kosmos is too large for one snapshot: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could make a manifest past its ceiling (one snapshot holds about 20 GB of files)`;
   if (over()) return fail(tooLargeWhy(), { tooLarge: true });
@@ -358,7 +360,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
       for (const [name, key] of stored) if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
-      return fail(index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot', Object.assign({ staleIndex: true }, spent));
+      return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
     // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it (review 2).
@@ -440,7 +442,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId,   // t: the reading already checked (review 11)
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
-  // Cannot throw on this content (review 8): paths passed pathProblem, every other value is a fixed sentence, a number,
+  // Cannot throw on this content (review 8): file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
   const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);

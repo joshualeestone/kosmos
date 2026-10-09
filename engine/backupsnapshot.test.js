@@ -718,3 +718,11 @@ test('a file swapped for another file of the work Kosmos between the walk and th
     assert.ok(m.files.some((x) => x.path === 'readme.txt'), 'control');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('every folder rule in the deny-list ends in "/", so a denied folder is pruned whole (the walk relies on it)', () => {
+  const { pathDecision } = require('./backupscan');
+  for (const dir of ['.git', 'agents/a/.ssh', 'agents/a/.aws', 'x/.config/gh', 'secrets', 'agents/a/.gnupg', 'agents/a/.kube']) {
+    assert.equal(pathDecision(`${dir}/x`).include, false, `${dir} is denied as a folder`);
+  }
+  assert.equal(pathDecision('agents/a/notes/x').include, true, 'control: an ordinary folder is walked');
+});
