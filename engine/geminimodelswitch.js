@@ -25,12 +25,7 @@ function realDeps() {
   const status = require('./status');
   return {
     planned: (name) => create.plannedModelOf(name),
-    session: (name) => {
-      let dir; let job;
-      try { dir = create.workerDir(name); job = create.readJob(name); } catch { return { found: false }; }
-      if (!dir || !job || job.runner !== 'gemini') return { found: false };
-      try { return require('./geminisession').read(dir, create.geminiStorageHome(job.configDir)); } catch { return { found: false }; }
-    },
+    session: (name) => status.readGeminiSession(name),   // review 2: the one reader (its own account's home), not a copy
     startedAt: (name) => status.sessionStartedAtFromTmux(name),
     display: (id) => status.modelDisplayName(id),
   };
