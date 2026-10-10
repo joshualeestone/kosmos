@@ -482,8 +482,15 @@ function elsewhereRunner(deps) {
       if (!w) return 'none';
       running = true;
       let ended = false;
-      const c = (d.spawn || spawnEnrolledTick)(w, () => { ended = true; running = false; child = null; });
-      if (!ended) child = c;
+      try {
+        const c = (d.spawn || spawnEnrolledTick)(w, () => { ended = true; running = false; child = null; });
+        if (!ended) child = c;
+      } catch (e) {
+        // A spawn that throws must not leave the board busy for good (board review 12): said, and tried again later.
+        running = false; child = null;
+        console.error('orgrollup: the enrolled Kosmos\'s rollup could not be started (' + String((e && e.message) || e) + ')');
+        return 'failed';
+      }
       return 'spawned';
     },
     stop() { try { if (child) child.kill(); } catch { /* gone */ } },
@@ -537,10 +544,11 @@ async function sendOthers(c) {
     try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
     // A Kosmos that may belong to a company was not read at all (board review 9): skipped, and its old marks pruned.
     if (got && got.enrolled === true) continue;
-    if (!got || !require('./orgenroll').WORLD_ID.test(got.world)) complete = false;   // a malformed id is a failed read (board review 7)
+    const idOk = !!got && require('./orgenroll').WORLD_ID.test(got.world);
+    if (!idOk) complete = false;   // a malformed id is a failed read (board review 7)
     // A read that failed drops its signature, so the next change send sends it again (the safe direction). Two
     // entries that resolve to one id are one Kosmos: it goes once (board review 1).
-    if (!got || !require('./orgenroll').WORLD_ID.test(got.world) || got.world === c.rec.world || seen.has(got.world)) continue;
+    if (!idOk || got.world === c.rec.world || seen.has(got.world)) continue;
     seen.add(got.world);
     /* A fail-closed backstop (board review 11): the real gatherIn answers `{ enrolled: true }` above for a Kosmos that
        may belong to a company, so this catches only an answer that does not say `enrolled: false`. Such a Kosmos is
@@ -549,7 +557,9 @@ async function sendOthers(c) {
     if (Object.prototype.hasOwnProperty.call(prev, got.world)) next[got.world] = prev[got.world];
     const g = got.gathered;
     if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
-    delete g.policyVersion; delete g.policyRefused;   // the company's policy is the computer's, reported by the enrolled Kosmos
+    // The company's policy is the computer's, reported by the enrolled Kosmos. Stripped BEFORE the signature below, so
+    // the signature is of what is sent (board review 12: moving this after it would change every other Kosmos's).
+    delete g.policyVersion; delete g.policyRefused;
     const sig = signature(build(Object.assign({ world: got.world, nowMs: c.now, reason: 'change' }, g)));
     const reason = c.reason === 'daily' || missedPrev.has(got.world) ? 'daily' : c.reason;
     /* A partial read (board reviews 1 and 3): the company takes a Kosmos's statuses from its first daily of the day,
@@ -559,14 +569,14 @@ async function sendOthers(c) {
        the first (board review 5: dropping the mark after a send held it every other day). A partial read is never a
        change. */
     if (g.partial) {
-      if (reason !== 'daily') continue;
+      // A hold begins and ends only at a REAL daily (board reviews 7 and 12): a missed daily riding a change send, read
+      // in part, waits for the next real daily, its missed mark kept.
+      if (c.reason !== 'daily') continue;
       if (!heldPrev.has(got.world)) {
         held.add(got.world);
         console.error('orgrollup: another Kosmos on this computer could not be read in full; its daily waits a day');
         continue;
       }
-      // Only a real daily releases a hold (board review 7): a missed daily riding a change send would cut it to minutes.
-      if (c.reason !== 'daily') continue;
     } else {
       if (reason === 'daily') held.delete(got.world);   // read in full: no hold
       if (reason === 'change' && prev[got.world] === sig) continue;

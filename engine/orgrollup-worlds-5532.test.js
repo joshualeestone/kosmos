@@ -334,7 +334,11 @@ test('#5532 widening (board review 7): a missed daily that is still partial wait
   // CONTROL: the same on a real daily is sent.
   c.reason = 'daily';
   await r.sendOthers(c);
-  assert.deepEqual(sent, ['daily']);
+  assert.deepEqual(sent, ['daily']);  // Board review 12: a missed daily read in part on a change send does not BEGIN a hold either.
+  const c2 = Object.assign({}, c, { reason: 'change', held: [], missed: [BETA] });
+  sent.length = 0;
+  await r.sendOthers(c2);
+  assert.deepEqual([sent, [...c2.heldNext], [...c2.missedNext]], [[], [], [BETA]], 'a change send began a hold');
 });
 
 test('#5532 widening (board review 9): a Kosmos may belong to a company on the evidence of its files, readable or not', (t) => {
@@ -440,7 +444,14 @@ test('#5532 widening (board review 11): the board-elsewhere runner searches at m
   assert.equal(sync.tick('/r'), 'spawned');
   assert.equal(sync.running, false);
   sync.stop();
-  assert.deepEqual(kills, ['b'], 'a finished child was killed');
+  assert.deepEqual(kills, ['b'], 'a finished child was killed');  // Board review 12: a spawn that throws leaves the runner free, and the next search (after the throttle) tries again.
+  let tries = 0;
+  const bad = r.elsewhereRunner({ now: () => t, find: () => ({ id: 'd', env: {} }), spawn: () => { tries += 1; throw new Error('spawn failed'); } });
+  assert.equal(bad.tick('/r'), 'failed');
+  assert.equal(bad.running, false, 'a spawn that threw left the board busy for good');
+  t += r.CHANGE_MIN_MS;
+  assert.equal(bad.tick('/r'), 'failed');
+  assert.equal(tries, 2, 'it never tried again');
 });
 
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
