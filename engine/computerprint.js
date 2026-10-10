@@ -88,8 +88,11 @@ const PS_ARGS = Object.freeze(['-NoProfile', '-NonInteractive', '-Command',
   "Get-ItemPropertyValue -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid"]);
 function systemRoot() { return process.env.SystemRoot || process.env.windir || 'C:\\Windows'; }
 function regExe() { return path.win32.join(systemRoot(), 'System32', 'reg.exe'); }
-function powershellExe() {
-  const sys = process.env.PROCESSOR_ARCHITEW6432 ? 'Sysnative' : 'System32';   // set only in a 32-bit process on 64-bit Windows
+/* Sysnative only from a 32-bit process under WOW64: it is invisible to a 64-bit process, so the environment variable
+   alone is not enough (a 64-bit child of a 32-bit parent can inherit it, and an x64 process emulated on ARM64 sees it
+   too). `arch` defaults to this process's own, and is a parameter so the test can name each case. */
+function powershellExe(arch = process.arch) {
+  const sys = arch === 'ia32' && process.env.PROCESSOR_ARCHITEW6432 ? 'Sysnative' : 'System32';
   return path.win32.join(systemRoot(), sys, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
 

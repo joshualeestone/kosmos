@@ -325,15 +325,24 @@ test('#5532 Windows: System32\'s reg.exe by full path, against the 64-bit regist
     put('SystemRoot', 'D:\\Win');
     put('PROCESSOR_ARCHITEW6432', undefined);
     assert.equal(cp.regExe(), 'D:\\Win\\System32\\reg.exe', 'reg.exe was not taken from System32');
-    assert.equal(cp.powershellExe(), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    assert.equal(cp.powershellExe('x64'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    assert.equal(cp.powershellExe('ia32'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', '32-bit Windows has no Sysnative');
     put('PROCESSOR_ARCHITEW6432', 'AMD64');   // a 32-bit process on 64-bit Windows
-    assert.equal(cp.powershellExe(), 'D:\\Win\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe', 'a 32-bit node would run the 32-bit PowerShell and read WOW6432Node');
+    assert.equal(cp.powershellExe('ia32'), 'D:\\Win\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe', 'a 32-bit node would run the 32-bit PowerShell and read WOW6432Node');
+    // A 64-bit process that inherited the variable, or an x64 one emulated on ARM64: Sysnative does not exist for it.
+    assert.equal(cp.powershellExe('x64'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'a 64-bit node would look for PowerShell in Sysnative and never find it');
+    put('PROCESSOR_ARCHITEW6432', 'ARM64');
+    assert.equal(cp.powershellExe('x64'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    assert.equal(cp.powershellExe('arm64'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
   } finally { put('SystemRoot', saved.root); put('PROCESSOR_ARCHITEW6432', saved.wow); }
 });
 
 test('#5532 Windows: this PC\'s real print exists, is stable, and PowerShell reads the same value (nothing about the id is printed)', { skip: process.platform !== 'win32' }, (t) => {
   t.after(() => cp._testRunner());
   // Every comparison is a boolean, so a failure can never print a value (the #5557 review).
+  const fs = require('node:fs');
+  assert.ok(fs.existsSync(cp.regExe()), 'the reg.exe path production runs does not exist on this PC');
+  assert.ok(fs.existsSync(cp.powershellExe()), 'the PowerShell path production runs does not exist on this PC');
   cp._testRunner();   // production's reader: reg.exe, then PowerShell
   const a = cp._testFingerprint(SALT, ORG);
   assert.ok(typeof a === 'string' && /^[0-9a-f]{64}$/.test(a), 'no print on this PC (neither reg.exe nor PowerShell gave a MachineGuid)');
