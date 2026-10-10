@@ -149,6 +149,18 @@ test('the zip contents check does not pipe into grep -q under pipefail', () => {
     'the contents check pipes unzip into grep -q again, which fails on a correct package');
 });
 
+test('the build summary prints the zip size, and labels the unpacked total', () => {
+  /* unzip -l's total line is the UNPACKED size. Printed bare under the zip path
+     it read as the 0.7.38 download tripling (45 MB zip, 121 MB unpacked). */
+  const at = WIN.indexOf('echo "==> $ZIPOUT"');
+  assert.ok(at > -1, 'the build no longer prints the zip path');
+  const summary = WIN.slice(at);
+  assert.match(summary, /wc -c < "\$ZIPOUT"/, 'the summary does not print the zip\'s own size');
+  assert.match(summary, /unpacked \$_unpacked bytes/, 'the unpacked total is not labelled as unpacked');
+  assert.doesNotMatch(summary, /echo "==> \$\(unzip -l "\$ZIPOUT" \| tail -1\)"/,
+    'the bare unzip total is back under the zip path, unlabelled');
+});
+
 test('the package tells the truth about itself', () => {
   assert.match(WIN, /"signed": false/, 'the manifest does not record that this build is unsigned');
   /* #570 7c: agents work on Windows now (measured, R1-R8), so the package says so.
