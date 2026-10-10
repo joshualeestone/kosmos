@@ -89,3 +89,8 @@ from main lost or doubled. Two NITs: this file's stacked-on line (fixed), and on
 - The status span is never display:none (a live region hidden until it gets text is often not announced).
 - A long agent name wraps (no nowrap, max-width 100%); the add has the app's focus ring.
 - The test's time-before-add check now fails if the time is missing.
+
+## Review round 6 (Sonnet)
+No BLOCKER, WARNING or CONVENTION. Fixed after it (test only): the no-nowrap check asserts its rule was found, so it
+cannot pass vacuously. Left as is (NITs): the `after` hook's read-then-write could drop a row the throwaway board wrote
+in between (a screenshot-only board; best effort); the empty status span leaves an invisible trailing gap.

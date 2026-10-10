@@ -536,5 +536,7 @@ test('#5752 slice 3: pressing Add adds that agent, repaints the room from what i
   // live region hidden until it gets text is often not announced), and a long agent name wraps.
   assert.match(src, /:is\(#pj-one-view \.pj-doc, \.pnotice \.qopt, \.msg-valve \.pj-refused-add\) \{ min-height: 44px; \}/);
   assert.doesNotMatch(src, /\.pj-refused-msg[^{]*\{[^}]*display:\s*none/);
-  assert.doesNotMatch((src.match(/\.msg-valve \.pj-refused-add \{[^}]*\}/) || [''])[0], /nowrap/);
+  const addRule = src.match(/\.msg-valve \.pj-refused-add \{[^}]*\}/);
+  assert.ok(addRule, 'the base .pj-refused-add rule exists (so the next check is not vacuous)');
+  assert.doesNotMatch(addRule[0], /nowrap/);
 });
