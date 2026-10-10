@@ -21,3 +21,15 @@ converged: true
 #### Iteration 2 (round 1)
 **Reviewer model:** sonnet
 **Converged:** no actionable findings. NIT taken: the diagnostic cannot throw before the assertion it explains; the plan states the Linux estimate's range (review 1 counted about 218k against the 163,840 limit).
+
+### What round 1 verified (sonnet, read-only)
+- sandboxDenySize (engine/setup-assistant.js) dedupes paths per clause with a Set and sums raw; the write clause is denyWrite plus the Edit rule targets, so on Linux one path in both collapses to one.
+- The padded entries are about 156 characters each; 1400 of them come to about 218k in the write clause on Linux, past SANDBOX_DENY_RAW_MAX (163,840). The warning is an OR, so the prefix limit does not matter here.
+- The padding hides no product defect: the test passes platform darwin, and a short Linux input legitimately stays under the limit.
+- The CONTROL (5 short entries, asserts { ok: true } with no warning) still catches a check that always warns.
+- String(r.warning) in the message cannot throw on an undefined warning; the settings reads are now guarded too (the NIT taken).
+- Path limits: the longest segment is about 104 characters (NAME_MAX 255), each path about 160 (PATH_MAX 4096); binDir makes real folders.
+- Not verified by the reviewer: the code that emits the second macOS spelling; the Linux lane run on this branch is the measurement, and it passes.
+
+### Strengths
+- The diagnostic makes any future red on another platform explain itself without a rerun.
