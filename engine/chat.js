@@ -1167,7 +1167,7 @@ function questionMenuKeysAllowed(sessionName, roster) {
   return allowed;
 }
 const QMENU_BUSY = new Set();   // pane targets with a key answer or a close in progress
-const QMENU_BUSY_SENTENCE = 'a key is already being sent to its question; look at this page again in a moment';
+const QMENU_BUSY_SENTENCE = 'its question is being handled right now; look at this page again in a moment';
 /* Run `fn` holding the pane's key-answer slot (the check above refused if it was taken). */
 async function withQmenuSlot(allowed, fn) {
   const t = paneTarget(allowed.card);
@@ -1206,7 +1206,7 @@ async function closeQuestionMenu(sessionName, roster, expect) {
   const allowed = questionMenuKeysAllowed(sessionName, roster);
   if (!allowed.ok) {   // a typed message met a key answer settling: say it in a typed message's words (review 24)
     return { ok: false, because: allowed.because === QMENU_BUSY_SENTENCE
-      ? 'its question is being answered right now, so this was not typed; send it again in a moment' : allowed.because };
+      ? 'its question is being handled right now, so this was not typed; send it again in a moment' : allowed.because };
   }
   return withQmenuSlot(allowed, () => closeQuestionMenuHeld(sessionName, roster, expect, allowed));
 }
@@ -1473,7 +1473,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   /* #5406 slice C review 19: a key answer to its question is settling (QMENU_BUSY); a line pasted now would land on
      whatever the screen shows mid-redraw. Nothing typed; busy, like a pane another message is being placed in. */
   if (allowed.card && QMENU_BUSY.has(paneTarget(allowed.card))) {
-    return { state: DELIVERY.COULD_NOT, because: 'its question is being answered right now, so this was not typed; send it again in a moment',
+    return { state: DELIVERY.COULD_NOT, because: 'its question is being handled right now, so this was not typed; send it again in a moment',
       at, paneState: null, paneNote: null, busy: true };
   }
   /**
