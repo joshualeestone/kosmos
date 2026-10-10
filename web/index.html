@@ -58810,7 +58810,11 @@ function pjMember(m, suppressTold, withMinus, hideState) {
        Copywriter, Account Manager"): the same derivation the cards use, so a
        catalogue role reads as the catalogue writes it and the two surfaces
        cannot disagree. A role the catalogue has never seen stays as typed. */
-    + (m.role ? '<small class="pj-member-role">' + esc(roleLine({ role: m.role }, ROLE_TITLES)) + '</small>' : '')
+    /* #5300: a member can say what it does on THIS project (`kosmos project
+       role`, sent as `roleHere`, gated on isNamedOurs like `role`). It wins
+       here, so five agents made as Project Managers stop reading as five
+       Project Managers on every project; the tooltip says whose words it is. */
+    + ((m.roleHere || m.role) ? '<small class="pj-member-role"' + (m.roleHere ? ' title="Its role on this project"' : '') + '>' + esc(roleLine({ role: m.roleHere || m.role }, ROLE_TITLES)) + '</small>' : '')
     // ⚠️ An `unknown` state carries its REASON here (historical origin: a
     // bare "Can't tell" once sat beside the now-retired told sentence and
     // read as a contradiction; the sentence is gone, the rule stands).
