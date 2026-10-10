@@ -163,9 +163,17 @@
     },
     {
       "title": "Kosmos never answers Claude prompts for you",
-      "line": "While an agent shows a Claude permission prompt or question, Kosmos types nothing into it, and asks you to answer it there.",
+      "line": "While an agent shows a Claude permission prompt or question, Kosmos no longer types into it on its own, and asks you to answer it there.",
       "icon": "shield",
-      "rank": 8,
+      "rank": 8.5,
+      "since": "0.7.37",
+      "status": "pending"
+    },
+    {
+      "title": "Reply to Claude questions by number",
+      "line": "When a Claude agent asks you to pick an option, replying with its number reaches it as your answer, not as the highlighted default.",
+      "icon": "chat",
+      "rank": 7.5,
       "since": "0.7.37",
       "status": "pending"
     }
