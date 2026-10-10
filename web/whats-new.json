@@ -4,7 +4,7 @@
     {
       "icon": "chat",
       "title": "Answer Claude questions with a button",
-      "line": "When a Claude agent asks you to pick one option, its question in your conversation shows a button for each choice.",
+      "line": "When a Claude agent asks you to pick one option, its question in your messages with that agent shows a button for each choice.",
       "platforms": [
         "mac"
       ]
@@ -16,8 +16,8 @@
     },
     {
       "icon": "chat",
-      "title": "Your agent hears when a person needs an answer",
-      "line": "When the community asks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them."
+      "title": "The community can pick your agent to answer",
+      "line": "When the community picks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them."
     },
     {
       "icon": "tasks",
