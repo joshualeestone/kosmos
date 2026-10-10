@@ -192,3 +192,30 @@ test('#5516 part 2 (review 6): a config home that is a link has its absent membe
     assert.ok(deny.includes(`Edit(${ruleAbs(path.join(rreal, f))})`), 'the real path of an absent ' + f + ' is open to the file tools');
   }
 });
+
+test('#5516 part 2 (review 8): sibling agents are denied their members, and memory folders where they reach other agents', () => {
+  const dir = agentDir('pilot-cfg-sib');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-sib', DEPS);
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const deny = readSettings(dir).permissions.deny;
+  const base = path.dirname(path.resolve(dir));
+  for (const f of ['.mcp.json', 'CLAUDE.md', path.join('.claude', 'settings.json'), path.join('.claude', 'CLAUDE.md')]) {
+    assert.ok(deny.includes(`Edit(${ruleAbs(path.join(base, '*', f))})`), 'a sibling agent ' + f + ' is open to the file tools');
+  }
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(base, '*', '.claude', 'skills'))}/**)`), 'a sibling agent skills folder is open');
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(base, '*', '.claude', 'agent-memory'))}/**)`), 'a sibling agent memory is open');
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude', 'agent-memory'))}/**)`), 'a config home agent memory is open');
+  // CONTROL: the agent's own memory stays writable to its own tools.
+  assert.ok(!deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude', 'agent-memory'))}/**)`), 'the agent own memory was denied');
+});
+
+test('#5516 part 2 (review 8): a folder above the agent that the rules cannot carry makes the guard refuse, saying why', () => {
+  const dir = path.join(path.dirname(HOME), 'App (Beta)', 'workers', 'pilot-cfg-odd-anc');
+  fs.mkdirSync(dir, { recursive: true });
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-odd-anc', DEPS);
+  // A folder above with such a character puts it in the agent's own path too, so the guard's own rules cannot be written
+  // either: it refuses on that (the folder-path reason), which is the honest answer. The ancestor-only naming is for a
+  // RESOLVED ancestor path that differs from the given one (a link), where the agent's own rules still hold.
+  assert.equal(g.ok, false, 'an uncarriable ancestor read as a whole guard');
+  assert.match(String(g.because), /cannot carry/, 'the refusal does not say why: ' + g.because);
+});

@@ -23,6 +23,9 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 
 - Review 7: one uncarriable link target no longer stops the rest of the guard being written (the launch path's rule): it is reported after the write, and the sandbox still carries it (it always did: the sandbox side resolves a linked folder to its target, measured; a change I made to add it was redundant and is reverted). The agent's own folder is excluded from the ancestors by its resolved path too (its own CLAUDE.md was being denied whenever its path ran through a link). An ancestor's .claude settings files join the ancestors' members; cached skill archives, the IDE lock folder and the remote settings cache join the config homes'.
 
+- Review 6 (recorded late; review 8 noticed the plan skipped it): a linked config home's absent members are named by their real path; an ancestor the rules cannot carry is named; another agent's auto-memory and off-macOS are stated gaps.
+- Review 8: sibling agents' folders (every other agent beside this one) are denied the same members by one mid-path glob each (the measured #4752 shape), which also matches the agent's own CLAUDE.md, the safe direction. Agent memory folders are denied where they reach other agents (config homes, ancestors, siblings), not in the agent's own .claude. Both not-whole reasons are reported together. An ancestor with a character the rules cannot carry puts it in the agent's own path too, so the guard refuses on its existing folder-path reason; the ancestor-only naming applies to a resolved path that differs.
+
 ## Gaps, stated (the rest of the card)
 - A plugin folder Claude Code is pointed at by its plugin cache or seed environment variables, outside every config home: not covered (same shape as the CLAUDE_CONFIG_DIR gap).
 - A project-scope language-server file: named in the binary, not confirmed to be read from the project folder; not denied.

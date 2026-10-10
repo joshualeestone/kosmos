@@ -1221,6 +1221,9 @@ const CONFIG_HOME_CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks
   'local', 'jobs', 'daemon', 'mcp-skill-archives', 'ide'];
 // Review 7: remote-settings.json is a settings tier read at start (it can carry hooks).
 const CONFIG_HOME_CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json', 'loop.md', 'remote-settings.json'];
+/* Review 8: agent memory folders, read as instructions by the agents that keep them. Denied where they reach OTHER agents
+   (config homes, folders above, sibling agents' folders), not in the agent's own .claude, whose tools write its own. */
+const OTHERS_MEMORY_DIRS = ['agent-memory', 'agent-memory-local'];
 /* Every folder above `dir`, nearest first, up to the root (its .mcp.json is read at start too). */
 function ancestorsOf(dir) {
   // Both chains (review 3): the path as given and its resolved one, since Claude Code walks up from its own cwd.
@@ -1290,7 +1293,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      folder and temp, so the sandbox entries outside them are defence in depth, and Claude Code protects some of these
      names itself. The agent's tools under bypass permissions are refused only by these Edit rules: do not drop them as
      "covered by the sandbox". */
-  const configUnsafe = [];   // review 5: a link target the rule syntax cannot carry, named
+  const configUnsafe = [];   // reviews 5, 6 and 8: a link target, an ancestor or the agents' folder the rule syntax cannot carry, named
   const configStartFiles = [...new Set([
     // The global config by every name Claude Code 2.1.296 gives it (CLAUDE_GLOBAL_CONFIG_SUFFIXES), beside the home and
     // in each config home, and the legacy .config.json it reads INSTEAD when one exists (review 1: a BLOCKER).
@@ -1320,13 +1323,23 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a folder above the agent whose path the permission rules cannot carry)`); continue; }
     // Review 7: an ancestor's .claude settings files too (they can carry hooks; Claude Code protects them itself).
     for (const f of ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json'), ...CONFIG_HOME_CODE_FILES.map((x) => path.join('.claude', x))]) ancestorMcp.push(...withTarget(path.join(d, f), configUnsafe));
-    for (const x of CONFIG_HOME_CODE_DIRS) ancestorDirs.push(...withTarget(path.join(d, '.claude', x), configUnsafe));
+    for (const x of [...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS]) ancestorDirs.push(...withTarget(path.join(d, '.claude', x), configUnsafe));
   }
   /* Each config home's plugins folder, and its skills folder (review 1: a skills subfolder can be adopted as a plugin,
      with servers of its own). Kosmos's own skills writes are the board's process, in neither layer; an agent's own
      skills are in its folder's .claude, denied to its tools by the settingsDir entries below. */
   // Review 2: agents and commands too (their definitions can carry hooks and servers of their own).
-  const pluginDirs = [...new Set(concreteHomes.flatMap((h) => CONFIG_HOME_CODE_DIRS.map((d) => path.join(h, d))).flatMap((d) => withTarget(d, configUnsafe)))];
+  const pluginDirs = [...new Set(concreteHomes.flatMap((h) => [...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => path.join(h, d))).flatMap((d) => withTarget(d, configUnsafe)))];
+  /* Review 8: SIBLING agents' folders (the agent folder's own parent, every other agent in it): the same server,
+     instruction and .claude members, which Claude Code reads when that agent starts. One mid-path glob per member (the
+     #4752 rule shape, measured), to the file tools; the shell cannot write there. It also matches the agent's own
+     CLAUDE.md, the safe direction (Kosmos writes it). */
+  const siblingBase = path.dirname(path.resolve(dir));
+  const siblingRules = ruleHasPatternChar(`Edit(${ruleAbs(siblingBase)}/**)`) ? (configUnsafe.push(`${siblingBase} (the agents' folder, whose path the permission rules cannot carry)`), []) : [
+    ...['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json'), ...CONFIG_HOME_CODE_FILES.map((x) => path.join('.claude', x))]
+      .map((f) => `Edit(${ruleAbs(path.join(siblingBase, '*', f))})`),
+    ...[...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((x) => `Edit(${ruleAbs(path.join(siblingBase, '*', '.claude', x))}/**)`),
+  ];
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
     ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
@@ -1386,6 +1399,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
+    ...siblingRules,
     ...CONFIG_HOME_CODE_DIRS.map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),
     ...CONFIG_HOME_CODE_FILES.map((f) => `Edit(${ruleAbs(path.join(home, '.claude-*', f))})`),
     /* Reviews 3 and 4: the code and instruction members of the agent's OWN .claude (its project agents, commands,
@@ -1757,9 +1771,12 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       ? `its ${sz.paths} denied path entries across the read and write clauses (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
       : null;
     if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
-    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };
-    // Review 7: after the write, as for the launch path, so one uncarriable link never stops the rest being refreshed.
-    if (rules.configUnsafe && rules.configUnsafe.length) return { ok: false, because: 'a file or folder Claude Code reads at start could not be covered (' + rules.configUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };
+    /* Review 7: after the write, as for the launch path, so one uncarriable link never stops the rest being refreshed.
+       Review 8: both reasons together when both apply, so fixing one does not hide the other until the next refresh. */
+    const notWhole = [];
+    if (rules.launchUnsafe && rules.launchUnsafe.length) notWhole.push(LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')');
+    if (rules.configUnsafe && rules.configUnsafe.length) notWhole.push('a file or folder Claude Code reads at start could not be covered (' + rules.configUnsafe.join(', ') + ')');
+    if (notWhole.length) return { ok: false, because: notWhole.join('; and ') + '; the rest of the guard is in place', ...(warning ? { warning } : {}) };
     return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
