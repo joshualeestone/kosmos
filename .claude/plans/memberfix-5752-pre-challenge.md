@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: memberfix-5752
-diff_hash: 80681362d31b5e5a9b508997ef8aad23afad77c3ff6229ee505375f1a9f51671
+diff_hash: 7372a509ac66b4e191138dda275901afc5537534cf4dd1353200c274ab6d8bfc
 validation: scoped (every test file naming either membership sentence, 26 files, 1024 tests, all green with server.test.js run from the repo root; 16 mutants across the sites each caught; the full suite was not run locally, CI runs it)
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-10T05:56:31Z
@@ -55,6 +55,9 @@ converged: true
 | 6 | 3 | WARNING | engine/messages.js | SELF | person-facing refused row carried the fix | FIXED | 73b31d4f |
 
 ### Validation actually run
+- Re-hashed after merging main (f113ff142, 28 commits, including changes to engine/messages.js and server.js): a clean
+  merge, and this branch's 183 added and removed lines are byte-identical before and after it (only context moved).
+  The full node suite runs on this exact merged tree before merging (Splinter's stale-green ruling, 2026-10-09).
 - 26 test files that name either membership sentence: 1024 tests, 0 failed. server.test.js's #1304 probe resolves a path from the working directory, so it fails when node is started outside the repo, on origin/main too (control at 5dfe8ac8); run from the repo root it passes, 358/358.
 - Mutants, each caught by its own arm: the six original sites one at a time; post, react, role, role-for-everyone, the token-names-nobody task and room branches; post and react fix-always and fix-never; the refused row carrying the fix.
 
