@@ -2345,6 +2345,70 @@ const ASKING_GENERIC = 'it is asking you something';
 /* The live safeguards menu's "1. Switch automatically" row (its index in text.split('\n')) and the model it would
    leave, or null. ONE rule, shared by safeguardsMenu (the board's reason) and chat.questionIn (#5051: where the
    detail page finds the question), so the two cannot disagree about which menu is live. */
+/* kosmos#5406 part 2: Claude Code's question menu (its AskUserQuestion tool), when it is the LIVE screen. Measured on
+   Claude Code 2.1.29x (Haiku 5.5, 2026-10-09): a "☐ <header>" line, the question, then options "❯ 1. Apple" /
+   "  2. Banana", each optionally followed by an indented description line, then "N. Type something." and, under a
+   rule line, "N+1. Chat about this", and the footer "Enter to select · ↑/↓ to navigate · Esc to cancel". A bare digit
+   key selects at once; pasted text does nothing and a following Enter takes the HIGHLIGHTED option; Escape closes it.
+   Returns { at, question, options: [{ n, label }], count } or null. `at` is the header (or question) line; `options`
+   are the answers (not "Type something." / "Chat about this"); `count` is every numbered entry. Refused (null), so
+   nothing is answered by key on a guess: no footer within the last three non-blank lines, more than one question tab
+   (its multi-question form), a checkbox menu (multiSelect), numbering that is not 1..count in order, no highlighted
+   option, a control character in a label, or no question line. */
+const CLAUDE_QMENU_FOOTER = /Enter to select\s*·.*Esc to cancel\s*$/;
+const CLAUDE_QMENU_OPTION = /^\s*(?:([❯›])\s*)?(\d{1,2})\.\s+(\S.*?)\s*$/;
+function claudeQuestionMenu(text) {
+  // Never the safeguards model-switch menu (#5051): it has its own reading and is never answered by a press.
+  if (safeguardsMenuAt(String(text == null ? '' : text))) return null;
+  const lines = String(text == null ? '' : text).split('\n');
+  let foot = -1;
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (CLAUDE_QMENU_FOOTER.test(lines[i])) { foot = i; break; }
+  }
+  if (foot < 0) return null;
+  const opts = [];
+  let firstOpt = -1;
+  let selected = 0;
+  for (let i = foot - 1; i >= 0; i -= 1) {
+    const l = lines[i];
+    if (!l.trim() || /^\s*[─━-]{3,}\s*$/.test(l)) continue;
+    const m = CLAUDE_QMENU_OPTION.exec(l);
+    if (m) {
+      // eslint-disable-next-line no-control-regex
+      if (/[\u0000-\u001f\u007f]/.test(m[3])) return null;
+      opts.unshift({ n: Number(m[2]), label: m[3] });
+      if (m[1]) selected += 1;
+      firstOpt = i;
+      continue;
+    }
+    if (/^\s{3,}\S/.test(l) && opts.length) continue;   // an option's indented description line
+    if (/^\s*\[[ x✓✔]\]/.test(l)) return null;         // a checkbox menu (multiSelect)
+    break;
+  }
+  if (opts.length < 2 || selected !== 1) return null;
+  if (opts.some((o, k) => o.n !== k + 1)) return null;
+  // The question: the nearest non-blank line above the first option; the header ("☐ ...") above it, if any.
+  let q = -1;
+  for (let i = firstOpt - 1; i >= Math.max(0, firstOpt - 6); i -= 1) if (lines[i].trim()) { q = i; break; }
+  if (q < 0 || CLAUDE_QMENU_OPTION.test(lines[q]) || /^\s*[─━-]{3,}\s*$/.test(lines[q])) return null;   // a rule is no question
+  let at = q;
+  for (let i = q - 1; i >= Math.max(0, q - 4); i -= 1) {
+    if (!lines[i].trim()) continue;
+    if (/^\s*[☐☒✔✓]\s/.test(lines[i])) {
+      if ((lines[i].match(/[☐☒✔✓]/g) || []).length > 1 || /Submit/.test(lines[i])) return null;   // several questions
+      at = i;
+    }
+    break;
+  }
+  const FREE = /^(Type something\.?|Chat about this)$/;
+  const options = opts.filter((o) => !FREE.test(o.label));
+  if (options.length < 1) return null;
+  return { at, question: lines[q].trim(), options, count: opts.length };
+}
+
 function safeguardsMenuAt(text) {
   const rows = String(text == null ? '' : text).split('\n').map((r) => r.replace(/^[\s│❯›>]+/, '').trimEnd());
   const first = rows.findIndex((r) => /^1\. Switch automatically$/.test(r));
@@ -8883,7 +8947,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt,
+  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
