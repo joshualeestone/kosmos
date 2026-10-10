@@ -94,6 +94,8 @@ const SIZES = {
   // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
   // rules) are skipped for it. Not in the default sweep.
   desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
+  /* #5782: the same desktop at 2x, for marketing composites that are shown larger than 1280. Not in the default sweep. */
+  desktop2x: { width: 1280, height: 800, dpr: 2, label: 'desktop at 2x', desktop: true },
 };
 /* --remote's address (kosmos#5510): .test is reserved and never resolves, so a slip can only fail, never reach a real host. */
 const REMOTE_BASE = 'http://kosmos-shots.kosmosplus.test';
