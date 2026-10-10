@@ -16340,8 +16340,7 @@ const server = http.createServer(async (req, res) => {
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
               qmenuAnswer = r;
             } else if (chose || askedGiven) {
-              // Review round 1: a button is a choice; one carrying files or a reply is not sent as a dismissal. #5406 C: a
-              // press is known by its question too, so one whose words were dropped is never sent as a dismissal either.
+              // Review round 1: a button is a choice; one carrying files or a reply is not sent as a dismissal.
               const e = new Error('a choice is sent on its own; send the files or the reply as a message after it');
               e.status = 409; throw e;
             } else {

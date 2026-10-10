@@ -21,7 +21,9 @@ no banner (Josh #3419).
   readable verdict, a failed request) says "could not confirm", never "did not go". The server
   refuses (409) a button press whose question is no longer on screen, so a stale press is never typed as a prompt;
   that check keys on `asked`, so a press whose words fail their bounds check is still checked, never typed. An answered
-  question keeps its buttons off for 6 s per agent (the page's own stale poll), then a word-for-word repeat is pressable. The setup guide's thread gets
+  question keeps its buttons off for 6 s per agent (the page's own stale poll), then a word-for-word repeat is pressable. Known
+  limit: a word-for-word repeat drawn inside those 6 s stays off until the lock ends (typing still works), and a stale
+  poll after it re-offers buttons the server then refuses (409). The setup guide's thread gets
   no `asked` (everything served there is masked, #3769), so it draws no buttons; typing still works there. CSS reuses the old answer-button
   tokens (AA both themes); labels wrap; no primary button (emphasis would recommend an answer).
 - Tests: server.question-menu-5406.test.js (GET serves options + asked, and a press with it goes through);
