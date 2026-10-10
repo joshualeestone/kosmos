@@ -7,6 +7,8 @@
  * The rule, in this computer's local time (the board and the person are on it):
  *   { every: 'hour', minute: 0-59 }                  every hour at :MM
  *   { every: 'day',  at: 'HH:MM' }                   every day at HH:MM
+ *   { every: 'day',  at: ['HH:MM', ...] }            kosmos#5752: every day at each time (2 to 24, sorted; one time is
+ *                                                    stored as the string above, so older rules read as they always did)
  *   { every: 'week', day: 0-6 (Sunday 0), at: 'HH:MM' } every week on that day at HH:MM
  * Kosmos does not START the job (the person's own scheduler or the agent's loop does); the agent reports each run
  * (`kosmos task ran`), and the next run is worked out from the rule, never stored, so a changed rule never leaves a

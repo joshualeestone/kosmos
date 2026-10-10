@@ -169,7 +169,7 @@ test('#5752: a twice-daily rule round-trips through the task page\'s Repeats con
   const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
   const els = { 'tk-repeat-every': { value: '', dataset: {} }, 'tk-repeat-at': { value: '', dataset: {} }, 'tk-repeat-day': { value: 'mon', dataset: {} } };
   const document = { getElementById: (id) => els[id] };
-  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt'])
+  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatRemember'])
     + '\nreturn { tkRepeatStoredChoice, tkRepeatChoice, tkRepeatFillAt };')(eval(days[1]), document);
   const t = { repeat: { every: 'day', at: ['09:00', '21:00'] } };
   const stored = f.tkRepeatStoredChoice(t);
@@ -193,4 +193,35 @@ test('#5752: a twice-daily rule round-trips through the task page\'s Repeats con
   els['tk-repeat-every'].value = 'day';
   assert.equal(els['tk-repeat-at'].dataset.multi, undefined);
   assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '09:00' });
+});
+
+test('#5752 round 2: after a Save the remembered list is the saved one, so the next edit never brings back a removed time', () => {
+  const SRC = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
+  const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
+  const els = { 'tk-repeat-every': { value: 'day', dataset: {} }, 'tk-repeat-at': { value: '', dataset: {} }, 'tk-repeat-day': { value: 'mon', dataset: {} } };
+  const document = { getElementById: (id) => els[id] };
+  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatRemember', 'tkRepeatSaved'])
+    + '\nreturn { tkRepeatChoice, tkRepeatFillAt, tkRepeatSaved };')(eval(days[1]), document);
+  const box = els['tk-repeat-at'];
+  // 1: 9am and 9pm, the person moves the morning run onto 9pm (one time), saves, then picks 10am: 10am alone.
+  f.tkRepeatFillAt('09:00,21:00');
+  box.value = '21:00';
+  f.tkRepeatSaved(f.tkRepeatChoice());
+  assert.equal(els['tk-repeat-every'].dataset.stored, JSON.stringify({ every: 'day', at: '21:00' }));
+  box.value = '10:00';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '10:00' });
+  // 2: three times, the first moved onto the second and saved: the next edit moves the first of the TWO left.
+  f.tkRepeatFillAt('09:00,13:00,21:00');
+  box.value = '13:00';
+  f.tkRepeatSaved(f.tkRepeatChoice());
+  box.value = '14:00';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '14:00,21:00' });
+  // 3: saved as weekly: no list is remembered for when it goes back to daily.
+  f.tkRepeatFillAt('09:00,21:00');
+  els['tk-repeat-every'].value = 'week';
+  f.tkRepeatSaved(f.tkRepeatChoice());
+  els['tk-repeat-every'].value = 'day';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '09:00' });
+  // The Save handler is what calls it (a page reader, so a rename that leaves the handler on the old line is seen).
+  assert.match(SRC, /if \(still\(\)\) tkRepeatSaved\(sent\);/);
 });

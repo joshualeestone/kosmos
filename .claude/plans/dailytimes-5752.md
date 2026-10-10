@@ -40,3 +40,17 @@ is read by tasks.setRepeat (JSON compare of the normalised rule), the route (fro
 - An interval cadence ("every 6 hours from 08:00"). Different shape; not asked for.
 - The screen cannot ADD a time or remove one (except by moving the first onto another); that is the agent or the CLI. A design pass for a multi-time picker
   would be its own card.
+
+## Review round 1 fixes
+- The time box moves the first of several times and keeps the others (it replaced the whole list, silently).
+- The Windows help line carries the several-times form (a test pins both CLIs' line).
+- `gapOf` guards a rule that does not check out, so a hand-edited stored list cannot throw in `fieldsOf` (which runs for
+  every task in the projects list).
+- `--at` takes spaces between times; a weekly rule given several gets the weekly sentence.
+
+## Review round 2 fixes
+- After a Save, the remembered list is the one saved (`tkRepeatSaved`), so the next edit cannot bring back a time the
+  person just removed.
+- The file header documents the list shape.
+- Left as is (NITs): a 24-time rule reads as a long sentence; the latest-slot walk does about 50 `nextAfter` calls for a
+  24-time rule; the early-run grace (gap/30) and the miss grace (gap/4) differ, as they did before, now sized by gap.

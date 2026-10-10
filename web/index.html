@@ -61798,9 +61798,19 @@ function tkRepeatStoredChoice(t) {
 /* kosmos#5752: a stored list of times fills the time box with its first and is remembered whole, so tkRepeatChoice keeps
    the other times when the person changes that one. One time (or none: 9am to start from) forgets any list. */
 function tkRepeatFillAt(at) {
+  tkRepeatRemember(at);
+  document.getElementById('tk-repeat-at').value = (at || '09:00').split(',')[0];
+}
+function tkRepeatRemember(at) {
   const atEl = document.getElementById('tk-repeat-at');
-  if (at && at.includes(',')) atEl.dataset.multi = at; else delete atEl.dataset.multi;
-  atEl.value = (at || '09:00').split(',')[0];
+  if (typeof at === 'string' && at.includes(',')) atEl.dataset.multi = at; else delete atEl.dataset.multi;
+}
+/* A saved choice is now what is stored: the repaint after it follows it (review 2), and the remembered list is the one
+   saved (kosmos#5752 round 2: the list from before the save brought back a time the person had just removed, on the
+   next edit). The time box already shows the saved choice's first time, so it is left alone. */
+function tkRepeatSaved(sent) {
+  document.getElementById('tk-repeat-every').dataset.stored = JSON.stringify(sent);
+  tkRepeatRemember(sent && sent.every === 'day' ? sent.at : undefined);
 }
 function tkRepeatShowWhen() {
   const every = document.getElementById('tk-repeat-every').value;
@@ -61955,7 +61965,7 @@ document.getElementById('tk-repeat-save').addEventListener('click', async () => 
     const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
     if (!res.ok) { if (still()) { if (msg) msg.textContent = (out && out.error) || 'we could not change how that task repeats'; tkRepeatDirty(t); } return; }
     // Review 2: what was saved is now what is stored, so the repaint below follows it rather than reading it as unsaved.
-    if (still()) document.getElementById('tk-repeat-every').dataset.stored = JSON.stringify(sent);
+    if (still()) tkRepeatSaved(sent);
     await pjReload();
     paintTaskActivity(TK_OPEN);
     if (still()) {
