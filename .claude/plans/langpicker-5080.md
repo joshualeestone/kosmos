@@ -38,6 +38,12 @@ it the person's choice, on every platform.
 - Unreadable choice file = not sure (changes nothing), never "auto": auto on a Spanish Mac would re-add a block the
   person may have turned off.
 
+- Review 1: with Automatic chosen and no sure read (every Windows and Linux board, a Mac whose read failed), a block
+  whose source is "chosen in Kosmos Settings" is stale and is removed; a block the computer's setting wrote stays. This
+  means the boot sweep off a Mac now READS each agent's file (it read none before); it writes only when a stale Settings
+  block is there, and a file it cannot read or with two blocks is left quietly (review 3: no boot noise).
+- Review 3: the boot line for an unreadable choice file names Settings, not the Mac's setting.
+
 ## Weakest premise
 That the person's choice should apply to every agent at once. A per-agent language is not offered; the block's own
 "unless they write to you in another language" still covers one agent spoken to in another language.

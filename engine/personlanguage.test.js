@@ -137,7 +137,9 @@ test('#5050: a new agent gets the block at create, and the board refreshes every
   assert.match(server, /require\('\.\/engine\/personlanguage'\)/);
   assert.match(server, /personlanguage\.syncEveryone\(safeRoster\(\)\)/, 'the boot sweep no longer refreshes the language block');
   // Review 17: a failed Mac read is said once at boot, so it cannot look like an English Mac.
-  assert.match(server, /process\.platform === 'darwin' && !personlanguage\.read\(\)\.sure\) \{\s*process\.stderr\.write\('Kosmos could not read this computer/);
+  // #5080 review 3: an unreadable Settings choice gets its own line, so the Mac's setting is not blamed for it.
+  assert.match(server, /const langRead = personlanguage\.read\(\);\s*if \(!langRead\.sure && langRead\.from === 'settings'\) \{\s*process\.stderr\.write\('Kosmos could not read the language chosen in Settings/);
+  assert.match(server, /\} else if \(process\.platform === 'darwin' && !langRead\.sure\) \{\s*process\.stderr\.write\('Kosmos could not read this computer/);
   // The boot sweep runs after the About-you sweep, the last one that can append a block.
   const you = server.indexOf('you.syncEveryone(safeRoster(), { addOnly: true })');
   // #5080: the Settings route makes the same call earlier in the file, so look for the boot sweep's after the About-you one.

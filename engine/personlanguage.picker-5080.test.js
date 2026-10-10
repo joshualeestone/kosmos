@@ -221,3 +221,20 @@ test('#5080 review 2: only the bracketed Settings source marks a block as ours t
   } finally { board.restore(); clearChoice(); }
 });
 function projects_block(body) { return pl.START + '\n' + body + '\n' + pl.END + '\n'; }
+
+test('#5080 review 3: an unsure Automatic says nothing about a file it cannot use (no boot noise off a Mac)', () => {
+  clearChoice();
+  pl._resetForTests(LINUX);
+  const two = '# Fay\n\nYou are Fay, who plans the week for the person and keeps the list.\n\n'
+    + projects_block('## The person\'s language\n\nOne.') + '\n' + projects_block('## The person\'s language\n\nTwo.');
+  agentFile('fay', two);
+  const board = fleet.install([fleet.agent('fay')]);
+  try {
+    const out = pl.tellAgent('fay', board.roster);
+    assert.equal(out.state, require('./projects').TOLD.TOLD, 'two blocks under an unsure Automatic reported a failure');
+    assert.equal(out.changed, false);
+    assert.equal(fileOf('fay'), two);
+    // CONTROL: a sure read on the same file does report it, so the check above could fail.
+    assert.equal(pl.tellAgent('fay', board.roster, { tag: 'es-MX', sure: true }).state, require('./projects').TOLD.COULD_NOT);
+  } finally { board.restore(); }
+});
