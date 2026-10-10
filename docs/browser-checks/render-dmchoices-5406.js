@@ -80,6 +80,16 @@ async function run() {
           check(`[${theme}] choices: a labelled group, every button focusable`, seen.group && seen.focusable);
           check(`[${theme}] choices: no sideways overflow`, seen.overflow <= 0, String(seen.overflow));
           if (theme === 'light' && process.env.SHOT) await page.locator('#d-dmthread').screenshot({ path: process.env.SHOT });
+          // Focus survives a rewrite: a new message arrives while a keyboard user stands on choice 3.
+          await page.locator('#d-dmthread .dmchoice[data-n="3"]').focus();
+          const refocused = await page.evaluate(async () => {
+            const before = document.getElementById('d-dmthread').querySelector('.dmchoice[data-n="3"]');
+            window.__fx = { ...window.__fx, messages: [...window.__fx.messages, { from: 'april', text: 'One more thing.', at: new Date(Date.now() + 1000).toISOString() }] };
+            await paintTalk('april', 'April');
+            const a = document.activeElement;
+            return { replaced: !document.body.contains(before), n: a && a.classList.contains('dmchoice') ? a.getAttribute('data-n') : null };
+          });
+          check(`[${theme}] choices: a rewrite puts focus back on the same choice`, refocused.replaced && refocused.n === '3', JSON.stringify(refocused));
           await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
           await page.waitForTimeout(150);
           const posted = await page.evaluate(() => window.__posted);
