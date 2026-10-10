@@ -1768,3 +1768,21 @@ test('#5683 slice 3 review 42: a Bash flag does not hide an MCP tool\'s in the s
   assert.ok(sent.every((e) => !Object.prototype.hasOwnProperty.call(e, 'kind')), 'the local kind reached the wire: ' + JSON.stringify(sent));
   assert.ok(sent.some((e) => e.toolUseRef === 'm1' && e.action === 'run'), 'CONTROL: the MCP flag still says run on the wire');
 });
+
+test('#5683 slice 3 review 43: the hourly flag slots are capped, the oldest hours shed first', async (t) => {
+  const { root, c } = await enrolled(t, 'slots');
+  const rec = oe.readEnrollment({ root });
+  const now = Date.now();
+  const hourNow = Math.floor(now / 3600000);
+  const flagged = {};
+  // 4100 slots inside the window: hours hourNow-40 .. hourNow, many sessions each.
+  for (let i = 0; i < 4100; i++) flagged[`s${i}|injected-instruction|run|${hourNow - (i % 41)}`] = 1;
+  fs.writeFileSync(path.join(root, 'agent-events.json'), JSON.stringify({ offsets: {}, pending: [], enrolledAs: ae._enrollmentKey(rec), manipSince: now - 86400e3, flagged }));
+  const none = { everyAgent: () => [], transcriptDirsOf: (d) => [d], guarded: () => true, agents: () => [], allAgents: () => [], dirOf: () => null, transcripts: async () => [] };
+  await ae.tick({ root, remote: c, sources: none, now, manipulationCheck: true });
+  const kept = Object.keys(ae._readState(root).flagged);
+  assert.equal(kept.length, 4000, 'the slots were not capped: ' + kept.length);
+  const hours = kept.map((k) => Number(k.slice(k.lastIndexOf('|') + 1)));
+  assert.ok(hours.includes(hourNow), 'CONTROL: the newest hour was shed');
+  assert.ok(Math.min(...hours) > hourNow - 40, 'an oldest hour was kept while newer ones were shed: ' + Math.min(...hours));
+});

@@ -46,6 +46,10 @@ const crypto = require('crypto');
 const ROUTE = '/v1/mac/org/agent-events';
 const SEND_MAX = 50;
 const PENDING_MAX = 500;          // kept while sends fail; the oldest go first when it is full
+/* The hourly flag slots kept (review 43): bounded by the window, and by count too, so the state file stays small; the
+   oldest hours go first. A slot shed early can let a re-read line from that hour flag again: an extra report, never a
+   hidden one. */
+const FLAGGED_MAX = 4000;
 const PAST_MS = 7 * 86400 * 1000; // the coordinator refuses an event older than 7 days
 const READ_MAX = 4 * 1024 * 1024; // bytes read from one transcript in one tick; the rest next tick
 const STATE_FILE = 'agent-events.json';
@@ -1112,7 +1116,9 @@ function goodQueued(e) {
       /* #5683 slice 3: a manipulation flag, only with one of the check's own categories (a whitelist: any other rule or
          class is still dropped on read). */
       || (e.rule === 'manipulation-check' && MANIPULATION.some(([c]) => c === e.targetClass)))
-    && Object.values(ACTION).includes(e.action);
+    && Object.values(ACTION).includes(e.action)
+    // The slot's kind (review 42), when kept, is one of its own words, so a damaged state cannot skew the hourly slot (review 43).
+    && (e.kind === undefined || ['mcp', 'tool', 'unknown', ...Object.values(ACTION)].includes(e.kind));
 }
 
 function writeState(root, st) {   // whole or not at all; owner-only
@@ -1696,6 +1702,9 @@ async function tickOnce(opts) {
     // A slot given back above (a shed flag) is dropped, including one queued this same tick.
     const stillQueued = new Set(st.pending.filter(isManipulation).map(flagKey));
     for (const e of shed) if (!stillQueued.has(flagKey(e))) delete flaggedToday[flagKey(e)];   // a twin keeps it (review 11)
+    const slotHour = (k) => Number(k.slice(k.lastIndexOf('|') + 1));
+    const slots = Object.keys(flaggedToday);
+    if (slots.length > FLAGGED_MAX) for (const k of slots.sort((a, b) => slotHour(a) - slotHour(b)).slice(0, slots.length - FLAGGED_MAX)) delete flaggedToday[k];
     st.flagged = flaggedToday;
     /* Review 39: a Leave run while the transcripts were read marks the stop on disk, and a refused Leave writes the SAME
        record back, so the enrollment check below cannot see it. The state this tick loaded must not overwrite that mark:
@@ -1717,6 +1726,7 @@ async function tickOnce(opts) {
        a consumed call left the re-read classed without its target). */
     for (const [f, m] of nextCalls) { if (m.size) CALLS.set(f, m); else CALLS.delete(f); }
     if (st.pending.length === 0) return { sent: 0, because: null };
+    // A failed refusal send holds the flag send too (one way, review 41: a coordinator failing one fails both).
     if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: 0, because: 'waiting after a failed send' };
     /* Re-checked after the scan (review 2, the rollup's review 3): a Leave pressed, or words withdrawn, while the
        transcripts were read stops the send. */
