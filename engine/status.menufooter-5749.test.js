@@ -29,11 +29,23 @@ test('#5749: the highlight on the multi-select Submit row reads needs-you (no nu
 test('#5749: the review tab, which draws no footer, is the question menu', () => {
   assert.ok(!/Esc to cancel/.test(REVIEW), 'CONTROL: the capture has no footer');
   assert.equal(status.claudeQuestionMenuUp(REVIEW), true);
-  assert.equal(status.classify(PANE, REVIEW).state, 'needs_you');
+  // Review 1: the capture also has a `❯ 1.` row, which main already read; without it only the new rule can answer.
+  const noHighlight = REVIEW.replace('❯ 1. Submit answers', '  1. Submit answers');
+  assert.ok(!/^\s*❯\s*\d+\.\s/m.test(noHighlight), 'CONTROL: the variant has no numbered highlighted row');
+  assert.equal(status.classify(PANE, noHighlight).state, 'needs_you');
+});
+
+test('#5749 (review 1): a menu blocks even while the title still spins (the rule sits above the working checks)', () => {
+  assert.equal(status.classify({ ...PANE, title: '✶ x' }, SUBMIT).state, 'needs_you');
 });
 
 test('#5749: controls: a permission prompt is not the menu, and an old review tab in scrollback is not live', () => {
   assert.equal(status.claudeQuestionMenuUp(PERM), false, 'a permission prompt read as the question menu');
   const idleAfter = REVIEW + '\n\n⏺ Submitted.\n\n────────\n❯ \n────────\n  ? for shortcuts';
   assert.equal(status.claudeQuestionMenuUp(idleAfter), false, 'an old review tab above the prompt read as live');
+  // Review 1: at the classify level too, an answered menu in scrollback above an idle prompt is not needs-you.
+  const answered = SUBMIT + '\n\n⏺ Submitted.\n\n────────\n❯ \n────────\n  ? for shortcuts';
+  assert.notEqual(status.classify(PANE, answered).state, 'needs_you', 'an answered menu in scrollback read as needs-you');
+  // And the review tab's two lines as agent prose, with no form title above, are not the menu.
+  assert.equal(status.claudeQuestionMenuUp('⏺ The form will say:\nReady to submit your answers?\n1. Submit answers'), false);
 });

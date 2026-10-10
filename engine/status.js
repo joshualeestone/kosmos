@@ -2462,10 +2462,13 @@ function claudeQuestionMenuUp(text) {
    among the last four non-blank lines, so an old review tab in scrollback is not taken for a live one. */
 const CLAUDE_QMENU_REVIEW_Q = /^\s*Ready to submit your answers\?\s*$/;
 const CLAUDE_QMENU_REVIEW_SUBMIT = /^\s*(?:[❯›]\s*)?\d{1,2}\.\s+Submit answers\s*$/;
+const CLAUDE_QMENU_REVIEW_TITLE = /^\s*Review your answers\s*$/;
 function claudeQuestionReviewUp(lines) {
   const last = [];
   for (let i = lines.length - 1; i >= 0 && last.length < 4; i -= 1) if (lines[i].trim()) last.push(lines[i]);
-  return last.some((l) => CLAUDE_QMENU_REVIEW_Q.test(l)) && last.some((l) => CLAUDE_QMENU_REVIEW_SUBMIT.test(l));
+  if (!(last.some((l) => CLAUDE_QMENU_REVIEW_Q.test(l)) && last.some((l) => CLAUDE_QMENU_REVIEW_SUBMIT.test(l)))) return false;
+  // Review 1: and the form's own title within the screen's last 20 rows, so two strings in agent prose are not enough.
+  return lines.slice(-20).some((l) => CLAUDE_QMENU_REVIEW_TITLE.test(l));
 }
 
 /* #5754: is Claude Code's PERMISSION prompt on screen (it asks "Do you want to proceed?", "Do you want to create x?"
@@ -4792,8 +4795,10 @@ function classify(pane, paneText) {
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   /* #5749: Claude Code's question menu with NO numbered highlighted row in the tail: the highlight on the multi-select
-     form's unnumbered Submit row, or a menu so tall that the highlighted row is above the last 25 rows. Its footer and
-     free-answer row (claudeQuestionMenuUp, bottom-anchored on the whole screen) still say it is asking. */
+     form's unnumbered Submit row, or an AskUserQuestion menu so tall that the highlighted row is above the last 25 rows
+     (not the safeguards menu, which claudeQuestionMenuUp leaves to its own rule). Its footer and free-answer row
+     (bottom-anchored on the whole screen) still say it is asking. ABOVE the working checks on purpose (review 1): a menu
+     blocks even while the title still spins, which is the defect this card closes. */
   if (claudeQuestionMenuUp(paneText)) {
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
