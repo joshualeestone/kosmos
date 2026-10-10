@@ -21,7 +21,9 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Only token-only agents are read: they are the agents the company's rules (the guard and its sandbox) apply to. A
   person's own deny rules on any other agent, and the auto-mode classifier, are never read or sent. On a token-only
   agent the guard shares its deny list with the person's own rules and the refusal text is the same, so a refusal by
-  the person's own rule there is reported as the guard's (review 6). WEAKEST PREMISES: this, and the EPERM text match.
+  the person's own rule there is reported as the guard's (review 6). WEAKEST PREMISES: this, the EPERM text match, and
+  that a person rarely runs claude by hand in a token-only agent's folder (those sessions are read under the agent's
+  name too: the folder's transcripts are read under every account's config root).
 - Nothing from before the enrollment, the current accepted words, or the agent joining the token-only list: each is a
   time an event must be at or after (compared in milliseconds since review 18). A transcript first seen is read from its start only if written
   after that time; an older one is skipped to its end unread.
@@ -673,3 +675,17 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   drains, and a bad batch says nothing about size.
 - WARNING, already fixed (iteration 2 before the rebase): the slice-by-length after the send relies on one tick at a
   time, which tick() itself enforces.
+
+## Challenge loop after the rebase, iteration 3 (opus)
+- WARNING, fixed: words accepted WITHOUT the events line returned early and left the state as it was, so the old words
+  accepted again (the same key, not withdrawn) resumed from the old offsets and sent the refusals made in between. Words
+  read and without the line now mark the stop as a Leave does; words that cannot be read mark nothing. Test (A, then B,
+  then A again, with a control sent after), red with the call removed.
+- WARNING, deferred and named as a weakest premise (above): a person's own claude session run in a token-only agent's
+  folder is read under the agent's name, because transcripts are read under every account's config root. Narrowing to
+  the agent's own account needs the agent-to-account mapping; rare, and under #5529 the work computer is the company's.
+- NIT, fixed: a denied call that was lost is classed without the agent's folder, so a lost Grep from an agent connected
+  at home is other, not board-files. Test, red with the old fallback.
+- NITs, fixed: the 64-path cap's comment no longer claims the rest is unread (a nested command returns only from its
+  own walk; the exact-name search covers the whole command); header line wrapped; the _callFiles excuse's period.
+- NIT, deferred as before: splitting targetClass's helpers out.

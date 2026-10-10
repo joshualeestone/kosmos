@@ -87,7 +87,7 @@ function accept(root) {
       EVENTS_LINE], usageConsented: false } } }));
 }
 /* The consent line naming these events (challenge-loop iteration 1): without it nothing is read. */
-const EVENTS_LINE = "when one of your agents is stopped by your company's rules: which agent, the kind of thing it tried, and when";
+const EVENTS_LINE = "when one of your agents is stopped by your company's rules: which agent, the kind of thing it tried, the conversation it was in, and when";
 function coordinator(answer) {
   const sent = [];
   let w = null;   // the enrollment's world, as the coordinator remembers it (the rollup tests' coordinator)
@@ -1691,4 +1691,31 @@ test('#5683 cl-rebase: a transcript with no unanswered call holds no memory', as
   append(s.file, result('open-1', 'ok', false));
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(ae._callFiles().includes(s.file), false, 'a transcript with every call answered still holds a map');
+});
+
+test('#5683 cl-rebase: words without the events line, then the old words again, send nothing from between', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // reporting
+  await new Promise((r) => setTimeout(r, 1100));
+  /* Words B: the same enrollment, a line set without the events. */
+  fs.writeFileSync(path.join(s.root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: {
+    reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], usageConsented: false } } }));
+  const b = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.match(b.because || '', /do not name these events/);
+  append(s.file, use('between', 'Bash', { command: 'x' }), result('between', DENIED('x'), true));
+  await new Promise((r) => setTimeout(r, 1100));
+  accept(s.root);   // words A again
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 2100));
+  append(s.file, use('after', 'Bash', { command: 'x' }), result('after', DENIED('x'), true));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.ok(refs.includes('after'), 'control: a refusal after the words came back was not sent: ' + refs.join(','));
+  assert.equal(refs.includes('between'), false, 'a refusal made under words that did not name the events was sent');
+});
+
+test('#5683 cl-rebase: a denied Grep whose call was lost is not read as a walk of the agent folder', () => {
+  /* An agent connected at the home folder holds the board root; with the call lost there is no evidence of a target. */
+  const got = ae.scanText(result('lostgrep', 'Permission to use Grep has been denied.', true), new Map(), ctx({ agentDir: '/Users/ann' }));
+  assert.deepEqual(got.map((e) => [e.toolUseRef, e.rule, e.targetClass]), [['lostgrep', 'token-only-guard', 'other']]);
 });
