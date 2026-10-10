@@ -33,3 +33,10 @@ board leaves) or the company drops the text. The person cannot remove it from Ko
 - Decided, not built: the Settings screen does not list the company entry yet (next slice); the instructions editor
   can remove the block until the next board start or company change; when the person's own record is unreadable no
   agent is told anything (read()'s rule: never a half list), the company entry included.
+
+## Slice 4 (aipolicyui-5534): Settings shows the company entry
+Finished means: on an enrolled board whose company sets AI policy text, Settings > AI Policies shows it first, marked as
+set by the company and not removable there; the screen never says "No policies here yet." while agents carry it; a
+board without a company policy looks as before. GET /api/policy carries `company: { name, chars, opening } | null`;
+polCompanyCard draws it read-only. Decided: no separate "Company" tag (the provenance line and the absent buttons mark
+it; a tag would add contrast work for one word); the card still shows while the person's record is unreadable.
