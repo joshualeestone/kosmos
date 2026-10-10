@@ -2464,7 +2464,9 @@ function claudeQuestionMenuUp(text) {
    question within 14 rows above it ("Would you like to proceed?" is the plan-approval prompt's wording, not yet
    captured), or, for any other wording, a highlighted numbered option within 10 rows above it. Not when the question menu's own free-answer row is there: a menu question may begin "Do you want to"
    too, and it has its own detector and sentence. The folder-trust dialog ("Quick safety check") has its own floor. */
-const CLAUDE_PERMISSION_FOOTER = /Esc to cancel(?:\s*·.*)?\s*$/;
+/* The whole footer line (review 17): "Esc to cancel" first (2.1.296: "Esc to cancel · Tab to amend"), or the older
+   select footer ending in it, so agent prose that merely ends in those words is not a footer. */
+const CLAUDE_PERMISSION_FOOTER = /^\s*(?:Enter to select\s*·.*·\s*)?Esc to cancel(?:\s*·.*)?\s*$/;
 const CLAUDE_PERMISSION_QUESTION = /^\s*(?:Do you want to|Would you like to)\b/;
 /* 'wording' (a "Do you want to" / "Would you like to" question: a permission request), 'shape' (only a highlighted
    numbered option over the footer: may be a permission request in other wording, or one of Claude Code's own pickers),
