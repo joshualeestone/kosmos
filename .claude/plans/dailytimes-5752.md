@@ -17,7 +17,8 @@ its fix) and slice 3 (a board notice with Add as member) are separate.
   and the line below says every time; the OTHER times are kept beside the box (`dataset.others`), and the choice is the
   box's time plus them, sorted, a repeat said once. After a Save the others are the saved times other than the box's;
   when an agent changes the rule under an unsaved edit, the edit stands and the others follow the new rule. Choosing
-  another frequency takes the box's one time. Save stays off while nothing changed.
+  another frequency sends the box's one time; the others are still kept, so switching back to Every day before
+  saving brings them back (round 6 NIT, left as is). Save stays off while nothing changed.
 - install/kosmos and tools/windows/kosmos-cli.js: usage says `--at HH:MM[,HH:MM...]`; both already pass `--at`
   through as text, and the board checks it.
 
@@ -80,3 +81,7 @@ is read by tasks.setRepeat (JSON compare of the normalised rule), the route (fro
 - The answer-lands check also compares the whole choice with what was sent, so a repaint that changed only the
   frequency or the day (twice daily changed to weekly, box unchanged) shows what was saved rather than daily 09:00 alone.
 - The CLI usage reads `--at HH:MM[,HH:MM...]` (it read as "at most two").
+
+## Review round 6 (Sonnet)
+No BLOCKER, WARNING or CONVENTION. Two NITs: the kept others return when switching back to Every day (now said above),
+and the refusal wording differs between `--at "09:00 "` and `--at "09:00 ,"` (both refused).
