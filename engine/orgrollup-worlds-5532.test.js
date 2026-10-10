@@ -20,7 +20,7 @@ const oe = require('./orgenroll');
 
 const HASH = 'cd'.repeat(32);
 /* The coordinator's line naming every Kosmos on this computer: without it only the enrolled Kosmos reports. */
-const EVERY = 'all of the above from every Kosmos on this computer, not only this one';
+const EVERY = 'the agent, project and activity lines above from every Kosmos on this computer, not only this one';
 function accept(root, every = true) {
   const f = path.join(root, oe.ENROLLMENT_FILE);
   const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
