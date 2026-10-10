@@ -15,21 +15,23 @@
  * folder), every server tier (each global config's own servers and its entries for the agent folder and the folders
  * above, the .mcp.json files, the managed server file), and each installed plugin's manifest and the hook, server and
  * language-server files it uses. Every config home is read, not only the agent's own: Kosmos can move an agent to
- * another account.
+ * another account. A config file that exists but cannot be read is named, so the guard says it is not whole.
  *
- * What is a command: an object's `command` (with its `args` when a server gives them), and the helpers that run a
- * script (apiKeyHelper, awsAuthRefresh, awsCredentialExport, gcpAuthRefresh, otelHeadersHelper, proxyAuthHelper,
- * headersHelper, and any later `...Helper`). The managed policyHelpers entries are read through their `command`; a
- * script given inline in one is not read. A command is split into words the way a shell would, enough to find paths;
- * it is not a shell. The settings `env` values are known variables when every tier that sets one agrees on it.
+ * What is a command: an object's `command`, and the helpers that run a script (apiKeyHelper, awsAuthRefresh,
+ * awsCredentialExport, gcpAuthRefresh, otelHeadersHelper, proxyAuthHelper, headersHelper, and any later `...Helper`).
+ * A server's command is a program started directly, with its args as literal words; any other command is a POSIX shell
+ * line, split into words the way a shell would, enough to find paths (it is not a shell; the guard does not run on
+ * Windows). The managed policyHelpers entries are read through their `command`; a script given inline in one is not
+ * read. The settings `env` values are known variables when every tier that sets one agrees on it.
  *
- * Which words name a script: an absolute path, a path from the home, or a path with a slash read from the agent folder
- * (hooks run there); a path found inside a word (require('/x.js')); the value of a NAME=value word; the commands inside
- * $(...) and backticks, and after a shell's -c or an interpreter's -e. The script word after an interpreter (bash x.sh,
- * node x.js) counts whether or not it exists, since the agent could create it. Another bare word counts when it is a
- * file in the agent folder. A bare program is found on PATH, which #5516 part 1 covers. An existing FOLDER is never a
- * script (cd "$CLAUDE_PROJECT_DIR" must not deny the agent its own folder). A word whose value Kosmos cannot know is
- * reported when it is a path, a program, or an interpreter's script, so the guard says it is not whole.
+ * Which words name a script. Where something RUNS: the program, the script after an interpreter (bash x.sh, deno run
+ * x.ts, whether or not it exists yet, since the agent could create it), input to a shell (bash < x.sh), a flag's path
+ * value (--require=/x.js), a NAME=value before a program (BASH_ENV=/x.sh), the commands inside $(...), backticks, and
+ * an interpreter's -c or -e, and a path inside a word (require('/x.js')). A program behind a wrapper (env, nohup,
+ * timeout, if/then, { ... }) is the program. Anywhere else a path is an argument the program reads or writes, and it
+ * counts only outside the agent folder: the agent's own files (jq . package.json) are its work, not code. An existing
+ * FOLDER is never a script. A bare program is found on PATH, which #5516 part 1 covers. A word Kosmos cannot know is
+ * named when it is where something runs, or an unquoted pattern there, so the guard says it is not whole.
  *
  * Not covered here (stated gaps, later parts of #5774): what a script or program runs or reads in turn (a script that
  * sources another, npm or make reading the agent folder's package.json or Makefile), the shell's own startup files,
@@ -40,11 +42,19 @@ const fs = require('fs');
 const path = require('path');
 
 const HELPER_KEYS = new Set(['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'otelHeadersHelper', 'proxyAuthHelper', 'headersHelper']);
+/* The keys whose entries are servers, started directly rather than through a shell. */
+const SERVER_KEYS = new Set(['mcpServers', 'lspServers', 'managedMcpServers']);
 const OPERATORS = new Set([';', '&', '|', '(', ')', '<', '>', '\n']);
 /* Programs whose first plain argument is a script they run. */
-const INTERPRETER = /^(?:(?:ba|z|da|k|fi|c|tc)?sh|source|\.|node|nodejs|deno|bun|tsx|ts-node|ruby|perl|php|lua|Rscript|osascript|pwsh|powershell(?:\.exe)?|python[0-9.]*)$/;
+const INTERPRETER = /^(?:(?:ba|z|da|k|fi|c|tc)?sh|source|\.|node|nodejs|deno|bun|tsx|ts-node|ruby|perl|php|lua|Rscript|osascript|pwsh|python[0-9.]*)$/;
+/* Runners whose script comes after a subcommand (deno run x.ts). */
+const RUNNER_SUB = { deno: /^run$/, bun: /^(?:run|x)$/, uv: /^run$/, go: /^run$/ };
+/* Words before the real program: it is the next word that is not a flag, a NAME=value or (for timeout) a duration. */
+const WRAPPER = /^(?:env|exec|nohup|time|sudo|doas|g?timeout|nice|ionice|command|builtin|xargs|stdbuf|caffeinate|npx|pnpx|bunx|uvx|if|then|elif|else|while|until|do|!|\{)$/;
+/* A wrapper's flags that take the next word as their value (sudo -u bob bash x.sh). */
+const WRAPPER_VALUE_FLAGS = { sudo: /^-[ughpCDrtU]$/, doas: /^-[uC]$/, env: /^-[uCP]$/, timeout: /^-[sk]$/, gtimeout: /^-[sk]$/, nice: /^-n$/, ionice: /^-[cnp]$/, xargs: /^-[InPLdEs]$/ };
 /* An interpreter's flags after which the next word is a script given inline. */
-const INLINE_FLAG = /^(?:-[A-Za-z]*c|-e|--eval|-p|--print|-Command|-c)$/;
+const INLINE_FLAG = /^(?:-[A-Za-z]*c|-e|--eval|-p|--print)$/;
 
 /* Where Claude Code 2.1.296 reads managed settings, by platform (its own switch, read from the binary). */
 function managedDir(platform = process.platform) {
@@ -53,28 +63,41 @@ function managedDir(platform = process.platform) {
   return '/etc/claude-code';
 }
 
-function readJson(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+/* { json } for a readable JSON file, { missing: true } when there is none, { error } when it is there and unreadable. */
+function readJsonFile(file) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
+    if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return { missing: true };
+    return { error: (e && e.code) || String(e) };
+  }
+  try { return { json: JSON.parse(text) }; } catch { return { error: 'not valid JSON' }; }
 }
 
 /*
  * Split a command line into words, as a shell would, for finding paths. Quotes and backslashes are honoured; the
  * operators ; & | ( ) < > and newlines end a word. A variable is replaced when `vars` names it, otherwise the word is
- * marked dynamic. Each word records `head` (the program of its simple command), `assign` (a NAME=value before the
- * program), `written` (a redirection's target) and `subs` (the commands inside its $(...) and backticks).
+ * marked dynamic. Each word records `head` (the first word of its simple command), `assign` (a NAME=value before it),
+ * `written` (a redirection's target), `input` (a file given on standard input), `heredoc` (a here-document's delimiter
+ * or a here-string), `globbed` (an unquoted * ? or [) and `subs` (the commands inside its $(...) and backticks).
  */
 function shellWords(cmd, vars = {}) {
   const words = [];
   let cur = null;
   let head = true;
-  let written = false;   // the next word follows '>': a file the command writes, not one it runs
-  const start = () => { if (!cur) { cur = { text: '', dynamic: false, quoted: false, head, written, assign: false, subs: [] }; written = false; } };
+  let written = false;
+  let input = false;
+  let heredoc = false;
+  const start = () => {
+    if (cur) return;
+    cur = { text: '', dynamic: false, quoted: false, globbed: false, head, written, input, heredoc, assign: false, subs: [] };
+    written = false; input = false; heredoc = false;
+  };
   const end = () => {
     if (!cur) return;
     const assign = cur.head && !cur.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(cur.text);
     if (assign) { cur.head = false; cur.assign = true; }
     words.push(cur);
-    if (!assign) head = false;
+    if (!assign && !cur.written && !cur.input && !cur.heredoc) head = false;
     cur = null;
   };
   const known = (name) => Object.prototype.hasOwnProperty.call(vars, name);
@@ -123,24 +146,38 @@ function shellWords(cmd, vars = {}) {
     if (quote === '"') {
       if (c === '"') { quote = null; i++; continue; }
       if (c === '\\' && i + 1 < cmd.length && '"\\$`'.includes(cmd[i + 1])) { cur.text += cmd[i + 1]; i += 2; continue; }
+      if (c === '\\' && cmd[i + 1] === '\n') { i += 2; continue; }
       if (c === '$') { i = dollar(i); continue; }
       if (c === '`') { i = tick(i); continue; }
       cur.text += c; i++; continue;
     }
+    if (c === '\\' && cmd[i + 1] === '\n') { end(); i += 2; continue; }   // a line continuation is a space
     if (c === "'" || c === '"') { start(); cur.quoted = true; quote = c; i++; continue; }
     if (c === '\\' && i + 1 < cmd.length) { start(); cur.text += cmd[i + 1]; i += 2; continue; }
     if (c === ' ' || c === '\t') { end(); i++; continue; }
     if (OPERATORS.has(c)) {
+      if ((c === '>' || c === '<') && cur && !cur.quoted && !cur.dynamic && /^[0-9]+$/.test(cur.text)) cur = null;   // 2>: a descriptor, not a word
       end();
-      const afterRedirect = c === '&' && cmd[i - 1] === '>';   // the & of >& or 2>&1 continues the redirection
-      written = c === '>' || (afterRedirect && !/[0-9-]/.test(cmd[i + 1] || ''));
-      if (c !== '<' && c !== '>' && !afterRedirect) head = true;
+      const prevC = cmd[i - 1] || '';
+      const nextC = cmd[i + 1] || '';
+      if (c === '>') { written = true; input = false; }
+      else if (c === '<' && nextC === '<') {   // <<EOF, <<-EOF, <<<word: the next word is not a file
+        i += 2;
+        if (cmd[i] === '<' || cmd[i] === '-') i++;
+        heredoc = true;
+        continue;
+      } else if (c === '<') { input = true; written = false; }
+      else if (c === '&' && prevC === '>') written = !/[0-9-]/.test(nextC);   // >&file writes it; 2>&1 joins outputs
+      else if (c === '&' && nextC === '>') { /* &> and &>>: the redirection follows */ }
+      else if (c === '|' && prevC === '>') written = true;   // >| writes, ignoring noclobber
+      else { written = false; input = false; head = true; }
       i++; continue;
     }
     start();
     if (c === '$') { i = dollar(i); continue; }
     if (c === '`') { i = tick(i); continue; }
     if (c === '~' && cur.text === '' && !cur.quoted && (i + 1 === cmd.length || cmd[i + 1] === '/') && vars.HOME) { cur.text += vars.HOME; i++; continue; }
+    if (c === '*' || c === '?' || c === '[') cur.globbed = true;
     cur.text += c; i++;
   }
   end();
@@ -152,7 +189,7 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,]+)/g;
 
 /*
  * The file paths a list of words names. `cwd` is where the command runs (the agent folder); `vars` are the variables
- * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered later, by scriptPaths) and the
+ * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
  * words whose value cannot be known.
  */
 function pathsOfWords(words, cwd, vars = {}, depth = 0) {
@@ -163,64 +200,96 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0) {
     const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1);
     paths.push(...r.paths); unsafe.push(...r.unsafe);
   };
-  let prog = '';         // the program of the current simple command
+  let cwdReal = cwd;
+  try { cwdReal = fs.realpathSync.native(cwd); } catch { /* as given */ }
+  const inAgentFolder = (p) => [cwd, cwdReal].some((d) => p === d || p.startsWith(d + path.sep));
+  let prog = '';
   let scriptSlot = false;   // the next plain word is the script the program (an interpreter) runs
+  let runnerSub = null;     // deno run x.ts: the subcommand that keeps the script slot open
+  let pendingHead = false;  // a wrapper came first; the program is still to come
+  let durationNext = false; // timeout 5 node x.js
+  let wrapper = '';         // the wrapper whose flags are being read
+  let valueNext = false;    // the word after a wrapper's value flag is that flag's value
   let prev = '';
   for (const w of words) {
     const before = prev;
     prev = w.dynamic ? '' : w.text;
     for (const s of w.subs || []) more(s);   // the command inside $(...) or backticks runs too
-    if (w.head) { prog = path.basename(w.text); scriptSlot = INTERPRETER.test(prog); }
-    if (w.written) continue;   // a redirection's target is written, not run
+    if (w.written || w.heredoc) continue;     // a redirection's target is written, not run; a delimiter is no file
     if (w.assign) { more(w.text.slice(w.text.indexOf('=') + 1)); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=...
+    if (w.head) { pendingHead = false; durationNext = false; }
+    let isHead = w.head;
+    if (pendingHead && !w.input) {
+      if (valueNext) { valueNext = false; continue; }
+      if (!w.dynamic && w.text.startsWith('-')) { valueNext = !!(WRAPPER_VALUE_FLAGS[wrapper] && WRAPPER_VALUE_FLAGS[wrapper].test(w.text)); continue; }   // a wrapper's own flag
+      if (!w.dynamic && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.text)) { more(w.text.slice(w.text.indexOf('=') + 1)); continue; }   // env X=/y
+      if (durationNext && /^[0-9.]+[smhd]?$/.test(w.text)) { durationNext = false; continue; }
+      pendingHead = false; isHead = true;
+    }
+    if (isHead) {
+      prog = w.dynamic ? '' : path.basename(w.text);
+      if (!w.dynamic && WRAPPER.test(prog)) { pendingHead = true; durationNext = /timeout$/.test(prog); wrapper = prog; valueNext = false; continue; }
+      scriptSlot = INTERPRETER.test(prog);
+      runnerSub = RUNNER_SUB[prog] || null;
+    }
     let text = w.text;
-    const inline = INTERPRETER.test(prog) && INLINE_FLAG.test(before);   // only an interpreter's -c or -e (mkdir -p is not)
-    const isFlag = !w.head && !w.dynamic && text.startsWith('-');
+    const inline = !isHead && INTERPRETER.test(prog) && INLINE_FLAG.test(before);   // only an interpreter's -c or -e (mkdir -p is not)
+    const isFlag = !isHead && !w.dynamic && !w.input && text.startsWith('-');
     // A flag that carries a path (--require=/x.js): the part after the first '='.
-    if (isFlag && text.includes('=')) text = text.slice(text.indexOf('=') + 1);
-    const inScriptSlot = scriptSlot && !w.head && !isFlag && !inline;
+    const flagValue = isFlag && text.includes('=');
+    if (flagValue) text = text.slice(text.indexOf('=') + 1);
+    if (!isHead && !isFlag && !inline && !w.dynamic && runnerSub) {
+      const sub = runnerSub; runnerSub = null;
+      if (sub.test(text)) { scriptSlot = true; continue; }
+      if (!INTERPRETER.test(prog)) scriptSlot = false;
+    }
+    const inScriptSlot = scriptSlot && !isHead && !isFlag && !inline && !w.input;
     if (inScriptSlot) scriptSlot = false;
+    const runs = isHead || inScriptSlot || w.input || flagValue || inline;   // where something RUNS
     if (w.dynamic) {
-      if (text.includes('/') || w.head || inScriptSlot || inline) unsafe.push(`a ${w.head ? 'program' : 'path'} made when the command runs${text.includes('/') ? ', ending ' + text.slice(text.lastIndexOf('/')) : ''}`);
+      if (runs) unsafe.push(`a ${isHead ? 'program' : 'path'} made when the command runs${text.includes('/') ? ', ending ' + text.slice(text.lastIndexOf('/')) : ''}`);
       continue;
     }
     if (inline) { scriptSlot = false; more(text); for (const m of text.matchAll(INNER_ABS)) paths.push(path.normalize(m[1])); continue; }
     if (!text || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text)) continue;   // a URL is not a file
-    if (path.isAbsolute(text)) { if (!/^\/dev(\/|$)/.test(text)) paths.push(path.normalize(text)); continue; }
-    if (/^\.{0,2}\//.test(text) || (text.includes('/') && !/['"()=,:]/.test(text))) { paths.push(path.resolve(cwd, text)); continue; }
-    if (text.includes('/')) { for (const m of text.matchAll(INNER_ABS)) paths.push(path.normalize(m[1])); continue; }
-    if (w.head || isFlag) continue;   // a bare program is found on PATH (#5516 part 1)
-    const local = path.join(cwd, text);
-    if (inScriptSlot) { paths.push(local); continue; }   // bash check.sh: the agent could create it
-    try { if (fs.statSync(local).isFile()) paths.push(local); } catch { /* not a file here */ }
+    if (w.globbed && runs) { unsafe.push(`a pattern where a script is named (${text}), which Kosmos does not expand`); continue; }
+    let p = null;
+    if (path.isAbsolute(text)) p = /^\/dev(\/|$)/.test(text) ? null : path.normalize(text);
+    else if (/^\.{0,2}\//.test(text) || (text.includes('/') && !/['"()=,:]/.test(text))) p = path.resolve(cwd, text);
+    else if (text.includes('/')) { for (const m of text.matchAll(INNER_ABS)) paths.push(path.normalize(m[1])); continue; }
+    else if (runs && !isHead) p = path.join(cwd, text);   // bash check.sh: the agent could create it
+    if (!p) continue;
+    if (!runs && inAgentFolder(p)) continue;   // an argument in the agent's own folder is its work, not code
+    paths.push(p);
   }
   return { paths, unsafe };
 }
 
-/* Every command in a parsed config: { line } for a shell line, or { program, args } for a server's command and args. */
-function commandsIn(node, out = [], depth = 0) {
+/* Every command in a parsed config: { line } for a shell line, { program, args } for a server (started directly). */
+function commandsIn(node, out = [], depth = 0, server = false) {
   if (!node || typeof node !== 'object' || depth > 32) return out;
-  if (Array.isArray(node)) { for (const x of node) commandsIn(x, out, depth + 1); return out; }
+  if (Array.isArray(node)) { for (const x of node) commandsIn(x, out, depth + 1, server); return out; }
   for (const [k, v] of Object.entries(node)) {
     if (k === 'command' && typeof v === 'string') {
-      if (Array.isArray(node.args) && node.args.every((a) => typeof a === 'string')) out.push({ program: v, args: node.args });
+      const args = Array.isArray(node.args) ? node.args.filter((a) => typeof a === 'string') : null;
+      if (server || args) out.push({ program: v, args: args || [] });
       else out.push({ line: v });
     } else if (typeof v === 'string' && (HELPER_KEYS.has(k) || /Helper$/.test(k))) {
       out.push({ line: v });
     } else if (v && typeof v === 'object') {
-      commandsIn(v, out, depth + 1);
+      commandsIn(v, out, depth + 1, server || SERVER_KEYS.has(k));
     }
   }
   return out;
 }
 
-/* The words of one command. A server's args are literal words (no shell), with ${VAR} expanded as Claude Code does. */
+/* The words of one command. A server's command and args are literal words (no shell), with ${VAR} expanded. */
 function wordsOf(cmd, vars) {
   if (cmd.line !== undefined) return shellWords(cmd.line, vars);
   const one = (s, head) => {
     const ws = shellWords(`"${s.replace(/(["\\`])/g, '\\$1')}"`, vars);
     const w = ws[0] || { text: '', dynamic: false, subs: [] };
-    return { ...w, head, assign: false, written: false };
+    return { ...w, head, assign: false, written: false, input: false, heredoc: false, globbed: false };
   };
   return [one(cmd.program, true), ...cmd.args.map((a) => one(a, false))];
 }
@@ -254,7 +323,7 @@ function configSources(dir, homes, home, deps = {}) {
   }
   /* The global config: its own servers, and its project entries for the agent folder and the folders above (never
      the whole file: it holds every project on the computer). */
-  const globals = [path.join(home, '.claude.json'), ...homes.map((h) => path.join(h, '.claude.json')), ...homes.map((h) => path.join(h, '.config.json'))];
+  const globals = [...(home ? [path.join(home, '.claude.json')] : []), ...homes.map((h) => path.join(h, '.claude.json')), ...homes.map((h) => path.join(h, '.config.json'))];
   const pickGlobal = (j) => {
     if (!j || typeof j !== 'object') return null;
     const { projects, ...rest } = j;
@@ -270,19 +339,23 @@ function configSources(dir, homes, home, deps = {}) {
   return out;
 }
 
-/* Each installed plugin, from each config home's record of installed plugins: { dir, home, id }. */
-function installedPlugins(homes) {
+/* Each installed plugin, from each config home's record of installed plugins: { dir, home, id }. A record that cannot
+   be read, or an install path that is not absolute, is named in `unsafe`. */
+function installedPlugins(homes, unsafe) {
   const out = [];
   const seen = new Set();
   for (const h of homes) {
     for (const f of ['installed_plugins.json', 'installed_plugins_v2.json']) {
-      const j = readJson(path.join(h, 'plugins', f));
-      const plugins = j && j.plugins && typeof j.plugins === 'object' ? j.plugins : null;
+      const file = path.join(h, 'plugins', f);
+      const r = readJsonFile(file);
+      if (r.error) { unsafe.push(`${file} (could not be read: ${r.error}), so its plugins are unknown`); continue; }
+      const plugins = r.json && r.json.plugins && typeof r.json.plugins === 'object' ? r.json.plugins : null;
       if (!plugins) continue;
       for (const [id, entries] of Object.entries(plugins)) {
         for (const e of Array.isArray(entries) ? entries : [entries]) {
           if (!e || typeof e.installPath !== 'string') continue;
-          const dir = path.resolve(e.installPath);
+          if (!path.isAbsolute(e.installPath)) { unsafe.push(`the plugin ${id} (its folder is not a full path: ${JSON.stringify(e.installPath)})`); continue; }
+          const dir = path.normalize(e.installPath);
           if (seen.has(h + '\0' + dir)) continue;
           seen.add(h + '\0' + dir);
           out.push({ dir, home: h, id });
@@ -297,7 +370,7 @@ function installedPlugins(homes) {
    points at by path. */
 function pluginConfigFiles(dir) {
   const files = [path.join(dir, '.claude-plugin', 'plugin.json'), path.join(dir, 'hooks', 'hooks.json'), path.join(dir, '.mcp.json'), path.join(dir, '.lsp.json')];
-  const manifest = readJson(files[0]);
+  const manifest = readJsonFile(files[0]).json;
   if (manifest && typeof manifest === 'object') {
     for (const k of ['hooks', 'mcpServers', 'lspServers']) {
       for (const p of [].concat(manifest[k] || [])) {
@@ -311,24 +384,33 @@ function pluginConfigFiles(dir) {
 /*
  * The scripts Claude Code's start-time commands run for the agent in `dir`.
  * Returns { files, pluginDirs, unsafe }: the script files (absolute, not yet resolved through links; never an existing
- * folder), the installed plugin folders (whose own code runs, wherever they sit), and the commands whose script could
- * not be worked out.
+ * folder), the installed plugin folders (whose own code runs, wherever they sit; never the agent folder, a folder above
+ * it or the home), and what could not be worked out.
  */
 function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, managedDir: md } = {}) {
   const agentDir = path.resolve(dir);
   const raw = [];
   const unsafe = [];
-  const sources = configSources(agentDir, homes, home, { platform, managedDir: md }).map((s) => ({ ...s, json: readJson(s.file) })).filter((s) => s.json !== null);
-  /* The settings env, which hooks see: a variable every tier that sets it agrees on is known; one set two ways is not. */
+  const sources = [];
+  for (const s of configSources(agentDir, homes, home, { platform, managedDir: md })) {
+    const r = readJsonFile(s.file);
+    if (r.error) unsafe.push(`${s.file} (could not be read: ${r.error}), so the commands in it are unknown`);
+    else if (!r.missing) sources.push({ ...s, json: r.json });
+  }
+  /* The settings env, which hooks see: a variable every tier that sets it agrees on is known; one set two ways, or to
+     something other than a string, is not. */
   const envValues = new Map();
   for (const s of sources.filter((x) => x.settings)) {
     const env = s.json && typeof s.json.env === 'object' && s.json.env ? s.json.env : {};
-    for (const [k, v] of Object.entries(env)) { if (!envValues.has(k)) envValues.set(k, new Set()); envValues.get(k).add(String(v)); }
+    for (const [k, v] of Object.entries(env)) {
+      if (!envValues.has(k)) envValues.set(k, new Set());
+      envValues.get(k).add(typeof v === 'string' ? v : '\0not a string');
+    }
   }
   const settingsEnv = {};
-  for (const [k, vs] of envValues) if (vs.size === 1) settingsEnv[k] = [...vs][0];
+  for (const [k, vs] of envValues) if (vs.size === 1 && !vs.has('\0not a string')) settingsEnv[k] = [...vs][0];
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
-  const baseVars = { ...settingsEnv, HOME: home, CLAUDE_PROJECT_DIR: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
+  const baseVars = { ...settingsEnv, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
       const r = pathsOfWords(wordsOf(c, vars), agentDir, vars);
@@ -340,12 +422,20 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     const part = s.pick(s.json);
     if (part) take(commandsIn(part), baseVars, s.file);
   }
-  const plugins = installedPlugins(homes);
+  /* A plugin folder is denied whole, so one that is the agent folder, a folder above it or the home would take the
+     agent's own work away: named instead. */
+  const never = new Set([...foldersFrom(agentDir), ...(home ? [path.resolve(home)] : [])]);
+  const plugins = installedPlugins(homes, unsafe).filter((p) => {
+    if (!never.has(p.dir)) return true;
+    unsafe.push(`the plugin ${p.id} (its folder ${p.dir} holds the agent's own work, so Kosmos does not deny it whole)`);
+    return false;
+  });
   for (const p of plugins) {
     const vars = { ...baseVars, CLAUDE_PLUGIN_ROOT: p.dir, CLAUDE_PLUGIN_DATA: path.join(p.home, 'plugins', 'data', p.id.replace(/[^a-zA-Z0-9\-_]/g, '-')) };
     for (const f of pluginConfigFiles(p.dir)) {
-      const j = readJson(f);
-      if (j !== null) take(commandsIn(j), vars, f);
+      const r = readJsonFile(f);
+      if (r.error) unsafe.push(`${f} (could not be read: ${r.error}), so the commands in it are unknown`);
+      else if (!r.missing) take(commandsIn(r.json), vars, f);
     }
   }
   /* Never a folder: `cd "$CLAUDE_PROJECT_DIR"` or `rg x ~/work` names one, and denying it would take the agent's own
