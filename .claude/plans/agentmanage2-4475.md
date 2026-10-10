@@ -23,13 +23,18 @@ was reviewed over 21 rounds on #5123 (approved 10-03).
 ## Validation (re-application)
 - Focused: the step-3 tests and every test touching the token guard, the sender tokens, team and removal, plus the
   repo guards (fixture-discipline, no-brand-refs, no-name-refs, engine.reachable, the #1732 Windows guards):
-  450 + 250 pass, 0 fail. Full suite: queued.
+  450 + 250 pass, 0 fail. The full suite runs in GitHub CI on the PR (kosmos is public, so CI is free).
+- Iteration 1 (re-application review): the launch hand-off's Read rules take main's launch-folder route (#5516
+  review 3), so an app folder with a pattern character ("Kosmos (1)") names itself in launchUnsafe and the rest of
+  the guard is written, instead of refusing the whole guard. Test with a control; mutation-checked.
+- Accepted, unchanged from #5123: one torn line in ended-agents.jsonl makes endedSince answer null, so every
+  token-only removal is refused until the file is mended (the refusing direction). Bounding and mending that file is
+  #5208.
 
 ---
 
 
-Card: kosmos#4475. Stacked on boardkeychain-4491 (#4491, the board token out of a token-only agent's reach), per
-Splinter 2026-10-02 17:06: one full run of this branch (the stack's top) validates both; they merge in order.
+Card: kosmos#4475. (Originally stacked on #5122, boardkeychain-4491, which merged on 10-09; this branch is on main.)
 
 ## Done looks like
 On an enforcing board, an agent that presents only its own agent token can remove an agent it created and no other,

@@ -57,7 +57,9 @@ function agentToken(name) {
   return minted.token;
 }
 
-/* The board runs DRY_RUN, so a removal through the route here does not revoke (recordRemoval returns first): a case may
+/* What this file proves is the GATE: who may reach the removal engine, and who is refused before it. No case here shows a
+   token-only removal stopping an agent, since the engine past the gate is the person's path, unchanged by #4475.
+   The board runs DRY_RUN, so a removal through the route here does not revoke (recordRemoval returns first): a case may
    remove the same target twice (a CONTROL, then the case) without the first ending it. A real end is written with
    sendertoken.revoke, which removing, deleting what is left, and creating all call.
    A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: the time, when the

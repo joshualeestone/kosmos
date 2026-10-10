@@ -321,6 +321,7 @@ test('#4475 END TO END: an agent removes what it made with its own token; once i
     const tok2 = sendertoken.mint('chainpm').token;
     const no = await del('chainkidtwo', tok2);
     assert.equal(no.status, 403, 'a later agent named chainpm removed the old one\'s creation: ' + JSON.stringify(no.json));
+    assert.match(JSON.stringify(no.json), /an agent can remove only an agent it created/, 'refused, but not as not-yours: ' + JSON.stringify(no.json));
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
@@ -338,6 +339,7 @@ test('#4475 END TO END: an agent that makes a member under a live remote agent\'
     assert.ok(b && b.tookTokens === true, 'the birth did not record that a token already stood for the name: ' + JSON.stringify(b));
     const res = await fetch(`${base}/api/agent/remotev/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': tok } });
     assert.equal(res.status, 403, 'the agent removed the name of a remote agent it took over');
+    assert.match(await res.text(), /an agent can remove only an agent it created/, 'refused, but not as not-yours');
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
@@ -375,6 +377,7 @@ test('#4475 END TO END: a typed name whose key differs from its board name still
     assert.equal(b.tookTokens, true, 'the token on the board name was missed because the typed name\'s key was checked');
     const res = await fetch(`${base}/api/agent/remote-w/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': tok } });
     assert.equal(res.status, 403);
+    assert.match(await res.text(), /an agent can remove only an agent it created/, 'refused, but not as not-yours');
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
