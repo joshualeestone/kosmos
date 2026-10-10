@@ -1355,7 +1355,7 @@ async function tickOnce(opts) {
           UNGUARDED_SAID.delete(n);   // guarded again: a later lapse is said again (review 22)
           /* Review 24: a guard confirmed long ago (the board was down) may have lapsed and been rewritten unseen; the gap's
              refusals could be the person's own, so the agent counts from now, as if newly listed. */
-          if (Number.isFinite(st.confirmed[n]) && now - st.confirmed[n] > GUARD_GAP_MS) { collidedNow.add(n); gapNow.add(n); }
+          if (Number.isFinite(st.confirmed[n]) && now - st.confirmed[n] > GUARD_GAP_MS) gapNow.add(n);   // read again from now; a real clash this tick adds it to collidedNow below
           /* Refreshed once it is over half the gap old (review 25: refreshing every tick rewrote the state every tick). */
           if (!Number.isFinite(st.confirmed[n]) || now - st.confirmed[n] > GUARD_REFRESH_MS) st.confirmed[n] = now;
           continue;
