@@ -566,6 +566,8 @@ const SCREENS = [
       document.getElementById('plus-si-owned-lead').textContent = 'Connecting this computer as';
       document.getElementById('plus-si-owned-addr').textContent = 'sample.kosmosplus.com';
       document.getElementById('plus-si-title').textContent = 'Signing in...';
+      // A real automatic register hides the way out while it runs (it cannot be taken back): so does the shot.
+      const out = document.getElementById('plus-si-cancel'); if (out && out.parentElement) out.parentElement.hidden = true;
       plusSiKStart();
     });
     await page.waitForSelector('#plus-si-k canvas', { state: 'visible', timeout: 5000 });
