@@ -427,7 +427,7 @@ test('#5406 slice C review 19: on the live single-select menu, a press drawn for
   });
 });
 
-test('#5406 slice C review 19: a typed message to an agent whose question is being answered waits (busy), nothing typed', async () => {
+test('#5406 slice C review 19: a typed message to an agent whose question is being answered is refused busy, nothing typed', async () => {
   await withMenu(async (calls) => {
     const roster = require('./engine/status').snapshot().agents;
     const press = chat.answerQuestionMenu('casey', 1, roster, { label: 'Apple' });   // holds the slot through its settle

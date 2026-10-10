@@ -19,7 +19,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 function load(env) {
   const fn = new Function('esc', 'CURRENT', 'fetch', 'pjSentence', 'paintTalk', 'document', 'CSS', 'TALK_SENDING', 'TALK_FLIGHT', REGION
-    + '\nreturn { from: dmChoicesFrom, html: dmChoicesHtml, press: dmChoicePress, get: () => DM_CHOICES, answered: (k) => DM_CHOICE_ANSWERED.get(k) || null };');
+    + '\nreturn { from: dmChoicesFrom, html: dmChoicesHtml, press: dmChoicePress, get: () => DM_CHOICES, answered: (k) => DM_CHOICE_ANSWERED.get(k) || null, blocksSend: dmChoiceBlocksSend };');
   const doc = env.document || { activeElement: null, getElementById: () => null };
   return fn(esc, env.CURRENT, env.fetch || (async () => ({ ok: true, json: async () => PLACED })), (s) => s, env.paintTalk || (async () => {}), doc, { escape: (x) => x }, Boolean(env.typedFlight), env.typedFlight || null);
 }
@@ -294,4 +294,36 @@ test('#5406 C: a 5xx after a press may have followed the key, so it reads as cou
   const typed = load({ CURRENT: CUR, typedFlight: CUR.sessionName });
   typed.from(BODY, CUR.sessionName);
   assert.doesNotMatch(typed.html(Q), /Sending…/, 'a typed send read as the choice being sent');
+});
+
+test('#5406 C review 20: a typed send while a press is in the air is refused with the wait line, which the press clears when it ends', async () => {
+  const CUR = realCard();
+  const line = { textContent: '' };
+  let release;
+  const doc = { activeElement: null, getElementById: (id) => (id === 'd-say-msg' ? line : null) };
+  const m = load({ CURRENT: CUR, document: doc, fetch: async () => { await new Promise((r) => { release = r; }); return { ok: true, json: async () => PLACED }; } });
+  m.from(BODY, CUR.sessionName);
+  assert.equal(m.blocksSend(CUR.sessionName), false, 'CONTROL: no press in the air, the send goes');
+  const press = m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  assert.equal(m.blocksSend(CUR.sessionName), true, 'a typed send went out while a press was in the air');
+  assert.equal(line.textContent, 'Still sending your choice. Try again in a moment.');
+  assert.equal(m.blocksSend('other-agent'), false, 'another agent\'s send was blocked');
+  release(); await press;
+  assert.equal(line.textContent, '', 'the wait line outlived the press');
+});
+
+test('#5406 C review 20: after a could-not-confirm press (buttons locked) focus goes to the message box', async () => {
+  const CUR = realCard();
+  const focused = []; const body = {};
+  const doc = { activeElement: body, body, getElementById: (id) => (id === 'd-say' ? { focus: () => focused.push('say') } : null) };
+  const m = load({ CURRENT: CUR, document: doc, fetch: async () => ({ ok: true, json: async () => ({ delivery: { state: 'unconfirmed' } }) }) });
+  m.from(BODY, CUR.sessionName);
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  assert.deepEqual(focused, ['say'], 'focus was left on the page behind locked buttons');
+});
+
+test('#5406 C review 20 pin: the composer send asks dmChoiceBlocksSend before it takes off', () => {
+  const at = SCRIPT.indexOf('if (dmChoiceBlocksSend(CURRENT.sessionName)) return;');
+  assert.notEqual(at, -1, 'the composer send no longer checks for a press in the air');
+  assert.ok(at < SCRIPT.indexOf('TALK_SENDING = true;', at - 4000) || SCRIPT.indexOf('TALK_SENDING = true;', at) > at, 'the check comes after the send takes off');
 });
