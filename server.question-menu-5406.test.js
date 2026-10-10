@@ -196,14 +196,19 @@ test('#5406 review 3: a question that changed between the read and the key is re
 });
 
 test('#5406 slice C: the thread GET serves the menu\'s options and its identity (asked), the twin of what a press is checked against', async () => {
-  await withMenu(async () => {
+  await withMenu(async (calls) => {
     const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
     assert.equal(back.asking, true);
     assert.deepEqual(back.options, [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana' }, { n: 3, label: 'Cherry' }]);
     assert.equal(back.asked, 'Which fruit do you want?');
-    // CONTROL: the identity it serves is the one a press must send; a press with it goes through.
+    // CONTROL (the positive one every refusal in this file leans on): the identity it serves is the one a press must
+    // send, and a press with it goes through AS THE KEY. Status alone is not enough: this route answers 200 for
+    // could_not too.
     const r = await post({ text: '1', chose: 'Apple', asked: back.asked });
     assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.delivery.state, 'placed', JSON.stringify(r.json.delivery));
+    assert.deepEqual(calls.keys(), ['1'], 'the press did not go out as the bare key');
+    assert.equal(calls.pasted(), '', 'the press was pasted');
   });
 });
 
@@ -352,4 +357,24 @@ test('#5406 slice C: an automatic message cannot carry a question identity (it w
     assert.deepEqual(calls.keys(), []);
     assert.equal(calls.pasted(), '', 'an automatic message naming a question was pasted into the menu');
   });
+});
+
+/* A press with words but no identity is not this route's to refuse: no client sends one, and #5754's delivery floor
+   refuses ANY typing into a permission prompt (words, a digit or a sentence). This pins the identity's shape only. */
+test('#5406 slice C: a question identity that is not text is refused, nothing typed', async () => {
+  const PERM = '⏺ Update(a.js)\n\n Do you want to make this edit to a.js?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend';
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: PERM })]);
+  try {
+    const calls = [];
+    chat.setRunner((args) => {
+      calls.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: PERM, err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const bad = await post({ text: '1', chose: 'Yes', asked: { q: 'x' } });
+    assert.equal(bad.status >= 400, true, JSON.stringify(bad.json));
+    assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), [], 'a button send was typed into a permission prompt');
+  } finally { chat.resetForTests(); board.restore(); }
 });

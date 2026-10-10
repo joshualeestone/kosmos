@@ -37408,7 +37408,8 @@ function dmChoicesHtml(m) {
   /* Answered: the menu can stay up a few seconds after the key, and a second press then would answer twice. */
   const locked = Boolean(done && done.asked === DM_CHOICES.asked && Date.now() - done.at < DM_CHOICE_ANSWERED_MS);
   const off = flying || locked;
-  const note = flying ? 'Sending…' : (locked && done.sure) ? 'Sent.' : '';
+  const pressing = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);   // a typed send in the air draws them off but says nothing here
+  const note = pressing ? 'Sending…' : (locked && done.sure) ? 'Sent.' : '';
   return '<div class="dmchoices" role="group" aria-label="Choices">'
     + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '"' + (off ? ' disabled' : '') + '>'
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
@@ -37440,7 +37441,9 @@ async function dmChoicePress(btn) {
        else after the server acted (`unconfirmed`, or a 200 with no verdict we can read) may have sent the key. */
     const d = (out && out.delivery) || {};
     ok = res.ok && d.state === 'placed';
-    if (!res.ok) note = pjSentence(out.error || 'that did not go; try again');
+    /* A 5xx may come after the key went (a crash or a proxy past the send), so it cannot be read as "did not go". */
+    if (res.status >= 500) note = DM_CHOICE_UNSURE;
+    else if (!res.ok) note = pjSentence(out.error || 'that did not go; try again');
     else if (d.state === 'could_not') note = pjSentence(d.because || 'that did not go; try again');
     else if (!ok) note = DM_CHOICE_UNSURE + (d.because ? ' ' + pjSentence(d.because) : '');
   } catch {
@@ -37465,7 +37468,7 @@ async function dmChoicePress(btn) {
   /* A success is announced quietly in the live region that survives repaints (the bubble's own is redrawn with it). */
   if (ok && CURRENT && CURRENT.sessionName === session) {
     const quiet = document.getElementById('d-reply-say');
-    if (quiet) quiet.textContent = 'Sent.';
+    if (quiet) { quiet.textContent = ''; quiet.textContent = 'Sent.'; }   // cleared first, so a second answer is announced too
     const line = document.getElementById('d-say-msg');   // an earlier refusal's sentence is no longer true
     if (line && line.textContent === DM_CHOICE_LAST_REFUSAL) line.textContent = '';
   }

@@ -39,7 +39,9 @@ no banner (Josh #3419).
 - Pressable never while a press or a typed send to that agent is in the air (the typed send also waits for a press).
 - Any Claude screen that is not the single-select question menu (status.claudeQuestionMenu), such as a permission
   prompt: it reads as numbered options, but a press there would be pasted and its Enter would pick the highlighted
-  option. The server also refuses (409) a press at such a screen, so a crafted one is never typed.
+  option. The server also refuses (409) a press that names its question
+  (`asked`) at such a screen. Typing of any kind into a permission prompt (a words-only press, a digit, a sentence) is
+  #5754's delivery floor, a separate PR.
 - The setup guide's thread; a question the agent reported rather than one on its screen; a question row the engine did
   not add (withQuestionRow skips it when the last stored message already says the same text).
 
