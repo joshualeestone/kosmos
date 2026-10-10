@@ -163,7 +163,7 @@
     },
     {
       "title": "Kosmos waits while Claude asks you",
-      "line": "While an agent shows a Claude permission prompt or question, Kosmos no longer types into it on its own, and asks you to answer it there.",
+      "line": "While an agent shows a Claude prompt or question, Kosmos types nothing into it on its own; if you send, you are told to answer it there.",
       "icon": "shield",
       "rank": 8.5,
       "since": "0.7.37",
