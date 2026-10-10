@@ -244,6 +244,44 @@ async function stubRebootNote(page) {
   const note = { lastAliveAt: new Date(now - 9 * 60000).toISOString(), bootAt: new Date(now - 7 * 60000).toISOString(), upAt: new Date(now - 60000).toISOString() };
   await page.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note }) }).catch(() => {}));
 }
+/* #5785: the Kosmos+ sign-in card mid-connect. `owned`: the automatic connect (address line, centred); otherwise a typed
+   name (its field and the disabled button stay, "Signing in..." in the status line). */
+async function plusSigningIn(page, owned) {
+  await at(page, '?tab=settings&sec=plus');
+  await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
+  await page.evaluate((own) => {
+    for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+    PLUS_SI_REGISTERING = true;   // as a real register: paintPlus keeps state 2 up
+    document.getElementById('plus-state2').hidden = false;
+    plusSiShow('plus-si-register');
+    document.getElementById('plus-si-title').textContent = 'Signing in...';
+    if (own) {
+      const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
+      const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
+      document.getElementById('plus-si-owned').hidden = false;
+      document.getElementById('plus-si-owned-lead').textContent = 'Connecting this computer as';
+      document.getElementById('plus-si-owned-addr').textContent = 'sample.kosmosplus.com';
+      // A real automatic register hides the way out while it runs (it cannot be taken back): so does the shot.
+      const out = document.getElementById('plus-si-cancel'); if (out && out.parentElement) out.parentElement.hidden = true;
+    } else {
+      document.getElementById('plus-si-owned').hidden = true;
+      const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = false;
+      const name = document.getElementById('plus-si-name'); if (name) name.value = 'sample';
+      const go = document.getElementById('plus-si-register-go'); if (go) { go.hidden = false; go.disabled = true; }
+      plusSiMsg('Signing in...');
+    }
+    plusSiKStart(own);
+  }, owned);
+  await page.waitForSelector('#plus-si-k canvas', { state: 'visible', timeout: 5000 });
+  await page.mouse.move(1, 1);
+  await page.waitForTimeout(1600);   // mid-gather, so the shot shows dots on their way into the K
+  // Review 3: the card is still the one meant (no tick repainted it) at the moment of the shot.
+  if (!(await page.isVisible('#plus-state2')) || !(await page.isVisible('#plus-si-k canvas'))) throw new Error('plus-signing-in: the sign-in card was repainted away before the shot');
+}
+async function plusSigningInEnd(page) {
+  await page.evaluate(() => { PLUS_SI_REGISTERING = false; if (typeof plusSiKStop === 'function') plusSiKStop(); });
+}
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -552,28 +590,15 @@ const SCREENS = [
   } },
   /* #5785: the sign-in card while this computer connects (the register step): the big K loader above "Signing in...",
      the "Connecting this computer as <name>.kosmosplus.com..." line under it. Put in that state with the page's own
-     functions (no coordinator here); the loader is the real one, caught mid-animation. */
+     functions (no coordinator here); the loader is the real one, caught mid-animation. PLUS_SI_REGISTERING is set as a
+     real register sets it, so the status tick does not repaint the card to the not-signed-in state mid-shot. */
   { name: 'plus-signing-in', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
-    await at(page, '?tab=settings&sec=plus');
-    await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
-    await page.evaluate(() => {
-      for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
-      document.getElementById('plus-state2').hidden = false;
-      plusSiShow('plus-si-register');
-      const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
-      const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
-      document.getElementById('plus-si-owned').hidden = false;
-      document.getElementById('plus-si-owned-lead').textContent = 'Connecting this computer as';
-      document.getElementById('plus-si-owned-addr').textContent = 'sample.kosmosplus.com';
-      document.getElementById('plus-si-title').textContent = 'Signing in...';
-      // A real automatic register hides the way out while it runs (it cannot be taken back): so does the shot.
-      const out = document.getElementById('plus-si-cancel'); if (out && out.parentElement) out.parentElement.hidden = true;
-      plusSiKStart();
-    });
-    await page.waitForSelector('#plus-si-k canvas', { state: 'visible', timeout: 5000 });
-    await page.mouse.move(1, 1);
-    await page.waitForTimeout(1600);   // mid-gather, so the shot shows dots on their way into the K
-  }, after: async (page) => { await page.evaluate(() => { if (typeof plusSiKStop === 'function') plusSiKStop(); }); } },
+    await plusSigningIn(page, true);
+  }, after: async (page) => { await plusSigningInEnd(page); } },
+  /* #5785 review 3: the same wait for a typed name: its field stays on screen, so the card keeps its left alignment. */
+  { name: 'plus-signing-in-name', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await plusSigningIn(page, false);
+  }, after: async (page) => { await plusSigningInEnd(page); } },
   { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
     await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');

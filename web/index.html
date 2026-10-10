@@ -11455,9 +11455,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 /* #5785: the branded K-to-circle loader (#2692) above "Signing in..." while this computer connects; the restart
    interstitial's canvas size. Empty (and so taking no room) the rest of the time. */
-#plus-si-k canvas { width: 88px; height: 103px; display: block; margin: 0 auto 16px; }
-/* Mona Lisa's review: while it connects, the K, the heading and the lines under it are centred, as on the restart
-   screen the loader comes from (.restart-back .restart-msg). Only then: the card's other steps keep their layout. */
+#plus-si-k canvas { width: 88px; height: 103px; display: block; margin: 0 0 16px; }
+/* Mona Lisa's review: while it connects automatically, the K, the heading and the lines under it are centred, as on
+   the restart screen the loader comes from (.restart-back .restart-msg). Only then: the card's other steps, and a
+   connect to a typed name (its name field stays on screen), keep the card's own left alignment (review 3). */
+#plus-state2.plus-si-busy #plus-si-k canvas { margin: 0 auto 16px; }
 #plus-state2.plus-si-busy #plus-si-title, #plus-state2.plus-si-busy #plus-si-owned, #plus-state2.plus-si-busy #plus-si-k-note { text-align: center; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
@@ -48298,12 +48300,12 @@ function plusSiWayOut(step) {
 }
 /* #5785: the branded K loader (#2692) while a register runs. Mounted fresh each time and removed by emptying the holder:
    startKLoader ends its frame loop once its canvas has left the page, so hiding it would leave it drawing. */
-function plusSiKStart() {
+function plusSiKStart(centred) {
   const holder = document.getElementById('plus-si-k');
   if (!holder) return;
   holder.innerHTML = '<canvas width="176" height="206" aria-hidden="true"></canvas>';
   if (typeof startKLoader === 'function') startKLoader(holder.firstElementChild);
-  const card = document.getElementById('plus-state2'); if (card) card.classList.add('plus-si-busy');
+  const card = document.getElementById('plus-state2'); if (card) card.classList.toggle('plus-si-busy', !!centred);
   const note = document.getElementById('plus-si-k-note'); if (note) note.hidden = false;
 }
 function plusSiKStop() {
@@ -49186,7 +49188,7 @@ async function plusSiDoRegister(name, owned) {
   const siSpin = document.getElementById('plus-si-spin');
   if (siTitle) siTitle.textContent = 'Signing in...';
   if (siSpin) siSpin.hidden = true;   // #5785: the big loader below replaces the small one for this wait
-  plusSiKStart();
+  plusSiKStart(owned);   // centred only for the automatic connect (a typed name keeps its field on screen)
   const kStart = Date.now();
   const kEpoch = PLUS_SI_EPOCH;   // review 1: an answer held past a Sign out or Start over is not drawn into the new step
   /* #5785: at least one whole K-into-circle loop before the answer shows (#2692's rule), so a fast connect does not
@@ -49221,7 +49223,8 @@ async function plusSiDoRegister(name, owned) {
   if (r.stale) { PLUS_SI_REGISTERING = false; return; }
   /* Review 2: only a connect that worked holds (the flash is a success's); a refusal or error shows at once. Through
      the hold the register counts as running for both kinds, so the status tick does not paint the connected view
-     early; an answer held past a Sign out or Start over is dropped (both clear the flag, in plusSiClear). */
+     early; an answer held past a Sign out or Start over is dropped (both clear the flag, in plusSiClear). Any NEW
+     bump of PLUS_SI_EPOCH reachable from this step must clear it too, or the flag stays set and pins state 2. */
   if (r.ok) {
     PLUS_SI_REGISTERING = true;
     await kHold();
