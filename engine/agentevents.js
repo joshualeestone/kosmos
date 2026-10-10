@@ -880,7 +880,11 @@ function scanText(text, calls, ctx) {
          #5686 say so). A ref of 127 or 128 characters is cut to fit, so stripping cannot recover it; real ids are far
          shorter (review 27). */
       const flagRef = refused ? ref(toolUseRef.slice(0, 126) + '-m') : toolUseRef;
-      if (category && flagRef) out.push({ agent, end: lineEnd, ms: at, at: Math.floor(at / 1000), action, rule: 'manipulation-check', targetClass: category, sessionRef, toolUseRef: flagRef });
+      /* The kind of tool for the hourly slot only (review 42): the wire's action folds every tool it does not know into
+         'run', so an MCP tool, Task or a lost call shared Bash's slot and one noisy Bash flag hid the rest for the hour.
+         Kept on the queued event, never sent (the send whitelists its fields). */
+      const kind = tool && Object.prototype.hasOwnProperty.call(ACTION, tool) ? ACTION[tool] : !tool ? 'unknown' : /^mcp__/.test(tool) ? 'mcp' : 'tool';
+      if (category && flagRef) out.push({ agent, end: lineEnd, ms: at, at: Math.floor(at / 1000), action, kind, rule: 'manipulation-check', targetClass: category, sessionRef, toolUseRef: flagRef });
     }
   }
   return out;
@@ -1193,7 +1197,8 @@ function defaultSources() {
 const isManipulation = (e) => !!e && e.rule === 'manipulation-check';
 /* The once-an-hour key of a flag: its session, category, kind of tool (review 7) and UTC hour (review 22: one a day let
    a session quoting an injection phrase in the morning hide a real one in the afternoon). At most 24 a day each. */
-const flagKey = (e) => e.sessionRef + '|' + e.targetClass + '|' + e.action + '|' + Math.floor(e.at / 3600);
+// The kind is the flag's own (review 42), or its action for a flag queued before the kind was kept.
+const flagKey = (e) => e.sessionRef + '|' + e.targetClass + '|' + (typeof e.kind === 'string' ? e.kind : e.action) + '|' + Math.floor(e.at / 3600);
 // One event per session and tool use (the coordinator keeps one row for each), so this names exactly one queued event.
 const eventKey = (e) => `${e && e.sessionRef}\u0000${e && e.toolUseRef}`;
 /* These flags are a new kind of report about every agent's received content, so a member must have accepted words

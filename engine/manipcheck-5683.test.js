@@ -1749,3 +1749,22 @@ test('#5683 slice 3 review 39: a collision mark kept while the check was off doe
   const refusals = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.filter((e) => e.rule !== 'manipulation-check').map((e) => e.toolUseRef));
   assert.ok(refusals.includes('fc-1'), 'a refusal was skipped at turn-on over a stale collision mark: ' + JSON.stringify(refusals));
 });
+
+test('#5683 slice 3 review 42: a Bash flag does not hide an MCP tool\'s in the same hour, and the kind never reaches the wire', async (t) => {
+  await clearOfHourEdge();
+  const { root, tdir, c, flagged } = await enrolled(t, 'mcpkind');
+  const file = path.join(tdir, 'mcp.jsonl');
+  fs.writeFileSync(file, '');
+  const sources = { everyAgent: () => [], transcriptDirsOf: (d) => [d], guarded: () => true, agents: () => ['Scout'], allAgents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [file] };
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: true });
+  await new Promise((r) => setTimeout(r, 1100));
+  fs.appendFileSync(file, [use('b1', 'Bash', { command: 'cat notes.txt' }), result('b1', INJECT, false)].join('\n') + '\n');
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: true });
+  fs.appendFileSync(file, [use('m1', 'mcp__mail__read', { id: '7' }), result('m1', INJECT, false)].join('\n') + '\n');
+  fs.appendFileSync(file, [use('b2', 'Bash', { command: 'cat more.txt' }), result('b2', INJECT, false)].join('\n') + '\n');
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: true });
+  assert.deepEqual(flagged(), ['b1', 'm1'], 'an MCP tool\'s flag was hidden by a Bash flag in the same hour (CONTROL: a second Bash flag is still hidden)');
+  const sent = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
+  assert.ok(sent.every((e) => !Object.prototype.hasOwnProperty.call(e, 'kind')), 'the local kind reached the wire: ' + JSON.stringify(sent));
+  assert.ok(sent.some((e) => e.toolUseRef === 'm1' && e.action === 'run'), 'CONTROL: the MCP flag still says run on the wire');
+});
