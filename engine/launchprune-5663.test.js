@@ -99,14 +99,13 @@ test('#5663: a sandbox layer past the measured ceiling is a warning (the guard i
   const dir = agentDir('lp-ceiling');
   const many = [];
   for (let i = 0; i < 1400; i++) many.push(binDir(`ceiling/pkg${i}/1.${i}/bin`));
-  // The ceiling is a macOS check (review 2's test pins the Linux side), so the platform is named, as there (#5500's Linux run).
-  const r = setup.guardTokenOnlyFolder(dir, 'lp-ceiling', { ...BASE, platform: 'darwin', atLaunch: true, panePath: many.join(path.delimiter) });
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-ceiling', { ...BASE, atLaunch: true, panePath: many.join(path.delimiter) });
   // Review 4: a warning, never a refusal (creation refuses on ok:false, and the limits are fitted to measurements).
   assert.equal(r.ok, true, JSON.stringify(r).slice(0, 200));
   assert.match(r.warning, /denied path entries across the read and write clauses \(\d+ distinct characters, \d+ in all\) are past/);
   assert.ok(readSettings(dir).sandbox.filesystem.denyWrite.length > 1000, 'the guard was not written');
   // CONTROL: the same agent with a handful of folders is whole.
-  assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, platform: 'darwin', atLaunch: true, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, atLaunch: true, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
 });
 
 test('#5663 reviews 1 and 2: only an agent launch prunes; the board\'s own start (no launch inputs) keeps what a launch wrote, even once it is gone', () => {
