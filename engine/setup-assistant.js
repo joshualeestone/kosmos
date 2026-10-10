@@ -1299,7 +1299,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps, rootsMissed);
   const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
   const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
-  /* #4475: every agent's sender-token files are Read- and Edit-denied below (tokenDirs): another agent's token would let
+  /* #4475: every agent's sender-token files are already Read- and Edit-denied below by main's tokenDirs (#4491); for
+     #4475 that matters because another agent's token would let
      this agent act as that agent, including removing the agents that one made. ONE THING IT COSTS: the Mac CLI's outbox
      keep (a send made while another Kosmos is the one open, answered 421) resolves the sender by reading that folder
      (engine/outbox.js resolveKeepSender), so for a token-only agent that send is refused, not kept.
@@ -1311,7 +1312,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const appRoot = deps.appRoot || path.resolve(__dirname, '..');
   const launchSecretDirs = [...new Set([
     ...tokenRoots.map((r) => path.join(r, 'launch-secrets')),                  // the installed supervisor: its $_app is the data root
-    ...tokenRoots.map((r) => path.join(path.dirname(r), 'launch-secrets')),    // AGENT_WORKFORCE_DATA (a named world)
+    ...tokenRoots.map((r) => path.join(path.dirname(r), 'launch-secrets')),    // the folder above a data root: when AGENT_WORKFORCE_DATA names that folder and the root is a subfolder of it (a named world); for a normal root, an extra deny on a folder that may not exist
     path.join(appRoot, 'launch-secrets'),                                      // a supervisor run from the app folder itself
   ])];
   /* #4475: and the records the board trusts about who made and who ended which agent, written only by the board and

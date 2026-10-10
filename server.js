@@ -2916,6 +2916,8 @@ function tokenOnlyRemoveRefusal(caller, target) {
   if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return REMOVE_NOT_YOURS;
   if (birth.slug !== target) return REMOVE_NOT_YOURS;   // the create acted on exactly this board name (not a cut typed name)
   if (birth.createdByName !== caller.name || birth.tookTokens === true) return REMOVE_NOT_YOURS;
+  // Every "not yours" comes first: the shared-key and cannot-check sentences below are said only to the agent's owner,
+  // so a non-owner learns nothing about the target from which sentence it gets. Keep this order.
   if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return REMOVE_NOT_YOURS;
   const others = sendertoken.keyHoldsOthers(target);
   if (others === 'other') return REMOVE_SHARED_KEY;
