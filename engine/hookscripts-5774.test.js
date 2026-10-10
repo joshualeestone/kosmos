@@ -28,7 +28,7 @@ const HOME = process.env.AGENT_WORKFORCE_HOME;
 const MANAGED = path.join(SANDBOX, 'managed');
 // The launch-PATH part is pinned empty, as in configstart-5516.test.js, so this host's PATH is not read.
 const LAUNCH_PIN = { panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [] };
-const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: HOME, runner: 'claude', runnerOf: () => 'claude', workersRoot: path.join(SANDBOX, 'workers'), managedDir: MANAGED, ...LAUNCH_PIN };
+const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: HOME, runner: 'claude', runnerOf: () => 'claude', workersRoot: path.join(SANDBOX, 'workers'), managedDir: MANAGED, managedPrefsDir: null, ...LAUNCH_PIN };   // review 19: no real managed preferences read in tests
 
 function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
@@ -827,4 +827,16 @@ test('#5774 review 18: 2>&1 after an interpreter, inline python and node narrowe
   assert.deepEqual(paths('python3 -P -c "import json"').unsafe, []);
   assert.deepEqual(paths('node -e "console.log(1)"').unsafe, [], 'node code that loads no module');
   assert.equal(paths('node -e "require(\'x\')"').unsafe.length, 1);
+});
+
+test('#5774 review 19: an assignment value is not a command; -eo pipefail; package-folder wording', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
+  assert.deepEqual(line('TZ=America/Chicago date +%H:%M'), { paths: [], runPaths: [], codePaths: [], unsafe: [] }, 'a time zone is no script');
+  assert.deepEqual(line('PYTHONPATH=/opt/lib python3 ~/h.py').codePaths, ['/H/h.py'], 'a folder value is not the program');
+  assert.deepEqual(line('BASH_ENV=/x/env.sh bash -c true').runPaths, ['/x/env.sh'], 'control: an absolute file in a value still counts');
+  assert.deepEqual(line('NODE_OPTIONS=--require=/x/pre.js node ~/s.js').runPaths, ['/x/pre.js', '/H/s.js']);
+  for (const c of ['bash -eo pipefail ~/h/x.sh', 'bash -euo pipefail ~/h/x.sh']) assert.deepEqual(line(c), { paths: ['/H/h/x.sh'], runPaths: ['/H/h/x.sh'], codePaths: ['/H/h/x.sh'], unsafe: [] }, c);
+  assert.deepEqual(line('python3.12 -X utf8 ~/s.py').unsafe, [], 'python3.12 uses python\'s table');
+  assert.match(String(line('node /opt/homebrew/lib/node_modules/srv/dist/index.js').unsafe), /package folder/, 'a package folder anywhere is named, in its own words');
 });

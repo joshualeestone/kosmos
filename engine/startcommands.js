@@ -85,9 +85,14 @@ const WRAPPER_VALUE_FLAGS = { sudo: /^-[ughpCDrtU]$/, doas: /^-[uC]$/, env: /^-[
 const VALUE_FLAGS = {
   uv: /^(?:--with|--with-requirements|--python|-p|--from|--project|--env-file|--extra|--group|--index|--package)$/,
   deno: /^(?:--config|-c|--import-map|--env-file|--lock|--location|--cert)$/, bun: /^(?:--env-file|--config|-c)$/,
-  bash: /^-[oO]$/, sh: /^-[oO]$/, zsh: /^-[oO]$/, ruby: /^-[Ir]$/, perl: /^-[IM]$/, osascript: /^-l$/, tsx: /^--tsconfig$/,
+  // Review 19: a cluster ending in o takes the value too (bash -eo pipefail).
+  bash: /^-[A-Za-z]*[oO]$/, sh: /^-[A-Za-z]*[oO]$/, zsh: /^-[A-Za-z]*[oO]$/, ruby: /^-[Ir]$/, perl: /^-[IM]$/, osascript: /^-l$/, tsx: /^--tsconfig$/,
   python: /^-[XWm]$/, python3: /^-[XWm]$/, node: /^(?:--env-file|--inspect-port|--title)$/,
 };
+/* Review 19: a program's table by its family too (python3.12 is python3's, zsh's and dash's are bash's). */
+function valueFlags(prog) {
+  return VALUE_FLAGS[prog] || (/^python[0-9.]*$/.test(prog) ? VALUE_FLAGS.python3 : /^(?:da|k|c|tc)?sh$/.test(prog) ? VALUE_FLAGS.bash : null);
+}
 /* python -m mod: a module, not a script file (a module in the agent folder is a stated gap). */
 const MODULE_FLAG = /^python[0-9.]* -m$/;
 /* A package name (npx @scope/pkg), not a path. */
@@ -329,7 +334,17 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
   const assignment = (w, t) => {
     const name = t.slice(0, t.indexOf('='));
     const value = t.slice(t.indexOf('=') + 1);
-    if (name !== 'PATH') { more(value); return; }
+    if (name !== 'PATH') {
+      /* Review 19: a value is not a command line (TZ=America/Chicago, PYTHONPATH=dir): only an absolute file in it is
+         code a program may load (BASH_ENV=/x.sh, NODE_OPTIONS=--require=/x.js), never the program position. */
+      for (const v of shellWords(value, vars)) {
+        if (v.dynamic) continue;
+        let t = v.text;
+        if (t.startsWith('-') && t.includes('=')) t = t.slice(t.indexOf('=') + 1);
+        if (path.isAbsolute(t) && !SEALED.test(t)) { paths.push(path.normalize(t)); runPaths.push(path.normalize(t)); }
+      }
+      return;
+    }
     if (w.dynamic) { unsafe.push('a PATH made when the command runs'); return; }
     for (const c of value.split(':')) {
       if (!c || c === PATH_MARK) continue;
@@ -461,7 +476,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     const glued = isFlag && !text.includes('=') && /^-[A-Za-z]{1,2}(?:\/|~\/|\.{1,2}\/)/.test(text);
     const flagScript = (flagScriptNext && !isHead && !isFlag) || valueCode;
     flagScriptNext = !isHead && !w.dynamic && !!(SCRIPT_FLAG[prog] && SCRIPT_FLAG[prog].test(text));
-    if (isFlag && !w.dynamic && !flagScriptNext && VALUE_FLAGS[prog] && VALUE_FLAGS[prog].test(text)) { skipNext = true; if (MODULE_FLAG.test(prog + ' ' + text)) { scriptSlot = false; folderRunner(`${prog} -m`); } continue; }
+    if (isFlag && !w.dynamic && !flagScriptNext && valueFlags(prog) && valueFlags(prog).test(text)) { skipNext = true; if (MODULE_FLAG.test(prog + ' ' + text)) { scriptSlot = false; folderRunner(`${prog} -m`); } continue; }
     // A flag that carries a path (--require=/x.js): the part after the first '=', when it looks like a path (review 4:
     // --max-old-space-size=4096 names no file).
     const flagValue = isFlag && (text.includes('=') || glued);
@@ -537,7 +552,9 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       const pkg = (isHead || codeSlot) ? /^(.*?)\/(?:node_modules|\.?venv|vendor)\//.exec(p) : null;
       if (pkg) {
         const place = inAgentFolder(pkg[1]) ? 'the agent folder' : pkg[1];
-        if (deferRunners) runners.push({ name: path.basename(p), where: pkg[1], place }); else unsafe.push(runnerSay(path.basename(p), place));
+        // Review 19: its own wording: the command already names a full path, and the fix is where the package lives.
+        const say = `${path.basename(p)} runs from a package folder (${place}) and loads the rest of its code from there; install it where the agent cannot write, or run a script that loads nothing from a folder the agent can write`;
+        if (deferRunners) runners.push({ name: path.basename(p), where: pkg[1], place, say }); else unsafe.push(say);
       }
     }
   }
@@ -796,7 +813,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const isCovered = (w) => w !== UNKNOWN_RUN_CWD && coveredDirs.some((d) => w === d || w.startsWith(d + path.sep));
   for (const x of runnerSeen) {
     if (isCovered(x.where)) continue;
-    unsafe.push(`${runnerSay(x.name, x.place)} (in ${x.from})`);
+    unsafe.push(`${x.say || runnerSay(x.name, x.place)} (in ${x.from})`);
   }
   return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], unsafe: [...new Set(unsafe)] };
 }
