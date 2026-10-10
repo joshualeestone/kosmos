@@ -16290,8 +16290,7 @@ const server = http.createServer(async (req, res) => {
            so an ordinary message costs no extra read. Not for the automatic hello, which is never an answer. */
         let qmenuAnswer = null;
         if (!automatic && seenNow) {
-          const look = seenNow;
-          const cq = (look && look.text) ? require('./engine/status').claudeQuestionMenu(look.text) : null;
+          const cq = seenNow.text ? require('./engine/status').claudeQuestionMenu(seenNow.text) : null;
           if (cq) {
             const said = String(body.text).trim();
             const opt = /^\d{1,2}$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
@@ -16299,8 +16298,12 @@ const server = http.createServer(async (req, res) => {
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label });
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
               qmenuAnswer = r;
+            } else if (chose) {
+              // Review round 1: a button is a choice; one carrying files or a reply is not sent as a dismissal.
+              const e = new Error('a choice is sent on its own; send the files or the reply as a message after it');
+              e.status = 409; throw e;
             } else {
-              const c = await chat.closeQuestionMenu(name, roster);
+              const c = await chat.closeQuestionMenu(name, roster, { question: cq.question });
               if (!c.ok) { const e = new Error(c.because); e.status = 409; throw e; }
             }
           }

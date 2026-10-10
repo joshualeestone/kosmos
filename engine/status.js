@@ -2345,6 +2345,17 @@ const ASKING_GENERIC = 'it is asking you something';
 /* The live safeguards menu's "1. Switch automatically" row (its index in text.split('\n')) and the model it would
    leave, or null. ONE rule, shared by safeguardsMenu (the board's reason) and chat.questionIn (#5051: where the
    detail page finds the question), so the two cannot disagree about which menu is live. */
+function safeguardsMenuAt(text) {
+  const rows = String(text == null ? '' : text).split('\n').map((r) => r.replace(/^[\s│❯›>]+/, '').trimEnd());
+  const first = rows.findIndex((r) => /^1\. Switch automatically$/.test(r));
+  if (first < 0) return null;
+  const lastOne = rows.reduce((at, r, i) => (/^1\.\s/.test(r) ? i : at), -1);
+  if (lastOne !== first) return null;
+  const stay = rows.slice(first + 1, first + 4).map((r) => /^2\. Stay on (\S.{0,40})$/.exec(r)).find(Boolean);
+  if (!stay) return null;
+  return { at: first, model: stay[1] };
+}
+
 /* kosmos#5406 part 2: Claude Code's question menu (its AskUserQuestion tool), when it is the LIVE screen. Measured on
    Claude Code 2.1.29x (Haiku 5.5, 2026-10-09): a "☐ <header>" line, the question, then options "❯ 1. Apple" /
    "  2. Banana", each optionally followed by an indented description line, then "N. Type something." and, under a
@@ -2390,14 +2401,21 @@ function claudeQuestionMenu(text) {
   }
   if (opts.length < 2 || selected !== 1) return null;
   if (opts.some((o, k) => o.n !== k + 1)) return null;
-  // The question: the nearest non-blank line above the first option; the header ("☐ ...") above it, if any.
+  /* The question: the run of non-blank lines just above the first option (Claude Code wraps a long question itself,
+     so it can be several lines; review round 1), joined; the header ("☐ ...") above it, if any. */
   let q = -1;
   for (let i = firstOpt - 1; i >= Math.max(0, firstOpt - 6); i -= 1) if (lines[i].trim()) { q = i; break; }
   if (q < 0 || CLAUDE_QMENU_OPTION.test(lines[q]) || /^\s*[─━-]{3,}\s*$/.test(lines[q])) return null;   // a rule is no question
-  let at = q;
-  for (let i = q - 1; i >= Math.max(0, q - 4); i -= 1) {
+  const HEADER = /^\s*[☐☒✔✓]\s/;
+  let top = q;
+  for (let i = q - 1; i >= Math.max(0, q - 8); i -= 1) {
+    if (!lines[i].trim() || HEADER.test(lines[i]) || /^\s*[─━-]{3,}\s*$/.test(lines[i])) break;
+    top = i;
+  }
+  let at = top;
+  for (let i = top - 1; i >= Math.max(0, top - 4); i -= 1) {
     if (!lines[i].trim()) continue;
-    if (/^\s*[☐☒✔✓]\s/.test(lines[i])) {
+    if (HEADER.test(lines[i])) {
       if ((lines[i].match(/[☐☒✔✓]/g) || []).length > 1 || /Submit/.test(lines[i])) return null;   // several questions
       at = i;
     }
@@ -2405,20 +2423,13 @@ function claudeQuestionMenu(text) {
   }
   const FREE = /^(Type something\.?|Chat about this)$/;
   const options = opts.filter((o) => !FREE.test(o.label));
-  if (options.length < 1) return null;
-  return { at, question: lines[q].trim(), options, count: opts.length };
+  /* Review round 1: the footer alone is not this menu. Its own free-answer entry ("Type something." / "Chat about
+     this") is what tells it from a permission prompt drawn with the same footer, where Escape would refuse. */
+  if (options.length < 1 || options.length === opts.length) return null;
+  const question = lines.slice(top, q + 1).map((l) => l.trim()).join(' ');
+  return { at, question, options, count: opts.length };
 }
 
-function safeguardsMenuAt(text) {
-  const rows = String(text == null ? '' : text).split('\n').map((r) => r.replace(/^[\s│❯›>]+/, '').trimEnd());
-  const first = rows.findIndex((r) => /^1\. Switch automatically$/.test(r));
-  if (first < 0) return null;
-  const lastOne = rows.reduce((at, r, i) => (/^1\.\s/.test(r) ? i : at), -1);
-  if (lastOne !== first) return null;
-  const stay = rows.slice(first + 1, first + 4).map((r) => /^2\. Stay on (\S.{0,40})$/.exec(r)).find(Boolean);
-  if (!stay) return null;
-  return { at: first, model: stay[1] };
-}
 function safeguardsMenu(tail) {
   const live = safeguardsMenuAt(tail);
   if (!live) return null;

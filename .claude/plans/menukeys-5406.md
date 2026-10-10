@@ -20,3 +20,9 @@ path (part 1 stops them reaching the person).
 
 Weakest premise: that the card is "asking" while this menu is up (measured through status.classify via the fleet
 fixture). A managed agent whose own report says otherwise keeps today's path.
+
+## Review 1
+- A wrapped question is read whole (the run of lines above the options), header kept.
+- The footer alone is not this menu: a free-answer entry (Type something. / Chat about this) is required, so a permission prompt drawn with the same footer is never closed with Escape.
+- Escape closes only the question the person saw; a button press carrying files or a reply is refused (409), never recorded as a choice.
+- Known gap, filed as #5743: room posts and automatic deliveries still paste into the menu (decide hold vs close at the delivery level).
