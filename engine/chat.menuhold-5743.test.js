@@ -27,7 +27,10 @@ const SCREENS = path.join(__dirname, '..', 'test-support', 'claude-screens');
 const MENU = fs.readFileSync(path.join(SCREENS, 'question-menu-2.1.29x.txt'), 'utf8');
 const MULTISELECT = fs.readFileSync(path.join(SCREENS, 'question-menu-multiselect-2.1.29x.txt'), 'utf8');
 const MULTIQUESTION = fs.readFileSync(path.join(SCREENS, 'question-menu-multiquestion-2.1.29x.txt'), 'utf8');
-/* A permission prompt drawn with the same footer: not this menu (no free-answer entry), so this card leaves it alone. */
+/* #5754: Claude's permission prompts, real captures (2.1.296) and an older build's footer. Not the question menu (no
+   free-answer entry), but the floor refuses and holds on them too: their Enter approves the highlighted Yes. */
+const PERM_BASH = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-2.1.296.txt'), 'utf8');
+const PERM_EDIT = fs.readFileSync(path.join(SCREENS, 'permission-prompt-edit-2.1.296.txt'), 'utf8');
 const PERMISSION = 'Bash command\n\n  ls\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No, and tell Claude what to do differently (esc)\n\nEnter to select · ↑/↓ to navigate · Esc to cancel';
 
 test.beforeEach(() => { chat.resetForTests(); });
@@ -94,9 +97,7 @@ test('#5743 the synchronous sender is refused too', async () => {
   });
 });
 
-/* The permission-prompt arm pins only that THIS card's floor does not fire there. It does not say typing into a
-   permission prompt is right (its Enter likely takes the highlighted "Yes"): that is open on #5406. */
-test('#5743 CONTROLS: an idle agent is typed into as before; a permission prompt is not refused by this floor', async () => {
+test('#5743 CONTROL: an idle agent is typed into as before, and pays no screen read', async () => {
   await onScreen('⏺ Done.\n\n────────\n❯ \n────────\n  bypass permissions on (shift+tab to cycle)', 'idle', async (board, calls) => {
     const v = await chat.deliverAutomaticAsync('casey', 'A line for Casey.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
@@ -104,11 +105,37 @@ test('#5743 CONTROLS: an idle agent is typed into as before; a permission prompt
     // An ordinary delivery pays no extra screen read: only a card the snapshot already calls needs_you is looked at.
     assert.equal(calls.filter((c) => c[0] === 'capture-pane').length, 0, 'an idle agent\'s screen was read before typing');
   });
-  await onScreen(PERMISSION, 'needs_you', async (board, calls) => {
-    const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
-    assert.doesNotMatch(String(v.because), /showing a question on its screen/, 'this floor fired on a permission prompt');
-  });
 });
+
+test('#5754 the detector: both real permission prompts and an older footer are up; the question menus, trust and idle are not', () => {
+  for (const [name, t] of [['bash', PERM_BASH], ['edit', PERM_EDIT], ['older footer', PERMISSION]]) {
+    assert.equal(status.claudePermissionPromptUp(t), true, name);
+  }
+  for (const [name, t] of [['menu', MENU], ['multiselect', MULTISELECT], ['multiquestion', MULTIQUESTION]]) {
+    assert.equal(status.claudePermissionPromptUp(t), false, name + ' read as a permission prompt');
+  }
+  const TRUST = ' Quick safety check: Is this a project you created or one you trust?\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel';
+  assert.equal(status.claudePermissionPromptUp(TRUST), false, 'the trust dialog (its own floor) read as a permission prompt');
+  const IDLE_UNDER = '\n\n⏺ Done.\n\n' + '─'.repeat(40) + '\n❯ \n' + '─'.repeat(40) + '\n  bypass permissions on (shift+tab to cycle)\n';
+  assert.equal(status.claudePermissionPromptUp(PERM_BASH + IDLE_UNDER), false, 'an answered prompt in scrollback read as live');
+});
+
+for (const [name, screen] of [['bash', PERM_BASH], ['edit', PERM_EDIT], ['older footer', PERMISSION]]) {
+  test(`#5754 a ${name} permission prompt: a sender is refused with nothing typed (its Enter would approve), a timer line is HELD`, async () => {
+    await onScreen(screen, 'needs_you', async (board, calls) => {
+      const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
+      assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
+      assert.match(v.because, /asking for permission on its screen/);
+      assert.doesNotMatch(v.because, /direct messages/, 'pointed at a route that cannot answer a permission prompt');
+      const h = await chat.deliverAutomaticAsync('casey', 'A timer line for Casey.', board.agents);
+      assert.equal(h.held, true, JSON.stringify(h));
+      assert.equal(h.heldBy, 'menu');
+      assert.equal(chat.deliverAutomatic('casey', 'A timer line for Casey.', board.agents).held, true);
+      assert.equal(chat.deliver('casey', 'A task line for Casey.', board.agents).state, chat.DELIVERY.COULD_NOT);
+      assert.deepEqual(calls.typed(), [], 'something was typed into the permission prompt');
+    });
+  });
+}
 
 test('#5743 decided: a screen read that FAILS is not a refusal (needs_you covers every question; refusing would block replies on one bad capture)', async () => {
   const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);

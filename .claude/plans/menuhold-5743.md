@@ -1,4 +1,4 @@
-# #5743: never paste into Claude's question menu (room posts and automatic deliveries)
+# #5743 and #5754: never type into Claude's question menu or permission prompt (rooms, timers, every sender)
 
 Card: joshualeestone/kosmos#5743. Follow-up to #5406 slice A (merged #5746), which fixed the direct-message route only.
 
@@ -53,8 +53,11 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
   quota's) now also asks chat.menuHeld: a stuck agent on its menu is not convened, nothing typed and no attempt spent,
   and a peer on its menu is left out of the asks like any unreachable peer. The question is the person's to answer.
 
-- Permission prompts are out of scope: this floor does not fire there, and typing into one (its Enter likely takes the
-  highlighted Yes) is the open half of #5406, recorded there.
+- #5754 (priority, Splinter 2026-10-09 23:51) rides this branch: Claude's PERMISSION prompt gets the same floor.
+  Measured on 2.1.296 through the 0.7.35 delivery code into a real prompt: both delivery paths reported placed while the
+  prompt approved Yes and the command ran. status.claudePermissionPromptUp (an "Esc to cancel" footer at the bottom, a
+  "1. Yes" row and a "Do you want to" question just above it; both real captures plus the older select footer) feeds
+  the same refusal and hold, with its own sentence (answer it in the window; the DM route cannot answer it).
 
 ## Weakest premise
 
