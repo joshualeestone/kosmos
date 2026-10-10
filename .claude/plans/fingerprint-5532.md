@@ -16,6 +16,7 @@ company, and `thisComputer` cannot tell them apart.
     no entitlement). A successful read is kept; a failed one is retried after a minute; after ten minutes of failing it gives up, and the
     wait then doubles up to an hour.
     Windows: null until the Windows owner builds MachineGuid (spec on #5532). Anything else: null.
+    (Since built: MachineGuid through reg.exe then PowerShell, on this retry rule; see fingerprint-5532-win32b.md.)
 - Nothing calls it yet: enroll, leave and the rollup send it once the coordinator accepts the field (v1.5).
 
 ## Decided
