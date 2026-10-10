@@ -43,7 +43,9 @@ function settingModelName(name, deps) {
   const d = deps || realDeps();
   let planned; let sess; let startedAt;
   try { planned = d.planned(name); } catch { return null; }
-  if (!planned || typeof planned.id !== 'string' || !/\d/.test(planned.id)) return null;   // an alias picks by design
+  // An alias picks a model by design, so there is no switch to report: a versionless one (auto, flash, pro) and, review 5,
+  // an auto-routing one that carries a version (auto-gemini-2.5).
+  if (!planned || typeof planned.id !== 'string' || !/\d/.test(planned.id) || /^auto(?:-|$)/i.test(planned.id.trim())) return null;
   try { sess = d.session(name); } catch { return null; }
   if (!sess || !sess.found || typeof sess.model !== 'string' || !sess.model || !Number.isFinite(sess.modelAt)) return null;
   try { startedAt = d.startedAt(name); } catch { return null; }
