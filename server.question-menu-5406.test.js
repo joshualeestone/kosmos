@@ -438,3 +438,26 @@ test('#5406 slice C review 19: a typed message to an agent whose question is bei
     assert.equal((await press).ok, true);
   });
 });
+
+test('#5406 slice C review 21: the cursor moving inside the single-select menu keeps its identity, so a press drawn before the move still goes as the key', async () => {
+  const MOVED = MENU.replace('❯ 1. Apple', '  1. Apple').replace('  2. Banana', '❯ 2. Banana');
+  assert.notEqual(MOVED, MENU, 'premise: the highlight moved');
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+  try {
+    const keys = [];
+    let screen = MOVED;   // the person arrowed down after the page drew the buttons
+    chat.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: screen, err: '' };
+      if (args[0] === 'send-keys') { keys.push(args[args.length - 1]); if (/^\d$/.test(args[args.length - 1])) screen = '⏺ Apple it is.\n\n❯ \n'; }
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const asked = chat.questionAbove(chat.questionIn(MENU, 'claude').text);
+    assert.equal(chat.questionAbove(chat.questionIn(MOVED, 'claude').text), asked, 'premise: the identity clamps');
+    const r = await post({ text: '1', chose: 'Apple', asked });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.delivery.state, 'placed', JSON.stringify(r.json.delivery));
+    assert.deepEqual(keys, ['1'], 'the press did not go as the key after the cursor moved');
+  } finally { chat.resetForTests(); board.restore(); }
+});
