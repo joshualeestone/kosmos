@@ -34,6 +34,13 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
 - Under the room brake (AGENT_WORKFORCE_ROOM_HOLD_OFF=1) a colleague's post goes through plain deliver, so a member on
   its menu is refused, not held and kept (before this card it was typed into the menu).
 
+- A post held behind a question left up for more than two hours ages out like any held room post (HELD_TELL_MAX_MS);
+  the sender was told it was held. Same policy as the #4624 idle hold; not changed here.
+- connlost-heal's nudge uses plain deliver and counts a try first; a connection-lost card is not expected to read
+  needs_you on this menu, so it is not special-cased.
+- The direct-message close-then-deliver path runs through this floor: server.question-menu-5406.test.js ("any other
+  reply closes the menu with Escape first, then goes as a message") reads the screen again after the Escape and types.
+
 ## Weakest premise
 
 The snapshot reads needs_you while the menu is up. Not caught, recorded rather than fixed here (each needs the board's

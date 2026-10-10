@@ -58,6 +58,7 @@ test('#5743 the detector: every real menu form is up, a permission prompt and an
     assert.equal(status.claudeQuestionMenuUp(s), true, name);
   }
   assert.equal(status.claudeQuestionMenuUp(PERMISSION), false, 'a permission prompt read as the question menu');
+  assert.equal(status.claudeQuestionMenuUp(MENU + '\n\n⏺ Apple it is.\n\n' + PERMISSION), false, 'an old menu in scrollback above a live permission prompt read as live');
   assert.equal(status.claudeQuestionMenuUp('⏺ Done.\n\n────────\n❯ \n────────'), false);
   // The footer must be at the bottom: a menu scrolled up above an idle prompt is not on screen.
   const IDLE_UNDER = '\n\n⏺ Apple it is.\n\n' + '─'.repeat(40) + '\n❯ \n' + '─'.repeat(40) + '\n  bypass permissions on (shift+tab to cycle)\n';
@@ -69,7 +70,6 @@ for (const [name, screen] of [['single-select', MENU], ['multi-select', MULTISEL
     await onScreen(screen, 'needs_you', async (board, calls) => {
       const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
       assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
-      assert.equal(v.menu, true);
       assert.match(v.because, /showing a question on its screen/);
       assert.deepEqual(calls.typed(), [], 'something was typed into the menu');
       const h = await chat.deliverAutomaticAsync('casey', 'A task line for Casey.', board.agents);
@@ -87,7 +87,6 @@ test('#5743 the synchronous sender is refused too', async () => {
   await onScreen(MENU, 'needs_you', async (board, calls) => {
     const v = chat.deliver('casey', 'A task line for Casey.', board.agents);
     assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
-    assert.equal(v.menu, true);
     assert.deepEqual(calls.typed(), []);
   });
 });
@@ -102,7 +101,7 @@ test('#5743 CONTROLS: an idle agent and a permission prompt are typed into as be
   });
   await onScreen(PERMISSION, 'needs_you', async (board, calls) => {
     const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
-    assert.notEqual(v.menu, true, 'a permission prompt was refused as the question menu');
+    assert.doesNotMatch(String(v.because), /showing a question on its screen/, 'a permission prompt was refused as the question menu');
     assert.ok(calls.typed().length > 0, 'the permission-prompt path changed');
   });
 });
@@ -119,7 +118,7 @@ test('#5743 decided: a screen read that FAILS is not a refusal (needs_you covers
     });
     chat.setDryRun(false); chat.setPauser(() => {});
     const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
-    assert.notEqual(v.menu, true, 'a failed read was taken as the menu');
+    assert.doesNotMatch(String(v.because), /showing a question on its screen/, 'a failed read was taken as the menu');
     assert.ok(calls.some((c) => c[0] === 'capture-pane'), 'premise: the screen was asked for');
   } finally { chat.resetForTests(); board.restore(); }
 });
@@ -129,7 +128,7 @@ test('#5743 only Claude agents: another runner on the same screen is not refused
   try {
     const calls = arm(MENU);
     const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
-    assert.notEqual(v.menu, true, JSON.stringify(v));
+    assert.doesNotMatch(String(v.because), /showing a question on its screen/, JSON.stringify(v));
     assert.ok(calls.typed().length > 0, 'a non-Claude agent was refused by the Claude menu floor');
   } finally { chat.resetForTests(); board.restore(); }
 });
