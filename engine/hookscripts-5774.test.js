@@ -709,3 +709,26 @@ test('#5774 review 13: an exec-form hook runs in the session folder with only Cl
     }
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
+
+test('#5774 review 14: a plugin\'s monitors (default file and manifest path) and a trap\'s command line', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(paths("trap '~/h/clean.sh' EXIT; true").runPaths, ['/H/h/clean.sh'], 'a trap runs its command later');
+  assert.deepEqual(paths('trap - EXIT').paths, [], 'control: resetting a trap names nothing');
+  const dir = agentDir('pilot-r14');
+  const plug = path.join(SANDBOX, 'my-plugins', 'p14');
+  const outA = path.join(SANDBOX, 'scripts', 'monitor-default.sh');
+  const outB = path.join(SANDBOX, 'scripts', 'monitor-manifest.sh');
+  touch(outA); touch(outB);
+  writeJson(path.join(plug, 'monitors', 'monitors.json'), [{ name: 'a', command: `bash ${outA}` }]);
+  writeJson(path.join(plug, '.claude-plugin', 'plugin.json'), { name: 'p14', experimental: { monitors: './extra/mon.json' } });
+  writeJson(path.join(plug, 'extra', 'mon.json'), [{ name: 'b', command: `bash ${outB}` }]);
+  writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'p14@local': [{ scope: 'user', installPath: plug }] } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-r14', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(dir).permissions.deny;
+    assert.ok(editDeniedBy(deny, outA).length > 0, 'the default monitors file is read');
+    assert.ok(editDeniedBy(deny, outB).length > 0, 'a monitors file the manifest names is read');
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true }); }
+});

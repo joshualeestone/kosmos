@@ -13,8 +13,8 @@
  * What is read (Claude Code 2.1.296, read from its binary): every settings tier (each config home's settings files and
  * remote settings, the agent folder's and each folder above's .claude settings, the managed settings and their drop-in
  * folder, and on macOS the managed preferences, device-level and per-user), every server tier (each global config's own servers and its entries for the agent folder and the folders
- * above, the .mcp.json files, the managed server file), and each installed plugin's manifest and the hook, server and
- * language-server files it uses. Every config home is read, not only the agent's own: Kosmos can move an agent to
+ * above, the .mcp.json files, the managed server file), and each installed plugin's manifest and the hook, server,
+ * language-server and monitor files it uses. Every config home is read, not only the agent's own: Kosmos can move an agent to
  * another account. A config file that exists but cannot be read is named, so the guard says it is not whole.
  *
  * What is a command: an object's `command`, and the helpers that run a script (apiKeyHelper, awsAuthRefresh,
@@ -342,6 +342,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     cmdCwd = path.resolve(cmdCwd && cmdCwd !== UNKNOWN_CWD ? cmdCwd : lastCwd, t);
   };
   let chdirNext = false;
+  let trapDone = false;   // trap's command line has been read
   let packageScriptNext = false;   // bun run <name>: a package.json script when <name> is no file
   let slotTaken = false;   // the first plain word after an interpreter is its script (or the folder it runs)
   let prog = '';
@@ -370,7 +371,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       continue;
     }
     if (w.assign) { assignment(w, w.text); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=..., PATH=...
-    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
+    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
       if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; anchored = true; } }   // a bare cd goes home
@@ -402,6 +403,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       scriptSlot = INTERPRETER.test(prog);
       runnerSub = RUNNER_SUB[prog] || null;
     }
+    // Review 14: trap's first argument is a command line run later (trap '~/h/clean.sh' EXIT).
+    if (!isHead && prog === 'trap' && !w.dynamic && !trapDone) { trapDone = true; if (!w.text.startsWith('-')) more(w.text); continue; }
     if (!isHead && prog === 'find' && !w.dynamic && /^-(?:exec|execdir|ok|okdir)$/.test(w.text)) { inExec = true; pendingHead = true; wrapper = ''; continue; }
     // Review 13: a value flag's value that looks like a file (node --env-file ~/.env, ruby -r /h/pre.rb) is code the
     // program loads, as the --flag=value spelling already counts; any other value (python -X utf8) is skipped.
@@ -631,11 +634,13 @@ function installedPlugins(homes, unsafe) {
 /* A plugin's config files: its manifest, the default hook, server and language-server files, and any the manifest
    points at by path. */
 function pluginConfigFiles(dir) {
-  const files = [path.join(dir, '.claude-plugin', 'plugin.json'), path.join(dir, 'hooks', 'hooks.json'), path.join(dir, '.mcp.json'), path.join(dir, '.lsp.json')];
+  // Review 14: and its monitors (background scripts, unsandboxed like hooks): monitors/monitors.json by default.
+  const files = [path.join(dir, '.claude-plugin', 'plugin.json'), path.join(dir, 'hooks', 'hooks.json'), path.join(dir, '.mcp.json'), path.join(dir, '.lsp.json'), path.join(dir, 'monitors', 'monitors.json')];
   const manifest = readJsonFile(files[0]).json;
   if (manifest && typeof manifest === 'object') {
-    for (const k of ['hooks', 'mcpServers', 'lspServers']) {
-      for (const p of [].concat(manifest[k] || [])) {
+    const experimental = manifest.experimental && typeof manifest.experimental === 'object' ? manifest.experimental : {};
+    for (const k of ['hooks', 'mcpServers', 'lspServers', 'monitors']) {
+      for (const p of [].concat(manifest[k] || [], k === 'monitors' ? experimental.monitors || [] : [])) {
         if (typeof p === 'string') files.push(path.resolve(dir, p.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, dir)));
       }
     }
