@@ -1,4 +1,4 @@
-# gemmodel-5804: say when a Gemini agent answers on a model other than the one it was started on
+# gemmodel-5804: say when a Gemini agent answers on a model other than the one it is set to
 
 Card: #5804 (Liu Kang, measured on 0.7.38). Owner: April (night shift shard).
 
@@ -9,14 +9,14 @@ sometimes silently); its base Flash is gemini-3.5-flash. So "Gemini 3.5 Flash" o
 `-m gemini-2.5-flash` is most likely true. `ps` shows only the launch argument.
 
 ## What
-- engine/geminimodelswitch.js `startedModelName(name, deps)`: the display name of the model Kosmos STARTED the agent on
-  (its own model or the launcher default: both are what it was started on; review 1 blocker: the reported case may well
+- engine/geminimodelswitch.js `settingModelName(name, deps)`: the display name of the model the agent is SET to
+  (its own model or the launcher default: both are its setting; review 1 blocker: the reported case may well
   be the default), or null. Null when: the started id has no version number (auto, flash, pro are the CLI's aliases,
   which pick by design); the newest reply was written before this run began (geminisession `modelAt` < the tmux
   session start: after a model change and restart, the newest reply is the previous run's); same model (case/spacing
   aside); anything unreadable. Reads injectable.
 - engine/geminisession.js: `modelAt`, when the model-naming reply was written.
-- server.js row: `startedModelName`, only for a running Gemini agent of ours with a recorded model. Cost per running
+- server.js row: `settingModelName`, only for a running Gemini agent of ours with a recorded model. Cost per running
   Gemini agent per poll: a SECOND job read and a SECOND session read (the status read that produced modelName does not
   carry modelAt out), plus the cached tmux session list. Accepted for now (Gemini agents are few per board); carrying
   model/modelAt out of the status read is the cheaper follow-up if a board runs many (review 2).
@@ -38,7 +38,7 @@ failed reply). Naming WHY it switched (the session file does not say; only that 
 tested); the model menu and sort wording (intended, same words everywhere).
 
 ## Weakest premise
-That the switch is the CLI's fallback: not seen in Liu Kang's session file yet (asked on the card). "(started on X)" is
+That the switch is the CLI's fallback: not seen in Liu Kang's session file yet (asked on the card). "(set to X)" is
 true whatever made it switch.
 
 ## Tests

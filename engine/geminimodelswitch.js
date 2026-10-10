@@ -6,7 +6,7 @@
  * another model on a failure (its fallback/handler.ts; in 0.61.0 its base Flash is gemini-3.5-flash), so the card was
  * most likely right. What was missing is any word that the model changed. This decides when to say so.
  *
- * `startedModelName(name)` is the display name of the model the agent is SET to (the job's own model, or the launcher's
+ * `settingModelName(name)` is the display name of the model the agent is SET to (the job's own model, or the launcher's
  * default), or null when there is nothing to say. The card words it "(set to X)", which stays true even when a model
  * change saved X but the restart did not happen (review 3): the setting is X whatever the process is running. Mac and
  * Linux only: the run start comes from tmux, which Windows does not have, so there it is always null (fails safe).
@@ -19,12 +19,12 @@
  *     are the same model as "gemini-2.5-flash"), or anything could not be read.
  */
 
-/* A model id without the suffixes that name the same model: a numeric revision, -latest, -preview..., -exp.... */
+/* A model id without the suffixes that name the same model. Review 4: the suffix grammar engine/status.js's
+   GEMINI_WINDOWS already uses for "the same model" (preview, latest, high/medium/low, a numeric revision, a date),
+   repeated as many times as they appear, plus -exp... . */
+const SAME_MODEL_SUFFIX = /(?:-(?:preview|latest|high|medium|low|exp|\d{3}|\d{2}-\d{2}|\d{2}-\d{4}))+$/;
 function canonicalId(id) {
-  return String(id == null ? '' : id).toLowerCase().trim()
-    .replace(/-(?:preview|exp)(?:-[a-z0-9.-]*)?$/, '')
-    .replace(/-latest$/, '')
-    .replace(/-\d{3}$/, '');
+  return String(id == null ? '' : id).toLowerCase().trim().replace(SAME_MODEL_SUFFIX, '');
 }
 
 /* Everything it reads, injectable for tests; production passes nothing. */
@@ -39,7 +39,7 @@ function realDeps() {
   };
 }
 
-function startedModelName(name, deps) {
+function settingModelName(name, deps) {
   const d = deps || realDeps();
   let planned; let sess; let startedAt;
   try { planned = d.planned(name); } catch { return null; }
@@ -47,11 +47,12 @@ function startedModelName(name, deps) {
   try { sess = d.session(name); } catch { return null; }
   if (!sess || !sess.found || typeof sess.model !== 'string' || !sess.model || !Number.isFinite(sess.modelAt)) return null;
   try { startedAt = d.startedAt(name); } catch { return null; }
-  if (!Number.isFinite(startedAt) || sess.modelAt < startedAt) return null;   // the reply is from an earlier run
+  // Review 4: tmux gives the run start in whole seconds, so a reply in that same second could be from just before it.
+  if (!Number.isFinite(startedAt) || sess.modelAt < startedAt + 1000) return null;   // the reply is from an earlier run
   if (canonicalId(planned.id) === canonicalId(sess.model)) return null;       // the same model, however spelled
   let started;
   try { started = d.display(planned.id); } catch { return null; }
   return started || null;
 }
 
-module.exports = { startedModelName, canonicalId };
+module.exports = { settingModelName, canonicalId };
