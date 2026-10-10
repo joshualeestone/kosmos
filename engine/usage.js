@@ -396,6 +396,13 @@ async function scanDayCursorNow(day) {
   return scanUsage({ sinceDay: day, untilDay: day, mtimeCut: true });
 }
 
+/* Round 2: the full read's limits, mirrored. readFile refuses a file over 2 GiB, and its utf8 decode throws past the
+   longest string Node can make; either way the full read counts the file unreadable. Overridable by tests only. */
+const CURSOR_LIMITS = {
+  maxReadBytes: 2 ** 31 - 1,
+  maxStringBytes: require('node:buffer').constants.MAX_STRING_LENGTH,
+  decode: (b) => b.toString('utf8'),
+};
 const SEAM_BYTES = 64;   // round 1: bytes before the cursor, read back to tell an appended file from a rewritten one
 async function readFrom(fh, start, end) {
   const buf = Buffer.alloc(Math.max(0, end - start));
@@ -448,46 +455,55 @@ async function dayCursorPass(day, roots) {
         continue;
       }
       let s = C.files.get(file);
-      if (s && (s.ri !== ri || s.ino !== st.ino || s.dev !== st.dev || st.size < s.offset)) throw new Rebuild();
       const fresh = !s;
-      if (fresh) s = { ri, file, ino: st.ino, dev: st.dev, offset: 0, seam: Buffer.alloc(0), mtimeMs: st.mtimeMs, firstCwd: '', counted: false, launch: '', orphan: false, days: {}, folders: {}, folderModels: {} };
       let lines = [];
       /* Round 1: every listed file is opened on every pass, read or not, so one that became unreadable is noticed
          (the full read would drop its rows and count it unreadable), and an empty one that cannot be opened counts. */
       let fh;
       try { fh = await fsp.open(file, 'r'); } catch { if (!fresh) throw new Rebuild(); unreadable += 1; continue; }
-      let buf = null;
+      let take = 0;
+      let taken = null;
+      let fst;
       try {
+        fst = await fh.stat();   // round 2: the OPENED file's size, inode and mtime, so a swap after the stat is not mixed in
+        if (!fresh && (s.ri !== ri || s.ino !== fst.ino || s.dev !== fst.dev || fst.size < s.offset)) throw new Rebuild();
+        /* Round 2: a file too big for one string is unreadable to the full read (its readFile fails). A known file that
+           grew that big is read again from the start, where the whole-file decode below fails the same way. */
+        if (!fresh && fst.size > CURSOR_LIMITS.maxStringBytes) throw new Rebuild();
+        if (fresh && fst.size > CURSOR_LIMITS.maxReadBytes) throw new Error('too big to read whole');
+        if (fresh) s = { ri, file, ino: fst.ino, dev: fst.dev, offset: 0, seam: Buffer.alloc(0), mtimeMs: fst.mtimeMs, firstCwd: '', counted: false, launch: '', orphan: false, days: {}, folders: {}, folderModels: {} };
         /* Round 1: the SEAM, the last bytes before the cursor, is read back with any new bytes (and on its own when the
            file was written without growing). A file truncated and rewritten, even longer and on the same inode, no
            longer has it there, and the cursor rebuilds rather than read the middle of new content. */
-        const grew = st.size > s.offset;
-        if (!fresh && (grew || st.mtimeMs !== s.mtimeMs)) {
-          const from = s.offset - s.seam.length;
-          const back = await readFrom(fh, from, grew ? st.size : s.offset);
+        let buf = null;
+        const grew = fst.size > s.offset;
+        if (!fresh && (grew || fst.mtimeMs !== s.mtimeMs)) {
+          const back = await readFrom(fh, s.offset - s.seam.length, grew ? fst.size : s.offset);
           if (!back.subarray(0, s.seam.length).equals(s.seam)) throw new Rebuild();
           if (grew) buf = back.subarray(s.seam.length);
-        } else if (grew) buf = await readFrom(fh, s.offset, st.size);
+        } else if (grew) buf = await readFrom(fh, s.offset, fst.size);
+        if (buf && buf.length) {
+          const nl = buf.lastIndexOf(0x0a);
+          take = buf.length;
+          if (nl !== buf.length - 1) {
+            // No newline after the last line yet: take it only if it parses whole (the full read would parse it too). A
+            // writer that later extends that same line into something unparseable is not caught (none does).
+            let whole = false;
+            try { JSON.parse(CURSOR_LIMITS.decode(buf.subarray(nl + 1))); whole = true; } catch { /* half written */ }
+            if (!whole) take = nl + 1;
+          }
+          taken = buf.subarray(0, take);
+          lines = CURSOR_LIMITS.decode(taken).split('\n');   // round 2: inside the try, as the full read's readFile is
+        }
       } catch (err) {
         if (err instanceof Rebuild) throw err;
         if (!fresh) throw new Rebuild();
         unreadable += 1;
         continue;
       } finally { await fh.close().catch(() => {}); }
-      s.mtimeMs = st.mtimeMs;
-      if (buf && buf.length) {
-        const nl = buf.lastIndexOf(0x0a);
-        let take = buf.length;
-        if (nl !== buf.length - 1) {
-          // No newline after the last line yet: take it only if it parses whole (the full read would parse it too). A
-          // writer that later extends that same line into something unparseable is not caught (none does).
-          const tail = buf.subarray(nl + 1).toString('utf8');
-          let whole = false;
-          try { JSON.parse(tail); whole = true; } catch { /* half written */ }
-          if (!whole) take = nl + 1;
-        }
-        lines = buf.subarray(0, take).toString('utf8').split('\n');
-        s.seam = Buffer.concat([s.seam, buf.subarray(0, take)]).subarray(-SEAM_BYTES);
+      s.mtimeMs = fst.mtimeMs;
+      if (taken) {
+        s.seam = Buffer.concat([s.seam, taken]).subarray(-SEAM_BYTES);
         s.offset += take;
         bytesConsumed += take;
       }
@@ -502,21 +518,24 @@ async function dayCursorPass(day, roots) {
         const ps = C.files.get(parentFile);
         if (ps && listed.has(parentFile)) parent = ps.firstCwd;
         else if (skippedTop.has(parentFile)) {
-          // A parent last written before the window: its first cwd, head-read once per version of that file.
-          let pst = null;
-          try { pst = await fsp.stat(parentFile); } catch { /* read below fails the same way */ }
-          const h = C.heads.get(parentFile);
-          // Round 1: the saved head is trusted only while the parent still opens (a full read would fail to head-read it).
-          const opens = h && pst && h.mtimeMs === pst.mtimeMs && h.size === pst.size
-            ? await fsp.open(parentFile, 'r').then((p) => p.close().then(() => true), () => false) : false;
+          // A parent last written before the window: its first cwd, head-read once per version of that file, and asked
+          // at most once a pass (round 2: the stat and the open probe too).
           if (passHeads.has(parentFile)) parent = passHeads.get(parentFile);
-          else if (opens) parent = h.cwd;
           else {
-            let failed = false;
-            parent = await firstCwd(parentFile, () => { failed = true; unreadable += 1; });
-            if (!failed && pst) C.heads.set(parentFile, { mtimeMs: pst.mtimeMs, size: pst.size, cwd: parent });
+            let pst = null;
+            try { pst = await fsp.stat(parentFile); } catch { /* read below fails the same way */ }
+            const h = C.heads.get(parentFile);
+            // Round 1: the saved head is trusted only while the parent still opens (a full read would fail to head-read
+            // it). Round 2: a failed close is not an error.
+            const opens = () => fsp.open(parentFile, 'r').then((p) => p.close().catch(() => {}).then(() => true), () => false);
+            if (h && pst && h.mtimeMs === pst.mtimeMs && h.size === pst.size && await opens()) parent = h.cwd;
+            else {
+              let failed = false;
+              parent = await firstCwd(parentFile, () => { failed = true; unreadable += 1; });
+              if (!failed && pst) C.heads.set(parentFile, { mtimeMs: pst.mtimeMs, size: pst.size, cwd: parent });
+            }
+            passHeads.set(parentFile, parent);
           }
-          passHeads.set(parentFile, parent);
         }
         if (parent) launch = parent; else orphan = true;
       }
@@ -980,6 +999,7 @@ module.exports = {
   scanDayCursor,      // kosmos#5759
   resetDayCursor,     // kosmos#5759: tests start from an empty cursor
   lastDayCursorRun,   // kosmos#5759: tests read whether the last call rebuilt and how many bytes it read
+  CURSOR_LIMITS,      // kosmos#5759: tests lower the read limits instead of writing a 600 MB file
   dailyUsageByModel,
   worldUsageByModel,
   worldAgentDirs,

@@ -266,6 +266,36 @@ test('#5759 round 1: with the mtime put back, the size and the inode still catch
   await same('replaced by another file, same size, seam and mtime: the inode check', { rebuilt: true });
 });
 
+test('#5759 round 2: a transcript too big to decode is counted unreadable, never thrown out of the call', async (t) => {
+  reset();
+  const saved = { ...usage.CURSOR_LIMITS };
+  t.after(() => Object.assign(usage.CURSOR_LIMITS, saved));
+  write('p/a.jsonl', cwdLine('/w/a') + row('a1', 5));
+  write('p/huge.jsonl', cwdLine('/w/huge') + row('HUGE', 9));
+  // As Node does past its longest string: the decode of that file throws (the full read's readFile would fail too).
+  usage.CURSOR_LIMITS.decode = (b) => { const t = b.toString('utf8'); if (t.includes('HUGE')) throw new RangeError('ERR_STRING_TOO_LONG'); return t; };
+  const got = await usage.scanDayCursor(DAY);
+  assert.equal(got.unreadable, 1, 'the big file is unreadable, as a full read counts it');
+  assert.deepEqual(Object.keys(got.folders[DAY]), ['/w/a'], 'the other file is still counted');
+  // A file over the full read's 2 GiB limit is unreadable too, before any read.
+  Object.assign(usage.CURSOR_LIMITS, saved);
+  reset();
+  write('p/a.jsonl', cwdLine('/w/a') + row('a1', 5));
+  usage.CURSOR_LIMITS.maxReadBytes = 10;
+  assert.equal((await usage.scanDayCursor(DAY)).unreadable, 1);
+});
+
+test('#5759 round 2: a known file that grows past the longest string is read again from the start', async (t) => {
+  reset();
+  const saved = { ...usage.CURSOR_LIMITS };
+  t.after(() => Object.assign(usage.CURSOR_LIMITS, saved));
+  write('p/a.jsonl', cwdLine('/w/a') + row('a1', 5));
+  await same('start', { rebuilt: true });
+  usage.CURSOR_LIMITS.maxStringBytes = fs.statSync(P('p/a.jsonl')).size + 10;
+  append('p/a.jsonl', row('a2', 7));
+  await same('grown past the limit: a rebuild, where the whole-file decode decides', { rebuilt: true });
+});
+
 test('#5759: a seeded random run of appends, new files, duplicates, cwds and half lines always equals a full read', async () => {
   reset();
   let seed = 5759;

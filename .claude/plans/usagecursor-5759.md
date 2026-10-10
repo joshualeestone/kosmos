@@ -47,3 +47,14 @@ nanosecond. A test pins that miss as the stated bound. Claude Code appends.
   here. The card stays open for that.
 - In memory only: the first open after a board restart, and every open with a past day missing, read in full.
 - A resumed session whose new file sorts before the original rebuilds once each time it gains a copied message.
+
+## Review round 2 fixes
+- A transcript too big to decode (past Node's longest string, about 512 MB) threw out of the call and broke the page
+  on every open; the full read counts it unreadable. The decode is inside the guarded read now, a new file over the
+  full read's 2 GiB readFile limit is unreadable before any read, and a known file grown past the longest string is
+  read again from the start, where the whole-file decode decides as the full read's does. `CURSOR_LIMITS` lets the
+  tests lower those limits.
+- Size, inode and mtime come from the OPENED file (fstat), so a file swapped between the stat and the open is not
+  mixed in.
+- A skipped parent's stat and open probe run at most once a pass, and a failed close is not an error.
+- 16 mutants, each caught.
