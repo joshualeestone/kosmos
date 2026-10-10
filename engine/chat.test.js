@@ -358,8 +358,8 @@ test('a good send PASTES the text then presses Enter, both pinned to the exact p
     // screen is also read first (is its question menu up?), which is read-only too.
     const firstKey = tmux.calls.findIndex((c) => c[0] === 'set-buffer' || c[0] === 'paste-buffer' || c[0] === 'send-keys');
     const before = tmux.calls.slice(0, firstKey).map((c) => c[0]);
-    assert.ok(before.includes('display-message'), 'the pane was not checked before the first keystroke: ' + before.join(','));
-    assert.deepEqual(before.filter((v) => v !== 'display-message' && v !== 'capture-pane'), [], 'something other than a read came before the first keystroke');
+    // Exactly: the floor's screen read (a needs_you card), then the pane check, then the first keystroke.
+    assert.deepEqual(before, ['capture-pane', 'display-message'], 'the reads before the first keystroke changed: ' + before.join(','));
   });
 });
 
