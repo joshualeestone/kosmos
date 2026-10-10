@@ -29,6 +29,9 @@ All 7 ACME waits since 2026-09-01: 24.03 to 24.09 s. That is acme.rs's DNS_SETTL
 Speeding up the 24 s DNS settle (coordinator, kosmos-relay). Filed as a note on the card.
 
 ## Weakest premise
+Also (review 9): a typed name keeps Sign out visible, so a Sign out in the hold (a connect under 4.4 s only) drops a
+success the server already made; the computer is registered, the screen shows the email step. Rare at ~33 s a connect.
+
 That holding the result up to 4.4 s on a fast connect is better than a flash (Splinter's call from #2692's rule); a
 connect is ~33 s in practice, so the floor almost never applies.
 

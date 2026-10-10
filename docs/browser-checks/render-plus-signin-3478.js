@@ -1042,7 +1042,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         return { title: document.getElementById('plus-si-title').textContent,
           spin: !!sp && !sp.hidden && sp.getClientRects().length > 0,
           k: !!cv && cv.getClientRects().length > 0,
-          note: !!note && !note.hidden && note.getClientRects().length > 0,
+          note: !!note && /about half a minute/.test(note.textContent) && note.getClientRects().length > 0,
           centred: !!card && card.classList.contains('plus-si-busy') };
       });
       chk(during.title === 'Signing in...' && !during.spin && during.k && during.note && during.centred,
@@ -1051,7 +1051,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       const siAfter = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent,
         spin: !document.getElementById('plus-si-spin').hidden,
         k: document.getElementById('plus-si-k').childElementCount,
-        note: !document.getElementById('plus-si-k-note').hidden,
+        note: document.getElementById('plus-si-k-note').textContent !== '',
         centred: document.getElementById('plus-state2').classList.contains('plus-si-busy') }));
       chk(siAfter.title === 'Sign in to activate Kosmos+' && !siAfter.spin && siAfter.k === 0 && !siAfter.note && !siAfter.centred,
         `[${k}] #4608/#5785 when the connect fails, the heading goes back and the loader, the note and the centring go`, JSON.stringify(siAfter));
