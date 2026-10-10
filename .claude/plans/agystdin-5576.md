@@ -15,6 +15,9 @@ Why Macs hid it (measured): on a Mac, making process.stdout reopens /dev/null on
 ## Change
 1. readStdin's finish: `pause()` and `unref()` stdin instead of `destroy()`. The process always ends with process.exit, so nothing is kept alive by an open stdin.
 2. `holdStdioFds()`: before the request, any of fds 0 to 2 that reads EBADF is filled with the null device (os.devNull), lowest first, so it gets that number; an open that lands on another number is closed again. Best effort, never throws.
+   It runs after one turn of the loop (setImmediate, review 2), so a close left pending by the stdin handling has landed.
+   PREMISE (weakest in this change, review 3): whatever frees fd 0 has done so by then. The Linux trace showed fd 0 free already at fetch begin, which fits; a close landing while the request opens is not covered.
+3. The test helper's retry (engine/agyseed-4417.test.js, endedByRunner): a libuv uv__close abort is no longer retried when its own trace shows fd 0 freed or a socket on fd 0 (this mechanism again, so red). Any other uv__close abort is still retried. Reason (review 3): the only real abort before this, on macOS 2026-10-08, was never traced, and Macs hide this state, so it is not shown to share this cause; retrying it unconditionally would hide a recurrence, not retrying it at all could make CI red on a second, unproven cause.
 
 ## Decided, not missed
 - Fix in the bridge, not in Node or the test: the bridge is the process that aborts, and the guard holds whoever closed the fd.

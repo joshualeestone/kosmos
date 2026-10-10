@@ -82,13 +82,17 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
 /* uv_thread_create and pthread_create are the arms that catch Node's own startup abort; `Check failed:` is V8's fatal
    line (Node's own CHECKs print "Assertion ... failed" instead). Never a bare EAGAIN (review 5). A hang is never
    retried, even with a spawn error beside it (review 7). */
-/* libuv's own `uv__close` assertion (fd > STDERR_FILENO) is NOT in this set any more (#5576): its mechanism was found
-   (the report's socket took a freed fd 0) and the bridge now holds fds 0 to 2 before the report, so a recurrence is a
-   real failure and must be red, not retried. */
 const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;
+/* libuv's own `uv__close` assertion (fd > STDERR_FILENO), #5576. The bridge now guards against the one mechanism the
+   Linux trace showed (fd 0 freed, then the report's socket on it; what frees fd 0 is still not measured). An abort whose
+   own trace shows that state again is a real failure: red, never retried. Any other uv__close abort (the untraced macOS
+   one of 2026-10-08 was never shown to share that path) is still retried as the runtime's, and named in the message. */
+const UV_CLOSE_ABORT = /fd > STDERR_FILENO/;
+const FD0_TAKEN = /^agy-trace [^|]*\| 0:(?:EBADF|sock@)/m;
+const retriedUvClose = (err) => UV_CLOSE_ABORT.test(err) && !FD0_TAKEN.test(err);
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
 const endedByRunner = (r) => r.signal !== 'timeout' && (RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
-  || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || ''))))));
+  || (r.signal === 'SIGABRT' && (STARTUP_ABORT.test(String(r.err || '')) || retriedUvClose(String(r.err || '')))))));
 async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((res) => setTimeout(res, ms))) {
   const tries = [];
   for (let i = 0; i < 3; i += 1) {
@@ -242,10 +246,16 @@ test('#5560: only a bridge child the runner ended is tried again; one that exite
   f = fake([{ code: null, signal: 'timeout', error: 'EAGAIN', out: '', err: '' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).signal, 'timeout', 'a hang with a spawn error beside it was retried into a pass');
   assert.equal(f.calls.length, 1);
-  // #5576: libuv's uv__close assertion is the bridge's own failure now (its fd 0 cause is fixed), so it is NOT retried.
-  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.\n' }, ok]);
-  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'the libuv uv__close abort was retried into a pass');
+  // #5576: a uv__close abort whose trace shows fd 0 freed or a socket on it is the guarded mechanism again: NOT retried.
+  const uv = 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.\n';
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'agy-trace fetch begin | 0:EBADF 1:sock@1 2:sock@2\n' + uv }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a uv__close abort with fd 0 freed was retried into a pass');
   assert.equal(f.calls.length, 1);
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'agy-trace fetch end ok | 0:sock@7 1:sock@1 2:sock@2\n' + uv }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a uv__close abort with a socket on fd 0 was retried into a pass');
+  // CONTROL: one whose trace shows fd 0 held (another cause, not shown to be this one) is still retried.
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'agy-trace start | 0:chr@5 1:sock@1 2:sock@2\n' + uv }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 0, 'a uv__close abort with fd 0 held was not retried');
   // A SIGABRT whose stderr merely mentions EAGAIN is the bridge's, not Node's startup (review 5).
   f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'bridge: write failed EAGAIN' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a bridge abort mentioning EAGAIN was retried into a pass');
@@ -276,9 +286,12 @@ test('#5560 review 11: every member of the retry sets is pinned, both ways', asy
   for (const e of ['ENOENT', 'EACCES']) assert.equal(await tried({ ...base, code: -2, error: e }), false, e + ' was retried');
   for (const sig of ['SIGKILL', 'SIGTERM']) assert.equal(await tried({ ...base, signal: sig }), true, sig + ' was not retried');
   for (const line of ['uv_thread_create failed', 'pthread_create: Resource temporarily unavailable', '# Check failed: x']) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried: ' + line);
-  // #5576: the uv__close abort, in both formats, is not retried any more.
+  // #5576: the uv__close abort, in both formats: retried with no trace of fd 0 taken, not retried with one.
   for (const line of ['Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.',
-    "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), false, 'retried: ' + line);
+    "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) {
+    assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried with no fd 0 trace: ' + line);
+    assert.equal(await tried({ ...base, signal: 'SIGABRT', err: 'agy-trace fetch begin | 0:EBADF 1:x@1 2:x@2\n' + line }), false, 'retried with fd 0 freed: ' + line);
+  }
   assert.equal(await tried({ ...base, signal: 'SIGABRT', err: 'bridge: something else' }), false, 'a bridge abort was retried');
 });
 
@@ -372,7 +385,7 @@ test('#5576 fix: in a real process, after fd 0 is freed the guard holds it, so t
     const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-hold-'));
     const c = spawn(process.execPath, ['-e', script], { env: { ...process.env, AGENT_WORKFORCE_DATA: dir }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = ''; c.stdout.on('data', (d) => { out += d; });
-    c.on('close', () => { fs.rmSync(dir, { recursive: true, force: true }); resolve(out.trim()); });
+    c.on('close', (code) => { fs.rmSync(dir, { recursive: true, force: true }); resolve(code === 0 ? out.trim() : 'child exited ' + code); });
   });
   const [fd, zero] = (await run(true)).split(' ');
   assert.notEqual(fd, '0', 'with the guard, an fd opened after fd 0 was freed still took number 0');
