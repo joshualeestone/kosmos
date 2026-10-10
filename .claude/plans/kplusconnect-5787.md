@@ -17,3 +17,6 @@
 - QR beside the stores, under the sentence, so the sentence keeps its one line at 544px.
 - The QR is drawn, not generated at runtime: the address is fixed; a runtime encoder becomes worth it only when each store gets its own code.
 - Ribbon placed by measuring the real page (32 deg, top 20, right -34: 3 to 4px inside every edge).
+
+## Surface gate (#2518)
+- render-plus-company-5628, render-plus-stars-3778, render-plus-gate-1615 share tokens with this diff (the step list line, #s-sec-plus CSS, a read of #plus-flow). Per-check trailers give the reason; GitHub CI runs all three, and they were also queued locally.
