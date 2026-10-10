@@ -1484,6 +1484,9 @@ if boot_board "$sb7" "$P8"; then
   # with page.route, so a non-enforcing board is fine -- same shape as the opt-out
   # check above.
   run_one "render-settings-403-2047" env KOSMOS_URL="$B8" node docs/browser-checks/render-settings-403-2047.js
+  # #5534 slice 4: Settings > AI Policies shows the company's AI policy first, read-only (no button), with a control
+  # arm without one. The policy read is answered with page.route, so this board needs no company enrollment.
+  run_one "render-policy-company-5534" env KOSMOS_URL="$B8" node docs/browser-checks/render-policy-company-5534.js
   # ⚠️ THE FIRST-RUN FLOW WAS NOT COVERED BY THIS RUNNER AT ALL. render-first-run
   # exists, renders every step in both schemes and carries its own planted-failure
   # control, but it hardcoded port 4399 so it could never take the runner's

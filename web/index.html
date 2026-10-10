@@ -41121,12 +41121,15 @@ async function paintPolicy() {
   box.textContent = '';
   try {
     const got = await (await fetch('/api/policy', { cache: 'no-store' })).json();
+    /* #5534 slice 4: the company's AI policy, set in its Kosmos policy, comes first and cannot be changed here. */
+    const company = got.company && typeof got.company === 'object' && typeof got.company.name === 'string' ? got.company : null;
     if (got.state !== 'saved') {
       const p = document.createElement('p'); p.className = 'fhint';
       p.textContent = got.state === 'unknown'
         ? pjSentence(got.because || 'we could not read the saved policies')
-        : 'No policies here yet.';
+        : (company ? 'Every agent gets your company\'s policy below; each one starts following it at its next restart.' : 'No policies here yet.');
       box.append(p);
+      if (company) box.append(polCompanyCard(company));
       return;
     }
     const list = Array.isArray(got.policies) ? got.policies : [];
@@ -41134,16 +41137,31 @@ async function paintPolicy() {
        the same sentence under each would be the only thing on the screen
        that repeats. */
     const lead = document.createElement('p'); lead.className = 'fhint';
-    lead.textContent = list.length === 1
+    lead.textContent = list.length + (company ? 1 : 0) === 1
       ? 'Every agent gets it; each one starts following it at its next restart.'
       : 'Every agent gets all of these; each one starts following them at its next restart.';
     box.append(lead);
+    if (company) box.append(polCompanyCard(company));
     for (const p of list) box.append(polCard(p));
   } catch {
     const p = document.createElement('p'); p.className = 'fhint';
     p.textContent = 'We could not reach Kosmos to check for policies.';
     box.append(p);
   }
+}
+/* #5534 slice 4: the company's entry, read-only: no rename, replace or remove, because the company sets it in its
+   Kosmos policy and Kosmos hands it to every agent from there. */
+function polCompanyCard(c) {
+  const card = document.createElement('div'); card.className = 'polcard polcompany';
+  const head = document.createElement('div'); head.className = 'polhead';
+  const n = document.createElement('b'); n.className = 'polname'; n.textContent = c.name;
+  head.append(n);
+  const d = document.createElement('span'); d.className = 'fhint polfrom';
+  d.textContent = 'Set by your company in its Kosmos policy. Only your company can change or remove it.';
+  const o = document.createElement('span'); o.className = 'fhint polopen';
+  o.textContent = (c.opening || '') + (c.chars > 240 ? '…' : '');
+  card.append(head, d, o);
+  return card;
 }
 function polCard(p) {
   const card = document.createElement('div'); card.className = 'polcard';

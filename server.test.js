@@ -12294,6 +12294,23 @@ test('the policy over the wire: absent, pasted and distributed, then removed', a
   assert.ok(after.includes('Do the work well'), 'removal ate the agent\'s own words');
 });
 
+test('#5534 slice 4: the policy GET carries the company\'s AI policy, read-only, and none without one', async () => {
+  const orgpolicy = require('./engine/orgpolicy');
+  const fsx = require('node:fs');
+  let r = await req('/api/policy');
+  assert.equal(JSON.parse(r.body).company, null, 'CONTROL: a board with no company policy showed one');
+  fsx.mkdirSync(require('node:path').dirname(orgpolicy.APPLIED()), { recursive: true });
+  fsx.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org_1', version: 2, iat: 1, applied_at: 1791500000,
+    policy: { providers_allowed: null, ai_policy: { name: 'Acme legal', text: 'Never paste client names into a prompt.' } } }));
+  try {
+    r = await req('/api/policy');
+    assert.equal(r.status, 200);
+    const got = JSON.parse(r.body);
+    assert.deepEqual(got.company, { name: 'Acme legal', chars: 39, opening: 'Never paste client names into a prompt.' });
+    assert.equal(got.state, 'absent', 'the company entry was counted as one of the person\'s own');
+  } finally { orgpolicy.clear(); }
+});
+
 test('policies over the wire, plural (#685): named adds, refused collisions, rename, ordered list, remove by id', async () => {
   const policyEngine = require('./engine/policy');
   // Two named policies, in order; the response carries the fresh list.
