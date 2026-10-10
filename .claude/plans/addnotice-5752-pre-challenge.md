@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: addnotice-5752
-diff_hash: 8f51692c67f98bcfb962d1ebbbdd17ac0b80f8780a67d94eda8d04a44d01d980
+diff_hash: 1046a6472fd1d42de354c376fbf89bc357a7cba7d4707a91b4aabe317c275887
 validation: scoped (the 10 affected node test files, 495 tests, and the page and design-shots guard tests, 120 and 111, all green from the repo root; the six gated room checks on its surface passed at f135a9ed, before the restyle; 40+ mutants each caught; the full suite was not run locally, CI runs it)
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-10T12:53:33Z
@@ -77,6 +77,9 @@ converged: true
 | 10 | 5 | WARNING | web/index.html | SELF | tap target, live region, long names | FIXED | 13eb3a5f |
 
 ### Validation actually run
+- CI's first run on #5771 failed two repo guards (fixture-discipline: hand-built cards in the page test;
+  agent-token-sender-570: the post route's token sender must be passed inline). Both fixed; those two files plus the
+  touched tests: 210 of 210.
 - The 10 affected node test files (server.task-repeat-4787, web.post-receipt, engine/messages, server.agent-projects-4491, server.agent-reads-4491, engine/reactions-2255, server.projects, engine/roomhold-agyhold-4588, cli.agent-token-verbs-4491, server.agent-writes-4491): 495 tests, 0 failed, on the tree after merging main.
 - Page tests reading the room CSS: 120; the mobile-shots guard tests: 111. All green.
 - The six gated checks naming the room's surface (render-head-row, render-msgref-4631, render-no-left-bars-3692, render-room-reply-3745, render-room-msgbox-2806, render-unread-edge-3743): all passed at f135a9ed, which is before the restyle (CI's browser-checks job runs the gated checks on the final head).
