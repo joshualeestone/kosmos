@@ -123,11 +123,12 @@ test('#5050: the marker pair is in the registry, so the neutralisers cover it', 
 test('#5050: a new agent gets the block at create, and the board refreshes every agent at boot', () => {
   const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
-  assert.match(create, /const got = plMod\.read\(\);\s*if \(got\.sure\) \{/, 'create.js no longer acts on a sure read only');
-  assert.match(create, /const spliced = plMod\.applyTo\(text, got\.tag\);/, 'create.js no longer writes the language block into a new agent');
+  // #5080 review 9: the one step before it acts on an unsure read only to take out a stale Settings block.
+  assert.match(create, /const got = plMod\.read\(\);\s*if \(!got\.sure && got\.auto && plMod\.hasStaleSettingsBlock\(text\)\) \{[\s\S]{0,400}?\n        \}\s*if \(got\.sure\) \{/, 'create.js no longer acts on a sure read only');
+  assert.match(create, /const spliced = plMod\.applyTo\(text, got\.tag, got\.from\);/, 'create.js no longer writes the language block into a new agent');
   // LAST before the file is written, so it ends the file (where April measured it); a block spliced after it would
   // leave it mid-file, a position nobody tested.
-  const at = create.indexOf('plMod.applyTo(text, got.tag)');
+  const at = create.indexOf('plMod.applyTo(text, got.tag, got.from)');
   const write = create.indexOf('fs.writeFileSync(instructionFile(name, runner), text', at);
   assert.ok(write > at, 'the instruction file is no longer written after the language block');
   const own = create.indexOf('<= MAX_BYTES) text = spliced;', at);
@@ -137,10 +138,13 @@ test('#5050: a new agent gets the block at create, and the board refreshes every
   assert.match(server, /require\('\.\/engine\/personlanguage'\)/);
   assert.match(server, /personlanguage\.syncEveryone\(safeRoster\(\)\)/, 'the boot sweep no longer refreshes the language block');
   // Review 17: a failed Mac read is said once at boot, so it cannot look like an English Mac.
-  assert.match(server, /process\.platform === 'darwin' && !personlanguage\.read\(\)\.sure\) \{\s*process\.stderr\.write\('Kosmos could not read this computer/);
+  // #5080 review 3: an unreadable Settings choice gets its own line, so the Mac's setting is not blamed for it.
+  assert.match(server, /const langRead = personlanguage\.read\(\);\s*if \(!langRead\.sure && langRead\.from === 'settings'\) \{\s*process\.stderr\.write\('Kosmos could not read the language chosen in Settings/);
+  assert.match(server, /\} else if \(process\.platform === 'darwin' && !langRead\.sure\) \{\s*process\.stderr\.write\('Kosmos could not read this computer/);
   // The boot sweep runs after the About-you sweep, the last one that can append a block.
   const you = server.indexOf('you.syncEveryone(safeRoster(), { addOnly: true })');
-  const lang = server.indexOf('personlanguage.syncEveryone(safeRoster())');
+  // #5080: the Settings route makes the same call earlier in the file, so look for the boot sweep's after the About-you one.
+  const lang = server.indexOf('personlanguage.syncEveryone(safeRoster())', you);
   assert.ok(you > 0 && lang > you, 'the language sweep no longer runs after the About-you sweep');
 });
 
@@ -202,14 +206,14 @@ test('#5050 review 3/4: a sure read is kept for the process; a fallback is kept 
   const src = { env: {}, platform: 'darwin', intl: 'en-US', run: () => { calls += 1; if (!macAnswer) throw new Error('timed out'); return macAnswer; } };
   try {
     pl._resetForTests(src);
-    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false }, 'CONTROL: the first read is the fallback');
+    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false, from: 'computer' }, 'CONTROL: the first read is the fallback');
     macAnswer = '(\n    "es-MX"\n)\n';
-    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false }, 'a fallback was not kept: a hanging defaults would stall every create');
+    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false, from: 'computer' }, 'a fallback was not kept: a hanging defaults would stall every create');
     assert.equal(calls, 1, 'defaults was asked again inside the window');
     pl._ageFallbackForTests();
-    assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true }, 'a fallback was kept past its window, so the Mac answering later was ignored');
+    assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true, from: 'computer' }, 'a fallback was kept past its window, so the Mac answering later was ignored');
     macAnswer = '(\n    "ja-JP"\n)\n';
-    assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true }, 'a sure read was not kept for the process');
+    assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true, from: 'computer' }, 'a sure read was not kept for the process');
     assert.equal(calls, 2);
   } finally { pl._resetForTests(); }
 });
@@ -259,7 +263,7 @@ test('#5050 review 11: an override that is not a 2 or 3 letter language is ignor
     const got = pl.read({ env: { AGENT_WORKFORCE_PERSON_LOCALE: bad }, platform: 'linux', intl: 'en-US' });
     assert.equal(got.sure, false, bad + ' was taken as a sure language');
   }
-  assert.deepEqual(pl.read({ env: { AGENT_WORKFORCE_PERSON_LOCALE: 'es' }, platform: 'linux' }), { tag: 'es', sure: true });
+  assert.deepEqual(pl.read({ env: { AGENT_WORKFORCE_PERSON_LOCALE: 'es' }, platform: 'linux' }), { tag: 'es', sure: true, from: 'computer' });
 });
 
 test('#5050 review 11/15: the block-delivery report knows the language block (cannot tell on an unsure read)', () => {

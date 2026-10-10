@@ -5663,9 +5663,9 @@ function createAgentInner(opts) {
         }
       } catch { /* the sync after the session is up still does it, the old way */ }
     }
-    /* #5050: the person's language, from this computer's language setting, so the agent starts and posts in it. An
-       English Mac writes none (and removes one that came in with pasted instructions); off a Mac, or when the Mac's read
-       failed, nothing changes. Spliced last,
+    /* #5050: the person's language, from the person's choice in Settings (#5080, any platform) or else this computer's
+       language setting, so the agent starts and posts in it. English writes none (and removes one that came in with
+       pasted instructions); with no sure read (Automatic off a Mac, or a failed Mac read) nothing changes. Spliced last,
        so a new agent's file ends with it, unless pasted instructions already hold one with their own text after it
        (then it is replaced where it is). Non-gating like the blocks above. */
     {
@@ -5673,7 +5673,12 @@ function createAgentInner(opts) {
       try {
         const plMod = require('./personlanguage');
         const got = plMod.read();
-        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). */
+        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). #5080 review 9:
+           except a pasted block an earlier choice in Settings wrote, under a saved Automatic, as the sweeps do. */
+        if (!got.sure && got.auto && plMod.hasStaleSettingsBlock(text)) {
+          text = plMod.applyTo(text, null);
+          steps.push({ label: 'took out a language section from its instructions, because it came from an earlier choice in Settings', ok: true });
+        }
         if (got.sure) {
           const { MAX_BYTES } = require('./instructions');
           if (require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous) {
@@ -5682,9 +5687,10 @@ function createAgentInner(opts) {
               ? 'found two language sections in its instructions, so left them as they are; edit its instructions to keep one'
               : 'found two language sections in its instructions, so left them as they are; edit its instructions to remove them';
           } else {
-            const spliced = plMod.applyTo(text, got.tag);
+            const spliced = plMod.applyTo(text, got.tag, got.from);
             // Review 20: a sure English read removes a language section that came in with pasted instructions; say so.
-            if (!plMod.blockBody(got.tag) && spliced !== text) steps.push({ label: 'took out a language section from its instructions, because this computer\'s language is English', ok: true });
+            // #5080: naming where English came from, the person's choice in Settings or the computer's setting.
+            if (!plMod.blockBody(got.tag) && spliced !== text) steps.push({ label: got.from === 'settings' ? 'took out a language section from its instructions, because you chose English in Settings' : 'took out a language section from its instructions, because this computer\'s language is English', ok: true });
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
             else if (plMod.blockBody(got.tag)) langStep = 'could not add your language to its instructions (they are at the size limit), so it may start in English';
           }

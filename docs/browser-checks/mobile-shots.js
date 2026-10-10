@@ -620,6 +620,21 @@ const SCREENS = [
       { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
   } },
+  /* #5080: the Language box in Settings > Automation, with Spanish (Latin America) chosen; put back to Automatic after. */
+  { name: 'settings-language', owner: 'Mona Lisa', go: async (page) => {
+    const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/agent-language',   // page.request is not routed: boardUrl for --remote (#5510)
+      { data: { choice: 'es-419' }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-language: could not choose Spanish (' + put.status() + ')');
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#agent-language', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('agent-language').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, after: async (page) => {
+    const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/agent-language',
+      { data: { choice: 'auto' }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-language: could not put it back to Automatic (' + put.status() + ')');
+  } },
   /* #5382: the Assigner section with its failover row (shown while the Assigner is on, which is the default), with
      failover off (its default) and on. The second puts it back off after its shot. */
   { name: 'settings-assigner', owner: 'Mona Lisa', go: async (page) => {
