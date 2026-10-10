@@ -332,3 +332,14 @@ test('#5406 slice C: a press for an agent not run by Claude is refused, never pa
     assert.equal(calls.pasted(), '', 'a press for another runner was pasted');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+/* The outcome only: the label check refuses this before the key branch, whose own `askedGiven` arm is a second line that
+   no route here reaches (the page only sends digits it drew from the menu). */
+test('#5406 slice C: a press whose words were dropped and whose digit is not on the live menu is refused, nothing closed or typed', async () => {
+  await withMenu(async (calls) => {
+    const r = await post({ text: '7', chose: 'Apple\u0007', asked: 'Which fruit do you want?' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.deepEqual(calls.keys(), [], 'the menu was closed or answered');
+    assert.equal(calls.pasted(), '');
+  });
+});

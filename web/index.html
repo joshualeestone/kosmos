@@ -37383,7 +37383,7 @@ let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
 /* Per agent: the question it last ANSWERED from here (a placed press) and when. Drawn as "Sent." with the buttons off
    while the lock lasts; cleared when that agent's menu goes or its read fails. A refusal is not kept here: its sentence
    goes on the conversation's own line, which survives a repaint that draws another question or none. */
-const DM_CHOICE_ANSWERED = new Map();   // session -> { asked, at }
+const DM_CHOICE_ANSWERED = new Map();   // session -> { asked, at, sure }: sure = placed; otherwise the key may have gone
 /* How long an answered question keeps its buttons off. A placed answer means the server saw the menu go after the key
    (it says unconfirmed otherwise), so this covers only the page's own poll still showing the old screen; past it, the
    same question drawn again (agents repeat questions word for word) is pressable. */
@@ -37406,7 +37406,7 @@ function dmChoicesHtml(m) {
   /* Answered: the menu can stay up a few seconds after the key, and a second press then would answer twice. */
   const locked = Boolean(done && done.asked === DM_CHOICES.asked && Date.now() - done.at < DM_CHOICE_ANSWERED_MS);
   const off = flying || locked;
-  const note = flying ? 'Sending…' : locked ? 'Sent.' : '';
+  const note = flying ? 'Sending…' : (locked && done.sure) ? 'Sent.' : '';
   return '<div class="dmchoices" role="group" aria-label="Choices">'
     + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '"' + (off ? ' disabled' : '') + '>'
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
@@ -37446,9 +37446,13 @@ async function dmChoicePress(btn) {
   } finally {
     DM_CHOICE_INFLIGHT.delete(session);
   }
-  if (ok) { note = 'Sent.'; DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now() }); }
+  if (ok) note = 'Sent.';
+  /* Placed, or may have been sent (could not confirm): the same short lock, so a quick second press cannot answer twice
+     while the page's poll is still catching up. Only a refusal or could_not (nothing typed) gives the buttons back now. */
+  const mayHaveSent = ok || note.startsWith(UNSURE);
+  if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok });
   if (msg) msg.textContent = ok ? note : '';
-  if (!ok && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
+  if (!mayHaveSent && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
   /* Why it did not go goes on the conversation's own line, said once: a refusal usually means the question changed or
      went, and the repaint then draws another question's bubble, or none. */
   if (!ok && CURRENT && CURRENT.sessionName === session) {
