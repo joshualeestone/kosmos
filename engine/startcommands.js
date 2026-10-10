@@ -246,7 +246,11 @@ function shellWords(cmd, vars = {}) {
       else if (c === '&' && (prevC === '>' || prevC === '<')) { written = true; input = false; }
       else if (c === '&' && nextC === '>') { /* &> and &>>: the redirection follows */ }
       else if (c === '|' && prevC === '>') written = true;   // >| writes, ignoring noclobber
-      else { written = false; input = false; head = true; }
+      else {
+        written = false; input = false; head = true;
+        // Review 23: a subshell's bounds and a lone & (a background command) are kept as markers, so a cd inside them is undone.
+        if (c === '(' || c === ')' || (c === '&' && prevC !== '&' && nextC !== '&')) words.push({ marker: c, text: '', subs: [] });
+      }
       if (c === '\n' && bodies.length) {
         // Review 6: a here-document's body runs to its delimiter line; it is the delimiter word's body, not commands.
         let j = i + 1;
@@ -304,7 +308,7 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*
  * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
  * words whose value cannot be known.
  */
-function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true, deferRunners = false) {
+function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true, deferRunners = false, pathDirsIn = null) {
   const paths = [];
   const runPaths = [];   // the subset named where something runs
   const runners = [];    // folder runners: { name, where, place }
@@ -319,12 +323,12 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
      could be one the agent made in any subfolder: it is named. A server runs in the project folder (anchored). */
   let anchored = anchoredIn;
   let lastCwd = cwds[cwds.length - 1];   // where the line most recently cd'd to
-  const pathDirs = [];   // review 6: folders a PATH= assignment put in front, where a bare program is then found
+  const pathDirs = pathDirsIn ? [...pathDirsIn] : [];   // review 6: folders a PATH= assignment put in front (review 23: carried into bash -c)
   const codePaths = [];  // review 7: the paths in an interpreter's code position, where a folder is code too
   const UNKNOWN_CWD = UNKNOWN_RUN_CWD;
   const more = (line) => {
     if (depth >= 3) { unsafe.push('commands nested too deep for Kosmos to read'); return; }   // review 8: named, not dropped
-    const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds, anchored, deferRunners);
+    const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds, anchored, deferRunners, pathDirs);
     paths.push(...r.paths); runPaths.push(...r.runPaths); codePaths.push(...r.codePaths); runners.push(...(r.runners || [])); unsafe.push(...r.unsafe);
   };
   let cwdReal = cwd;
@@ -391,11 +395,23 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
   let flagScriptNext = false;   // java -jar x.jar: the next word is the script
   let skipNext = false;     // a program's flag that takes a value (uv run --with x, python -X utf8)
   let cdNext = false;       // the word after cd is the folder it moves to
+  const scopes = [];        // review 23: where the line was when each ( opened
+  let cmdStart = null;      // where it was when this command started (a lone & undoes a cd in it)
+  let headsSeen = 0;        // review 23: only the line's FIRST command's cd anchors it (a later one may be conditional)
   let inExec = false;       // find ... -exec cmd ... ;
   let prev = '';
   for (const w of words) {
     const before = prev;
     prev = w.dynamic ? '' : w.text;
+    /* Review 23: a cd inside ( ... ) or in a backgrounded command does not move the rest of the line, so where a relative
+       script is read from goes back to what it was; a case pattern's lone ) pops nothing. */
+    if (w.marker) {
+      if (w.marker === '(') scopes.push({ anchored, lastCwd, cwdUnknown });
+      else if (w.marker === ')' && scopes.length) ({ anchored, lastCwd, cwdUnknown } = scopes.pop());
+      else if (w.marker === '&' && cmdStart) ({ anchored, lastCwd, cwdUnknown } = cmdStart);
+      prev = '';
+      continue;
+    }
     for (const s of w.subs || []) more(s);   // the command inside $(...) or backticks runs too
     if (w.written) continue;     // a redirection's target is written, not run
     if (w.heredoc) {   // a delimiter is no file; a here-document given to a shell IS its script (review 6)
@@ -410,12 +426,12 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       continue;
     }
     if (w.assign) { assignment(w, w.text); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=..., PATH=...
-    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; inlineProgDone = false; pyIsolated = false; uvTool = false; inputRunnerDone = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
+    if (w.head) { headsSeen++; cmdStart = { anchored, lastCwd, cwdUnknown }; flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; inlineProgDone = false; pyIsolated = false; uvTool = false; inputRunnerDone = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
-      if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; anchored = true; } }   // a bare cd goes home
+      if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; if (headsSeen <= 2 && !scopes.length) anchored = true; } }   // a bare cd goes home
       else if (w.dynamic || w.text === '-') { cwdUnknown = true; lastCwd = UNKNOWN_CWD; continue; }
-      else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } lastCwd = path.resolve(lastCwd, w.text); if (path.isAbsolute(w.text)) anchored = true; continue; }
+      else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } lastCwd = path.resolve(lastCwd, w.text); if (path.isAbsolute(w.text) && headsSeen === 1 && !scopes.length) anchored = true; continue; }
       else { cdNext = true; continue; }   // cd -P dir
     }
     let isHead = w.head;
@@ -441,6 +457,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     if (isHead) {
       prog = w.dynamic ? '' : path.basename(w.text);
       if (!w.dynamic && (prog === 'cd' || prog === 'pushd')) { cdNext = true; continue; }
+      if (!w.dynamic && prog === 'popd') { anchored = anchoredIn; lastCwd = cwds[0]; continue; }   // review 23: back to an unknown folder
       if (!w.dynamic && WRAPPER.test(prog)) { if (FOLDER_RUNNER.test(prog)) folderRunner(prog); pendingHead = true; durationNext = /timeout$|^flock$/.test(prog); wrapper = prog; valueNext = false; continue; }
       if (!w.dynamic && FOLDER_RUNNER.test(prog)) folderRunner(prog);
       // A bare program after PATH=dir: found in that folder first.
@@ -479,6 +496,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     const isFlag = !isHead && !w.input && !valueCode && (text.startsWith('-') || (/^\+[A-Za-z]+$/.test(text) && INTERPRETER.test(prog)));   // bash +x
     // Review 13: a short flag with its path glued on (ruby -r/h/pre.rb, gcc -I./x): the path is the flag's value.
     if (isFlag && !w.dynamic && /^python[0-9.]*$/.test(prog) && /^-[A-Za-z]*[IP][A-Za-z]*$/.test(text)) pyIsolated = true;
+    // Review 23: a shell's -s reads its script from standard input, so later words are arguments, not the script.
+    if (isFlag && !w.dynamic && /^(?:(?:ba|z|da|k)?sh)$/.test(prog) && /^-[A-Za-z]*s[A-Za-z]*$/.test(text)) scriptSlot = false;
     const glued = isFlag && !text.includes('=') && /^-[A-Za-z]{1,2}(?:\/|~\/|\.{1,2}\/)/.test(text);
     const flagScript = (flagScriptNext && !isHead && !isFlag) || valueCode;
     flagScriptNext = !isHead && !w.dynamic && !!(SCRIPT_FLAG[prog] && SCRIPT_FLAG[prog].test(text));
@@ -784,7 +803,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   let login = {};
   try { const u = require('os').userInfo().username; login = { USER: u, LOGNAME: u }; } catch { login = {}; }
   const tmp = process.env.TMPDIR || require('os').tmpdir();
-  const baseVars = { ...settingsEnv, ...login, TMPDIR: tmp, PATH: PATH_MARK, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
+  const baseVars = { ...settingsEnv, ...login, PATH: PATH_MARK, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
       if (c.tooDeep) { unsafe.push(`a config nested too deep for Kosmos to read (in ${where})`); continue; }

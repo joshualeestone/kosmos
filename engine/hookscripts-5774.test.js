@@ -875,3 +875,15 @@ test('#5774 review 21: plugin source commands and producer folders, marketplaces
     fs.rmSync(path.join(HOME, '.claude', 'plugins', 'known_marketplaces.json'), { force: true });
   }
 });
+
+test('#5774 review 23: a cd that does not last (subshell, background, popd, conditional) anchors nothing; PATH= reaches bash -c', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
+  for (const c of ['(cd /opt && true); ./x.sh', 'cd /opt & bash scripts/y.sh', 'pushd /opt; popd; bash scripts/x.sh', 'case "$x" in a) cd /opt;; esac; ./z.sh', '[ -d /opt ] && cd /opt; ./x.sh']) {
+    assert.equal(line(c).unsafe.length, 1, `${c}: the session's folder may still be one the agent chose`);
+  }
+  for (const c of ['cd /opt && ./x.sh', 'cd "$CLAUDE_PROJECT_DIR" && ./x.sh', 'cd; ./h.sh', 'bash -c "cd /opt && ./a.sh"']) assert.deepEqual(line(c).unsafe, [], `control: ${c}`);
+  assert.ok(line('PATH="$HOME/bin:$PATH" bash -c "myhook"').runPaths.includes('/H/bin/myhook'), 'PATH= carries into bash -c');
+  assert.match(String(line('cd /opt && (cd /tmp && true) && make').unsafe), /make run in \/opt /, 'after the subshell the line is back in /opt');
+  assert.deepEqual(line('bash -s -- arg < "$CLAUDE_PROJECT_DIR/bin/hook"').unsafe, [], 'bash -s: arg is an argument, the script is the input');
+});
