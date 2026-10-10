@@ -43,6 +43,8 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 
 - Review 15 (Opus): one WARNING, fixed by the message. Creating a token-only agent is still refused when a config member links into a folder whose name the rules cannot carry (a synced folder named with parentheses is a real shape), as decided at review 9; the refusal now says how to fix it (rename that folder, or point the link elsewhere) instead of only naming the path. Tested; red with the words changed. NITs: a launch's size warning is kept when a board start rewrites the line with none of its own (same reason as the PATH part; tested, red by mutation); the board start's read-then-write window and a link whose target holds the agent's own folder are stated below.
 
+- Review 16 (Sonnet): three WARNINGs. (1) A line with neither part is kept by a board start: the review-14 decision, restated, no change. (2) Nothing showed the size warning fires for a deep folder: now tested (16 short-named levels; measured about 14 stay under the ceiling and about 19 pass it, where a Kosmos agent folder is 5 to 8), red with the ceiling raised. (3) The sibling glob also denies the agent's own top-level instruction files: decided at review 8 and stated under Decided, no change. NIT taken: the PATH and other reasons are built on their own, not picked from the joined list by position. CONVENTION (review numbers in comments): decided at review 14.
+
 
 ## Gaps, stated (the rest of the card)
 - A board start reads the guard line and then writes it; a launch that writes between the two has its line replaced by one built from the older launch's PATH part, until the next launch (review 15). The window is the time between one read and one rename.

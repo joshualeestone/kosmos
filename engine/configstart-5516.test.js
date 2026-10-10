@@ -171,6 +171,18 @@ test('#5516 part 2 (review 2): with many account homes the guard stays whole (in
   assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude-acct11', '.config.json'))})`), 'CONTROL: the new homes were seen');
 });
 
+test('#5516 part 2 (review 16): a folder deep enough to pass the size ceiling through its ancestors still gets a whole guard, with the warning', () => {
+  // Measured: about 14 short-named levels stay under the ceiling and about 19 pass it; a Kosmos agent folder is 5 to 8.
+  let dir = path.join(SANDBOX, 'deep');
+  for (let i = 0; i < 16; i++) dir = path.join(dir, 'level-' + i + '-xxxxxx');
+  fs.mkdirSync(dir, { recursive: true });
+  const quiet = (fn) => { const w = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = w; } };
+  const g = quiet(() => setup.guardTokenOnlyFolder(dir, 'pilot-cfg-deep', DEPS));
+  assert.equal(g.ok, true, 'a deep folder refused the guard: ' + JSON.stringify(g));
+  assert.ok(typeof g.warning === 'string' && /past what Kosmos can say the sandbox will take/.test(g.warning), 'a deep folder passed the ceiling with no warning: ' + JSON.stringify(g));
+  assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(path.dirname(dir), '.mcp.json'))})`), 'CONTROL: the ancestors were denied');
+});
+
 test('#5516 part 2 (review 3): a config home code folder that is a link has its target denied in both layers', () => {
   const home = path.join(path.dirname(HOME), 'home-link');
   const target = path.join(path.dirname(HOME), 'shared-skills');

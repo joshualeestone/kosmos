@@ -1828,15 +1828,14 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
     /* Review 7: after the write, as for the launch path, so one uncarriable link never stops the rest being refreshed.
        Review 8: both reasons together when both apply, so fixing one does not hide the other until the next refresh. */
-    const notWhole = [];
-    if (rules.launchUnsafe && rules.launchUnsafe.length) notWhole.push(LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')');
-    if (rules.configUnsafe && rules.configUnsafe.length) notWhole.push('a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + '): renaming that folder so its name has no ( ) [ or ], or pointing the link somewhere else, lets Kosmos cover it');   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it
+    const pathReason = rules.launchUnsafe && rules.launchUnsafe.length ? LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')' : null;
+    const otherReason = rules.configUnsafe && rules.configUnsafe.length ? 'a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + '): renaming that folder so its name has no ( ) [ or ], or pointing the link somewhere else, lets Kosmos cover it' : null;   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
     /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace
-       the part it measured and keep the launch's PATH part (guardTokenOnlyFolder). */
-    const pathReason = rules.launchUnsafe && rules.launchUnsafe.length ? notWhole[0] : null;
-    const otherReason = rules.configUnsafe && rules.configUnsafe.length ? notWhole[notWhole.length - 1] : null;
+       the part it measured and keep the launch's PATH part (guardTokenOnlyFolder). Review 16: each is built on its own,
+       not picked from the joined list by position. */
+    const notWhole = [pathReason, otherReason].filter(Boolean);
     if (notWhole.length) return { ok: false, because: notWhole.join('; and ') + '; the rest of the guard is in place', pathReason, otherReason, ...(warning ? { warning } : {}) };
     return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
