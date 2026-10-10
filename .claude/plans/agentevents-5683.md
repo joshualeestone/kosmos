@@ -664,3 +664,12 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   kept (a send failure's text comes from the remote and varies); collided keeps only strings; the comma operator is a
   block.
 - NIT deferred, as before: splitting targetClass into its own functions (a reorganisation, not a defect).
+
+## Challenge loop after the rebase, iteration 2 (sonnet)
+- WARNING, fixed: the in-memory call map kept an entry for every transcript ever read, empty once its calls were
+  answered, so a long-running board with many sessions grew it without end. A transcript with no unanswered call now
+  holds nothing. Test (with a control that an unanswered call IS kept), red with the fix reverted.
+- WARNING, deferred: a send refused as bad keeps a halved sendMax. By design (review 6): the cap stays until the backlog
+  drains, and a bad batch says nothing about size.
+- WARNING, already fixed (iteration 2 before the rebase): the slice-by-length after the send relies on one tick at a
+  time, which tick() itself enforces.
