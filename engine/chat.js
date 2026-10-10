@@ -1389,10 +1389,13 @@ function codexScreenRefusal(card, sessionName, roster) {
 /* #5743: a Claude agent showing its question menu (any form, status.claudeQuestionMenuUp) is not typed at: the menu
    ignores a paste and the Enter after it takes the HIGHLIGHTED answer (measured on 2.1.29x, #5406), so the agent gets a
    default nobody chose and nothing says so. Read fresh, and only when the snapshot already says needs_you (a card on
-   that menu reads needs_you), so an ordinary delivery costs no capture. A read that fails is not a refusal: it was
-   never one before this card, and the trust-dialog floor above covers the dialog that ends a session. */
+   that menu reads needs_you), so an ordinary delivery costs no capture. Decided: a read that fails is not a refusal.
+   needs_you also covers permission prompts and every other question, and the direct-message route reaches here right
+   after closing the menu, so failing closed would refuse ordinary replies whenever one capture fails; the trust-dialog
+   floor above still covers the dialog that ends a session. */
 const CLAUDE_MENU_SENTENCE = 'it is showing a question on its screen, and a message typed now would pick an answer nobody chose, '
-  + 'so we did not type anything; answer it in its direct messages or in its window';
+  + 'so we did not type anything; answer the question in its window first (a question with one choice to make can also '
+  + 'be answered by its number in its direct messages)';
 function claudeMenuRefusal(card, sessionName, roster) {
   if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
   if (card.state !== status.STATE.NEEDS_YOU) return null;
@@ -1466,8 +1469,10 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     const codex = codexScreenRefusal(allowed.card, sessionName, roster);
     if (codex) return { state: DELIVERY.COULD_NOT, because: codex, at, paneState: null, paneNote: null };
   }
-  /* #5743: the floor under every sender. The direct-message route closes or answers the menu first (#5406), so it
-     only reaches here once the menu is gone; automatic senders are held before this (menuHeldVerdict). */
+  /* #5743: the floor under every sender, read fresh here, right before typing. The direct-message route closes or
+     answers the single-select form first (#5406); the forms it does not handle (multi-select, multi-question) reach
+     here with the menu up and are refused. Automatic senders are held before this (menuHeldVerdict); this second read
+     is deliberate, a last look right before the keystrokes. */
   {
     const menu = claudeMenuRefusal(allowed.card, sessionName, roster);
     if (menu) return { state: DELIVERY.COULD_NOT, because: menu, at, paneState: null, paneNote: null, menu: true };

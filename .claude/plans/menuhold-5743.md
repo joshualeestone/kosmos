@@ -23,6 +23,12 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
 - The fresh screen read happens only when the roster snapshot already says needs_you (a Claude card on its menu reads
   needs_you, slice A's measured premise), so ordinary deliveries pay no extra capture.
 
+- A failed screen read is not a refusal: needs_you covers every question (permission prompts too) and the DM route
+  reaches the floor right after closing the menu, so failing closed would refuse ordinary replies on one bad capture.
+- The floor reads the screen again right before typing even after menuHeldVerdict read it: a deliberate last look,
+  paid only by a needs_you Claude card with no menu up.
+- The refusal sentence points at the window first: the DM route answers only the single-choice form by number.
+
 ## Weakest premise
 
 The snapshot reads needs_you while the menu is up. A menu drawn after the snapshot and before the paste is not caught;
