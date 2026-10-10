@@ -57583,7 +57583,7 @@ function wakeHeldLine(manualText, delivery) {
   }
   /* #5743: held because the agent is showing a question on its screen (a line typed there would pick an answer). */
   if (delivery && delivery.heldBy === 'menu') {
-    return manualText + ' It is showing a question on its screen, so Kosmos sent nothing; answer it in its window first.';
+    return manualText + ' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.';
   }
   const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';

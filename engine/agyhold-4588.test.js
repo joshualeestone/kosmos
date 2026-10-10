@@ -840,7 +840,7 @@ test('#5743 firstreply and agentnudge: a menu hold is logged as menu-held, not a
   try {
     const r = firstreply.sweepOnce(h.o);
     assert.deepEqual(r.results.map((x) => x.act), ['menu-held']);
-    assert.match(r.results[0].because, /held while it shows a question on its screen/);
+    assert.match(r.results[0].because, /held while it waits for an answer on its screen/);
     assert.doesNotMatch(r.results[0].because, /Google quota/);
     assert.equal(h.book.size, 0, 'a menu hold spent a try');
   } finally { h.restore(); }
