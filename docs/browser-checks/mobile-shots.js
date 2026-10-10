@@ -12,7 +12,7 @@
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
  *       [--sizes se,iphone15,promax,android,android360,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
- *       [--data sample|store] [--scale css|device] [--remote]
+ *       [--data sample|store|marketing] [--faces DIR] [--scale css|device] [--remote]
  *
  * Output: DIR/<screen>--<size>--<theme>--<engine>.png plus DIR/report.md (every
  * shot, and every overflow found). Default DIR is a new temp folder, printed at
@@ -1093,6 +1093,7 @@ function parseArgs(argv) {
     else if (k === '--data') a.data = v();
     else if (k === '--scale') a.scale = v();
     else if (k === '--remote') a.remote = true;
+    else if (k === '--faces') a.faces = v();
     else throw new Error('unknown argument ' + k);
   }
   for (const s of a.sizes) if (!SIZES[s]) throw new Error('unknown size ' + s + ' (have ' + Object.keys(SIZES).join(', ') + ')');
@@ -1199,6 +1200,16 @@ const DATA_SETS = {
     connected: true,
   },
 };
+/* #5782: the marketing set, for installkosmos.com's product shots: the store fleet with a shape. Cleo is the
+   project manager and the other three report to her, so the org chart draws a team, not four loose dots. Pictures
+   come from --faces (a folder of <claim>.jpg|.png and you.jpg|.png), never from the repo and never a real person
+   from this Mac: the leak guard still reads every page. */
+DATA_SETS.marketing = {
+  ...DATA_SETS.store,
+  /* Farah shows as Farid: the four pictures the site already publishes (meet/faces) are two women and two men. */
+  agents: STORE_AGENTS.map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo-discord' })),
+};
+let FACES_DIR = null;   // --faces: pictures for the seeded agents and the person
 let DATA = DATA_SETS.sample;   // run() picks the set before the board is seeded
 /* #4994: the removed agent the leftover-delete screen opens the delete confirmation for. Invented. Seeded only when
    that screen is asked for (run() sets SEED_LEFTOVER), so every other screen's board has no "Show removed agents". */
@@ -1226,7 +1237,19 @@ function seedFiles(roots) {
   const store = require(path.join(REPO, 'engine', 'store'));
   for (const a of AGENTS) {
     const role = a.claim === DATA.chatAgent && LEAK_CONTROL === 'page' ? a.role + ', ' + PLANTED_EMAIL : a.role;
-    store.writeProfile(a.claim, { displayName: a.name, role });
+    store.writeProfile(a.claim, { displayName: a.name, role, ...(a.reportsTo ? { reportsTo: a.reportsTo } : {}) });
+  }
+  /* #5782: --faces, through the engine's own picture writers (the same doors Settings uses). A folder with no
+     picture for someone leaves them on their initial, as today. */
+  if (FACES_DIR) {
+    const pick = (key) => ['.jpg', '.jpeg', '.png'].map((e) => path.join(FACES_DIR, key + e)).find((f) => fs.existsSync(f));
+    const typeOf = (f) => (/\.png$/i.test(f) ? 'image/png' : 'image/jpeg');
+    for (const a of AGENTS) {
+      const f = pick(a.claim);
+      if (f) { const r = store.saveAvatar(a.claim, typeOf(f), fs.readFileSync(f)); if (r && r.ok === false) throw new Error('the seed could not save ' + a.claim + "'s picture: " + r.because); }
+    }
+    const yf = pick('you');
+    if (yf) { const r = require(path.join(REPO, 'engine', 'you')).savePicture(typeOf(yf), fs.readFileSync(yf)); if (!r || !r.ok) throw new Error('the seed could not save your picture: ' + (r && r.because)); }
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
   /* #4820: an existing install no longer owes a one-time Community notice (#4524 marked it seen here so it
@@ -1688,6 +1711,8 @@ async function run() {
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
+  FACES_DIR = args.faces ? path.resolve(args.faces) : null;
+  if (FACES_DIR && !fs.existsSync(FACES_DIR)) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
   SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
 
   const board = await startBoard();
