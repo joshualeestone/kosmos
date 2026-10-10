@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agenthead-5551
-diff_hash: 4a11efa6b737a34b494f2344db701d9ee7ea3151e118aa329d2e532bf7a68c8b
+diff_hash: 69d72b2c4e0dc261d22db668f47cccef2cb5ff1230d5f6e033d98d0fd6762288
 validation: Scoped, stated plainly. render-newlook-4470 (the browser check that covers the new look) 322/322 on c724abbc07, run as a queued turn on the box, including the new agentHeadLook arms in light/dark at 1280 and light at 390 and the look-off control. web.agent-head-5551.test.js 5/5 and web.layout-picker.test.js (pins #2574's detail-back) 13/13. Every inline script on the page parses. The full node and shell suites were NOT run locally; the merge is gated on all-green GitHub CI, which runs them and browser-checks.
 subdir_audit: passed
 timestamp: 2026-10-10T19:19:41Z
