@@ -27,6 +27,11 @@ cat > "$PAGE" <<'HTML'
         <span class="rel-d">September 3, 2026, 1:00 PM CDT</span></div>
       <p>Version 0.9.8 is a very long release note designed to exceed the X character budget so the truncation path runs. It goes on and on about many improvements and fixes and refinements across the whole product, far more than any single tweet could hold, which is exactly the point of this fixture, so keep reading because there is even more filler here to be certain the composed X post must be trimmed with an ellipsis before the link.</p>
     </article>
+    <article class="rel" id="v0-9-7">
+      <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-7"><span class="num">0.9.7</span></a></h2>
+        <span class="rel-d">September 2, 2026, 1:00 PM CDT</span></div>
+      <p>Answer it in the agent&#39;s window &amp; the board&#8217;s &quot;Allow&quot; stays yours.</p>
+    </article>
 </body></html>
 HTML
 
@@ -145,6 +150,15 @@ rcfb=$?
 { [ "$rcfb" = 0 ] && [ ! -s "$REC" ] && has "$(cat "$T/fbout")" "generic FALLBACK"; } \
   && pass "fallback note: HOLDS (no auto-publish) even with all gates armed" \
   || bad "fallback note: published or wrong (rc=$rcfb, published=$([ -s "$REC" ] && echo yes || echo no))"
+
+# 8c. apostrophes decode (the 0.7.37 preview garble). The decoder runs inside a single-quoted
+#     `node -e '...'`, so a literal ' in its source ends the shell quote and node gets a broken
+#     replacement: "agent&#39;s" became "agent).replace(/&#821[67];/g,s". The whole sentence must
+#     come through exactly, so any change to how the decoder reaches node is caught here.
+APOS="$(env KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" bash "$SCRIPT" 0.9.7 2>&1)"
+WANT="Answer it in the agent's window & the board's \"Allow\" stays yours."
+has "$APOS" "$WANT" && pass "entities: &#39; &#8217; &amp; &quot; decode to the exact sentence" \
+  || bad "entities: sentence garbled | $(printf '%s' "$APOS" | grep -m1 'Answer it' | tr -d '\n' | tail -c 200)"
 
 # 9. a non-numeric version is refused
 env bash "$SCRIPT" "not-a-version" >/dev/null 2>&1; [ $? = 2 ] && pass "non-numeric version -> refuse (exit 2)" || bad "non-numeric version not refused"
