@@ -44,7 +44,9 @@ no banner (Josh #3419).
 - Defensive, not reached by any fixture: in the key path the pressed number must be on the menu the key goes to, with
   the same words (the two menu readers would have to disagree); otherwise 409.
 - Focus never moves onto another question's button: each question's buttons carry a generation that changes with the
-  question; after a redraw or a refusal, focus returns to a choice only for the same question, else to the message box.
+  question or its choices; after a redraw or a refusal, focus returns to a choice only for the same question, else to the message box.
+- A words-only request (chose, no asked) whose number is not on the live menu was already refused by slice A; it now
+  gets the "not one of the numbers" sentence instead of the files/reply one.
 - Pressable never while a press or a typed send to that agent is in the air; a typed send while a press is in the air
   is refused with a try-again line (not queued). At the server, any delivery to an agent whose question is being
   answered (DM, a person's room post, a task line, a slash command) is refused busy for that ~1.2 s window, nothing
