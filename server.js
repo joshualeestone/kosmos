@@ -8797,7 +8797,7 @@ const server = http.createServer(async (req, res) => {
         let couldNot = 0;
         try {
           const told = personlanguage.syncEveryone(safeRoster());
-          instructionRereadOweEach(told, 'language');
+          try { instructionRereadOweEach(told, 'language'); } catch { /* the files are right; only the re-read line is lost */ }
           changed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed).length;
           removed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed && t.removed).length;
           // The roster itself could not be read: one entry with no agent, so no count of agents is known.

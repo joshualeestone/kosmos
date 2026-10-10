@@ -5673,7 +5673,12 @@ function createAgentInner(opts) {
       try {
         const plMod = require('./personlanguage');
         const got = plMod.read();
-        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). */
+        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). #5080 review 9:
+           except a pasted block an earlier choice in Settings wrote, under a saved Automatic, as the sweeps do. */
+        if (!got.sure && got.auto && plMod.hasStaleSettingsBlock(text)) {
+          text = plMod.applyTo(text, null);
+          steps.push({ label: 'took out a language section from its instructions, because it came from an earlier choice in Settings', ok: true });
+        }
         if (got.sure) {
           const { MAX_BYTES } = require('./instructions');
           if (require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous) {

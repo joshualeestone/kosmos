@@ -278,3 +278,15 @@ test('#5080 review 5: going back to Automatic reuses what Automatic last read (a
   assert.equal(calls, 1, 'going back to Automatic asked a failing defaults again inside its window');
   pl._resetForTests();
 });
+
+test('#5080 review 9: a new agent made under a saved Automatic loses a pasted block an earlier choice wrote', () => {
+  const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
+  assert.match(create, /if \(!got\.sure && got\.auto && plMod\.hasStaleSettingsBlock\(text\)\) \{\s*text = plMod\.applyTo\(text, null\);/);
+  // The helper itself, both ways.
+  const head = '# Gil\n\nYou are Gil.\n\n';
+  assert.equal(pl.hasStaleSettingsBlock(head + projects_block(pl.blockBody('pt-BR', 'settings'))), true);
+  assert.equal(pl.hasStaleSettingsBlock(head + projects_block(pl.blockBody('pt-BR'))), false, 'a block the computer wrote counted as stale');
+  assert.equal(pl.hasStaleSettingsBlock(head), false);
+  assert.equal(pl.hasStaleSettingsBlock(head + projects_block(pl.blockBody('pt-BR', 'settings')) + projects_block(pl.blockBody('pt-BR', 'settings'))), false, 'two blocks counted as one');
+});

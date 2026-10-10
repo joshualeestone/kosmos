@@ -123,7 +123,8 @@ test('#5050: the marker pair is in the registry, so the neutralisers cover it', 
 test('#5050: a new agent gets the block at create, and the board refreshes every agent at boot', () => {
   const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
-  assert.match(create, /const got = plMod\.read\(\);\s*if \(got\.sure\) \{/, 'create.js no longer acts on a sure read only');
+  // #5080 review 9: the one step before it acts on an unsure read only to take out a stale Settings block.
+  assert.match(create, /const got = plMod\.read\(\);\s*if \(!got\.sure && got\.auto && plMod\.hasStaleSettingsBlock\(text\)\) \{[\s\S]{0,400}?\n        \}\s*if \(got\.sure\) \{/, 'create.js no longer acts on a sure read only');
   assert.match(create, /const spliced = plMod\.applyTo\(text, got\.tag, got\.from\);/, 'create.js no longer writes the language block into a new agent');
   // LAST before the file is written, so it ends the file (where April measured it); a block spliced after it would
   // leave it mid-file, a position nobody tested.
