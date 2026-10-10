@@ -459,14 +459,22 @@ test('paintRoom turns the whole wall into a single refusal band on the screen', 
 /* Real cards from test-support/fleet (fixture-discipline: never a hand-built card), in a data sandbox of their own. */
 function realCards(names) {
   const os = require('node:os');
-  if (!process.env.AGENT_WORKFORCE_DATA) process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'refused-add-'));
+  const before = process.env.AGENT_WORKFORCE_DATA;
+  const dir = before ? null : fs.mkdtempSync(nodePath.join(os.tmpdir(), 'refused-add-'));
+  if (dir) process.env.AGENT_WORKFORCE_DATA = dir;
   const fleet = require('./test-support/fleet');
   const cards = fleet.install(names.map((n) => fleet.agent(n))).agents;
-  return { fleet, card: (n) => cards.find((c) => c.name === n) };
+  // The suite's leak gate (#4273) refuses a temp folder left behind: done() restores the fleet, the variable and the folder.
+  const done = () => {
+    fleet.restore();
+    if (dir) { delete process.env.AGENT_WORKFORCE_DATA; fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+  return { done, card: (n) => cards.find((c) => c.name === n) };
 }
 
 test('#5752 slice 3: a refused row says what was tried and offers the add only while the agent is not a member', () => {
-  const { fleet, card } = realCards(['mona', 'zed']);
+  const { done, card } = realCards(['mona', 'zed']);
+  try {
   const row = { kind: 'refused', from: card('zed').sessionName, because: 'that agent is not on this project, so it cannot change its tasks',
     doing: 'record a run of a task', addable: true, at: new Date().toISOString() };
   const zedKey = card('zed').sessionName;
@@ -485,8 +493,10 @@ test('#5752 slice 3: a refused row says what was tried and offers the add only w
   assert.doesNotMatch(lh, /data-add-member/, 'CONTROL: a refusal adding would not end offers no add');
   api.setLast([card('mona')]);   // zed deleted from the board since
   assert.doesNotMatch(api.pjRoomRow(row, p), /data-add-member/, 'a deleted agent is not offered: it would be added as a ghost');
-  api.setLast([]);
-  fleet.restore();
+  } finally {
+    api.setLast([]);
+    done();
+  }
 });
 
 test('#5752 slice 3: an addable refusal keeps its own row (its own button); other same-reason refusals still fold', () => {
