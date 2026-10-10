@@ -1475,7 +1475,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      is deliberate, a last look right before the keystrokes. */
   {
     const menu = claudeMenuRefusal(allowed.card, sessionName, roster);
-    if (menu) return { state: DELIVERY.COULD_NOT, because: menu, at, paneState: null, paneNote: null, menu: true };
+    if (menu) return { state: DELIVERY.COULD_NOT, because: menu, at, paneState: null, paneNote: null };
   }
 
   /**

@@ -2448,7 +2448,9 @@ function claudeQuestionMenuUp(text) {
     if (!lines[i].trim()) continue;
     seen += 1;
     if (!CLAUDE_QMENU_FOOTER.test(lines[i])) continue;
-    for (let j = i - 1; j >= Math.max(0, i - 40); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return true;
+    /* The free-answer entry is the menu's last numbered row, just above the footer (two rows in every capture): look
+       only that close, so an old menu in scrollback above a live permission prompt is not taken for this one. */
+    for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return true;
     return false;
   }
   return false;
