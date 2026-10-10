@@ -394,6 +394,91 @@ function notePrintWait(root, st, enrolledAs, rec, why, now) {
  * last send is CHANGE_MIN_MS old), unless a failure was within RETRY_AFTER_FAIL_MS. Never throws.
  * opts: { root, remote, sources, now } (tests); the board passes nothing.
  */
+/* ------------------------------------------------------------------------------------------------------------------
+   kosmos#5532 widening (Josh, #admin 2026-10-09 08:43: everything on a work computer is company property). The
+   enrolled Kosmos reports, and with each of its sends so does every other Kosmos on this computer, each under its own
+   opaque id, read in a child process with that Kosmos's own folders (engine/orgrollup-child.js), so no reader changes.
+   Decided (#5532 design): the others follow the enrolled Kosmos's schedule, so a change in another Kosmos alone
+   reaches the company with the enrolled one's next send (at most a day later). The coordinator takes 16 Kosmoses a
+   member (ORG_ROLLUP_WORLDS_MAX), so at most 15 others. */
+const OTHERS_MAX = 15;
+const GATHER_TIMEOUT_MS = 2 * 60 * 1000;
+
+/* Every other Kosmos on this computer (hidden ones too: hiding stops agents, the Kosmos is still there), each with
+   the environment its own board would run in. [] when the registry cannot be read. */
+function otherWorlds(root) {
+  const worlds = require('./worlds');
+  let base;
+  try { base = require('./worldenv').bootedBaseDir() || worlds.baseRoot(worlds.preWorldEnv(process.env)); } catch { return []; }
+  const me = path.resolve(root);
+  const all = [];
+  for (const w of worlds.readRegistry(base).worlds) {
+    try { all.push({ w, wroot: worlds.worldStoreRoot(base, w) }); } catch { /* an unsafe id: not a Kosmos to read */ }
+  }
+  /* Only a Kosmos of THIS registry has others: a data folder that is none of its Kosmoses (a sandbox, a folder given
+     by hand) cannot say which Kosmoses share its computer, so it reports alone. */
+  if (!all.some((x) => path.resolve(x.wroot) === me)) return [];
+  const out = [];
+  for (const { w, wroot } of all) {
+    if (path.resolve(wroot) === me) continue;
+    /* That Kosmos's environment as an agent of it gets one (#2827): the pre-world roots, its id, and the roots derived
+       from that id. The default Kosmos sets no roots. */
+    const env = worlds.preWorldEnv(process.env);
+    if (w.id !== worlds.DEFAULT_ID) {
+      env[require('./launchidentity').WORLD_ENV_VAR] = w.id;
+      try { worlds.applyAgentWorldEnv(env); } catch { continue; }
+    }
+    out.push({ id: w.id, root: wroot, env });
+    if (out.length >= OTHERS_MAX) break;
+  }
+  return out;
+}
+
+/* One other Kosmos's inventory, read by a child process in its environment: { world, gathered } or null. */
+function gatherIn(env) {
+  return new Promise((resolve) => {
+    require('child_process').execFile(process.execPath, [path.join(__dirname, 'orgrollup-child.js'), 'gather'],
+      { env, timeout: GATHER_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+        if (err) return resolve(null);
+        try {
+          const j = JSON.parse(String(stdout).trim().split('\n').pop());
+          resolve(j && j.ok === true && typeof j.world === 'string' && j.gathered && typeof j.gathered === 'object' ? j : null);
+        } catch { resolve(null); }
+      });
+  });
+}
+
+/* With a successful send of the enrolled Kosmos (`reason` its reason), each other Kosmos's rollup, under the same
+   accepted words and computer print. A change send of a Kosmos whose signature did not move is skipped. Returns the
+   signatures to keep, by world id. Never throws. */
+async function sendOthers(c) {
+  const next = {};
+  const prev = c.prev && typeof c.prev === 'object' ? c.prev : {};
+  let list = [];
+  try { list = (c.o.otherWorlds || otherWorlds)(c.root) || []; } catch { return prev; }
+  for (const w of list) {
+    if (!c.oe.mayReport(c.eo)) break;   // left meanwhile: nothing more goes
+    let got = null;
+    try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
+    if (!got || !/^[0-9a-f]{32}$/.test(got.world) || got.world === c.rec.world) continue;
+    if (Object.prototype.hasOwnProperty.call(prev, got.world)) next[got.world] = prev[got.world];
+    const g = got.gathered;
+    if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
+    delete g.policyVersion; delete g.policyRefused;   // the company's policy is the computer's, reported by the enrolled Kosmos
+    const sig = signature(build(Object.assign({ world: got.world, nowMs: c.now, reason: 'change' }, g)));
+    if (c.reason === 'change' && (g.partial || prev[got.world] === sig)) continue;
+    const body = build(Object.assign({ world: got.world, at: new Date(c.now).toISOString(), reason: c.reason, nowMs: c.now }, g));
+    Object.assign(body, c.pf.fields);
+    let r;
+    try { r = await c.remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
+    if (r && r.ok) { if (!g.partial) next[got.world] = sig; continue; }
+    const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
+    console.error('orgrollup: the company did not take another Kosmos\'s rollup (' + code + ')');
+    if (code === 'org_rollup_too_many_worlds') break;
+  }
+  return next;
+}
+
 async function tick(opts) {
   const o = opts || {};
   const oe = require('./orgenroll');
@@ -509,9 +594,14 @@ async function tick(opts) {
   let r;
   try { r = await remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
   if (r && r.ok) {
-    writeState(root, Object.assign({ enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig },
+    const done = Object.assign({ enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig },
       // #5534: what was reported, so a read that fails next time sends the same (review 3).
-      'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true } } : {}));
+      'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true } } : {},
+      st.others && typeof st.others === 'object' ? { others: st.others } : {});
+    writeState(root, done);
+    // #5532 widening: then every other Kosmos on this computer, recorded once they are sent.
+    const others = await sendOthers({ o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others });
+    writeState(root, Object.assign({}, done, { others }));
     return { sent: true, reason: body.reason };
   }
   const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
@@ -550,5 +640,5 @@ module.exports = {
   waitingForPrint, KNOWN_RUNNERS, KNOWN_PROVIDERS,
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
-  STATUS, statusWord, providerOfModel, build, gather, defaultSources,
+  STATUS, statusWord, providerOfModel, build, gather, defaultSources, otherWorlds, gatherIn, sendOthers, OTHERS_MAX,
 };

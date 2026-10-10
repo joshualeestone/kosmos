@@ -21144,9 +21144,21 @@ function orgRollupTick() {
   // background sweeps; a test or a board that never turned it on sends nothing, enrolled fixture or not.
   if (!liveExecution.liveExecutionAllowed()) return;
   try {
-    if (!require('./engine/orgenroll').isEnrolledHere()) return;   // not the work Kosmos: nothing is read or sent
+    const oe = require('./engine/orgenroll');
+    const rollup = require('./engine/orgrollup');
+    if (oe.isEnrolledHere()) {
+      ORG_ROLLUP_RUNNING = true;
+      rollup.tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
+      return;
+    }
+    /* kosmos#5532 widening: this board serves another Kosmos, and the enrolled one (if any on this computer) still
+       reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
+       timing, print and key are its own. */
+    const enrolled = rollup.otherWorlds(require('./engine/store').ROOT).find((w) => { try { return oe.isEnrolledHere({ root: w.root }); } catch { return false; } });
+    if (!enrolled) return;   // no work Kosmos on this computer: nothing is read or sent
     ORG_ROLLUP_RUNNING = true;
-    require('./engine/orgrollup').tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
+    require('child_process').execFile(process.execPath, [path.join(__dirname, 'engine', 'orgrollup-child.js'), 'tick'],
+      { env: enrolled.env, timeout: 30 * 60 * 1000, maxBuffer: 1024 * 1024 }, () => { ORG_ROLLUP_RUNNING = false; });
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own
