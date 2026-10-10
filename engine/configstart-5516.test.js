@@ -32,7 +32,7 @@ fs.mkdirSync(store.ROOT, { recursive: true });
 /* #5516 review 21: the launch-PATH part of the guard is pinned empty here, so these tests do not read this host's real
    PATH, fixed folders or install (engine/launchpath-5516.test.js tests that part). */
 const LAUNCH_PIN = { panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [] };
-const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ...LAUNCH_PIN };
+const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', workersRoot: path.join(SANDBOX, 'workers'), ...LAUNCH_PIN };
 /* An agent's folder, made as creation makes it: the board-start refresh guards only agents that have one (review 11). */
 function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
@@ -272,4 +272,67 @@ test('#5516 part 2 (review 8): a folder above the agent that the rules cannot ca
   // RESOLVED ancestor path that differs from the given one (a link), where the agent's own rules still hold.
   assert.equal(g.ok, false, 'an uncarriable ancestor read as a whole guard');
   assert.match(String(g.because), /cannot carry/, 'the refusal does not say why: ' + g.because);
+});
+
+test('#5516 part 2 (review 11): a connected agent outside the agents\' folder is not denied its neighbours (they are not agents)', () => {
+  const dir = path.join(SANDBOX, 'repos', 'myrepo');
+  fs.mkdirSync(dir, { recursive: true });
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-repo', DEPS);
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const deny = readSettings(dir).permissions.deny;
+  for (const f of ['CLAUDE.md', 'AGENTS.md', path.join('.claude', 'settings.json'), path.join('.claude', 'skills', 'x', 'SKILL.md')]) {
+    const by = editDeniedBy(deny, path.join(SANDBOX, 'repos', 'other', f));
+    assert.deepStrictEqual(by, [], 'a neighbouring repo ' + f + ' is denied by ' + by.join(', '));
+  }
+  // CONTROL: an agent in the agents' folder is denied its siblings' members (so the asserts above can fail).
+  const inside = agentDir('pilot-cfg-in');
+  assert.equal(setup.guardTokenOnlyFolder(inside, 'pilot-cfg-in', DEPS).ok, true);
+  assert.ok(editDeniedBy(readSettings(inside).permissions.deny, path.join(SANDBOX, 'workers', 'other', 'CLAUDE.md')).length, 'CONTROL: a sibling agent CLAUDE.md is open');
+});
+
+test('#5516 part 2 (review 11): a board start that finds a config gap beside a PATH gap records it over an older ok line', () => {
+  const name = 'pilot-cfg-both';
+  const dir = agentDir(name);
+  const home2 = path.join(SANDBOX, 'home-r11');
+  const odd = path.join(SANDBOX, 'Drive (P)', 'skills');
+  fs.mkdirSync(odd, { recursive: true });
+  fs.mkdirSync(path.join(home2, '.claude'), { recursive: true });
+  fs.symlinkSync(odd, path.join(home2, '.claude', 'skills'));
+  const stateDir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(stateDir, { recursive: true });
+  const seed = () => fs.writeFileSync(path.join(stateDir, name + '.json'), JSON.stringify({ ok: true, at: 't-launch' }));
+  const quiet = (fn) => { const w = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = w; } };
+  seed();
+  const r = quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home2, panePath: 'relative/bin', boardStart: true }));
+  assert.ok(/^the PATH this agent starts with/.test(r.because) && /could not be covered/.test(r.because), 'CONTROL: both reasons, the PATH one first: ' + r.because);
+  assert.notEqual(setup.readGuardState()[name].at, 't-launch', 'the config gap was hidden behind the PATH reason (the older ok line kept)');
+  // CONTROL: the PATH reason alone still leaves the launch's line (it is what the running agent has).
+  seed();
+  const r2 = quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, panePath: 'relative/bin', boardStart: true }));
+  assert.ok(r2.ok === false && r2.launchPathOnly === true, 'CONTROL: the PATH reason alone: ' + JSON.stringify(r2));
+  assert.equal(setup.readGuardState()[name].at, 't-launch', 'a PATH-only board start replaced the launch line');
+});
+
+test('#5516 part 2 (review 11): a folder above the agent, reached through a link, that the rules cannot carry is named', () => {
+  const real = path.join(SANDBOX, 'Real (X)');
+  fs.mkdirSync(path.join(real, 'workers', 'pilot-cfg-lnanc'), { recursive: true });
+  fs.symlinkSync(real, path.join(SANDBOX, 'lnkx'));
+  const dir = path.join(SANDBOX, 'lnkx', 'workers', 'pilot-cfg-lnanc');
+  const quiet = (fn) => { const w = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = w; } };
+  const g = quiet(() => setup.guardTokenOnlyFolder(dir, 'pilot-cfg-lnanc', DEPS));
+  assert.equal(g.ok, false, 'an uncarriable resolved ancestor read as a whole guard');
+  assert.match(String(g.because), /Real \(X\) \(a folder above the agent whose path the permission rules cannot carry\)/, 'the ancestor is not named: ' + g.because);
+  // The rest of the guard was still written (review 7's rule).
+  assert.ok(readSettings(dir).permissions.deny.length > 20, 'the guard was not written');
+});
+
+
+test('#5516 part 2 (review 11): an own config home the rules cannot carry is named, and the rest of the guard is written', () => {
+  const own = path.join(SANDBOX, 'Cfg (Beta)');
+  fs.mkdirSync(own, { recursive: true });
+  const dir = agentDir('pilot-cfg-oddhome');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-oddhome', { ...DEPS, accountConfigDir: own });
+  assert.equal(g.ok, false, 'an uncarriable own home read as a whole guard');
+  assert.match(String(g.because), /Cfg \(Beta\) \(the agent's own config home/, 'the own home is not named: ' + g.because);
+  assert.ok(fs.existsSync(path.join(dir, '.claude', 'settings.json')) && readSettings(dir).permissions.deny.length > 20, 'the rest of the guard was not written');
 });
