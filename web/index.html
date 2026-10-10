@@ -67824,7 +67824,11 @@ function paintRoom(body) {
       ? '<p class="fhint" style="margin:0;">' + esc(pjNoMatchSentence(PJ_ROOM_QUERY)) + '</p>'
       : ((p.agents || []).length
         ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and everyone on this project receives it; use @name to hand someone a request.</p>'
-        : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>'));
+        // #4649 pilot walk: a project joined from another computer has its agents THERE; posting here works, so never
+        // tell this side to add an agent before the room opens.
+        : (p.shared && typeof p.shared === 'object'
+          ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and the agents on the computer that shared this project receive it.</p>'
+          : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>')));
   const html = note + (rows || empty);
   /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
      the floor is a fact about the DOM as it stands right now, and the markup is
@@ -70787,7 +70791,7 @@ function pjFedMessage(body, fallback, opts) {
     'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
     'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
     'not-owner': 'Only the owner of this project can invite people to it.',   // kosmos#4649 invite sheet, Kitty's 409
-    'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
+    'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer. Turn it on in Settings, under Kosmos+, then paste the code again.',   // #4649 pilot walk: say where
     // kosmos#4699: an own code names the computer that made it, and only this account's computers count.
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
     'no-remote': 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.',

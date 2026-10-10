@@ -18726,7 +18726,7 @@ const server = http.createServer(async (req, res) => {
         // without it could never connect, and its owner seat would retry for nothing.
         let plus = false;
         try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
-        if (!plus) { sendJson(res, 403, { reason: 'not-plus', error: 'Adding your other computers needs Kosmos Plus on this computer.' }); return; }
+        if (!plus) { sendJson(res, 403, { reason: 'not-plus', error: 'Adding your other computers needs Kosmos Plus on this computer. Turn it on in Settings, under Kosmos+, then try again.' }); return; }
         let proj = null;
         try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
         if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
