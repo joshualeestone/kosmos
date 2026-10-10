@@ -2696,19 +2696,23 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
     });
 });
 
-test('the same question still on screen is sent, so the check above is not refusing everything', async () => {
+test('the same question still on screen passes the identity check, so the check above is not refusing everything', async () => {
   reset();
   /* ⚠️ THE CONTROL FOR IT. Without this, the refusal above passes for a server
      that 409s every button send, which would be worse than the hole it closes:
-     the buttons are the pack's whole point. */
+     the buttons are the pack's whole point.
+     #5406 slice C / #5754: a press at a PERMISSION prompt is now refused for another reason (it would be pasted, and
+     the Enter takes the highlighted Yes; measured), so this control reads WHICH refusal: never the identity one. A
+     press that goes through on the question menu is server.question-menu-5406.test.js's. */
   const aPrompt = 'Edit file src/a.js?\n❯ 1. Yes\n  2. No\n';
   await withAgent(fleet.agent('zeta', { state: 'needs_you' }),
     [said(aPrompt), said(), said()], async ({ calls }) => {
       const chatEngine = require('./engine/chat');
       const asked = chatEngine.questionAbove(chatEngine.questionIn(aPrompt).text);
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
-      assert.equal(res.status, 200, 'the question it was answering is the one on screen');
-      assert.equal(calls.sends().length > 0, true, 'and the digit reached the pane');
+      assert.doesNotMatch(String(json(res).error), /moved between drawing that button|changed on its screen/, 'the identity check refused the question that is on screen');
+      assert.match(String(json(res).error), /cannot be answered with a button/, 'a press at a permission prompt was not refused as one');
+      assert.equal(calls.sends().length, 0, 'a press was typed into a permission prompt');
     });
 });
 
@@ -2743,7 +2747,7 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
     });
 });
 
-test('the cursor moving inside a SHORT prompt still sends, because the window clamps', async () => {
+test('the cursor moving inside a SHORT prompt keeps the same identity, because the window clamps', async () => {
   reset();
   /**
    * ⚠️ THE FALSE REFUSAL THE FIRST VERSION OF THIS GUARD SHIPPED WITH, and a
@@ -2778,8 +2782,11 @@ test('the cursor moving inside a SHORT prompt still sends, because the window cl
          the identity does not move at all. That is the ordinary permission
          prompt. The false refusal needs a capture DEEPER than the run-up
          window, and `engine/chat.test.js` holds that case. */
-      assert.equal(res.status, 200, 'a short prompt clamps to the same window at either cursor position');
-      assert.equal(calls.sends().length > 0, true, 'and the answer reached the pane');
+      /* #5406 slice C / #5754: a press at this permission prompt is refused now (pasted, its Enter would take the
+         highlighted option), so the clamp is read off the identity itself and off WHICH refusal came back. */
+      assert.equal(chatEngine.questionAbove(chatEngine.questionIn(moved).text), asked, 'a short prompt clamps to the same window at either cursor position');
+      assert.doesNotMatch(String(json(res).error), /moved between drawing that button/, 'the cursor moving was taken for a different question');
+      assert.equal(calls.sends().length, 0, 'a press was typed into a permission prompt');
     });
 });
 
