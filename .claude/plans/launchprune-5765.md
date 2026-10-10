@@ -14,4 +14,4 @@ The size check counts each clause's distinct paths. On macOS every rule is writt
 
 ## Decided
 - The limits and the product code are unchanged: the test's input was too small on Linux, the check was right.
-- Weakest premise: the Linux total is estimated (about 240k) from the macOS measurement minus the second spelling; the Linux lane run on this branch is the measurement.
+- Weakest premise: the Linux total is estimated (about 218k to 240k, review 1's count and mine) against the 163,840 raw limit; the Linux lane run on this branch is the measurement.
