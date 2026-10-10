@@ -1919,7 +1919,8 @@ function menuHeldVerdict(sessionName, roster) {
 /* #5805: a timer's line for a Claude agent paused on a usage limit whose screen names a DATED reset still ahead (the
    weekly form status.limitResetAt reads) is HELD until then, the #4588 hold shape with heldBy 'limit': typed, it would
    reach a session that cannot answer and the sender would count it as delivered. A limit line with no date (the
-   5-hour form) or a reset already past is not held, so a line typed after the reset still wakes the agent. */
+   5-hour form) or a reset already past is not held, so a line typed after the reset still wakes the agent (including
+   in the minute after the reset while status still reads the card capped: the vendor has reset by then). */
 function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   if (!card || card.isNamedOurs !== true || card.state !== status.STATE.RATE_LIMITED) return null;

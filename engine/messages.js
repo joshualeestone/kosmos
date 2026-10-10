@@ -1055,7 +1055,9 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
      replyTo = that id; a room post, not a direct message), or a post older than HELD_ASKED_MAX_MS from the post itself.
    The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
-   counts from the post even then, so a pause of days does not deliver days-old asks. An id not in the record yet (a
+   counts from the post even then, so a pause of days does not deliver days-old asks. Except a post a Claude usage
+   limit held for this member (#5805, heldBy[member] 'limit'): its day rule counts from the reset too, since the ask
+   was kept for the agent to read after its reset (the report that filed #5805 lost a go-ahead to exactly this). An id not in the record yet (a
    post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
@@ -1083,7 +1085,8 @@ function staleHeld(projectId, ids, log, now, member) {
       const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
       const from = Number.isFinite(until) && until > at ? until : at;
       if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
-      if (answered.has(r.id) || t - at > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
+      const limitHeld = member && r.heldBy && typeof r.heldBy === 'object' && r.heldBy[member] === 'limit';
+      if (answered.has(r.id) || t - (limitHeld ? from : at) > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
     }
   } catch { /* nothing is dropped */ }
   return out;
@@ -2036,6 +2039,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* #4588 PR B review 2 (W2): when each quota-held member's post will be told (ISO), beside its HELD outcome, so a
      reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
   const heldUntil = {};   // #4588 ask 3: for a Gemini cap hold this is the next look (a minute ahead), not a release time
+  const heldBy = {};   // #5805: 'limit' for a member whose post a Claude usage limit held (staleHeld's day rule reads it)
   let reached = 0;
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
@@ -2169,12 +2173,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
            is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
         const asksIt = mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
         /* #4588 ask 3 (review 13): a post the Gemini cap held is marked too, so roomhold.flushReleased retries it once the
-           cap lets the member through (a cap hold has no wake coming); an unmarked one waits for the next wake.
-           #5805: a post a Claude usage limit held takes the same mark, even one that names the member (the later line
-           then does not single it out), since no wake comes after the reset either. */
-        if (roomhold.hold(name, projectId, sent.heldBy === 'limit' ? roomhold.cappedId(id) : asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
+           cap lets the member through (a cap hold has no wake coming); an unmarked one waits for the next wake. */
+        if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
+          if (sent.heldBy === 'limit') heldBy[name] = 'limit';
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         return sent;
@@ -2259,6 +2262,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   try {
     appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
       ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
+      ...(Object.keys(heldBy).length ? { heldBy } : {}),
       ...(quotes.length ? { quotes } : {}),
       /* #185: the tokenizer's verdict, persisted at the one moment it runs.
          The unanswered state keys on WHO WAS ASKED, and re-deriving that at

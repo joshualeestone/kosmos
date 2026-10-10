@@ -148,21 +148,23 @@ function roomRoster(board, capped) {
 }
 function flushDeps(r, extra = {}) {
   return {
-    isAgy: (c) => c.runner === 'antigravity', isLimitable: (c) => String(c.runner || 'claude') === 'claude' && c.isNamedOurs !== false && c.state === 'idle',
+    isAgy: (c) => c.runner === 'antigravity', isLimitable: (c) => String(c.runner || 'claude') === 'claude' && c.isNamedOurs === true && c.state === 'idle',
     readReport: () => null, now: Date.now(), decayMs: status.REPORT_WORKING_DECAY_MS,
     deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, roster: r,
-    shownOf: () => 'Henderson lease', stale: (p, ids) => ids, ...extra,
+    shownOf: () => 'Henderson lease', stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2), ...extra,
   };
 }
 
-test('#5805 room: a colleague\'s post to a capped Claude member is held with the cap\'s mark (even when it names her), retried only once her card reads idle, told once', async () => {
+test('#5805 room: a post naming a capped Claude member is held (its "names you" mark kept), not retried while capped or without the predicate, told once when idle', async () => {
   const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'idle' })]);
   try {
     messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
     let tmux = arm('');
     const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@april please' }, roomRoster(board, true), MEMBERS);
     assert.deepEqual(tmux.pastedTo('april'), [], 'typed into a capped member');
-    assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.cappedId(sent.id)], 'not kept with the cap\'s mark');
+    assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.addressedId(sent.id)], 'not kept as addressed');
+    const row = messages.readLog().find((r) => r.id === sent.id);
+    assert.equal(row.heldBy && row.heldBy.april, 'limit', 'the post does not record the limit hold');
 
     tmux = arm('');
     const still = roomRoster(board, true);
@@ -172,26 +174,46 @@ test('#5805 room: a colleague\'s post to a capped Claude member is held with the
     // CONTROL: without the Claude predicate (the old server), the retry never looks at her.
     const idle = roomRoster(board, false);
     assert.deepEqual(await roomhold.flushReleased(idle, flushDeps(idle, { isLimitable: undefined })), []);
-    assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.cappedId(sent.id)]);
+    assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.addressedId(sent.id)]);
 
     tmux = arm('');
     const done = await roomhold.flushReleased(idle, flushDeps(idle));
     assert.deepEqual(done.map((d) => [d.name, d.state]), [['april', chat.DELIVERY.PLACED]]);
-    assert.equal(tmux.pastedTo('april').length, 1, 'not told exactly once');
+    const told = tmux.pastedTo('april');
+    assert.equal(told.length, 1, 'not told exactly once');
+    assert.match(told[0], new RegExp('names you and asks for your answer \\(' + sent.id + '\\)'));
+    assert.doesNotMatch(told[0], /Nothing is asked of you/);
     assert.deepEqual(roomhold.heldIn('april', PROJECT), []);
     tmux = arm('');
     assert.deepEqual(await roomhold.flushReleased(idle, flushDeps(idle)), [], 'told twice');
   } finally { chat.resetForTests(); board.restore(); }
 });
 
-test('#5805 room CONTROL: a plain #4624 hold on an idle Claude member (no cap mark) is not woken by the retry', async () => {
+test('#5805 room CONTROL: a post that does not name an idle Claude member waits for its next wake, limit-held or not', async () => {
   const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'idle' })]);
   try {
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    arm('');
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, roomRoster(board, true), MEMBERS);
+    assert.deepEqual(roomhold.heldIn('april', PROJECT), [sent.id], 'a plain post took a mark');
     roomhold.hold('april', PROJECT, 'plain-post-1');
     const tmux = arm('');
     const idle = roomRoster(board, false);
     assert.deepEqual(await roomhold.flushReleased(idle, flushDeps(idle)), []);
     assert.deepEqual(tmux.pastedTo('april'), []);
-    assert.deepEqual(roomhold.heldIn('april', PROJECT), ['plain-post-1']);
   } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5805 staleHeld: an ask a usage limit held counts its day from the reset, not from the post; other holds are unchanged', () => {
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+  const post = (extra) => ({ kind: 'post', id: 'm1', project: PROJECT, from: 'leo', text: '@april please', at: iso(now - 3 * DAY), ...extra });
+  const limit = messages.staleHeld(PROJECT, ['m1'], [post({ heldUntil: { april: iso(now - 3600e3) }, heldBy: { april: 'limit' } })], now, 'april');
+  assert.equal(limit.has('m1'), false, 'a limit-held ask from three days ago, reset an hour ago, was dropped');
+  // CONTROL: the same post held on the quota (no heldBy) still drops after a day from the post, as #4926 decided.
+  const quota = messages.staleHeld(PROJECT, ['m1'], [post({ heldUntil: { april: iso(now - 3600e3) } })], now, 'april');
+  assert.equal(quota.evenIfAsked.has('m1'), true);
+  // And a limit hold for ANOTHER member does not stretch april's day.
+  const other = messages.staleHeld(PROJECT, ['m1'], [post({ heldUntil: { april: iso(now - 3600e3) }, heldBy: { mara: 'limit' } })], now, 'april');
+  assert.equal(other.evenIfAsked.has('m1'), true);
 });
