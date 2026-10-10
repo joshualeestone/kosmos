@@ -149,6 +149,7 @@ function parsePsValue(text) {
 /* Windows' read: reg.exe, then PowerShell when reg.exe gave no GUID. Returns the id or throws; the error never carries
    the value or either command's output. */
 function readMachineGuid() {
+  // 🛑 Never log these errors: on a timeout or a non-zero exit their .stdout can hold the raw MachineGuid.
   let id = null;
   try { id = parseRegQuery(defaultRun('win32')); } catch { id = null; }
   if (!id && defaultFallback) { try { id = parsePsValue(defaultFallback()); } catch { id = null; } }
