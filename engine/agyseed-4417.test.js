@@ -86,7 +86,9 @@ const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;
 /* libuv's own `uv__close` assertion (fd > STDERR_FILENO), #5576. The bridge now guards against the one mechanism the
    Linux trace showed (fd 0 freed, then the report's socket on it; what frees fd 0 is still not measured). An abort whose
    own trace shows that state again is a real failure: red, never retried. Any other uv__close abort (the untraced macOS
-   one of 2026-10-08 was never shown to share that path) is still retried as the runtime's, and named in the message. */
+   one of 2026-10-08 was never shown to share that path) is still retried as the runtime's, and named in the message.
+   Blind spots (review 4): fd 0 freed after the last trace line before the abort, and anything after fd 2 is replaced
+   (the trace then stops writing); both read as "no fd 0 trace" and are retried. */
 const UV_CLOSE_ABORT = /fd > STDERR_FILENO/;
 const FD0_TAKEN = /^agy-trace [^|]*\| 0:(?:EBADF|sock@)/m;
 const retriedUvClose = (err) => UV_CLOSE_ABORT.test(err) && !FD0_TAKEN.test(err);
