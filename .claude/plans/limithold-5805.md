@@ -17,7 +17,8 @@ and the room reminder is sent once only.
 - engine/chat.js: `limitHeldVerdict` (exported) returns the #4588 hold shape with heldBy 'limit', for an addressable
   Claude card (`limitable`) in rate_limited whose stateEvidence has a dated reset (status.limitResetAt): heldUntil the
   reset while it is ahead, and a minute on after it while the card still reads capped (status keeps a passed dated
-  line only while Claude Code's limit menu is on screen, or in its one-minute grace). deliverAutomatic and
+  line while Claude Code's limit menu is on screen, or in its one-minute grace), for at most an hour past the reset
+  (a capped card whose line status never retires, another limit wording, is then typed as before, never held for good). deliverAutomatic and
   deliverAutomaticAsync check it after the menu hold.
 - engine/messages.js: a room post the limit held keeps its normal mark (addressed when it names the member, plain
   otherwise), and its reset is recorded with roomhold.noteLimit. staleHeld also reports `answered`.
@@ -26,7 +27,8 @@ and the room reminder is sent once only.
   forget removes it). withoutStale keeps such an ask that names the member until a day after the reset, unless the
   member answered it.
 - engine/roomhold.js: flushReleased takes `isLimitable` and retries a non-Antigravity member only when that predicate
-  passes and it holds a post that names it.
+  passes and it holds an ask a usage limit kept (limitKept); flushOnIdle's `askedOnly` tells only such a project and
+  never takes (or rewrites) any other.
 - server.js: isLimitable = chat.limitable(card) (the hold's own test) and the card reads `idle` off its screen.
 - engine/replynudge.js, agentnudge.js, firstreply-nudge.js, server.js (hello route): a 'limit' hold is logged as
   limit-held, "held while it is out of usage", never as the Google quota.
@@ -95,3 +97,11 @@ behaviour), never the reverse.
 - NITs taken: forgetProject clears its room's limit entries and an empty sidecar is removed; tests for merge and
   prune; stale comments ("the cap's mark") corrected; the server predicate is source-asserted; the two comment blocks
   above limitable merged.
+
+## Review 4 (sonnet)
+- FIXED: a dated limit line status never retires (another wording) could keep the post-reset re-look going for good; it
+  stops an hour after the reset (tested both sides).
+- FIXED: the Claude retry woke an idle member for any held ask; it now needs the ask's limit record, so other holds keep
+  their #4624 behaviour (tested), and a project without one is not taken and rewritten every minute (#4797).
+- NITs not taken: a lock on the sidecar (single board process, synchronous atomic writes, as the held file itself);
+  driving the server predicate against a real card (it is chat.limitable plus the state, both tested; source-asserted).

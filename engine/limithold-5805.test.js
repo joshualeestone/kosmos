@@ -43,6 +43,12 @@ function chicagoDay(ms) {
   for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' }).formatToParts(new Date(ms))) p[x.type] = x.value;
   return `${p.month} ${p.day}`;
 }
+/* "Oct 5 at 2:35pm" for `ms` in America/Chicago, the dated reset Claude Code prints, to the minute. */
+function resetAt(ms) {
+  const p = {};
+  for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(new Date(ms))) p[x.type] = x.value;
+  return `${p.month} ${p.day} at ${p.hour}:${p.minute}${String(p.dayPeriod).toLowerCase()}`;
+}
 const RULE = '─'.repeat(80) + '\n';
 const STATUS_LINE = RULE + '❯ \n' + RULE + '  casey · Opus 4.8 · 7d 100%\n' + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
 const limitScreen = (resets) => '> hello\n'
@@ -130,7 +136,7 @@ test('#5805 not held: a limit line with no date, a reset already past, and a per
 
 test('#5805 a passed dated reset on a card that still reads capped (its limit menu on screen) is held, looking again in a minute', async () => {
   await onScreen(AHEAD(), async (board, tmux) => {
-    const past = `You've hit your weekly limit · resets ${chicagoDay(Date.now() - 3 * DAY)} at 3pm (America/Chicago)`;
+    const past = `You've hit your weekly limit · resets ${resetAt(Date.now() - 15 * 60e3)} (America/Chicago)`;
     const r = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: past } : c));
     const before = Date.now();
     const v = chat.deliverAutomatic('casey', 'A colleague line.', r);
@@ -140,6 +146,10 @@ test('#5805 a passed dated reset on a card that still reads capped (its limit me
     const until = Date.parse(v.heldUntil);
     assert.ok(until >= before + 50e3 && until <= Date.now() + 70e3, 'not a minute on: ' + v.heldUntil);
     assert.deepEqual(tmux.typed(), []);
+    // More than an hour past the reset, a card still reading capped (a line status never retires) is typed as before.
+    const long = (h) => board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: `You've reached your weekly limit · resets ${resetAt(Date.now() - h * 3600e3)} (America/Chicago)` } : c));
+    assert.equal(chat.limitHeldVerdict('casey', long(30)), null, 'held thirty hours after its reset');
+    assert.notEqual(chat.limitHeldVerdict('casey', long(0.25)), null, 'CONTROL: fifteen minutes after its reset is still held');
   });
 });
 
@@ -255,6 +265,7 @@ test('#5805 retry: only a project whose ask survives is told; a project holding 
   const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'idle' })]);
   try {
     roomhold.hold('april', PROJECT, roomhold.addressedId('m51'));
+    roomhold.noteLimit('april', PROJECT, ['m51'], new Date(Date.now() - 600e3).toISOString());
     roomhold.hold('april', 'other-room', 'm52');
     const tmux = arm('');
     const idle = roomRoster(board, false);
@@ -283,4 +294,16 @@ test('#5805 server.js wires the Claude retry with the hold\'s own test', () => {
   const at = src.indexOf('roomhold.flushReleased(r, {');
   assert.notEqual(at, -1);
   assert.match(src.slice(at, at + 1200), /isLimitable: \(c\) => chat\.limitable\(c\) && c\.state === 'idle'/);
+});
+
+test('#5805 retry CONTROL: an ask held for any other reason (no limit record) does not wake an idle Claude member', async () => {
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'idle' })]);
+  try {
+    roomhold.hold('april', PROJECT, roomhold.addressedId('m61'));
+    const tmux = arm('');
+    const idle = roomRoster(board, false);
+    assert.deepEqual(await roomhold.flushReleased(idle, flushDeps(idle, { stale: undefined })), []);
+    assert.deepEqual(tmux.pastedTo('april'), []);
+    assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.addressedId('m61')]);
+  } finally { chat.resetForTests(); board.restore(); }
 });

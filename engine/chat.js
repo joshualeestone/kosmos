@@ -1925,15 +1925,18 @@ function limitable(card) {
    cannot answer and the sender would count it as delivered. Held while the reset is ahead (heldUntil the reset), and
    after it for as long as status still reads the card capped (heldUntil a minute on, to look again): status keeps a
    passed dated line only while Claude Code's limit menu is on screen, where a typed line would land in the menu, or
-   in its one-minute grace. A limit line with no date (the 5-hour form) is not held: it stays on screen after its
-   reset until something is typed, and holding on it would mean nothing ever wakes the agent. */
+   in its one-minute grace. Not past LIMIT_RELOOK_MAX_MS after the reset: a capped card whose line status never retires
+   (another limit wording) would otherwise be held for good; after that, lines are typed as before. A limit line with
+   no date (the 5-hour form) is not held: it stays on screen after its reset until something is typed, and holding on
+   it would mean nothing ever wakes the agent. */
 const LIMIT_RELOOK_MS = 60 * 1000;
+const LIMIT_RELOOK_MAX_MS = 60 * 60 * 1000;
 function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   if (!limitable(card) || card.state !== status.STATE.RATE_LIMITED) return null;
   if (addressable(sessionName, roster).ok !== true) return null;
   const reset = status.limitResetAt(card.stateEvidence, now);
-  if (reset === null) return null;
+  if (reset === null || now - reset > LIMIT_RELOOK_MAX_MS) return null;
   const iso = new Date(reset > now ? reset : now + LIMIT_RELOOK_MS).toISOString();
   return {
     state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: iso,

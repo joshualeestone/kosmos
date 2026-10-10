@@ -328,11 +328,14 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
+    /* #5805: the Claude retry (flushReleased) tells only a project holding an ask a usage limit kept (limitKept), and
+       only once it survives the staleness rule; any other project is left untouched (not taken and rewritten every
+       minute, #4797) for the member's next wake. */
+    const limitAsk = (x) => isAddressed(x) && limitKept(name, projectId, x);
+    if (askedOnly === true && !heldIn(name, projectId).some(limitAsk)) continue;
     const ids = withoutStale(projectId, take(name, projectId), stale, name);
     if (!ids.length) continue;
-    /* #5805: the Claude retry (flushReleased) tells only a project where an ask survives the staleness rule; the rest
-       go back untouched for the member's next wake. */
-    if (askedOnly === true && !ids.some(isAddressed)) { restore(name, projectId, ids); continue; }
+    if (askedOnly === true && !ids.some(limitAsk)) { restore(name, projectId, ids); continue; }
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
     let state;
@@ -369,12 +372,12 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
       const agy = isAgy(card);
       /* #5805: no idle report comes once a Claude usage limit resets, so a Claude member is retried here too, but only
          while `isLimitable` says its card reads idle off its screen (the server's predicate; never while it reads capped
-         or busy) and only when it holds a post that names it. A member holding only posts that ask nothing of it waits
+         or busy) and only when it holds an ask a usage limit kept (limitKept). Every other hold on such a member waits
          for its next wake, as before. */
       if (!agy && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
       const name = String(card.sessionName);
       if (!heldProjects(name).length) continue;
-      if (!agy && !heldProjects(name).some((p) => heldIn(name, p).some(isAddressed))) continue;
+      if (!agy && !heldProjects(name).some((p) => heldIn(name, p).some((x) => isAddressed(x) && limitKept(name, p, x)))) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;
       /* #4624 follow-up (review 1/2): an idle member holding only posts that ask nothing of it waits for its next wake,
          as on every other runner; this minute retry is for posts the quota held that name it. That includes posts held
