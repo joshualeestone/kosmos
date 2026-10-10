@@ -4862,6 +4862,7 @@ cmd_task() {
       _pause=1000; case "${KOSMOS_RETRY_PAUSE_MS:-}" in ''|*[!0-9]*) ;; *) _pause=$((10#${KOSMOS_RETRY_PAUSE_MS:0:6})) ;; esac   # its first six digits
       # Each attempt's time limit, 15 s; KOSMOS_RAN_TIMEOUT_S (digits) is a test seam, so a timeout can be tested fast.
       local _mt=15; case "${KOSMOS_RAN_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) [ "$sub" = ran ] && _mt=$((10#${KOSMOS_RAN_TIMEOUT_S:0:3})) ;; esac
+      [ "$_mt" -gt 0 ] || _mt=15   # 0 would be curl's "no limit"
       while :; do
         rc=0
         body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_mt" -w '\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
@@ -4872,7 +4873,7 @@ cmd_task() {
         if [ "$rc" -eq 0 ] && [ "$_code" != 503 ]; then break; fi
         case "$rc" in 0|7|18|28|52|56) ;; *) break ;; esac
         printf '%sKosmos did not answer or was busy; asking again...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
-        sleep "$(awk -v ms="$_pause" -v k="$(( _try == 0 ? 2 : 8 ))" 'BEGIN { printf "%.3f", ms * k / 1000 }')"; _try=$((_try + 1))
+        sleep "$(LC_ALL=C awk -v ms="$_pause" -v k="$(( _try == 0 ? 2 : 8 ))" 'BEGIN { printf "%.3f", ms * k / 1000 }')"; _try=$((_try + 1))
       done
       # A rule (repeat) fails as it always did (retry review 2: none of the run's words reach it).
       [ "$rc" -eq 0 ] || [ "$sub" = ran ] || { say_unreached "change that task" "$rc" write; exit 1; }

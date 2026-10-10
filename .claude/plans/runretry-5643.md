@@ -22,3 +22,5 @@ scheduler-owned tasks (#5456, released). Deferred: structured comparison fields 
 - A board that went away after a cut reply is never said to be running; "may have been recorded" exits 3 on both CLIs.
 - Retry wording, the pause setting (digits only, 2x then 8x, as Windows), notConnected not counted as maybe-landed.
 - Review 3: the board keeps the last 5 run ids per task (keyed by runner), an id the one-minute window absorbed included, so a late attempt of an absorbed or older command is never recorded; a rule change forgets them.
+- Review 6 converged (nothing above NIT). Known, accepted: an older board that ignores run_id records a retry twice only if it stalls past the minute (as before the change); the CLIs differ on exotic curl failures (loopback only).
+- Not this change: in-process test boards start the update poll (a read of the public latest.json), as every server test already does.
