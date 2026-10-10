@@ -455,17 +455,18 @@ function gatherIn(env) {
 async function sendOthers(c) {
   const next = {};
   const prev = c.prev && typeof c.prev === 'object' ? c.prev : {};
+  /* The Kosmoses whose partial daily is being held (one daily's hold). Carried as they are unless a DAILY reads that
+     Kosmos (board review 4: a change send, an early stop or an unreadable registry wiped the hold, so a Kosmos always
+     partial on a busy computer was never sent). The caller writes c.heldNext. */
+  const heldPrev = new Set(Array.isArray(c.held) ? c.held : []);
+  const held = new Set(heldPrev);
+  c.heldNext = held;
   // Only under words that name every Kosmos on this computer (the coordinator refuses the rest): none read, none sent.
   // Words that do not name every Kosmos keep no signatures (board review 2, decided): words naming them again resend
   // every Kosmos at once, the safe direction (the enrolled Kosmos's own signature, by contrast, survives new words).
-  c.heldNext = [];
   if (!c.accepted || c.accepted.everyKosmosConsented !== true) return next;
   let list = [];
   const seen = new Set();
-  // The Kosmoses whose partial daily was held last time (one daily's hold), and this time's.
-  const heldPrev = new Set(Array.isArray(c.held) ? c.held : []);
-  const heldNext = [];
-  c.heldNext = heldNext;
   try { list = (c.o.otherWorlds || otherWorlds)(c.root) || []; } catch { return prev; }
   for (const w of list) {
     if (!c.oe.mayReport(c.eo)) break;   // left meanwhile: nothing more goes
@@ -478,7 +479,7 @@ async function sendOthers(c) {
     /* A Kosmos enrolled itself (to this company, or another: a contractor's computer) is never sent under this
        enrollment (board review 3): its record says whom it reports to, and that is not ours to decide. A child that
        could not say is treated as enrolled. */
-    if (got.enrolled !== false) continue;
+    if (got.enrolled !== false) { held.delete(got.world); continue; }
     if (Object.prototype.hasOwnProperty.call(prev, got.world)) next[got.world] = prev[got.world];
     const g = got.gathered;
     if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
@@ -491,11 +492,14 @@ async function sendOthers(c) {
     if (g.partial) {
       if (c.reason !== 'daily') continue;
       if (!heldPrev.has(got.world)) {
-        heldNext.push(got.world);
+        held.add(got.world);
         console.error('orgrollup: another Kosmos on this computer could not be read in full; its daily waits a day');
         continue;
       }
-    } else if (c.reason === 'change' && prev[got.world] === sig) continue;
+    } else {
+      if (c.reason === 'daily') held.delete(got.world);   // read in full: no hold
+      if (c.reason === 'change' && prev[got.world] === sig) continue;
+    }
     const body = build(Object.assign({ world: got.world, at: new Date(c.now).toISOString(), reason: c.reason, nowMs: c.now }, g));
     Object.assign(body, c.pf.fields);
     /* Re-checked just before this send (board review 1), as the enrolled tick re-checks after its read: a read can take
@@ -504,13 +508,13 @@ async function sendOthers(c) {
     if (!now2 || now2.world !== c.rec.world || now2.consentHash !== c.rec.consentHash) break;
     let r;
     try { r = await c.remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
-    if (r && r.ok) { if (!g.partial) next[got.world] = sig; continue; }
+    if (r && r.ok) { if (g.partial) held.delete(got.world); else next[got.world] = sig; continue; }
     const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
     console.error('orgrollup: the company did not take another Kosmos\'s rollup (' + code + ')');
     if (code === 'org_rollup_too_many_worlds') {
       /* The company is full (board review 2): the Kosmoses not reached this time keep their signatures, so the next
          change send does not resend them all and hit the cap again at once. A Leave or new words drop them instead
-         (the breaks above): new words start clean, as the enrolled Kosmos's own state does. */
+         (the breaks above), the safe direction: those Kosmoses are resent in full. */
       for (const k of Object.keys(prev)) if (!seen.has(k)) next[k] = prev[k];
       break;
     }
@@ -646,7 +650,7 @@ async function tick(opts) {
     // #5532 widening: then every other Kosmos on this computer, recorded once they are sent.
     const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld };
     const others = await sendOthers(oc);
-    writeState(root, Object.assign({}, done, { others, othersHeld: oc.heldNext || [] }));
+    writeState(root, Object.assign({}, done, { others, othersHeld: [...(oc.heldNext || [])] }));
     return { sent: true, reason: body.reason };
   }
   const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)

@@ -171,6 +171,26 @@ test('#5532 widening (board review 1): another Kosmos read in part is not sent, 
   assert.equal(second[1].truncated, true, 'a partial daily was sent as the whole picture');
 });
 
+test('#5532 widening (board review 4): a change send between two dailies keeps another Kosmos\'s partial hold', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const part = Object.assign(inv('Ada'), { partial: true });
+  const o = {
+    otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }],
+    gatherIn: async () => ({ world: BETA, enrolled: false, gathered: JSON.parse(JSON.stringify(part)) }),
+  };
+  await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));   // daily: beta held
+  const c1 = coordinator();
+  // The enrolled Kosmos changes (a new agent): a change send, during which beta is still partial.
+  const res = await r.tick(Object.assign({ root, remote: c1, sources: sources([{ name: 'newbie', folder: '/g', job: null, profile: true }]), now: T0 + 2 * 3600 * 1000 }, o));
+  assert.equal(res.reason, 'change', 'CONTROL: the middle tick is a change send: ' + JSON.stringify(res));
+  const c2 = coordinator();
+  await r.tick(Object.assign({ root, remote: c2, sources: sources([{ name: 'newbie', folder: '/g', job: null, profile: true }]), now: T0 + 25 * 3600 * 1000 }, o));
+  assert.ok(rollups(c2).some((x) => x.world === BETA && x.truncated === true), 'the change send wiped the hold, so the always-partial Kosmos was held again');
+});
+
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
   const root = world(t);
   const c = coordinator();

@@ -10,8 +10,9 @@
  *   node engine/orgrollup-child.js tick     ->  {"ok":true,"result":{...}}   (the enrolled Kosmos's own rollup, when the
  *                                                board on screen serves another Kosmos; that tick sends)
  *
- * The world id is this Kosmos's own (minted in its own data root once, as the enrolled one's is). A failure prints
- * {"ok":false} and exits 0, so the caller treats it as "no report for this Kosmos this time".
+ * The world id is this Kosmos's own (minted in its own data root once, as the enrolled one's is). A failed gather
+ * prints {"ok":false} and exits 0, so the caller treats it as "no report for this Kosmos this time". `tick` prints the
+ * tick's own result, which the board does not read: it logs only a failed or timed-out child.
  */
 
 async function main(mode) {
