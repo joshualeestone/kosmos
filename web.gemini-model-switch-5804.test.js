@@ -1,7 +1,7 @@
 'use strict';
 /* #5804 (Liu Kang, 0.7.38): a Gemini agent launched on gemini-2.5-flash showed "Gemini 3.5 Flash" on its card. The card
    names the model the Gemini CLI recorded on its newest reply, and the CLI falls back to another model on a failure. The
-   card now says "(started on X)" when the board sends startedModelName (engine/geminimodelswitch.js decides when). These
+   card now says "(set to X)" when the board sends startedModelName (engine/geminimodelswitch.js decides when). These
    run the page's own functions. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -17,10 +17,10 @@ function grab(sig) {
 }
 const build = (pres) => new Function('cardStOf', grab('function modelLine(') + '\nreturn modelLine;')(() => ({ pres }));   // eslint-disable-line no-new-func
 
-test('#5804: a running Gemini agent the board marks names the model it was started on', () => {
+test('#5804: a running Gemini agent the board marks names the model it is set to', () => {
   const modelLine = build('on');
   assert.equal(modelLine({ runner: 'gemini', modelName: 'Gemini 3.5 Flash', startedModelName: 'Gemini 2.5 Flash' }),
-    'Gemini 3.5 Flash (started on Gemini 2.5 Flash)');
+    'Gemini 3.5 Flash (set to Gemini 2.5 Flash)');
   assert.equal(modelLine({ runner: 'gemini', modelName: 'Gemini 3.5 Flash', startedModelName: null }), 'Gemini 3.5 Flash');
   assert.equal(modelLine({ runner: 'gemini', modelName: 'Gemini 3.5 Flash' }), 'Gemini 3.5 Flash');
   assert.equal(modelLine({ runner: 'gemini', startedModelName: 'Gemini 2.5 Flash' }), 'Gemini', 'no model named yet: the provider');

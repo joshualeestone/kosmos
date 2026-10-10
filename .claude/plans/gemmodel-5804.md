@@ -22,13 +22,20 @@ sometimes silently); its base Flash is gemini-3.5-flash. So "Gemini 3.5 Flash" o
   model/modelAt out of the status read is the cheaper follow-up if a board runs many (review 2).
 - Same-run check: a model change restarts the agent by closing its tmux session (engine/remove.js restart:
   sessionOps.end), and the supervisor starts a fresh one, so the session start moves (review 2 asked; verified).
-- web/index.html modelLine: "<answering model> (started on <started>)" when the board sends it. modelLine feeds the card,
+- web/index.html modelLine: "<answering model> (set to <setting>)" when the board sends it (review 3: "set to" stays true
+  when a model change saved the setting but the restart did not happen; "started on" would not). modelLine feeds the card,
   the list row, the detail meta line, the "Right now" line, the model menu's "Runs on" option and the model sort; all get
   the same words on purpose (one question, one answer; the sort then groups by what the card says).
 
+## Scope
+Mac and Linux only: the run start comes from tmux; on Windows it is always null (fails safe, no note). Same model by
+canonical id (a numeric revision, -latest, -preview, -exp suffix is the same model).
+
 ## Not here
 Grok and Antigravity (no report; their fallback not traced). Stopping the CLI's fallback (a rate limit would become a
-failed reply). Naming WHY it switched (the session file does not say; only that it did).
+failed reply). Naming WHY it switched (the session file does not say; only that it did). A fixture test of geminisession's modelAt
+(it needs the CLI's project-hash layout; modelAt uses the same parseTs and lastGemini as lastAt and model, already
+tested); the model menu and sort wording (intended, same words everywhere).
 
 ## Weakest premise
 That the switch is the CLI's fallback: not seen in Liu Kang's session file yet (asked on the card). "(started on X)" is

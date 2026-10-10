@@ -34,6 +34,14 @@ test('#5804: nothing to say for the same model, an alias, a reply from before th
   assert.equal(startedModelName('a', deps({ session: () => ({ found: true, model: 'gemini-3.5-flash', modelAt: START }) })), 'Gemini 2.5 Flash');
 });
 
+test('#5804 review 3: the same model spelled with a revision, -latest or -preview is not a switch', () => {
+  for (const spelled of ['gemini-2.5-flash-001', 'gemini-2.5-flash-latest', 'gemini-2.5-flash-preview-09-2025', 'Gemini-2.5-Flash']) {
+    assert.equal(startedModelName('a', deps({ session: () => ({ found: true, model: spelled, modelAt: START + 1 }) })), null, spelled);
+  }
+  // CONTROL: a different model is still said.
+  assert.equal(startedModelName('a', deps({ session: () => ({ found: true, model: 'gemini-3.5-flash-001', modelAt: START + 1 }) })), 'Gemini 2.5 Flash');
+});
+
 test('#5804: geminisession reports when the model-naming reply was written', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'geminisession.js'), 'utf8');
   assert.match(src, /const modelAt = model && Number\.isFinite\(parseTs\(lastGemini\)\) \? parseTs\(lastGemini\) : null;/);
