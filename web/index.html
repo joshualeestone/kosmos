@@ -11728,6 +11728,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-back { width: 44px; height: 44px; }
   :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap { font-size: .9375rem; letter-spacing: 0; }
   :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap > .pj-crumb-sep { display: none; }
+  /* Review: the search takes its own row under the Back row, as drawn, so a long project name is cut short with an
+     ellipsis on the Back row instead of pushing the search down a second time. */
+  :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-talk-caprow { flex-wrap: wrap; }
+  :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap { flex: 1 1 0; }
+  :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 100%; }
   /* #718 row 7: the agent Files surfaces need phone-sized touch targets without changing the
      shared project file rows or desktop geometry. Talk still hides #d-files above; Profile and
      the other agent sections keep this short list, and View All opens #d-sec-files. */
@@ -12580,9 +12585,10 @@ window.kosmosMeasureScrollbarWidth();
            page has it: a round Back button, then "All agents /" in front of his ruled heading (#3414, unchanged).
            display:none unless the new look is on, where the small "All agents" link above the page steps aside
            while the conversation is open. Both go where #detail-back goes, and detailBackPaint names that place
-           (a project the agent was opened from, or All agents). -->
+           (a project the agent was opened from, or All agents). The lead is a mouse target only (tabindex -1, hidden
+           from screen readers): the round button already says "Back to <place>", so a keyboard meets one stop, not two. -->
       <button class="pj-back d-crumb-back" id="d-crumb-back" type="button" aria-label="Back to All agents"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <span class="d-crumb-rootwrap"><button class="linkish d-crumb-root" id="d-crumb-root" type="button">All agents</button><span class="pj-crumb-sep" aria-hidden="true">/</span><span class="vh">, </span></span>
+      <span class="d-crumb-rootwrap"><button class="linkish d-crumb-root" id="d-crumb-root" type="button" tabindex="-1" aria-hidden="true">All agents</button><span class="pj-crumb-sep" aria-hidden="true">/</span></span>
       <h3 id="d-talk-label"></h3>
       <div class="tsearch" id="d-talk-search-wrap">
         <span class="tsearch-i" aria-hidden="true">
@@ -59958,6 +59964,8 @@ async function loadProjects() {
     }
     PROJECTS = body.projects || [];
     PJ_READ_SHOWN = readNo;
+    /* #5551 review: an agent page opened from a project names it; a rename (or a list that arrives late) repaints it. */
+    if (DETAIL_FROM_PROJECT && typeof detailBackPaint === 'function') detailBackPaint();
     /* #2407: ring the bubble-pop if any project's unread rose since the last load.
        Placed on the fresh PROJECTS, before the first-load deep-link work below, and
        itself no-ops on the first load (it only baselines then). */
