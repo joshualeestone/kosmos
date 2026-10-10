@@ -333,6 +333,260 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
   return { days, folders, folderModels, unreadable, rootsRead: roots };
 }
 
+/* kosmos#5759: TODAY's transcripts, read once and then only for what was appended. With every past day frozen (#5363),
+   the usual open still re-read every transcript written today, which is never frozen: 155 files, 392 MB and about 10
+   seconds a page open on the fleet Mac, 6 hours into the UTC day. This is the per-file byte-offset cursor the
+   dailyUsageByModel docblock named: in this board process, each of the day's transcripts remembers how far it was read
+   and what its rows added, and the next call reads only the bytes after that.
+
+   🛑 THE RESULT IS EXACTLY WHAT A FULL READ OF THE SAME FILES WOULD GIVE, OR THE CURSOR IS THROWN AWAY. scanUsage is
+   the definition: its seenIds keeps the FIRST copy of a message in (root, sorted path) order, and a transcript's rows
+   go to its FIRST cwd (a subagent's to its top-level transcript's). Anything after which an incremental read could
+   disagree with that throws Rebuild, and the call reads every file from the start, in order, which cannot disagree:
+   - a file that vanished, could not be stat-ed or read, shrank below its cursor, or is a different file (inode);
+   - a message id already counted for a file that sorts AFTER the one now holding it (a full read credits this one);
+   - a launch folder that changes after rows were counted under the old one (a first cwd written late, or a
+     subagent's parent changing);
+   - a new UTC day or a different set of config roots (a fresh cursor, not a rebuild in place).
+   A last line with no newline yet is read only when it parses whole, as the full read's split would parse it; a
+   half-written one is left for next time.
+   Held in memory only: a board restart starts from a full read of the day, as before. Calls are chained, so two
+   requests never move one cursor at once. */
+const DAY_CURSOR = { day: null, roots: null, files: new Map(), owner: new Map(), heads: new Map() };
+const lastDayCursorRun = { rebuilt: false, bytesConsumed: 0 };
+let dayCursorChain = Promise.resolve();
+class Rebuild extends Error {}
+
+function resetDayCursor(day = null, roots = null) {
+  DAY_CURSOR.day = day;
+  DAY_CURSOR.roots = roots;
+  DAY_CURSOR.files = new Map();
+  DAY_CURSOR.owner = new Map();
+  DAY_CURSOR.heads = new Map();
+}
+
+function scanDayCursor(day) {
+  const run = dayCursorChain.then(() => scanDayCursorNow(day));
+  dayCursorChain = run.catch(() => {});
+  return run;
+}
+
+async function scanDayCursorNow(day) {
+  if (windowCutMs(day) === null) return scanUsage({ sinceDay: day, untilDay: day, mtimeCut: true });   // not a real day
+  const roots = configRoots();
+  const key = JSON.stringify(roots);
+  let rebuilt = false;
+  if (DAY_CURSOR.day !== day || DAY_CURSOR.roots !== key) { resetDayCursor(day, key); rebuilt = true; }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const out = await dayCursorPass(day, roots);
+      lastDayCursorRun.rebuilt = rebuilt;
+      lastDayCursorRun.bytesConsumed = out.bytesConsumed;
+      return out.result;
+    } catch (err) {
+      if (!(err instanceof Rebuild)) { resetDayCursor(); throw err; }
+      resetDayCursor(day, key);
+      rebuilt = true;
+    }
+  }
+  // A from-the-start pass asked to rebuild again (it should not be able to): the full read, and no cursor kept
+  // (bytesConsumed -1 says so).
+  resetDayCursor();
+  lastDayCursorRun.rebuilt = true;
+  lastDayCursorRun.bytesConsumed = -1;
+  return scanUsage({ sinceDay: day, untilDay: day, mtimeCut: true });
+}
+
+/* The full read's limits, mirrored. readFile refuses a file over 2 GiB, and its utf8 decode throws past the
+   longest string Node can make; either way the full read counts the file unreadable. Overridable by tests only. */
+const CURSOR_LIMITS = {
+  maxReadBytes: 2 ** 31 - 1,
+  maxStringBytes: require('node:buffer').constants.MAX_STRING_LENGTH,
+  decode: (b) => b.toString('utf8'),
+};
+const SEAM_BYTES = 64;   // bytes before the cursor, read back to tell an appended file from a rewritten one
+async function readFrom(fh, start, end) {
+  const buf = Buffer.alloc(Math.max(0, end - start));
+  let got = 0;
+  while (got < buf.length) {
+    const { bytesRead } = await fh.read(buf, got, buf.length - got, start + got);
+    if (!bytesRead) break;
+    got += bytesRead;
+  }
+  return buf.subarray(0, got);
+}
+
+/* The first cwd among `lines`, by the full read's rule (the first line naming a cwd that parses with a non-empty one). */
+function firstCwdOf(lines) {
+  for (const line of lines) {
+    if (!line.includes('"cwd"')) continue;
+    let r;
+    try { r = JSON.parse(line); } catch { continue; }
+    if (r && typeof r.cwd === 'string' && r.cwd) return r.cwd;
+  }
+  return '';
+}
+
+const orderBefore = (a, b) => a.ri < b.ri || (a.ri === b.ri && a.file < b.file);
+
+function addBucket(map, k, usage) {
+  if (!map[k]) map[k] = emptyBuckets();
+  for (const field of BUCKET_FIELDS) map[k][field] += Number(usage[field]) || 0;
+  map[k].rows += 1;
+}
+
+async function dayCursorPass(day, roots) {
+  const cutMs = windowCutMs(day);
+  const C = DAY_CURSOR;
+  let unreadable = 0;
+  let bytesConsumed = 0;   // new bytes taken into the counts (a half line left for later is read again, not consumed)
+  const listed = new Set();
+  const skippedTop = new Set();
+  const passHeads = new Map();   // a skipped parent is head-read at most once a pass, as the full read's launchOf does
+  for (let ri = 0; ri < roots.length; ri += 1) {
+    const root = roots[ri];
+    for (const file of (await walkTranscriptsUnder(root, () => { unreadable += 1; })).sort()) {
+      const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
+      const isSub = sub !== -1;
+      let st;
+      try { st = await fsp.stat(file); } catch { if (C.files.has(file)) throw new Rebuild(); unreadable += 1; continue; }
+      if (st.mtimeMs < cutMs) {
+        if (C.files.has(file)) throw new Rebuild();
+        if (!isSub) skippedTop.add(file);
+        continue;
+      }
+      let s = C.files.get(file);
+      const fresh = !s;
+      let lines = [];
+      /* Every listed file is opened on every pass, read or not, so one that became unreadable is noticed
+         (the full read would drop its rows and count it unreadable), and an empty one that cannot be opened counts. */
+      let fh;
+      try { fh = await fsp.open(file, 'r'); } catch { if (!fresh) throw new Rebuild(); unreadable += 1; continue; }
+      let take = 0;
+      let taken = null;
+      let fst;
+      try {
+        fst = await fh.stat();   // the OPENED file's size, inode and mtime, so a swap after the stat is not mixed in
+        if (!fresh && (s.ri !== ri || s.ino !== fst.ino || s.dev !== fst.dev || fst.size < s.offset)) throw new Rebuild();
+        /* A file too big for one string is unreadable to the full read (its readFile fails). A known file that
+           grew that big is read again from the start, where the whole-file decode below fails the same way. */
+        if (!fresh && fst.size > CURSOR_LIMITS.maxStringBytes) throw new Rebuild();
+        if (fresh && fst.size > CURSOR_LIMITS.maxReadBytes) throw new Error('too big to read whole');
+        if (fresh) s = { ri, file, ino: fst.ino, dev: fst.dev, offset: 0, seam: Buffer.alloc(0), mtimeMs: fst.mtimeMs, firstCwd: '', counted: false, launch: '', orphan: false, days: {}, folders: {}, folderModels: {} };
+        /* The SEAM, the last bytes before the cursor, is read back with any new bytes (and on its own when the
+           file was written without growing). A file truncated and rewritten, even longer and on the same inode, no
+           longer has it there, and the cursor rebuilds rather than read the middle of new content. */
+        let buf = null;
+        const grew = fst.size > s.offset;
+        if (!fresh && (grew || fst.mtimeMs !== s.mtimeMs)) {
+          const back = await readFrom(fh, s.offset - s.seam.length, grew ? fst.size : s.offset);
+          if (!back.subarray(0, s.seam.length).equals(s.seam)) throw new Rebuild();
+          if (grew) buf = back.subarray(s.seam.length);
+        } else if (grew) buf = await readFrom(fh, s.offset, fst.size);
+        if (buf && buf.length) {
+          const nl = buf.lastIndexOf(0x0a);
+          take = buf.length;
+          if (nl !== buf.length - 1) {
+            // No newline after the last line yet: take it only if it parses whole (the full read would parse it too). A
+            // writer that later extends that same line into something unparseable is not caught (none does).
+            let whole = false;
+            try { JSON.parse(CURSOR_LIMITS.decode(buf.subarray(nl + 1))); whole = true; } catch { /* half written */ }
+            if (!whole) take = nl + 1;
+          }
+          taken = buf.subarray(0, take);
+          lines = CURSOR_LIMITS.decode(taken).split('\n');   // inside the try, as the full read's readFile is
+        }
+      } catch (err) {
+        if (err instanceof Rebuild) throw err;
+        if (!fresh) throw new Rebuild();
+        unreadable += 1;
+        continue;
+      } finally { await fh.close().catch(() => {}); }
+      s.mtimeMs = fst.mtimeMs;
+      if (taken) {
+        s.seam = Buffer.concat([s.seam, taken]).subarray(-SEAM_BYTES);
+        s.offset += take;
+        bytesConsumed += take;
+      }
+      if (fresh) C.files.set(file, s);
+      listed.add(file);
+      if (!s.firstCwd) s.firstCwd = firstCwdOf(lines);
+      let launch = s.firstCwd;
+      let orphan = false;
+      if (isSub) {
+        const parentFile = file.slice(0, sub) + '.jsonl';
+        let parent;
+        const ps = C.files.get(parentFile);
+        if (ps && listed.has(parentFile)) parent = ps.firstCwd;
+        else if (skippedTop.has(parentFile)) {
+          // A parent last written before the window: its first cwd, head-read once per version of that file, and asked
+          // at most once a pass (the stat and the open probe too).
+          if (passHeads.has(parentFile)) parent = passHeads.get(parentFile);
+          else {
+            let pst = null;
+            try { pst = await fsp.stat(parentFile); } catch { /* read below fails the same way */ }
+            const h = C.heads.get(parentFile);
+            // The saved head is trusted only while the parent still opens (a full read would fail to head-read
+            // it). A failed close is not an error.
+            const opens = () => fsp.open(parentFile, 'r').then((p) => p.close().catch(() => {}).then(() => true), () => false);
+            if (h && pst && h.mtimeMs === pst.mtimeMs && h.size === pst.size && await opens()) parent = h.cwd;
+            else {
+              let failed = false;
+              parent = await firstCwd(parentFile, () => { failed = true; unreadable += 1; });
+              if (!failed && pst) C.heads.set(parentFile, { mtimeMs: pst.mtimeMs, size: pst.size, cwd: parent });
+            }
+            passHeads.set(parentFile, parent);
+          }
+        }
+        if (parent) launch = parent; else orphan = true;
+      }
+      if (s.counted && (s.launch !== launch || s.orphan !== orphan)) throw new Rebuild();
+      s.launch = launch;
+      s.orphan = orphan;
+      for (const line of lines) {
+        if (!line || SYNTHETIC_ROW.test(line)) continue;
+        let row;
+        try { row = JSON.parse(line); } catch { continue; }
+        const message = row && row.message;
+        const usage = message && message.usage;
+        if (!usage) continue;
+        if (utcDay(row.timestamp) !== day) continue;
+        if (message.id) {
+          const owner = C.owner.get(message.id);
+          if (owner) {
+            if (owner !== s && orderBefore(s, owner)) throw new Rebuild();   // a full read counts it here, not there
+            continue;
+          }
+          C.owner.set(message.id, s);
+        }
+        const model = message.model || 'unknown';
+        addBucket(s.days, model, usage);
+        addBucket(s.folders, launch, usage);
+        const scoped = orphan ? '' : launch;
+        if (!s.folderModels[scoped]) s.folderModels[scoped] = {};
+        addBucket(s.folderModels[scoped], model, usage);
+        s.counted = true;
+      }
+    }
+  }
+  for (const file of C.files.keys()) if (!listed.has(file)) throw new Rebuild();   // gone, or now unreadable
+  const days = {};
+  const folders = {};
+  const folderModels = {};
+  const sum = (into, from) => { for (const [k, b] of Object.entries(from)) addInto(into, k, b); };
+  // Summed in (root, path) order, so the result's keys come in the order a full read gives them.
+  for (const s of [...C.files.values()].sort((a, b) => (orderBefore(a, b) ? -1 : orderBefore(b, a) ? 1 : 0))) {
+    if (!s.counted) continue;
+    sum((days[day] = days[day] || {}), s.days);
+    sum((folders[day] = folders[day] || {}), s.folders);
+    for (const [scoped, models] of Object.entries(s.folderModels)) {
+      if (!folderModels[day]) folderModels[day] = {};
+      sum((folderModels[day][scoped] = folderModels[day][scoped] || {}), models);
+    }
+  }
+  return { result: { days, folders, folderModels, unreadable, rootsRead: roots }, bytesConsumed };
+}
+
 /* This Kosmos's own agent folders, from its roster, exactly as the usage screen builds them (server.js, the per-agent
    split). Null when the roster cannot be read. An agent whose folder cannot be resolved stays in the list as null, so
    the count says it left that agent out rather than looking whole. */
@@ -501,18 +755,22 @@ function todayUtc() {
  * row is appended when it is written, so it holds none in the missing days); a skipped top-level one is head-read for
  * its first cwd only when a subagent of it is read. With every past day frozen (the usual open) that is the files
  * written since an hour before today began (UTC); just after UTC midnight, since an hour before yesterday began.
- * A stats page polling this on a live schedule still costs real time and
- * disk I/O on every call: the files written since the first missing day
- * (measured on the fleet Mac, about 4 to 6 seconds). What this DOES
+ * An open with a past day missing (the first of each UTC day), and the first
+ * open after the board starts, still read the files written since the first
+ * missing day in full (on the fleet Mac at 0.7.35, 2026-10-10: 10 to 11 s
+ * with every past day frozen, 155 of today's files, 392 MB); the usual open
+ * after that reads only what was appended (#5759, below). What this DOES
  * avoid, because every read on this path is async (fs.promises, not
  * fs.*Sync): it does not block Node's single event loop while doing so --
  * without that, every OTHER route on this server (agent status polling
  * included) would stall for the scan's full duration, found in review as
  * a real, not hypothetical, consequence of the first synchronous version.
- * A genuinely cheaper re-scan (a persistent per-file byte-offset cursor,
- * so an already-fully-read file only has its NEW bytes reparsed next
- * time) is out of scope for this card -- a separate piece of work, not a
- * corner cut here, and distinct from the event-loop-blocking fix above.
+ * #5759: today, when it is the only missing day (the usual open), is read
+ * through a per-file byte-offset cursor (scanDayCursor): each of the day's
+ * transcripts is read once, then only for the bytes appended since, with the
+ * same answer as a full read (it rebuilds whenever it could disagree). The
+ * cursor lives in this board process, so the first open after a restart, and
+ * any open with a past day missing, still reads in full.
  *
  * The scan range is narrowed to the missing days' own span (not the full
  * requested window), so the ACCUMULATION and per-day freeze work scoped to
@@ -567,7 +825,11 @@ async function dailyUsageByModel(days = 7) {
     const sinceDay = missingSorted[0];
     const untilDay = missingSorted[missingSorted.length - 1];
     // #5363: files last written before the first missing day (less an hour) are not read (see scanUsage).
-    const scanResult = await scanUsage({ sinceDay, untilDay, mtimeCut: true });
+    /* kosmos#5759: when today is the only missing day (the usual open), its transcripts are read through the cursor
+       (scanDayCursor): only what was appended since the last open, with the same result as a full read. */
+    const scanResult = sinceDay === today && untilDay === today
+      ? await scanDayCursor(today)
+      : await scanUsage({ sinceDay, untilDay, mtimeCut: true });
     rootsRead = scanResult.rootsRead;
     for (const day of missing) {
       /* Whichever half of a past day is already frozen keeps it: re-deriving
@@ -737,6 +999,12 @@ module.exports = {
   configRoots, // re-exported so a caller can report roots without a second require
   walkTranscriptsUnder,
   scanUsage,
+  scanDayCursor,      // kosmos#5759
+  // kosmos#5759, FOR TESTS ONLY, never from production code: resetDayCursor is not chained with the scans (a reset
+  // during one would hand that call partial totals), and changing CURSOR_LIMITS changes every count.
+  resetDayCursor,     // tests start from an empty cursor
+  lastDayCursorRun,   // tests read whether the last call rebuilt and how many bytes it consumed
+  CURSOR_LIMITS,      // tests lower the read limits instead of writing a 600 MB file
   dailyUsageByModel,
   worldUsageByModel,
   worldAgentDirs,
