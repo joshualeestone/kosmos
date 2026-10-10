@@ -74,8 +74,7 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
     path.join(dir, '.mcp.json'),
   ];
   // Review 2: the ancestors' .mcp.json go to the file tools only (the shell cannot write there; the profile has a size limit).
-  for (const d of ancestors.slice(1)) {
-    const f = path.join(d, '.mcp.json');
+  for (const f of ancestors.slice(1).flatMap((d) => ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md'].map((x) => path.join(d, x)))) {
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools');
     assert.ok(!s.sandbox.filesystem.denyWrite.includes(realOrLeaf(f)), f + ' went into the sandbox profile');
   }
@@ -95,8 +94,11 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
   for (const x of CODE_DIRS) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', x))}/**)`), 'no glob for a later home ' + x + ' folder');
   // Review 3: every global-config name for a later home, not only the plain one.
   for (const x of SFX) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', `.claude${x}.json`))})`), 'no glob for a later home .claude' + x + '.json');
-  // Review 3: the agent's own .claude whole, to the file tools (its project agents, commands, skills, workflows).
-  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude'))}/**)`), 'the agent own .claude is open to the file tools');
+  // Reviews 3 and 4: the code and instruction members of the agent's own .claude, to the file tools.
+  for (const x of CODE_DIRS) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude', x))}/**)`), 'the agent own .claude/' + x + ' is open to the file tools');
+  for (const f of ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json']) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude', f))})`), 'the agent own .claude/' + f + ' is open');
+  // CONTROL: not the folder whole, so its plans and worktrees stay writable to its tools.
+  assert.ok(!deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude'))}/**)`), 'the agent own .claude is denied whole (its plans and worktrees with it)');
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', '.config.json'))})`), 'no glob for a later home legacy config');
   // CONTROL: the config homes themselves are not denied whole (Claude Code keeps its runtime state there).
   for (const h of [path.join(HOME, '.claude'), path.join(HOME, '.claude-acct')]) {

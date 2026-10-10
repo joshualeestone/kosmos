@@ -1293,7 +1293,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   ])];
   /* Every ancestor's .mcp.json (review 1: Claude Code reads it from each folder up to the root), to the FILE TOOLS only
      (review 2): the shell cannot write above the agent folder anyway, and the sandbox profile has a size limit. */
-  const ancestorMcp = ancestorsOf(dir).filter((d) => d !== path.resolve(dir)).map((d) => path.join(d, '.mcp.json'));
+  /* Above the agent folder: its server file, and the instruction files every agent below reads (review 4: the same
+     reason the config home's CLAUDE.md is in, it reaches other agents). The agent's OWN CLAUDE.md is not here: it
+     reaches only the agent itself, and Kosmos writes it. Links followed to their targets. */
+  const ancestorMcp = [...new Set(ancestorsOf(dir).filter((d) => d !== path.resolve(dir))
+    .flatMap((d) => ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md'].map((f) => path.join(d, f))).flatMap(withTarget))];
   /* Each config home's plugins folder, and its skills folder (review 1: a skills subfolder can be adopted as a plugin,
      with servers of its own). Kosmos's own skills writes are the board's process, in neither layer; an agent's own
      skills are in its folder's .claude, already denied. */
@@ -1359,10 +1363,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
     ...CONFIG_HOME_CODE_DIRS.map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),
     ...CONFIG_HOME_CODE_FILES.map((f) => `Edit(${ruleAbs(path.join(home, '.claude-*', f))})`),
-    /* Review 3: the agent's OWN .claude whole, to the file tools (its project agents, commands, skills and workflows
-       carry code too). The sandbox layer already denies this folder whole (settingsDir); Kosmos's own writes there are
-       the board's process. */
-    `Edit(${ruleAbs(settingsDir)}/**)`,
+    /* Reviews 3 and 4: the code and instruction members of the agent's OWN .claude (its project agents, commands,
+       skills, workflows and the rest), to the file tools, by the same list as a config home's; NOT the folder whole,
+       so its plans and worktrees stay writable. The sandbox layer denies the folder whole (settingsDir); Kosmos's own
+       writes there are the board's process. */
+    ...CONFIG_HOME_CODE_DIRS.map((d) => `Edit(${ruleAbs(path.join(settingsDir, d))}/**)`),
+    ...CONFIG_HOME_CODE_FILES.map((f) => `Edit(${ruleAbs(path.join(settingsDir, f))})`),
   ];
   /* #5516 (review 3): the launch folders' file-tool rules are kept OUT of the filter below. A launch folder whose path
      has a rule-pattern character (an installed "App (Beta)") must not stop the WHOLE guard from being written: its rule

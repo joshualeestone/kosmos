@@ -17,7 +17,12 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 
 - Review 3: the agent's own .claude is now denied whole to the file tools; it had only the three named files there, so its project agents, commands, skills and workflows were open to its Write and Edit tools. Got wrong: my comment said they were "already denied", true only of the sandbox layer, in the same change that calls the file-tool layer the load-bearing one. The config homes' members widen to every code or instruction member of Claude Code's own protected list (not its runtime state), and a member that is a link has its target named in both layers. Ancestors are walked by both the given and the resolved path.
 
+- Review 4: denying the agent's whole .claude to its tools also refused its plans and worktrees there, so only the code and instruction members are denied (the config-home list); the shell layer still denies the folder whole, as before. The instruction files above the agent folder join its server file there (file tools only), for the reason the config home's CLAUDE.md is in: they reach every agent below. The agent's own CLAUDE.md is out: it reaches only itself, and Kosmos writes it.
+
 ## Gaps, stated (the rest of the card)
+- A plugin folder Claude Code is pointed at by its plugin cache or seed environment variables, outside every config home: not covered (same shape as the CLAUDE_CONFIG_DIR gap).
+- A project-scope language-server file: named in the binary, not confirmed to be read from the project folder; not denied.
+- A link the agent itself makes later (a new link in a config home or above its folder): its target is not followed until the next guard refresh.
 - A config home Claude Code is pointed at outside ~/.claude and ~/.claude-* (CLAUDE_CONFIG_DIR elsewhere): not enumerated, so not covered. Kosmos's own accounts live in ~/.claude-<label>.
 - The resolved-path walk of the ancestors is not exercised by a test (the test folders' parents are not links).
 - The scripts a hook, the status line or a server's command points at, wherever they sit: not covered here (they can live anywhere; a next part).
