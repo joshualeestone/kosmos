@@ -333,6 +333,11 @@ test('#5774 review 2: a server command with a space is one program; a script pat
     g = setup.guardTokenOnlyFolder(dir, 'pilot-srv', DEPS);
     assert.equal(g.ok, false, 'a settings file that cannot be read: its commands are unknown');
     assert.match(String(g.because), /could not be read/);
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), '{ "hooks": ');
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-srv', DEPS);
+    assert.equal(g.ok, true, 'the agent folder\'s own settings are rewritten by the guard, so their old text never loads');
   } finally {
     fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
     fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });

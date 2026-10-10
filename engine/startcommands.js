@@ -314,11 +314,15 @@ function configSources(dir, homes, home, deps = {}) {
   const whole = (j) => j;
   const out = [];
   const folders = foldersFrom(dir);
+  let own = [path.resolve(dir)];
+  try { own = [...own, fs.realpathSync.native(dir)]; } catch { /* as given */ }
   for (const h of homes) {
     for (const f of ['settings.json', 'settings.local.json', 'remote-settings.json']) out.push({ file: path.join(h, f), pick: whole, settings: true });
   }
   for (const d of folders) {
-    for (const f of ['settings.json', 'settings.local.json']) out.push({ file: path.join(d, '.claude', f), pick: whole, settings: true });
+    // The agent folder's own two settings files (by either path) are rewritten by the guard itself (an unreadable one
+    // is kept as a dated copy and replaced, #4491 review 18), so their old text never loads: unreadable there is not a gap.
+    for (const f of ['settings.json', 'settings.local.json']) out.push({ file: path.join(d, '.claude', f), pick: whole, settings: true, rewritten: own.includes(d) });
     out.push({ file: path.join(d, '.mcp.json'), pick: whole });
   }
   /* The global config: its own servers, and its project entries for the agent folder and the folders above (never
@@ -394,7 +398,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const sources = [];
   for (const s of configSources(agentDir, homes, home, { platform, managedDir: md })) {
     const r = readJsonFile(s.file);
-    if (r.error) unsafe.push(`${s.file} (could not be read: ${r.error}), so the commands in it are unknown`);
+    if (r.error) { if (!s.rewritten) unsafe.push(`${s.file} (could not be read: ${r.error}), so the commands in it are unknown`); }
     else if (!r.missing) sources.push({ ...s, json: r.json });
   }
   /* The settings env, which hooks see: a variable every tier that sets it agrees on is known; one set two ways, or to
