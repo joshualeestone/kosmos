@@ -65,9 +65,15 @@ function remoteFor(opts) {
 
 /* This world's opaque id: read, or minted once and kept in this world's own data root. Written whole (temp, then
    rename) with owner-only permission. Null when the root cannot be written (then nothing is sent). */
-function worldId(opts) {
+function worldId(opts) { return mintedId(opts, WORLD_ID_FILE); }
+/* kosmos#5532 widening (board review 7): the id this Kosmos is reported under when it is ANOTHER Kosmos in the
+   enrolled one's rollup. Separate from worldId on purpose: if this Kosmos later enrolls itself, with this company or
+   another, the id it enrolls under was never sent anywhere, so two companies cannot match it. */
+const SIBLING_ID_FILE = 'org-sibling-id';
+function siblingId(opts) { return mintedId(opts, SIBLING_ID_FILE); }
+function mintedId(opts, name) {
   const root = storeRoot(opts);
-  const file = path.join(root, WORLD_ID_FILE);
+  const file = path.join(root, name);
   try {
     const have = fs.readFileSync(file, 'utf8').trim();
     if (WORLD_ID.test(have)) return have;
@@ -929,5 +935,5 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
 };

@@ -264,6 +264,53 @@ test('#5532 widening (board review 6): ids no longer on the computer leave the h
   assert.deepEqual([[...failed.heldNext], [...failed.missedNext]], [[GONE], [GONE]], 'a failed read cost a held or missed daily');
 });
 
+test('#5532 widening (board review 7): a Kosmos is reported as another Kosmos under an id it never enrolls under', (t) => {
+  const root = world(t);
+  const sib = oe.siblingId({ root });
+  const own = oe.worldId({ root });
+  assert.match(sib, /^[0-9a-f]{32}$/);
+  assert.notEqual(sib, own, 'the sibling id is the enrollment id, so two companies could match the Kosmos');
+  assert.equal(oe.siblingId({ root }), sib, 'the sibling id is not stable');
+  assert.ok(fs.existsSync(path.join(root, oe.SIBLING_ID_FILE)));
+  assert.match(fs.readFileSync(path.join(__dirname, 'orgrollup-child.js'), 'utf8'), /const world = oe\.siblingId\(\);/, 'the child reports another Kosmos under its enrollment id');
+});
+
+test('#5532 widening (board review 7): one run of a Kosmos\'s rollup at a time, a dead run\'s lock expires, and a run clears its own', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const file = path.join(root, r.STATE_FILE);
+  const lock = (at) => { const st = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {}; st.runningAt = at; fs.writeFileSync(file, JSON.stringify(st)); };
+  lock(T0 - 60 * 1000);   // another process began a run a minute ago
+  const busy = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, others({ beta: inv('Ada') })));
+  assert.equal(busy.sent, false, 'a second run went beside the first');
+  assert.equal(rollups(c).length, 0);
+  lock(T0 - r.TICK_CHILD_TIMEOUT_MS - 1000);   // that run died long ago
+  const ok = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, others({ beta: inv('Ada') })));
+  assert.equal(ok.sent, true, 'a dead run\'s lock never expired: ' + JSON.stringify(ok));
+  assert.equal('runningAt' in JSON.parse(fs.readFileSync(file, 'utf8')), false, 'a finished run left its lock');
+});
+
+test('#5532 widening (board review 7): a missed daily that is still partial waits for a real daily', async () => {
+  const sent = [];
+  const part = Object.assign(inv('Ada'), { partial: true });
+  const c = {
+    o: { otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }], gatherIn: async () => ({ world: BETA, enrolled: false, gathered: JSON.parse(JSON.stringify(part)) }) },
+    oe: { mayReport: () => true, readEnrollment: () => ({ world: 'a'.repeat(32), consentHash: 'h' }) },
+    eo: {}, rec: { world: 'a'.repeat(32), consentHash: 'h' }, accepted: { everyKosmosConsented: true, usageConsented: false },
+    pf: { fields: {} }, root: '/nowhere', now: T0, reason: 'change', prev: {}, held: [BETA], missed: [BETA],
+    remote: { macRequest: async (m, route, body) => { sent.push(body.reason); return { ok: true, data: { ok: true } }; } },
+  };
+  await r.sendOthers(c);
+  assert.deepEqual(sent, [], 'a held partial went on a change send because its daily was missed');
+  assert.deepEqual([[...c.heldNext], [...c.missedNext]], [[BETA], [BETA]], 'the hold or the missed daily was lost');
+  // CONTROL: the same on a real daily is sent.
+  c.reason = 'daily';
+  await r.sendOthers(c);
+  assert.deepEqual(sent, ['daily']);
+});
+
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
   const root = world(t);
   const c = coordinator();

@@ -21139,9 +21139,11 @@ function companyPolicySync() {
 const ORG_ROLLUP_TICK_MS = 5 * 60 * 1000;
 let ORG_ROLLUP_RUNNING = false;
 /* The enrolled Kosmos's tick child, when this board serves another Kosmos (kosmos#5532 widening). Stopped when this board
-   exits (board review 5), so a restarted board does not run that tick beside it; a board killed outright cannot stop
-   it, and the child bounds itself (engine/orgrollup-child.js). */
+   leaves through process.exit (board review 5). A board stopped by a signal (kosmos stop sends SIGTERM) cannot stop it
+   (board review 7): the child bounds itself (engine/orgrollup-child.js), and the rollup's own run lock (runningAt in
+   that Kosmos's state) keeps the next board's tick from running beside it. */
 let ORG_ROLLUP_CHILD = null;
+let ORG_ROLLUP_SPAWNED_AT = 0;
 process.on('exit', () => { try { if (ORG_ROLLUP_CHILD) ORG_ROLLUP_CHILD.kill(); } catch { /* gone */ } });
 function orgRollupTick() {
   if (ORG_ROLLUP_RUNNING) return;   // one at a time: a slow read must not start a second send
@@ -21160,10 +21162,16 @@ function orgRollupTick() {
        reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
        timing, print and key are its own. One board runs per computer, so one such child at a time (ORG_ROLLUP_RUNNING,
        held until it ends, at most TICK_CHILD_TIMEOUT_MS); the enrolled Kosmos's own state paces its sends. */
+    /* A child at most once per CHANGE_MIN_MS (board review 7): a send can be due no sooner, and a board left on another
+       Kosmos would otherwise start one every tick. */
+    if (Date.now() - ORG_ROLLUP_SPAWNED_AT < rollup.CHANGE_MIN_MS) return;
     const enrolled = rollup.enrolledElsewhere(require('./engine/store').ROOT);
     if (!enrolled) return;   // no work Kosmos on this computer: nothing is read or sent
     ORG_ROLLUP_RUNNING = true;
-    ORG_ROLLUP_CHILD = rollup.spawnEnrolledTick(enrolled, () => { ORG_ROLLUP_RUNNING = false; ORG_ROLLUP_CHILD = null; });
+    ORG_ROLLUP_SPAWNED_AT = Date.now();
+    let ended = false;   // set before the child is kept, whichever order the callback runs in (board review 7)
+    const child = rollup.spawnEnrolledTick(enrolled, () => { ended = true; ORG_ROLLUP_RUNNING = false; ORG_ROLLUP_CHILD = null; });
+    if (!ended) ORG_ROLLUP_CHILD = child;
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own

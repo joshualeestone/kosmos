@@ -20,8 +20,10 @@ async function main(mode) {
   if (mode !== 'gather') return { ok: false, because: 'unknown mode' };
   const oe = require('./orgenroll');
   const rollup = require('./orgrollup');
-  // worldId() mints this Kosmos's opaque id file in its own data root on its first read: the one write a gather makes.
-  const world = oe.worldId();
+  /* siblingId() mints this Kosmos's opaque id for being reported as ANOTHER Kosmos, in its own data root on its first
+     read: the one write a gather makes. Never its enrollment id (worldId), so if it later enrolls elsewhere the two
+     companies cannot match it (board review 7). */
+  const world = oe.siblingId();
   const gathered = await rollup.gather();
   // Whether this Kosmos holds an enrollment record of its own (any company): such a Kosmos reports for itself, or for
   // another company, never under the enrolled one's (board review 3).

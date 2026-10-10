@@ -402,6 +402,11 @@ const GATHER_TIMEOUT_MS = 2 * 60 * 1000;
    own read and send, every other Kosmos's read, and the sends, with room to spare (board review 1: 30 minutes was
    less than the worst case). */
 const TICK_CHILD_TIMEOUT_MS = (OTHERS_MAX + 2) * GATHER_TIMEOUT_MS + 10 * 60 * 1000;
+/* What a child may print: a gather's one line holds a Kosmos's inventory (bounded by build's 56 KB body, plus names
+   before trimming), so 8 MB; a tick's one line is its small result. Past these execFile kills the child, which reads
+   as no report, never as a wrong one. */
+const GATHER_STDOUT_MAX = 8 * 1024 * 1024;
+const TICK_STDOUT_MAX = 1024 * 1024;
 
 /* Every other Kosmos on this computer (hidden ones too: hiding stops agents, the Kosmos is still there), each with
    the environment its own board would run in. [] when the registry cannot be read. At most OTHERS_MAX, the ones that
@@ -451,7 +456,7 @@ function enrolledElsewhere(root, deps) {
 function spawnEnrolledTick(w, done, deps) {
   const execFile = (deps && deps.execFile) || require('child_process').execFile;
   return execFile(process.execPath, [path.join(__dirname, 'orgrollup-child.js'), 'tick'],
-    { env: w.env, timeout: TICK_CHILD_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (err) => {
+    { env: w.env, timeout: TICK_CHILD_TIMEOUT_MS, maxBuffer: TICK_STDOUT_MAX }, (err) => {
       if (err) console.error('orgrollup: the enrolled Kosmos\'s rollup, run for it from this board, failed (' + String(err.signal || err.code || err.message) + ')');
       done(err || null);
     });
@@ -461,7 +466,7 @@ function spawnEnrolledTick(w, done, deps) {
 function gatherIn(env) {
   return new Promise((resolve) => {
     require('child_process').execFile(process.execPath, [path.join(__dirname, 'orgrollup-child.js'), 'gather'],
-      { env, timeout: GATHER_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      { env, timeout: GATHER_TIMEOUT_MS, maxBuffer: GATHER_STDOUT_MAX }, (err, stdout) => {
         if (err) return resolve(null);
         try {
           const j = JSON.parse(String(stdout).trim().split('\n').pop());
@@ -500,7 +505,7 @@ async function sendOthers(c) {
     if (!c.oe.mayReport(c.eo)) { complete = false; break; }   // left meanwhile: nothing more goes
     let got = null;
     try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
-    if (!got) complete = false;
+    if (!got || !/^[0-9a-f]{32}$/.test(got.world)) complete = false;   // a malformed id is a failed read (board review 7)
     // A read that failed drops its signature, so the next change send sends it again (the safe direction). Two
     // entries that resolve to one id are one Kosmos: it goes once (board review 1).
     if (!got || !/^[0-9a-f]{32}$/.test(got.world) || got.world === c.rec.world || seen.has(got.world)) continue;
@@ -528,6 +533,8 @@ async function sendOthers(c) {
         console.error('orgrollup: another Kosmos on this computer could not be read in full; its daily waits a day');
         continue;
       }
+      // Only a real daily releases a hold (board review 7): a missed daily riding a change send would cut it to minutes.
+      if (c.reason !== 'daily') continue;
     } else {
       if (reason === 'daily') held.delete(got.world);   // read in full: no hold
       if (reason === 'change' && prev[got.world] === sig) continue;
@@ -589,7 +596,7 @@ async function tick(opts) {
      "waiting after a failure" or "nothing due" until the clock caught up, days of silence with no signal. */
   /* And anything that is not a sane time at all (rollup review 19): a string, NaN, or a number outside [0, now] from a
      cut-off or hand-edited file would make toISOString() throw on every tick, silently and for good. */
-  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt', 'partialSince', 'tryAt']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
+  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt', 'partialSince', 'tryAt', 'runningAt']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
   /* A failure's wait belongs to the words it was sent under (rollup review 31): once the person accepts new words (a
      review's Accept keeps the enrollment), the wait no longer applies, so the screen's "reports to it" is true at once. */
   if (st.failAt && st.failHash !== (rec.consentHash || null)) delete st.failAt;
@@ -676,7 +683,15 @@ async function tick(opts) {
      full daily body on every tick. No record, no send. */
   // tryAt is not read back: writing it proves the timing can be kept. A crash between this send and the success write
   // means one resend on the next tick, which is the safe direction for a once-a-day report.
-  if (!writeState(root, Object.assign({}, st, { enrolledAs, tryAt: now }))) return { sent: false, because: 'this Kosmos cannot record when it reported' };
+  /* One run of this Kosmos's rollup at a time, across processes (board review 7): a board stopped with SIGTERM cannot
+     stop the tick child it started, and the next board would run the same tick beside it. The state carries when a run
+     began; another run refuses until it ends, or until TICK_CHILD_TIMEOUT_MS (a run that died). Read fresh, here, after
+     the read that took minutes. */
+  const cur = readState(root);
+  if (cur && Number.isFinite(cur.runningAt) && cur.runningAt <= now && now - cur.runningAt < TICK_CHILD_TIMEOUT_MS) {
+    return { sent: false, because: 'another rollup of this Kosmos is still running' };
+  }
+  if (!writeState(root, Object.assign({}, st, { enrolledAs, tryAt: now, runningAt: now }))) return { sent: false, because: 'this Kosmos cannot record when it reported' };
   const remote = o.remote || require('./remote');
   let r;
   try { r = await remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
@@ -686,15 +701,18 @@ async function tick(opts) {
       'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true } } : {},
       st.others && typeof st.others === 'object' ? { others: st.others } : {},
       // Board review 5: the holds and missed dailies survive a board stopped while the others are read.
-      Array.isArray(st.othersHeld) ? { othersHeld: st.othersHeld } : {}, Array.isArray(st.othersMissed) ? { othersMissed: st.othersMissed } : {});
+      Array.isArray(st.othersHeld) ? { othersHeld: st.othersHeld } : {}, Array.isArray(st.othersMissed) ? { othersMissed: st.othersMissed } : {},
+      { runningAt: now });   // still running: the others are read next
     writeState(root, done);
     // #5532 widening: then every other Kosmos on this computer, recorded once they are sent.
     const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld, missed: st.othersMissed };
     const others = await sendOthers(oc);
-    writeState(root, Object.assign({}, done, { others, othersHeld: [...(oc.heldNext || [])], othersMissed: [...(oc.missedNext || [])] }));
+    const end = Object.assign({}, done, { others, othersHeld: [...(oc.heldNext || [])], othersMissed: [...(oc.missedNext || [])] });
+    delete end.runningAt;
+    writeState(root, end);
     return { sent: true, reason: body.reason };
   }
-  const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
+  const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince; delete failed.runningAt;   // a hold belongs to one day's daily (review 24)
   writeState(root, failed);
   /* Said once per failure (review 18): a refusal every hour must leave a trace. Only the code: never the body or a print. */
   const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
