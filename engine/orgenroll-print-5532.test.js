@@ -107,7 +107,7 @@ test('#5532 print guard: a read still retrying sends nothing, on a join, a leave
   fail = false;
   cp._testRunner(() => DUMP, { platform: 'darwin' });
   assert.equal((await join(root, co)).ok, true, 'CONTROL: the join goes once the computer can be read');
-  assert.match(r.because, /press Join again/, 'a join is told to press Join');
+  assert.match(r.because, /press Connect Account again/, 'a join is told to press Connect Account (#5791)');
   // Rollup review 33: in a review the button is Accept, so the same wait says Accept.
   cp._testRunner(() => { throw new Error('ioreg timed out'); }, { platform: 'darwin' });
   const rv = await oe.enroll(null, true, { root, remote: co, consentHash: HASH, consent: CONSENT, orgId: ACME.id, computerSalt: SALT, review: true });

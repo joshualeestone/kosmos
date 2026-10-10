@@ -94,9 +94,9 @@ test('#5531: GET /api/org reports this world\'s own record, and only one that na
 test('#5531 review 3: an accepted join needs the ticket a screen got from a preview; without it nothing is sent', async () => {
   const r = await call('/api/org/enroll', { body: { accepted: true }, headers: SCREEN });
   assert.equal(r.json.ok, false);
-  assert.match(r.json.because, /Check the code again first/, 'an accepted join without a preview ticket was let through: ' + JSON.stringify(r.json));
+  assert.match(r.json.because, /Nothing was joined\. Press Connect Account again/, 'an accepted join without a preview ticket was let through: ' + JSON.stringify(r.json));
   const forged = await call('/api/org/enroll', { body: { accepted: true, ticket: 'f'.repeat(32) }, headers: SCREEN });
-  assert.match(forged.json.because, /Check the code again first/, 'a made-up ticket was accepted');
+  assert.match(forged.json.because, /Nothing was joined\. Press Connect Account again/, 'a made-up ticket was accepted');
   assert.equal(fs.existsSync(enrollmentFile()), false);
 });
 
@@ -114,7 +114,7 @@ test('#5531 review 5: a ticket from a preview IS accepted once, for the code tha
     return { ok: false, because: 'unexpected ' + route };
   };
   t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
-  const REFUSED = /Check the code again first/;
+  const REFUSED = /Nothing was joined\. Press Connect Account again/;   // #5791 wording
 
   const pv = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
   assert.equal(pv.json.ok, true, JSON.stringify(pv.json));

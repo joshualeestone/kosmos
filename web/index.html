@@ -11293,15 +11293,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
-#s-sec-plus .plus-org-box { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 12px 14px; margin-top: 8px; }
-#s-sec-plus .plus-org-lists { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; margin: 0 0 12px; }
-#s-sec-plus .plus-org-g { margin-top: 12px; }
-#s-sec-plus .plus-org-h { font-weight: 600; color: #E6EBF7; font-size: .8125rem; margin: 0 0 4px; }
-#s-sec-plus .plus-org-lists ul { margin: 0; padding-left: 20px; }
-#s-sec-plus .plus-org-lists li.plus-org-none { list-style: none; margin-left: -20px; color: var(--k-ink-2); }   /* a statement, not an item */
-#s-sec-plus .plus-org-box .frow { margin-top: 16px; }   /* Mona's NIT: room above the two buttons */
 @media (max-width: 600px) {
-  #s-sec-plus .plus-org-lists { grid-template-columns: 1fr; }
   #s-sec-plus #plus-org-code { min-height: 44px; }
 }
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
@@ -11417,6 +11409,12 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-remove-link { color: #f0877a; }
 #s-sec-plus .plus-remove-link:hover { color: #ff9f93; text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-lost-link { color: var(--k-ink-2); font-weight: 500; }
+/* #5791: Join Corporate Account, an outlined button with a tiny building icon; X Cancel at the top right of the entry
+   pane; Lost your phone? under the devices list. */
+#s-sec-plus .plus-org-open { display: inline-flex; align-items: center; gap: 6px; }
+#s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
+#s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
+#s-sec-plus #plus-devices #plus-lost-open { display: block; margin-top: 8px; }
 #s-sec-plus .plus-lost-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-foot .plus-signin-link { font-weight: 600; }
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
@@ -18800,7 +18798,7 @@ window.kosmosMeasureScrollbarWidth();
              reset from a computer already connected to Kosmos+ (#733's "I lost my phone"); there is
              no support path or server unlock by design (docs/second-factor.md in kosmos-relay). -->
         <p class="plus-si-small"><a id="plus-si-second-help" class="plus-signin-link" href="#" role="button" aria-expanded="false" aria-controls="plus-si-second-recover">Can't get a code?</a></p>
-        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos+, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
+        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos+, and choose “Lost your phone?” under its devices. That resets this step, and nobody else can.</p>
       </div>
 
       <!-- Set up a second factor (signin-enrol): reached only when the account has
@@ -18980,6 +18978,10 @@ window.kosmosMeasureScrollbarWidth();
              would not have looked for their own device on it. -->
         <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from another device, it asks here.</p>
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
+        <!-- #5791 (Josh 10-10: "I am not sure why i need to see a lost your phone link here"): out of the bottom row, under
+             the devices, where a person who lost one looks. Still only on a connected computer (this block's own rule),
+             since the reset can only run from one. -->
+        <button type="button" class="plus-lost-link" id="plus-lost-open">Lost your phone?</button>
       </div>
       <!-- #5531 (Enterprise E0.2): joining a company makes THIS Kosmos the work Kosmos (#5529 decision 1). The consent
            words come from the company's side (the coordinator), so every board shows the same ones: the page renders
@@ -18990,11 +18992,12 @@ window.kosmosMeasureScrollbarWidth();
         <!-- Splinter/Josh 10-08 (0.7.29): a person with no company sees one quiet line, not an Enterprise box. The full
              block shows when this Kosmos is a company's work Kosmos, a code is being checked or reviewed, a company note
              is waiting, or the person opened it. -->
-        <button type="button" class="plus-lost-link" id="plus-org-open">Joining a company? Enter its join code</button>
+        <!-- #5791 (Josh 10-10 14:32): an outlined button with a tiny icon, not a text link. -->
+        <button type="button" class="btn plus-org-open" id="plus-org-open"><svg class="plus-org-ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2.5 14.5V3.2c0-.4.3-.7.7-.7h5.6c.4 0 .7.3.7.7v11.3M9.5 14.5V7.2h3.3c.4 0 .7.3.7.7v6.6M1.5 14.5h13M4.6 5h2.3M4.6 7.6h2.3M4.6 10.2h2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Join Corporate Account</button>
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
-          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-review" hidden>Review what your company sees</button><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
+          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
           <div id="plus-org-leave-ask" hidden>
             <p class="fhint" id="plus-org-leave-sure"></p>
             <div class="frow">
@@ -19003,28 +19006,14 @@ window.kosmosMeasureScrollbarWidth();
             </div>
           </div>
         </div>
+        <!-- #5791 (Josh 10-10 14:32): no "Your company" label and no consent preview: the company decided, so Connect
+             Account joins. X Cancel closes it (it had no way out). -->
         <div id="plus-org-out" hidden>
-          <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code asks your company through this Kosmos's Kosmos+ connection; nothing joins, and none of this Kosmos's data is sent, until you have read what your company would see and pressed Join.</p>
+          <div class="plus-org-outhead"><button type="button" class="plus-lost-link plus-org-cancel" id="plus-org-cancel"><span aria-hidden="true">&#x2715;</span> Cancel</button></div>
+          <p class="fhint">Enter your company's code to connect your Kosmos to your corporate enterprise account.</p>
           <div class="frow">
-            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
-            <button class="btn" type="button" id="plus-org-check">Check code</button>
-          </div>
-        </div>
-        <!-- Mona Lisa (#5531, 20:49): the invitation, the four lists and the buttons in ONE inset box, so the consent reads as
-             one decision; the four groups two by two on desktop (Who can read it beside Never), one column on a phone. -->
-        <div id="plus-org-consent" class="plus-org-box" hidden>
-          <p class="fhint" id="plus-org-ask"></p>
-          <div class="plus-org-lists">
-            <div class="plus-org-g"><p class="plus-org-h">What your company sees</p><ul id="plus-org-reports"></ul></div>
-            <div class="plus-org-g"><p class="plus-org-h">What is backed up</p><ul id="plus-org-backsup"></ul></div>
-            <div class="plus-org-g"><p class="plus-org-h">Who can read it</p><ul id="plus-org-readers"></ul></div>
-            <div class="plus-org-g"><p class="plus-org-h">Never</p><ul id="plus-org-never"></ul>
-              <!-- #5531 review 14: this Kosmos's own promise, shown whatever the company's list says (its "never" may be empty). -->
-              <p class="fhint" id="plus-org-local">Your other Kosmoses on this computer are not part of this, and none of their data is sent.</p></div>
-          </div>
-          <div class="frow">
-            <button class="btn uprime" type="button" id="plus-org-join">Join with this Kosmos</button>
-            <button class="btn" type="button" id="plus-org-notnow">Not now</button>
+            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Your company's code" placeholder="Company code">
+            <button class="btn uprime" type="button" id="plus-org-check">Connect Account</button>
           </div>
         </div>
         <p class="fmsg" id="plus-org-msg" role="alert" aria-live="assertive"></p>
@@ -19041,7 +19030,6 @@ window.kosmosMeasureScrollbarWidth();
       <div class="plus-foot" id="plus-forget" hidden>
         <button type="button" class="plus-remove-link" id="plus-forget-go">Remove this computer</button>
         <span class="plus-sp"></span>
-        <button type="button" class="plus-lost-link" id="plus-lost-open">Lost your phone?</button>
         <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
       <div id="plus-forget-ask" hidden>
@@ -47742,9 +47730,9 @@ async function paintPlus() {
 }
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while the person is reading a consent or a call is out. */
-var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
+var PLUS_ORG = { at: 0, busy: false, state: null, open: false };   // open: the person opened the company block (10-08)
 function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
-  if (PLUS_ORG.busy || PLUS_ORG.preview) return;
+  if (PLUS_ORG.busy) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
   fetch('/api/org').then((res) => res.json()).then((j) => {
@@ -47764,40 +47752,24 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     plusOrgPaint();   // once more, now the message is set: the block shows or folds to match it at once
   }).catch(() => { /* the next minute tries again */ });
 }
-function plusOrgList(id, items, none) {
-  const ul = document.getElementById(id);
-  ul.textContent = '';
-  for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
-  /* #5531 follow-up: a group with a sentence for "none" says it rather than vanish (a company that backs up nothing
-     yet sends an empty list, and a missing heading reads as "not shown", not "nothing"). */
-  if (!(items && items.length) && none) { const li = document.createElement('li'); li.className = 'plus-org-none'; li.textContent = none; ul.appendChild(li); }
-  // The whole group, heading and list; the Never group always shows, for this Kosmos's own line under it.
-  ul.parentElement.hidden = !(items && items.length) && !none && id !== 'plus-org-never';
-}
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
   const here = st.enrolled === true && st.org;
-  // The whole block only for someone it concerns (Splinter/Josh 10-08); everyone else gets the one-line opener.
-  /* A line on screen opens the block, so the person sees what it is about (a company note, "Not joined", "You left").
+  // The whole block only for someone it concerns (Splinter/Josh 10-08); everyone else gets the one button.
+  /* A line on screen opens the block, so the person sees what it is about (a company note, "You left").
      🛑 Every writer of #plus-org-msg relies on this: a NEW message for a computer with no company would reveal the
      block (review 2). Write one only for something this person did here or a company note about this Kosmos. */
   const msgOn = (document.getElementById('plus-org-msg').textContent || '') !== '';
-  const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
+  const full = !!here || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
-  document.getElementById('plus-org-title').hidden = !full;
-  document.getElementById('plus-org-in').hidden = !here || !!PLUS_ORG.preview;   // a review's consent shows in place of the joined view
-  // #5531 follow-up: a Kosmos whose words were not accepted on this computer can read and accept them without leaving.
-  // Not for a Kosmos whose words ARE accepted and that only waits for this computer's identity (#5532 review 29): the
-  // engine refuses that review as already reporting.
-  // Not while it only waits for this computer's identity; offered for words that ask for no reports (rollup review 32: it
-  // is the only way such a Kosmos learns its company's words changed, since it never sends).
-  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false && st.reportingWait !== 'print' && st.reportingWait !== 'printError');
-  document.getElementById('plus-org-join').textContent = PLUS_ORG.preview && PLUS_ORG.preview.review ? 'Accept' : 'Join with this Kosmos';
-  document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
-  document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
+  // #5791: the "Your company" title only over the joined view; the code entry has its X Cancel instead.
+  document.getElementById('plus-org-title').hidden = !here;
+  document.getElementById('plus-org-in').hidden = !here;
+  document.getElementById('plus-org-out').hidden = !full || !!here;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
-  // A record with no consent recorded here sends nothing, and the joined view says so (review 34).
-  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. ' + (st.reporting === false ? (st.reportingWait === 'print' ? 'It reports to your company once it has read this computer\'s identity. ' : st.reportingWait === 'printError' ? 'It cannot report to your company yet: Kosmos could not check this computer. ' : st.reportingWait === 'noReports' ? 'Your company\'s words ask it to report nothing. ' : 'It sends your company nothing: its words were not accepted on this computer. ') : '') + 'Your other Kosmoses on this computer are not part of it.';
+  // A record whose company's words are not on record here sends nothing until the board re-accepts them on its own
+  // (#5791), and the joined view says so (review 34).
+  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It is catching up with your company and will report shortly.') : '');
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
@@ -47810,86 +47782,37 @@ async function plusOrgPost(kind, body) {
     return (await res.json().catch(() => null)) || { ok: false, because: 'No answer came back. Try again in a minute.' };
   } catch { return { ok: false, because: 'This computer could not reach its own engine.' }; }
 }
-async function plusOrgCheck() {
+/* #5791 (Josh 10-10 14:32): Connect Account joins. The company decided, so there is no preview step on the person's
+   side: the page asks for the company's terms (the engine keeps them, and binds the join to them) and joins at once
+   with the one-time ticket, nothing shown in between. A member moving here from another Kosmos (move) joins with no
+   code the same way. Any refusal shows under the field. */
+async function plusOrgConnect() {
   const msg = document.getElementById('plus-org-msg');
   const code = document.getElementById('plus-org-code').value.trim();
-  if (PLUS_ORG.busy) return;   // one check at a time; a second press leaves the message as it is (review 29)
+  if (PLUS_ORG.busy) return;   // one at a time; a second press leaves the message as it is (review 29)
   msg.textContent = '';
-  if (!code) { msg.textContent = 'Type or paste the join code your company sent you.'; return; }
-  PLUS_ORG.busy = true;
-  const r = await plusOrgPost('preview', { code });
-  PLUS_ORG.busy = false;
-  if (!r.ok) { msg.textContent = r.because || 'That code could not be checked.'; return; }
-  PLUS_ORG.preview = { code: r.move ? null : code, org: r.org, ticket: r.ticket };   // a member moving here enrolls with no code
-  document.getElementById('plus-org-ask').textContent = r.move
-    ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
-    : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : r.role === 'reviewer' ? ' as a reviewer' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
-  plusOrgList('plus-org-reports', r.consent.reports);
-  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
-  plusOrgList('plus-org-readers', r.consent.readers);
-  plusOrgList('plus-org-never', r.consent.never);
-  plusOrgPaint();
-  document.getElementById('plus-org-join').focus();
+  if (!code) { msg.textContent = 'Type or paste the code your company sent you.'; return; }
+  const btn = document.getElementById('plus-org-check');
+  PLUS_ORG.busy = true; btn.disabled = true;
+  try {
+    const p = await plusOrgPost('preview', { code });
+    if (!p.ok) { msg.textContent = p.because || 'That code could not be checked.'; return; }
+    const r = await plusOrgPost('enroll', p.move ? { accepted: true, ticket: p.ticket } : { code, accepted: true, ticket: p.ticket });
+    if (!r.ok) { msg.textContent = r.because || 'Connecting did not go through.'; return; }
+    document.getElementById('plus-org-code').value = '';
+    PLUS_ORG.open = false;
+    PLUS_ORG.state = { enrolled: true, org: r.org || p.org, role: r.role || p.role };
+    PLUS_ORG.at = 0;
+    plusOrgPaint();
+    plusOrgMaybe();   // the engine's own answer: whether it reports yet
+  } finally { PLUS_ORG.busy = false; btn.disabled = false; }
 }
-async function plusOrgJoin() {
-  const msg = document.getElementById('plus-org-msg');
-  const p = PLUS_ORG.preview;
-  if (!p) return;
-  const join = document.getElementById('plus-org-join');
-  join.disabled = true; document.getElementById('plus-org-notnow').disabled = true;
-  PLUS_ORG.busy = true;
-  const r = await plusOrgPost('enroll', p.code ? { code: p.code, accepted: true, ticket: p.ticket } : { accepted: true, ticket: p.ticket });
-  PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
-  if (!r.ok) {
-    msg.textContent = r.because || 'Joining did not go through.';
-    // A review has no code to check again: its way back is the Review button (orgreview review 1).
-    if (p.review && r.code === 'org_ticket') msg.textContent = 'These words were open too long. Press Review what your company sees to read them again.';
-    // A review refused with a reason points at the Review button, so the joined view (and that button) comes back.
-    // The view is read back too (review 7): a refusal like org_not_here means the joined view above it is no longer true.
-    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
-    // A code that is used, expired, or for another company will not work on a second press: back to the code field.
-    // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
-    if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending', 'org_consent_changed'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
-    return;
-  }
-  PLUS_ORG.preview = null;
+function plusOrgCancel() {
+  PLUS_ORG.open = false;
   document.getElementById('plus-org-code').value = '';
-  PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role };
-  PLUS_ORG.at = Date.now();
-  msg.textContent = '';
+  document.getElementById('plus-org-msg').textContent = '';
   plusOrgPaint();
-  // An accepted review: whether this Kosmos now reports is the engine's answer, not a copy of its rule (review 6).
-  if (p.review) { PLUS_ORG.at = 0; plusOrgMaybe(); }
-}
-function plusOrgNotNow() {
-  const review = !!(PLUS_ORG.preview && PLUS_ORG.preview.review);
-  PLUS_ORG.preview = null;
-  document.getElementById('plus-org-msg').textContent = review ? 'Nothing changed on this computer.' : 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
-  plusOrgPaint();
-}
-/* #5531 follow-up: the words of the company this Kosmos already is the work Kosmos for. Accepting goes through Join with
-   no code (the coordinator records it as accepting again); nothing binds until then. */
-async function plusOrgReview() {
-  const msg = document.getElementById('plus-org-msg');
-  if (PLUS_ORG.busy) return;
-  msg.textContent = '';
-  PLUS_ORG.busy = true;
-  const r = await plusOrgPost('preview', { review: true });
-  PLUS_ORG.busy = false;
-  // A refusal can mean the state moved (another screen accepted: "already reports"), so read it back, keeping the line (review 9).
-  if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
-  PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
-  // Rollup review 35: words that ask for no reports are not accepted "so it can report"; the prompt promises only what Accept does.
-  const noReports = PLUS_ORG.state && PLUS_ORG.state.reportingWait === 'noReports';
-  document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. ' + (noReports ? 'Accept what it asks now:' : 'Accept it so this Kosmos can report:');
-  plusOrgList('plus-org-reports', r.consent.reports);
-  // The same words as a code's consent (orgreview review 11): a stated empty list says so, as the hash records it.
-  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
-  plusOrgList('plus-org-readers', r.consent.readers);
-  plusOrgList('plus-org-never', r.consent.never);
-  plusOrgLeaveArm(false);
-  plusOrgPaint();
-  document.getElementById('plus-org-join').focus();
+  document.getElementById('plus-org-open').focus();
 }
 function plusOrgLeaveArm(on) {
   const st = PLUS_ORG.state || {};
@@ -47920,13 +47843,11 @@ async function plusOrgLeave() {
     : (r.because || r.error || 'Leaving did not go through. Nothing changed; try again in a minute.');
   plusOrgPaint();
 }
-document.getElementById('plus-org-check').addEventListener('click', plusOrgCheck);
+document.getElementById('plus-org-check').addEventListener('click', plusOrgConnect);
+document.getElementById('plus-org-cancel').addEventListener('click', plusOrgCancel);
 document.getElementById('plus-org-open').addEventListener('click', () => { PLUS_ORG.open = true; plusOrgPaint(); document.getElementById('plus-org-code').focus(); });
-document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgCheck(); } });
-document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
-document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
+document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgConnect(); } else if (e.key === 'Escape') { e.preventDefault(); plusOrgCancel(); } });
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
-document.getElementById('plus-org-review').addEventListener('click', plusOrgReview);
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
 document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit

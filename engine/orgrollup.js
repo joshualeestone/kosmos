@@ -795,8 +795,10 @@ async function tick(opts) {
     // Taken as the company's final word, with no confirming retry: the coordinator answers it only when the words it
     // serves now differ from the ones on record for this member (v1.4), which a transient fault does not change.
     if (r && /\borg_consent_changed\b/.test(String(r.because || ''))) {
-      await oe.consentWithdrawn(eo, rec.consentHash);   // only the words this report was sent under (review 11)
-      return { sent: false, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
+      const withdrawn = await oe.consentWithdrawn(eo, rec.consentHash);   // only the words this report was sent under (review 11)
+      // #5791: the company decided, so the board accepts its current words itself (no screen), and reports resume.
+      if (withdrawn) { try { const a = await oe.reacceptWords(eo); if (!a.ok) console.error('orgrollup: the company\'s new terms could not be taken on yet: ' + (a.because || 'no answer')); } catch (e) { console.error('orgrollup: taking on the company\'s new terms failed: ' + ((e && e.message) || e)); } }
+      return { sent: false, because: 'the company\'s words changed; Kosmos takes them on and reports again' };
     }
     /* The company no longer takes this world's reports: ask it at once (refresh stops this world on a clear answer). */
     if (r && /\borg_not_enrolled\b|\borg_not_member\b/.test(String(r.because || ''))) {

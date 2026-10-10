@@ -303,6 +303,15 @@ function acceptedConsent(opts) {
 /* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
    the words on record here are no longer accepted words, so this Kosmos stops reporting until the person accepts the
    new ones (the joined view then says it sends nothing). The membership is untouched. */
+/* #5791 (Josh 10-10: the company decided; no member consent step): when the company's words change and a report is
+   refused for it, the board takes the company's current words and re-accepts them itself, with no screen: the same
+   codeless enroll a person's Accept used to send (review: true), under the hash the company serves now. Best effort:
+   a refusal leaves reporting stopped, and the next refused report tries again. */
+async function reacceptWords(opts) {
+  const r = await reviewHere(opts);
+  if (!r.ok) return { ok: false, because: r.because };
+  return enroll(null, true, Object.assign({}, opts, { consentHash: r.served, consent: r.consent, orgId: r.org && r.org.id, computerSalt: r.salt || null, review: true }));
+}
 function consentWithdrawn(opts, hash) {
   return oneAtATime(async () => {
     const rec = readEnrollment(opts);
@@ -329,7 +338,7 @@ const SAY = Object.freeze({
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
   org_already_member: 'You are already in this company. Check the code again to see what moving your work Kosmos here means.',
   // v1.4: the words changed after this screen showed them (the enroll carried the hash of the old ones). Nothing joined.
-  org_consent_changed: 'Your company changed what it would see since you checked. Nothing was joined. Check the code again to read the new words.',
+  org_consent_changed: 'Your company changed its terms just now. Nothing was joined. Press Connect Account again.',
 });
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
 const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
@@ -474,7 +483,7 @@ async function enrollNow(code, accepted, opts) {
   if (salt && opts.orgId) {
     const pf = printFields(salt, opts.orgId);
     // In a review the button is Accept (rollup review 33), as the no-confirm answer below already says.
-    if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; press ' + (asReview ? 'Accept' : 'Join') + ' again in a minute.' };
+    if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; ' + (asReview ? 'Kosmos tries again on its own.' : 'press Connect Account again in a minute.') };
     if (pf.send === 'error') return { ok: false, because: 'This Kosmos could not make its computer print, so nothing was sent.' };
     Object.assign(body, pf.fields, { computerSalt: salt });
   }
@@ -504,7 +513,7 @@ async function enrollNow(code, accepted, opts) {
   }
   const secretCode = typeof code === 'string' ? code.trim() : null;
   // A move refused because the words changed: no code was typed, so say how to see them again (consenthash review 2).
-  if (!r.ok && move && codeOf(r.because) === 'org_consent_changed') return { ok: false, code: 'org_consent_changed', because: 'Your company changed what it would see since you checked. Nothing moved. Type your join code again to read the new words.' };
+  if (!r.ok && move && codeOf(r.because) === 'org_consent_changed') return { ok: false, code: 'org_consent_changed', because: 'Your company changed its terms just now. Nothing moved. Press Connect Account again.' };
   if (!r.ok && codeOf(r.because)) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', secretCode) };   // refused with a reason: nothing bound
   /* Refused on this computer before anything was sent (not connected to Kosmos+, a register or Forget out, no
      Kosmos+ here): certainly nothing was joined, and the ticket stays (review 27). */
@@ -950,6 +959,7 @@ function applyPolicy(token, opts, orgId) {
 }
 
 module.exports = {
+  reacceptWords,
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
   worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
 };

@@ -1797,6 +1797,8 @@ async function tickOnce(opts) {
           if (changed) { w.withdrawn = true; w.pending = []; }   // her review 19: nothing queued is kept once words are withdrawn
           w.failAt = now;   // review 3: no signed request every five minutes if the record could not be changed
           writeState(root, w);
+          // #5791: the company decided, so the board takes its current words on itself (no screen); events resume once bound.
+          if (changed) { try { const a = await oe.reacceptWords(eo); if (!a.ok) console.error('agentevents: the company\'s new terms could not be taken on yet: ' + (a.because || 'no answer')); } catch (e) { console.error('agentevents: taking on the company\'s new terms failed: ' + ((e && e.message) || e)); } }
           return { sent, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
         }
         if (/\borg_not_enrolled\b|\borg_not_member\b/.test(why)) {

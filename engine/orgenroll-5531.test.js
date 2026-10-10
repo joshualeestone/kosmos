@@ -187,7 +187,7 @@ test('#5531 (review 15): already in that company at Join, the code is refused an
   const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
   assert.equal(r.ok, false, JSON.stringify(r));
   assert.equal(r.code, 'org_already_member');
-  assert.match(r.because, /Check the code again/);
+  assert.match(r.because, /Press Connect Account again/);   // #5791: no words to read; connect again
   assert.equal(sent.length, 1, 'the enrollment was moved on a first-join consent: ' + JSON.stringify(sent));
   assert.equal(org.isEnrolledHere({ root: a }), false);
   // The member's own path still moves, with no code, once the page has shown the move wording.
@@ -938,12 +938,12 @@ test('#5531 follow-up b review 1: an enroll refused because the words changed sa
   assert.deepEqual(asked, [org.ROUTES.enroll], 'status was asked about a join the company refused outright');
 });
 
-test('#5531 follow-up b review 2: a MOVE refused because the words changed says to type the code again (it typed none)', async (t) => {
+test('#5531 follow-up b review 2: a MOVE refused because the words changed says to connect again (#5791: no words to read)', async (t) => {
   const { a } = sandbox(t);
   const co = { macRequest: async (m, route) => (route === org.ROUTES.enroll ? { ok: false, because: '409 {"because":"org_consent_changed"}' } : { ok: true, data: { member: false } }) };
   const r = await org.enroll(null, true, { root: a, remote: co, consentHash: 'ab'.repeat(32) });
   assert.equal(r.code, 'org_consent_changed', JSON.stringify(r));
-  assert.match(r.because, /Nothing moved\. Type your join code again/, r.because);
+  assert.match(r.because, /Nothing moved\. Press Connect Account again/, r.because);
 });
 
 test('#5531 follow-up b review 3: what the enrollment records is exactly the hash the enroll sent', async (t) => {
