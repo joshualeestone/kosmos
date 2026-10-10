@@ -58,3 +58,12 @@ nanosecond. A test pins that miss as the stated bound. Claude Code appends.
   mixed in.
 - A skipped parent's stat and open probe run at most once a pass, and a failed close is not an error.
 - 16 mutants, each caught.
+
+## Review round 3 (Opus)
+No BLOCKER, WARNING or CONVENTION. The reviewer fuzzed 18 seeds of 300 steps (two roots, nested subagents, deletes,
+mtimes set back, truncation, chmod) against the full read, all equal except the stated unterminated-line bound; and
+measured the real ~/.claude read-only: first call 2.1 s, second 254 ms (15 KB new), totals equal to the full read,
+memory kept about 0 MB. Fixed (comments only): the docblock's "every call costs 4 to 6 s" now names the opens that
+still read in full; the three test exports say they are for tests only. Left as is (NITs): resetDayCursor is not
+chained (tests call it between awaited calls); a known file over the longest string rebuilds every call, and a new one
+that cannot decode is re-read every call (no worse than before); yesterday's cursor is held until the next cursor call.

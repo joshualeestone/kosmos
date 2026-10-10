@@ -754,9 +754,11 @@ function todayUtc() {
  * row is appended when it is written, so it holds none in the missing days); a skipped top-level one is head-read for
  * its first cwd only when a subagent of it is read. With every past day frozen (the usual open) that is the files
  * written since an hour before today began (UTC); just after UTC midnight, since an hour before yesterday began.
- * A stats page polling this on a live schedule still costs real time and
- * disk I/O on every call: the files written since the first missing day
- * (measured on the fleet Mac, about 4 to 6 seconds). What this DOES
+ * An open with a past day missing (the first of each UTC day), and the first
+ * open after the board starts, still read the files written since the first
+ * missing day in full (measured on the fleet Mac, about 4 to 6 seconds before
+ * #5759, 10 s by #5759's own count); the usual open after that reads only what
+ * was appended (#5759, below). What this DOES
  * avoid, because every read on this path is async (fs.promises, not
  * fs.*Sync): it does not block Node's single event loop while doing so --
  * without that, every OTHER route on this server (agent status polling
@@ -997,9 +999,11 @@ module.exports = {
   walkTranscriptsUnder,
   scanUsage,
   scanDayCursor,      // kosmos#5759
-  resetDayCursor,     // kosmos#5759: tests start from an empty cursor
-  lastDayCursorRun,   // kosmos#5759: tests read whether the last call rebuilt and how many bytes it read
-  CURSOR_LIMITS,      // kosmos#5759: tests lower the read limits instead of writing a 600 MB file
+  // kosmos#5759, FOR TESTS ONLY, never from production code: resetDayCursor is not chained with the scans (a reset
+  // during one would hand that call partial totals), and changing CURSOR_LIMITS changes every count.
+  resetDayCursor,     // tests start from an empty cursor
+  lastDayCursorRun,   // tests read whether the last call rebuilt and how many bytes it consumed
+  CURSOR_LIMITS,      // tests lower the read limits instead of writing a 600 MB file
   dailyUsageByModel,
   worldUsageByModel,
   worldAgentDirs,
