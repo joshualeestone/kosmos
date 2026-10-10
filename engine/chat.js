@@ -1388,8 +1388,8 @@ function codexScreenRefusal(card, sessionName, roster) {
 
 /* #5743: a Claude agent showing its question menu (any form, status.claudeQuestionMenuUp) is not typed at: the menu
    ignores a paste and the Enter after it takes the HIGHLIGHTED answer (measured on 2.1.29x, #5406), so the agent gets a
-   default nobody chose and nothing says so. Read fresh, and only when the snapshot already says needs_you (a card on
-   that menu reads needs_you), so an ordinary delivery costs no capture. Decided: a read that fails is not a refusal.
+   default nobody chose and nothing says so. Read fresh, when the snapshot says needs_you or working (see
+   claudeMenuRefusal); an idle card pays no capture. Decided: a read that fails is not a refusal.
    needs_you also covers permission prompts and every other question, and the direct-message route reaches here right
    after closing the menu, so failing closed would refuse ordinary replies whenever one capture fails; the trust-dialog
    floor above still covers the dialog that ends a session. */
@@ -1413,7 +1413,8 @@ function claudeMenuRefusal(card, sessionName, roster) {
   if (!(view && typeof view.text === 'string')) return null;
   if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
-    return CLAUDE_MENU_SENTENCE + (status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
+    /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
+  return CLAUDE_MENU_SENTENCE + (card.state === status.STATE.NEEDS_YOU && status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
   }
   return status.claudePermissionPromptUp(view.text) ? CLAUDE_PERMISSION_SENTENCE : null;   // #5754
 }

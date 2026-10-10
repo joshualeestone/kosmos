@@ -23,13 +23,15 @@ closes the menu first, then delivers).
 - Where: one floor in deliverWithGap (every sender passes it, like the trust-dialog and Codex floors) plus the held
   verdict in deliverAutomatic(Async) (the existing #4588 hold shape, so rooms already keep and re-deliver it).
 - The fresh screen read happens when the roster snapshot says needs_you OR working (review 11: an agent reaches a
-  permission prompt mid-turn, while its card still reads working). Cost: one capture per delivery to a working or
-  needs_you Claude agent; an idle agent pays nothing (it cannot be showing either screen).
+  permission prompt mid-turn, while its card still reads working). Cost: per delivery to a working or needs_you
+  Claude agent, one synchronous capture (two for an automatic sender: menuHeldVerdict and the floor; three for a
+  recommender convening's stuck agent); an idle agent pays nothing. A stalled tmux now slows every such delivery,
+  as the Codex floor already does for Codex ones.
 
 - A failed screen read is not a refusal: needs_you covers every question (permission prompts too) and the DM route
   reaches the floor right after closing the menu, so failing closed would refuse ordinary replies on one bad capture.
 - The floor reads the screen again right before typing even after menuHeldVerdict read it: a deliberate last look,
-  paid only by a needs_you Claude card with no menu up.
+  paid by every working or needs_you Claude card with none of the screens up.
 - The refusal sentence points at the window first: the DM route answers only the single-choice form by number.
 
 - A person's room post refused here does not carry this sentence to them: a room reports one aggregate outcome per
@@ -76,9 +78,13 @@ closes the menu first, then delivers).
 - The safeguards model-switch menu (#5051) is refused and held too (review 10): Kosmos never presses it, and a typed
   line's Enter would.
 
+- A shape-only permission match (a highlighted numbered option over an "Esc to cancel" footer) also matches Claude
+  Code's own pickers (model, resume, rewind) if one is open; refusing there is safe, but its sentence says permission.
+
 ## Weakest premise
 
-The snapshot reads needs_you while the menu is up. Not caught, recorded rather than fixed here (each needs the board's
+The snapshot reads working or needs_you while the screen is up. Not caught: a screen drawn while the snapshot still
+reads idle, or after the floor's read and before the paste. Not caught, recorded rather than fixed here (each needs the board's
 classifier to read the menu's footer as needs_you, which changes every agent's card; follow-up #5749):
 - a menu drawn after the snapshot and before the paste (the request's own lifetime);
 - the multi-select form with its highlight on the unnumbered Submit row, and the multi-question form's review tab (no
