@@ -148,7 +148,7 @@ function roomRoster(board, capped) {
 }
 function flushDeps(r, extra = {}) {
   return {
-    isAgy: (c) => c.runner === 'antigravity', isLimitable: (c) => String(c.runner || 'claude') === 'claude' && c.isNamedOurs === true && c.state === 'idle',
+    isAgy: (c) => c.runner === 'antigravity', isLimitable: (c) => chat.limitable(c) && c.state === 'idle',
     readReport: () => null, now: Date.now(), decayMs: status.REPORT_WORKING_DECAY_MS,
     deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, roster: r,
     shownOf: () => 'Henderson lease', stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2), ...extra,
@@ -163,8 +163,7 @@ test('#5805 room: a post naming a capped Claude member is held (its "names you" 
     const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@april please' }, roomRoster(board, true), MEMBERS);
     assert.deepEqual(tmux.pastedTo('april'), [], 'typed into a capped member');
     assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.addressedId(sent.id)], 'not kept as addressed');
-    const row = messages.readLog().find((r) => r.id === sent.id);
-    assert.equal(row.heldBy && row.heldBy.april, 'limit', 'the post does not record the limit hold');
+    assert.equal(roomhold.limitKept('april', PROJECT, sent.id), true, 'the limit hold was not recorded for withoutStale');
 
     tmux = arm('');
     const still = roomRoster(board, true);
@@ -204,16 +203,34 @@ test('#5805 room CONTROL: a post that does not name an idle Claude member waits 
   } finally { chat.resetForTests(); board.restore(); }
 });
 
-test('#5805 staleHeld: an ask a usage limit held counts its day from the reset, not from the post; other holds are unchanged', () => {
+test('#5805 withoutStale: an ask a usage limit kept is not dropped as a day old until a day after the reset; answered or past its grace, it is', () => {
   const now = Date.now();
   const iso = (ms) => new Date(ms).toISOString();
-  const post = (extra) => ({ kind: 'post', id: 'm1', project: PROJECT, from: 'leo', text: '@april please', at: iso(now - 3 * DAY), ...extra });
-  const limit = messages.staleHeld(PROJECT, ['m1'], [post({ heldUntil: { april: iso(now - 3600e3) }, heldBy: { april: 'limit' } })], now, 'april');
-  assert.equal(limit.has('m1'), false, 'a limit-held ask from three days ago, reset an hour ago, was dropped');
-  // CONTROL: the same post held on the quota (no heldBy) still drops after a day from the post, as #4926 decided.
-  const quota = messages.staleHeld(PROJECT, ['m1'], [post({ heldUntil: { april: iso(now - 3600e3) } })], now, 'april');
-  assert.equal(quota.evenIfAsked.has('m1'), true);
-  // And a limit hold for ANOTHER member does not stretch april's day.
-  const other = messages.staleHeld(PROJECT, ['m1'], [post({ heldUntil: { april: iso(now - 3600e3) }, heldBy: { mara: 'limit' } })], now, 'april');
-  assert.equal(other.evenIfAsked.has('m1'), true);
+  const post = { kind: 'post', id: 'm1', project: PROJECT, from: 'leo', text: '@april please', at: iso(now - 3 * DAY) };
+  const judge = (log) => (p, ids, who) => messages.staleHeld(p, ids, log, now, who);
+  const ids = [roomhold.addressedId('m1')];
+  // CONTROL: no limit recorded: a three-day-old ask is dropped, as #4926 R2 decided.
+  assert.deepEqual(roomhold.withoutStale(PROJECT, ids, judge([post]), 'april'), []);
+  roomhold.noteLimit('april', PROJECT, ['m1'], iso(now - 3600e3), now);
+  assert.deepEqual(roomhold.withoutStale(PROJECT, ids, judge([post]), 'april'), ids, 'a limit-held ask, reset an hour ago, was dropped');
+  assert.deepEqual(roomhold.withoutStale(PROJECT, ids, judge([post]), 'mara'), [], 'april\'s limit kept mara\'s ask');
+  // Answered in the room: dropped even though the limit kept it.
+  const reply = { kind: 'post', id: 'm2', project: PROJECT, from: 'april', replyTo: 'm1', text: 'done', at: iso(now - 600e3) };
+  assert.deepEqual(roomhold.withoutStale(PROJECT, ids, judge([post, reply]), 'april'), []);
+  // A plain (unaddressed) limit-held post is not kept back: it asks nothing.
+  assert.deepEqual(roomhold.withoutStale(PROJECT, ['m1'], judge([post]), 'april'), []);
+  // A day after the reset the grace is over.
+  roomhold.forget('april');
+  roomhold.noteLimit('april', PROJECT, ['m1'], iso(now - 25 * 3600e3), now - 25 * 3600e3 + 1);
+  assert.deepEqual(roomhold.withoutStale(PROJECT, ids, judge([post]), 'april'), []);
+});
+
+test('#5805 flush: a #4624 hold the limit holds at the idle flush keeps its marks and records the reset', async () => {
+  roomhold.hold('april', PROJECT, roomhold.addressedId('m9'));
+  const until = new Date(Date.now() + 2 * DAY).toISOString();
+  const held = async () => ({ state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: until, because: 'held: limit' });
+  const done = await roomhold.flushOnIdle('april', { deliver: held, roster: [], shownOf: () => 'Henderson lease', DELIVERY: chat.DELIVERY });
+  assert.equal(done[0].state, chat.DELIVERY.COULD_NOT);
+  assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.addressedId('m9')], 'the mark was lost on the put-back');
+  assert.equal(roomhold.limitKept('april', PROJECT, 'm9'), true, 'the flush did not record the limit');
 });

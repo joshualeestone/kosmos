@@ -72,6 +72,46 @@ const SHOWN = 5;
 function dir() { return path.join(store.ROOT, 'roomhold'); }
 function fileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.json'); }
 
+/* #5805: the held posts a Claude usage limit kept from this member, with the limit's reset (ISO), per project:
+   `<member>.limit` beside its held file. withoutStale keeps such a post that names the member until a day after the
+   reset, so the day rule (#4926 R2, counted from the post) cannot drop an ask the member could not read before its
+   reset. Recorded wherever a limit hold keeps ids: a post's arrival (messages.js) and an idle flush the limit held. */
+const LIMIT_ASK_GRACE_MS = 24 * 60 * 60 * 1000;
+function limitFileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.limit'); }
+function readLimits(name) {
+  try {
+    const got = JSON.parse(fs.readFileSync(limitFileFor(name), 'utf8'));
+    return got && typeof got === 'object' && !Array.isArray(got) ? got : {};
+  } catch { return {}; }
+}
+function noteLimit(name, projectId, ids, untilIso, now = Date.now()) {
+  const until = Date.parse(untilIso);
+  if (!Number.isFinite(until) || !Array.isArray(ids)) return false;
+  try {
+    const out = Object.create(null);
+    for (const [p, m] of Object.entries(readLimits(name))) {   // entries past their grace are not kept
+      if (!m || typeof m !== 'object') continue;
+      for (const [id, u] of Object.entries(m)) {
+        const t = Date.parse(u);
+        if (Number.isFinite(t) && now - t <= LIMIT_ASK_GRACE_MS) (out[p] = out[p] || Object.create(null))[id] = u;
+      }
+    }
+    for (const id of ids) {
+      const k = plainId(id);
+      const prev = out[projectId] ? Date.parse(out[projectId][k]) : NaN;
+      if (!Number.isFinite(prev) || prev < until) (out[projectId] = out[projectId] || Object.create(null))[k] = new Date(until).toISOString();
+    }
+    fs.mkdirSync(dir(), { recursive: true });
+    require('./securewrite').writeSecret(limitFileFor(name), JSON.stringify(out), 0o600, { atomicOnly: true });
+    return true;
+  } catch { return false; }
+}
+function limitKept(name, projectId, id, now = Date.now()) {
+  const m = readLimits(name)[projectId];
+  const t = m && typeof m === 'object' ? Date.parse(m[plainId(id)]) : NaN;
+  return Number.isFinite(t) && now - t <= LIMIT_ASK_GRACE_MS;
+}
+
 function off(env) { return !!(env && env.AGENT_WORKFORCE_ROOM_HOLD_OFF === '1'); }
 
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
@@ -206,6 +246,7 @@ function forgetProject(name, projectId) {
 
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
+  try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
 
@@ -251,7 +292,16 @@ function withoutStale(projectId, ids, stale, name) {
   const asked = gone.evenIfAsked instanceof Set ? gone.evenIfAsked : new Set();   // #4926 R2: handled, or a day old
   /* #4926 R2 drops any id in `asked`; the staleness drop applies to every id that does not ask the member, which since
      #4588 ask 3 includes a cap-held one (^id) as well as a plain one: an @id is kept unless it is in `asked`. */
-  const kept = ids.filter((x) => !asked.has(plainId(x)) && (isAddressed(x) || !gone.has(plainId(x))));
+  /* #5805: an ask a usage limit kept from the member (noteLimit) is not dropped as a day old until a day after the
+     limit's reset; one the member answered still is (`answered`, when staleHeld gives it; without it, nothing is
+     kept back). */
+  const answered = gone.answered instanceof Set ? gone.answered : asked;
+  const now = Date.now();
+  const kept = ids.filter((x) => {
+    const p = plainId(x);
+    if (asked.has(p)) return isAddressed(x) && !answered.has(p) && !!name && limitKept(name, projectId, p, now);
+    return isAddressed(x) || !gone.has(p);
+  });
   // Review 7 (Opus): a drop is said, so "why did my agent never hear about mN" has an answer in the board's log.
   if (kept.length < ids.length) {
     const why = (x) => (asked.has(plainId(x)) ? 'answered or a day old' : 'stale');
@@ -274,13 +324,17 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
     let state;
     let capped = false;
+    let limitUntil = null;
     try {
       const sent = await deliver(name, clauseFor(projectId, shown, ids), roster);
       state = sent && sent.state;
       capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
+      if (sent && sent.held === true && sent.heldBy === 'limit') limitUntil = sent.heldUntil;
     } catch { state = DELIVERY.COULD_NOT; }
     /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
        posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */
+    // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
+    if (limitUntil) noteLimit(name, projectId, ids, limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
     out.push({ projectId, n: ids.length, state });
   }
@@ -344,4 +398,4 @@ function toldLine(name, d, after = '') {
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };

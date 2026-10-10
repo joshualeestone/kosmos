@@ -18,11 +18,14 @@ and the room reminder is sent once only.
   reset, for an addressable Claude card in rate_limited whose stateEvidence has a dated reset still ahead
   (status.limitResetAt). deliverAutomatic and deliverAutomaticAsync check it after the menu hold.
 - engine/messages.js: a room post the limit held keeps its normal mark (addressed when it names the member, plain
-  otherwise) and records `heldBy: { member: 'limit' }` beside heldUntil; staleHeld counts the day rule for such an ask
-  from the reset (heldUntil), not from the post.
+  otherwise), and its reset is recorded with roomhold.noteLimit. staleHeld also reports `answered`.
+- engine/roomhold.js: `<member>.limit` beside the held file records, per project, the posts a usage limit kept and the
+  reset (noteLimit, at a post's arrival and at an idle flush the limit held; entries a day past their reset are pruned;
+  forget removes it). withoutStale keeps such an ask that names the member until a day after the reset, unless the
+  member answered it.
 - engine/roomhold.js: flushReleased takes `isLimitable` and retries a non-Antigravity member only when that predicate
   passes and it holds a post that names it.
-- server.js: isLimitable = a Claude card of ours (isNamedOurs === true, as the hold) that reads `idle` off its screen.
+- server.js: isLimitable = chat.limitable(card) (the hold's own test) and the card reads `idle` off its screen.
 - engine/replynudge.js, agentnudge.js, firstreply-nudge.js, server.js (hello route): a 'limit' hold is logged as
   limit-held, "held while it is out of usage", never as the Google quota.
 
@@ -35,10 +38,17 @@ and the room reminder is sent once only.
   posts that ask nothing of it waits for its next wake. This also retries an addressed #4624 hold an idle Claude member
   never had flushed (it is idle on screen, so typing is what the idle flush would have done).
 - The day rule (#4926: a pause of days does not deliver days-old asks) is kept for every other hold. For a usage-limit
-  hold it counts from the reset: the report that filed #5805 lost a go-ahead to exactly a days-long weekly limit.
+  hold, an unanswered ask that names the member is kept until a day after the reset, recorded beside the held file so
+  it covers a post first held while the member worked and only limit-held at its turn-end flush (a post row is
+  append-only and is written before that).
 - The retry for Claude members runs only while the card reads idle off the screen, never while it reads capped or
   busy, so it does not rewrite the held file every minute of a pause (#4797) and never types into a working agent.
 - A person's own message is not held here (slice 2).
+
+## Residuals, stated
+- In the minute after a printed reset, status may still read the card capped while the hold has lifted, so a line typed
+  then can still land on the limit screen and count as delivered (about one minute per limit).
+- Windows agents run headless; whether their cards ever read rate_limited is unmeasured (slices 2 and 3).
 
 ## Weakest premise
 That a capped Claude card's stateEvidence is the limit line with its reset. It is the line classify() matched; if a
@@ -61,3 +71,13 @@ behaviour), never the reverse.
 - FIXED: the retry no longer wakes a member for posts that ask nothing of it (those stay unmarked and wait).
 - FIXED: the room test's stale stub bypassed staleHeld; it uses the real one. NITs taken: the same isNamedOurs test in
   the hold and the retry; the reset-grace minute is commented.
+
+## Review 2 (sonnet)
+- FIXED: a post held while the member worked and limit-held only at its turn-end flush had no record of the limit, so
+  the day rule still dropped it. The limit is now recorded at both points in roomhold's `<member>.limit`, and
+  withoutStale keeps back an unanswered ask until a day after the reset (tested: the flush path, answered, grace past,
+  another member, a plain post). This replaced a `heldBy` field on post rows, which the flush path could not write.
+- FIXED: replynudge's limit-held arm is tested. NITs taken: one `chat.limitable` test for the hold and the retry; the
+  reset-grace minute is a stated residual. Not taken: a test of the hello route's text (one string beside the menu arm).
+- Found in this round by the new flush test: an edit had referenced `sent` outside its block, which would have thrown
+  on every idle flush; fixed before commit.

@@ -1921,10 +1921,13 @@ function menuHeldVerdict(sessionName, roster) {
    reach a session that cannot answer and the sender would count it as delivered. A limit line with no date (the
    5-hour form) or a reset already past is not held, so a line typed after the reset still wakes the agent (including
    in the minute after the reset while status still reads the card capped: the vendor has reset by then). */
+/* #5805: the cards the usage-limit hold applies to, one test for the hold and the server's release predicate. */
+function limitable(card) {
+  return !!card && card.isNamedOurs === true && String(card.runner || 'claude') === 'claude';
+}
 function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
-  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.RATE_LIMITED) return null;
-  if (String(card.runner || 'claude') !== 'claude') return null;
+  if (!limitable(card) || card.state !== status.STATE.RATE_LIMITED) return null;
   if (addressable(sessionName, roster).ok !== true) return null;
   const until = status.limitResetAt(card.stateEvidence, now);
   if (until === null || !(until > now)) return null;
@@ -3735,7 +3738,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
