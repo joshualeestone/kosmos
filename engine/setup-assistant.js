@@ -1373,7 +1373,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      A command whose script path is built when it runs cannot be read and is named. See engine/startcommands.js. */
   const wholeDenied = [...pluginDirs, ...ancestorDirs, ...CONFIG_HOME_CODE_DIRS.map((d) => path.join(settingsDir, d))];
   const underDenied = (p) => wholeDenied.some((d) => p === d || p.startsWith(d + path.sep));
-  const startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir });
+  // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
+  // guard says it is not whole.
+  let startCmds;
+  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir }); } catch (e) { startCmds = { files: [], pluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...startCmds.unsafe);
   for (const d of startCmds.pluginDirs) {
     if (underDenied(d)) continue;

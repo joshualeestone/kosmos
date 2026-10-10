@@ -11,17 +11,20 @@
 ## Decided
 - **Every config home, not only the agent's own:** Kosmos can move an agent to another account (failover), and the guard already covers every home the same way.
 - **Redirection targets are skipped** (`>> notes.md`): written by the command, not run. Denying them would lock the agent out of its own files when a hook appends to one. Input redirection (`bash < x.sh`) is kept: that is what runs.
-- **A bare program word** (`bash`, `node`) is found on PATH, which #5516 part 1 covers. A bare later word counts only when it is a file in the agent folder.
+- **A bare program word** (`bash`, `node`) is found on PATH, which #5516 part 1 covers. The script word after an interpreter (`bash check.sh`) counts whether or not it exists, since the agent could create it in its folder (review 1). Another bare word counts when it is a file in the agent folder.
+- **An existing folder is never a script** (review 1): `cd "$CLAUDE_PROJECT_DIR"`, `rg x ~/work` and `find /` name folders, and denying one would take the agent's own work away, not just profile size.
+- **Variables:** a settings `env` value is known when every tier that sets it agrees; set two ways, it is unknown (review 1). A NAME=value before a program is read as a path (`BASH_ENV=/x.sh`), and so are the commands inside `$(...)`, backticks, and after an interpreter's `-c` or `-e`. An unknown value is reported when it is a path, the program, or an interpreter's script; elsewhere (`mkdir -p "$X"`) it is not, since it names nothing that runs.
 - **A dynamic path makes the guard not whole** (as an uncarriable link target already does in #5516). Rejected: guessing, or skipping silently. What would change it: such hooks turning out common on real installs. Measured on the fleet Mac: none.
 - **An uncarriable path that does not exist is skipped:** a word that only looks like a path (a sed expression such as `s/(a)/b/`) is far likelier than a missing script with brackets in its name, and naming it would refuse token-only agents for nothing.
 - **Global config: own servers and the agent's project entries only.** That file holds every project on the computer, and others' servers do not start for this agent.
-- **Over-denial is the safe direction:** a word with a slash that is not a script (a `tee` target, an echo argument) is denied to the agent's tools. That costs profile size, which the existing size warning counts.
+- **Over-denial of a FILE is the safe direction:** a word with a slash that is not a script (a `tee` target, an echo argument) is denied to the agent's tools. That costs profile size, which the existing size warning counts. Folders are never denied (above).
 
 ## Gaps, stated
-- What a script runs or reads in turn (a script that sources another): a next part of #5774.
+- What a script or a PROGRAM runs or reads in turn: a script that sources another, and a bare program that reads the agent folder (`npm run` reads package.json and node_modules, `make` the Makefile, `git` .git/config, `python -m` a module there). A hook of that shape runs agent-written code outside the sandbox today, and this part does not close it (review 1). A next part of #5774.
 - The shell's own startup files, and environment settings that point a program at code (BASH_ENV, NODE_OPTIONS): a next part.
 - Hooks declared inside skills, agents and commands: those definitions are denied whole where they live, but a script they name elsewhere is not read. A next part.
-- A plugin loaded from a folder given on the command line, or from a skill folder, is not in the installed-plugins record.
+- A plugin loaded from a folder given on the command line, or from a skill folder, is not in the installed-plugins record. A script given inline in a managed policyHelpers entry is not read.
+- An interpreter flag that takes a value (`python -X utf8 s.py`) moves the script word one along, so a bare script after it that does not exist yet is missed.
 - A script named by a later edit to a config file the agent cannot edit (the person's, or Kosmos's) is covered at the next guard refresh, not at once.
 - The splitter is not a shell: aliases, functions, `eval`, and words built by shell expansions other than `$VAR`, `${VAR}` and `$(...)` are not read.
 - Tests elsewhere that do not pass `managedDir` read the real managed folder (absent on the fleet Macs).
@@ -30,3 +33,4 @@
 That the commands Claude Code runs are the ones these keys hold. The list is read from 2.1.296's settings schema and loaders; a later version with a new command-carrying key is a gap until added, though any `...Helper` key is read already.
 
 ## Challenge loop notes
+- Review 1 (Opus): 1 BLOCKER, 7 WARNINGs, all real. BLOCKER: a word naming a folder (`cd "$CLAUDE_PROJECT_DIR"`) was denied whole, taking the agent's own folder; existing folders are now never scripts. WARNINGs fixed: an interpreter's script that does not exist yet; unknown variables as the program or script; the commands inside `$(...)` and backticks; NAME=value words; the scan wrapped so a throw names a gap rather than dropping the guard; a plugin manifest's own hook, server and language-server paths; CLAUDE_PLUGIN_DATA known; the settings env read. The npm/make/git route is a stated gap, not fixed here. NITs taken: an interpreter's -e, a path inside a word, `2>&1` no longer starts a new command, a control that nothing is denied without config. A redundant guard (never naming the agent folder or the home) went green under mutation because the folder filter already covers it, so it was removed. Validation found the #5386 guard reading a variable map key as an env copy; built as a literal instead.

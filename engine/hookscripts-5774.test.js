@@ -179,7 +179,7 @@ test('#5774: the command splitter: quotes, variables, substitutions, redirection
   assert.deepEqual(paths('bash ~/.x/s.sh').paths, ['/H/.x/s.sh']);
   assert.deepEqual(paths('"${HOME}/a b.sh" --flag').paths, ['/H/a b.sh']);
   assert.deepEqual(paths("echo '$HOME/not' | /bin/t.sh").paths, ['/A/$HOME/not', '/bin/t.sh']);   // single quotes keep $ literal
-  assert.deepEqual(paths('node --require=/r.js main.js').paths, ['/r.js']);   // main.js is not a file in /A here
+  assert.deepEqual(paths('node --require=/r.js main.js').paths, ['/r.js', '/A/main.js']);   // review 1: an interpreter's script counts before it exists
   assert.deepEqual(paths('FOO=1 ./run.sh').paths, ['/A/run.sh']);
   assert.deepEqual(paths('bash /a.sh > /out.log 2>/dev/null').paths, ['/a.sh']);
   assert.deepEqual(paths('bash < /in.sh').paths, ['/in.sh']);   // input to a shell IS what it runs
@@ -190,4 +190,101 @@ test('#5774: the command splitter: quotes, variables, substitutions, redirection
   // A server's args are literal words, no shell: a space stays inside one argument.
   const cmds = sc.commandsIn({ mcpServers: { a: { command: '/srv/a', args: ['--x', '/srv/b c.js'] } }, apiKeyHelper: '/k.sh', foo: { command: 'x' } });
   assert.equal(cmds.length, 3);
+});
+
+test('#5774 review 1: a folder a command names is never denied (cd into the agent folder, a search of the home or the root)', () => {
+  const dir = agentDir('pilot-cd');
+  fs.writeFileSync(path.join(dir, 'notes.md'), 'mine\n');
+  fs.mkdirSync(path.join(HOME, 'work'), { recursive: true });
+  touch(path.join(SANDBOX, 'scripts', 'lint.sh'));
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cd "$CLAUDE_PROJECT_DIR" && npm run lint; rg TODO ~/work; find / -name foo; cd ~; bash ${path.join(SANDBOX, 'scripts', 'lint.sh')}` }] }] } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-cd', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(dir);
+    const deny = s.permissions.deny;
+    const dw = s.sandbox.filesystem.denyWrite;
+    assert.ok(editDeniedBy(deny, path.join(SANDBOX, 'scripts', 'lint.sh')).length > 0, 'control: the same hook\'s script is denied');
+    for (const p of [path.join(dir, 'notes.md'), path.join(HOME, 'work', 'x.md'), path.join(HOME, 'y.md')]) {
+      assert.deepEqual(editDeniedBy(deny, p), [], `${p} stays writable to the file tools`);
+      assert.ok(!sandboxDenies(dw, p), `${p} stays writable to the shell`);
+    }
+    assert.ok(!dw.includes('/'), 'the root is never in denyWrite');
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
+});
+
+test('#5774 review 1: an interpreter\'s script is denied even before it exists; an inline assignment\'s file is read', () => {
+  const dir = agentDir('pilot-slot');
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash check.sh; BASH_ENV=${path.join(SANDBOX, 'benv.sh')} bash -c true` }] }] } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-slot', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(dir);
+    assert.ok(!fs.existsSync(path.join(dir, 'check.sh')), 'precondition: the script does not exist yet');
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(dir, 'check.sh')).length > 0, 'the agent cannot create the script the hook runs');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(dir, 'check.sh')), 'nor from its shell');
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(SANDBOX, 'benv.sh')).length > 0, 'BASH_ENV=<file> runs that file');
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
+});
+
+test('#5774 review 1: a script named by a variable is read from the settings env when every tier agrees, and is a gap when not', () => {
+  const dir = agentDir('pilot-env');
+  const hook = path.join(SANDBOX, 'scripts', 'env-hook.sh');
+  touch(hook);
+  const hooks = { Stop: [{ hooks: [{ type: 'command', command: 'bash "$MY_HOOK"' }] }] };
+  try {
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks });
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-env', DEPS);
+    assert.equal(g.ok, false, 'unknown variable as the script: not whole');
+    assert.match(String(g.because), /cannot read/);
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks, env: { MY_HOOK: hook } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-env', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, hook).length > 0, 'read through the settings env');
+    writeJson(path.join(HOME, '.claude-acct', 'settings.json'), { env: { MY_HOOK: '/elsewhere.sh' } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-env', DEPS);
+    assert.equal(g.ok, false, 'two tiers disagree: Kosmos cannot tell which applies');
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude-acct', 'settings.json'), { force: true });
+  }
+});
+
+test('#5774 review 1: a plugin\'s manifest can point at its own hook file; its data folder is a known place', () => {
+  const dir = agentDir('pilot-plug');
+  const plug = path.join(SANDBOX, 'my-plugins', 'p2');
+  const out = path.join(SANDBOX, 'scripts', 'from-manifest.sh');
+  touch(out);
+  writeJson(path.join(plug, '.claude-plugin', 'plugin.json'), { name: 'p2', hooks: './custom/h.json' });
+  writeJson(path.join(plug, 'custom', 'h.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${out}; \${CLAUDE_PLUGIN_DATA}/venv/bin/python x.py` }] }] } });
+  writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'p2@local': [{ scope: 'user', installPath: plug }] } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-plug', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, out).length > 0, 'a hook file the manifest names is read');
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true }); }
+});
+
+test('#5774 review 1: control: with no config naming them, the same scripts are not denied', () => {
+  const dir = agentDir('pilot-none');
+  const S = (n) => path.join(SANDBOX, 'scripts', n);
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-none', DEPS);
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const s = readSettings(dir);
+  for (const n of ['hook.sh', 'status.sh', 'server.js', 'lint.sh', 'env-hook.sh']) {
+    assert.deepEqual(editDeniedBy(s.permissions.deny, S(n)), [], `${n} is denied only because a command names it`);
+    assert.ok(!sandboxDenies(s.sandbox.filesystem.denyWrite, S(n)));
+  }
+});
+
+test('#5774 review 1: a scan that throws leaves the rest of the guard written and says it is not whole', () => {
+  const dir = agentDir('pilot-throw');
+  const real = sc.startCommandScripts;
+  sc.startCommandScripts = () => { throw new Error('boom'); };
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-throw', DEPS);
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /boom/);
+    assert.ok(readSettings(dir).permissions.deny.length > 0, 'the rest of the guard is written');
+  } finally { sc.startCommandScripts = real; }
 });
