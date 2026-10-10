@@ -52,7 +52,7 @@ for (const [argv, route, answer] of WRITES) {
 
   test(`#4491 Windows kosmos ${argv.slice(0, 2).join(' ')} prints the board's refusal for an agent that is not on the project, and exits 1`, async () => {
     const verb = argv[1] === 'add' ? 'add tasks to it' : 'close its tasks';
-    const r = await run(argv, () => ({ status: 403, body: { error: 'that agent is not on this project, so it cannot ' + verb } }));
+    const r = await run(argv, () => ({ status: 403, body: { error: 'that agent is not on this project, so it cannot ' + verb + "; ask the person to add this agent with the + beside Members on the project's page, then run the same command again" } }));
     assert.equal(r.code, 1);
     assert.match(r.err, new RegExp('that agent is not on this project, so it cannot ' + verb));
   });

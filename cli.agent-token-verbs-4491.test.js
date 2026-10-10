@@ -253,7 +253,7 @@ for (const [route, args] of PERSON_VERBS) {
 for (const [args, verb] of [[['task', 'add', 'p4491', 'write the docs'], 'add tasks to it'], [['task', 'close', 'p4491', '1'], 'close its tasks']]) {
   test(`kosmos ${verbName(args)} prints the board's refusal for an agent that is not on the project, and exits 1`, async () => {
     const home = makeHome();
-    const sentence = 'that agent is not on this project, so it cannot ' + verb;
+    const sentence = 'that agent is not on this project, so it cannot ' + verb + "; ask the person to add this agent with the + beside Members on the project's page, then run the same command again";
     const server = http.createServer((req, res) => {
       if (req.method === 'POST') {
         req.resume();

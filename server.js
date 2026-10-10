@@ -4539,9 +4539,8 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
    `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
    let a caller into a project that has members. */
-/* kosmos#5752 slice 2: a refusal for not being on the project names its fix, so the agent can ask for it in one step
-   instead of passing its result to a member to record by hand. The person adds members on the project's page. */
-const NOT_ON_PROJECT_FIX = '; ask the person to add this agent with Add member on the project\'s page, then run the same command again';
+/* kosmos#5752 slice 2: a refusal for not being on the project names its fix (engine/messages.js says where). */
+const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
 function notOnProjectRefusal(who, id, verb, notDone) {
   if (!who || !who.card) return null;
   let stored;
@@ -17460,7 +17459,10 @@ const server = http.createServer(async (req, res) => {
          list the agent on each one). */
       const stored = (everyProject || []).filter((x) => x && x.id === projectScope);
       if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-      if (!tokenOnly || !stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
+      /* kosmos#5752 round 1: a token that names nobody (an old key-only token whose key another name also holds) is not
+         a membership question, so adding the agent would not help and the fix is not offered. */
+      if (!tokenOnly) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' }); return; }
+      if (!stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
         sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' + NOT_ON_PROJECT_FIX });
         return;
       }
@@ -18214,7 +18216,9 @@ const server = http.createServer(async (req, res) => {
       const everyProject = projects.readAll();
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
       projectKnown = stored.length > 0;
-      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => tokenOnlyOnProject(p, tokenOnly)))) {
+      if (tokenOnly === '' && stored.length) {
+        roomRefusal = [403, 'Kosmos could not tell which agent this token belongs to, so it cannot read its room'];   // kosmos#5752 round 1
+      } else if (tokenOnly !== null && stored.length && !stored.every((p) => tokenOnlyOnProject(p, tokenOnly))) {
         roomRefusal = [403, 'that agent is not on this project, so it cannot read its room' + NOT_ON_PROJECT_FIX];
       }
     } catch {
@@ -19621,7 +19625,8 @@ const server = http.createServer(async (req, res) => {
         // Only the engine's own sentences go back; anything else (a failed write) is ours, said without its details.
         if (err && err.code === 'UNREADABLE') { sendJson(res, 503, { error: because }); return; }
         if (/no project by that name/.test(because)) { sendJson(res, 404, { error: because }); return; }
-        if (/not on this project/.test(because)) { sendJson(res, viaScreen ? 400 : 403, { error: because }); return; }
+        // kosmos#5752: an agent setting its OWN role here is told how to be added; the person (the screen) is not.
+        if (/not on this project/.test(because)) { sendJson(res, viaScreen ? 400 : 403, { error: viaScreen ? because : because + NOT_ON_PROJECT_FIX }); return; }
         if (/^say the role in words$|^keep the role to /.test(because)) { sendJson(res, 400, { error: because }); return; }
         sendJson(res, 500, { error: 'Kosmos could not save that role just now' });
         return;
