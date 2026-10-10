@@ -12,9 +12,11 @@ The board's card says an agent needs the person only when it sees a numbered hig
 On main before the change: the Submit-highlighted capture classified `unknown`; the review tab was needs-you (it has a `❯ 1.` row) but `claudeQuestionMenuUp` was false. After: both needs-you and both read as the menu; a permission prompt is still not the menu. The review tab's BOARD state is unchanged (its `❯ 1.` row already made it needs-you); what is new for it is the menu reading the chat hold uses.
 - Review 1: the classify rule sits above the working checks on purpose (a menu blocks while the title still spins), pinned by a test; the review rule also needs the form's title, so its two lines in agent prose do not count. The safeguards menu is out of scope (it has its own rule).
 - Review 2: my review-1 title check used a fixed 20-row window, which a padded capture or a long list of answers defeated (a live review tab then read "unknown"). It now searches upward within the form, stopping at its tab header or a rule line; tests for both.
+- Review 3 (Opus): nothing above NIT. Taken: a footer with no free-answer row falls through to the review check instead of returning; the upward title search stops after 200 rows; a synthetic tall-menu test (30 description rows under the highlighted row, so it is outside the last 25) reads needs-you only through the new rule (red with the rule removed); comments say the multi-question review tab is reasoned from the single-question capture, and that prose ending with all three lines would match (a live answer has the composer below, which the bottom anchor refuses).
 
 ## Gaps, stated
-- A menu taller than 25 rows was not captured; it is covered by the same footer rule, reasoned, not measured.
+- A menu taller than 25 rows was not captured: a synthetic one built from the single-question capture is tested; a real tall menu is not.
+- The multi-question form's review tab was not captured; it is reasoned to draw the same three lines.
 
 ## Weakest premise
 That the review tab's two lines stay worded as captured; a reworded Claude Code would miss it again, as any screen reader here would.

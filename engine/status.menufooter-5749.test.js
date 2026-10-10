@@ -18,6 +18,7 @@ const read = (f) => fs.readFileSync(path.join(SCREENS, f), 'utf8');
 const SUBMIT = read('question-menu-multiselect-submit-highlighted-2.1.296.txt');
 const REVIEW = read('question-menu-review-tab-2.1.296.txt');
 const PERM = read('permission-prompt-bash-2.1.296.txt');
+const SINGLE = read('question-menu-2.1.29x.txt');
 // A native Claude pane (its command is the version), so classify takes the Claude path.
 const PANE = { command: '2.1.296', title: '✳ x', session: 'x', name: 'x' };
 
@@ -41,6 +42,15 @@ test('#5749 (review 2): the review tab is read padded to the pane height, and wi
   const tall = REVIEW.replace(/ ● Which colors[^\n]*\n[^\n]*\n/, many + '\n');
   assert.ok(tall.split('\n').length > 30, 'CONTROL: the tall variant is tall');
   assert.equal(status.claudeQuestionMenuUp(tall), true, 'a tall review tab read as no menu');
+});
+
+test('#5749 (review 3): a menu so tall its highlighted row is above the last 25 rows still reads needs-you', () => {
+  // Synthetic, from the single-question capture: 30 description rows under the highlighted `❯ 1.` row.
+  const desc = Array.from({ length: 30 }, (_, i) => `     Apple, line ${i}`).join('\n');
+  const tall = SINGLE.replace('❯ 1. Apple\n', '❯ 1. Apple\n' + desc + '\n');
+  const tail = tall.split('\n').slice(-25).join('\n');
+  assert.ok(/^\s*❯\s*1\.\s/m.test(tall) && !/^\s*❯\s*\d+\.\s/m.test(tail), 'CONTROL: the highlighted row is outside the last 25 rows');
+  assert.equal(status.classify(PANE, tall).state, 'needs_you');
 });
 
 test('#5749 (review 1): a menu blocks even while the title still spins (the rule sits above the working checks)', () => {

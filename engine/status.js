@@ -2451,7 +2451,7 @@ function claudeQuestionMenuUp(text) {
     /* The free-answer entry is the menu's last numbered row, just above the footer (two rows in every capture): look
        only that close, so an old menu in scrollback above a live permission prompt is not taken for this one. */
     for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return true;
-    return false;
+    break;   // #5749 review 3: a footer with no free-answer row is not this menu; the review check still gets its look
   }
   return claudeQuestionReviewUp(lines);
 }
@@ -2459,7 +2459,9 @@ function claudeQuestionMenuUp(text) {
 /* #5749: the multi-select and multi-question forms' review tab ("Review your answers", "Ready to submit your answers?",
    then "1. Submit answers" / "2. Cancel"), measured on 2.1.296. It draws NO footer, so the rule above never sees it,
    and Enter there submits answers nobody chose. Bottom-anchored like the footer rule: the question and its Submit row
-   among the last four non-blank lines, so an old review tab in scrollback is not taken for a live one. */
+   among the last four non-blank lines, so an old review tab in scrollback is not taken for a live one. Captured for a
+   single question; the multi-question form's review tab is reasoned to draw the same three lines (the same component,
+   one answer row per question), not captured. */
 const CLAUDE_QMENU_REVIEW_Q = /^\s*Ready to submit your answers\?\s*$/;
 const CLAUDE_QMENU_REVIEW_SUBMIT = /^\s*(?:[❯›]\s*)?\d{1,2}\.\s+Submit answers\s*$/;
 const CLAUDE_QMENU_REVIEW_TITLE = /^\s*Review your answers\s*$/;
@@ -2467,10 +2469,12 @@ function claudeQuestionReviewUp(lines) {
   const last = [];
   for (let i = lines.length - 1; i >= 0 && last.length < 4; i -= 1) if (lines[i].trim()) last.push(lines[i]);
   if (!(last.some((l) => CLAUDE_QMENU_REVIEW_Q.test(l)) && last.some((l) => CLAUDE_QMENU_REVIEW_SUBMIT.test(l)))) return false;
-  /* Review 1: and the form's own title above them, so two strings in agent prose are not enough. Review 2: searched
-     upward from the bottom, blank rows skipped (tmux pads a capture to the pane height), and only within the form:
-     the search stops at its tab header ("←  ... →") or a rule line, so a long list of answers cannot push it out. */
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
+  /* Review 1: and the form's own title above them, so the two lines in agent prose are not enough (prose that ends
+     with all three lines would still match; a live answer always has the composer below it, which this anchor refuses).
+     Review 2: searched upward from the bottom, blank rows skipped (tmux pads a capture to the pane height), and only
+     within the form: the search stops at its tab header ("←  ... →") or a rule line, so a long list of answers cannot
+     push it out. Review 3: and at most 200 rows up, so a long scrollback is never walked whole. */
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 200); i -= 1) {
     const l = lines[i];
     if (CLAUDE_QMENU_REVIEW_TITLE.test(l)) return true;
     if (/^\s*←/.test(l) || /^\s*─{8,}\s*$/.test(l)) return false;
