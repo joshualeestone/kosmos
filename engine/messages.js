@@ -2790,7 +2790,8 @@ function messageIdOf(value) {
    exempt, being in every room they own). Returns {ok, op, emoji, of} or
    {ok:false, because}. */
 /* kosmos#5752 slice 3: an agent refused something in a project, logged as a `refused` row of that project's room,
-   once per sender, project and reason in the window (the room shows it: #315). `project` rides the row so the room
+   once per sender, project, reason and `doing` in the window (the room shows it: #315). `doing` is in the key so a
+   refused rule change does not hide a refused run that shares its sentence. `project` rides the row so the room
    claims its own refusals and only its own: `to` alone cannot tell a project from an agent sharing the slug space.
    `doing` says what the agent tried ("record a run of a task"; none for a room post). `addable` marks a refusal that
    adding the agent to the project would end: the room offers the person the add on that row. Best effort: a failed
@@ -2800,8 +2801,9 @@ function logRoomRefusal({ from, project, because, at, doing, addable }) {
   const when = typeof at === 'string' && at ? at : new Date().toISOString();
   try {
     const now2 = Date.parse(when);
+    const did = typeof doing === 'string' && doing ? doing : undefined;
     const already = readLog().some((m) => m && m.kind === 'refused'
-      && m.from === from && m.to === toLogged && m.because === because
+      && m.from === from && m.to === toLogged && m.because === because && m.doing === did
       && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
     if (!already) {
       appendLog({ kind: 'refused', from, to: toLogged, project: toLogged, because, at: when,

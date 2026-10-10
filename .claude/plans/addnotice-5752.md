@@ -36,3 +36,8 @@ why it was stopped; the person decides. The add is the same call as the Members 
 ## Not covered
 - Design review and screenshots (the design-shots skill) are owed before merge: a new button on a room band.
 - A gated browser check for the button is not written; the page functions are tested.
+
+## Fixed before review
+- The first commit's test passed alone and failed in its file: earlier tests' refusals by the same agent were in the
+  same window. It now uses its own project. Found with it: the dedup key left out `doing`, so a refused rule change
+  hid a refused run sharing its sentence; `doing` is in the key now (mutant caught).

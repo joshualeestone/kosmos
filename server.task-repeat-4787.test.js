@@ -307,10 +307,16 @@ test('#5752 slice 2: a non-member agent is told how to be added, on each of its 
 /* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it and can add the
    agent from there. */
 test('#5752 slice 3: a non-member\'s refused task writes are room rows saying what it tried, offering the add, once each', async () => {
-  const n = newTask('A scheduled check, slice 3');
+  /* Its own project, so earlier tests' refusals by zed (logged in the same window) are not in its room. */
+  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('fixture', { state: 'idle' })]).agents;
+  const own = projects.create({ name: 'Gamma' });
+  projects.addAgent(own.id, 'mona', roster);
+  const projectId = own.id;
+  const n = tasks.create(projectId, { sentence: 'A scheduled check, slice 3', who: 'mona' }).number;
   const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
   await post(`/api/project/${projectId}/task/${n}/ran`, {}, zed);
   await post(`/api/project/${projectId}/task/${n}/ran`, {}, zed);   // the same refusal again: still one row
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, zed);   // same sentence, another doing: its own row
   await post(`/api/project/${projectId}/task/${n}/built`, { note: '1 met.' }, zed);
   await post(`/api/project/${projectId}/task/${n}/message`, { text: 'hello' }, zed);
   await post(`/api/project/${projectId}/tasks`, { sentence: 'not mine' }, zed);
@@ -320,6 +326,7 @@ test('#5752 slice 3: a non-member\'s refused task writes are room rows saying wh
   const rows = (room.rows || room.messages || room).filter((m) => m && m.kind === 'refused' && m.from === 'zed');
   assert.deepEqual(rows.map((m) => [m.doing, m.addable, m.because]), [
     ['record a run of a task', true, 'that agent is not on this project, so it cannot change its tasks'],
+    ['set how often a task repeats', true, 'that agent is not on this project, so it cannot change its tasks'],
     ['mark a task built', true, 'that agent is not on this project, so it cannot mark its tasks'],
     ['write in a task', true, 'that agent is not on this project, so it cannot write in its tasks'],
     ['add a task', true, 'that agent is not on this project, so it cannot add tasks to it'],
