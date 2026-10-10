@@ -870,7 +870,7 @@ function scanText(text, calls, ctx) {
       const refused = !!rule && !(rule === 'sandbox' && !SANDBOX_TARGETS.has(target));
       if (refused) out.push({ agent, end: lineEnd, ms: at, at: Math.floor(at / 1000), action, rule, targetClass: target, sessionRef, toolUseRef });
       /* A flag beside a refusal of the same tool use takes "<ref>-m" (still a ref: letters, digits, _ and -, at most 128),
-         so the coordinator's one row per (session, tool use) keeps both (and only beside one that is sent). It cannot collide with a real id: Claude Code's
+         so the coordinator's one row per (session, tool use) keeps both (only beside a refusal this scan reports; the tick can still drop that refusal, and a lone "-m" flag is harmless because resolvers strip it). It cannot collide with a real id: Claude Code's
          tool-use ids are toolu_ plus base62 and Codex's call ids are call_ plus letters and digits, neither with a hyphen
          (Kitty sampled 140 Codex ids from 200 rollout files, none ending in -m). Anything that resolves
          conversation.toolUse back to a tool use strips a trailing "-m" first (kosmos-relay docs/attack-surface.md and card
@@ -1306,7 +1306,6 @@ async function tickOnce(opts) {
       st = { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, stops: stops0, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
     }
     const sinceMs = Math.max(joinedAt, st.since || joinedAt);
-    const sinceS = Math.floor(sinceMs / 1000);   // whole seconds, for the file-skipping rules
     /* #5683 slice 3: the manipulation check runs only when the org's policy in force turns it on (off by default; the
        card: optional, org-enabled). Then every agent of this work Kosmos is read (the company owns all work content,
        Josh 08:41/08:43), while refusals stay token-only agents' (the company's rules apply only to them). */
@@ -1327,7 +1326,6 @@ async function tickOnce(opts) {
        cannot be read. Required (her review 12: an absent check read as "no clash"). */
     const collidedNow = new Set();
     const gapNow = new Set();   // review 24: guarded now, but unconfirmed for longer than GUARD_GAP_MS
-    const clashNow = new Set();   // review 28: agents that collide THIS tick (a gap must not erase that mark)
     const launchCache = new Map();   // review 17: one launch-path scan per tick, shared by every agent's guard check
     /* Kitty's review 16: a listed agent whose guard is not yet in force runs under no company rule, so its refusals are
        not read. Its guard bounds REFUSALS only, as the listing does: while the check is on it is still read for flags,
@@ -1375,7 +1373,11 @@ async function tickOnce(opts) {
       }
       /* Two READ token-only agents sharing a folder clash too (her review 29): one file's events would be labelled
          with whichever agent the rotation read first. Neither is read. */
-      const readFlats = [...tokenOnly].filter((n) => !unguardedNow.has(n)).map((n) => [n, src.dirOf(n)]).filter(([, d]) => d).map(([n, d]) => [n, flat(d)]);
+      let readFlats;
+      try { readFlats = [...tokenOnly].filter((n) => !unguardedNow.has(n)).map((n) => [n, src.dirOf(n)]).filter(([, d]) => d).map(([n, d]) => [n, flat(d)]); } catch (e) {
+        console.error('agentevents: an agent\'s transcript folder could not be worked out; nothing read (' + String((e && e.message) || e) + ')');
+        return { sent: 0, because: 'a transcript folder could not be worked out; nothing changed' };
+      }
       for (const [n, mine] of readFlats) {
         const peers = readFlats.filter(([p]) => p !== n).map(([, fl]) => fl);
         if ([...others, ...peers].some((o) => [...o].some((x) => mine.has(x)))) {
