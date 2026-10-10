@@ -93,9 +93,11 @@ ANDROID_SDK_ROOT=/opt/homebrew/share/android-commandlinetools
 PATH += platform-tools
 ```
 
-Installed: cmdline-tools, platform-tools 37.0.1 (`adb`), build-tools 35.0.0,
-platforms android-35 and android-36 (compileSdk is 36; android-35 is retained to match
-the toolchain that built green before the compileSdk 36 bump, pending the #5700 cleanup).
+Installed: cmdline-tools, platform-tools 37.0.1 (`adb`), build-tools 35.0.0 and 36.0.0
+(AGP 8.13 selects 36.0.0 for compileSdk 36), platforms android-35 and android-36
+(compileSdk is 36; android-35 and build-tools 35.0.0 are kept, since whether anything
+still needs them is unverified; dropping them is a separate future change, not #5700,
+which retained them).
 There is **no system Gradle and no Android Studio** by design, which is why this
 project ships the Gradle wrapper.
 
