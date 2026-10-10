@@ -112,7 +112,7 @@ test('#5532 print guard: a read still retrying sends nothing, on a join, a leave
   cp._testRunner(() => { throw new Error('ioreg timed out'); }, { platform: 'darwin' });
   const rv = await oe.enroll(null, true, { root, remote: co, consentHash: HASH, consent: CONSENT, orgId: ACME.id, computerSalt: SALT, review: true });
   assert.equal(rv.ok, false, JSON.stringify(rv));
-  assert.match(rv.because, /press Accept again/, 'a review was told to press a Join button it does not have: ' + rv.because);
+  assert.match(rv.because, /Kosmos tries again on its own/, '#5791: a review is automatic now, so it asks the person to press nothing: ' + rv.because);
 });
 
 test('#5532 print guard 1: nothing this caller logs carries a print, the hardware id or a body with one', async (t) => {

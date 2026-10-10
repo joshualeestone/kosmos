@@ -1113,3 +1113,38 @@ test('#5685: a reviewer invite is offered with its role, and a role the coordina
   const bad = await org.preview('ACME-JOIN-1234', { root: a, remote: as('auditor') });
   assert.equal(bad.ok, false, 'an unknown role was offered');
 });
+
+test('#5791: when the company changes its words, the board takes the new ones on itself (no screen) and binds their hash', async (t) => {
+  const { a } = sandbox(t);
+  const H1 = 'a'.repeat(64), H2 = 'b'.repeat(64);
+  const NEW = Object.assign({}, CONSENT, { reports: CONSENT.reports.concat(['the day you were last active']) });
+  const sent = [];
+  let served = H2;
+  const remote = { macRequest: async (m, route, body) => {
+    sent.push({ route, body: body == null ? null : JSON.parse(JSON.stringify(body)) });
+    if (route === org.ROUTES.redeem) return { ok: true, data: { org: ORG, role: 'member', consent: CONSENT, consentHash: H1 } };
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root: a }), thisComputer: true }, consent: NEW, ...(served ? { consentHash: served } : {}) } };
+    return { ok: false, because: 'unexpected ' + route };
+  } };
+  const opts = { root: a, remote };
+  const j = await org.enroll('ACME-JOIN-1234', true, Object.assign({}, opts, { consentHash: H1, consent: CONSENT, orgId: ORG.id }));
+  assert.equal(j.ok, true, JSON.stringify(j));
+  assert.equal(org.readEnrollment(opts).consentHash, H1);
+  assert.equal(await org.consentWithdrawn(opts, H1), true, 'precondition: the old words are withdrawn');
+  const before = sent.length;
+  const r = await org.reacceptWords(opts);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const e = sent.slice(before).find((x) => x.route === org.ROUTES.enroll);
+  assert.ok(e, 'no enroll was sent');
+  assert.equal(e.body.consentHash, H2, 'the enroll did not carry the hash the company serves now');
+  assert.ok(!('code' in e.body), 'a re-acceptance must send no code');
+  assert.equal(org.readEnrollment(opts).consentHash, H2, 'the new words are not on record');
+  // CONTROL: a company that serves no hash gets no blind re-acceptance; nothing is sent.
+  assert.equal(await org.consentWithdrawn(opts, H2), true);
+  served = null;
+  const n = sent.length;
+  const r2 = await org.reacceptWords(opts);
+  assert.equal(r2.ok, false, JSON.stringify(r2));
+  assert.equal(sent.slice(n).filter((x) => x.route === org.ROUTES.enroll).length, 0, 'an enroll was sent with no hash to echo');
+});

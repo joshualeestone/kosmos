@@ -336,7 +336,7 @@ const SAY = Object.freeze({
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
-  org_already_member: 'You are already in this company. Check the code again to see what moving your work Kosmos here means.',
+  org_already_member: 'You are already in this company. Press Connect Account again to make this Kosmos your work Kosmos.',
   // v1.4: the words changed after this screen showed them (the enroll carried the hash of the old ones). Nothing joined.
   org_consent_changed: 'Your company changed its terms just now. Nothing was joined. Press Connect Account again.',
 });
