@@ -47742,7 +47742,9 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
-    // #5791 review 1: a note the person closed with Cancel is not written back by the next read.
+    // #5791 review 1: a note the person closed with Cancel is not written back by the next read. Review 2: only while
+    // the engine still carries THAT note; once it is gone (or this Kosmos joined), a later stop shows again.
+    if (j && (!j.stoppedFor || j.enrolled === true)) PLUS_ORG.dismissed = null;
     if (j && j.enrolled !== true && j.stoppedFor && j.stoppedFor !== PLUS_ORG.dismissed) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.

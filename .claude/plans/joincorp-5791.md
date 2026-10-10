@@ -25,9 +25,10 @@ Josh, 2026-10-10 14:32 CDT, testing the #5531 join flow: the company has already
 - **"Lost your phone?" moves into "Devices that can reach this computer"** (#plus-devices), under the device list. A lost phone is a lost device, so that is where a person looks; the section shows exactly when the old footer did (a connected computer), and the dialog it opens is unchanged. Rejected: View account (an external link, so the reset would leave Kosmos) and Your Profile (not Kosmos+). The sign-in screen's "Can't get a code?" line names the new place.
 - **The opener is a `.btn`** (already outlined) with a tiny building icon: "Join Corporate Account". The joined view keeps its "Your company" title; the entry pane loses it and gains an X Cancel.
 
-## To update with it (they reference the old UI)
-- Browser checks: render-orgenroll-5531.js, render-plus-gate-1615.js, render-plus-panel-3829.js, render-plus-signin-3478.js, mobile-shots.js, README.md.
-- Web tests: web.lost-phone.test.js, web.modal-way-out-1316.test.js, web.plus-stale.test.js.
+## Updated with it (they referenced the old UI)
+- Browser checks: render-orgenroll-5531.js (rewritten), render-plus-panel-3829.js (the bottom row; Lost your phone? under the device list), mobile-shots.js (plus-org-consent became plus-org-connect), README.md (the row).
+- Web tests: web.lost-phone.test.js, web.plus-stale.test.js.
+- Checked and left alone (no reference to a removed id or string, measured by grep for plus-org-consent, plus-org-join, plus-org-review, plus-org-notnow, plusOrgCheck and Check code): render-plus-gate-1615.js, render-plus-signin-3478.js (its "Lost your phone?" assertion is the sign-in recovery path, unchanged), web.modal-way-out-1316.test.js (passes).
 - Design shots (light/dark, desktop/phone) via /design-shots before asking for review.
 
 ## Found while building, and decided
@@ -47,3 +48,10 @@ Josh, 2026-10-10 14:32 CDT, testing the #5531 join flow: the company has already
   - [WARNING] DECIDED, not changed. A member whose work Kosmos is elsewhere moves with one press and no confirmation. That is Josh's ruling ("Connect Account joins directly"; "other Kosmoses" is gone). Recorded on the card.
   - [WARNING] NOT A DEFECT, now pinned. The worry was that the event sender keeps its failure wait after a re-accept. It does not: the new hash changes the sender's enrollment key, and a recorded withdrawal resets its state too (failAt: null). The agentevents test now asserts that a later event is sent. A mutation keeping failAt on reset turned red. Removing withdrawn=true alone stays green, because the hash change already resets the state.
   - NITs taken: the stale consentWithdrawn comment moved and rewritten; the two move refusals now say Connect Account instead of Join; the event sender's log line; reacceptWords sits in the export list. Not taken: the /api/org/preview { review: true } branch no longer has a page caller. It stays as API surface, since the engine's own reacceptWords uses reviewHere directly.
+- Iteration 2 (Sonnet), on b51eea6a1:
+  - [WARNING] FIXED. A closed note stayed suppressed for the page's life, keyed by the company name, so a later stop by the same company never showed. The dismissal is now forgotten when the engine stops carrying a note, or when this Kosmos joins. Browser check O8c. Removing the reset line turned it red.
+  - [WARNING] DUPLICATE of iteration 1's silent-terms item (decided, on the card, 16:40).
+  - [WARNING] NOT THIS BRANCH. The web.*.test.js files need the repo root as cwd. That is pre-existing, and run-tests.sh runs them from the root.
+  - [CONVENTION] FIXED. This plan's "to update" list named files that needed no change; it now says which were changed and which were checked and left alone.
+  - [NIT] not taken: the Cancel link reuses the plus-lost-link style on purpose (the same quiet link look). The browser check pins the Cancel by its id, not its class.
+

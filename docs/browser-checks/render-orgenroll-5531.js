@@ -260,7 +260,16 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
     await page.waitForTimeout(300);
     const o8b = { out: await shown(page, 'plus-org-out'), opener: await shown(page, 'plus-org-open'), msg: await text(page, 'plus-org-msg') };
     chk(!o8b.out && o8b.opener && o8b.msg === '', 'O8 Cancel closes a pane a company note opened, and the next read leaves it closed', JSON.stringify(o8b));
-    await page.evaluate(() => { window.__stopped = null; });
+    // Review 2: once the engine no longer carries that note, a later stop by the same company shows again.
+    await page.evaluate(() => { window.__stopped = null; PLUS_ORG.at = 0; plusOrgMaybe(); });
+    await page.waitForTimeout(300);
+    await page.evaluate(() => { window.__stopped = 'Acme <i>Co</i>'; PLUS_ORG.at = 0; plusOrgMaybe(); });
+    await page.waitForFunction(() => /no longer the work Kosmos/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 3000 }).catch(() => {});
+    const o8c = { out: await shown(page, 'plus-org-out'), msg: await text(page, 'plus-org-msg') };
+    chk(o8c.out && /no longer the work Kosmos for Acme/.test(o8c.msg), 'O8 a later stop by the same company shows again after the first note was closed', JSON.stringify(o8c));
+    await page.click('#plus-org-cancel');
+    await page.evaluate(() => { window.__stopped = null; PLUS_ORG.at = 0; plusOrgMaybe(); });
+    await page.waitForTimeout(300);
     await page.click('#plus-org-open');
 
     // O14: an enroll that did not join says why under the field, which stays, and the joined view does not show.
