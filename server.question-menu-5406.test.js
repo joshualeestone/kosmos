@@ -194,3 +194,15 @@ test('#5406 review 3: a question that changed between the read and the key is re
     assert.match(r.json.delivery.because, /Its question was closed before this was sent/);
   } finally { chat.resetForTests(); b2.restore(); }
 });
+
+test('#5406 slice C: the thread GET serves the menu\'s options and its identity (asked), the twin of what a press is checked against', async () => {
+  await withMenu(async () => {
+    const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+    assert.equal(back.asking, true);
+    assert.deepEqual(back.options, [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana' }, { n: 3, label: 'Cherry' }]);
+    assert.equal(back.asked, 'Which fruit do you want?');
+    // CONTROL: the identity it serves is the one a press must send; a press with it goes through.
+    const r = await post({ text: '1', chose: 'Apple', asked: back.asked });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+  });
+});
