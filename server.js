@@ -21451,8 +21451,11 @@ function start(port = PORT) {
             DELIVERY: chat.DELIVERY,
             /* #4588 ask 3: the cap too. #5743: and Claude's question menu on its screen (a playbook typed there would
                pick the highlighted answer): the convening waits, nothing typed and no attempt spent. */
-            heldUntil: (session) => agyQuota.heldForAgy(session, roster, Date.now())
-              ?? (chat.menuHeld(session, roster) ? new Date(Date.now() + 60e3).toISOString() : null),
+            heldUntil: (session) => {
+              let h = null;
+              try { h = agyQuota.heldForAgy(session, roster, Date.now()); } catch { h = null; }   // each check on its own
+              return h ?? (chat.menuHeld(session, roster) ? new Date(Date.now() + 60e3).toISOString() : null);
+            },
             reserve: (session) => agyQuota.noteCapStart(session, roster, Date.now()),   // #4588 ask 3 review 9: the stuck agent first
             release: (slot) => agyQuota.releaseCapStart(slot),
           });

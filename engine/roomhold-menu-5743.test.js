@@ -82,3 +82,15 @@ test('#5743 room: a post to a member on its question menu is held (nothing typed
     assert.deepEqual(roomhold.heldIn('april', PROJECT), [], 'the held post was never released');
   } finally { board.restore(); }
 });
+
+test('#5743 room: the PERSON\'s own post to a member on its menu is refused (not held), nothing typed', () => {
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+  try {
+    const tmux = fakeTmux(() => MENU);
+    chat.setRunner(tmux); chat.setDryRun(false);
+    const sent = messages.sendPost({ operator: true, project: PROJECT, text: '@april can you check clause 4?' }, board.agents, MEMBERS);
+    assert.ok(sent.outcomes && sent.outcomes.april, 'premise: april was a recipient: ' + JSON.stringify(sent));
+    assert.notEqual(sent.outcomes.april, roomhold.HELD, 'a person\'s post was held like a colleague\'s: ' + JSON.stringify(sent.outcomes));
+    assert.deepEqual(tmux.typedTo('april'), [], 'a person\'s room post was typed into the question menu');
+  } finally { board.restore(); }
+});
