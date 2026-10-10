@@ -174,7 +174,9 @@ function refuseOversizedStack(policies) {
   const all = company ? [company, ...policies] : policies;
   const body = all.length === 1 ? blockBody(all[0]) : stackedBody(all);
   if (Buffer.byteLength(body, 'utf8') > BLOCK_MAX) {
-    throw new Error('together these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first');
+    throw new Error(company
+      ? 'together with your company\'s AI policy, these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first'
+      : 'together these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first');
   }
 }
 
@@ -268,9 +270,9 @@ function clear() {
 /** One policy's provenance line, shared by both block shapes. */
 function fromLine(policy) {
   const when = policy.savedAt ? policy.savedAt.slice(0, 10) : 'an unknown date';
-  if (policy.source === COMPANY_SOURCE) {
-    return `Set by your company in its Kosmos policy (version ${policy.version}), applied here on ${when}.`;
-  }
+  /* No version or date (review 1): a new company policy that changes only its provider list must not rewrite every
+     agent's file and owe every running agent a re-read for the same words. */
+  if (policy.source === COMPANY_SOURCE) return 'Set by your company in its Kosmos policy.';
   return policy.source === 'pasted'
     ? `Added by the person you work for on ${when}.`
     : `From ${policy.source}, fetched ${when}.`;
@@ -372,8 +374,10 @@ function tellAgent(sessionName, roster) {
 
 /* #5534 slice 3: the company's AI policy text, from the company policy this enrolled Kosmos has applied (the console's
    editor saves it as ai_policy { name, text }, signed with the rest). Never stored in policy.json: the person's list
-   stays theirs, and leaving the company (which clears the applied policy) takes this with it. Null when there is none,
-   or when its text is not something an agent can be handed (empty, or longer than a person's policy may be). */
+   stays theirs, and leaving the company clears the applied policy, so the next sync (server.js companyPolicySync on
+   the leave, or the next board start) takes this out of every agent. Null when there is none, or when its text is not
+   something an agent can be handed (empty, or longer than a person's policy may be; the coordinator caps the whole
+   policy at 16 KB, so that is a malformed policy, and companyPolicySync says so). */
 const COMPANY_SOURCE = 'company';
 const COMPANY_ID = 'company';
 function companyEntry() {

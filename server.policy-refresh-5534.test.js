@@ -82,7 +82,7 @@ test('#5534 slice 3: a board start hands the company\'s AI policy to an agent th
     const r = await boot(sb);
     const text = fs.readFileSync(file, 'utf8');
     assert.ok(text.includes(policy.START) && text.includes('Never paste client names into a prompt.'), 'the board start did not hand the company text to an existing agent');
-    assert.match(text, /version 4/);
+    assert.ok(text.includes('Set by your company in its Kosmos policy.'));
     assert.ok(text.includes('Some prose.'), 'the agent\'s own words did not survive');
     // CONTROL: an agent with no file is not given one.
     assert.equal(fs.existsSync(path.join(sb, 'workers', 'pp-none', 'CLAUDE.md')), false);

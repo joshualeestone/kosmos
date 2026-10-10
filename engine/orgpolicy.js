@@ -32,7 +32,8 @@
  * stays until the company serves a newer one or the enrollment ends (fails closed).
  *
  * Reported: the applied version and whether one was refused ride the rollup under consent words naming the policy
- * (engine/orgrollup.js, #5534 slice 2). Not yet: the AI policy text. The policy is per Kosmos on a Mac, as enrollment is: another Kosmos on the same Mac has its own.
+ * (engine/orgrollup.js, #5534 slice 2). The AI policy text reaches every agent through engine/policy.js
+ * (companyEntry, #5534 slice 3). The policy is per Kosmos on a Mac, as enrollment is: another Kosmos on the same Mac has its own.
  */
 const fs = require('node:fs');
 const path = require('node:path');

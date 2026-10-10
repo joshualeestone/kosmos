@@ -23,3 +23,13 @@ board leaves) or the company drops the text. The person cannot remove it from Ko
 - The company's text is not merged into policy.json: the person's Settings list stays theirs, and leaving clears the
   company's text with the applied policy, no second copy to forget.
 - Settings does not list the company entry yet (the screen's remove would fail on it); next slice if wanted.
+
+## Review 1 decisions
+- The provenance line carries no version or date, and the change check compares name and text only: a new company
+  policy that changes only its provider list rewrites no agent's file.
+- An agent that could not be told is retried on the next refresh (nothing is recorded as handed out until every agent
+  was told, at boot too).
+- Company text over 16K (a malformed policy: the coordinator caps the whole policy at 16 KB) is logged, not handed out.
+- Decided, not built: the Settings screen does not list the company entry yet (next slice); the instructions editor
+  can remove the block until the next board start or company change; when the person's own record is unreadable no
+  agent is told anything (read()'s rule: never a half list), the company entry included.

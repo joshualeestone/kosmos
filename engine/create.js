@@ -5498,7 +5498,7 @@ function createAgentInner(opts) {
           }
         } catch { /* reported below rather than swallowed */ }
         if (!policyLanded) {
-          steps.push({ label: 'could not add your company\'s AI policies to its instructions; save a policy again in Settings, or remake it', ok: false });
+          steps.push({ label: 'could not add your company\'s AI policies to its instructions; Kosmos adds them again the next time it starts', ok: false });
         }
       }
       /* #3614: where to save a file it makes for the person in a direct message, with
