@@ -813,3 +813,18 @@ test('#5774 review 17: a program from a package folder, inline python or node in
   for (const c of ['python3 ~/x.py', 'bash -c "echo hi"', 'perl -e "print 1"']) assert.deepEqual(paths(c).unsafe, [], `control: ${c}`);
   assert.deepEqual(paths('exec -a name "$CLAUDE_PROJECT_DIR"/bin/hook').runPaths, ['/A/bin/hook'], 'exec -a takes a value');
 });
+
+test('#5774 review 18: 2>&1 after an interpreter, inline python and node narrowed, a data argument after an unknown cd', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
+  for (const c of ['python3 ~/h/x.py 2>&1', 'python3 ~/h/x.py >&2', 'node ~/x.js <&0']) assert.deepEqual(paths(c).paths.filter((p) => p.startsWith('/A/')), [], `${c}: a descriptor is no file`);
+  assert.deepEqual(line('cd "$X" && python3 ~/x.py 2>&1').unsafe, [], 'not a refusal after an unknown cd either');
+  assert.deepEqual(line('cd "$X" && python3 ~/x.py data').unsafe, [], 'a data argument after an unknown cd names no script');
+  assert.equal(line('cd "$X" && python3 ./x.py').unsafe.length, 1, 'control: the script itself, relative after an unknown cd, is named');
+  assert.equal(paths('python3 -c "import json,sys"').unsafe.length, 1, 'python imports from the folder it runs in');
+  assert.deepEqual(paths('python3 -I -c "import json"').unsafe, [], 'unless isolated');
+  assert.deepEqual(paths('python3 -P -c "import json"').unsafe, []);
+  assert.deepEqual(paths('node -e "console.log(1)"').unsafe, [], 'node code that loads no module');
+  assert.equal(paths('node -e "require(\'x\')"').unsafe.length, 1);
+});

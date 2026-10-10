@@ -237,7 +237,8 @@ function shellWords(cmd, vars = {}) {
         heredoc = true;
         continue;
       } else if (c === '<') { input = true; written = false; }
-      else if (c === '&' && prevC === '>') written = !/[0-9-]/.test(nextC);   // >&file writes it; 2>&1 joins outputs
+      // >&file writes it; 2>&1 and <&0 name a descriptor, not a file (review 18): either way the word after is no script.
+      else if (c === '&' && (prevC === '>' || prevC === '<')) { written = true; input = false; }
       else if (c === '&' && nextC === '>') { /* &> and &>>: the redirection follows */ }
       else if (c === '|' && prevC === '>') written = true;   // >| writes, ignoring noclobber
       else { written = false; input = false; head = true; }
@@ -359,6 +360,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
   let chdirNext = false;
   let trapDone = false;   // trap's command line has been read
   let inlineProgDone = false;   // awk's or sed's program text has been read
+  let pyIsolated = false;   // python -I or -P: the folder it runs in is not on its import path
   let packageScriptNext = false;   // bun run <name>: a package.json script when <name> is no file
   let slotTaken = false;   // the first plain word after an interpreter is its script (or the folder it runs)
   let prog = '';
@@ -387,7 +389,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       continue;
     }
     if (w.assign) { assignment(w, w.text); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=..., PATH=...
-    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; inlineProgDone = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
+    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; inlineProgDone = false; pyIsolated = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
       if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; anchored = true; } }   // a bare cd goes home
@@ -455,6 +457,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     const inline = !isHead && inlineFlag(prog, before);   // only an interpreter's -c or -e (mkdir -p is not)
     const isFlag = !isHead && !w.input && !valueCode && (text.startsWith('-') || (/^\+[A-Za-z]+$/.test(text) && INTERPRETER.test(prog)));   // bash +x
     // Review 13: a short flag with its path glued on (ruby -r/h/pre.rb, gcc -I./x): the path is the flag's value.
+    if (isFlag && !w.dynamic && /^python[0-9.]*$/.test(prog) && /^-[A-Za-z]*[IP][A-Za-z]*$/.test(text)) pyIsolated = true;
     const glued = isFlag && !text.includes('=') && /^-[A-Za-z]{1,2}(?:\/|~\/|\.{1,2}\/)/.test(text);
     const flagScript = (flagScriptNext && !isHead && !isFlag) || valueCode;
     flagScriptNext = !isHead && !w.dynamic && !!(SCRIPT_FLAG[prog] && SCRIPT_FLAG[prog].test(text));
@@ -486,7 +489,11 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     if (inScriptSlot) slotTaken = true;
     // A script extension counts anywhere, except on a pattern (case *.py), find -name '*.py': review 7).
     // Review 10: input is what runs only for a shell or interpreter (bash < x.sh); jq . < state.json reads a file.
-    const runs = isHead || inScriptSlot || (w.input && INTERPRETER.test(prog)) || flagValue || inline || flagScript || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && (SCRIPT_EXT.test(text) || (/\.command$/i.test(text) && /^[~./]|\//.test(text))));   // where something RUNS (review 16: .command only as a path, not a jq filter)
+    // Review 18: one test for a word that IS a script (the program, the code position, input to a shell, a flag's path,
+    // a script extension; .command only as a path, review 16), shared by `runs` and the relative-script checks below.
+    const extScript = !w.dynamic && !w.globbed && !/[*?\s]/.test(text) && (SCRIPT_EXT.test(text) || (/\.command$/i.test(text) && /^[~./]|\//.test(text)));
+    const scriptWord = isHead || codeSlot || (w.input && INTERPRETER.test(prog)) || flagValue || flagScript || extScript;
+    const runs = scriptWord || inScriptSlot || inline;   // where something RUNS
     if (w.dynamic) {
       // A flag's unknown value names a path only when it has a slash (--header="$H" names nothing).
       // Review 12: only where the script itself sits; a later argument the hook passes ("$FOO", "$@") names no script.
@@ -501,7 +508,9 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       else {
         for (const m of text.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
         // Review 17: python -c and node -e import from the folder they run in (sys.path '', ./node_modules).
-        if (/^(?:python[0-9.]*|node|nodejs|deno|bun)$/.test(prog)) folderRunner(`${prog} ${before}`);
+        /* Review 18 narrowed it: python imports from there unless isolated (-I, -P); node, deno and bun only when the
+           code loads a module (their own built-ins cannot be shadowed from the folder). */
+        if ((/^python[0-9.]*$/.test(prog) && !pyIsolated) || (/^(?:node|nodejs|deno|bun)$/.test(prog) && /\brequire\s*\(|\bimport\b/.test(text))) folderRunner(`${prog} ${before}`);
       }
       continue;
     }
@@ -514,9 +523,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     else if (/^\.{0,2}\//.test(text) || (text.includes('/') && (runs || w.quoted || !/['"()=,:]/.test(text)))) { relative = true; ps = cwds.map((d) => path.resolve(d, text)); }   // a quoted or run-position word is the path itself
     else if (text.includes('/')) { for (const m of text.matchAll(INNER_ABS)) paths.push(path.normalize(m[1])); continue; }
     else if (runs && !isHead) { relative = true; ps = cwds.map((d) => path.join(d, text)); }   // bash check.sh: the agent could create it
-    if (relative && runs && cwdUnknown) unsafe.push(`a script named from a folder a cd moved to that Kosmos cannot read (${text})`);
+    if (relative && scriptWord && cwdUnknown) unsafe.push(`a script named from a folder a cd moved to that Kosmos cannot read (${text})`);
     // Review 11: where the script itself sits (not a later argument of an interpreter, such as a hook's mode word).
-    const scriptWord = isHead || codeSlot || (w.input && INTERPRETER.test(prog)) || flagValue || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && (SCRIPT_EXT.test(text) || (/\.command$/i.test(text) && /^[~./]|\//.test(text))));
     if (relative && runs && !anchored && !cwdUnknown && scriptWord) unsafe.push(`a script named relative to the folder the session is in, which the agent can move into any of its own subfolders (${text}); name it by a full path or from $CLAUDE_PROJECT_DIR`);
     for (const p of ps) {
       if (SEALED.test(p)) continue;   // review 16: a system path the agent can never write (SIP) needs no rule
@@ -744,8 +752,8 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     }
   };
   for (const s of sources) {
-    const part = s.pick(s.json);
-    if (part) take(commandsIn(part), baseVars, s.file);
+    // Review 18: one config that the reader chokes on is named, and every other config's scripts are still denied.
+    try { const part = s.pick(s.json); if (part) take(commandsIn(part), baseVars, s.file); } catch (e) { unsafe.push(`${s.file} (its commands could not be read: ${(e && e.message) || e})`); }
   }
   /* Review 11: CLAUDE_CODE_SHELL_PREFIX in a settings env is a command Claude Code puts in front of every hook. */
   if (settingsEnv.CLAUDE_CODE_SHELL_PREFIX !== undefined) take([{ line: settingsEnv.CLAUDE_CODE_SHELL_PREFIX }], baseVars, 'the settings env (CLAUDE_CODE_SHELL_PREFIX)');
@@ -768,7 +776,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
       if (r.error) unsafe.push(`${f} (could not be read: ${r.error}), so the commands in it are unknown`);
       // Review 15: a plugin's .mcp.json and .lsp.json hold servers (started in the project folder), with or without an
       // mcpServers key.
-      else if (!r.missing) take(commandsIn(r.json, [], 0, /\.(?:mcp|lsp)\.json$/.test(f)), vars, f);
+      else if (!r.missing) { try { take(commandsIn(r.json, [], 0, /\.(?:mcp|lsp)\.json$/.test(f)), vars, f); } catch (e) { unsafe.push(`${f} (its commands could not be read: ${(e && e.message) || e})`); } }
     }
   }
   /* Never a folder: `cd "$CLAUDE_PROJECT_DIR"` or `rg x ~/work` names one, and denying it would take the agent's own
