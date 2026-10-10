@@ -16235,6 +16235,16 @@ const server = http.createServer(async (req, res) => {
             moved.status = 409;
             throw moved;
           }
+          /* #5406 slice C: a press that names its question (`asked`; only the page's buttons send it) while no question
+             is on the screen now (answered in the window, or the agent moved on inside the poll) is refused, never typed:
+             its digit would otherwise land in the composer as a new prompt. Unlike `chose` alone, `asked` says the press
+             was for a menu, so a screen without one contradicts it. */
+          if (askedAbove && nowClean === null) {
+            const gone = new Error('its question is no longer on its screen, so we did not send the answer. '
+              + 'What is on this page now is current.');
+            gone.status = 409;
+            throw gone;
+          }
         }
         // Deliver first, then record the verdict with it — and record even a
         // failure, exactly as the project thread does.

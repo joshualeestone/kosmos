@@ -37381,7 +37381,7 @@ let TALK_QUERY = '';
    screen before it sends a key (409 when the menu moved). */
 let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
 let DM_CHOICE_NOTE = null;   // { session, asked, text, placed }: what became of the last press, kept across the repaint it asks for
-let DM_CHOICE_INFLIGHT = null;   // { session, asked } while a press is in the air: a repaint draws the buttons disabled
+const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
   DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked)
@@ -37391,7 +37391,7 @@ function dmChoicesFrom(body, sessionName) {
 }
 function dmChoicesHtml(m) {
   if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
-  const flying = DM_CHOICE_INFLIGHT && DM_CHOICE_INFLIGHT.session === DM_CHOICES.session && DM_CHOICE_INFLIGHT.asked === DM_CHOICES.asked;
+  const flying = DM_CHOICE_INFLIGHT.get(DM_CHOICES.session) === DM_CHOICES.asked;
   const mine = DM_CHOICE_NOTE && DM_CHOICE_NOTE.session === DM_CHOICES.session && DM_CHOICE_NOTE.asked === DM_CHOICES.asked;
   const note = flying ? 'Sending…' : (mine ? DM_CHOICE_NOTE.text : '');
   /* Answered: the menu can stay up a few seconds after the key, and a second press then would answer twice. */
@@ -37403,7 +37403,7 @@ function dmChoicesHtml(m) {
 }
 async function dmChoicePress(btn) {
   const c = DM_CHOICES;
-  if (!c || !CURRENT || CURRENT.sessionName !== c.session || (DM_CHOICE_INFLIGHT && DM_CHOICE_INFLIGHT.session === c.session)) return;
+  if (!c || !CURRENT || CURRENT.sessionName !== c.session || DM_CHOICE_INFLIGHT.has(c.session)) return;
   const opt = c.options.find((o) => String(o.n) === btn.getAttribute('data-n'));
   if (!opt) return;
   const box = btn.closest('.dmchoices');
@@ -37412,7 +37412,7 @@ async function dmChoicePress(btn) {
   if (msg) msg.textContent = 'Sending…';
   const session = c.session;
   DM_CHOICE_NOTE = null;
-  DM_CHOICE_INFLIGHT = { session, asked: c.asked };
+  DM_CHOICE_INFLIGHT.set(session, c.asked);
   let ok = false;
   let note = '';
   try {
@@ -37420,7 +37420,7 @@ async function dmChoicePress(btn) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text: String(opt.n), chose: opt.label, asked: c.asked }),
     });
-    const out = await res.json().catch(() => ({}));
+    const out = (await res.json().catch(() => null)) || {};
     /* A 200 carries the real outcome in delivery.state: only `placed` is sent. `unconfirmed` (the menu was still up
        after the key) and `could_not` say why, in the server's words. */
     const d = (out && out.delivery) || {};
@@ -37431,14 +37431,22 @@ async function dmChoicePress(btn) {
   } catch {
     note = 'We could not reach Kosmos; try again.';
   } finally {
-    DM_CHOICE_INFLIGHT = null;
+    DM_CHOICE_INFLIGHT.delete(session);
   }
   if (ok) note = 'Sent.';
   if (msg) msg.textContent = note;
   DM_CHOICE_NOTE = { session, asked: c.asked, text: note, placed: ok };
   if (!ok && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
+  /* The reason also goes on the conversation's own line: a refusal usually means the question changed or went, and the
+     repaint then draws another question's bubble (or none), where the note above does not show. */
+  if (!ok && CURRENT && CURRENT.sessionName === session) {
+    const line = document.getElementById('d-say-msg');
+    if (line) line.textContent = note;
+  }
   /* Every outcome repaints: a refusal usually means the menu moved, and the buttons should show the one up now. */
-  if (CURRENT && CURRENT.sessionName === session) await paintTalk(CURRENT.sessionName, CURRENT.name);
+  if (!CURRENT || CURRENT.sessionName !== session) return;   // switched agents meanwhile: neither repaint nor move focus
+  await paintTalk(CURRENT.sessionName, CURRENT.name);
+  if (!CURRENT || CURRENT.sessionName !== session) return;
   /* Disabling the pressed button dropped focus to the page. Answered: the buttons stay disabled, so focus goes to the
      message box, the next thing to use. Otherwise back to the same choice (or the group's first). Only when focus has
      gone nowhere else. */
@@ -37707,6 +37715,7 @@ async function paintTalk(sessionName, agentName) {
     if (mine !== TALK_LOAD) return;
     if (!CURRENT || CURRENT.sessionName !== sessionName) return;
     DM_CHOICES = null;   // #5406: no thread read, no choices
+    DM_CHOICE_NOTE = null;
     /* ⚠️ WHERE THE PERSON IS STANDING, READ BEFORE ANYTHING HIDES OR DISABLES.
        Disabling a focused control blurs it synchronously, so asking afterwards
        always answers BODY. The success path carries four rescues for exactly
