@@ -536,9 +536,22 @@ async function agentHeadLook(page, projectId) {
     const sep = document.querySelector('#d-talk-box .d-crumb-rootwrap > .pj-crumb-sep'), lab = document.getElementById('d-talk-label');
     if (!back || !cb || !root || !lab || document.getElementById('panel-detail').hidden) return { found: false };
     const c = getComputedStyle(cb), r = cb.getBoundingClientRect(), lr = lab.getBoundingClientRect();
+    const sw = document.getElementById('d-talk-search-wrap');
+    /* Review round 1: the ORDER and the rows, not only that things are shown. Back, then the lead, then the heading on
+       one line (a desktop); on a phone Back and the lead on one line and the search on its own line under them. */
+    const geo = () => { const rr = root.getBoundingClientRect(), sr = sw.getBoundingClientRect(), br = cb.getBoundingClientRect(), hr = lab.getBoundingClientRect();
+      const mid = (x) => (x.top + x.bottom) / 2;
+      return { inOrder: br.right <= rr.left + 1 && rr.right <= hr.left + 1, sameLine: Math.abs(mid(br) - mid(rr)) < 12,
+        searchBelow: sr.top >= Math.max(br.bottom, rr.bottom) - 1, searchBeside: Math.abs(mid(sr) - mid(br)) < 16, rootTrunc: rr.width < root.scrollWidth };
+    };
+    const g = geo();
+    /* A long project name is cut short on the Back row: it never pushes the search down a line or the page sideways. */
+    const was = root.textContent; root.textContent = 'The very long name of a project about the spring catalogue reprint';
+    const gl = geo(); const longWide = document.documentElement.scrollWidth > innerWidth; root.textContent = was;
     return { found: true, backShown: vis(back), backText: back.textContent, crumbShown: vis(cb), crumbW: Math.round(r.width), crumbH: Math.round(r.height),
       crumbRadius: c.borderTopLeftRadius, crumbAria: cb.getAttribute('aria-label'), rootShown: vis(root), rootText: root.textContent,
-      sepShown: vis(sep), label: lab.textContent, beforeLabel: r.right <= lr.left + 1, wide: document.documentElement.scrollWidth > innerWidth };
+      rootTab: root.tabIndex, rootHidden: root.getAttribute('aria-hidden'),
+      sepShown: vis(sep), label: lab.textContent, beforeLabel: r.right <= lr.left + 1, geo: g, long: { ...gl, wide: longWide }, wide: document.documentElement.scrollWidth > innerWidth };
   };
   await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); openDetail('ada', undefined, id); }, projectId);
   await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 8000 }).catch(() => {});
@@ -1089,8 +1102,13 @@ const AGENTS_LOOK = `(() => {
       chk(ahOn.fromProject && ahOn.fromProject.found && !ahOn.fromProject.backShown && ahOn.fromProject.crumbShown && ahOn.fromProject.crumbRadius === '50%'
         && ahOn.fromProject.crumbW === (phoneHead ? 44 : 40) && ahOn.fromProject.crumbH === (phoneHead ? 44 : 40) && ahOn.fromProject.rootShown
         && ahOn.fromProject.rootText === 'Billing' && ahOn.fromProject.crumbAria === 'Back to Billing' && ahOn.fromProject.sepShown === !phoneHead
-        && ahOn.fromProject.label === 'Direct Message to Ada' && (phoneHead || ahOn.fromProject.beforeLabel) && !ahOn.fromProject.wide && ahOn.returned === true,
-        `${tag} On, an agent's page opened from a project: the round Back button and "Billing /" sit in front of "Direct Message to Ada" (the slash on a desktop only), the small link above steps aside, and Back returns to the project (#5551)`, JSON.stringify(ahOn.fromProject) + ' returned=' + ahOn.returned);
+        && ahOn.fromProject.label === 'Direct Message to Ada' && !ahOn.fromProject.wide && ahOn.returned === true
+        && ahOn.fromProject.rootTab === -1 && ahOn.fromProject.rootHidden === 'true'
+        && (phoneHead ? (ahOn.fromProject.geo.sameLine && ahOn.fromProject.geo.searchBelow)
+          : (ahOn.fromProject.beforeLabel && ahOn.fromProject.geo.inOrder && ahOn.fromProject.geo.sameLine && ahOn.fromProject.geo.searchBeside))
+        && ahOn.fromProject.long.sameLine && ahOn.fromProject.long.rootTrunc && !ahOn.fromProject.long.wide
+        && (phoneHead ? ahOn.fromProject.long.searchBelow : ahOn.fromProject.long.searchBeside),
+        `${tag} On, an agent's page opened from a project: the round Back button and "Billing /" sit in front of "Direct Message to Ada" (the slash on a desktop only), in that order on one line (on a phone the search on its own line below), a long name cut short, one keyboard stop, the small link above steps aside, and Back returns to the project (#5551)`, JSON.stringify(ahOn.fromProject) + ' returned=' + ahOn.returned);
       chk(ahOn.fromAgents && ahOn.fromAgents.found && ahOn.fromAgents.crumbShown && ahOn.fromAgents.rootText === 'All agents' && ahOn.fromAgents.crumbAria === 'Back to All agents',
         `${tag} On, an agent's page opened from the Agents page: the lead reads "All agents" (#5551)`, JSON.stringify(ahOn.fromAgents));
       chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.divider === 'rgba(0, 0, 0, 0)' && dcOn.endRadius === '999px',
