@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit
+// Browser-check-surface: plus-state1 plus-state2 plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -454,10 +454,12 @@ const visible = (page, sel) => page.evaluate((s) => {
       // Step: session -> name -> hand off to the connected flow.
       /* #3796 addendum 9 (Josh's ruling): the landing, shared by the two owned-address paths. */
       const landed = async (addr, why) => {
-        /* #3796 addendum 10 (Josh's ruling): the heading and ONE line, no address, no Copy, no tiles. */
-        await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 5000 });
-        const d = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent.trim(), text: document.getElementById('plus-si-done').innerText.replace(/\s+/g, ' ').trim(), buttons: document.querySelectorAll('#plus-si-done button').length, nameShown: !!(document.getElementById('plus-si-register') && !document.getElementById('plus-si-register').hidden), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
-        chk(d.title === "You're signed in to Kosmos+" && d.text === 'To use Kosmos on another device, sign in at login.kosmosplus.com. Done' && d.buttons === 1 && !d.nameShown && !/409|said no/.test(d.msg), `[${key}] #3796 addenda 9 and 10: ${why} lands on "You're signed in to Kosmos+" and one line`, JSON.stringify(d));
+        /* #5787 (Josh, 2026-10-10 14:15: "we just combine these pages so you just land here after logging in"): there
+           is no "You're signed in" landing any more. An owned address is registered by the wizard itself and the
+           sign-in ends like a typed one: "Signed in. Connecting this computer to Kosmos+." and no name step. */
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 5000 });
+        const d = await page.evaluate(() => ({ landing: !!document.getElementById('plus-si-done'), nameShown: (() => { const f = document.getElementById('plus-si-name-field'); return !!(f && !f.hidden && f.getBoundingClientRect().height > 0); })(), msg: document.getElementById('plus-signin-msg').textContent }));
+        chk(!d.landing && !d.nameShown && !/409|said no/.test(d.msg), `[${key}] #3796 addendum 9 and #5787: ${why} registers ${addr} by itself and goes on to connect, with no landing card`, JSON.stringify(d));
       };
       if (key === 'straight-session') {
         await landed('quiet-heron.kosmosplus.com', 'an account with an address skips the address step and');
@@ -512,14 +514,9 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.fill('#plus-si-name', sc.steps['/api/remote/signin-register'].name);
         await page.click('#plus-si-register-go');
       }
-      if (await visible(page, '#plus-si-done')) {
-        // #3796 addendum 9: the landing holds the pane (the 5s tick must not take it), until Done.
-        /* Force the repaint the 5s tick would do (with /api/remote now reading enrolled): it must not take the pane. */
-        await page.evaluate(() => paintPlus());
-        await page.waitForTimeout(400);
-        chk(await visible(page, '#plus-si-done') && !(await visible(page, '#plus-flow')), `[${key}] #3796 addendum 9: the landing stays up through a repaint until Done`);
-        await page.click('#plus-si-done-go');
-      }
+      /* #5787: no landing holds the pane now. The repaint the 5s tick does (with /api/remote reading enrolled) hands
+         every sign-in, owned address or typed, to the connected pane below. */
+      await page.evaluate(() => paintPlus());
       // The wizard hands off to the connected flow: state 2 gone, flow shown, address in
       // its status line -- the same success screen the enrol flow ends on.
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
@@ -1048,10 +1045,10 @@ const visible = (page, sel) => page.evaluate((s) => {
       const f = await page.evaluate(() => ({ lead: document.getElementById('plus-si-owned').textContent.trim(), btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
       chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
       await page.click('#plus-si-register-go');
-      await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 5000 });
-      chk(regTries === 2, `[${k}] #3796 review: Try again registers the owned name again and lands`, String(regTries));
-      await page.evaluate(() => { PLUS_SI_LANDED = false; });
-      await page.click('#plus-si-done-go');
+      await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 5000 });
+      chk(regTries === 2 && (await page.$('#plus-si-done')) === null, `[${k}] #3796 review and #5787: Try again registers the owned name again and goes on to connect (no landing card)`, String(regTries));
+      /* What Done used to do and the 5s tick does now: leave the wizard (this mock never reads enrolled). */
+      await page.evaluate(() => { PLUS_SIGNIN_ACTIVE = false; paintPlus(); });
       await page.waitForTimeout(300);
       if (!(await visible(page, '#plus-si-email'))) { await page.evaluate(() => { const s1 = document.getElementById('plus-state1'); if (s1 && !s1.hidden) document.getElementById('plus-signin-top').click(); }); await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 }); }
       // The stroke on a secondary button (the enrol step's "Text me the codes").

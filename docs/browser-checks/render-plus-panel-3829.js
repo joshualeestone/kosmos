@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-flow plus-pill plus-chip plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
+// Browser-check-surface: plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly
@@ -244,6 +244,44 @@ const STATES = {
           });
           chk(fail.sel === 'login.kosmosplus.com' && /could not copy it/.test(fail.note1) && /could not copy it/.test(fail.note2) && fail.label === 'Copy' && fail.widthSame && fail.afterSuccess === '',
             `${t} #4744: when copying is refused the address is selected and the note stays through a repaint; a later Copy clears it`, JSON.stringify(fail));
+        }
+        if (key === 'connected') {
+          /* #5787 (Josh, 2026-10-10 14:07/14:15): the box is the connect block. The line art, a "Scan to connect" code on
+             white, and the two store buttons greyed with a "Coming soon" ribbon whose words sit inside the button and clear
+             of the store's name; at a phone width the code sits above the stores and nothing runs sideways. */
+          const CX = () => {
+            const box = (el) => el.getBoundingClientRect();
+            const art = document.querySelector('#plus-chip .plus-cx-art'), qr = document.querySelector('#plus-qr .plus-qr-box');
+            const stores = [...document.querySelectorAll('#plus-chip .plus-store')].map((st) => {
+              const s = box(st), sash = st.querySelector('.plus-sash'), nm = st.querySelector('.plus-store-name');
+              const rr = document.createRange(); if (sash) rr.selectNodeContents(sash);
+              const words = sash ? [...rr.getClientRects()] : [];
+              return { id: st.id, tag: st.tagName, off: st.getAttribute('aria-disabled'), href: st.getAttribute('href'), name: nm ? nm.textContent : '',
+                sash: !!(sash && getComputedStyle(sash).display !== 'none'), sashText: sash ? sash.textContent : '',
+                inside: words.length > 0 && words.every((x) => x.left >= s.left - 0.5 && x.right <= s.right + 0.5 && x.top >= s.top - 0.5 && x.bottom <= s.bottom + 0.5),
+                clear: !!(nm && sash) && box(nm).right <= box(sash).left + 2 };
+            });
+            const q = qr ? box(qr) : null, cap = document.querySelector('#plus-qr figcaption'), sr = stores.length ? document.getElementById(stores[0].id).getBoundingClientRect() : null;
+            return { art: !!(art && box(art).height > 20), qr: q ? { w: Math.round(q.width), h: Math.round(q.height), bg: getComputedStyle(qr).backgroundColor, label: (qr.querySelector('svg') || {}).getAttribute && qr.querySelector('svg').getAttribute('aria-label') } : null,
+              cap: cap ? cap.textContent.trim() : '', stores, qrAbove: !!(q && sr) && q.bottom <= sr.top + 1, qrBeside: !!(q && sr) && q.right <= sr.left + 1,
+              wide: document.documentElement.scrollWidth > innerWidth };
+          };
+          const okBlock = (c, phone) => c.art && c.qr && c.qr.w === c.qr.h && c.qr.w >= 104 && c.qr.bg === 'rgb(255, 255, 255)' && /login\.kosmosplus\.com/.test(c.qr.label || '')
+            && c.cap === 'Scan to connect' && c.stores.length === 2 && c.stores.every((x) => x.tag === 'SPAN' && x.off === 'true' && x.sash && x.sashText === 'Coming soon' && x.inside && x.clear)
+            && c.stores[0].name.includes('App Store') && c.stores[1].name.includes('Google Play') && !c.wide && (phone ? c.qrAbove : c.qrBeside);
+          const cxWide = await page.evaluate(CX);
+          chk(okBlock(cxWide, false), `${t} #5787: the connect block: line art, a white "Scan to connect" code for login.kosmosplus.com beside the App Store and Google Play buttons, greyed, "Coming soon" inside each and clear of the name`, JSON.stringify(cxWide));
+          const vp0 = page.viewportSize();
+          await page.setViewportSize({ width: 390, height: vp0.height }); await page.waitForTimeout(300);
+          const cxPhone = await page.evaluate(CX);
+          chk(okBlock(cxPhone, true), `${t} #5787 at 390 wide: the code above the stores, every ribbon inside its button, no sideways scroll`, JSON.stringify(cxPhone));
+          await page.setViewportSize(vp0); await page.waitForTimeout(300);
+          /* A store that goes live: its button becomes a link to the store with no ribbon; the other stays greyed. */
+          const live = await page.evaluate(() => { plusStoresPaint({ android: 'https://play.google.com/store/apps/details?id=io.kosmos.app', ios: 'javascript:alert(1)' });
+            const a = document.getElementById('plus-store-android'), i = document.getElementById('plus-store-ios');
+            return { aTag: a.tagName, aHref: a.getAttribute('href'), aRel: a.getAttribute('rel'), aSash: getComputedStyle(a.querySelector('.plus-sash')).display, iTag: i.tagName, iOff: i.getAttribute('aria-disabled') }; });
+          chk(live.aTag === 'A' && live.aHref === 'https://play.google.com/store/apps/details?id=io.kosmos.app' && live.aRel === 'noopener' && live.aSash === 'none' && live.iTag === 'SPAN' && live.iOff === 'true',
+            `${t} #5787: a store page set for Android turns that button into a link with no ribbon; iOS (a non-https value) stays greyed`, JSON.stringify(live));
         }
         chk(!v.sectionText.includes(ADDR) && v.status === '', `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
         chk(v.swIsToggle && v.swShown && v.swOn === 'true', `${t} #4080: the switch shows, on`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
