@@ -422,7 +422,7 @@ test('#5532 rollup review 24: start() arms the rollup tick, and the joined view 
   // board serves another Kosmos. Each must exist and come after the gate.
   // On code lines, not comments (board review 3, as review 29 for the gate itself).
   const codeLine = (re) => { const l = fn.split('\n').find((x) => !/^\s*(\/\/|\*|\/\*)/.test(x) && re.test(x)); return l ? fn.indexOf(l) : -1; };
-  const sites = [codeLine(/rollup\.tick\(\)/), codeLine(/rollup\.spawnEnrolledTick\(/)];
+  const sites = [codeLine(/rollup\.tick\(\)/), codeLine(/ORG_ROLLUP_ELSEWHERE\.tick\(/)];
   assert.ok(sites.every((i) => i > 0), 'a send site moved: ' + JSON.stringify(sites));
   assert.ok(gate > 0 && sites.every((i) => gate < i), 'the rollup tick is not gated on live execution before it sends');
   // The route: words remembered, but the rollup's own state says it waits for a print: not "reports".

@@ -262,6 +262,8 @@ const NAMES_POLICY = /\bversion of your company's policy\b/i;
 /* #5532 widening: whether the accepted words name reports from every Kosmos on this computer, so the other Kosmoses
    here may send theirs. The coordinator's CONSENT_NAMES_EVERY_KOSMOS is pinned to the same phrase and refuses another
    Kosmos's report until its words name it. Read from the words each time, as NAMES_POLICY is. */
+// A match on the PHRASE, not on what the sentence means (board review 11): a line that negated it would still match.
+// Safe because the coordinator serves the words and pins the same phrase (CONSENT_NAMES_EVERY_KOSMOS), as NAMES_POLICY.
 const NAMES_EVERY_KOSMOS = /\bevery kosmos on this computer\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
@@ -946,5 +948,5 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
 };

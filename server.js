@@ -21142,11 +21142,10 @@ let ORG_ROLLUP_RUNNING = false;
    leaves through process.exit (board review 5). A board stopped by a signal (kosmos stop sends SIGTERM) cannot stop it
    (board review 7): the child bounds itself (engine/orgrollup-child.js), and the rollup's own run lock (org-rollup.lock in that
    Kosmos's root, engine/orgrollup.js takeRunLock) keeps the next board's tick from running beside it. */
-let ORG_ROLLUP_CHILD = null;
-let ORG_ROLLUP_SPAWNED_AT = 0;
-process.on('exit', () => { try { if (ORG_ROLLUP_CHILD) ORG_ROLLUP_CHILD.kill(); } catch { /* gone */ } });
+const ORG_ROLLUP_ELSEWHERE = require('./engine/orgrollup').elsewhereRunner();
+process.on('exit', () => ORG_ROLLUP_ELSEWHERE.stop());
 function orgRollupTick() {
-  if (ORG_ROLLUP_RUNNING) return;   // one at a time: a slow read must not start a second send
+  if (ORG_ROLLUP_RUNNING || ORG_ROLLUP_ELSEWHERE.running) return;   // one at a time: a slow read must not start a second send
   // Rollup review 28: a send to the company is a real side effect, so it waits for live execution like the board's other
   // background sweeps; a test or a board that never turned it on sends nothing, enrolled fixture or not.
   if (!liveExecution.liveExecutionAllowed()) return;
@@ -21162,16 +21161,8 @@ function orgRollupTick() {
        reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
        timing, print and key are its own. One board runs per computer, so one such child at a time (ORG_ROLLUP_RUNNING,
        held until it ends, at most TICK_CHILD_TIMEOUT_MS); the enrolled Kosmos's own state paces its sends. */
-    /* A child at most once per CHANGE_MIN_MS (board review 7): a send can be due no sooner, and a board left on another
-       Kosmos would otherwise start one every tick. */
-    if (Date.now() - ORG_ROLLUP_SPAWNED_AT < rollup.CHANGE_MIN_MS) return;
-    ORG_ROLLUP_SPAWNED_AT = Date.now();   // the search counts too (board review 8): no registry walk every tick either
-    const enrolled = rollup.enrolledElsewhere(require('./engine/store').ROOT);
-    if (!enrolled) return;   // no work Kosmos on this computer: nothing is read or sent
-    ORG_ROLLUP_RUNNING = true;
-    let ended = false;   // set before the child is kept, whichever order the callback runs in (board review 7)
-    const child = rollup.spawnEnrolledTick(enrolled, () => { ended = true; ORG_ROLLUP_RUNNING = false; ORG_ROLLUP_CHILD = null; });
-    if (!ended) ORG_ROLLUP_CHILD = child;
+    // The search, its throttle and the child's bookkeeping: rollup.elsewhereRunner (tested there, board review 11).
+    ORG_ROLLUP_ELSEWHERE.tick(require('./engine/store').ROOT);
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own

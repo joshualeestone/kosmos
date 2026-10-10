@@ -413,6 +413,36 @@ test('#5532 widening (board review 10): a half-written lock is a live one until 
   assert.equal(ok.sent, true, JSON.stringify(ok));
 });
 
+test('#5532 widening (board review 11): the board-elsewhere runner searches at most once per CHANGE_MIN_MS, runs one child at a time, and stops it', () => {
+  let t = 1000000;
+  let finds = 0;
+  let ends = [];
+  const kills = [];
+  const spawn = (w, done) => { ends.push(done); return { kill: () => kills.push(w.id) }; };
+  const run = r.elsewhereRunner({ now: () => t, find: () => { finds += 1; return { id: 'b', env: {} }; }, spawn });
+  assert.equal(run.tick('/r'), 'spawned');
+  assert.equal(run.running, true);
+  assert.equal(run.tick('/r'), 'running', 'a second child while the first runs');
+  ends.shift()(null);   // the child ends
+  assert.equal(run.running, false, 'a finished child left the board busy for good');
+  assert.equal(run.tick('/r'), 'throttled', 'a second search inside CHANGE_MIN_MS');
+  t += r.CHANGE_MIN_MS;
+  assert.equal(run.tick('/r'), 'spawned', 'CONTROL: after CHANGE_MIN_MS it runs again');
+  assert.equal(finds, 2);
+  run.stop();
+  assert.deepEqual(kills, ['b'], 'the live child was not stopped with the board');
+  // A search that finds nothing counts toward the throttle too.
+  const none = r.elsewhereRunner({ now: () => t, find: () => { finds += 1; return null; }, spawn });
+  assert.equal(none.tick('/r'), 'none');
+  assert.equal(none.tick('/r'), 'throttled', 'an empty search ran every tick');
+  // A child that ends before its handle is kept is never killed later.
+  const sync = r.elsewhereRunner({ now: () => t, find: () => ({ id: 'c', env: {} }), spawn: (w, done) => { done(null); return { kill: () => kills.push('dead ' + w.id) }; } });
+  assert.equal(sync.tick('/r'), 'spawned');
+  assert.equal(sync.running, false);
+  sync.stop();
+  assert.deepEqual(kills, ['b'], 'a finished child was killed');
+});
+
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
   const root = world(t);
   const c = coordinator();

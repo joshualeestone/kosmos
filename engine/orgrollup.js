@@ -462,6 +462,34 @@ function spawnEnrolledTick(w, done, deps) {
     });
 }
 
+/* The board side of "the enrolled Kosmos is elsewhere" (board review 11: testable by behaviour, not only by the source
+   guard). Holds what server.js held: a search at most once per CHANGE_MIN_MS (no send can be due sooner), one child at
+   a time, kept whichever order its callback runs in, and stopped with the board. deps: { now, find, spawn } (tests). */
+function elsewhereRunner(deps) {
+  const d = deps || {};
+  const now = d.now || Date.now;
+  let searchedAt = -Infinity;
+  let child = null;
+  let running = false;
+  return {
+    get running() { return running; },
+    tick(root) {
+      if (running) return 'running';
+      const t = now();
+      if (t - searchedAt < CHANGE_MIN_MS) return 'throttled';
+      searchedAt = t;   // the search counts too (board review 8)
+      const w = (d.find || enrolledElsewhere)(root);
+      if (!w) return 'none';
+      running = true;
+      let ended = false;
+      const c = (d.spawn || spawnEnrolledTick)(w, () => { ended = true; running = false; child = null; });
+      if (!ended) child = c;
+      return 'spawned';
+    },
+    stop() { try { if (child) child.kill(); } catch { /* gone */ } },
+  };
+}
+
 /* One other Kosmos's inventory, read by a child process in its environment: { world, gathered } or null. */
 function gatherIn(env) {
   return new Promise((resolve) => {
@@ -509,14 +537,14 @@ async function sendOthers(c) {
     try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
     // A Kosmos that may belong to a company was not read at all (board review 9): skipped, and its old marks pruned.
     if (got && got.enrolled === true) continue;
-    if (!got || !/^[0-9a-f]{32}$/.test(got.world)) complete = false;   // a malformed id is a failed read (board review 7)
+    if (!got || !require('./orgenroll').WORLD_ID.test(got.world)) complete = false;   // a malformed id is a failed read (board review 7)
     // A read that failed drops its signature, so the next change send sends it again (the safe direction). Two
     // entries that resolve to one id are one Kosmos: it goes once (board review 1).
-    if (!got || !/^[0-9a-f]{32}$/.test(got.world) || got.world === c.rec.world || seen.has(got.world)) continue;
+    if (!got || !require('./orgenroll').WORLD_ID.test(got.world) || got.world === c.rec.world || seen.has(got.world)) continue;
     seen.add(got.world);
-    /* A Kosmos enrolled itself (to this company, or another: a contractor's computer) is never sent under this
-       enrollment (board review 3): its record says whom it reports to, and that is not ours to decide. A child that
-       could not say is treated as enrolled. */
+    /* A fail-closed backstop (board review 11): the real gatherIn answers `{ enrolled: true }` above for a Kosmos that
+       may belong to a company, so this catches only an answer that does not say `enrolled: false`. Such a Kosmos is
+       never sent under this enrollment (board review 3). */
     if (got.enrolled !== false) { held.delete(got.world); missed.delete(got.world); continue; }
     if (Object.prototype.hasOwnProperty.call(prev, got.world)) next[got.world] = prev[got.world];
     const g = got.gathered;
@@ -596,8 +624,8 @@ async function tick(opts) {
   /* The timing belongs to ONE enrollment: a new one (another company, or joined again) starts fresh (review 4). */
   const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '');
   let st = readState(root);
-  // What another run would have changed, as read now, before the read (board review 9): compared again under the lock.
-  const ranAs = JSON.stringify([st && st.lastAt, st && st.tryAt, st && st.failAt]);
+  // As read, before any cleaning (board review 11): what was on disk is never "another run" (anotherRunAdvanced).
+  const stRead = JSON.parse(JSON.stringify(st || {}));
   if (st.enrolledAs !== enrolledAs) st = { enrolledAs };
   /* A time after now (a clock that was wrong once, then corrected) counts as never (rollup review 15): kept, it would hold
      "waiting after a failure" or "nothing due" until the clock caught up, days of silence with no signal. */
@@ -701,8 +729,7 @@ async function tick(opts) {
   try {
     /* Another run may have sent between this run's read and its lock (board review 9: the lock stops overlap, not two
        runs in a row). Anything it changed means this read is stale: stand down; the next tick decides afresh. */
-    const fresh = readState(root);
-    if (JSON.stringify([fresh && fresh.lastAt, fresh && fresh.tryAt, fresh && fresh.failAt]) !== ranAs) {
+    if (anotherRunAdvanced(readState(root), stRead, st, now)) {
       return { sent: false, because: 'another rollup of this Kosmos ran meanwhile' };
     }
     if (!writeState(root, Object.assign({}, st, { enrolledAs, tryAt: now }))) return { sent: false, because: 'this Kosmos cannot record when it reported' };
@@ -749,9 +776,24 @@ async function tick(opts) {
 
 /* The run lock (board review 8): created with O_EXCL, so of two runs that reach it together exactly one takes it. It
    holds when it was taken and a token of its own; a lock older than TICK_CHILD_TIMEOUT_MS belongs to a run that died,
-   and is taken over (the one step two runs could race, after a run died). A run releases only its OWN lock (board
-   review 9: one that outlived the bound must not remove the lock of the run that took over). */
+   and is taken over. A run releases only its OWN lock (board review 9: one that outlived the bound must not remove the
+   lock of the run that took over). Known residual (board review 11): THREE runs meeting a dead run's lock in the same
+   instant can still leave two running, if the third creates a lock between the second moving a live one aside and
+   linking it back; it needs a dead run and three ticks at once. */
 const RUN_LOCK_FILE = 'org-rollup.lock';
+/* Whether another run sent, tried or failed after this run read the state (board reviews 9 and 11): one of those times
+   is now something this run neither read (`read`, as on disk) nor wrote itself (`own`, its cleaned copy, which its own
+   cleanup writes), and later than what it read. One rule, so a field cannot drift between two copies of it. A time far
+   in the future is damage, not a run; damage that was already there is what this run read. */
+function anotherRunAdvanced(fresh, read, own, now) {
+  if (!fresh) return false;
+  const num = (o, k) => (o && Number.isFinite(o[k]) ? o[k] : null);
+  return ['lastAt', 'tryAt', 'failAt'].some((k) => {
+    const v = num(fresh, k);
+    return v !== null && v <= now + TICK_CHILD_TIMEOUT_MS && v !== num(read, k) && v !== num(own, k)
+      && v > (num(read, k) === null ? -Infinity : num(read, k));
+  });
+}
 function readRunLock(file) {
   try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return j && typeof j === 'object' ? j : {}; } catch (e) { return e && e.code === 'ENOENT' ? null : {}; }
 }
@@ -817,5 +859,5 @@ module.exports = {
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
   STATUS, statusWord, providerOfModel, build, gather, defaultSources, otherWorlds, gatherIn, sendOthers, OTHERS_MAX,
-  TICK_CHILD_TIMEOUT_MS, GATHER_TIMEOUT_MS, RUN_LOCK_FILE, enrolledElsewhere, spawnEnrolledTick,
+  TICK_CHILD_TIMEOUT_MS, GATHER_TIMEOUT_MS, RUN_LOCK_FILE, elsewhereRunner, enrolledElsewhere, spawnEnrolledTick,
 };
