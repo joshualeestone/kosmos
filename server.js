@@ -8790,6 +8790,8 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // Review 11: one PUT rewrites every agent's instructions, so an agent token in the body is refused too.
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'this setting is the person\'s, not an agent\'s' }); return; }
         const saved = personlanguage.setChoice(body && body.choice);
         if (!saved.ok) { sendJson(res, saved.code === 'io' ? 500 : 400, { error: saved.because }); return; }
         let changed = 0;
@@ -8802,7 +8804,10 @@ const server = http.createServer(async (req, res) => {
           removed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed && t.removed).length;
           // The roster itself could not be read: one entry with no agent, so no count of agents is known.
           couldNot = told.some((t) => t && t.agent === null) ? -1 : told.filter((t) => t && t.state !== projects.TOLD.TOLD).length;
-        } catch { couldNot = -1; }   // saved; the next board start brings the agents in line
+        } catch (err) {   // saved; the next board start brings the agents in line
+          couldNot = -1;
+          process.stderr.write(`Kosmos saved the agents' language but could not bring running agents in line now: ${String(err && err.message)}\n`);
+        }
         sendJson(res, 200, { ...agentLanguageBody(), changed, removed, couldNot });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));

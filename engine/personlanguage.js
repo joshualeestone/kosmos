@@ -75,7 +75,9 @@ function setChoice(choice) {
   try {
     fs.mkdirSync(path.dirname(CHOICE_FILE), { recursive: true });
     store.saveFlushed(CHOICE_FILE, JSON.stringify({ choice }) + '\n');
-  } catch {
+  } catch (err) {
+    // Review 11: the reason goes to the board log; the person is told only that it did not save.
+    process.stderr.write(`Kosmos could not save the agents' language to ${CHOICE_FILE}: ${(err && (err.code || err.message)) || 'unknown error'}\n`);
     return { ok: false, code: 'io', because: 'we could not save that setting' };
   }
   return { ok: true };   // the next read sees the new choice (read() keys its cache on it)
