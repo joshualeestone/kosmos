@@ -378,6 +378,12 @@ test('#5406 slice C: a question identity that is not text is refused, nothing ty
     const bad = await post({ text: '1', chose: 'Yes', asked: { q: 'x' } });
     assert.equal(bad.status >= 400, true, JSON.stringify(bad.json));
     assert.match(String(bad.json && bad.json.error), /a question identity is text/, 'refused for some other reason');
+    // Review 18: at a permission prompt a press whose words also fail their check hears the TRUE reason (not a button
+    // question), not "could not check that choice's words ... or type its number" (typing its number is refused too).
+    const q = chat.questionIn(PERM, 'claude');
+    const both = await post({ text: '1', chose: 'Yes\u0007', asked: chat.questionAbove(q.text) });
+    assert.equal(both.status, 409, JSON.stringify(both.json));
+    assert.match(String(both.json && both.json.error), /cannot be answered with a button/, 'the words refusal answered first');
     assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), [], 'a button send was typed into a permission prompt');
   } finally { chat.resetForTests(); board.restore(); }
 });
