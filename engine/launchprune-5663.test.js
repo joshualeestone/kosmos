@@ -108,11 +108,11 @@ test('#5663: a sandbox layer past the measured ceiling is a warning (the guard i
   assert.equal(r.ok, true, JSON.stringify(r).slice(0, 200));
   /* #5765: what was written, in the failure message, so a red on another platform says why without a rerun. */
   const st = readSettings(dir);
-  const fsb = st.sandbox.filesystem;
+  const fsb = (st.sandbox && st.sandbox.filesystem) || {};   // never throws before the assertion it explains
   const chars = (list) => (list || []).reduce((n, x) => n + String(x).length, 0);
-  const seen = JSON.stringify({ tmp: require('node:os').tmpdir(), deny: st.permissions.deny.length, denyChars: chars(st.permissions.deny),
+  const seen = JSON.stringify({ tmp: require('node:os').tmpdir(), deny: ((st.permissions && st.permissions.deny) || []).length, denyChars: chars(st.permissions && st.permissions.deny),
     denyWrite: (fsb.denyWrite || []).length, denyWriteChars: chars(fsb.denyWrite), denyRead: (fsb.denyRead || []).length, denyReadChars: chars(fsb.denyRead),
-    sampleDeny: st.permissions.deny.find((x) => x.includes('ceiling')), sampleWrite: (fsb.denyWrite || []).find((x) => x.includes('ceiling')) });
+    sampleDeny: ((st.permissions && st.permissions.deny) || []).find((x) => x.includes('ceiling')), sampleWrite: (fsb.denyWrite || []).find((x) => x.includes('ceiling')) });
   assert.match(String(r.warning), /denied path entries across the read and write clauses \(\d+ distinct characters, \d+ in all\) are past/, 'no ceiling warning; written: ' + seen);
   assert.ok(readSettings(dir).sandbox.filesystem.denyWrite.length > 1000, 'the guard was not written');
   // CONTROL: the same agent with a handful of folders is whole.
