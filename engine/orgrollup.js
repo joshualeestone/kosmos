@@ -596,7 +596,7 @@ async function tick(opts) {
      "waiting after a failure" or "nothing due" until the clock caught up, days of silence with no signal. */
   /* And anything that is not a sane time at all (rollup review 19): a string, NaN, or a number outside [0, now] from a
      cut-off or hand-edited file would make toISOString() throw on every tick, silently and for good. */
-  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt', 'partialSince', 'tryAt', 'runningAt']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
+  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt', 'partialSince', 'tryAt']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
   /* A failure's wait belongs to the words it was sent under (rollup review 31): once the person accepts new words (a
      review's Accept keeps the enrollment), the wait no longer applies, so the screen's "reports to it" is true at once. */
   if (st.failAt && st.failHash !== (rec.consentHash || null)) delete st.failAt;
@@ -683,54 +683,75 @@ async function tick(opts) {
      full daily body on every tick. No record, no send. */
   // tryAt is not read back: writing it proves the timing can be kept. A crash between this send and the success write
   // means one resend on the next tick, which is the safe direction for a once-a-day report.
-  /* One run of this Kosmos's rollup at a time, across processes (board review 7): a board stopped with SIGTERM cannot
-     stop the tick child it started, and the next board would run the same tick beside it. The state carries when a run
-     began; another run refuses until it ends, or until TICK_CHILD_TIMEOUT_MS (a run that died). Read fresh, here, after
-     the read that took minutes. */
-  const cur = readState(root);
-  if (cur && Number.isFinite(cur.runningAt) && cur.runningAt <= now && now - cur.runningAt < TICK_CHILD_TIMEOUT_MS) {
-    return { sent: false, because: 'another rollup of this Kosmos is still running' };
-  }
-  if (!writeState(root, Object.assign({}, st, { enrolledAs, tryAt: now, runningAt: now }))) return { sent: false, because: 'this Kosmos cannot record when it reported' };
-  const remote = o.remote || require('./remote');
-  let r;
-  try { r = await remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
-  if (r && r.ok) {
-    const done = Object.assign({ enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig },
-      // #5534: what was reported, so a read that fails next time sends the same (review 3).
-      'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true } } : {},
-      st.others && typeof st.others === 'object' ? { others: st.others } : {},
-      // Board review 5: the holds and missed dailies survive a board stopped while the others are read.
-      Array.isArray(st.othersHeld) ? { othersHeld: st.othersHeld } : {}, Array.isArray(st.othersMissed) ? { othersMissed: st.othersMissed } : {},
-      { runningAt: now });   // still running: the others are read next
-    writeState(root, done);
-    // #5532 widening: then every other Kosmos on this computer, recorded once they are sent.
-    const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld, missed: st.othersMissed };
-    const others = await sendOthers(oc);
-    const end = Object.assign({}, done, { others, othersHeld: [...(oc.heldNext || [])], othersMissed: [...(oc.missedNext || [])] });
-    delete end.runningAt;
-    writeState(root, end);
-    return { sent: true, reason: body.reason };
-  }
-  const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince; delete failed.runningAt;   // a hold belongs to one day's daily (review 24)
-  writeState(root, failed);
-  /* Said once per failure (review 18): a refusal every hour must leave a trace. Only the code: never the body or a print. */
-  const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
-  console.error('orgrollup: the company did not take the rollup (' + code + ')');
-  /* The company holds other words for this member than the ones accepted here (contract v1.5, 409 org_consent_changed):
-     stop reporting until the person accepts the new words (the joined view then says it sends nothing). */
-  // Taken as the company's final word, with no confirming retry: the coordinator answers it only when the words it
-  // serves now differ from the ones on record for this member (v1.4), which a transient fault does not change.
-  if (r && /\borg_consent_changed\b/.test(String(r.because || ''))) {
-    await oe.consentWithdrawn(eo, rec.consentHash);   // only the words this report was sent under (review 11)
-    return { sent: false, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
-  }
-  /* The company no longer takes this world's reports: ask it at once (refresh stops this world on a clear answer). */
-  if (r && /\borg_not_enrolled\b|\borg_not_member\b/.test(String(r.because || ''))) {
-    try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }
-  }
-  return { sent: false, because: 'the company did not take it' };
+  /* One run of this Kosmos's rollup at a time, across processes (board reviews 7 and 8): a board stopped with SIGTERM
+     cannot stop the tick child it started, and the next board would run the same tick beside it. An exclusively created
+     lock file in this Kosmos's root, taken here (after the read that took minutes) and always released below. */
+  if (!takeRunLock(root, now)) return { sent: false, because: 'another rollup of this Kosmos is still running' };
+  try {
+    if (!writeState(root, Object.assign({}, st, { enrolledAs, tryAt: now }))) return { sent: false, because: 'this Kosmos cannot record when it reported' };
+    const remote = o.remote || require('./remote');
+    let r;
+    try { r = await remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
+    if (r && r.ok) {
+      const done = Object.assign({ enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig },
+        // #5534: what was reported, so a read that fails next time sends the same (review 3).
+        'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true } } : {},
+        st.others && typeof st.others === 'object' ? { others: st.others } : {},
+        // Board review 5: the holds and missed dailies survive a board stopped while the others are read.
+        Array.isArray(st.othersHeld) ? { othersHeld: st.othersHeld } : {}, Array.isArray(st.othersMissed) ? { othersMissed: st.othersMissed } : {});
+      writeState(root, done);
+      // #5532 widening: then every other Kosmos on this computer, recorded once they are sent.
+      const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld, missed: st.othersMissed };
+      /* Never lets a throw past (board review 8): the enrolled send has landed, so a fault in another Kosmos's rollup keeps
+         what was recorded before it and is said, and the lock is released below either way. */
+      let others = st.others && typeof st.others === 'object' ? st.others : {};
+      try { others = await sendOthers(oc); } catch (e) { console.error('orgrollup: the other Kosmoses\' rollups stopped (' + String((e && e.message) || e) + ')'); }
+      writeState(root, Object.assign({}, done, { others, othersHeld: [...(oc.heldNext || st.othersHeld || [])], othersMissed: [...(oc.missedNext || st.othersMissed || [])] }));
+      return { sent: true, reason: body.reason };
+    }
+    const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
+    writeState(root, failed);
+    /* Said once per failure (review 18): a refusal every hour must leave a trace. Only the code: never the body or a print. */
+    const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
+    console.error('orgrollup: the company did not take the rollup (' + code + ')');
+    /* The company holds other words for this member than the ones accepted here (contract v1.5, 409 org_consent_changed):
+       stop reporting until the person accepts the new words (the joined view then says it sends nothing). */
+    // Taken as the company's final word, with no confirming retry: the coordinator answers it only when the words it
+    // serves now differ from the ones on record for this member (v1.4), which a transient fault does not change.
+    if (r && /\borg_consent_changed\b/.test(String(r.because || ''))) {
+      await oe.consentWithdrawn(eo, rec.consentHash);   // only the words this report was sent under (review 11)
+      return { sent: false, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
+    }
+    /* The company no longer takes this world's reports: ask it at once (refresh stops this world on a clear answer). */
+    if (r && /\borg_not_enrolled\b|\borg_not_member\b/.test(String(r.because || ''))) {
+      try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }
+    }
+    return { sent: false, because: 'the company did not take it' };
+  } finally { releaseRunLock(root); }
 }
+
+/* The run lock (board review 8): created with O_EXCL, so of two runs that reach it together exactly one takes it. It
+   holds the time it was taken; a lock older than TICK_CHILD_TIMEOUT_MS belongs to a run that died, and is taken over
+   (that takeover is the one step two runs could race, after a run died, at most once in 44 minutes). */
+const RUN_LOCK_FILE = 'org-rollup.lock';
+function takeRunLock(root, now) {
+  const file = path.join(root, RUN_LOCK_FILE);
+  for (let i = 0; i < 2; i++) {
+    try {
+      const fd = fs.openSync(file, 'wx', 0o600);
+      try { fs.writeSync(fd, String(now)); } finally { fs.closeSync(fd); }
+      return true;
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') return false;   // cannot be taken: never send unlocked
+      let at = NaN;
+      try { at = Number(fs.readFileSync(file, 'utf8').trim()); } catch { /* gone meanwhile: try again */ }
+      if (Number.isFinite(at) && at <= now && now - at < TICK_CHILD_TIMEOUT_MS) return false;
+      try { fs.unlinkSync(file); } catch { /* another run took it over */ }
+    }
+  }
+  return false;
+}
+function releaseRunLock(root) { try { fs.unlinkSync(path.join(root, RUN_LOCK_FILE)); } catch { /* not ours to keep */ } }
 
 /* Whether the last tick waited for this computer's print (review 18), so the joined view does not claim it reports.
    Read from the rollup's own state, never by reading the hardware in a request. */
@@ -749,5 +770,5 @@ module.exports = {
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
   STATUS, statusWord, providerOfModel, build, gather, defaultSources, otherWorlds, gatherIn, sendOthers, OTHERS_MAX,
-  TICK_CHILD_TIMEOUT_MS, GATHER_TIMEOUT_MS, enrolledElsewhere, spawnEnrolledTick,
+  TICK_CHILD_TIMEOUT_MS, GATHER_TIMEOUT_MS, RUN_LOCK_FILE, enrolledElsewhere, spawnEnrolledTick,
 };

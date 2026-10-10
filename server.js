@@ -21141,7 +21141,7 @@ let ORG_ROLLUP_RUNNING = false;
 /* The enrolled Kosmos's tick child, when this board serves another Kosmos (kosmos#5532 widening). Stopped when this board
    leaves through process.exit (board review 5). A board stopped by a signal (kosmos stop sends SIGTERM) cannot stop it
    (board review 7): the child bounds itself (engine/orgrollup-child.js), and the rollup's own run lock (runningAt in
-   that Kosmos's state) keeps the next board's tick from running beside it. */
+   that Kosmos's root, org-rollup.lock) keeps the next board's tick from running beside it. */
 let ORG_ROLLUP_CHILD = null;
 let ORG_ROLLUP_SPAWNED_AT = 0;
 process.on('exit', () => { try { if (ORG_ROLLUP_CHILD) ORG_ROLLUP_CHILD.kill(); } catch { /* gone */ } });
@@ -21165,10 +21165,10 @@ function orgRollupTick() {
     /* A child at most once per CHANGE_MIN_MS (board review 7): a send can be due no sooner, and a board left on another
        Kosmos would otherwise start one every tick. */
     if (Date.now() - ORG_ROLLUP_SPAWNED_AT < rollup.CHANGE_MIN_MS) return;
+    ORG_ROLLUP_SPAWNED_AT = Date.now();   // the search counts too (board review 8): no registry walk every tick either
     const enrolled = rollup.enrolledElsewhere(require('./engine/store').ROOT);
     if (!enrolled) return;   // no work Kosmos on this computer: nothing is read or sent
     ORG_ROLLUP_RUNNING = true;
-    ORG_ROLLUP_SPAWNED_AT = Date.now();
     let ended = false;   // set before the child is kept, whichever order the callback runs in (board review 7)
     const child = rollup.spawnEnrolledTick(enrolled, () => { ended = true; ORG_ROLLUP_RUNNING = false; ORG_ROLLUP_CHILD = null; });
     if (!ended) ORG_ROLLUP_CHILD = child;
