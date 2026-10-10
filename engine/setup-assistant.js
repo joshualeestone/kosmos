@@ -1209,10 +1209,8 @@ function writeLaunchRecord(file, rec) {
   } catch { return false; }
 }
 
-/* #5516 part 2: the names Claude Code 2.1.296 gives its global config file, `.claude${suffix}.json` (the suffix comes
-   from its OAuth environment; production's is empty). Read from the installed binary, so a new suffix in a later
-   version is a gap until added here. */
-const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
+/* #5516 part 2: the names Claude Code gives its global config file (engine/startcommands.js keeps the one list). */
+const CLAUDE_GLOBAL_CONFIG_SUFFIXES = startcommands.CLAUDE_GLOBAL_CONFIG_SUFFIXES;
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
    and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
    (shell-snapshots, session-env, projects, backups). Folders denied whole; files by name. */

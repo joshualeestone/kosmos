@@ -24,7 +24,7 @@
  * Windows). The managed policyHelpers entries are read through their `command`; a script given inline in one is not
  * read. The settings `env` values are known variables when every tier that sets one agrees on it.
  *
- * Which words name a script. Where something RUNS: the program, the script after an interpreter (bash x.sh, deno run
+ * Which words name a script. Where something RUNS: the program, every plain word after an interpreter (bash x.sh, deno run
  * x.ts, whether or not it exists yet, since the agent could create it), the script after a runner's flag (java -jar,
  * awk -f), input to a shell (bash < x.sh), a flag's path
  * value (--require=/x.js), a NAME=value before a program (BASH_ENV=/x.sh), the commands inside $(...), backticks, and
@@ -43,6 +43,10 @@
 const fs = require('fs');
 const path = require('path');
 
+/* #5516 part 2: the names Claude Code 2.1.296 gives its global config file, `.claude${suffix}.json` (the suffix comes
+   from its OAuth environment; production's is empty). Read from the installed binary, so a new suffix in a later
+   version is a gap until added here. One list, used here and by the guard (engine/setup-assistant.js). */
+const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
 const HELPER_KEYS = new Set(['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'otelHeadersHelper', 'proxyAuthHelper', 'headersHelper']);
 /* The keys whose entries are servers, started directly rather than through a shell. */
 const SERVER_KEYS = new Set(['mcpServers', 'lspServers', 'managedMcpServers']);
@@ -67,7 +71,8 @@ const MODULE_FLAG = /^python[0-9.]* -m$/;
 const PACKAGE_NAME = /^@[\w.-]+\/[\w.-]+(?:@\S*)?$/;
 /* An interpreter's flags after which the next word is a script given inline, by interpreter (review 3: bash -p is not). */
 function inlineFlag(prog, word) {
-  if (/^(?:(?:ba|z|da|k|fi|c|tc)?sh|python[0-9.]*)$/.test(prog)) return /^-[A-Za-z]*c$/.test(word);
+  if (/^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) return /^-[A-Za-z]*c[A-Za-z]*$/.test(word);   // review 5: -ce too
+  if (/^python[0-9.]*$/.test(prog)) return /^-[A-Za-z]*c$/.test(word);
   if (/^(?:node|nodejs|bun|deno)$/.test(prog)) return /^(?:-e|--eval|-p|--print)$/.test(word);
   if (/^(?:perl|ruby|osascript|lua)$/.test(prog)) return /^-[eE]$/.test(word);
   if (prog === 'php') return word === '-r';
@@ -121,12 +126,13 @@ function shellWords(cmd, vars = {}) {
   let heredoc = false;
   const start = () => {
     if (cur) return;
-    cur = { text: '', dynamic: false, quoted: false, globbed: false, head, written, input, heredoc, assign: false, subs: [] };
+    cur = { text: '', dynamic: false, quoted: false, globbed: false, assignable: false, head, written, input, heredoc, assign: false, subs: [] };
     written = false; input = false; heredoc = false;
   };
   const end = () => {
     if (!cur) return;
-    const assign = cur.head && !cur.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(cur.text);
+    // Review 5: an assignment is NAME= with the name unquoted; its value may be quoted (FOO="1" bash x.sh).
+    const assign = cur.head && cur.assignable;
     if (assign) { cur.head = false; cur.assign = true; }
     words.push(cur);
     if (!assign && !cur.written && !cur.input && !cur.heredoc) head = false;
@@ -141,7 +147,9 @@ function shellWords(cmd, vars = {}) {
       if (close < 0) return [null, cmd.length, null];
       const inner = cmd.slice(i + 2, close);
       const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(inner);
-      return [name && name[0] === inner && known(name[0]) ? vars[name[0]] : null, close + 1, null];
+      // ${VAR} and, review 5, ${VAR:-default} / ${VAR-default}: the value when Kosmos knows it (set, so no default).
+      const plain = name && (name[0] === inner || /^:?-/.test(inner.slice(name[0].length)));
+      return [plain && known(name[0]) ? vars[name[0]] : null, close + 1, null];
     }
     const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(cmd.slice(i + 1));
     if (name) return [known(name[0]) ? vars[name[0]] : null, i + 1 + name[0].length, null];
@@ -183,7 +191,7 @@ function shellWords(cmd, vars = {}) {
       if (c === '`') { i = tick(i); continue; }
       cur.text += c; i++; continue;
     }
-    if (c === '\\' && cmd[i + 1] === '\n') { end(); i += 2; continue; }   // a line continuation is a space
+    if (c === '\\' && cmd[i + 1] === '\n') { i += 2; continue; }   // a line continuation is deleted (ba\<newline>sh is bash)
     if (c === "'" || c === '"') { start(); cur.quoted = true; quote = c; i++; continue; }
     if (c === '\\' && i + 1 < cmd.length) { start(); cur.text += cmd[i + 1]; i += 2; continue; }
     if (c === ' ' || c === '\t') { end(); i++; continue; }
@@ -210,6 +218,7 @@ function shellWords(cmd, vars = {}) {
     if (c === '`') { i = tick(i); continue; }
     if (c === '~' && cur.text === '' && !cur.quoted && (i + 1 === cmd.length || cmd[i + 1] === '/') && vars.HOME) { cur.text += vars.HOME; i++; continue; }
     if (c === '*' || c === '?' || c === '[') cur.globbed = true;
+    if (c === '=' && !cur.quoted && !cur.assignable && /^[A-Za-z_][A-Za-z0-9_]*$/.test(cur.text)) cur.assignable = true;
     cur.text += c; i++;
   }
   end();
@@ -309,7 +318,9 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
       if (!INTERPRETER.test(prog)) scriptSlot = false;
     }
     const inScriptSlot = scriptSlot && !isHead && !isFlag && !inline && !w.input && !flagScript;
-    if (inScriptSlot) scriptSlot = false;
+    /* Review 5: every plain word after an interpreter counts, not only the first: a flag that takes a value
+       (bash -o pipefail x.sh, ruby -I lib x.rb) would otherwise take the slot and leave the real script as an argument.
+       A list of such flags is always partial; counting them all costs a data argument of the hook being denied too. */
     const runs = isHead || inScriptSlot || w.input || flagValue || inline || flagScript;   // where something RUNS
     if (w.dynamic) {
       // A flag's unknown value names a path only when it has a slash (--header="$H" names nothing).
@@ -317,7 +328,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
       continue;
     }
     if (inline) { scriptSlot = false; more(text); for (const m of text.matchAll(INNER_ABS)) paths.push(path.normalize(m[1])); continue; }
-    if (!text || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text)) continue;   // a URL is not a file
+    if (!text || text === '{}' || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text)) continue;   // a URL, or find's {} placeholder, is not a file
     // A pattern counts where it names a path or a script; `[` and `[[` as the program are the test command (review 3).
     if (w.globbed && runs && (text.includes('/') || !isHead)) { unsafe.push(`a pattern where a script is named (${text}), which Kosmos does not expand`); continue; }
     let ps = [];
@@ -398,7 +409,8 @@ function configSources(dir, homes, home, deps = {}) {
   }
   /* The global config: its own servers, and its project entries for the agent folder and the folders above (never
      the whole file: it holds every project on the computer). */
-  const globals = [...(home ? [path.join(home, '.claude.json')] : []), ...homes.map((h) => path.join(h, '.claude.json')), ...homes.map((h) => path.join(h, '.config.json'))];
+  // Review 5: by every name Claude Code gives it (an OAuth environment suffix), as the guard denies it.
+  const globals = [...CLAUDE_GLOBAL_CONFIG_SUFFIXES.flatMap((sfx) => [...(home ? [path.join(home, `.claude${sfx}.json`)] : []), ...homes.map((h) => path.join(h, `.claude${sfx}.json`))]), ...homes.map((h) => path.join(h, '.config.json'))];
   const pickGlobal = (j) => {
     if (!j || typeof j !== 'object') return null;
     // Only its servers and helpers (review 3): the rest of the file is runtime state, cached feature config included.
@@ -496,7 +508,8 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const settingsEnv = {};
   for (const [k, vs] of envValues) if (vs.size === 1 && !vs.has('\0not a string')) settingsEnv[k] = [...vs][0];
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
-  const baseVars = { ...settingsEnv, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
+  // PWD: hooks run in the agent folder (review 5).
+  const baseVars = { ...settingsEnv, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, PWD: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
       const r = pathsOfWords(wordsOf(c, vars), agentDir, vars);
@@ -540,4 +553,4 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], unsafe: [...new Set(unsafe)] };
 }
 
-module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS };
+module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES };

@@ -453,3 +453,37 @@ test('#5774 review 4: an empty config file holds nothing; a plugin inside the ag
     fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
   }
 });
+
+test('#5774 review 5: a quoted value before the program, an interpreter\'s value flags, -ce, ${VAR:-x}, PWD and a joined line', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(paths('FOO="bar" bash scripts/h.sh').runPaths, ['/A/scripts/h.sh'], 'NAME="value" is an assignment; bash is the program');
+  assert.deepEqual(paths("DEBUG='1' python3 run.py").runPaths, ['/A/run.py']);
+  assert.deepEqual(paths('"FOO"=bar ./x.sh').runPaths, [], 'control: a quoted name is no assignment, so ./x.sh is its argument');
+  assert.ok(paths('bash -euo pipefail scripts/h.sh').runPaths.includes('/A/scripts/h.sh'), 'a flag value does not take the script slot');
+  assert.ok(paths('ruby -I lib hook.rb').runPaths.includes('/A/hook.rb'));
+  assert.deepEqual(paths('bash -ce "python3 /x.py"').runPaths, ['/x.py']);
+  assert.deepEqual(paths('node "${CLAUDE_PROJECT_DIR:-.}/x.ts"'), { paths: ['/A/x.ts'], runPaths: ['/A/x.ts'], unsafe: [] });
+  assert.equal(paths('node "${NOPE:-.}/x.ts"').unsafe.length, 1, 'control: an unknown variable with a default is still unknown');
+  assert.deepEqual(paths('ba\\\nsh x.sh').runPaths, ['/A/x.sh'], 'a line continuation joins the word');
+});
+
+test('#5774 review 5: a hook with a quoted assignment in front has its script denied; a suffixed global config is read', () => {
+  const dir = agentDir('pilot-r5');
+  touch(path.join(dir, 'hook.py'));
+  const srv = path.join(SANDBOX, 'scripts', 'staging-srv.js');
+  touch(srv);
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'PYTHONUNBUFFERED="1" python3 hook.py; bash "$PWD/tools/p.sh"' }] }] } });
+  writeJson(path.join(HOME, '.claude-staging-oauth.json'), { mcpServers: { s: { command: 'node', args: [srv] } } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-r5', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(dir).permissions.deny;
+    assert.ok(editDeniedBy(deny, path.join(dir, 'hook.py')).length > 0, 'the script after a quoted assignment');
+    assert.ok(editDeniedBy(deny, srv).length > 0, 'a server in a suffixed global config');
+    assert.ok(editDeniedBy(deny, path.join(dir, 'tools', 'p.sh')).length > 0, '$PWD is the agent folder, where hooks run');
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude-staging-oauth.json'), { force: true });
+  }
+});
