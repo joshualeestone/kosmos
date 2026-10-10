@@ -2697,12 +2697,10 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
 
 test('a press that names its question (asked) at a permission-style prompt is refused as not a button question, nothing typed (a words-only press there is #5754\'s delivery floor; the identity check is server.question-menu-5406.test.js\'s)', async () => {
   reset();
-  /* ⚠️ THE CONTROL FOR IT. Without this, the refusal above passes for a server
-     that 409s every button send, which would be worse than the hole it closes:
-     the buttons are the pack's whole point.
-     #5406 slice C / #5754: a press at a PERMISSION prompt is now refused for another reason (it would be pasted, and
-     the Enter takes the highlighted Yes; measured), so this control reads WHICH refusal: never the identity one. A
-     press that goes through on the question menu is server.question-menu-5406.test.js's. */
+  /* Once the control for the test above (a matching press must go through). Since #5406 slice C a press at a
+     PERMISSION-style prompt is refused (pasted, its Enter would take the highlighted Yes; measured on #5754), so this
+     now pins that refusal and nothing typed. The control that a matching press goes out as the key lives in
+     server.question-menu-5406.test.js. */
   const aPrompt = 'Edit file src/a.js?\n❯ 1. Yes\n  2. No\n';
   await withAgent(fleet.agent('zeta', { state: 'needs_you' }),
     [said(aPrompt), said(), said()], async ({ calls }) => {
