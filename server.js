@@ -21140,8 +21140,8 @@ const ORG_ROLLUP_TICK_MS = 5 * 60 * 1000;
 let ORG_ROLLUP_RUNNING = false;
 /* The enrolled Kosmos's tick child, when this board serves another Kosmos (kosmos#5532 widening). Stopped when this board
    leaves through process.exit (board review 5). A board stopped by a signal (kosmos stop sends SIGTERM) cannot stop it
-   (board review 7): the child bounds itself (engine/orgrollup-child.js), and the rollup's own run lock (runningAt in
-   that Kosmos's root, org-rollup.lock) keeps the next board's tick from running beside it. */
+   (board review 7): the child bounds itself (engine/orgrollup-child.js), and the rollup's own run lock (org-rollup.lock in that
+   Kosmos's root, engine/orgrollup.js takeRunLock) keeps the next board's tick from running beside it. */
 let ORG_ROLLUP_CHILD = null;
 let ORG_ROLLUP_SPAWNED_AT = 0;
 process.on('exit', () => { try { if (ORG_ROLLUP_CHILD) ORG_ROLLUP_CHILD.kill(); } catch { /* gone */ } });

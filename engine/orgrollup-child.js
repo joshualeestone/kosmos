@@ -20,16 +20,18 @@ async function main(mode) {
   if (mode !== 'gather') return { ok: false, because: 'unknown mode' };
   const oe = require('./orgenroll');
   const rollup = require('./orgrollup');
+  /* FIRST, whether this Kosmos may belong to a company of its own (board reviews 3 and 9): an enrollment record, a join
+     whose outcome is unknown, or a leave not yet confirmed, readable or not. Such a Kosmos is never read, never written
+     to, and never sent under the enrolled one's enrollment. */
+  let enrolled = true;
+  try { enrolled = oe.holdsEnrollment(); } catch { enrolled = true; }
+  if (enrolled) return { ok: true, enrolled: true };
   /* siblingId() mints this Kosmos's opaque id for being reported as ANOTHER Kosmos, in its own data root on its first
      read: the one write a gather makes. Never its enrollment id (worldId), so if it later enrolls elsewhere the two
      companies cannot match it (board review 7). */
   const world = oe.siblingId();
   const gathered = await rollup.gather();
-  // Whether this Kosmos holds an enrollment record of its own (any company): such a Kosmos reports for itself, or for
-  // another company, never under the enrolled one's (board review 3).
-  let enrolled = true;
-  try { enrolled = !!oe.readEnrollment(); } catch { enrolled = true; }   // unreadable: treated as enrolled, not sent
-  return { ok: true, world, enrolled, gathered };
+  return { ok: true, world, enrolled: false, gathered };
 }
 
 if (require.main === module) {

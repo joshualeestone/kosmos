@@ -86,6 +86,17 @@ function mintedId(opts, name) {
   } catch { return null; }
 }
 
+/* kosmos#5532 widening (board review 9): whether this world may belong to a company, on the evidence of its files, not
+   their contents: an enrollment record, a join whose outcome is unknown, or a leave not yet confirmed. A file that
+   exists but cannot be read or parsed counts (readEnrollment would answer null for it, which reads as free). Only no
+   such file at all is "not enrolled". */
+function holdsEnrollment(opts) {
+  for (const f of [ENROLLMENT_FILE, JOIN_UNKNOWN_FILE, LEAVE_PENDING_FILE]) {
+    try { fs.statSync(path.join(storeRoot(opts), f)); return true; } catch (e) { if (!e || e.code !== 'ENOENT') return true; }
+  }
+  return false;
+}
+
 /* The company this world is enrolled to, as last confirmed by the coordinator, or null. */
 function readEnrollment(opts) {
   try {
@@ -935,5 +946,5 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, siblingId, SIBLING_ID_FILE, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
 };

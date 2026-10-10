@@ -281,11 +281,11 @@ test('#5532 widening (board reviews 7 and 8): one run of a Kosmos\'s rollup at a
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root);
   const file = path.join(root, r.RUN_LOCK_FILE);
-  fs.writeFileSync(file, String(T0 - 60 * 1000));   // another process took the lock a minute ago
+  fs.writeFileSync(file, JSON.stringify({ at: T0 - 60 * 1000, token: 'theirs' }));   // another process took the lock a minute ago
   const busy = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, others({ beta: inv('Ada') })));
   assert.equal(busy.sent, false, 'a second run went beside the first');
   assert.equal(rollups(c).length, 0);
-  fs.writeFileSync(file, String(T0 - r.TICK_CHILD_TIMEOUT_MS - 1000));   // that run died long ago
+  fs.writeFileSync(file, JSON.stringify({ at: T0 - r.TICK_CHILD_TIMEOUT_MS - 1000, token: 'dead' }));   // that run died long ago
   const ok = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, others({ beta: inv('Ada') })));
   assert.equal(ok.sent, true, 'a dead run\'s lock never expired: ' + JSON.stringify(ok));
   assert.equal(fs.existsSync(file), false, 'a finished run left its lock');
@@ -335,6 +335,61 @@ test('#5532 widening (board review 7): a missed daily that is still partial wait
   c.reason = 'daily';
   await r.sendOthers(c);
   assert.deepEqual(sent, ['daily']);
+});
+
+test('#5532 widening (board review 9): a Kosmos may belong to a company on the evidence of its files, readable or not', (t) => {
+  const files = [oe.ENROLLMENT_FILE, 'org-join-unknown.json', 'org-leave-pending'];
+  for (const f of files) {
+    const root = world(t);
+    assert.equal(oe.holdsEnrollment({ root }), false, 'CONTROL: a fresh Kosmos holds no enrollment');
+    fs.writeFileSync(path.join(root, f), 'not json {');
+    assert.equal(oe.holdsEnrollment({ root }), true, f + ' (unparseable) read as free to send');
+    assert.equal(oe.readEnrollment({ root }), null, 'CONTROL: readEnrollment alone calls it free');
+  }
+});
+
+test('#5532 widening (board review 9): the child answers only "enrolled" for such a Kosmos, before any read or write', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'orgrollup-child.js'), 'utf8');
+  const main = src.slice(src.indexOf('async function main'));
+  const check = main.indexOf('oe.holdsEnrollment()');
+  assert.ok(check > 0, 'the child does not check holdsEnrollment');
+  assert.ok(check < main.indexOf('oe.siblingId()') && check < main.indexOf('rollup.gather()'), 'the child reads or mints before it knows the Kosmos is free');
+});
+
+test('#5532 widening (board review 9): a run whose read went stale while another sent stands down', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const o = { otherWorlds: () => [], gatherIn: async () => null };
+  // Another run sends while this one reads: the state on disk moves after this run read it.
+  const src = sources();
+  const snapshot = src.snapshot;
+  src.snapshot = () => {
+    const f = path.join(root, r.STATE_FILE);
+    const st = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
+    st.lastAt = T0 - 1000; st.tryAt = T0 - 2000;
+    fs.writeFileSync(f, JSON.stringify(st));
+    return snapshot();
+  };
+  const before = rollups(c).length;
+  const res = await r.tick(Object.assign({ root, remote: c, sources: src, now: T0 }, o));
+  assert.equal(res.sent, false, 'a run sent on a stale read: ' + JSON.stringify(res));
+  assert.equal(rollups(c).length, before);
+  assert.equal(fs.existsSync(path.join(root, r.RUN_LOCK_FILE)), false, 'standing down left the lock');
+});
+
+test('#5532 widening (board review 9): a run never removes a lock another run took over', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const file = path.join(root, r.RUN_LOCK_FILE);
+  // During this run's send, its lock is taken over by another run (as if this one outlived the bound).
+  const o = { otherWorlds: () => { fs.writeFileSync(file, JSON.stringify({ at: T0, token: 'the other run' })); return []; }, gatherIn: async () => null };
+  const res = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  assert.equal(res.sent, true, JSON.stringify(res));
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).token, 'the other run', 'this run removed the lock another run held');
 });
 
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {

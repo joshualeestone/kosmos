@@ -470,6 +470,8 @@ function gatherIn(env) {
         if (err) return resolve(null);
         try {
           const j = JSON.parse(String(stdout).trim().split('\n').pop());
+          // A Kosmos that may belong to a company answers only that (board review 9): never its id or its inventory.
+          if (j && j.ok === true && j.enrolled === true) return resolve({ enrolled: true });
           resolve(j && j.ok === true && typeof j.world === 'string' && j.gathered && typeof j.gathered === 'object' ? j : null);
         } catch { resolve(null); }
       });
@@ -505,6 +507,8 @@ async function sendOthers(c) {
     if (!c.oe.mayReport(c.eo)) { complete = false; break; }   // left meanwhile: nothing more goes
     let got = null;
     try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
+    // A Kosmos that may belong to a company was not read at all (board review 9): skipped, and its old marks pruned.
+    if (got && got.enrolled === true) continue;
     if (!got || !/^[0-9a-f]{32}$/.test(got.world)) complete = false;   // a malformed id is a failed read (board review 7)
     // A read that failed drops its signature, so the next change send sends it again (the safe direction). Two
     // entries that resolve to one id are one Kosmos: it goes once (board review 1).
@@ -591,6 +595,8 @@ async function tick(opts) {
   /* The timing belongs to ONE enrollment: a new one (another company, or joined again) starts fresh (review 4). */
   const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '');
   let st = readState(root);
+  // What another run would have changed, as read now, before the read (board review 9): compared again under the lock.
+  const ranAs = JSON.stringify([st && st.lastAt, st && st.tryAt, st && st.failAt]);
   if (st.enrolledAs !== enrolledAs) st = { enrolledAs };
   /* A time after now (a clock that was wrong once, then corrected) counts as never (rollup review 15): kept, it would hold
      "waiting after a failure" or "nothing due" until the clock caught up, days of silence with no signal. */
@@ -601,6 +607,8 @@ async function tick(opts) {
      review's Accept keeps the enrollment), the wait no longer applies, so the screen's "reports to it" is true at once. */
   if (st.failAt && st.failHash !== (rec.consentHash || null)) delete st.failAt;
   if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: false, because: 'waiting after a failure' };
+  // A run holding the lock: no read now (board review 9), it is checked again, and taken, before the send.
+  if (runLockHeld(root, now)) return { sent: false, because: 'another rollup of this Kosmos is still running' };
   /* The daily send has its own clock (rollup review 11): a change send carries no status or model, so it must not push
      the next daily (the only send that does) further out on a board that changes every day. Older state without it
      falls back to lastAt once. It is also due on a new UTC day (review 15): the company takes statuses from the first
@@ -686,8 +694,15 @@ async function tick(opts) {
   /* One run of this Kosmos's rollup at a time, across processes (board reviews 7 and 8): a board stopped with SIGTERM
      cannot stop the tick child it started, and the next board would run the same tick beside it. An exclusively created
      lock file in this Kosmos's root, taken here (after the read that took minutes) and always released below. */
-  if (!takeRunLock(root, now)) return { sent: false, because: 'another rollup of this Kosmos is still running' };
+  const lockToken = takeRunLock(root, now);
+  if (!lockToken) return { sent: false, because: 'another rollup of this Kosmos is still running' };
   try {
+    /* Another run may have sent between this run's read and its lock (board review 9: the lock stops overlap, not two
+       runs in a row). Anything it changed means this read is stale: stand down; the next tick decides afresh. */
+    const fresh = readState(root);
+    if (JSON.stringify([fresh && fresh.lastAt, fresh && fresh.tryAt, fresh && fresh.failAt]) !== ranAs) {
+      return { sent: false, because: 'another rollup of this Kosmos ran meanwhile' };
+    }
     if (!writeState(root, Object.assign({}, st, { enrolledAs, tryAt: now }))) return { sent: false, because: 'this Kosmos cannot record when it reported' };
     const remote = o.remote || require('./remote');
     let r;
@@ -727,31 +742,42 @@ async function tick(opts) {
       try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }
     }
     return { sent: false, because: 'the company did not take it' };
-  } finally { releaseRunLock(root); }
+  } finally { releaseRunLock(root, lockToken); }
 }
 
 /* The run lock (board review 8): created with O_EXCL, so of two runs that reach it together exactly one takes it. It
-   holds the time it was taken; a lock older than TICK_CHILD_TIMEOUT_MS belongs to a run that died, and is taken over
-   (that takeover is the one step two runs could race, after a run died, at most once in 44 minutes). */
+   holds when it was taken and a token of its own; a lock older than TICK_CHILD_TIMEOUT_MS belongs to a run that died,
+   and is taken over (the one step two runs could race, after a run died). A run releases only its OWN lock (board
+   review 9: one that outlived the bound must not remove the lock of the run that took over). */
 const RUN_LOCK_FILE = 'org-rollup.lock';
+function readRunLock(file) {
+  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return j && typeof j === 'object' ? j : {}; } catch (e) { return e && e.code === 'ENOENT' ? null : {}; }
+}
+function runLockHeld(root, now) {
+  const j = readRunLock(path.join(root, RUN_LOCK_FILE));
+  return !!j && Number.isFinite(j.at) && j.at <= now && now - j.at < TICK_CHILD_TIMEOUT_MS;
+}
 function takeRunLock(root, now) {
   const file = path.join(root, RUN_LOCK_FILE);
+  const token = now + '.' + process.pid + '.' + require('crypto').randomBytes(8).toString('hex');
   for (let i = 0; i < 2; i++) {
     try {
       const fd = fs.openSync(file, 'wx', 0o600);
-      try { fs.writeSync(fd, String(now)); } finally { fs.closeSync(fd); }
-      return true;
+      try { fs.writeSync(fd, JSON.stringify({ at: now, token })); } finally { fs.closeSync(fd); }
+      return token;
     } catch (e) {
-      if (!e || e.code !== 'EEXIST') return false;   // cannot be taken: never send unlocked
-      let at = NaN;
-      try { at = Number(fs.readFileSync(file, 'utf8').trim()); } catch { /* gone meanwhile: try again */ }
-      if (Number.isFinite(at) && at <= now && now - at < TICK_CHILD_TIMEOUT_MS) return false;
+      if (!e || e.code !== 'EEXIST') return null;   // cannot be taken: never send unlocked
+      if (runLockHeld(root, now)) return null;
       try { fs.unlinkSync(file); } catch { /* another run took it over */ }
     }
   }
-  return false;
+  return null;
 }
-function releaseRunLock(root) { try { fs.unlinkSync(path.join(root, RUN_LOCK_FILE)); } catch { /* not ours to keep */ } }
+function releaseRunLock(root, token) {
+  const file = path.join(root, RUN_LOCK_FILE);
+  const j = readRunLock(file);
+  if (j && j.token === token) { try { fs.unlinkSync(file); } catch { /* gone */ } }
+}
 
 /* Whether the last tick waited for this computer's print (review 18), so the joined view does not claim it reports.
    Read from the rollup's own state, never by reading the hardware in a request. */
