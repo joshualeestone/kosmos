@@ -5408,8 +5408,8 @@ const server = http.createServer(async (req, res) => {
       };
       /* #5804: for a running Gemini agent of ours, the model Kosmos started it on when its newest reply (since this run
          began) came from a different one (engine/geminimodelswitch.js decides; null otherwise). */
-      const startedGeminiModel = (a) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
-        ? require('./engine/geminimodelswitch').startedModelName(a.sessionName)
+      const settingGeminiModel = (a) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
+        ? require('./engine/geminimodelswitch').settingModelName(a.sessionName)
         : null;
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
@@ -5532,7 +5532,7 @@ const server = http.createServer(async (req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
-        startedModelName: startedGeminiModel(a),   // #5804
+        settingModelName: settingGeminiModel(a),   // #5804
         /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
            plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
            plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).

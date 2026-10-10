@@ -20961,10 +20961,9 @@ function modelLine(a) {
      gets no "Claude " prefix (#4416: the engine reads the id into words, "Gemini 3.8
      Flash"), or the provider when none is known. */
   /* #5804: a running Gemini agent whose reply came from a model other than the one it is set to (the CLI's own
-     fallback) says so, so a person paying for one model is not shown another without a word. */
-  /* The board decides (engine/geminimodelswitch.js) and sends startedModelName only when the reply came from another
-     model in this run; kept inside modelLine so every caller and test that lifts it from the page gets it. */
-  if (a.runner === 'gemini' && name && !notRunning && a.startedModelName) return name + ' (set to ' + a.startedModelName + ')';
+     fallback) says so. The board decides (engine/geminimodelswitch.js) and sends settingModelName only then; kept
+     inside modelLine so every caller and test that lifts it from the page gets the same words. */
+  if (a.runner === 'gemini' && name && !notRunning && a.settingModelName) return name + ' (set to ' + a.settingModelName + ')';
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
