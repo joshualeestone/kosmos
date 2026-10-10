@@ -31,7 +31,7 @@ android/
 ├── gradlew, gradlew.bat, gradle/wrapper/              Gradle 8.9 wrapper (real jar)
 ├── gradle/gradle-daemon-jvm.properties                pins the daemon to JDK 21
 ├── app/
-│   ├── build.gradle                                   AGP 8.6.1, compile/target SDK 36
+│   ├── build.gradle                                   AGP 8.13.0, compile/target SDK 36
 │   └── src/main/
 │       ├── AndroidManifest.xml                        LauncherActivity + push delegation
 │       ├── res/mipmap-anydpi-v26/                     adaptive + round launcher icons
