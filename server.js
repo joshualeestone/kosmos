@@ -16282,8 +16282,38 @@ const server = http.createServer(async (req, res) => {
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
         /* #4588 ask 3: the automatic hello is the page's wake after the person's own restart or team-create click, so the
            Gemini cap does not hold it (cap: false); the shared-quota hold still does. */
-        const delivery = await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
-          envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        /* #5406 part 2: Claude Code's question menu takes an answer only by key (measured: the message path's paste is
+           ignored and its Enter takes the HIGHLIGHTED option, a wrong answer with no sign). While that menu is the live
+           screen, a reply that is one of its numbers (typed, or a button) is sent as that bare key, checked against the
+           screen right before; any other reply closes the menu with Escape first and then goes as a message. Read from
+           the capture the route already took because the card is asking (the board classifies this menu as needs_you),
+           so an ordinary message costs no extra read. Not for the automatic hello, which is never an answer. */
+        let qmenuAnswer = null;
+        if (!automatic && seenNow) {
+          const look = seenNow;
+          const cq = (look && look.text) ? require('./engine/status').claudeQuestionMenu(look.text) : null;
+          if (cq) {
+            const said = String(body.text).trim();
+            const opt = /^\d{1,2}$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
+            if (opt && !files.recs.length && !answered) {
+              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label });
+              if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
+              qmenuAnswer = r;
+            } else {
+              const c = await chat.closeQuestionMenu(name, roster);
+              if (!c.ok) { const e = new Error(c.because); e.status = 409; throw e; }
+            }
+          }
+        }
+        /* An answered menu was typed as one key: PLACED when the menu went, UNCONFIRMED when it is still asking (a
+           redraw), never a message delivery. The bubble shows the option's words. */
+        if (qmenuAnswer && !chose) chose = chat.cleanMessage(qmenuAnswer.label);
+        const delivery = qmenuAnswer
+          ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
+            because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at its window',
+            at: new Date().toISOString() }
+          : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
+            envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
         /* #4959: answered 200 with the held verdict, like every delivery this route answers (the verdict, not the status,
            says what happened). The handoff pickup route answers its held verdict 409, as it answers every COULD_NOT;
            a client reads delivery.held on either. */

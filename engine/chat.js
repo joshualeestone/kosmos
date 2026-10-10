@@ -1145,6 +1145,52 @@ function answerGeminiQuotaStop(sessionName, roster) {
   return { ok: true, key };
 }
 
+/* #5406 part 2: answering Claude Code's question menu (status.claudeQuestionMenu) by key, the only way it takes an
+   answer. Measured on Claude Code 2.1.29x: a bare digit selects at once; the message path's paste is ignored by the
+   menu and its Enter then takes the HIGHLIGHTED option (a wrong answer, silently); Escape closes the menu and a message
+   sent after it reaches the agent. Both read the screen right before the key, so a key never lands on a menu the person
+   did not see, and again after, so the answer is reported from what the screen shows. */
+const QMENU_SETTLE_MS = 1200;
+const qmenuWait = (ms) => new Promise((done) => setTimeout(done, ms));
+/* Send the bare digit for option `n`, only if the live menu still asks `question` and option `n` is still `label`.
+   Resolves { ok: true, key, screen } (screen: what the pane shows after) or { ok: false, because }. */
+async function answerQuestionMenu(sessionName, n, roster, expect) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const t = paneTarget(allowed.card);
+  const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
+  const before = look();
+  const menu = before ? status.claudeQuestionMenu(before) : null;
+  if (!menu) return { ok: false, because: 'its question is no longer on its screen, so nothing was sent' };
+  const opt = menu.options.find((o) => o.n === Number(n));
+  const e = expect || {};
+  if (!opt || (e.question && e.question !== menu.question) || (e.label && cleanMessage(e.label) !== cleanMessage(opt.label))) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
+  const got = tmux(['send-keys', '-t', t, String(opt.n)]);
+  if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not answer its question; look at its window' };
+  await qmenuWait(QMENU_SETTLE_MS);
+  const after = look();
+  const still = after ? status.claudeQuestionMenu(after) : null;
+  return { ok: true, key: String(opt.n), label: opt.label, answered: !(still && still.question === menu.question), screen: after };
+}
+/* Close the live question menu with Escape before a message goes (the person answered in their own words). Resolves
+   { ok: true, closed } (closed: there was a menu and it went) or { ok: false, because }. No menu: { ok: true, closed: false }. */
+async function closeQuestionMenu(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const t = paneTarget(allowed.card);
+  const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
+  const before = look();
+  if (!before || !status.claudeQuestionMenu(before)) return { ok: true, closed: false };
+  const got = tmux(['send-keys', '-t', t, 'Escape']);
+  if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not close its question to send this; look at its window' };
+  await qmenuWait(QMENU_SETTLE_MS);
+  const after = look();
+  if (after && status.claudeQuestionMenu(after)) return { ok: false, because: 'its question is still on its screen, so this was not sent; answer it there or press a choice' };
+  return { ok: true, closed: true };
+}
+
 /* #4607: how long a Codex screen settles before a key: a key sent the instant a screen draws is dropped (measured
    twice on 0.149.1, a "2" before the menu drew and a "t" as the table drew). */
 const CODEX_HOOK_SETTLE_MS = 1500;
@@ -2003,6 +2049,11 @@ function questionIn(text, runner) {
     const g = status.geminiQuestionReading(whole);
     if (g) return { text: lines.slice(g.from).join('\n').replace(/\s+$/, '') };
   }
+  /* #5406 part 2: Claude Code's question menu (status.claudeQuestionMenu) matches none of the markers; when it is the
+     live screen, the region is its header or question line to the end, so the person reads the question and the
+     choices. A shape, not a marker phrase, so it is read for every runner. */
+  const cq = status.claudeQuestionMenu(whole);
+  if (cq) return { text: lines.slice(cq.at).join('\n').replace(/\s+$/, '') };
   // The LAST match, not the first: a pane accumulates, and an older question
   // that has already been answered may still be on screen above the live one.
   let at = -1;
@@ -2137,6 +2188,8 @@ const ANY_NUMBERED = new RegExp(`^(?:[${status.SELECTOR_GLYPHS}]\\s*)?\\d+[.)]\\
  * to disagree about, and `optionsIn` has already refused.
  */
 function questionAbove(questionText) {
+  // #5406 part 2: the question menu's identity is its question line.
+  { const cq = status.claudeQuestionMenu(String(questionText == null ? '' : questionText)); if (cq) return cq.question; }
   const opts = optionsIn(questionText);
   if (!opts) return null;
   const lines = String(questionText == null ? '' : questionText).split('\n');
@@ -2205,6 +2258,9 @@ function optionsIn(questionText) {
   if (status.safeguardsMenuAt(String(questionText == null ? '' : questionText))) return null;
   const whole = String(questionText == null ? '' : questionText);
   if (!whole.trim()) return null;
+  /* #5406 part 2: Claude Code's question menu, read by its own parser (descriptions under options, and the
+     "Type something." / "Chat about this" entries, which are not answers and get no button). */
+  { const cq = status.claudeQuestionMenu(whole); if (cq) return cq.options.map((o) => ({ n: o.n, label: o.label })); }
   const found = [];
   let marked = false;
   const lines = whole.split('\n');
@@ -3532,7 +3588,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
