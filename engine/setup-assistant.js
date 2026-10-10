@@ -1807,7 +1807,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (rules.configUnsafe && rules.configUnsafe.length) notWhole.push('a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')');   // review 10: a link reached twice is named once
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
-    const launchPathOnly = notWhole.length === 1 && !(rules.configUnsafe && rules.configUnsafe.length);
+    const launchPathOnly = !!(rules.launchUnsafe && rules.launchUnsafe.length) && notWhole.length === 1;   // review 12: says the intent
     if (notWhole.length) return { ok: false, because: notWhole.join('; and ') + '; the rest of the guard is in place', ...(launchPathOnly ? { launchPathOnly: true } : {}), ...(warning ? { warning } : {}) };
     return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
