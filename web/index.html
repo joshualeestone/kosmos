@@ -37380,33 +37380,39 @@ let TALK_QUERY = '';
    `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
    screen before it sends a key (409 when the menu moved). */
 let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
-let DM_CHOICE_NOTE = null;   // { session, asked, text, placed, at }: what became of the last press; drawn under that same question
-                             // across repaints, cleared when the menu goes or a read fails
+/* Per agent: the question it last ANSWERED from here (a placed press) and when. Drawn as "Sent." with the buttons off
+   while the lock lasts; cleared when that agent's menu goes or its read fails. A refusal is not kept here: its sentence
+   goes on the conversation's own line, which survives a repaint that draws another question or none. */
+const DM_CHOICE_ANSWERED = new Map();   // session -> { asked, at }
 /* How long an answered question keeps its buttons off. A placed answer means the server saw the menu go after the key
    (it says unconfirmed otherwise), so this covers only the page's own poll still showing the old screen; past it, the
    same question drawn again (agents repeat questions word for word) is pressable. */
 const DM_CHOICE_ANSWERED_MS = 6000;
-let DM_CHOICE_LAST_REFUSAL = '';   // the sentence a refusal put on #d-say-msg, cleared by the next success only if still there
+let DM_CHOICE_LAST_REFUSAL = '';   // the sentence a press put on #d-say-msg, cleared by the next success only if still there
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
   DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked)
     ? { session: sessionName, options: opts, asked: body.asked }
     : null;
-  if (!DM_CHOICES) DM_CHOICE_NOTE = null;   // the menu is gone, and so is what the note was about
+  if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
 }
 function dmChoicesHtml(m) {
   if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
-  const flying = DM_CHOICE_INFLIGHT.get(DM_CHOICES.session) === DM_CHOICES.asked;
-  const mine = DM_CHOICE_NOTE && DM_CHOICE_NOTE.session === DM_CHOICES.session && DM_CHOICE_NOTE.asked === DM_CHOICES.asked;
-  const note = flying ? 'Sending…' : (mine ? DM_CHOICE_NOTE.text : '');
+  /* Any press in the air for this agent draws its buttons off (a press on another question of the same agent would be
+     ignored by dmChoicePress, so it must not look pressable). */
+  const flying = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);
+  const done = DM_CHOICE_ANSWERED.get(DM_CHOICES.session);
   /* Answered: the menu can stay up a few seconds after the key, and a second press then would answer twice. */
-  const off = flying || Boolean(mine && DM_CHOICE_NOTE.placed && Date.now() - DM_CHOICE_NOTE.at < DM_CHOICE_ANSWERED_MS);
+  const locked = Boolean(done && done.asked === DM_CHOICES.asked && Date.now() - done.at < DM_CHOICE_ANSWERED_MS);
+  const off = flying || locked;
+  const note = flying ? 'Sending…' : locked ? 'Sent.' : '';
   return '<div class="dmchoices" role="group" aria-label="Choices">'
     + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '"' + (off ? ' disabled' : '') + '>'
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
     + '<span class="dmchoices-msg" role="status" aria-live="polite">' + esc(note) + '</span></div>';
 }
+const UNSURE = 'We could not confirm that went (pressing again may answer twice).';
 async function dmChoicePress(btn) {
   const c = DM_CHOICES;
   if (!c || !CURRENT || CURRENT.sessionName !== c.session || DM_CHOICE_INFLIGHT.has(c.session)) return;
@@ -37417,7 +37423,7 @@ async function dmChoicePress(btn) {
   if (box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = true; });
   if (msg) msg.textContent = 'Sending…';
   const session = c.session;
-  DM_CHOICE_NOTE = null;
+  DM_CHOICE_ANSWERED.delete(session);
   DM_CHOICE_INFLIGHT.set(session, c.asked);
   let ok = false;
   let note = '';
@@ -37427,24 +37433,24 @@ async function dmChoicePress(btn) {
       body: JSON.stringify({ text: String(opt.n), chose: opt.label, asked: c.asked }),
     });
     const out = (await res.json().catch(() => null)) || {};
-    /* A 200 carries the real outcome in delivery.state: only `placed` is sent. `unconfirmed` (the menu was still up
-       after the key) and `could_not` say why, in the server's words. */
+    /* A 200 carries the real outcome in delivery.state: only `placed` is sent, and `could_not` typed nothing. Anything
+       else after the server acted (`unconfirmed`, or a 200 with no verdict we can read) may have sent the key. */
     const d = (out && out.delivery) || {};
     ok = res.ok && d.state === 'placed';
     if (!res.ok) note = pjSentence(out.error || 'that did not go; try again');
-    else if (!ok) note = (d.state === 'unconfirmed' ? 'We could not confirm that went (pressing again may answer twice). ' : '')
-      + pjSentence(d.because || 'that did not go; try again');
+    else if (d.state === 'could_not') note = pjSentence(d.because || 'that did not go; try again');
+    else if (!ok) note = UNSURE + (d.because ? ' ' + pjSentence(d.because) : '');
   } catch {
-    note = 'We could not reach Kosmos; try again.';
+    /* The request may have reached the board before it failed (a restart mid-press), so this is not "did not go". */
+    note = UNSURE;
   } finally {
     DM_CHOICE_INFLIGHT.delete(session);
   }
-  if (ok) note = 'Sent.';
-  if (msg) msg.textContent = note;
-  DM_CHOICE_NOTE = { session, asked: c.asked, text: note, placed: ok, at: Date.now() };
+  if (ok) { note = 'Sent.'; DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now() }); }
+  if (msg) msg.textContent = ok ? note : '';
   if (!ok && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
-  /* The reason also goes on the conversation's own line: a refusal usually means the question changed or went, and the
-     repaint then draws another question's bubble (or none), where the note above does not show. */
+  /* Why it did not go goes on the conversation's own line, said once: a refusal usually means the question changed or
+     went, and the repaint then draws another question's bubble, or none. */
   if (!ok && CURRENT && CURRENT.sessionName === session) {
     const line = document.getElementById('d-say-msg');
     if (line) line.textContent = note;
@@ -37729,7 +37735,7 @@ async function paintTalk(sessionName, agentName) {
     if (mine !== TALK_LOAD) return;
     if (!CURRENT || CURRENT.sessionName !== sessionName) return;
     DM_CHOICES = null;   // #5406: no thread read, no choices
-    DM_CHOICE_NOTE = null;
+    DM_CHOICE_ANSWERED.delete(sessionName);
     /* ⚠️ WHERE THE PERSON IS STANDING, READ BEFORE ANYTHING HIDES OR DISABLES.
        Disabling a focused control blurs it synchronously, so asking afterwards
        always answers BODY. The success path carries four rescues for exactly
