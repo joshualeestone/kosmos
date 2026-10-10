@@ -372,6 +372,7 @@ const SITE_COUNTS = {
   'render-dm-owes-4340.js': [1, 1],
   'render-dm-reactions-3650.js': [1, 1],
   'render-dm-sideways-3969.js': [1, 0],
+  'render-dmchoices-5406.js': [2, 1],
   'render-emoji-mute-2357.js': [1, 1],
   'render-fed-external-3311.js': [2, 0],
   'render-fed-plus-gate.js': [2, 2],
