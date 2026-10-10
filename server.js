@@ -16683,9 +16683,16 @@ const server = http.createServer(async (req, res) => {
       /* The pre-#685 singular `policy` field is gone: the plural Settings
          screen (#701) reads `policies` only, and Mona Lisa cleared the
          drop on 2026-08-24 once nothing shipped depended on it. */
+      /* #5534 slice 4: the company's AI policy (from its applied Kosmos policy), shown read-only above the person's own,
+         so the screen says what every agent is actually handed. null when there is none. */
+      let company = null;
+      try {
+        const c = policyEngine.companyEntry();
+        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240) };
+      } catch { company = null; }
       sendJson(res, 200, r.state === 'saved'
-        ? { state: 'saved', policies: policySummaries(r), because: null }
-        : { state: r.state, policies: [], because: r.because });
+        ? { state: 'saved', policies: policySummaries(r), because: null, company }
+        : { state: r.state, policies: [], because: r.because, company });
     } catch { sendJson(res, 500, { error: 'that record could not be read' }); }
     return;
   }

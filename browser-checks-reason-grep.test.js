@@ -442,6 +442,7 @@ const SITE_COUNTS = {
   'render-plus-gutter-4542.js': [2, 1],
   'render-plus-panel-3829.js': [1, 0],
   'render-plus-stars-3778.js': [2, 1],
+  'render-policy-company-5534.js': [2, 1],
   'render-profile-field-widths-2697.js': [2, 2],
   'render-project-done-4583.js': [1, 0],
   'render-project-members-3387.js': [1, 0],
