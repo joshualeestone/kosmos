@@ -2466,20 +2466,23 @@ function claudeQuestionMenuUp(text) {
    too, and it has its own detector and sentence. The folder-trust dialog ("Quick safety check") has its own floor. */
 const CLAUDE_PERMISSION_FOOTER = /Esc to cancel(?:\s*·.*)?\s*$/;
 const CLAUDE_PERMISSION_QUESTION = /^\s*(?:Do you want to|Would you like to)\b/;
-function claudePermissionPromptUp(text) {
+/* 'wording' (a "Do you want to" / "Would you like to" question: a permission request), 'shape' (only a highlighted
+   numbered option over the footer: may be a permission request in other wording, or one of Claude Code's own pickers),
+   or null. */
+function claudePermissionPromptKind(text) {
   const lines = String(text == null ? '' : text).split('\n');
   let seen = 0;
   for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
     if (!lines[i].trim()) continue;
     seen += 1;
     if (!CLAUDE_PERMISSION_FOOTER.test(lines[i])) continue;
-    for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return false;   // the question menu
-    for (let j = i - 1; j >= Math.max(0, i - 14); j -= 1) if (CLAUDE_PERMISSION_QUESTION.test(lines[j])) return true;
+    for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return null;   // the question menu
+    for (let j = i - 1; j >= Math.max(0, i - 14); j -= 1) if (CLAUDE_PERMISSION_QUESTION.test(lines[j])) return 'wording';
     /* Review 11: or any other wording, by its shape: a highlighted numbered option just above that footer. */
-    for (let j = i - 1; j >= Math.max(0, i - 10); j -= 1) if (/^\s*❯\s*\d{1,2}\.\s+\S/.test(lines[j])) return true;
-    return false;
+    for (let j = i - 1; j >= Math.max(0, i - 10); j -= 1) if (/^\s*❯\s*\d{1,2}\.\s+\S/.test(lines[j])) return 'shape';
+    return null;
   }
-  return false;
+  return null;
 }
 
 /* #5743 review 10: the safeguards model-switch menu (#5051) LIVE at the bottom of the screen. claudeQuestionMenuUp leaves
@@ -9027,7 +9030,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptUp, claudeSafeguardsMenuUp,
+  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,

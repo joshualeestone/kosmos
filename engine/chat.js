@@ -1402,6 +1402,10 @@ const CLAUDE_SAFEGUARDS_SENTENCE = 'it is asking on its screen whether to switch
   + 'pick that answer, so we did not type anything; answer it in its window first';
 /* #5754: Claude's permission prompt. Measured on 2.1.296: the paste is ignored and the Enter approves the highlighted
    option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
+/* A highlighted numbered option over an "Esc to cancel" footer, in no wording we know: a permission request worded
+   otherwise, or a picker someone opened. Its Enter would take the highlighted option either way. */
+const CLAUDE_WAITING_SENTENCE = 'it is waiting for an answer on its screen, and a message typed now would pick the '
+  + 'highlighted option, so we did not type anything; answer it in its window first';
 const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
   + '(usually Yes), so we did not type anything; answer it in its window first';
 function claudeMenuRefusal(card, sessionName, roster) {
@@ -1414,9 +1418,11 @@ function claudeMenuRefusal(card, sessionName, roster) {
   if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
     /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
-  return CLAUDE_MENU_SENTENCE + (card.state === status.STATE.NEEDS_YOU && status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
+    return CLAUDE_MENU_SENTENCE + (card.state === status.STATE.NEEDS_YOU && status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
   }
-  return status.claudePermissionPromptUp(view.text) ? CLAUDE_PERMISSION_SENTENCE : null;   // #5754
+  const kind = status.claudePermissionPromptKind(view.text);   // #5754
+  if (kind === 'wording') return CLAUDE_PERMISSION_SENTENCE;
+  return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers
 }
 
 /**
@@ -1879,7 +1885,8 @@ function menuHeld(sessionName, roster) {
   try { return menuHeldVerdict(sessionName, roster) !== null; } catch { return false; }
 }
 function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}) {
-  const menuHold = menuHeldVerdict(sessionName, roster);
+  let menuHold = null;
+  try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
   if (menuHold) return menuHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
@@ -1894,7 +1901,8 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
 /* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
    delivered by sendPostAsync, the #4624 idle flush). */
 async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer, opts = {}) {
-  const menuHold = menuHeldVerdict(sessionName, roster);
+  let menuHold = null;
+  try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
   if (menuHold) return menuHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;

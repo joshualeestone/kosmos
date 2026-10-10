@@ -78,8 +78,11 @@ closes the menu first, then delivers).
 - The safeguards model-switch menu (#5051) is refused and held too (review 10): Kosmos never presses it, and a typed
   line's Enter would.
 
-- A shape-only permission match (a highlighted numbered option over an "Esc to cancel" footer) also matches Claude
-  Code's own pickers (model, resume, rewind) if one is open; refusing there is safe, but its sentence says permission.
+- A shape-only match (a highlighted numbered option over an "Esc to cancel" footer, in no wording we know) also
+  matches Claude Code's own pickers (model, resume, rewind); it is refused with a neutral sentence ("waiting for an
+  answer on its screen"), and only a "Do you want to" / "Would you like to" question is called a permission request.
+- The recommender's wiring is pinned by source text (as every #4588 timer is); its held behaviour is the recommender's
+  own tests' (heldUntil non-null holds the convening).
 
 ## Weakest premise
 

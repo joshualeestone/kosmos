@@ -23,6 +23,8 @@ const chat = require('./chat');
 const status = require('./status');
 const fleet = require('../test-support/fleet');
 
+/* Up = either kind (wording or shape); the floor refuses on both. */
+const permissionUp = (t) => status.claudePermissionPromptKind(t) !== null;
 const SCREENS = path.join(__dirname, '..', 'test-support', 'claude-screens');
 const MENU = fs.readFileSync(path.join(SCREENS, 'question-menu-2.1.29x.txt'), 'utf8');
 const MULTISELECT = fs.readFileSync(path.join(SCREENS, 'question-menu-multiselect-2.1.29x.txt'), 'utf8');
@@ -109,21 +111,21 @@ test('#5743 CONTROL: an idle agent is typed into as before, and pays no screen r
 
 test('#5754 the detector: both real permission prompts and an older footer are up; the question menus, trust and idle are not', () => {
   for (const [name, t] of [['bash', PERM_BASH], ['edit', PERM_EDIT], ['older footer', PERMISSION]]) {
-    assert.equal(status.claudePermissionPromptUp(t), true, name);
+    assert.equal(permissionUp(t), true, name);
   }
   for (const [name, t] of [['menu', MENU], ['multiselect', MULTISELECT], ['multiquestion', MULTIQUESTION]]) {
-    assert.equal(status.claudePermissionPromptUp(t), false, name + ' read as a permission prompt');
+    assert.equal(permissionUp(t), false, name + ' read as a permission prompt');
   }
   // A question MENU whose question begins "Do you want to" is the menu (its own sentence), not a permission prompt.
   const DWT = MENU.replace('Which fruit do you want?', 'Do you want to use TypeScript?');
   assert.equal(status.claudeQuestionMenuUp(DWT), true, 'premise: the reworded menu is still the menu');
-  assert.equal(status.claudePermissionPromptUp(DWT), false, 'a "Do you want to" question menu read as a permission prompt');
+  assert.equal(permissionUp(DWT), false, 'a "Do you want to" question menu read as a permission prompt');
   // The plan-approval wording (not yet captured; same select dialog).
-  assert.equal(status.claudePermissionPromptUp(' Would you like to proceed?\n ❯ 1. Yes, and auto-accept edits\n   2. No, keep planning\n\n Esc to cancel · Tab to amend'), true);
+  assert.equal(permissionUp(' Would you like to proceed?\n ❯ 1. Yes, and auto-accept edits\n   2. No, keep planning\n\n Esc to cancel · Tab to amend'), true);
   const TRUST = ' Quick safety check: Is this a project you created or one you trust?\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel';
-  assert.equal(status.claudePermissionPromptUp(TRUST), false, 'the trust dialog (its own floor) read as a permission prompt');
+  assert.equal(permissionUp(TRUST), false, 'the trust dialog (its own floor) read as a permission prompt');
   const IDLE_UNDER = '\n\n⏺ Done.\n\n' + '─'.repeat(40) + '\n❯ \n' + '─'.repeat(40) + '\n  bypass permissions on (shift+tab to cycle)\n';
-  assert.equal(status.claudePermissionPromptUp(PERM_BASH + IDLE_UNDER), false, 'an answered prompt in scrollback read as live');
+  assert.equal(permissionUp(PERM_BASH + IDLE_UNDER), false, 'an answered prompt in scrollback read as live');
 });
 
 for (const [name, screen] of [['bash', PERM_BASH], ['edit', PERM_EDIT], ['older footer', PERMISSION]]) {
@@ -241,9 +243,9 @@ test('#5754 review 11: a WORKING card that reached a permission prompt mid-turn 
 });
 
 test('#5754 review 11: a permission prompt in other wording is caught by its shape (highlighted numbered option over the footer)', () => {
-  assert.equal(status.claudePermissionPromptUp(' Allow Claude to fetch example.com?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend'), true);
+  assert.equal(permissionUp(' Allow Claude to fetch example.com?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend'), true);
   // CONTROL: the same wording with no highlighted numbered option and no footer is not a prompt.
-  assert.equal(status.claudePermissionPromptUp('⏺ Allow Claude to fetch example.com? I think so.\n\n❯ \n'), false);
+  assert.equal(permissionUp('⏺ Allow Claude to fetch example.com? I think so.\n\n❯ \n'), false);
 });
 
 test('#5754 review 12 CONTROL: a WORKING card on an ordinary working screen is typed into (its screen is read, nothing matches)', async () => {
@@ -256,5 +258,20 @@ test('#5754 review 12 CONTROL: a WORKING card on an ordinary working screen is t
     assert.ok(calls.some((c) => c[0] === 'capture-pane'), 'premise: a working card\'s screen is read');
     assert.doesNotMatch(String(v.because), /on its screen/, JSON.stringify(v));
     assert.ok(calls.typed().length > 0, 'an ordinary working screen was refused');
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5754 review 13: a shape-only match (other wording, or a picker) is refused with the neutral sentence, never "asking for permission"', async () => {
+  const PICKER = ' Select model\n ❯ 1. Opus\n   2. Sonnet\n\n Esc to cancel';
+  assert.equal(status.claudePermissionPromptKind(PICKER), 'shape');
+  assert.equal(status.claudePermissionPromptKind(PERM_BASH), 'wording', 'CONTROL: the real prompt is matched by its wording');
+  const board = fleet.install([fleet.agent('casey', { state: 'working' })]);
+  try {
+    const calls = arm(PICKER);
+    const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents.map((c) => ({ ...c })));
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
+    assert.match(v.because, /waiting for an answer on its screen/);
+    assert.doesNotMatch(v.because, /permission/, 'a picker was described as a permission request');
+    assert.deepEqual(calls.typed(), []);
   } finally { chat.resetForTests(); board.restore(); }
 });
