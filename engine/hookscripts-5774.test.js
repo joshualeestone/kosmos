@@ -186,7 +186,7 @@ test('#5774: the command splitter: quotes, variables, substitutions, redirection
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths('bash ~/.x/s.sh').paths, ['/H/.x/s.sh']);
   assert.deepEqual(paths('"${HOME}/a b.sh" --flag').paths, ['/H/a b.sh']);
-  assert.deepEqual(paths("echo '$HOME/not' | /bin/t.sh").paths, ['/bin/t.sh']);   // single quotes keep $ literal; an argument in the agent folder is its work
+  assert.deepEqual(paths("echo '$HOME/not' | /opt/t.sh").paths, ['/opt/t.sh']);   // single quotes keep $ literal; an argument in the agent folder is its work
   // Review 2: a wrapper or keyword before the program, a runner's subcommand, a descriptor before a redirection.
   for (const c of ['env X=1 bash run.sh', 'nohup bash run.sh', 'sudo -u bob bash run.sh', 'if true; then bash run.sh; fi', '{ bash run.sh; }', '2>/dev/null bash run.sh', 'bash \\\n run.sh']) assert.deepEqual(paths(c).paths, ['/A/run.sh'], c);
   assert.deepEqual(paths('timeout -s KILL 5 node t.js').paths, ['/A/t.js']);
@@ -787,4 +787,19 @@ test('#5774 review 15: a folder runner inside a folder the guard denies whole (a
     fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
     fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
   }
+});
+
+test('#5774 review 16: .command scripts, awk and sed program text, runner specifiers, sealed system paths, a config too deep', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(paths('open ./x.command').runPaths, ['/A/x.command'], 'a .command path is a script, even in the agent folder');
+  assert.deepEqual(paths("jq -r '.tool_input.command'").paths, [], 'control: a jq filter ending in .command is not');
+  assert.deepEqual(paths('awk \'BEGIN{system("/opt/x.sh")}\'').runPaths, ['/opt/x.sh'], 'awk\'s program text is code');
+  assert.deepEqual(paths('awk -f ~/p.awk f').runPaths, ['/H/p.awk'], 'counted once');
+  for (const c of ['deno run -A npm:foo', 'deno run jsr:@std/http/file-server']) assert.deepEqual(paths(c), { paths: [], runPaths: [], codePaths: [], unsafe: [] }, c);
+  assert.deepEqual(paths('afplay /System/Library/Sounds/Glass.aiff').paths, [], 'a sealed system path needs no rule');
+  assert.deepEqual(paths('bash /usr/local/bin/h.sh').runPaths, ['/usr/local/bin/h.sh'], 'control: /usr/local is writable, so it counts');
+  let deep = { command: '/x.sh' };
+  for (let i = 0; i < 40; i++) deep = { a: deep };
+  assert.ok(sc.commandsIn(deep).some((c) => c.tooDeep), 'a config nested past the limit is marked, so the scan names it');
 });

@@ -50,6 +50,9 @@ const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-c
 const runnerSay = (name, place) => `${name} run in ${place} (it runs code that folder supplies: its package.json, node_modules, Makefile, .git hooks, build or test config, which Kosmos cannot list); change the command to run a script by its full path`;
 /* Where a command runs when a cd Kosmos cannot follow moved it. */
 const UNKNOWN_RUN_CWD = '/\0unknown';
+/* System folders macOS seals (SIP): nothing the agent runs can write there, so a path in them needs no deny rule. Not
+   /usr/local, which is writable. */
+const SEALED = /^\/(?:System|bin|sbin|usr\/(?:bin|sbin|lib|libexec|share))\//;
 /* What $PATH reads as here: a marker, so `PATH="$HOME/bin:$PATH"` is read as one known folder and the rest. */
 const PATH_MARK = '\u0000PATH';
 // Review 9: processWrapper too (2.1.296's own list of command settings: a launcher prefix for background sessions).
@@ -353,6 +356,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
   };
   let chdirNext = false;
   let trapDone = false;   // trap's command line has been read
+  let inlineProgDone = false;   // awk's or sed's program text has been read
   let packageScriptNext = false;   // bun run <name>: a package.json script when <name> is no file
   let slotTaken = false;   // the first plain word after an interpreter is its script (or the folder it runs)
   let prog = '';
@@ -381,7 +385,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       continue;
     }
     if (w.assign) { assignment(w, w.text); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=..., PATH=...
-    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
+    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; inlineProgDone = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
       if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; anchored = true; } }   // a bare cd goes home
@@ -438,6 +442,14 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     }
     let text = w.text;
     if (!w.dynamic && PACKAGE_NAME.test(text)) continue;   // @scope/pkg (npx's program too) is a package, not a path (review 4)
+    // Review 16: a runner's specifier (npm:foo, jsr:@std/x, node:fs) is not a file either.
+    if (!w.dynamic && /^[a-z][a-z0-9+.-]*:[^/\\]/i.test(text) && !text.includes('://')) continue;
+    // Review 16: the program text of awk, sed and jq is code too; the absolute paths in it count (awk 'BEGIN{system("/x.sh")}').
+    if (!isHead && !w.dynamic && /^(?:g|m)?awk$|^g?sed$|^jq$/.test(prog) && !inlineProgDone && !flagScriptNext && !text.startsWith('-')) {
+      inlineProgDone = true;
+      for (const m of text.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
+      if (!/^\.?\.?\//.test(text) && !path.isAbsolute(text)) continue;
+    }
     const inline = !isHead && inlineFlag(prog, before);   // only an interpreter's -c or -e (mkdir -p is not)
     const isFlag = !isHead && !w.input && !valueCode && (text.startsWith('-') || (/^\+[A-Za-z]+$/.test(text) && INTERPRETER.test(prog)));   // bash +x
     // Review 13: a short flag with its path glued on (ruby -r/h/pre.rb, gcc -I./x): the path is the flag's value.
@@ -472,7 +484,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     if (inScriptSlot) slotTaken = true;
     // A script extension counts anywhere, except on a pattern (case *.py), find -name '*.py': review 7).
     // Review 10: input is what runs only for a shell or interpreter (bash < x.sh); jq . < state.json reads a file.
-    const runs = isHead || inScriptSlot || (w.input && INTERPRETER.test(prog)) || flagValue || inline || flagScript || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && SCRIPT_EXT.test(text));   // where something RUNS
+    const runs = isHead || inScriptSlot || (w.input && INTERPRETER.test(prog)) || flagValue || inline || flagScript || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && (SCRIPT_EXT.test(text) || (/\.command$/i.test(text) && /^[~./]|\//.test(text))));   // where something RUNS (review 16: .command only as a path, not a jq filter)
     if (w.dynamic) {
       // A flag's unknown value names a path only when it has a slash (--header="$H" names nothing).
       // Review 12: only where the script itself sits; a later argument the hook passes ("$FOO", "$@") names no script.
@@ -498,9 +510,10 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     else if (runs && !isHead) { relative = true; ps = cwds.map((d) => path.join(d, text)); }   // bash check.sh: the agent could create it
     if (relative && runs && cwdUnknown) unsafe.push(`a script named from a folder a cd moved to that Kosmos cannot read (${text})`);
     // Review 11: where the script itself sits (not a later argument of an interpreter, such as a hook's mode word).
-    const scriptWord = isHead || codeSlot || (w.input && INTERPRETER.test(prog)) || flagValue || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && SCRIPT_EXT.test(text));
+    const scriptWord = isHead || codeSlot || (w.input && INTERPRETER.test(prog)) || flagValue || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && (SCRIPT_EXT.test(text) || (/\.command$/i.test(text) && /^[~./]|\//.test(text))));
     if (relative && runs && !anchored && !cwdUnknown && scriptWord) unsafe.push(`a script named relative to the folder the session is in, which the agent can move into any of its own subfolders (${text}); name it by a full path or from $CLAUDE_PROJECT_DIR`);
     for (const p of ps) {
+      if (SEALED.test(p)) continue;   // review 16: a system path the agent can never write (SIP) needs no rule
       if (!runs && inAgentFolder(p)) continue;   // an argument in the agent's own folder is its work, not code
       paths.push(p);
       if (runs) runPaths.push(p);
@@ -513,7 +526,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
 
 /* Every command in a parsed config: { line } for a shell line, { program, args } for a server (started directly). */
 function commandsIn(node, out = [], depth = 0, server = false, helper = false) {
-  if (!node || typeof node !== 'object' || depth > 32) return out;
+  if (depth > 32) { out.push({ tooDeep: true }); return out; }   // review 16: named, as every other limit here
+  if (!node || typeof node !== 'object') return out;
   if (Array.isArray(node)) { for (const x of node) commandsIn(x, out, depth + 1, server, helper); return out; }
   for (const [k, v] of Object.entries(node)) {
     // Review 9: inside a helper object (the managed policyHelper / policyHelpers), a path or executable is a program.
@@ -706,6 +720,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const baseVars = { ...settingsEnv, ...login, TMPDIR: tmp, PATH: PATH_MARK, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
+      if (c.tooDeep) { unsafe.push(`a config nested too deep for Kosmos to read (in ${where})`); continue; }
       // A server (program and args) starts in the project folder; a shell line in the session's current one.
       const r = pathsOfWords(wordsOf(c, vars), agentDir, vars, 0, null, !!c.server, true);
       raw.push(...r.paths);
