@@ -354,8 +354,12 @@ test('a good send PASTES the text then presses Enter, both pinned to the exact p
     assert.deepEqual(sends[0], ['send-keys', '-t', target, 'Enter']);
     // The set-buffer buffer name and the paste-buffer name match (same chunk).
     assert.equal(setBuffers[0][2], pastes[0][2]);
-    // And the pane was asked about itself FIRST, read-only, before any keystroke.
-    assert.equal(tmux.calls[0][0], 'display-message');
+    // And the pane was asked about itself FIRST, read-only, before any keystroke. #5743: a needs_you Claude card's
+    // screen is also read first (is its question menu up?), which is read-only too.
+    const firstKey = tmux.calls.findIndex((c) => c[0] === 'set-buffer' || c[0] === 'paste-buffer' || c[0] === 'send-keys');
+    const before = tmux.calls.slice(0, firstKey).map((c) => c[0]);
+    assert.ok(before.includes('display-message'), 'the pane was not checked before the first keystroke: ' + before.join(','));
+    assert.deepEqual(before.filter((v) => v !== 'display-message' && v !== 'capture-pane'), [], 'something other than a read came before the first keystroke');
   });
 });
 
