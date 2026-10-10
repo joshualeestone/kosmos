@@ -1626,11 +1626,14 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   /* The same attributed-refusal contract as send(): every refusal their
      agent meets is an event, logged once per sender-target-because per
      window; the logged target is the PROJECT (capped like send's to). */
-  const refuse = (because) => {
+  /* kosmos#5752 round 3: `toAgent` (the add-member fix) goes back to the agent only. The refused row the person sees in
+     the room keeps the bare sentence: "ask the person to add this agent ... run the same command again" is advice for
+     the agent, and read on the person's screen it talks about them in the third person. */
+  const refuse = (because, toAgent = '') => {
     /* Operator refusals are NOT logged: the composer answers the person
        directly, so the sentence has its surface -- the refused-row
        contract exists for refusals an AGENT meets invisibly. */
-    if (operator === true) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+    if (operator === true) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };   // never a toAgent here
     const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
     try {
       const now2 = Date.parse(at);
@@ -1642,7 +1645,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
          happens to share the slug space. */
       if (!already) appendLog({ kind: 'refused', from, to: toLogged, project: toLogged, because, at });
     } catch { /* the record is best-effort; the verdict is not */ }
-    return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+    return { state: chat.DELIVERY.COULD_NOT, because: because + toAgent, id: null, at, outcomes: null };
   };
 
   if (!/^[A-Za-z0-9._ -]+$/.test(from) || from.includes(']')) {
@@ -1696,6 +1699,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      remove.js documents, rather than re-admitting every removed agent. */
   const room = _roomMembers(members);
   if (!room.ok) return refuse('we could not check which agents have been removed, so nothing was posted');
+  const onRecord = Array.isArray(members) && members.includes(from);   // kosmos#5752 round 2: removed, not a stranger
   members = room.members;
   /* The room is its members: an AGENT sender who is not on the project
      is not in the room, and speaking into a room you are not in is
@@ -1703,7 +1707,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      prevent. The operator is in every room they own -- membership lists
      agents, not the person. */
   if (operator !== true && !members.includes(from)) {
-    return refuse('you are not on that project, so this room is not yours to post into');
+    /* kosmos#5752: the fix only where adding would help. An agent still on the record but removed from Kosmos is
+       filtered out above; adding it again changes nothing, so it gets the sentence without the fix. */
+    return refuse('you are not on that project, so this room is not yours to post into', onRecord ? '' : NOT_ON_PROJECT_FIX);
   }
   const recipients = operator === true ? members.slice() : members.filter((m) => m !== from);
   /**
@@ -2792,6 +2798,10 @@ function messageIdOf(value) {
    sessionNames, the caller's derivation, same as sendPost -- the operator is
    exempt, being in every room they own). Returns {ok, op, emoji, of} or
    {ok:false, because}. */
+/* kosmos#5752 slice 2: a refusal for an agent acting on a project it is not on names its fix, so the agent can ask for it
+   in one step instead of passing its work to a member. The person adds members on the project's page, with the + beside
+   Members (its accessible name is "Add member"; the tab view shows only the +, round 1). Shared with server.js. */
+const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside Members on the project's page, then run the same command again";
 function react({ project, of, emoji, from, operator, members }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
@@ -2830,7 +2840,8 @@ function react({ project, of, emoji, from, operator, members }) {
       return { ok: false, because: 'we could not check which agents have been removed, so nothing was reacted' };
     }
     if (!room.members.includes(reactor)) {
-      return { ok: false, because: 'you are not on that project, so this room is not yours to react in' };
+      // kosmos#5752 round 2: a removed agent still on the record is not told to get added (it would not help).
+      return { ok: false, because: 'you are not on that project, so this room is not yours to react in' + (members.includes(reactor) ? '' : NOT_ON_PROJECT_FIX) };
     }
   }
   const rec = record();
@@ -2967,6 +2978,7 @@ function projectOfPost(id) {
 }
 
 module.exports = {
+  NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.

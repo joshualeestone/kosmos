@@ -111,6 +111,12 @@ test('#4787: refusals: a bad rule (400), a run on a one-off task (400), a non-me
   const zed = sendertoken.mint('zed');
   r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, { 'x-kosmos-agent-token': zed.token });
   assert.equal(r.status, 403, 'zed is not on the project');
+  /* kosmos#5752 slice 2: the refusal names its fix, for a rule and for a run (a scheduled run by a non-member). */
+  const fix = "that agent is not on this project, so it cannot change its tasks; ask the person to add this agent with the + beside Members on the project's page, then run the same command again";
+  assert.equal(r.json.error, fix);
+  r = await post(`/api/project/${projectId}/task/${n}/ran`, { note: 'a scheduled run' }, { 'x-kosmos-agent-token': zed.token });
+  assert.equal(r.status, 403);
+  assert.equal(r.json.error, fix);
   r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' });   // a process with no token and no pane
   assert.equal(r.status, 403);
   assert.match(r.json.error, /could not tell which agent/);
@@ -267,4 +273,33 @@ test('#4787 slice 3 review 6: a process cannot close a task whose reviewer the p
   r = await post(`/api/project/${projectId}/task/${m}/close`, {}, { 'x-kosmos-agent-token': mona.token });
   assert.equal(r.status, 409, JSON.stringify(r.json));
   assert.equal(stored(m).repeatReviewer, 'fixture');
+});
+
+/* kosmos#5752 slice 2: every refusal for an agent acting on a project it is not on names the fix, one arm per site. */
+test('#5752 slice 2: a non-member agent is told how to be added, on each of its own task writes (the reads: server.agent-reads-4491.test.js)', async () => {
+  const n = newTask('A scheduled check');
+  const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
+  const fix = "; ask the person to add this agent with the + beside Members on the project's page, then run the same command again";
+  const arms = [
+    ['add a task (the shared helper)', () => post(`/api/project/${projectId}/tasks`, { sentence: 'not mine' }, zed), 'add tasks to it'],
+    ['the built mark', () => post(`/api/project/${projectId}/task/${n}/built`, { note: '1 met.' }, zed), 'mark its tasks'],
+    ['a task message', () => post(`/api/project/${projectId}/task/${n}/message`, { text: 'hello' }, zed), 'write in its tasks'],
+    ['record a run', () => post(`/api/project/${projectId}/task/${n}/ran`, {}, zed), 'change its tasks'],
+  ];
+  for (const [what, call, verb] of arms) {
+    const r = await call();
+    assert.equal(r.status, 403, what + ': ' + JSON.stringify(r.json));
+    assert.equal(r.json && r.json.error, 'that agent is not on this project, so it cannot ' + verb + fix, what);
+  }
+  // Round 1: its own role on the project, and its post into the project's room (the `kosmos post` path).
+  let r = await post(`/api/project/${projectId}/role`, { role: 'checker' }, zed);
+  assert.equal(r.status, 403, 'role: ' + JSON.stringify(r.json));
+  assert.equal(r.json.error, 'that agent is not on this project' + fix, 'role');
+  r = await post('/api/project/' + projectId + '/role', { role: 'checker', name: 'zed' }, screen);
+  assert.equal(r.status, 400);
+  assert.equal(r.json.error, 'that agent is not on this project', 'CONTROL: the person setting a role is not told to add anyone');
+  // CONTROL: a member's own run is not refused, so the arms above are about membership, not the request.
+  const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona);
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, {}, mona)).status, 200);
 });

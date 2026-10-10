@@ -167,6 +167,10 @@ test('#2442: a member who has been removed can no longer react (room access is c
     assert.equal(gone.ok, false, 'a removed agent must not react into a room it was on');
     assert.match(gone.because, /not on that project/i,
       'refused at the same membership gate a non-member hits');
+    // kosmos#5752 round 2: not told to get added (it is on the record; adding it again would not help).
+    assert.doesNotMatch(gone.because, /ask the person to add/);
+    // CONTROL: a stranger to the record IS told how to be added.
+    assert.match(messages.react({ project: 'p', of: 'm2442', emoji: FIRE, from: 'stranger', members: ['zeta'] }).because, /ask the person to add this agent/);
   } finally { clearRemoved(); }
 });
 
