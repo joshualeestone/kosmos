@@ -153,7 +153,7 @@ function isEnrolledHere(opts) {
 /* 🛑 THE GATE FOR EVERY SENDER (E0.3 rollup, E0.6 backup): mayReport, NOT isEnrolledHere. A record can be enrolled here
    with no consent recorded on this side: one re-adopted by refresh after a move that could not be written, or rebuilt
    from the company's answer after a last-admin refusal. Those carry no consentHash, and nothing is sent under them
-   until the person has seen and accepted the words here (review 27). isEnrolledHere answers "is this the work Kosmos";
+   until the company's words are accepted here (review 27; since #5791 the board accepts them itself, reacceptWords). isEnrolledHere answers "is this the work Kosmos";
    mayReport answers "may it send". */
 function mayReport(opts) {
   if (!isEnrolledHere(opts)) return false;
@@ -487,7 +487,7 @@ async function enrollNow(code, accepted, opts) {
   const salt = opts && typeof opts.computerSalt === 'string' ? opts.computerSalt : null;
   if (salt && opts.orgId) {
     const pf = printFields(salt, opts.orgId);
-    // In a review the button is Accept (rollup review 33), as the no-confirm answer below already says.
+    // A review is the board's own (#5791): it says Kosmos tries again, as the no-confirm answer below does.
     if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; ' + (asReview ? 'Kosmos tries again on its own.' : 'press Connect Account again in a minute.') };
     if (pf.send === 'error') return { ok: false, because: 'This Kosmos could not make its computer print, so nothing was sent.' };
     Object.assign(body, pf.fields, { computerSalt: salt });
@@ -559,7 +559,7 @@ async function enrollNow(code, accepted, opts) {
   const otherOrg = !!(org && opts && typeof opts.orgId === 'string' && opts.orgId && org.id !== opts.orgId);
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
-    if (review) return { ok: false, because: 'Your company did not confirm this Kosmos, so nothing changed. Press Accept again in a minute.' };
+    if (review) return { ok: false, because: 'Your company did not confirm this Kosmos, so nothing changed. Kosmos tries again on its own.' };
     if (move) return { ok: false, because: NOCONFIRM + ' Press Connect Account again in a minute.' };
     return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint }));
   }

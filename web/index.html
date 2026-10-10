@@ -47718,7 +47718,7 @@ async function paintPlus() {
   document.getElementById('plus-devices').hidden = r.enrolled !== true;
   /* #733 recovery: only an enrolled Mac can sign the reset, so the control
      shows with the devices, and a fresh paint disarms a half-taken click. */
-  /* #4080: the second-step reset lives in the "Lost your phone?" dialog now, reached from the bottom row. The 5-second
+  /* #4080: the second-step reset lives in the "Lost your phone?" dialog now, reached from the devices block (#5791; it was the bottom row). The 5-second
      repaint must not re-enable a reset that is still in flight (review round 3). */
   if (typeof PLUS_SECOND_BUSY === 'undefined' || !PLUS_SECOND_BUSY) plusSecondDisarm();
   /* #4079: Remove this computer shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
@@ -47729,8 +47729,9 @@ async function paintPlus() {
   paintDevices();
 }
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
-   and never while the person is reading a consent or a call is out. */
-var PLUS_ORG = { at: 0, busy: false, state: null, open: false };   // open: the person opened the company block (10-08)
+   and never while a call is out. */
+// open: the person opened the company block (10-08). dismissed: the company note they closed with Cancel (#5791).
+var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null };
 function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
   if (PLUS_ORG.busy) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
@@ -47808,8 +47809,9 @@ async function plusOrgConnect() {
     PLUS_ORG.state = { enrolled: true, org: r.org || p.org, role: r.role || p.role };
     PLUS_ORG.at = 0;
     plusOrgPaint();
-    plusOrgMaybe();   // the engine's own answer: whether it reports yet
   } finally { PLUS_ORG.busy = false; btn.disabled = false; }
+  // The engine's own answer (whether it reports yet), once busy is clear: plusOrgMaybe does nothing while busy (review 3).
+  if (PLUS_ORG.at === 0 && PLUS_ORG.state && PLUS_ORG.state.enrolled === true) plusOrgMaybe();
 }
 function plusOrgCancel() {
   PLUS_ORG.open = false;
@@ -47818,7 +47820,9 @@ function plusOrgCancel() {
   document.getElementById('plus-org-code').value = '';
   document.getElementById('plus-org-msg').textContent = '';
   plusOrgPaint();
-  document.getElementById('plus-org-open').focus();
+  // Focus where the person can act: the button when it shows, else the block's first control (review 3).
+  const opener = document.getElementById('plus-org-open');
+  if (!opener.hidden) opener.focus(); else { const b = document.querySelector('#plus-org button:not([hidden])'); if (b && b.getClientRects().length) b.focus(); }
 }
 function plusOrgLeaveArm(on) {
   const st = PLUS_ORG.state || {};

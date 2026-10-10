@@ -660,7 +660,9 @@ async function tick(opts) {
     if (rnow - last < (termsGone ? RETAKE_EVERY_MS : RECHECK_NO_REPORTS_MS)) {
       return { sent: false, because: termsGone ? 'no company terms on record here; taking them on again later' : 'the company\'s terms ask for no reports' };
     }
-    // Stamped before the try, so a company that never answers is asked once per window, not on every tick.
+    /* Stamped before the try, so a company that never answers is asked once per window, not on every tick. Before the
+       run lock on purpose (review 3): two runs at once can both ask, which costs one extra status read and at most one
+       repeated codeless enroll, and accepting the same words twice changes nothing on either side. */
     if (!writeState(rroot, Object.assign({}, rst, { retakeAt: rnow }))) return { sent: false, because: 'the company\'s terms could not be checked: the rollup state could not be saved' };
     let a = null;
     try { a = await oe.reacceptWords(eo); } catch (e) { a = { ok: false, because: (e && e.message) || String(e) }; }

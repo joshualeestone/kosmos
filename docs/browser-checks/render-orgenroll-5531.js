@@ -60,10 +60,12 @@ function harness() {
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body, at: performance.now() });
       if (u.endsWith('/api/org/preview') && window.__previewAnswer) return enc(window.__previewAnswer);
       if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
-      if (u.endsWith('/api/org/enroll')) return enc(window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
-      if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
+      // The stand-in remembers a join and a leave, so the page's read-back after either answers as the engine would.
+      if (u.endsWith('/api/org/enroll')) { const a = window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' }; if (a.ok) window.__joined = true; return enc(a); }
+      if (u.endsWith('/api/org/leave')) { const a = window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }); if (a.ok) window.__joined = false; return enc(a); }
       if (u.endsWith('/api/org') && window.__orgFail) throw new Error('offline');
       if (u.endsWith('/api/org') && window.__orgState) return enc(window.__orgState);
+      if (u.endsWith('/api/org') && window.__joined && !window.__refused) return enc({ enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-10T00:00:00.000Z' });
       if (u.endsWith('/api/org')) return enc(window.__refused
         ? { enrolled: true, reporting: window.__notReporting !== true && window.__printWait !== true, reportingWait: window.__printWait === true ? 'print' : null, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
         : { enrolled: false, stoppedFor: window.__stopped || null, leaveRefused: null, org: null, role: null, enrolledAt: null });
@@ -171,6 +173,11 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
         && shownBetween.every((n) => n === 0) && /work Kosmos for Acme/.test(o2.say) && !/other Kosmoses/.test(o2.block) && o2.heading && !o2.out && o2.code === '',
       'O2 Connect Account previews, then enrolls with exactly { code, accepted: true, ticket }, shows nothing between, and says this is the work Kosmos',
       JSON.stringify({ sent: o2.sent.map((x) => [x.path, x.body]), shownBetween, say: o2.say }));
+
+    // O2b (review 3): after the join the page reads the engine's own answer (whether it reports yet) at once.
+    await page.waitForFunction((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m2, { timeout: 3000 }).catch(() => {});
+    const reads2 = await page.evaluate((k) => window.__org.slice(k).filter((x) => x.path === '/api/org' && x.method === 'GET').length, m2);
+    chk(reads2 >= 1, 'O2 after joining, the page reads the engine\'s answer at once (no 5-second repaint here: setInterval is stubbed)', JSON.stringify({ reads2 }));
 
     await page.click('#plus-org-leave');
     const asked = await shown(page, 'plus-org-leave-ask');
