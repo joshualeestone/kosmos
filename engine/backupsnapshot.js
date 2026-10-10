@@ -617,7 +617,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // spent, with sealManifest's own rule.
   if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') return fail('the device key must be an Ed25519 private key');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
-  // #5744: the uploader passes ctx.epoch with every grant and refuses one it cannot be, so it is refused here first.
+  // #5744: ctx.epoch is passed to the uploader, which refuses an epoch it cannot check grants against.
   if (!isKeyEpoch(ctx.epoch)) return fail(`the context's key epoch (${JSON.stringify(ctx.epoch)}) is not one a grant can name (1, 2, ...)`);
   const t = now();
   // A Date can hold only about 275,000 years either side of 1970: past that, periodOf reads "NaN-WNaN".

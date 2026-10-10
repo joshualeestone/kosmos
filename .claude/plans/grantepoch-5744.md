@@ -44,3 +44,9 @@ That `ctx.epoch` is the epoch of the member key the chunks were sealed with. bac
   after the walk and the sealing; backupsnapshot now refuses it up front with the uploader's own predicate (tested).
 - NIT taken: the chunk refusal test asserts grantSpent true. NIT not taken: a structured code for an epoch mismatch
   (the caller that would act on it is the later lost-key slice, which sets that contract with precondition 2).
+
+## Review 2 (sonnet)
+- No BLOCKER, WARNING or CONVENTION. Taken: the snapshot comment said the uploader SENDS the epoch with a grant; it
+  checks the answer against it. Checked, not changed: the coordinator's grant answer `epoch` is an integer
+  (kosmos-relay coordinator/src/backup.rs, `pub epoch: i64`), as the uploader requires. Not taken: a snapshot test
+  for a mid-run epoch refusal (the uploader's refusal shape is the one the existing failure-path tests cover).
