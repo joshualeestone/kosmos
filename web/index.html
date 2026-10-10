@@ -37407,7 +37407,9 @@ const dmChoiceSig = (opts) => opts.map((o) => o.n + '\u0001' + o.label).join('\u
 function dmChoiceHead(body, asked) {
   const t = body && body.question && typeof body.question.text === 'string' ? body.question.text : '';
   const lines = t.split('\n');
-  const at = lines.findIndex((l) => l.includes(asked));
+  // The line that IS the question first (a header can contain its words), else the last line holding them (review 33).
+  let at = lines.findIndex((l) => l.trim() === asked);
+  if (at < 0) for (let i = lines.length - 1; i >= 0; i -= 1) if (lines[i].includes(asked)) { at = i; break; }
   return at < 0 ? '' : lines.slice(0, at + 1).map((l) => l.trim()).join('\n');
 }
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
@@ -37497,7 +37499,7 @@ async function dmChoicePress(btn) {
   /* A success is announced quietly in the live region that survives repaints (the bubble's own is redrawn with it). */
   if (ok && CURRENT && CURRENT.sessionName === session) {
     const quiet = document.getElementById('d-reply-say');
-    if (quiet) { quiet.textContent = ''; quiet.textContent = 'Sent.'; }   // cleared first, so a second answer is announced too
+    if (quiet) { quiet.textContent = ''; quiet.textContent = 'Sent.'; }   // cleared first; some screen readers still skip a repeat
     const line = document.getElementById('d-say-msg');   // an earlier refusal's sentence is no longer true
     if (line && line.textContent === DM_CHOICE_LAST_REFUSAL) line.textContent = '';
   }

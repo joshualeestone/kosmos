@@ -413,3 +413,15 @@ test('#5406 C review 32: a success is announced once, in the live region that su
   assert.equal(quiet.textContent, 'Sent.', 'the success was not announced');
   assert.equal(msg.textContent, '', 'the success was announced twice');
 });
+
+test('#5406 C review 33: a header holding the question\'s words does not cut the run-up out of the generation', () => {
+  const CUR = realCard();
+  const m = load({ CURRENT: CUR });
+  const withRunUp = (runUp) => ({ ...BODY, question: { text: 'Which fruit do you want? Today\n' + runUp + '\nWhich fruit do you want?\n❯ 1. Apple\n  2. Banana <b>' } });
+  m.from(withRunUp('For lunch.'), CUR.sessionName);
+  const g1 = /data-gen="(\d+)"/.exec(m.html(Q))[1];
+  m.from(withRunUp('For lunch.'), CUR.sessionName);
+  assert.equal(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'CONTROL: the same screen changed generation');
+  m.from(withRunUp('For dinner.'), CUR.sessionName);
+  assert.notEqual(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'a changed run-up under a header holding the question kept the generation');
+});
