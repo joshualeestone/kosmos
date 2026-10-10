@@ -550,6 +550,28 @@ const SCREENS = [
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Check that homemac shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
+  /* #5785: the sign-in card while this computer connects (the register step): the big K loader above "Signing in...",
+     the "Connecting this computer as <name>.kosmosplus.com..." line under it. Put in that state with the page's own
+     functions (no coordinator here); the loader is the real one, caught mid-animation. */
+  { name: 'plus-signing-in', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => {
+      for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+      document.getElementById('plus-state2').hidden = false;
+      plusSiShow('plus-si-register');
+      const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
+      const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
+      document.getElementById('plus-si-owned').hidden = false;
+      document.getElementById('plus-si-owned-lead').textContent = 'Connecting this computer as';
+      document.getElementById('plus-si-owned-addr').textContent = 'sample.kosmosplus.com';
+      document.getElementById('plus-si-title').textContent = 'Signing in...';
+      plusSiKStart();
+    });
+    await page.waitForSelector('#plus-si-k canvas', { state: 'visible', timeout: 5000 });
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(1600);   // mid-gather, so the shot shows dots on their way into the K
+  }, after: async (page) => { await page.evaluate(() => { if (typeof plusSiKStop === 'function') plusSiKStop(); }); } },
   { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
     await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');
