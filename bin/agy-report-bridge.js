@@ -329,8 +329,10 @@ async function main() {
     headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
   } catch { /* a missed world header must never become a failed turn */ }
 
-  /* #5576: the request's socket must never be numbered 0 to 2. One turn of the loop first, so a close of fd 0 left
-     pending by the stdin handling (a handle close lands a phase later) is done before the guard looks (review 2). */
+  /* #5576: hold a free fd 0 to 2 so the request's socket cannot take one. One turn of the loop first, so a close of
+     fd 0 left pending by the stdin handling (a handle close lands a phase later) is done before the guard looks
+     (review 2). PREMISE: whatever frees fd 0 has done so by then (the Linux trace showed it free already at fetch
+     begin); a close that lands while the request is opening is not covered. */
   await new Promise((resolve) => setImmediate(resolve));
   holdStdioFds();
   const controller = new AbortController();
