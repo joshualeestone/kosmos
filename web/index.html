@@ -37505,7 +37505,7 @@ async function dmChoicePress(btn) {
      focus has gone nowhere else. */
   if (!document.activeElement || document.activeElement === document.body) {
     const thread = document.getElementById('d-dmthread');
-    const sameQuestion = DM_CHOICES && DM_CHOICES.session === session && DM_CHOICES.asked === c.asked;
+    const sameQuestion = DM_CHOICES && DM_CHOICES.session === session && DM_CHOICES.gen === c.gen;   // same question AND choices
     const back = (mayHaveSent || !sameQuestion) ? document.getElementById('d-say')   // locked, or the question changed (review 28)
       : thread && (thread.querySelector('.dmchoice[data-n="' + CSS.escape(String(opt.n)) + '"]') || thread.querySelector('.dmchoice'));
     if (back) back.focus({ preventScroll: true });
