@@ -155,6 +155,7 @@ function shellWords(cmd, vars = {}) {
     if (assign) { cur.head = false; cur.assign = true; }
     words.push(cur);
     if (cur.heredoc && cur.heredocMode !== 'string') bodies.push(cur);
+    if (cur.written || cur.input || cur.heredoc) cur.head = false;   // review 13: < state.json jq: the program comes after
     if (!assign && !cur.written && !cur.input && !cur.heredoc) head = false;
     cur = null;
   };
@@ -402,7 +403,14 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       runnerSub = RUNNER_SUB[prog] || null;
     }
     if (!isHead && prog === 'find' && !w.dynamic && /^-(?:exec|execdir|ok|okdir)$/.test(w.text)) { inExec = true; pendingHead = true; wrapper = ''; continue; }
-    if (skipNext) { skipNext = false; continue; }
+    // Review 13: a value flag's value that looks like a file (node --env-file ~/.env, ruby -r /h/pre.rb) is code the
+    // program loads, as the --flag=value spelling already counts; any other value (python -X utf8) is skipped.
+    let valueCode = false;
+    if (skipNext) {
+      skipNext = false;
+      if (w.dynamic || !(w.text.includes('/') || /\.[A-Za-z0-9]{1,5}$/.test(w.text))) continue;
+      valueCode = true;
+    }
     if (chdirNext) { chdirNext = false; chdir(w, w.text); continue; }
     if (!isHead && !w.input && w.text.startsWith('-') && CHDIR_FLAGS[prog]) {
       const eq = w.text.indexOf('=');
@@ -412,14 +420,17 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     let text = w.text;
     if (!w.dynamic && PACKAGE_NAME.test(text)) continue;   // @scope/pkg (npx's program too) is a package, not a path (review 4)
     const inline = !isHead && inlineFlag(prog, before);   // only an interpreter's -c or -e (mkdir -p is not)
-    const isFlag = !isHead && !w.input && text.startsWith('-');
-    const flagScript = flagScriptNext && !isHead && !isFlag;
+    const isFlag = !isHead && !w.input && !valueCode && (text.startsWith('-') || (/^\+[A-Za-z]+$/.test(text) && INTERPRETER.test(prog)));   // bash +x
+    // Review 13: a short flag with its path glued on (ruby -r/h/pre.rb, gcc -I./x): the path is the flag's value.
+    const glued = isFlag && !text.includes('=') && /^-[A-Za-z]{1,2}(?:\/|~\/|\.{1,2}\/)/.test(text);
+    const flagScript = (flagScriptNext && !isHead && !isFlag) || valueCode;
     flagScriptNext = !isHead && !w.dynamic && !!(SCRIPT_FLAG[prog] && SCRIPT_FLAG[prog].test(text));
     if (isFlag && !w.dynamic && !flagScriptNext && VALUE_FLAGS[prog] && VALUE_FLAGS[prog].test(text)) { skipNext = true; if (MODULE_FLAG.test(prog + ' ' + text)) { scriptSlot = false; folderRunner(`${prog} -m`); } continue; }
     // A flag that carries a path (--require=/x.js): the part after the first '=', when it looks like a path (review 4:
     // --max-old-space-size=4096 names no file).
-    const flagValue = isFlag && text.includes('=');
-    if (flagValue) {
+    const flagValue = isFlag && (text.includes('=') || glued);
+    if (glued) text = text.replace(/^-[A-Za-z]{1,2}/, '');
+    else if (flagValue) {
       text = text.slice(text.indexOf('=') + 1);
       if (!w.dynamic && !text.includes('/') && !/\.[A-Za-z0-9]{1,5}$/.test(text)) continue;
       if (!w.dynamic && /[*?]/.test(text)) continue;   // --include="*.ts" is a pattern, not a file (review 7)
@@ -487,10 +498,13 @@ function commandsIn(node, out = [], depth = 0, server = false, helper = false) {
   if (Array.isArray(node)) { for (const x of node) commandsIn(x, out, depth + 1, server, helper); return out; }
   for (const [k, v] of Object.entries(node)) {
     // Review 9: inside a helper object (the managed policyHelper / policyHelpers), a path or executable is a program.
-    if (helper && (k === 'path' || k === 'executable') && typeof v === 'string') { out.push({ program: v, args: [] }); continue; }
+    if (helper && (k === 'path' || k === 'executable') && typeof v === 'string') { out.push({ program: v, args: [], exec: true }); continue; }
     if (k === 'command' && typeof v === 'string') {
       const args = Array.isArray(node.args) ? node.args.filter((a) => typeof a === 'string') : null;
-      if (server || args) out.push({ program: v, args: args || [] });
+      // A server starts in the project folder. Review 13: an exec-form HOOK (command and args) runs, like a shell
+      // line, in the session's current folder, and only ${CLAUDE_PROJECT_DIR} and the plugin variables are expanded.
+      if (server) out.push({ program: v, args: args || [], server: true });
+      else if (args) out.push({ program: v, args, exec: true });
       else out.push({ line: v });
     } else if (typeof v === 'string' && (HELPER_KEYS.has(k) || /Helper$/.test(k))) {
       out.push({ line: v });
@@ -504,6 +518,15 @@ function commandsIn(node, out = [], depth = 0, server = false, helper = false) {
 /* The words of one command. A server's command and args are literal words (no shell), with ${VAR} expanded. */
 function wordsOf(cmd, vars) {
   if (cmd.line !== undefined) return shellWords(cmd.line, vars);
+  if (cmd.exec) {
+    const one = (s, head) => {
+      let dynamic = false;
+      const text = s.replace(/\$\{(CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_PLUGIN_DATA)\}/g, (m, n) => (Object.prototype.hasOwnProperty.call(vars, n) ? vars[n] : (dynamic = true, '')))
+        .replace(/\$\{user_config\.[^}]*\}/g, () => { dynamic = true; return ''; });
+      return { text, dynamic, quoted: true, globbed: false, head, assign: false, written: false, input: false, heredoc: false, subs: [] };
+    };
+    return [one(cmd.program, true), ...cmd.args.map((a) => one(a, false))];
+  }
   const one = (s, head) => {
     const ws = shellWords(`"${s.replace(/(["\\`])/g, '\\$1')}"`, vars);
     const w = ws[0] || { text: '', dynamic: false, subs: [] };
@@ -660,7 +683,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
       // A server (program and args) starts in the project folder; a shell line in the session's current one.
-      const r = pathsOfWords(wordsOf(c, vars), agentDir, vars, 0, null, c.line === undefined);
+      const r = pathsOfWords(wordsOf(c, vars), agentDir, vars, 0, null, !!c.server);
       raw.push(...r.paths);
       for (const p of r.runPaths) runRaw.add(p);
       for (const p of r.codePaths) codeRaw.add(p);

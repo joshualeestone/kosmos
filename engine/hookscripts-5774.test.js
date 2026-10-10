@@ -206,7 +206,7 @@ test('#5774: the command splitter: quotes, variables, substitutions, redirection
   // A server's args are literal words, no shell: a space stays inside one argument.
   const cmds = sc.commandsIn({ mcpServers: { a: { command: '/srv/a', args: ['--x', '/srv/b c.js'] }, b: { command: '/My Dir/srv' } }, apiKeyHelper: '/k.sh', foo: { command: 'x' } });
   assert.equal(cmds.length, 4);
-  assert.deepEqual(cmds[1], { program: '/My Dir/srv', args: [] }, 'review 2: a server is started directly, so its command is one word even with no args');
+  assert.deepEqual(cmds[1], { program: '/My Dir/srv', args: [], server: true }, 'review 2: a server is started directly, so its command is one word even with no args');
 });
 
 test('#5774 review 1: a folder a command names is never denied (cd into the agent folder, a search of the home or the root)', () => {
@@ -572,7 +572,7 @@ test('#5774 review 8: ~ in an assignment, package-script runners, jq filters, an
 test('#5774 review 9: processWrapper and helper paths, $\'...\' quoting, perl -pe, login variables, an unlistable drop-in folder', () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
-  assert.deepEqual(sc.commandsIn({ processWrapper: '/opt/launch', policyHelper: { path: '/opt/ph' } }), [{ line: '/opt/launch' }, { program: '/opt/ph', args: [] }]);
+  assert.deepEqual(sc.commandsIn({ processWrapper: '/opt/launch', policyHelper: { path: '/opt/ph' } }), [{ line: '/opt/launch' }, { program: '/opt/ph', args: [], exec: true }]);
   assert.deepEqual(paths("printf $'%s\\n' hi; ~/bin/hook"), { paths: ['/H/bin/hook'], runPaths: ['/H/bin/hook'], codePaths: [], unsafe: [] }, "$'...' is a quote, not an unclosed one");
   assert.deepEqual(paths("IFS=$'\\n' x").unsafe, []);
   assert.deepEqual(paths('echo $"hi" /x.sh').runPaths, ['/x.sh']);
@@ -685,4 +685,27 @@ test('#5774 review 12: an unknown argument after the script is not a gap; the ag
   assert.equal(g.ok, true, JSON.stringify(g));
   assert.ok(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.local.json'), 'utf8')).hooks, 'precondition: the guard leaves the hooks there, so they run');
   assert.ok(editDeniedBy(readSettings(dir).permissions.deny, hook).length > 0, 'so their script is denied');
+});
+
+test('#5774 review 13: an exec-form hook runs in the session folder with only Claude Code\'s own variables; value flags that load code', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
+  assert.deepEqual(line('node --env-file ~/.env ~/x.js').runPaths, ['/H/.env', '/H/x.js'], 'an env file is code the program loads');
+  assert.deepEqual(line('ruby -r /h/pre.rb ~/x.rb').runPaths, ['/h/pre.rb', '/H/x.rb']);
+  assert.deepEqual(line('ruby -r/h/pre.rb ~/x.rb').runPaths, ['/h/pre.rb', '/H/x.rb'], 'the glued spelling too');
+  assert.deepEqual(line('python3 -X utf8 ~/s.py'), { paths: ['/H/s.py'], runPaths: ['/H/s.py'], codePaths: ['/H/s.py'], unsafe: [] }, 'control: a value that is no file is skipped');
+  assert.deepEqual(line('bash +x ~/x').unsafe, [], '+x is an option');
+  assert.deepEqual(line('< data/state.json jq .'), { paths: [], runPaths: [], codePaths: [], unsafe: [] }, 'a redirection before the program: jq is the program, the file its input');
+  const dir = agentDir('pilot-r13');
+  try {
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/h.js'] }] }] } });
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-r13', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(dir, 'h.js')).length > 0, 'control: anchored by the variable Claude Code expands');
+    for (const arg of ['scripts/hook.js', '$HOME/x.js']) {
+      writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node', args: [arg] }] }] } });
+      g = setup.guardTokenOnlyFolder(dir, 'pilot-r13', DEPS);
+      assert.equal(g.ok, false, `${arg}: an exec-form hook runs in the session's folder (and $HOME is not expanded there)`);
+    }
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
