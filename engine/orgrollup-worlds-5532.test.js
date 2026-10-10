@@ -454,6 +454,21 @@ test('#5532 widening (board review 11): the board-elsewhere runner searches at m
   assert.equal(tries, 2, 'it never tried again');
 });
 
+test('#5532 widening (board review 14): past the run\'s deadline no other Kosmos is started', async () => {
+  const reads = [];
+  const mk = (deadline) => ({
+    o: { otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }], gatherIn: async (env) => { reads.push(env.K); return { world: BETA, enrolled: false, gathered: JSON.parse(JSON.stringify(inv('Ada'))) }; } },
+    oe: { mayReport: () => true, readEnrollment: () => ({ world: 'a'.repeat(32), consentHash: 'h' }) },
+    eo: {}, rec: { world: 'a'.repeat(32), consentHash: 'h' }, accepted: { everyKosmosConsented: true, usageConsented: false },
+    pf: { fields: {} }, root: '/nowhere', now: T0, reason: 'daily', prev: {}, deadline,
+    remote: { macRequest: async () => ({ ok: true, data: { ok: true } }) },
+  });
+  await r.sendOthers(mk(Date.now() - 1));
+  assert.deepEqual(reads, [], 'a Kosmos was read past the deadline');
+  await r.sendOthers(mk(Date.now() + 60 * 1000));
+  assert.deepEqual(reads, ['beta'], 'CONTROL: before the deadline it is read');
+});
+
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
   const root = world(t);
   const c = coordinator();

@@ -540,6 +540,13 @@ async function sendOthers(c) {
   let complete = true;   // every Kosmos read, and no stop: only then may the holds forget an id (board review 6)
   for (const w of list) {
     if (!c.oe.mayReport(c.eo)) { complete = false; break; }   // left meanwhile: nothing more goes
+    /* Inside the run lock's bound (board review 14): an in-process tick has no other bound, and a run past it could
+       have its live lock taken over. Kosmoses not reached are resent by a later send (their signatures not kept). */
+    if (Number.isFinite(c.deadline) && Date.now() > c.deadline) {
+      console.error('orgrollup: the other Kosmoses\' rollups stopped at the run\'s time bound; the rest go next time');
+      complete = false;
+      break;
+    }
     let got = null;
     try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
     // A Kosmos that may belong to a company was not read at all (board review 9): skipped, and its old marks pruned.
@@ -755,7 +762,9 @@ async function tick(opts) {
         Array.isArray(st.othersHeld) ? { othersHeld: st.othersHeld } : {}, Array.isArray(st.othersMissed) ? { othersMissed: st.othersMissed } : {});
       writeState(root, done);
       // #5532 widening: then every other Kosmos on this computer, recorded once they are sent.
-      const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld, missed: st.othersMissed };
+      const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld, missed: st.othersMissed,
+      // Ten minutes inside the lock's bound, from when this tick began (board review 14).
+      deadline: startedReal + TICK_CHILD_TIMEOUT_MS - 10 * 60 * 1000 };
       /* Never lets a throw past (board review 8): the enrolled send has landed, so a fault in another Kosmos's rollup keeps
          what was recorded before it and is said, and the lock is released below either way. */
       let others = st.others && typeof st.others === 'object' ? st.others : {};

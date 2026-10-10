@@ -266,6 +266,7 @@ const NAMES_POLICY = /\bversion of your company's policy\b/i;
    Kosmos's report until its words name it. Read from the words each time, as NAMES_POLICY is. */
 // A match on the PHRASE, not on what the sentence means (board review 11): a line that negated it would still match.
 // Safe because the coordinator serves the words and pins the same phrase (CONSENT_NAMES_EVERY_KOSMOS), as NAMES_POLICY.
+// It is the board's only check that the person agreed to the other Kosmoses being sent (board review 14).
 const NAMES_EVERY_KOSMOS = /\bevery kosmos on this computer\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
