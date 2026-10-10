@@ -1,29 +1,35 @@
-# gemmodel-5804: say when a Gemini agent answers on a model other than the one chosen
+# gemmodel-5804: say when a Gemini agent answers on a model other than the one it was started on
 
 Card: #5804 (Liu Kang, measured on 0.7.38). Owner: April (night shift shard).
 
 ## Traced (card comment)
 The card's model line for a running Gemini agent is `a.modelName`, from the model the Gemini CLI recorded on its newest
 reply (engine/geminisession.js, #4416). Gemini CLI 0.61.0 falls back to another model on a failure (fallback/handler.ts,
-sometimes silently), and its base Flash model is gemini-3.5-flash. So "Gemini 3.5 Flash" on an agent launched with
-`-m gemini-2.5-flash` is most likely true: that reply came from 3.5 Flash. `ps` shows only the launch argument.
+sometimes silently); its base Flash is gemini-3.5-flash. So "Gemini 3.5 Flash" on an agent started with
+`-m gemini-2.5-flash` is most likely true. `ps` shows only the launch argument.
 
 ## What
-- server.js /api/status agent row: `chosenModelName`, only for a running Gemini agent of ours whose session names a model:
-  the model the person chose for it (create.plannedModelOf), as display words; null when the job has no model of its own
-  (the launcher's default is not a choice) or cannot be read. One launch-file read per running Gemini agent per poll
-  (the precedent: plannedModelId for codex agents).
-- web/index.html modelLine: for a Gemini agent, when the answering model's words differ from the chosen model's (case and
-  spacing aside), "<answering> (you chose <chosen>)". Otherwise unchanged.
+- engine/geminimodelswitch.js `startedModelName(name, deps)`: the display name of the model Kosmos STARTED the agent on
+  (its own model or the launcher default: both are what it was started on; review 1 blocker: the reported case may well
+  be the default), or null. Null when: the started id has no version number (auto, flash, pro are the CLI's aliases,
+  which pick by design); the newest reply was written before this run began (geminisession `modelAt` < the tmux
+  session start: after a model change and restart, the newest reply is the previous run's); same model (case/spacing
+  aside); anything unreadable. Reads injectable.
+- engine/geminisession.js: `modelAt`, when the model-naming reply was written.
+- server.js row: `startedModelName`, only for a running Gemini agent of ours with a recorded model. Cost per running
+  Gemini agent per poll: one job read, one session read, the cached tmux session list.
+- web/index.html modelLine: "<answering model> (started on <started>)" when the board sends it. modelLine feeds the card,
+  the list row, the detail meta line, the "Right now" line, the model menu's "Runs on" option and the model sort; all get
+  the same words on purpose (one question, one answer; the sort then groups by what the card says).
 
 ## Not here
-Grok and Antigravity (no report; their CLIs' fallback not traced). Stopping the CLI's fallback (a rate limit would become
-a failed reply). The detail panel's "Right now" line (follows modelLine? check; if it does, it gets the same words).
+Grok and Antigravity (no report; their fallback not traced). Stopping the CLI's fallback (a rate limit would become a
+failed reply). Naming WHY it switched (the session file does not say; only that it did).
 
 ## Weakest premise
-That the switch is the CLI's fallback; not seen in a session file yet (asked Liu Kang on the card). The words "you chose"
-are true whatever made it switch.
+That the switch is the CLI's fallback: not seen in Liu Kang's session file yet (asked on the card). "(started on X)" is
+true whatever made it switch.
 
 ## Tests
-A pure helper for the words (vm-evaluated from index.html), the server field (source + a route test if a Gemini agent can
-be faked in the fleet fixture), mutation checks.
+engine/geminimodelswitch-5804.test.js (injected deps: switch, default, alias, stale reply, same model, unreadable, with a
+control); web.gemini-model-switch-5804.test.js (the page's modelLine run; server wiring by source).
