@@ -49219,7 +49219,7 @@ async function plusSiDoRegister(name, owned) {
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
   let r;
   try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
-  catch (e) { siRestore(); if (!owned) plusSiMsg(''); throw e; }
+  catch (e) { PLUS_SI_REGISTERING = false; siRestore(); if (!owned) plusSiMsg(''); throw e; }   // review 4: not left set
   if (r.stale) { PLUS_SI_REGISTERING = false; return; }
   /* Review 2: only a connect that worked holds (the flash is a success's); a refusal or error shows at once. Through
      the hold the register counts as running for both kinds, so the status tick does not paint the connected view
