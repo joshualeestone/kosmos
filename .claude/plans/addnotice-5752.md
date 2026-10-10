@@ -1,6 +1,6 @@
 # addnotice-5752: a refused task write shows in the project's room, with an add button (slice 3 of #5752)
 
-Card: joshualeestone/kosmos#5752 (decision comment, night shift 2026-10-10). Stacked on memberfix-5752 (#5758, slice 2).
+Card: joshualeestone/kosmos#5752 (decision comment, night shift 2026-10-10). Follows slice 2 (#5758, merged as 33a90046); main merged in.
 
 ## Why
 Slice 2 tells the AGENT how to ask to be added. The person still could not see the refusal unless the agent said so.
@@ -77,3 +77,7 @@ Slice 2 tells the AGENT how to ask to be added. The person still could not see t
 - The plan's Change and Tests sections were rewritten to the current rules.
 - logRoomRefusal, ROOM_HELD_REFUSAL and NOT_ON_PROJECT_FIX moved above react()'s doc comment.
 - Left as is (NIT): a pane-claimed refusal and a later token-named one by the same agent and attempt leave two rows.
+
+## Review round 4 (Sonnet)
+No BLOCKER, WARNING or CONVENTION. The merge of main (slice 2 had landed as a squash) was checked hunk by hunk: nothing
+from main lost or doubled. Two NITs: this file's stacked-on line (fixed), and one long comment line (left).
