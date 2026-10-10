@@ -1,6 +1,6 @@
 # #5406 part 2, slice C: the question's choices as buttons in its bubble
 
-Card: joshualeestone/kosmos#5406. Stacked on menukeys-5406 (slice A, PR #5746: answering Claude's question menu by key).
+Card: joshualeestone/kosmos#5406. Builds on slice A (PR #5746, merged: answering Claude's question menu by key).
 
 ## Finished looks like
 

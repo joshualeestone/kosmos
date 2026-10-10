@@ -7,7 +7,9 @@
  *
  * THREE ARMS, light and dark:
  *   CHOICES   a live question with options and its identity (asked): the buttons are inside the question's bubble, in
- *             order, labelled, keyboard-focusable, and a press POSTs { text: digit, chose: label, asked }.
+ *             order, labelled, keyboard-focusable, and a press POSTs { text: digit, chose: label, asked } and says Sent.
+ *             Focus across a rewrite: back on the same choice; to the message box when the question changed, or when
+ *             the choice is drawn disabled (the answered lock).
  *   NO-MENU   the same question with options null (the server was not sure): no buttons (CONTROL).
  *   REPORTED  a question the agent reported in its own words (no live menu): no buttons (CONTROL).
  *
@@ -106,6 +108,23 @@ async function run() {
             return out;
           });
           check(`[${theme}] choices: a rewrite with a different question sends focus to the message box`, !moved.onChoice && moved.id === 'd-say', JSON.stringify(moved));
+          // Review 32: a rewrite inside the answered lock draws the same choice disabled, which cannot take focus.
+          await page.locator('#d-dmthread .dmchoice[data-n="3"]').focus();
+          const locked = await page.evaluate(async () => {
+            DM_CHOICE_ANSWERED.set('april', { asked: window.__fx.asked, at: Date.now(), sure: true });
+            const keep = window.__fx;
+            window.__fx = { ...keep, messages: [...keep.messages, { from: 'april', text: 'Still thinking.', at: new Date(Date.now() + 3000).toISOString() }] };
+            await paintTalk('april', 'April');
+            const a = document.activeElement;
+            const out = { drawnOff: !!document.querySelector('#d-dmthread .dmchoice[data-n="3"][disabled]'), id: a && a.id,
+              onChoice: !!(a && a.classList && a.classList.contains('dmchoice')) };
+            DM_CHOICE_ANSWERED.delete('april');
+            window.__fx = keep;
+            await paintTalk('april', 'April');
+            return out;
+          });
+          check(`[${theme}] choices: a rewrite inside the answered lock sends focus to the message box, not a disabled choice`,
+            locked.drawnOff && !locked.onChoice && locked.id === 'd-say', JSON.stringify(locked));
           await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
           await page.waitForTimeout(150);
           const posted = await page.evaluate(() => window.__posted);
