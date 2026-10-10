@@ -102,7 +102,7 @@ test('#5743 CONTROL: an idle agent is typed into as before, and pays no screen r
     const v = await chat.deliverAutomaticAsync('casey', 'A line for Casey.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
     assert.ok(calls.typed().length > 0, 'nothing was typed to an idle agent');
-    // An ordinary delivery pays no extra screen read: only a card the snapshot already calls needs_you is looked at.
+    // An idle card's screen is not read (it cannot be showing any of the three screens).
     assert.equal(calls.filter((c) => c[0] === 'capture-pane').length, 0, 'an idle agent\'s screen was read before typing');
   });
 });
@@ -244,4 +244,17 @@ test('#5754 review 11: a permission prompt in other wording is caught by its sha
   assert.equal(status.claudePermissionPromptUp(' Allow Claude to fetch example.com?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend'), true);
   // CONTROL: the same wording with no highlighted numbered option and no footer is not a prompt.
   assert.equal(status.claudePermissionPromptUp('⏺ Allow Claude to fetch example.com? I think so.\n\n❯ \n'), false);
+});
+
+test('#5754 review 12 CONTROL: a WORKING card on an ordinary working screen is typed into (its screen is read, nothing matches)', async () => {
+  const WORKING = '⏺ Running the tests now.\n\n✻ Cogitating… (12s · ↓ 1.2k tokens · esc to interrupt)\n\n' + '─'.repeat(40)
+    + '\n❯ \n' + '─'.repeat(40) + '\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt\n';
+  const board = fleet.install([fleet.agent('casey', { state: 'working' })]);
+  try {
+    const calls = arm(WORKING);
+    const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
+    assert.ok(calls.some((c) => c[0] === 'capture-pane'), 'premise: a working card\'s screen is read');
+    assert.doesNotMatch(String(v.because), /on its screen/, JSON.stringify(v));
+    assert.ok(calls.typed().length > 0, 'an ordinary working screen was refused');
+  } finally { chat.resetForTests(); board.restore(); }
 });
