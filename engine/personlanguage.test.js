@@ -205,9 +205,9 @@ test('#5050 review 3/4: a sure read is kept for the process; a fallback is kept 
   const src = { env: {}, platform: 'darwin', intl: 'en-US', run: () => { calls += 1; if (!macAnswer) throw new Error('timed out'); return macAnswer; } };
   try {
     pl._resetForTests(src);
-    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false, from: 'computer', auto: true }, 'CONTROL: the first read is the fallback');
+    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false, from: 'computer' }, 'CONTROL: the first read is the fallback');
     macAnswer = '(\n    "es-MX"\n)\n';
-    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false, from: 'computer', auto: true }, 'a fallback was not kept: a hanging defaults would stall every create');
+    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false, from: 'computer' }, 'a fallback was not kept: a hanging defaults would stall every create');
     assert.equal(calls, 1, 'defaults was asked again inside the window');
     pl._ageFallbackForTests();
     assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true, from: 'computer' }, 'a fallback was kept past its window, so the Mac answering later was ignored');

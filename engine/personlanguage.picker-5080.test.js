@@ -36,9 +36,9 @@ test('#5080: the choice file lives under the sandboxed data root, never the real
 
 test('#5080: no file is Automatic, and Automatic reads exactly as before the picker', () => {
   clearChoice();
-  assert.deepEqual(pl.readChoice(), { choice: 'auto', ok: true });
+  assert.deepEqual(pl.readChoice(), { choice: 'auto', ok: true, none: true });
   pl._resetForTests(LINUX);
-  assert.deepEqual(pl.read(), { tag: 'es-ES', sure: false, from: 'computer', auto: true }, 'off a Mac, Automatic is still not sure');
+  assert.deepEqual(pl.read(), { tag: 'es-ES', sure: false, from: 'computer' }, 'off a Mac, Automatic is still not sure');
   pl._resetForTests(SPANISH_MAC);
   assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true, from: 'computer' });
 });
@@ -209,13 +209,18 @@ test('#5080 review 2: only the bracketed Settings source marks a block as ours t
   agentFile('eli', pasted);
   const board = fleet.install([fleet.agent('eli')]);
   try {
-    clearChoice();
+    pl.setChoice('auto');
     pl._resetForTests(LINUX);
     pl.syncEveryone(board.roster);
     assert.equal(fileOf('eli'), pasted, 'a block that only mentions the phrase was removed');
-    // CONTROL: the same file with the block a choice writes IS taken out, so the check above could fail.
+    clearChoice();
+    // Review 6: with no choice ever saved, no block can be one a choice wrote, so nothing is read or removed.
     const ours = head + projects_block(pl.blockBody('es-419', 'settings'));
     agentFile('eli', ours);
+    pl.syncEveryone(board.roster);
+    assert.equal(fileOf('eli'), ours, 'with no choice ever saved, a block was taken out');
+    // CONTROL: once Automatic is a saved choice, the same block IS taken out, so the checks above could fail.
+    pl.setChoice('auto');
     pl.syncEveryone(board.roster);
     assert.doesNotMatch(fileOf('eli'), /chosen in Kosmos Settings/, 'CONTROL: the block a choice wrote was not taken out');
   } finally { board.restore(); clearChoice(); }
