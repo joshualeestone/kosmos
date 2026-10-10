@@ -321,3 +321,14 @@ test('#5406 slice C: a permission prompt draws no buttons, and a press at one is
     assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), [], 'a press at a permission prompt was typed');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5406 slice C: a press for an agent not run by Claude is refused, never pasted (the GET never serves it asked)', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'gemini', command: 'claude', screen: MENU })]);
+  try {
+    const calls = armPane();
+    const r = await post({ text: '1', chose: 'Apple', asked: 'Which fruit do you want?' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.deepEqual(calls.keys(), []);
+    assert.equal(calls.pasted(), '', 'a press for another runner was pasted');
+  } finally { chat.resetForTests(); board.restore(); }
+});
