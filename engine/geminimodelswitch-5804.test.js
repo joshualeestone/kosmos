@@ -51,3 +51,15 @@ test('#5804: geminisession reports when the model-naming reply was written', () 
   assert.match(src, /const modelAt = model && Number\.isFinite\(parseTs\(lastGemini\)\) \? parseTs\(lastGemini\) : null;/);
   assert.match(src, /\n    model,\n    modelAt,\n  \};/);
 });
+
+test('#5804 review 6: every same-model suffix status.js GEMINI_WINDOWS knows is one canonicalId strips (the copies stay in step)', () => {
+  const { canonicalId } = require('./geminimodelswitch');
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'status.js'), 'utf8');
+  const m = /\(-\((preview\|latest[^)]*)\)\)\*\$/.exec(src);
+  assert.ok(m, 'CONTROL: the GEMINI_WINDOWS suffix alternation was found');
+  const samples = { '\\d{3}': '001', '\\d{2}-\\d{2}': '09-25', '\\d{2}-\\d{4}': '09-2025' };
+  for (const tok of m[1].split('|')) {
+    const word = Object.prototype.hasOwnProperty.call(samples, tok) ? samples[tok] : tok;
+    assert.equal(canonicalId('gemini-2.5-flash-' + word), 'gemini-2.5-flash', 'status.js treats -' + word + ' as the same model; canonicalId does not');
+  }
+});
