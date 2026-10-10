@@ -8791,7 +8791,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const saved = personlanguage.setChoice(body && body.choice);
-        if (!saved.ok) { sendJson(res, saved.because === 'we could not save that setting' ? 500 : 400, { error: saved.because }); return; }
+        if (!saved.ok) { sendJson(res, saved.code === 'io' ? 500 : 400, { error: saved.because }); return; }
         let changed = 0;
         let removed = 0;   // review 5: a removed block owes no re-read, so running agents drop it at their next start
         let couldNot = 0;

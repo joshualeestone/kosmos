@@ -71,12 +71,12 @@ function readChoice() {
 
 /** Save the person's choice (`auto` or a tag on the list). The process's cached read is dropped, so the next read uses it. */
 function setChoice(choice) {
-  if (choice !== AUTO && !CHOICES.some((x) => x.tag === choice)) return { ok: false, because: 'that is not one of the languages Kosmos offers' };
+  if (choice !== AUTO && !CHOICES.some((x) => x.tag === choice)) return { ok: false, code: 'invalid', because: 'that is not one of the languages Kosmos offers' };
   try {
     fs.mkdirSync(path.dirname(CHOICE_FILE), { recursive: true });
     store.saveFlushed(CHOICE_FILE, JSON.stringify({ choice }) + '\n');
   } catch {
-    return { ok: false, because: 'we could not save that setting' };
+    return { ok: false, code: 'io', because: 'we could not save that setting' };
   }
   return { ok: true };   // the next read sees the new choice (read() keys its cache on it)
 }
@@ -121,9 +121,7 @@ function read(o) {
     // Review 5: Automatic chosen again reuses what Automatic last read, so a save does not ask a hanging `defaults` anew.
     const autoFresh = picked.ok && picked.choice === AUTO && autoCached !== undefined
       && (autoCached.sure || Date.now() - autoAt < FALLBACK_MS);
-    // The reused read takes its `auto` mark from the choice as it is now (a saved Automatic, or none ever saved).
-    const reuse = () => (autoCached.sure ? autoCached : (({ auto, ...rest }) => (picked.none ? rest : { ...rest, auto: true }))(autoCached));
-    const got = autoFresh ? reuse() : read({ ...(source || {}), choice: picked });
+    const got = autoFresh ? withAutoMark(autoCached, picked) : read({ ...(source || {}), choice: picked });
     cached = got; cachedChoice = key; fallbackAt = got.sure ? 0 : Date.now();
     // With Automatic chosen this IS what Automatic reads, so the Settings page does not ask `defaults` a second time.
     if (picked.ok && picked.choice === AUTO && !autoFresh) { autoCached = got; autoAt = fallbackAt; }
@@ -149,6 +147,14 @@ function read(o) {
   try { tag = normalise(opts.intl !== undefined ? opts.intl : Intl.DateTimeFormat().resolvedOptions().locale); } catch { tag = null; }
   // `auto`: Automatic was read from the file, so a block that names Settings as its source is known to be stale.
   return picked.none ? { tag, sure: false, from: 'computer' } : { tag, sure: false, from: 'computer', auto: true };
+}
+/* A reused Automatic read, with its `auto` mark (take out a stale Settings block) from the choice as it is now: a saved
+   Automatic carries it, Automatic with no choice ever saved does not. A sure read carries none either way. */
+function withAutoMark(got, picked) {
+  if (got.sure) return got;
+  const rest = { ...got };
+  delete rest.auto;
+  return picked.none ? rest : { ...rest, auto: true };
 }
 /* #5080: what Automatic reads on this computer, whatever the stored choice (the picker shows it beside Automatic). Kept
    the way read() keeps its answer, so opening Settings does not ask a hanging `defaults` each time (review 4). */

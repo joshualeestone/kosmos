@@ -31,7 +31,7 @@ test('#5080: an unreadable choice is never shown as a choice, and cannot be save
 });
 
 test('#5080: Automatic names the computer\'s language only when the board is sure of it; otherwise it says English', () => {
-  assert.match(code, /const autoSure = !!\(a && a\.sure && a\.name\);\s*opts\.push\(\{ value: 'auto', text: autoSure \? 'Automatic: ' \+ a\.name \+ ', from this computer' : 'Automatic: English for now' \}\);/);
+  assert.match(code, /const autoSure = !!\(a && a\.sure && a\.name\);/);
   // Mona Lisa's review: a not-sure option never promises the computer's language (no block is written, so it is English).
   assert.doesNotMatch(code, /'Automatic: this computer/, 'an Automatic option promises the computer\'s language');
   assert.match(code, /id="agent-language-auto-note"[^>]*hidden>Kosmos could not tell this computer’s language, so new agents write in English, and an agent that already had a language from this computer keeps it\. Pick a language above to set it for all of them\.<\/p>/);
@@ -56,6 +56,10 @@ test('#5080 review 2: a read still out from page load cannot drop a save\'s answ
   assert.doesNotMatch(fn, /mine !== AGENT_LANG_EPOCH/, 'the save is again dropped by a read\'s epoch');
 });
 
-test('#5080 review 5: a save that removed blocks says running agents drop them at their next start', () => {
-  assert.match(code, /: Number\(body\.removed\) > 0 \? 'Saved\. New agents use it now\. Agents already running drop their old language the next time they start\.'/);
+test('#5080 review 5/7: the save message says what the save did (nothing, only removals, a mix, or blocks written)', () => {
+  assert.match(code, /: !changed \? 'Saved\.'\s*: removed === changed \? 'Saved\. New agents use it now\. Agents already running drop their old language the next time they start\.'\s*: removed \? 'Saved\. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start\.'\s*: 'Saved\. Your agents switch to it once they finish what they are doing\.';/);
+});
+
+test('#5080 review 7: with nothing read, Automatic claims nothing about this computer', () => {
+  assert.match(code, /text: autoSure \? 'Automatic: ' \+ a\.name \+ ', from this computer' : a \? 'Automatic: English for now' : 'Automatic' \}/);
 });

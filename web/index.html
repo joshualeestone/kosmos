@@ -32813,7 +32813,8 @@ function agentLanguagePaint(r, keepMsg) {
   const opts = [];
   if (unread) opts.push({ value: '__unknown', text: 'Could not be read just now', disabled: true });
   const autoSure = !!(a && a.sure && a.name);
-  opts.push({ value: 'auto', text: autoSure ? 'Automatic: ' + a.name + ', from this computer' : 'Automatic: English for now' });
+  // Nothing read at all (r is null): plain "Automatic", which claims nothing about this computer.
+  opts.push({ value: 'auto', text: autoSure ? 'Automatic: ' + a.name + ', from this computer' : a ? 'Automatic: English for now' : 'Automatic' });
   for (const o of list) opts.push({ value: o.tag, text: String(o.name || o.tag) });
   sel.textContent = '';
   for (const o of opts) {
@@ -32863,10 +32864,16 @@ async function agentLanguageChange() {
     AGENT_LANG_EPOCH += 1;   // nor does a read started while this save was out
     agentLanguagePaint(body);
     const n = Number(body.couldNot) || 0;
+    const changed = Number(body.changed) || 0;
+    const removed = Number(body.removed) || 0;
+    // Review 7: said by what the save did. A removal owes no re-read (the agent drops it at its next start); a written
+    // block is re-read once the agent is idle; nothing changed says only Saved.
     msg.textContent = body.ok !== true ? 'Saved, but we could not read it back just now.'
       : n < 0 ? 'Saved. Your agents pick it up the next time Kosmos starts.'
         : n ? 'Saved. ' + n + (n === 1 ? ' agent' : ' agents') + ' could not be changed just now and keep the language they have until Kosmos next starts.'
-        : Number(body.removed) > 0 ? 'Saved. New agents use it now. Agents already running drop their old language the next time they start.'
+        : !changed ? 'Saved.'
+        : removed === changed ? 'Saved. New agents use it now. Agents already running drop their old language the next time they start.'
+        : removed ? 'Saved. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start.'
         : 'Saved. Your agents switch to it once they finish what they are doing.';
   } catch {
     msg.textContent = 'We could not save that setting.';
