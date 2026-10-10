@@ -11455,7 +11455,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 /* #5785: the branded K-to-circle loader (#2692) above "Signing in..." while this computer connects; the restart
    interstitial's canvas size. Empty (and so taking no room) the rest of the time. */
-#plus-si-k canvas { width: 88px; height: 103px; display: block; margin: 0 0 16px; }
+#plus-si-k canvas { width: 88px; height: 103px; display: block; margin: 0 auto 16px; }
+/* Mona Lisa's review: while it connects, the K, the heading and the lines under it are centred, as on the restart
+   screen the loader comes from (.restart-back .restart-msg). Only then: the card's other steps keep their layout. */
+#plus-state2.plus-si-busy #plus-si-title, #plus-state2.plus-si-busy #plus-si-owned, #plus-state2.plus-si-busy #plus-si-k-note { text-align: center; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
 #plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
@@ -18860,6 +18863,8 @@ window.kosmosMeasureScrollbarWidth();
         <!-- #4608 (Josh, 2026-09-29 12:49): while this computer connects, the app's ring loader (the Sweep
              spinner, .spin-sweep) shows beside the words, and the heading says "Signing in...". -->
         <p class="plus-si-lead" id="plus-si-owned" hidden tabindex="-1" role="status" aria-live="polite"><span class="spin spin-sweep" id="plus-si-spin" style="--sz:18px" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> <span id="plus-si-owned-lead">Connecting this computer as</span> <b id="plus-si-owned-addr"></b><span id="plus-si-owned-tail">...</span></p>
+        <!-- #5785 (Mona Lisa's review): measured on the coordinator, a connect is about 33 s (a fixed 24 s DNS settle). -->
+        <p class="plus-si-lead" id="plus-si-k-note" hidden>This takes about half a minute.</p>
         <div class="field" id="plus-si-name-field">
           <label class="flabel" for="plus-si-name">Choose your Kosmos+ address</label>
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
@@ -48298,8 +48303,14 @@ function plusSiKStart() {
   if (!holder) return;
   holder.innerHTML = '<canvas width="176" height="206" aria-hidden="true"></canvas>';
   if (typeof startKLoader === 'function') startKLoader(holder.firstElementChild);
+  const card = document.getElementById('plus-state2'); if (card) card.classList.add('plus-si-busy');
+  const note = document.getElementById('plus-si-k-note'); if (note) note.hidden = false;
 }
-function plusSiKStop() { const holder = document.getElementById('plus-si-k'); if (holder) holder.textContent = ''; }
+function plusSiKStop() {
+  const holder = document.getElementById('plus-si-k'); if (holder) holder.textContent = '';
+  const card = document.getElementById('plus-state2'); if (card) card.classList.remove('plus-si-busy');
+  const note = document.getElementById('plus-si-k-note'); if (note) note.hidden = true;
+}
 function plusSiShow(step) {
   for (const id of PLUS_SI_STEPS) {
     const el = document.getElementById(id);

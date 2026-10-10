@@ -62,3 +62,11 @@ test('#5785 review 1: the browser checks that drive a register skip the hold (th
     assert.equal(seams, pages, f + ': a page that drives a register would wait out the 4.4 s hold');
   }
 });
+
+test('#5785 Mona\'s review: centred while it connects, with the wait said, and both put back when it ends', () => {
+  assert.match(code, /#plus-si-k canvas \{[^}]*margin: 0 auto 16px;/);
+  assert.match(code, /#plus-state2\.plus-si-busy #plus-si-title, #plus-state2\.plus-si-busy #plus-si-owned, #plus-state2\.plus-si-busy #plus-si-k-note \{ text-align: center; \}/);
+  assert.match(code, /<p class="plus-si-lead" id="plus-si-k-note" hidden>This takes about half a minute\.<\/p>/);
+  assert.match(fnBody('plusSiKStart'), /card\.classList\.add\('plus-si-busy'\)[\s\S]*note\.hidden = false/);
+  assert.match(fnBody('plusSiKStop'), /card\.classList\.remove\('plus-si-busy'\)[\s\S]*note\.hidden = true/);
+});
