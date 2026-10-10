@@ -75,6 +75,7 @@ test('#5080: only the list is accepted, and a refused choice leaves the file as 
     const r = pl.setChoice(bad);
     assert.equal(r.ok, false, JSON.stringify(bad));
     assert.equal(r.because, 'that is not one of the languages Kosmos offers');
+    assert.equal(r.code, 'invalid', 'the route tells a bad choice (400) from a failed save (500) by this');
   }
   assert.equal(fs.readFileSync(pl.CHOICE_FILE, 'utf8'), before);
   assert.deepEqual(pl.CHOICES.map((c) => c.tag), ['en', 'es-419', 'pt-BR']);

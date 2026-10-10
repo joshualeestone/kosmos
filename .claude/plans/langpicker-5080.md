@@ -16,7 +16,8 @@ it the person's choice, on every platform.
    `from: 'settings'`) -> the Mac's setting (sure, `from: 'computer'`) -> Intl (not sure). Returns `from`.
 3. **Block wording:** unchanged byte for byte for `from: 'computer'`. For a Settings choice the parenthetical reads
    "(es-419, chosen in Kosmos Settings)" instead of "(…, from this computer's language setting)". Nothing else differs.
-4. **`setChoice(choice)`**: validates against the fixed list, saves, resets the process cache, returns the new read.
+4. **`setChoice(choice)`**: validates against the fixed list, saves, returns `{ ok }` (or `{ ok: false, code: 'invalid' | 'io' }`).
+   read() keys its cache on the stored choice (read every call), so the next read uses it whoever wrote the file.
 5. **Routes** `GET /api/agent-language` -> `{ choice, ok, options:[{tag,name}], automatic:{tag,name,sure} }`;
    `PUT { choice }`: the person's only (agent token refused, 403, as /api/undo-setting), saves, then runs
    `syncEveryone(safeRoster())` + `instructionRereadOweEach(told, 'language')` exactly as the boot sweep does, so
