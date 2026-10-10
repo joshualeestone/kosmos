@@ -114,13 +114,15 @@ test('on its token alone an agent reads only the room and tasks of a project it 
   withProject(t);
   const roomText = await call('GET', '/api/project/other4491/room?as=text', asAgent(agentToken));
   assert.equal(roomText.code, 403, 'a non-member read the room: ' + roomText.text.slice(0, 120));
-  assert.equal(roomText.text, 'that agent is not on this project, so it cannot read its room\n', 'the text arm prints its sentence bare, for the bash CLI');
+  assert.equal(roomText.text, 'that agent is not on this project, so it cannot read its room; ask the person to add this agent with Add member on the project\'s page, then run the same command again\n', 'the text arm prints its sentence bare, for the bash CLI');
   const roomJson = await call('GET', '/api/project/other4491/room', asAgent(agentToken));
   assert.equal(roomJson.code, 403);
   assert.match(JSON.parse(roomJson.text).error, /not on this project/);
   const tasks = await call('GET', '/api/tasks?project=other4491', asAgent(agentToken));
   assert.equal(tasks.code, 403, 'a non-member read the tasks: ' + tasks.text.slice(0, 120));
   assert.doesNotMatch(tasks.text, /not yours/);
+  // kosmos#5752 slice 2: the task read's refusal names the fix too.
+  assert.equal(JSON.parse(tasks.text).error, "that agent is not on this project, so it cannot read its tasks; ask the person to add this agent with Add member on the project's page, then run the same command again");
   /* Never the global set. */
   const all = await call('GET', '/api/tasks', asAgent(agentToken));
   assert.equal(all.code, 403, 'the global task list was read on an agent token alone: ' + all.text.slice(0, 120));

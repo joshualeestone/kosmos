@@ -4539,6 +4539,9 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
    `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
    let a caller into a project that has members. */
+/* kosmos#5752 slice 2: a refusal for not being on the project names its fix, so the agent can ask for it in one step
+   instead of passing its result to a member to record by hand. The person adds members on the project's page. */
+const NOT_ON_PROJECT_FIX = '; ask the person to add this agent with Add member on the project\'s page, then run the same command again';
 function notOnProjectRefusal(who, id, verb, notDone) {
   if (!who || !who.card) return null;
   let stored;
@@ -4547,7 +4550,7 @@ function notOnProjectRefusal(who, id, verb, notDone) {
   if (!stored.length) return null;
   const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
   return stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
-    : [403, 'that agent is not on this project, so it cannot ' + verb];
+    : [403, 'that agent is not on this project, so it cannot ' + verb + NOT_ON_PROJECT_FIX];
 }
 /* #4887, shared with #4914's `task assign`: the agent a CLI's `who` names on project `id`. For an agent caller
    (`card`), `me` is that agent unless a member is named exactly what was typed; the page sends member names, so
@@ -17458,7 +17461,7 @@ const server = http.createServer(async (req, res) => {
       const stored = (everyProject || []).filter((x) => x && x.id === projectScope);
       if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
       if (!tokenOnly || !stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
-        sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' });
+        sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' + NOT_ON_PROJECT_FIX });
         return;
       }
       forTasksView = false;
@@ -18212,7 +18215,7 @@ const server = http.createServer(async (req, res) => {
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
       projectKnown = stored.length > 0;
       if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => tokenOnlyOnProject(p, tokenOnly)))) {
-        roomRefusal = [403, 'that agent is not on this project, so it cannot read its room'];
+        roomRefusal = [403, 'that agent is not on this project, so it cannot read its room' + NOT_ON_PROJECT_FIX];
       }
     } catch {
       projectKnown = true;
@@ -19674,7 +19677,7 @@ const server = http.createServer(async (req, res) => {
         try { proj = projects.readAll().find((x) => x && x.id === id) || null; }
         catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
-          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' });
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
       }
@@ -19756,7 +19759,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
-          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
         const refused = builtMarkRefusal();
@@ -19856,7 +19859,7 @@ const server = http.createServer(async (req, res) => {
           }
           const stored = memberRecord;
           if (stored && !projectHasAgent(stored, senderCard.sessionName, byKey)) {
-            sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' });
+            sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' + NOT_ON_PROJECT_FIX });
             return;
           }
         }
