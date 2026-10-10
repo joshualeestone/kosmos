@@ -464,7 +464,7 @@ test('#5752 slice 3: a refused row says what was tried and offers the add only w
   const html = api.pjRoomRow(row, p);
   assert.match(html, /zed tried to record a run of a task here and Kosmos stopped it: /);
   assert.match(html, /<div class="pj-refused-act"><button type="button" class="pj-refused-add" data-add-member="zed">Add zed to this project<\/button>/);
-  assert.ok(html.indexOf('class="msg-t"') < html.indexOf('pj-refused-act'), 'the time stays with the sentence, before the add');
+  assert.ok(html.indexOf('class="msg-t"') >= 0 && html.indexOf('class="msg-t"') < html.indexOf('pj-refused-act'), 'the time stays with the sentence, before the add');
   assert.doesNotMatch(api.pjRoomRow(row, { id: 'p1', agents: [{ sessionName: 'zed', name: 'zed' }] }), /data-add-member/,
     'already a member: no button');
   const legacy = { kind: 'refused', from: 'zed', because: 'the room is held', at: new Date().toISOString() };
@@ -532,4 +532,9 @@ test('#5752 slice 3: pressing Add adds that agent, repaints the room from what i
   assert.deepEqual(left.calls, ['add zed', 'reload'], 'review 2: the person left the project during the add: nothing repainted, said or focused there');
   const src = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(src, /document\.getElementById\('pj-room'\)\.addEventListener\('click', pjRefusedAddClick\);/, 'wired to the room');
+  // Review 5: the add is a 44px target on a touch screen (with Try again, #5219), its status span is never hidden (a
+  // live region hidden until it gets text is often not announced), and a long agent name wraps.
+  assert.match(src, /:is\(#pj-one-view \.pj-doc, \.pnotice \.qopt, \.msg-valve \.pj-refused-add\) \{ min-height: 44px; \}/);
+  assert.doesNotMatch(src, /\.pj-refused-msg[^{]*\{[^}]*display:\s*none/);
+  assert.doesNotMatch((src.match(/\.msg-valve \.pj-refused-add \{[^}]*\}/) || [''])[0], /nowrap/);
 });

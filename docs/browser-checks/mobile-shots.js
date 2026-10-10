@@ -1048,16 +1048,15 @@ const SCREENS = [
   } },
   /* kosmos#5752 slice 3 (PigeonPete): an agent not on the project was refused a task write, and the room offers the
      person "Add <name> to this project". The refused row is the one the board writes (engine/messages.js
-     logRoomRefusal), appended once to this throwaway board's log; the agent is the second project's, a live board agent
-     that is not on this one. Kept last in the list so no other screen's room shows the row. */
+     logRoomRefusal), appended to this throwaway board's log; the agent is the second project's, a live board agent that
+     is not on this one. `after` takes that exact line out again, so no other screen's room shows it in any pass (the
+     passes share one board: a row left in would reach project-room's dark and phone shots). */
   { name: 'project-room-refused-5752', owner: 'PigeonPete', go: async (page, data) => {
-    if (!data.refusedSeeded) {
-      const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
-      fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), JSON.stringify({ kind: 'refused', from: data.outsider, to: data.projectId,
-        project: data.projectId, because: 'that agent is not on this project, so it cannot change its tasks', doing: 'record a run of a task',
-        addable: true, at: new Date().toISOString() }) + '\n');
-      data.refusedSeeded = true;
-    }
+    const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
+    data.refusedLine = JSON.stringify({ kind: 'refused', from: data.outsider, to: data.projectId,
+      project: data.projectId, because: 'that agent is not on this project, so it cannot change its tasks', doing: 'record a run of a task',
+      addable: true, at: new Date().toISOString() });
+    fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.refusedLine + '\n');
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-room [data-add-member]', { state: 'visible', timeout: 10000 });
@@ -1068,6 +1067,12 @@ const SCREENS = [
     for (const want of ['tried to record a run of a task here and Kosmos stopped it', 'to this project']) {
       if (!t.includes(want)) throw new Error('the refused row does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
     }
+  }, after: async (page, data) => {
+    if (!data.refusedLine) return;
+    const file = path.join(require(path.join(REPO, 'engine', 'store')).ROOT, 'messages.jsonl');
+    const kept = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l !== data.refusedLine);
+    fs.writeFileSync(file, kept.join('\n'));
+    data.refusedLine = null;
   } },
 ];
 

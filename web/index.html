@@ -6449,7 +6449,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   /* #5219, a project's room: a document row and Try again grow to 44. The header's small controls keep their 36px
      areas (#4663: at 44, render-room-msgbox-2806 measured 64 of the breadcrumb's px answering as Back, and View All
      answering as + New task on a tablet), and the composer's buttons stay with #4108, which owns that row. */
-  :is(#pj-one-view .pj-doc, .pnotice .qopt) { min-height: 44px; }
+  :is(#pj-one-view .pj-doc, .pnotice .qopt, .msg-valve .pj-refused-add) { min-height: 44px; }
   #pj-one-view .pj-doc { align-items: center; }   /* the taller row keeps its text in the middle (April, Renet: it sat 6px from the top) */
 }
 /* kosmos#5200: on a touch screen every control on the task page is a 44px target. Boxed controls grow to 44; the
@@ -7712,9 +7712,11 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 /* kosmos#5752 slice 3: the add on a refused band, on its own line, dressed as the room notice's Try again (.pnotice .qopt). */
 .msg-valve .pj-refused-act { display: flex; align-items: center; gap: .6em; flex-wrap: wrap; margin-top: 6px; }
 .msg-valve .pj-refused-add { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
-  border: 1px solid var(--k-rule); border-radius: 8px; padding: .4em .9em; cursor: pointer; white-space: nowrap; }
+  border: 1px solid var(--k-rule); border-radius: 8px; padding: .4em .9em; cursor: pointer; max-width: 100%; text-align: left; }
 .msg-valve .pj-refused-add:disabled { cursor: default; opacity: .6; }
-.msg-valve .pj-refused-msg:empty { display: none; }
+.msg-valve .pj-refused-add:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* The name in the label is the person's own and can be long, so it wraps (no nowrap, as Try again's fixed label has).
+   The status span is never display:none: a live region hidden until it gets text is often not announced. */
 /* ⚠️ A FILLED, PADDED TRAY rather than a bare flex row (Mona Lisa's triage,
    the one of thirty-two items that was a real gap). The pack gives the
    composer a ground of its own, and the difference it makes is not decoration:

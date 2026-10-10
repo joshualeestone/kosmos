@@ -81,3 +81,11 @@ Slice 2 tells the AGENT how to ask to be added. The person still could not see t
 ## Review round 4 (Sonnet)
 No BLOCKER, WARNING or CONVENTION. The merge of main (slice 2 had landed as a squash) was checked hunk by hunk: nothing
 from main lost or doubled. Two NITs: this file's stacked-on line (fixed), and one long comment line (left).
+
+## Review round 5 (Opus: the two commits after round 4)
+- The design-shots screen's row reached other screens' rooms from the second pass on (all passes share one board);
+  `after` now takes its exact line out again (the tool's own state-restore hook, #4545).
+- The add lost the 44px touch target when it left btn-quiet; it joins Try again in the #5219 touch rule.
+- The status span is never display:none (a live region hidden until it gets text is often not announced).
+- A long agent name wraps (no nowrap, max-width 100%); the add has the app's focus ring.
+- The test's time-before-add check now fails if the time is missing.
