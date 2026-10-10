@@ -141,6 +141,12 @@ test('#5744: every chunk batch and the manifest are uploaded naming the key epoc
     assert.ok(st.chunkOpts.length > 1);
     assert.ok(st.chunkOpts.every((o) => o && o.epoch === k.ctx.epoch), JSON.stringify(st.chunkOpts));
     assert.equal(st.manifests[0].opts.epoch, k.ctx.epoch);
+    // A context epoch no grant can name is refused before anything is read or uploaded.
+    const st2 = store();
+    const r2 = await take(Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { epoch: '01' }) }), w.root, st2);
+    assert.equal(r2.ok, false);
+    assert.match(r2.because, /key epoch \("01"\) is not one a grant can name/);
+    assert.equal(st2.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 

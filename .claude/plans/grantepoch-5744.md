@@ -11,7 +11,8 @@ condition: this check ships before, or with, any engine code that registers epoc
   answer's `epoch` is not that integer, or any of whose keys' third segment (`<org>/<account>/<epoch>/...`) is not
   that epoch, is refused before any byte is sent, and no new grant is asked for. An `opts.epoch` that is not a
   context id (`'01'`, `'0'`, `'x'`, -1, 1.5) is refused before any grant.
-- engine/backupsnapshot.js: both calls pass `ctx.epoch`, the epoch the chunks and the manifest were sealed under. The
+- engine/backupsnapshot.js: refuses a context whose epoch no grant can name (backupupload's `isKeyEpoch`) before
+  anything is read, and both upload calls pass `ctx.epoch`, the epoch the chunks and the manifest were sealed under. The
   keyProblem comment no longer says the coordinator writes a constant epoch.
 
 ## Decided
@@ -37,3 +38,9 @@ That `ctx.epoch` is the epoch of the member key the chunks were sealed with. bac
   is refused before a grant.
 - backupsnapshot: every chunk batch and the manifest are uploaded with opts.epoch = ctx.epoch.
 - Red without the product change (main's two files): 3 fail; green with it: 196 pass.
+
+## Review 1 (opus)
+- FIXED: a context epoch backupkeys accepts but no grant can name ('01', 'e1') was refused only at the first upload,
+  after the walk and the sealing; backupsnapshot now refuses it up front with the uploader's own predicate (tested).
+- NIT taken: the chunk refusal test asserts grantSpent true. NIT not taken: a structured code for an epoch mismatch
+  (the caller that would act on it is the later lost-key slice, which sets that contract with precondition 2).
