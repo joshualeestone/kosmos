@@ -40,7 +40,7 @@ it the person's choice, on every platform.
 
 - Review 1: with Automatic chosen and no sure read (every Windows and Linux board, a Mac whose read failed), a block
   whose source is "chosen in Kosmos Settings" is stale and is removed; a block the computer's setting wrote stays. This
-  means the boot sweep off a Mac now READS each agent's file (it read none before); it writes only when a stale Settings
+  means, once a choice has been saved, the boot sweep off a Mac READS each agent's file (review 6: with no choice ever saved it reads none, as before); it writes only when a stale Settings
   block is there, and a file it cannot read or with two blocks is left quietly (review 3: no boot noise).
 - Review 3: the boot line for an unreadable choice file names Settings, not the Mac's setting.
 
