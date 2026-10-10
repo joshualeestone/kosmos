@@ -597,7 +597,9 @@ function readState(root) {
     const obj = (v) => (v && typeof v === 'object' ? v : {});
     const nums = (v) => Object.fromEntries(Object.entries(obj(v)).filter(([, x]) => Number.isFinite(x) && x >= 0));   // review 24
     /* Queue entries and the send size are checked as offsets are (review 36: a null entry threw on every tick). */
-    const pend = Array.isArray(j && j.pending) ? j.pending.filter((e) => e && typeof e === 'object' && Number.isFinite(e.at)) : [];
+    /* Every field the contract sends is checked, with the rules used when it was queued (challenge-loop iteration 3):
+       one damaged entry would otherwise make the coordinator refuse its whole batch, good events with it. */
+    const pend = Array.isArray(j && j.pending) ? j.pending.filter(goodQueued) : [];
     return { offsets: nums(j && j.offsets), pending: pend, listed: obj(j && j.listed),
       confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isInteger(j.sendMax) && j.sendMax >= 1 ? j.sendMax : null, stops: j && Number.isInteger(j.stops) && j.stops >= 0 ? j.stops : 0,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
@@ -671,6 +673,14 @@ function readStateForUpdate(root) {
     return Object.assign(emptyState(), { withdrawn: true, enrolledAs: 'damaged' });
   }
   return readState(root);
+}
+
+const RULES = new Set(['token-only-guard', 'sandbox']);
+function goodQueued(e) {
+  return !!e && typeof e === 'object' && Number.isFinite(e.at) && typeof e.world === 'string' && e.world !== ''
+    && label(e.agent) === e.agent && ref(e.sessionRef) === e.sessionRef && ref(e.toolUseRef) === e.toolUseRef
+    && RULES.has(e.rule) && (RANK.includes(e.targetClass) || e.targetClass === 'network-host')
+    && Object.values(ACTION).includes(e.action);
 }
 
 function writeState(root, st) {   // whole or not at all; owner-only
@@ -779,6 +789,9 @@ async function tickOnce(opts) {
     const root = o.root || require('./store').ROOT;
     const now = o.now || Date.now();
     const src = o.sources || defaultSources();
+    /* No token-only agent is guarded on Windows (the guard's sandbox is macOS's), so nothing could be read: say so
+       before the agent survey and the collision pass run for nothing (challenge-loop iteration 3). */
+    if ((o.platform || process.platform) === 'win32') return { sent: 0, because: 'no agent is guarded on Windows; nothing is read' };
     const joinedAt = Date.parse(rec.enrolledAt);
     /* Fail closed (review 1): with no readable enrollment time, nothing can be shown to be from after it. */
     if (!Number.isFinite(joinedAt)) return { sent: 0, because: 'this enrollment records no time it began' };
@@ -806,6 +819,10 @@ async function tickOnce(opts) {
     const names = src.agents();
     if (!Array.isArray(names)) return { sent: 0, because: 'the token-only list could not be read; nothing changed' };
     const dirs = new Map(names.map((n) => [n, src.dirOf(n)]));
+    /* Every agent folder this tick resolved, read or not (challenge-loop iteration 3): a write into an agent that is
+       not token-only, or one dropped this tick, is still another agent's folder, which the company sandbox denies. Built
+       from the read agents only, it fell to "home" and, since only the sandbox's own targets are reported, vanished. */
+    const resolvedDirs = new Set([...dirs.values()].filter(Boolean));
     /* Claude Code names a project folder by flattening the agent's folder (every non-alphanumeric character becomes -),
        so orch.main and orch-main share one transcript folder (review 10). A token-only agent whose folder collides with
        an agent that is NOT token-only would carry that agent's refusals, by the PERSON's own rules, to the company: it
@@ -849,6 +866,7 @@ async function tickOnce(opts) {
       const otherDirs = every.filter((n) => !names.includes(n)).map((n) => src.dirOf(n));
       if (otherDirs.some((d) => !d)) return { sent: 0, because: 'an agent\'s folder could not be resolved; nothing changed' };
       let others;
+      for (const d of [...otherDirs, ...unguarded]) if (d) resolvedDirs.add(d);
       try { others = [...otherDirs, ...unguarded].map(flat); } catch (e) {
         console.error('agentevents: an agent\'s transcript folder could not be worked out; nothing read (' + String((e && e.message) || e) + ')');
         return { sent: 0, because: 'a transcript folder could not be worked out; nothing changed' };
@@ -869,7 +887,6 @@ async function tickOnce(opts) {
         }
       }
     }
-    const allDirs = [...dirs.values()].filter(Boolean);
     const seen = new Set();
     /* When each agent was first seen on the token-only list (review 2): before that, a refusal was the PERSON's own
        rule, never the company's, so nothing of it is sent. An agent already listed when this state began counts from
@@ -932,7 +949,7 @@ async function tickOnce(opts) {
         if (!r.text) continue;
         const calls = new Map(CALLS.get(file) || []);   // a copy, kept only once the state is written (review 23)
         const ctx = { agent, session: sessionOf(file), platform: o.platform, boardRoot: root, boardRoots, configRoots, agentDir: dir,
-          otherAgentDirs: allDirs.filter((d) => d !== dir), home: o.home, now };
+          otherAgentDirs: [...resolvedDirs].filter((d) => d !== dir), home: o.home, now };
         for (const e of scanText(r.text, calls, ctx)) {
           /* Compared in milliseconds (review 18: a refusal a fraction of a second before a boundary passed a whole-second
              test), then the time kept only in seconds. */

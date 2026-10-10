@@ -21152,6 +21152,7 @@ function orgRollupTick() {
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own
     rules and sends them (engine/agentevents.js decides what counts). Same gates as the rollup. */
 let AGENT_EVENTS_RUNNING = false;
+const AGENT_EVENTS_SAID = new Set();
 function agentEventsTick() {
   if (AGENT_EVENTS_RUNNING) return;
   if (!liveExecution.liveExecutionAllowed()) return;
@@ -21161,7 +21162,12 @@ function agentEventsTick() {
        when it has really stopped, never on a read that failed (review 37). */
     if (!require('./engine/orgenroll').isEnrolledHere()) { require('./engine/agentevents').withdrawIfStopped(); return; }
     AGENT_EVENTS_RUNNING = true;
-    require('./engine/agentevents').tick().catch(() => { /* best effort */ }).finally(() => { AGENT_EVENTS_RUNNING = false; });
+    /* Each distinct reason it sends nothing is said once (challenge-loop iteration 3): a board that will never send
+       must not look the same as one with nothing to send. */
+    require('./engine/agentevents').tick().then((r) => {
+      const why = r && r.sent === 0 && typeof r.because === 'string' ? r.because : null;
+      if (why && !AGENT_EVENTS_SAID.has(why)) { AGENT_EVENTS_SAID.add(why); console.error('agentevents: ' + why); }
+    }).catch(() => { /* best effort */ }).finally(() => { AGENT_EVENTS_RUNNING = false; });
   } catch { AGENT_EVENTS_RUNNING = false; }
 }
 function start(port = PORT) {
