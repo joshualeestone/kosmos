@@ -35,6 +35,14 @@ test('#5749: the review tab, which draws no footer, is the question menu', () =>
   assert.equal(status.classify(PANE, noHighlight).state, 'needs_you');
 });
 
+test('#5749 (review 2): the review tab is read padded to the pane height, and with many answers above it', () => {
+  assert.equal(status.claudeQuestionMenuUp(REVIEW + '\n'.repeat(30)), true, 'a padded review tab read as no menu');
+  const many = Array.from({ length: 12 }, (_, i) => ` ● Question ${i}?\n   → Answer ${i}`).join('\n');
+  const tall = REVIEW.replace(/ ● Which colors[^\n]*\n[^\n]*\n/, many + '\n');
+  assert.ok(tall.split('\n').length > 30, 'CONTROL: the tall variant is tall');
+  assert.equal(status.claudeQuestionMenuUp(tall), true, 'a tall review tab read as no menu');
+});
+
 test('#5749 (review 1): a menu blocks even while the title still spins (the rule sits above the working checks)', () => {
   assert.equal(status.classify({ ...PANE, title: '✶ x' }, SUBMIT).state, 'needs_you');
 });

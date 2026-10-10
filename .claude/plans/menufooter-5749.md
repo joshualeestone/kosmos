@@ -11,6 +11,7 @@ The board's card says an agent needs the person only when it sees a numbered hig
 ## Measured
 On main before the change: the Submit-highlighted capture classified `unknown`; the review tab was needs-you (it has a `❯ 1.` row) but `claudeQuestionMenuUp` was false. After: both needs-you and both read as the menu; a permission prompt is still not the menu. The review tab's BOARD state is unchanged (its `❯ 1.` row already made it needs-you); what is new for it is the menu reading the chat hold uses.
 - Review 1: the classify rule sits above the working checks on purpose (a menu blocks while the title still spins), pinned by a test; the review rule also needs the form's title, so its two lines in agent prose do not count. The safeguards menu is out of scope (it has its own rule).
+- Review 2: my review-1 title check used a fixed 20-row window, which a padded capture or a long list of answers defeated (a live review tab then read "unknown"). It now searches upward within the form, stopping at its tab header or a rule line; tests for both.
 
 ## Gaps, stated
 - A menu taller than 25 rows was not captured; it is covered by the same footer rule, reasoned, not measured.

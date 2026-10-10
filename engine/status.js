@@ -2467,8 +2467,15 @@ function claudeQuestionReviewUp(lines) {
   const last = [];
   for (let i = lines.length - 1; i >= 0 && last.length < 4; i -= 1) if (lines[i].trim()) last.push(lines[i]);
   if (!(last.some((l) => CLAUDE_QMENU_REVIEW_Q.test(l)) && last.some((l) => CLAUDE_QMENU_REVIEW_SUBMIT.test(l)))) return false;
-  // Review 1: and the form's own title within the screen's last 20 rows, so two strings in agent prose are not enough.
-  return lines.slice(-20).some((l) => CLAUDE_QMENU_REVIEW_TITLE.test(l));
+  /* Review 1: and the form's own title above them, so two strings in agent prose are not enough. Review 2: searched
+     upward from the bottom, blank rows skipped (tmux pads a capture to the pane height), and only within the form:
+     the search stops at its tab header ("←  ... →") or a rule line, so a long list of answers cannot push it out. */
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const l = lines[i];
+    if (CLAUDE_QMENU_REVIEW_TITLE.test(l)) return true;
+    if (/^\s*←/.test(l) || /^\s*─{8,}\s*$/.test(l)) return false;
+  }
+  return false;
 }
 
 /* #5754: is Claude Code's PERMISSION prompt on screen (it asks "Do you want to proceed?", "Do you want to create x?"
