@@ -16289,11 +16289,13 @@ const server = http.createServer(async (req, res) => {
            the capture the route already took because the card is asking (the board classifies this menu as needs_you),
            so an ordinary message costs no extra read. Not for the automatic hello, which is never an answer. */
         let qmenuAnswer = null;
-        if (!automatic && seenNow) {
+        let qmenuClosed = false;
+        // Review 2: a Claude card only (Codex and Gemini answer their own menus by their own keys).
+        if (!automatic && seenNow && askingCard && askingCard.runner !== 'codex' && askingCard.runner !== 'gemini') {
           const cq = seenNow.text ? require('./engine/status').claudeQuestionMenu(seenNow.text) : null;
           if (cq) {
             const said = String(body.text).trim();
-            const opt = /^\d{1,2}$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
+            const opt = /^\d$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
             if (opt && !files.recs.length && !answered) {
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label });
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
@@ -16305,18 +16307,24 @@ const server = http.createServer(async (req, res) => {
             } else {
               const c = await chat.closeQuestionMenu(name, roster, { question: cq.question });
               if (!c.ok) { const e = new Error(c.because); e.status = 409; throw e; }
+              qmenuClosed = c.closed === true;
             }
           }
         }
         /* An answered menu was typed as one key: PLACED when the menu went, UNCONFIRMED when it is still asking (a
            redraw), never a message delivery. The bubble shows the option's words. */
         if (qmenuAnswer && !chose) chose = chat.cleanMessage(qmenuAnswer.label);
-        const delivery = qmenuAnswer
+        let delivery = qmenuAnswer
           ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
             because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at its window',
             at: new Date().toISOString() }
           : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
             envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        /* Review 2: the question was closed for this message; when the message then did not land, the record says the
+           question went too, so nobody reads the agent as still asking. */
+        if (qmenuClosed && delivery && delivery.state !== chat.DELIVERY.PLACED) {
+          delivery = { ...delivery, because: ((delivery.because || 'it may not have reached it') + '. Its question was closed before this was sent; ask it again if you still need it') };
+        }
         /* #4959: answered 200 with the held verdict, like every delivery this route answers (the verdict, not the status,
            says what happened). The handoff pickup route answers its held verdict 409, as it answers every COULD_NOT;
            a client reads delivery.held on either. */

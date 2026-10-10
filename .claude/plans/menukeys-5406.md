@@ -26,3 +26,4 @@ fixture). A managed agent whose own report says otherwise keeps today's path.
 - The footer alone is not this menu: a free-answer entry (Type something. / Chat about this) is required, so a permission prompt drawn with the same footer is never closed with Escape.
 - Escape closes only the question the person saw; a button press carrying files or a reply is refused (409), never recorded as a choice.
 - Known gap, filed as #5743: room posts and automatic deliveries still paste into the menu (decide hold vs close at the delivery level).
+- Review 2: at most 9 entries (one key per answer); Claude cards only; a message that fails after its question was closed says so on the record.

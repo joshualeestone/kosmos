@@ -131,3 +131,8 @@ test('#5406 review 1: closeQuestionMenu closes only the question the person saw'
     assert.deepEqual([r.ok, t.keys()], [false, []], 'a different question was closed');
   });
 });
+
+test('#5406 review 2: a menu with ten or more entries is refused (every answer must be one key)', () => {
+  const many = MENU.replace('  4. Type something.', [4, 5, 6, 7, 8, 9].map((k) => '  ' + k + '. Fruit ' + k).join('\n') + '\n  10. Type something.').replace('  5. Chat about this', '  11. Chat about this');
+  assert.equal(status.claudeQuestionMenu(many), null);
+});
