@@ -1327,8 +1327,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      person's own settings can widen it, review 7, which the board-start refresh says), so a shell-layer
      copy adds nothing; off macOS no sandbox is written and these rules are the only layer (review 6). The file-tool
      rules still count toward the profile size (review 5: Claude Code builds the profile from them too), which the
-     many-homes test bounds. The agent's OWN CLAUDE.md is not here: it reaches only the agent, and
-     Kosmos writes it; its own .claude members are denied below like a config home's. Links followed to their
+     many-homes test bounds. Depth is not capped: each level adds its members, and a folder deep enough to pass the
+     measured ceiling gets the guard's size warning, which counts these rules. The agent's OWN CLAUDE.md is not here: it
+     reaches only the agent, and Kosmos writes it; its own .claude members are denied below like a config home's. Links followed to their
      targets. */
   const ancestorFiles = [];
   const ancestorDirs = [];
@@ -1652,8 +1653,10 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
      agent's settings file just now, and keeping an older "ok" would read as guarded. */
   /* #5516 part 2 review 13: over a readable line, a board start replaces only what it is the authority on (everything
      but the PATH), and keeps the PATH part the launch recorded; it writes only when that part changed, so a config gap
-     appears, and goes once fixed, without the board's own PATH ever being shown as the agent's. A line written before
-     these parts were kept has no PATH part to keep (the next launch rewrites it). */
+     appears, and goes once fixed, without the board's own PATH ever being shown as the agent's. A line with neither
+     part (one written before the parts were kept, or a launch's runner or write failure) is kept, as review 4 decided
+     for any launch line, unless the board start finds a non-PATH gap of its own: it is what the running agent has
+     (review 14). */
   if (deps.boardStart) {
     let old = null;
     try { old = guardLineOf(fs.readFileSync(guardStateFileFor(agentName, deps), 'utf8')); } catch { old = null; }
