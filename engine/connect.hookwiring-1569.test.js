@@ -43,6 +43,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json'
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = nodePath.join(SANDBOX, 'claude-config-dir');
 
 const connect = require('./connect');
+const { eventually } = require('../test-support/eventually');
 // #5419: download() and sign-in refuse on a real Linux host with no tmux; pinned to "present" so a Linux box without
 // tmux still runs these tests for what they name.
 connect.setTmuxCheckForTests(() => false);
@@ -101,17 +102,16 @@ function serveHeldRelease(t, { version, binary, checksum }) {
   });
 }
 
+// #5727: delegate to the shared load-aware poll helper. This loop already checked the
+// deadline AFTER probing (probe-first, like batch 1's waitFor), so at scale 1 it is
+// byte-identical: 20ms step, resolves on the first truthy fn(), fails at ms. The old loop
+// SWALLOWED a throwing fn() as not-ready, so the probe is wrapped to keep that exact
+// behaviour (eventually would otherwise propagate the throw). Both call sites are positive
+// waits (wait for DOWNLOADING / progress), so there is no stricter-under-timeout concern.
 function until(fn, ms = 8000) {
-  const t0 = Date.now();
-  return new Promise((resolve, reject) => {
-    const tick = () => {
-      let ok = false;
-      try { ok = fn(); } catch { ok = false; }
-      if (ok) return resolve();
-      if (Date.now() - t0 > ms) return reject(new Error('timed out waiting'));
-      return setTimeout(tick, 20);
-    };
-    tick();
+  return eventually(() => { try { return fn(); } catch { return false; } }, (v) => v, {
+    timeoutMs: ms,
+    stepMs: 20,
   });
 }
 
