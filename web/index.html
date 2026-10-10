@@ -49221,8 +49221,10 @@ async function plusSiDoRegister(name, owned) {
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
   let r;
   try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
-  catch (e) { PLUS_SI_REGISTERING = false; siRestore(); if (!owned) plusSiMsg(''); throw e; }   // review 4: not left set
-  if (r.stale) { PLUS_SI_REGISTERING = false; return; }
+  /* Review 4/6: the flag is cleared by the register that owns it: an answer for a sign-in that was left (stale, or
+     the epoch moved) leaves it to plusSiClear, which already cleared it, and so never clears a newer register's. */
+  catch (e) { if (kEpoch === PLUS_SI_EPOCH) PLUS_SI_REGISTERING = false; siRestore(); if (!owned) plusSiMsg(''); throw e; }
+  if (r.stale) return;
   /* Review 2: only a connect that worked holds (the flash is a success's); a refusal or error shows at once. Through
      the hold the register still counts as running (set again: an older answer's stale path may have cleared it), so
      the status tick does not paint the connected view early; an answer held past a Sign out or Start over is dropped (both clear the flag, in plusSiClear). Any NEW
