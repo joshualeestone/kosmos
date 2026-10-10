@@ -65,4 +65,9 @@ Josh, 2026-10-10 14:32 CDT, testing the #5531 join flow: the company has already
   - [WARNING] NOT A DEFECT. The worry was that a record with no hash but words on file would be refused by reviewHere for good. acceptedConsent returns null unless mayReport (a hash) holds, so such a record never reaches that refusal. It is exactly the state the 15-minute test builds (the withdrawal removes the hash and the words stay), and that test recovers.
   - [WARNING] DUPLICATE of the silent-terms item (decided, on the card).
   - NITs not taken: the optimistic joined state before the read-back (accepted by the reviewer); the reused link class (iteration 2); the repeated log wording in two senders (two modules, one sentence each).
+- Iteration 5 (Opus), on 49c66200b:
+  - [WARNING] FIXED. tick read acceptedConsent twice, and a change between the two reads could dereference a null. tick is documented never to throw, so it now reads once. Not pinned by a test: the race needs another process writing between two synchronous reads, and a test could only fake it by stubbing the function it guards.
+  - [WARNING] FIXED. A company that keeps answering without terms this board can record (a print it will not pin) got an enroll every 15 minutes forever. The window now doubles with each miss, up to a day, and resets once terms are recorded (misses in RETAKE_FILE). Tests: no ask one window after a miss; an ask after the doubled window; misses reset on success. Two mutations (no miss counted; misses never reset), each red.
+  - [NIT] taken: a spent code (outcome unknown, undo pending) leaves the field, so a second press is not told "already used" under "this screen will show it". Browser check O14. The mutation turned two arms red.
+  - NITs not taken: the org_ticket sentence for the (page-less) review caller of /api/org/preview; the static-source web test (the browser check is the behaviour pin); the reacceptWords docblock length.
 

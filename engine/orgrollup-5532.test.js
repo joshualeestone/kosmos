@@ -527,12 +527,16 @@ test('#5791: a work Kosmos left with no terms on record asks for them again on i
   const t2 = await r.tick({ root, remote, sources: sources(), now: T0 + r.RETAKE_EVERY_MS - 60e3 });
   assert.equal(t2.sent, false);
   assert.equal(statuses(), 1, 'the company was asked again inside the window (a tick every few minutes would ask it every time)');
-  const t3 = await r.tick({ root, remote, sources: sources(), now: T0 + r.RETAKE_EVERY_MS + 60e3 });
-  assert.equal(statuses(), 2, 'the company was never asked again after the window');
+  // Review 5: the first ask missed (no terms recorded), so the window doubled: not asked again at one window either.
+  await r.tick({ root, remote, sources: sources(), now: T0 + r.RETAKE_EVERY_MS + 60e3 });
+  assert.equal(statuses(), 1, 'asked again one window after a miss; the window did not double');
+  const t3 = await r.tick({ root, remote, sources: sources(), now: T0 + 2 * r.RETAKE_EVERY_MS + 60e3 });
+  assert.equal(statuses(), 2, 'the company was never asked again after the doubled window');
   assert.equal(oe.readEnrollment({ root }).consentHash, NEWHASH, 'the terms the company serves now are not on record');
   const lastEnroll = c.sent.filter((x) => x.route === oe.ROUTES.enroll).pop();
   assert.ok(lastEnroll && !('code' in lastEnroll.body) && lastEnroll.body.consentHash === NEWHASH, 'the re-accept did not go out with no code under the served hash');
   assert.equal(t3.sent, true, 'with the terms on record again, the rollup still did not go out: ' + JSON.stringify(t3));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, r.RETAKE_FILE), 'utf8')).misses, 0, 'a recorded answer did not reset the misses');
 });
 
 test('#5791 review 1: terms that ask for no reports are checked once a day; the same terms send nothing, new ones are taken on', async (t) => {

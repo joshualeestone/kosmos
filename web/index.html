@@ -47803,7 +47803,12 @@ async function plusOrgConnect() {
     const p = await plusOrgPost('preview', { code });
     if (!p.ok) { msg.textContent = p.because || 'That code could not be checked.'; return; }
     const r = await plusOrgPost('enroll', p.move ? { accepted: true, ticket: p.ticket } : { code, accepted: true, ticket: p.ticket });
-    if (!r.ok) { msg.textContent = r.because || 'Connecting did not go through.'; return; }
+    if (!r.ok) {
+      msg.textContent = r.because || 'Connecting did not go through.';
+      // The code was spent (review 5): pressing again would only be told it is used, under "this screen will show it".
+      if (r.code === 'org_join_unknown' || r.code === 'org_undo_pending') document.getElementById('plus-org-code').value = '';
+      return;
+    }
     document.getElementById('plus-org-code').value = '';
     PLUS_ORG.open = false;
     PLUS_ORG.state = { enrolled: true, org: r.org || p.org, role: r.role || p.role };

@@ -354,12 +354,16 @@ const STATE_FILE = 'org-rollup-state.json';
    STATE_FILE: the ask runs before the run lock, and a read-modify-write of the shared state there could drop another
    run's fields. A lost stamp here costs at most one extra ask. */
 const RETAKE_FILE = 'org-rollup-retake.json';
-function readRetakeAt(root, now) {
-  try { const j = JSON.parse(fs.readFileSync(path.join(root, RETAKE_FILE), 'utf8')); const t = j && j.at; return Number.isFinite(t) && t >= 0 && t <= now ? t : 0; }
-  catch { return 0; }
+function readRetake(root, now) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(root, RETAKE_FILE), 'utf8'));
+    const t = j && j.at; const m = j && j.misses;
+    return { at: Number.isFinite(t) && t >= 0 && t <= now ? t : 0, misses: Number.isInteger(m) && m >= 0 ? m : 0 };
+  } catch { return { at: 0, misses: 0 }; }
 }
-function writeRetakeAt(root, at) {
-  try { require('./securewrite').writeSecret(path.join(root, RETAKE_FILE), JSON.stringify({ at }) + '\n', 0o600, { atomicOnly: true }); return true; }
+// misses: asks in a row that left no terms on record here (the window doubles with each, up to a day).
+function writeRetake(root, at, misses) {
+  try { require('./securewrite').writeSecret(path.join(root, RETAKE_FILE), JSON.stringify({ at, misses }) + '\n', 0o600, { atomicOnly: true }); return true; }
   catch { return false; }
 }
 
@@ -662,21 +666,28 @@ async function tick(opts) {
      - terms that ask for no reports (review 1): such a Kosmos never sends, so the company never refuses a report
        for changed terms and it would never learn of new ones. Checked once per RECHECK_NO_REPORTS_MS; terms still
        the same are left as they are (nothing is sent). */
-  const termsGone = oe.isEnrolledHere(eo) && (!oe.mayReport(eo) || !oe.acceptedConsent(eo));
-  const quietTerms = !termsGone && oe.isEnrolledHere(eo) && oe.acceptedConsent(eo).reports.length === 0;
+  // One read (review 5): two could straddle another process's change and dereference a null, and tick never throws.
+  const acc0 = oe.isEnrolledHere(eo) ? oe.acceptedConsent(eo) : undefined;
+  const termsGone = acc0 !== undefined && (!oe.mayReport(eo) || !acc0);
+  const quietTerms = !termsGone && !!acc0 && acc0.reports.length === 0;
   if (termsGone || quietTerms) {
     const rroot = o.root || require('./store').ROOT;
     const rnow = o.now || Date.now();
-    const last = readRetakeAt(rroot, rnow);
-    if (rnow - last < (termsGone ? RETAKE_EVERY_MS : RECHECK_NO_REPORTS_MS)) {
+    const { at: last, misses } = readRetake(rroot, rnow);
+    // Review 5: a company that keeps answering without terms this board can record (a print it will not pin, say)
+    // is asked half as often after each miss, never less than once a day.
+    const every = termsGone ? Math.min(RETAKE_EVERY_MS * 2 ** Math.min(misses, 10), RECHECK_NO_REPORTS_MS) : RECHECK_NO_REPORTS_MS;
+    if (rnow - last < every) {
       return { sent: false, because: termsGone ? 'no company terms on record here; taking them on again later' : 'the company\'s terms ask for no reports' };
     }
     /* Stamped before the try, so a company that never answers is asked once per window, not on every tick. Before the
        run lock on purpose (review 3): two runs at once can both ask, which costs one extra status read and at most one
        repeated codeless enroll, and accepting the same words twice changes nothing on either side. */
-    if (!writeRetakeAt(rroot, rnow)) return { sent: false, because: 'the company\'s terms could not be checked: the rollup state could not be saved' };
+    if (!writeRetake(rroot, rnow, misses)) return { sent: false, because: 'the company\'s terms could not be checked: the rollup state could not be saved' };
     let a = null;
     try { a = await oe.reacceptWords(eo); } catch (e) { a = { ok: false, because: (e && e.message) || String(e) }; }
+    const recorded = !!a && a.ok === true && oe.mayReport(eo) && !!oe.acceptedConsent(eo);
+    writeRetake(rroot, rnow, termsGone && !recorded ? misses + 1 : 0);
     if (!a || !a.ok) return { sent: false, because: 'the company\'s terms could not be taken on yet: ' + ((a && a.because) || 'no answer') };
   }
   /* THE gate (#5531): the work Kosmos with the consent recorded on this computer (mayReport), never merely enrolled. */

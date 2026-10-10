@@ -285,8 +285,11 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
       { ok: false, code: 'org_undo_pending', because: 'Your company did not confirm this Kosmos, so it is not your work Kosmos. Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' }]) {
       await page.evaluate((a) => { window.__enrollAnswer = a; }, ans);
       await connect('ACME-JOIN-8888');
-      const o14 = { msg: await text(page, 'plus-org-msg'), out: await shown(page, 'plus-org-out'), in: await shown(page, 'plus-org-in') };
-      chk(o14.msg === ans.because && o14.out && !o14.in, 'O14 ' + ans.code + ' says so under the code field, and nothing shows as joined', JSON.stringify(o14));
+      const o14 = { msg: await text(page, 'plus-org-msg'), out: await shown(page, 'plus-org-out'), in: await shown(page, 'plus-org-in'), code: await page.inputValue('#plus-org-code') };
+      // Review 5: a spent code (outcome unknown, undo pending) leaves the field; a refusal that joined nothing keeps it.
+      const spent = ans.code === 'org_join_unknown' || ans.code === 'org_undo_pending';
+      chk(o14.msg === ans.because && o14.out && !o14.in && o14.code === (spent ? '' : 'ACME-JOIN-8888'),
+        'O14 ' + ans.code + ' says so under the code field, nothing shows as joined, and the field ' + (spent ? 'is cleared' : 'keeps the code'), JSON.stringify(o14));
     }
     await page.evaluate(() => { window.__enrollAnswer = null; });
 
