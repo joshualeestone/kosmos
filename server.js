@@ -16281,7 +16281,7 @@ const server = http.createServer(async (req, res) => {
             /* Asking, but the screen could not be read: say that, not that the question went. */
             const unread = Boolean(card && card.state === STATE.NEEDS_YOU && !(seen && seen.text));
             const gone = new Error(unread
-              ? 'we could not read its screen just now, so we did not send the answer. Press again in a moment.'
+              ? 'we could not read its screen just now, so we did not send the answer. Look at this page again in a moment.'
               : 'its question is no longer on its screen, so we did not send the answer. What is on this page now is current.');
             gone.status = 409;
             throw gone;

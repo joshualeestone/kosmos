@@ -340,12 +340,13 @@ test('#5406 slice C: a press for an agent not run by Claude is refused, never pa
   } finally { chat.resetForTests(); board.restore(); }
 });
 
-/* The outcome only: the label check refuses this before the key branch, whose own `askedGiven` arm is a second line that
-   no route here reaches (the page only sends digits it drew from the menu). */
+/* The outcome: the words check refuses this ("could not check that choice's words") before the key branch, whose own
+   arm for a number not on the menu no route here reaches (the page only sends digits it drew from the menu). */
 test('#5406 slice C: a press whose words were dropped and whose digit is not on the live menu is refused, nothing closed or typed', async () => {
   await withMenu(async (calls) => {
     const r = await post({ text: '7', chose: 'Apple\u0007', asked: 'Which fruit do you want?' });
     assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /could not check that choice's words/);
     assert.deepEqual(calls.keys(), [], 'the menu was closed or answered');
     assert.equal(calls.pasted(), '');
   });
@@ -502,4 +503,22 @@ test('#5406 slice C review 26: through the route, a typed message while a press 
     assert.deepEqual(calls.keys().filter((k) => k === 'Escape'), [], 'the menu was closed under a settling key');
     await press;   // it settles with the menu still drawn (unconfirmed); the slot is released either way
   });
+});
+
+test('#5406 slice C review 28: a press while the asking card\'s screen cannot be read is refused as unread, nothing typed', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+  try {
+    const calls = [];
+    chat.setRunner((args) => {
+      calls.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const r = await post({ text: '1', chose: 'Apple', asked: 'Which fruit do you want?' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /could not read its screen just now/);
+    assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), []);
+  } finally { chat.resetForTests(); board.restore(); }
 });
