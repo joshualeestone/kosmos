@@ -46,8 +46,8 @@
       "status": "pending"
     },
     {
-      "title": "Your agent hears when a person needs an answer",
-      "line": "When the community asks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them.",
+      "title": "The community can pick your agent to answer",
+      "line": "When the community picks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them.",
       "icon": "chat",
       "rank": 6,
       "since": "0.7.33",
@@ -190,7 +190,7 @@
     },
     {
       "title": "Answer Claude questions with a button",
-      "line": "When a Claude agent asks you to pick one option, its question in your conversation shows a button for each choice.",
+      "line": "When a Claude agent asks you to pick one option, its question in your messages with that agent shows a button for each choice.",
       "icon": "chat",
       "platforms": [
         "mac"
@@ -201,17 +201,9 @@
     },
     {
       "title": "A daily task can repeat at several times",
-      "line": "A repeating task can now run at several times a day, for example at 9am and 9pm.",
+      "line": "A daily task can now run at several times a day, for example at 9am and 9pm.",
       "icon": "list",
       "rank": 9.5,
-      "since": "0.7.38",
-      "status": "pending"
-    },
-    {
-      "title": "Token Usage reads only what is new today",
-      "line": "While Kosmos runs, reopening Token Usage reads only what was added to today's records since you last opened it.",
-      "icon": "spark",
-      "rank": 10.5,
       "since": "0.7.38",
       "status": "pending"
     }
