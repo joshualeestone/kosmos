@@ -229,6 +229,7 @@ function setChannel(fn) {
 }
 
 function resetForTests() {
+  QMENU_BUSY.clear();
   runner = null;
   pauser = null;
   channel = null;
@@ -1159,17 +1160,34 @@ function questionMenuKeysAllowed(sessionName, roster) {
   if (!allowed.ok) return allowed;
   if (String(allowed.card.runner || 'claude') !== 'claude') return { ok: false, because: 'that is not a Claude agent' };
   if (deliveryQueues.has(paneTarget(allowed.card))) return { ok: false, because: 'a message is being typed to it right now; try again in a moment' };
+  /* #5406 slice C review 18: one key answer per pane at a time. The page's own lock covers one tab; two surfaces on the
+     same agent could each read the menu before it redraws and both send a digit, the second landing on whatever is
+     on screen then. Held from before the first read to after the settle read. */
+  if (QMENU_BUSY.has(paneTarget(allowed.card))) return { ok: false, because: QMENU_BUSY_SENTENCE };
   return allowed;
+}
+const QMENU_BUSY = new Set();   // pane targets with a key answer or a close in progress
+const QMENU_BUSY_SENTENCE = 'its question is being handled right now, so nothing was sent; look at this page again in a moment';
+/* Run `fn` holding the pane's key-answer slot (the check above refused if it was taken). */
+async function withQmenuSlot(allowed, fn) {
+  const t = paneTarget(allowed.card);
+  QMENU_BUSY.add(t);
+  try { return await fn(); } finally { QMENU_BUSY.delete(t); }
 }
 /* Send the bare digit for option `n`, only if the live menu still asks `question` and option `n` is still `label`.
    Resolves { ok: true, key, label, answered, screen } (screen: what the pane shows after) or { ok: false, because }. */
 async function answerQuestionMenu(sessionName, n, roster, expect) {
   const allowed = questionMenuKeysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
+  return withQmenuSlot(allowed, () => answerQuestionMenuHeld(sessionName, n, roster, expect, allowed));
+}
+async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   const t = paneTarget(allowed.card);
   const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
   const before = look();
-  const menu = before ? status.claudeQuestionMenu(before) : null;
+  // Review 32: a screen that could not be read is not "the question went": say which (nothing was sent either way).
+  if (!before) return { ok: false, because: 'we could not see its screen to answer its question, so nothing was sent; try again' };
+  const menu = status.claudeQuestionMenu(before);
   if (!menu) return { ok: false, because: 'its question is no longer on its screen, so nothing was sent' };
   const opt = menu.options.find((o) => o.n === Number(n));
   const e = expect || {};
@@ -1188,7 +1206,13 @@ async function answerQuestionMenu(sessionName, n, roster, expect) {
    { ok: true, closed } (closed: there was a menu and it went) or { ok: false, because }. No menu: { ok: true, closed: false }. */
 async function closeQuestionMenu(sessionName, roster, expect) {
   const allowed = questionMenuKeysAllowed(sessionName, roster);
-  if (!allowed.ok) return { ok: false, because: allowed.because };
+  if (!allowed.ok) {   // a typed message met a key answer settling: say it in a typed message's words (review 24)
+    return { ok: false, because: allowed.because === QMENU_BUSY_SENTENCE
+      ? 'its question is being handled right now, so this was not typed; send it again in a moment' : allowed.because };
+  }
+  return withQmenuSlot(allowed, () => closeQuestionMenuHeld(sessionName, roster, expect, allowed));
+}
+async function closeQuestionMenuHeld(sessionName, roster, expect, allowed) {
   const t = paneTarget(allowed.card);
   const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
   const before = look();
@@ -1447,6 +1471,12 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) {
     return { state: DELIVERY.COULD_NOT, because: allowed.because, at, paneState: null, paneNote: null };
+  }
+  /* #5406 slice C review 19: a key answer to its question is settling (QMENU_BUSY); a line pasted now would land on
+     whatever the screen shows mid-redraw. Nothing typed; busy, like a pane another message is being placed in. */
+  if (allowed.card && QMENU_BUSY.has(paneTarget(allowed.card))) {
+    return { state: DELIVERY.COULD_NOT, because: 'its question is being handled right now, so this was not typed; send it again in a moment',
+      at, paneState: null, paneNote: null, busy: true };
   }
   /**
    * #1629 point 3: NEVER TYPE AT AN AGENT STOPPED ON CLAUDE CODE'S TRUST

@@ -82,14 +82,19 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
 /* uv_thread_create and pthread_create are the arms that catch Node's own startup abort; `Check failed:` is V8's fatal
    line (Node's own CHECKs print "Assertion ... failed" instead). Never a bare EAGAIN (review 5). A hang is never
    retried, even with a spawn error beside it (review 7). */
-/* libuv's own `uv__close` assertion (fd > STDERR_FILENO) is in this set too: seen on CI 2026-10-08 as a 70 ms SIGABRT of
-   this child at load 25 on 3 cores, never reproduced locally in 1,200 runs, and process.stdin.destroy() measured NOT to
-   close fd 0 (review 9). The cause is unknown and tracked on #5576; it is retried as Node's runtime aborting,
-   and every try still names it in the message. 🛑 TEMPORARY: remove the uv__close arm when #5576 finds the cause. */
-const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:|fd > STDERR_FILENO/;   // the last: libuv's assertion text, in macOS's and glibc's formats alike
+const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;
+/* libuv's own `uv__close` assertion (fd > STDERR_FILENO), #5576. The bridge now guards against the one mechanism the
+   Linux trace showed (fd 0 freed, then the report's socket on it; what frees fd 0 is still not measured). An abort whose
+   own trace shows that state again is a real failure: red, never retried. Any other uv__close abort (the untraced macOS
+   one of 2026-10-08 was never shown to share that path) is still retried as the runtime's, and named in the message.
+   Blind spots (review 4): fd 0 freed after the last trace line before the abort, and anything after fd 2 is replaced
+   (the trace then stops writing); both read as "no fd 0 trace" and are retried. */
+const UV_CLOSE_ABORT = /fd > STDERR_FILENO/;
+const FD0_TAKEN = /^agy-trace [^|]*\| 0:(?:EBADF|sock@)/m;
+const retriedUvClose = (err) => UV_CLOSE_ABORT.test(err) && !FD0_TAKEN.test(err);
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
 const endedByRunner = (r) => r.signal !== 'timeout' && (RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
-  || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || ''))))));
+  || (r.signal === 'SIGABRT' && (STARTUP_ABORT.test(String(r.err || '')) || retriedUvClose(String(r.err || '')))))));
 async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((res) => setTimeout(res, ms))) {
   const tries = [];
   for (let i = 0; i < 3; i += 1) {
@@ -243,9 +248,16 @@ test('#5560: only a bridge child the runner ended is tried again; one that exite
   f = fake([{ code: null, signal: 'timeout', error: 'EAGAIN', out: '', err: '' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).signal, 'timeout', 'a hang with a spawn error beside it was retried into a pass');
   assert.equal(f.calls.length, 1);
-  // libuv's uv__close assertion (the CI abort of 2026-10-08) is Node's runtime aborting, so it IS retried.
-  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.\n' }, ok]);
-  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 0, 'the libuv uv__close abort was not retried');
+  // #5576: a uv__close abort whose trace shows fd 0 freed or a socket on it is the guarded mechanism again: NOT retried.
+  const uv = 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.\n';
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'agy-trace fetch begin | 0:EBADF 1:sock@1 2:sock@2\n' + uv }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a uv__close abort with fd 0 freed was retried into a pass');
+  assert.equal(f.calls.length, 1);
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'agy-trace fetch end ok | 0:sock@7 1:sock@1 2:sock@2\n' + uv }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a uv__close abort with a socket on fd 0 was retried into a pass');
+  // CONTROL: one whose trace shows fd 0 held (another cause, not shown to be this one) is still retried.
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'agy-trace start | 0:chr@5 1:sock@1 2:sock@2\n' + uv }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 0, 'a uv__close abort with fd 0 held was not retried');
   // A SIGABRT whose stderr merely mentions EAGAIN is the bridge's, not Node's startup (review 5).
   f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'bridge: write failed EAGAIN' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a bridge abort mentioning EAGAIN was retried into a pass');
@@ -275,8 +287,13 @@ test('#5560 review 11: every member of the retry sets is pinned, both ways', asy
   for (const e of ['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']) assert.equal(await tried({ ...base, code: -1, error: e }), true, e + ' was not retried');
   for (const e of ['ENOENT', 'EACCES']) assert.equal(await tried({ ...base, code: -2, error: e }), false, e + ' was retried');
   for (const sig of ['SIGKILL', 'SIGTERM']) assert.equal(await tried({ ...base, signal: sig }), true, sig + ' was not retried');
-  for (const line of ['uv_thread_create failed', 'pthread_create: Resource temporarily unavailable', '# Check failed: x', 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.',
-    "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried: ' + line);
+  for (const line of ['uv_thread_create failed', 'pthread_create: Resource temporarily unavailable', '# Check failed: x']) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried: ' + line);
+  // #5576: the uv__close abort, in both formats: retried with no trace of fd 0 taken, not retried with one.
+  for (const line of ['Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.',
+    "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) {
+    assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried with no fd 0 trace: ' + line);
+    assert.equal(await tried({ ...base, signal: 'SIGABRT', err: 'agy-trace fetch begin | 0:EBADF 1:x@1 2:x@2\n' + line }), false, 'retried with fd 0 freed: ' + line);
+  }
   assert.equal(await tried({ ...base, signal: 'SIGABRT', err: 'bridge: something else' }), false, 'a bridge abort was retried');
 });
 
@@ -333,6 +350,70 @@ test('#5576: a line is never written into fd 2 once its number belongs to someth
     assert.equal(out, '2', 'CONTROL: the file did not take fd 2, so this test cannot see a write into it');
     assert.equal(fs.readFileSync(file, 'utf8'), '', 'a trace line was written into the file that took fd 2');
   } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('#5576 fix: holdStdioFds fills a free fd 0 to 2 with the null device, and leaves the rest alone', () => {
+  const opened = []; const closed = [];
+  const fake = (free, next) => ({
+    fstatSync: (fd) => { if (free.includes(fd)) throw Object.assign(new Error('bad'), { code: 'EBADF' }); if (free.includes('other' + fd)) throw Object.assign(new Error('other'), { code: 'EIO' }); return {}; },
+    openSync: (p, flag) => { opened.push([p, flag]); return next.shift(); },
+    closeSync: (fd) => { closed.push(fd); },
+  });
+  assert.deepEqual(bridge.holdStdioFds(fake([0], [0]), '/nul'), [0], 'a free fd 0 was not filled');
+  assert.deepEqual(opened, [['/nul', 'r']], 'fd 0 is opened for reading');
+  opened.length = 0;
+  assert.deepEqual(bridge.holdStdioFds(fake([0, 2], [0, 2]), '/nul'), [0, 2]);
+  assert.deepEqual(opened.map((o) => o[1]), ['r', 'w'], 'fd 2 is opened for writing');
+  // An open that landed on another number is closed again, not left behind.
+  assert.deepEqual(bridge.holdStdioFds(fake([1], [7]), '/nul'), []);
+  assert.deepEqual(closed, [7]);
+  // An fd that fails to read for another reason (not EBADF) is not free: it is left alone.
+  opened.length = 0;
+  assert.deepEqual(bridge.holdStdioFds(fake(['other1'], [1]), '/nul'), []);
+  assert.deepEqual(opened, [], 'an fd that failed for another reason was treated as free');
+  // CONTROL: nothing free, nothing opened.
+  assert.deepEqual(bridge.holdStdioFds(fake([], []), '/nul'), []);
+  assert.deepEqual(opened, []);
+});
+
+test('#5576 fix: in a real process, after fd 0 is freed the guard holds it, so the next open is never fd 0', async () => {
+  const run = (guard) => new Promise((resolve) => {
+    const script = 'const fs=require("node:fs");const b=require(' + JSON.stringify(BRIDGE_FILE) + ');fs.closeSync(0);'
+      + (guard ? 'b.holdStdioFds();' : '') + 'const fd=fs.openSync(' + JSON.stringify(BRIDGE_FILE) + ',"r");'
+      + 'let zero="EBADF";try{zero=fs.fstatSync(0).isCharacterDevice()?"chr":"other";}catch{}'
+      + 'process.stdout.write(fd+" "+zero,()=>process.exit(0));';
+    const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-hold-'));
+    const c = spawn(process.execPath, ['-e', script], { env: { ...process.env, AGENT_WORKFORCE_DATA: dir }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = ''; c.stdout.on('data', (d) => { out += d; });
+    c.on('close', (code) => { fs.rmSync(dir, { recursive: true, force: true }); resolve(code === 0 ? out.trim() : 'child exited ' + code); });
+  });
+  const [fd, zero] = (await run(true)).split(' ');
+  assert.notEqual(fd, '0', 'with the guard, an fd opened after fd 0 was freed still took number 0');
+  assert.equal(zero, 'chr', 'fd 0 is not held by the null device');
+  // CONTROL: without the guard, the same open takes fd 0 (the state the abort needs), so this test can fail.
+  assert.equal((await run(false)).split(' ')[0], '0', 'premise: a freed fd 0 is taken by the next open');
+});
+
+test('#5576 fix: the real bridge holds a freed fd 0 before its report, so the report\'s socket is never numbered 0', async () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-free0-'));
+  const closer = path.join(dir, 'close-fd-0.js');
+  /* stdout first, then fd 0: on a Mac, making process.stdout reopens the null device on a closed fd 0 (measured), which
+     hid this on Macs; with stdout made before the close, fd 0 stays free into the report, as on the Linux lane. Loads
+     before the trace, so "start" sees it freed. */
+  fs.writeFileSync(closer, 'void process.stdout;\nrequire("node:fs").closeSync(0);\n');
+  let board = null;
+  try {
+    board = await standInBoard();
+    const r = await runBridge('Stop', { ...process.env, AGENT_WORKFORCE_DATA: dir, KOSMOS_PORT: String(board.port), TMUX_PANE: '%free0-' + process.pid,
+      NODE_OPTIONS: '--require ' + JSON.stringify(closer) });
+    assert.equal(r.code, 0, howItEnded(r));
+    assert.match(r.err, /^agy-trace start \| 0:EBADF /m, 'premise: fd 0 was not freed before the bridge ran: ' + r.err.slice(0, 300));
+    assert.match(r.err, /^agy-trace fetch begin \| 0:chr@/m, 'fd 0 was not held by the null device when the report went: ' + r.err.slice(0, 400));
+    assert.doesNotMatch(r.err, /^agy-trace [^|]*\| 0:sock@/m, 'a socket took fd 0');
+  } finally {
+    if (board) board.server.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

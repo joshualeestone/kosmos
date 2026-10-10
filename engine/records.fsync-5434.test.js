@@ -90,11 +90,13 @@ test('#5434: all twelve writers save flushed, with no hand-made temp renamed', (
   for (const f of files) {
     const src = fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
     assert.match(src, /(?:saveFlushed|writeSecret)\(/, f + ': no flushed save');
-    // Any rename at all, except the two documented MOVES (review 1): instructionadds' unreadable-file aside and the
-    // community store's corrupt-file quarantine.
+    // Any rename at all, except the three documented MOVES (review 1): instructionadds' unreadable-file aside, the
+    // community store's corrupt-file quarantine, and the org rollup's stale run-lock moved aside to take it over (#5532;
+    // a lock file, never a record, so there is no temp to flush).
     const count = (needle) => src.split(needle).length - 1;
-    // review 2: exact counts per file, not a subtraction: the two documented MOVES live in one file each.
-    const MOVES = { 'instructionadds.js': 'renameSync(file(), aside)', 'communitystore.js': 'renameSync(file, `${file}.corrupt-' };
+    // review 2: exact counts per file, not a subtraction: the documented MOVES live in one file each.
+    const MOVES = { 'instructionadds.js': 'renameSync(file(), aside)', 'communitystore.js': 'renameSync(file, `${file}.corrupt-',
+      'orgrollup.js': 'renameSync(file, aside)' };
     const move = MOVES[f];
     assert.equal(count('renameSync('), move ? 1 : 0, f + ': renames by hand');
     if (move) assert.equal(count(move), 1, f + ': its documented move is not the one rename');

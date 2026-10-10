@@ -15978,6 +15978,15 @@ const server = http.createServer(async (req, res) => {
         return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
       })
       : maskedMessages;
+    /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
+    const cqNow = view && view.text ? require('./engine/status').claudeQuestionMenu(view.text) : null;
+    const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
+      && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
+      && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
+      && Boolean(cqNow)
+      // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
+      && cqNow.options.length === options.length
+      && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
     sendJson(res, 200, {
       messages: withPreviews(reactedMessages),
       olderCount,
@@ -16007,6 +16016,14 @@ const server = http.createServer(async (req, res) => {
       answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
       /* #3769: a menu's labels come from the same screen text, so they are masked too. */
       options: guideThread && Array.isArray(options) ? options.map((o) => (o && typeof o.label === 'string' ? { ...o, label: guideMasked(guideName, o.label) } : o)) : options,
+      /* #5406 part 2 slice C: the question's identity (chat.questionAbove, the twin of the check the POST makes), sent
+         with the options so a button press names the question it was drawn for; the page never re-derives it. Null in
+         the setup guide's thread: everything served there is masked (#3769), and this is unmasked screen text. Claude
+         cards only: the key-answer path a press relies on is Claude's (the runner half of questionMenuKeysAllowed; the
+         page draws no buttons where the composer is closed, and the POST refuses what a key cannot reach).
+         And only for the single-select question menu that path answers (status.claudeQuestionMenu): a permission prompt
+         also reads as numbered options, but a press there would be pasted, and its Enter picks the highlighted option. */
+      asked: pressable ? chat.questionAbove(question.text) : null,
     });
     return;
   }
@@ -16062,7 +16079,10 @@ const server = http.createServer(async (req, res) => {
           throw new Error('automatic is true or left out');
         }
         const automatic = body.automatic === true;
-        if (automatic && (body.chose !== undefined || (body.reply_to !== undefined && body.reply_to !== null)
+        if (body.asked !== undefined && body.asked !== null && typeof body.asked !== 'string') {
+          throw new Error('a question identity is text');   // #5406 slice C: never ignored, or the checks below would be skipped
+        }
+        if (automatic && (body.chose !== undefined || (body.asked !== undefined && body.asked !== null) || (body.reply_to !== undefined && body.reply_to !== null)
           || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
           throw new Error('an automatic message is plain text');
         }
@@ -16118,7 +16138,10 @@ const server = http.createServer(async (req, res) => {
          * that has moved on. The digit is unaffected either way; only the
          * bubble's wording is at stake.
          */
-        if (chose) {
+        /* #5406 slice C: a press that names its question (`asked`) is checked even when its words were dropped by the
+           bounds above: otherwise its digit would skip every check below and be typed as an ordinary prompt. */
+        const askedGiven = typeof body.asked === 'string' && chat.cleanMessage(body.asked).trim() !== '';
+        if (chose || askedGiven) {
           /**
            * ⚠️ A BUTTON SEND IS REFUSED WHEN THE SCREEN CONTRADICTS IT, rather
            * than stripped of its words and sent anyway.
@@ -16150,13 +16173,31 @@ const server = http.createServer(async (req, res) => {
            */
           const card = askingCard;
           if (!card || card.state !== STATE.NEEDS_YOU) chose = null;
-          const seen = chose ? seenNow : null;
+          const seen = (card && card.state === STATE.NEEDS_YOU) ? seenNow : null;
+          /* #5406 slice C review 18: the press-kind refusals FIRST, so their sentence is the true one (a press for another
+             runner, or at a screen that is not the single-select menu, would otherwise be told its question is gone or
+             its words could not be checked). */
+          const notMenu = askedGiven && seen && seen.text && !require('./engine/status').claudeQuestionMenu(seen.text);
+          if (askedGiven && ((card && String(card.runner || 'claude') !== 'claude') || notMenu)) {
+            /* Review 24: at a screen that is not the menu, say which is true. The same question on another kind of screen
+               cannot be answered with a button; a DIFFERENT (or no) question there means the screen moved on. */
+            const qNow = notMenu ? chat.questionIn(seen.text, card && card.runner) : null;
+            const idNow = qNow ? chat.cleanMessage(chat.questionAbove(qNow.text) || '').slice(0, 2000) : '';
+            const moved = notMenu && card && String(card.runner || 'claude') === 'claude'
+              && idNow !== chat.cleanMessage(body.asked).slice(0, 2000);
+            const notThis = new Error(moved
+              ? 'its screen moved between drawing that button and sending it, so we did not send the answer. '
+                + 'What is on this page now is current.'
+              : 'that question cannot be answered with a button, so we did not send anything. Answer it in its window.');
+            notThis.status = 409;
+            throw notThis;
+          }
           const asked = (seen && seen.text) ? chat.questionIn(seen.text, card && card.runner) : null;
           /* #5051: a BUTTON can never answer Claude Code's safeguards model-switch menu. The page draws no buttons for it
              (chat.optionsIn refuses it), so a button press that lands on it was drawn for some other question and the pane
              redrew; option 1 there switches models and saves that choice in the agent's Claude settings. Refused like
              any changed question. A person typing the digit themselves (no `chose`) is their own answer and goes through. */
-          if (chose && asked && require('./engine/status').safeguardsMenuAt(asked.text)) {
+          if (chose && asked && require('./engine/status').safeguardsMenuAt(asked.text)) {   // a named press never gets here (not the menu: refused above)
             const moved = new Error('that question changed on its screen before this was sent, '
               + 'so we did not answer it. Its current question is on this page.');
             moved.status = 409;
@@ -16170,6 +16211,11 @@ const server = http.createServer(async (req, res) => {
              small, and the whole point of this pair is that the record does not
              drift from the screen. */
           if (chose) chose = chat.cleanMessage(chose);
+          if (menu && askedGiven && !chose) {   // #5406 slice C: words that failed their check are not "a changed question"
+            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Answer it in its window, or type its number.');
+            unchecked.status = 409;
+            throw unchecked;
+          }
           if (menu && (!row || chat.cleanMessage(row.label) !== chose)) {
             const moved = new Error('that question changed on its screen before this was sent, '
               + 'so we did not answer it. Its current question is on this page.');
@@ -16206,8 +16252,7 @@ const server = http.createServer(async (req, res) => {
            * compare what is left, rather than to stop looking.
            */
           const bound = (v) => chat.cleanMessage(v).slice(0, 2000);
-          const askedAbove = typeof body.asked === 'string' && body.asked.trim()
-            ? bound(body.asked) : null;
+          const askedAbove = askedGiven ? bound(body.asked) : null;   // the one test for a press that named its question
           const nowAbove = asked ? chat.questionAbove(asked.text) : null;
           const nowClean = nowAbove ? bound(nowAbove) : null;
           /**
@@ -16242,6 +16287,19 @@ const server = http.createServer(async (req, res) => {
               + 'if it is still the one you want.');
             moved.status = 409;
             throw moved;
+          }
+          /* #5406 slice C: a press that names its question (`asked`; only the page's buttons send it) while no question
+             is on the screen now (answered in the window, or the agent moved on inside the poll) is refused, never typed:
+             its digit would otherwise land in the composer as a new prompt. Unlike `chose` alone, `asked` says the press
+             was for a menu, so a screen without one contradicts it. */
+          if (askedAbove && nowClean === null) {
+            /* Asking, but the screen could not be read: say that, not that the question went. */
+            const unread = Boolean(card && card.state === STATE.NEEDS_YOU && !(seen && seen.text));
+            const gone = new Error(unread
+              ? 'we could not read its screen just now, so we did not send the answer. Look at this page again in a moment.'
+              : 'its question is no longer on its screen, so we did not send the answer. What is on this page now is current.');
+            gone.status = 409;
+            throw gone;
           }
         }
         // Deliver first, then record the verdict with it — and record even a
@@ -16311,11 +16369,21 @@ const server = http.createServer(async (req, res) => {
           if (cq) {
             const said = String(body.text).trim();
             const opt = /^\d$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
+            /* A press is answered only as the option the live menu shows under that number, with the words the page
+               drew for it: the two menu readers (optionsIn above, claudeQuestionMenu here) must agree. */
+            if (opt && chose && chat.cleanMessage(opt.label) !== chose) {
+              const e = new Error('that question changed on its screen before this was sent, so we did not answer it. Its current question is on this page.');
+              e.status = 409; throw e;
+            }
+            if (!opt && (chose || askedGiven)) {
+              const e = new Error('that is not one of the numbers on the menu its screen shows now, so we did not send it. Answer it in its window.');
+              e.status = 409; throw e;
+            }
             if (opt && !files.recs.length && !answered) {
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label });
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
               qmenuAnswer = r;
-            } else if (chose) {
+            } else if (chose || askedGiven) {
               // Review round 1: a button is a choice; one carrying files or a reply is not sent as a dismissal.
               const e = new Error('a choice is sent on its own; send the files or the reply as a message after it');
               e.status = 409; throw e;
@@ -21095,16 +21163,54 @@ function companyPolicySync() {
     ten minutes; engine/orgrollup.js decides). */
 const ORG_ROLLUP_TICK_MS = 5 * 60 * 1000;
 let ORG_ROLLUP_RUNNING = false;
+/* The enrolled Kosmos's tick child, when this board serves another Kosmos (kosmos#5532 widening). Stopped when this board
+   leaves through process.exit (board review 5). A board stopped by a signal (kosmos stop sends SIGTERM) cannot stop it
+   (board review 7): the child bounds itself (engine/orgrollup-child.js), and the rollup's own run lock (org-rollup.lock in that
+   Kosmos's root, engine/orgrollup.js takeRunLock) keeps the next board's tick from running beside it. */
+const ORG_ROLLUP_ELSEWHERE = require('./engine/orgrollup').elsewhereRunner();
+process.on('exit', () => ORG_ROLLUP_ELSEWHERE.stop());
 function orgRollupTick() {
-  if (ORG_ROLLUP_RUNNING) return;   // one at a time: a slow read must not start a second send
+  if (ORG_ROLLUP_RUNNING || ORG_ROLLUP_ELSEWHERE.running) return;   // one at a time: a slow read must not start a second send
   // Rollup review 28: a send to the company is a real side effect, so it waits for live execution like the board's other
   // background sweeps; a test or a board that never turned it on sends nothing, enrolled fixture or not.
   if (!liveExecution.liveExecutionAllowed()) return;
   try {
-    if (!require('./engine/orgenroll').isEnrolledHere()) return;   // not the work Kosmos: nothing is read or sent
-    ORG_ROLLUP_RUNNING = true;
-    require('./engine/orgrollup').tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
+    const oe = require('./engine/orgenroll');
+    const rollup = require('./engine/orgrollup');
+    if (oe.isEnrolledHere()) {
+      ORG_ROLLUP_RUNNING = true;
+      rollup.tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
+      return;
+    }
+    /* kosmos#5532 widening: this board serves another Kosmos, and the enrolled one (if any on this computer) still
+       reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
+       timing, print and key are its own. One board runs per computer, so one such child at a time (ORG_ROLLUP_ELSEWHERE.running,
+       held until it ends, at most TICK_CHILD_TIMEOUT_MS); the enrolled Kosmos's own state paces its sends. */
+    // The search, its throttle and the child's bookkeeping: rollup.elsewhereRunner (tested there, board review 11).
+    ORG_ROLLUP_ELSEWHERE.tick(require('./engine/store').ROOT);
   } catch { ORG_ROLLUP_RUNNING = false; }
+}
+/** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own
+    rules and sends them (engine/agentevents.js decides what counts). Same gates as the rollup. Slice 3: while the org's
+    policy and the member's words turn the manipulation check on, every known Claude Code agent's transcripts are read too. */
+let AGENT_EVENTS_RUNNING = false;
+const AGENT_EVENTS_SAID = new Set();
+function agentEventsTick() {
+  if (AGENT_EVENTS_RUNNING) return;
+  if (!liveExecution.liveExecutionAllowed()) return;
+  try {
+    /* Not the work Kosmos (or no longer: a Leave): no transcript is read, and a state that was reporting is marked
+       withdrawn so that nothing from the gap is sent if the same enrollment comes back (#5683 review 36), but only
+       when it has really stopped, never on a read that failed (review 37). */
+    if (!require('./engine/orgenroll').isEnrolledHere()) { require('./engine/agentevents').withdrawIfStopped(); return; }
+    AGENT_EVENTS_RUNNING = true;
+    /* Each distinct reason is said once (challenge-loop iteration 3): a board that will never send
+       must not look the same as one with nothing to send. */
+    require('./engine/agentevents').tick().then((r) => {
+      const why = r && typeof r.because === 'string' ? r.because : null;
+      if (why && !AGENT_EVENTS_SAID.has(why) && AGENT_EVENTS_SAID.size < 32) { AGENT_EVENTS_SAID.add(why); console.error('agentevents: ' + why); }
+    }).catch(() => { /* best effort */ }).finally(() => { AGENT_EVENTS_RUNNING = false; });
+  } catch { AGENT_EVENTS_RUNNING = false; }
 }
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
@@ -21123,6 +21229,8 @@ function start(port = PORT) {
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
+  setTimeout(agentEventsTick, 2 * 60 * 1000).unref();   // #5683: a first look two minutes after start, a minute after the rollup's, so their computer-print reads do not land together
+  setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

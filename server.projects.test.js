@@ -2669,7 +2669,7 @@ test('a button whose digit the visible menu does not offer is refused, not sent'
   });
 });
 
-test('a menu that redrew into a DIFFERENT question with the SAME labels is refused', async () => {
+test('a menu that redrew into a DIFFERENT question with the SAME labels is refused (at this Yes/No prompt, as a moved screen; the live-menu identity check is server.question-menu-5406.test.js\'s)', async () => {
   reset();
   /**
    * ⚠️ THE CASE THE LABEL CHECK CANNOT SEE, and it is this product's most
@@ -2679,11 +2679,9 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
    * and the POST passed every existing guard, and `1` approved a file the
    * person never chose.
    *
-   * #3419: the page's answer-menu (and its `talkKey`/answered-hold that once held
-   * this discriminating half, the `above`) is gone with the needs_you prompt, so the
-   * page no longer sends `chose`/`asked` at all. The server-side handling this guards
-   * degrades gracefully when they are absent (`body.chose`/`body.asked` default null);
-   * `chat.questionAbove` remains the engine's twin of the rule.
+   * #3419 removed the page's old answer box; #5406 slice C draws choice buttons in the question's bubble again, and
+   * they send `chose` and `asked` (from `chat.questionAbove`, served by the GET). A press that names its question is
+   * answered by key or refused; at this Yes/No prompt (not the single-select menu) it is refused.
    */
   const bPrompt = 'Edit file src/b.js?\n❯ 1. Yes\n  2. No\n';
   await withAgent(fleet.agent('zeta', { state: 'needs_you' }),
@@ -2692,27 +2690,29 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
       const asked = chatEngine.questionAbove(chatEngine.questionIn('Edit file src/a.js?\n❯ 1. Yes\n  2. No').text);
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
       assert.equal(res.status, 409, 'the screen is asking about a different file now');
+      assert.match(String(json(res).error), /moved between drawing that button/, 'a different question was not refused as a moved screen');
       assert.equal(calls.sends().length, 0, 'and nothing was typed into the pane');
     });
 });
 
-test('the same question still on screen is sent, so the check above is not refusing everything', async () => {
+test('a press that names its question (asked) at a permission-style prompt is refused as not a button question, nothing typed (a words-only press there is #5754\'s delivery floor; the identity check is server.question-menu-5406.test.js\'s)', async () => {
   reset();
-  /* ⚠️ THE CONTROL FOR IT. Without this, the refusal above passes for a server
-     that 409s every button send, which would be worse than the hole it closes:
-     the buttons are the pack's whole point. */
+  /* Once the control for the test above (a matching press must go through). Since #5406 slice C a press at a
+     PERMISSION-style prompt is refused (pasted, its Enter would take the highlighted Yes; measured on #5754), so this
+     now pins that refusal and nothing typed. The control that a matching press goes out as the key lives in
+     server.question-menu-5406.test.js. */
   const aPrompt = 'Edit file src/a.js?\n❯ 1. Yes\n  2. No\n';
   await withAgent(fleet.agent('zeta', { state: 'needs_you' }),
     [said(aPrompt), said(), said()], async ({ calls }) => {
       const chatEngine = require('./engine/chat');
       const asked = chatEngine.questionAbove(chatEngine.questionIn(aPrompt).text);
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
-      assert.equal(res.status, 200, 'the question it was answering is the one on screen');
-      assert.equal(calls.sends().length > 0, true, 'and the digit reached the pane');
+      assert.match(String(json(res).error), /cannot be answered with a button/, 'a press at a permission prompt was not refused as one');
+      assert.equal(calls.sends().length, 0, 'a press was typed into a permission prompt');
     });
 });
 
-test('a pane that ACCUMULATED a new question above the same menu is refused', async () => {
+test('a pane that ACCUMULATED a new question above the same menu is refused (at this Yes/No prompt, as a moved screen; equality on the live menu is server.question-menu-5406.test.js\'s)', async () => {
   reset();
   /**
    * ⚠️ THE CASE CONTAINMENT LET THROUGH, and neither existing test covered it.
@@ -2724,8 +2724,9 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
    * "rm -rf /Users/josh/build" above the same Yes/No menu, and containment
    * called that the same question.
    *
-   * Equality refuses it. The reason equality is safe again is that the identity
-   * no longer moves with the cursor -- see `questionAbove`.
+   * #5406 slice C: this Yes/No screen is not Claude's single-select question menu; a press is refused as a moved
+   * screen when its question differs (by equality), as a non-button question when it is the same. Equality versus
+   * containment on the live menu: server.question-menu-5406.test.js (the accumulated-question test).
    */
   const chatEngine = require('./engine/chat');
   const painted = 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n\n> ';
@@ -2739,11 +2740,12 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
     [said(accumulated), said(), said()], async ({ calls }) => {
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
       assert.equal(res.status, 409, 'answering the older question would type 1 at the newer one');
+      assert.match(String(json(res).error), /moved between drawing that button/, 'the older question was not refused as a moved screen');
       assert.equal(calls.sends().length, 0, 'and nothing reached the pane');
     });
 });
 
-test('the cursor moving inside a SHORT prompt still sends, because the window clamps', async () => {
+test('the cursor moving inside a SHORT prompt keeps the same identity (questionAbove), because the window clamps (the server-level clamp is server.question-menu-5406.test.js review 21)', async () => {
   reset();
   /**
    * ⚠️ THE FALSE REFUSAL THE FIRST VERSION OF THIS GUARD SHIPPED WITH, and a
@@ -2754,8 +2756,10 @@ test('the cursor moving inside a SHORT prompt still sends, because the window cl
    * prose line above it once the person arrows to 2. The run-up window shifts
    * with the anchor, so `above` changes while the question, the options and
    * the labels do not. Equality refused that send and told the person their
-   * screen was asking something else. Containment accepts it, because one
-   * window is a prefix of the other whenever only the anchor moved.
+   * screen was asking something else. Since then the identity keys on the
+   * lines ABOVE the run (questionAbove), so the cursor does not move it; this
+   * pins that, and that the press here is refused for being a non-menu screen,
+   * not as a moved one.
    */
   /* ⚠️ THE IDENTITY IS DERIVED, NOT TYPED. A hand-written `asked` pins what the
      test's author believed the page sends, which is how this test kept passing
@@ -2778,8 +2782,11 @@ test('the cursor moving inside a SHORT prompt still sends, because the window cl
          the identity does not move at all. That is the ordinary permission
          prompt. The false refusal needs a capture DEEPER than the run-up
          window, and `engine/chat.test.js` holds that case. */
-      assert.equal(res.status, 200, 'a short prompt clamps to the same window at either cursor position');
-      assert.equal(calls.sends().length > 0, true, 'and the answer reached the pane');
+      /* #5406 slice C / #5754: a press at this permission prompt is refused before any identity check, so the clamp is
+         read off the identity itself. */
+      assert.equal(chatEngine.questionAbove(chatEngine.questionIn(moved).text), asked, 'a short prompt clamps to the same window at either cursor position');
+      assert.match(String(json(res).error), /cannot be answered with a button/, 'the cursor moving was read as a moved screen');
+      assert.equal(calls.sends().length, 0, 'a press was typed into a permission prompt');
     });
 });
 

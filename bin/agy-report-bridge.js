@@ -137,8 +137,12 @@ function readStdin() {
     const finish = () => {
       if (done) return;
       done = true;
-      /* Let go of stdin: an agy that left it open would otherwise keep this process alive. */
-      try { process.stdin.destroy(); } catch { /* already closed */ }
+      /* Let go of stdin without closing it (#5576, defensive): on the Linux lane fd 0 was free by the time the report
+         went and the report's socket took it (libuv aborts closing a handle on fd 0 to 2). What freed it is not
+         measured; destroy() was the only stdin call in between, so it is no longer made. holdStdioFds below is the
+         guard either way. An agy that left stdin open cannot keep this process alive: main always ends in
+         process.exit. */
+      try { process.stdin.pause(); process.stdin.unref?.(); } catch { /* already closed */ }
       resolve(data);
     };
     try {
@@ -273,6 +277,25 @@ function flushed() {
   });
 }
 
+/* #5576: before any socket opens, put the null device on whichever of fds 0 to 2 is free, lowest first, so it gets
+   that number and no socket can. libuv aborts when it closes a handle whose fd is 0 to 2. Whoever freed the fd, this
+   holds it, if it closed it before this runs. Returns the fds it filled; never throws. On Windows the fds are the C
+   runtime's and sockets never use them, so it is harmless there (it may open NUL on a free one) and protects nothing. */
+function holdStdioFds(fsMod = require('node:fs'), devNull = require('node:os').devNull) {
+  const filled = [];
+  for (const fd of [0, 1, 2]) {
+    let free = false;
+    try { fsMod.fstatSync(fd); } catch (e) { free = Boolean(e && e.code === 'EBADF'); }
+    if (!free) continue;
+    try {
+      const got = fsMod.openSync(devNull, fd === 0 ? 'r' : 'w');
+      if (got === fd) filled.push(fd);
+      else fsMod.closeSync(got);   // a lower number was taken meanwhile: do not leave a stray fd behind
+    } catch { /* best effort: the report still goes */ }
+  }
+  return filled;
+}
+
 async function main() {
   /* agy reads our stdout as the hook's answer. Every event but PreToolUse: first, always. PreToolUse's answer
      depends on the tool, so it waits for the payload (readStdin gives up after STDIN_TIMEOUT_MS, inside agy's
@@ -306,6 +329,12 @@ async function main() {
     headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
   } catch { /* a missed world header must never become a failed turn */ }
 
+  /* #5576: hold a free fd 0 to 2 so the request's socket cannot take one. One turn of the loop first, so a close of
+     fd 0 left pending by the stdin handling (a handle close lands a phase later) is done before the guard looks
+     (review 2). PREMISE: whatever frees fd 0 has done so by then (the Linux trace showed it free already at fetch
+     begin); a close that lands while the request is opening is not covered. */
+  await new Promise((resolve) => setImmediate(resolve));
+  holdStdioFds();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   await fetch(`http://127.0.0.1:${port}/api/report`, {
@@ -323,4 +352,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, quotaResetMs, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, quotaResetMs, reportFor, buildBody, engineDir, holdStdioFds };

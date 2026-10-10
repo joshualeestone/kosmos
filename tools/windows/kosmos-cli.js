@@ -106,7 +106,7 @@ const USAGE = {
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs',
-    '      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
+    '      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
     '      --unchanged                                              it found nothing new (the task\'s page rolls such runs up)',
@@ -1042,7 +1042,7 @@ async function taskDoneWhen(ctx, args) {
 
 /* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
-const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon] [--reviewer <agent|none>]   (or --clear)';
+const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
 async function taskRepeat(ctx, args) {
   const [project, num] = args;
   if (!project || !num || args.length < 3) { ctx.err(REPEAT_USAGE); return 2; }
@@ -1584,6 +1584,10 @@ async function communityComment(ctx, args) {
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Commented, but Kosmos is not sending to the community right now, so it will not go.')
       : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
+    // #4941: only where it will go, as the Mac verb: edit and withdraw take the board's id at once (a queued comment can
+    // be edited); a comment that will not go cannot be edited, so it is offered no id.
+    const cid = typeof r.json.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r.json.id) ? r.json.id : '';
+    if (cid && r.json.sends !== false) ctx.out('Its id is ' + cid + '. Fix it with: kosmos community edit comment ' + cid + ' <new words>   or take it back with: kosmos community withdraw comment ' + cid);
     outNudge(ctx, r);
     return 0;
   }
