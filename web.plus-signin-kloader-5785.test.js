@@ -70,7 +70,8 @@ test('#5785 review 1: the browser checks that drive a register skip the hold (th
 
 test('#5785 Mona\'s review: centred while it connects, with the wait said, and both put back when it ends', () => {
   assert.match(code, /#plus-state2\.plus-si-busy #plus-si-title, #plus-state2\.plus-si-busy #plus-si-owned, #plus-state2\.plus-si-busy #plus-si-k-note \{ text-align: center; \}/);
-  assert.match(code, /<p class="plus-si-lead" id="plus-si-k-note" hidden>This takes about half a minute\.<\/p>/);
+  // Review 8: announced (the canvas is aria-hidden, so this line is how a screen reader hears the wait).
+  assert.match(code, /<p class="plus-si-lead" id="plus-si-k-note" role="status" hidden>This takes about half a minute\.<\/p>/);
   assert.match(fnBody('plusSiKStart'), /card\.classList\.toggle\('plus-si-busy', !!centred\)[\s\S]*note\.hidden = false/);
   // Review 3: centred only for the automatic connect; a typed name keeps the card's left alignment.
   assert.match(code, /plusSiKStart\(owned\);/);
@@ -87,4 +88,17 @@ test('#5785 review 7: the #4608 sign-in check asserts the big loader during a co
 
 test('#5785 review 7: a new sign-in (plusSiEnter) makes an older answer stale, as Start over and Sign out do', () => {
   assert.match(fnBody('plusSiEnter'), /PLUS_SI_EPOCH \+= 1;\s*plusSiClear\(\);/);
+});
+
+test('#5785 review 8: every sign-in epoch bump reachable during a register clears the register too (plusSiClear)', () => {
+  // A held answer returns on an epoch change without clearing anything itself; that is only safe while every bump it
+  // can meet calls plusSiClear. The one exception, the code step's resend, cannot happen during a register.
+  const bumps = [...code.matchAll(/PLUS_SI_EPOCH \+= 1;/g)].map((m) => m.index);
+  assert.ok(bumps.length >= 3, 'CONTROL: the epoch bumps were found');
+  for (const at of bumps) {
+    const fnAt = Math.max(code.lastIndexOf('\nfunction ', at), code.lastIndexOf('\nasync function ', at));
+    const fnName = (/function (\w+)\(/.exec(code.slice(fnAt, fnAt + 80)) || [])[1];
+    if (fnName === 'plusSiRequestCode') continue;   // the resend, on the code step only
+    assert.match(code.slice(at, at + 400), /plusSiClear\(\);/, 'an epoch bump in ' + fnName + ' does not clear the register');
+  }
 });
