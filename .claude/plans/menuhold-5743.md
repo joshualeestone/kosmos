@@ -97,6 +97,10 @@ closes the menu first, then delivers).
 - The self-report exception reads the card's `because`/`stateEvidence`; it is tested with the hook's text injected,
   not through a reconciled snapshot, so it holds only where that text reaches the card.
 
+- The self-report exception can refuse on a stale report: a permission request already answered, a capture that
+  fails, and the card not yet updated by the next hook event. Refused with nothing typed; the next delivery after the
+  report changes goes through.
+
 ## Weakest premise
 
 The snapshot reads working or needs_you while the screen is up. Not caught: a screen drawn while the snapshot still
