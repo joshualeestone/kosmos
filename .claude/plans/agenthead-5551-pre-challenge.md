@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agenthead-5551
-diff_hash: 69d72b2c4e0dc261d22db668f47cccef2cb5ff1230d5f6e033d98d0fd6762288
+diff_hash: 27de0411ec4ab1910390da5826ad8d29b990b97ad7293673bf144353129f78c8
 validation: Scoped, stated plainly. render-newlook-4470 (the browser check that covers the new look) 322/322 on c724abbc07, run as a queued turn on the box, including the new agentHeadLook arms in light/dark at 1280 and light at 390 and the look-off control. web.agent-head-5551.test.js 5/5 and web.layout-picker.test.js (pins #2574's detail-back) 13/13. Every inline script on the page parses. The full node and shell suites were NOT run locally; the merge is gated on all-green GitHub CI, which runs them and browser-checks.
 subdir_audit: passed
 timestamp: 2026-10-10T19:19:41Z
@@ -30,6 +30,9 @@ The change (#5551, Josh's 2026-10-09 agent-page drawing, new look only):
 - [NIT] The label went stale on a rename --> FIXED: a project list that loads repaints it.
 - [NIT] Two unit-test regexes match exact source text --> LEFT: they pin the wiring on purpose; a reformat that breaks them is a prompt to re-check that wiring.
 - [NIT] "Project" fallback is vague --> LEFT: honest about where the click goes, and unreachable in practice (every opener from a project has the list loaded).
+
+#### CI round (after the PR opened)
+- [BLOCKER, found by CI suite (node)] web.projects-signed-out-718 lifts loadProjects alone; the new repaint line read an undeclared DETAIL_FROM_PROJECT and threw --> FIXED with a typeof guard. The isolation hazard was on my own notes and I still missed it: only the full suite saw it.
 
 #### Iteration 2 (re-check)
 - render-newlook-4470 322/322 on the fixed head; unit tests 18/18; no new findings.
