@@ -209,6 +209,13 @@ function blockBody(tag, from) {
   ].join('\n');
 }
 
+/** #5080: whether `text` holds exactly one language block, and it is one an earlier choice in Settings wrote. Automatic
+    with no sure read takes such a block out (at create, in the sweeps); any other block is left as it is. */
+function hasStaleSettingsBlock(text) {
+  const one = projects.findBlock(String(text == null ? '' : text), START, END);
+  return Boolean(one && !one.ambiguous && STALE_SETTINGS_LINE.test(String(text).slice(one.start, one.end)));
+}
+
 /** `text` with the block for `tag` at its end, or without the block when the language is English. */
 function applyTo(text, tag, from) {
   const body = blockBody(tag, from);
@@ -265,11 +272,8 @@ function tellAgent(sessionName, roster, opts) {
     // #5080: Automatic with no sure read only ever takes out a block an earlier choice in Settings wrote. A file it cannot
     // read, or one with two blocks, is left exactly as it is and reported as nothing to do, as before the picker (no boot
     // noise on every Windows and Linux start).
-    if (!got.sure) {
-      const text = current.exists ? (current.text || '') : '';
-      const one = current.exists ? projects.findBlock(text, START, END) : null;
-      const stale = one && !one.ambiguous && STALE_SETTINGS_LINE.test(text.slice(one.start, one.end));
-      if (!stale) return { state: projects.TOLD.TOLD, because: null, changed: false };
+    if (!got.sure && !(current.exists && hasStaleSettingsBlock(current.text || ''))) {
+      return { state: projects.TOLD.TOLD, because: null, changed: false };
     }
     if (!current.exists) return { state: projects.TOLD.COULD_NOT, because: current.because || 'it keeps its instructions somewhere we cannot safely change' };
     const found = projects.findBlock(current.text || '', START, END);
@@ -310,4 +314,4 @@ function syncEveryone(roster, opts) {
   return told;
 }
 
-module.exports = { _resetForTests: (src) => { cached = undefined; cachedChoice = undefined; fallbackAt = 0; autoCached = undefined; autoAt = 0; source = src || null; }, _ageFallbackForTests: () => { fallbackAt -= FALLBACK_MS; autoAt -= FALLBACK_MS; }, START, END, SETTINGS_SOURCE, CHOICE_FILE, CHOICES, AUTO, readChoice, setChoice, automatic, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
+module.exports = { _resetForTests: (src) => { cached = undefined; cachedChoice = undefined; fallbackAt = 0; autoCached = undefined; autoAt = 0; source = src || null; }, _ageFallbackForTests: () => { fallbackAt -= FALLBACK_MS; autoAt -= FALLBACK_MS; }, START, END, SETTINGS_SOURCE, CHOICE_FILE, CHOICES, AUTO, readChoice, setChoice, automatic, hasStaleSettingsBlock, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
