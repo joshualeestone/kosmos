@@ -57,11 +57,14 @@ const OPERATORS = new Set([';', '&', '|', '(', ')', '<', '>', '\n']);
 const INTERPRETER = /^(?:(?:ba|z|da|k|fi|c|tc)?sh|source|\.|node|nodejs|deno|bun|tsx|ts-node|ruby|perl|php|lua|Rscript|osascript|pwsh|swift|python[0-9.]*)$/;
 /* Runners whose script comes after a subcommand (deno run x.ts). */
 const RUNNER_SUB = { deno: /^run$/, bun: /^(?:run|x)$/, uv: /^run$/, go: /^run$/ };
+/* Review 8: a runner's word that is no file (bun start, bun test, deno task, uv run hook, uv sync) names a script or
+   task in package.json, deno.json or pyproject.toml, which is the folder's own code. */
+const PACKAGE_SCRIPT_RUNNER = /^(?:bun|deno|uv)$/;
 /* Words before the real program: it is the next word that is not a flag, a NAME=value or (for timeout) a duration. */
 const WRAPPER = /^(?:env|exec|nohup|time|sudo|doas|g?timeout|nice|ionice|command|builtin|xargs|stdbuf|caffeinate|npx|pnpx|bunx|uvx|watch|parallel|setsid|chronic|flock|script|export|if|then|elif|else|while|until|do|!|\{)$/;
 /* Review 6: a word with a script's file extension is code wherever it sits in the command, so an unlisted wrapper
    (some-runner hook.sh) cannot hide it. */
-const SCRIPT_EXT = /\.(?:sh|bash|zsh|command|js|mjs|cjs|ts|mts|cts|py|rb|pl|php|lua|ps1|jar|awk|scpt|applescript|swift|kts)$/i;
+const SCRIPT_EXT = /\.(?:sh|bash|zsh|js|mjs|cjs|ts|mts|cts|py|rb|pl|php|lua|ps1|jar|awk|scpt|applescript|swift|kts)$/i;
 /* Review 7: a runner's own change-folder flag, which moves where it runs (uv --directory /x run s.py, make -C /x). */
 const CHDIR_FLAGS = { uv: /^--directory$/, make: /^-C$/, gmake: /^-C$/, npm: /^--prefix$/, pnpm: /^(?:-C|--dir)$/, yarn: /^--cwd$/, bun: /^--cwd$/, git: /^-C$/, go: /^-C$/ };
 /* Review 6: programs that run code the folder they run in supplies (package.json scripts and node_modules, a Makefile,
@@ -255,7 +258,8 @@ function shellWords(cmd, vars = {}) {
     start();
     if (c === '$') { i = dollar(i); continue; }
     if (c === '`') { i = tick(i); continue; }
-    if (c === '~' && cur.text === '' && !cur.quoted && (i + 1 === cmd.length || cmd[i + 1] === '/') && vars.HOME) { cur.text += vars.HOME; i++; continue; }
+    // ~ at a word's start, and (review 8) after the = or a : of an assignment (PATH=~/bin:~/x), is the home.
+    if (c === '~' && (cur.text === '' || (cur.assignable && /[=:]$/.test(cur.text))) && !cur.quoted && (i + 1 === cmd.length || /[/:]/.test(cmd[i + 1])) && vars.HOME) { cur.text += vars.HOME; i++; continue; }
     if (c === '*' || c === '?' || c === '[') cur.globbed = true;
     if (c === '=' && !cur.quoted && !cur.assignable && /^[A-Za-z_][A-Za-z0-9_]*$/.test(cur.text)) cur.assignable = true;
     cur.text += c; i++;
@@ -287,7 +291,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
   const codePaths = [];  // review 7: the paths in an interpreter's code position, where a folder is code too
   const UNKNOWN_CWD = '/\0unknown';
   const more = (line) => {
-    if (depth >= 3) return;
+    if (depth >= 3) { unsafe.push('commands nested too deep for Kosmos to read'); return; }   // review 8: named, not dropped
     const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds);
     paths.push(...r.paths); runPaths.push(...r.runPaths); codePaths.push(...r.codePaths); unsafe.push(...r.unsafe);
   };
@@ -321,6 +325,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     cmdCwd = path.resolve(cmdCwd && cmdCwd !== UNKNOWN_CWD ? cmdCwd : lastCwd, t);
   };
   let chdirNext = false;
+  let packageScriptNext = false;   // bun run <name>: a package.json script when <name> is no file
   let slotTaken = false;   // the first plain word after an interpreter is its script (or the folder it runs)
   let prog = '';
   let scriptSlot = false;   // the next plain word is the script the program (an interpreter) runs
@@ -346,7 +351,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
       continue;
     }
     if (w.assign) { assignment(w, w.text); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=..., PATH=...
-    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
+    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
       if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; } }   // a bare cd goes home
@@ -403,8 +408,13 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     }
     if (!isHead && !isFlag && !inline && !w.dynamic && !flagScript && runnerSub) {
       const sub = runnerSub; runnerSub = null;
-      if (sub.test(text)) { scriptSlot = true; continue; }
+      if (sub.test(text)) { scriptSlot = true; packageScriptNext = PACKAGE_SCRIPT_RUNNER.test(prog); continue; }
+      packageScriptNext = PACKAGE_SCRIPT_RUNNER.test(prog);   // bun start: the word itself
       if (!INTERPRETER.test(prog)) scriptSlot = false;
+    }
+    if (packageScriptNext && !isHead && !isFlag && !inline && !w.dynamic) {
+      packageScriptNext = false;
+      if (!text.includes('/') && !/\.[A-Za-z0-9]{1,5}$/.test(text)) folderRunner(`${prog} ${text}`);   // a package script, not a file
     }
     const inScriptSlot = scriptSlot && !isHead && !isFlag && !inline && !w.input && !flagScript;
     /* Review 5: every plain word after an interpreter counts, not only the first: a flag that takes a value

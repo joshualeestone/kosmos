@@ -555,3 +555,16 @@ test('#5774 review 7: a folder an interpreter runs is named, never denied whole'
     assert.deepEqual(editDeniedBy(readSettings(dir).permissions.deny, path.join(srv, 'index.js')), [], 'not denied whole');
   } finally { fs.rmSync(path.join(HOME, '.claude.json'), { force: true }); }
 });
+
+test('#5774 review 8: ~ in an assignment, package-script runners, jq filters, and nesting too deep to read', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(paths('PATH=~/bin:$PATH myhook').runPaths, ['/H/bin/myhook'], '~ after = is the home');
+  assert.deepEqual(paths('export PATH=/x:~/bin:$PATH; myhook').runPaths, ['/x/myhook', '/H/bin/myhook'], '~ after : too');
+  assert.deepEqual(paths('PATH=/x:~:$PATH myhook').runPaths, ['/x/myhook', '/H/myhook'], 'a bare ~ between colons is the home');
+  assert.deepEqual(paths('FOO=a~b x').runPaths, [], 'control: a ~ inside a value is literal');
+  for (const c of ['bun run start', 'bun start', 'bun test', 'deno task start', 'uv run hook']) assert.match(String(paths(c).unsafe), /agent folder/, c);
+  for (const c of ['bun run x.ts', 'bun x.ts', 'deno run main.ts', 'uv run x.py', 'bun run --cwd /opt/p start']) assert.deepEqual(paths(c).unsafe, [], c);
+  assert.deepEqual(paths("jq -r '.tool_input.command'").paths, [], 'a jq filter is not a script');
+  assert.match(String(paths('bash -c "bash -c \\"bash -c \\\\\\"bash -c /x.sh\\\\\\"\\""').unsafe), /nested too deep/);
+});
