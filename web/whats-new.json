@@ -4,7 +4,10 @@
     {
       "icon": "chat",
       "title": "Answer Claude questions with a button",
-      "line": "When a Claude agent asks you to pick one option, its question in your conversation shows a button for each choice."
+      "line": "When a Claude agent asks you to pick one option, its question in your conversation shows a button for each choice.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "tasks",
