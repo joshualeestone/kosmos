@@ -106,3 +106,30 @@ test('#5743 CONTROLS: an idle agent and a permission prompt are typed into as be
     assert.ok(calls.typed().length > 0, 'the permission-prompt path changed');
   });
 });
+
+test('#5743 decided: a screen read that FAILS is not a refusal (needs_you covers every question; refusing would block replies on one bad capture)', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+  try {
+    const calls = [];
+    chat.setRunner((args) => {
+      calls.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
+    assert.notEqual(v.menu, true, 'a failed read was taken as the menu');
+    assert.ok(calls.some((c) => c[0] === 'capture-pane'), 'premise: the screen was asked for');
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5743 only Claude agents: another runner on the same screen is not refused by this floor', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'gemini', command: 'claude', screen: MENU })]);
+  try {
+    const calls = arm(MENU);
+    const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
+    assert.notEqual(v.menu, true, JSON.stringify(v));
+    assert.ok(calls.typed().length > 0, 'a non-Claude agent was refused by the Claude menu floor');
+  } finally { chat.resetForTests(); board.restore(); }
+});
