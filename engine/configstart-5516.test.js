@@ -2,9 +2,10 @@
 require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
 
 /*
- * #5516 part 2: the token-only guard denies, in both layers, what Claude Code's own config names to start outside the
- * sandbox at the agent's next start: each config home's .claude.json (and the first account's ~/.claude.json), the
- * agent folder's .mcp.json, and each config home's plugins folder. These tests assert the CONFIG WRITTEN, as the #4491
+ * #5516 part 2: the token-only guard denies what Claude Code's own config names to start outside the sandbox at the
+ * agent's next start, or reads as instructions: the global config by every name and its legacy file, the project
+ * server file in the folder and above it, the config homes' code and instruction members, and the agent's own .claude
+ * (see tokenOnlySettingsRules for which layer carries each). These tests assert the CONFIG WRITTEN, as the #4491
  * tests do; that Claude Code still writes its own state with these denies in place was measured by hand (the plan).
  */
 
@@ -69,6 +70,7 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
   const files = [
     ...SFX.flatMap((x) => [path.join(HOME, `.claude${x}.json`), ...homes.map((h) => path.join(h, `.claude${x}.json`))]),
     ...homes.map((h) => path.join(h, '.config.json')),
+    ...homes.flatMap((h) => ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json'].map((f) => path.join(h, f))),
     path.join(dir, '.mcp.json'),
   ];
   // Review 2: the ancestors' .mcp.json go to the file tools only (the shell cannot write there; the profile has a size limit).
@@ -82,14 +84,19 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
     assert.ok(deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools');
     assert.ok(dw.includes(realOrLeaf(f)), f + ' is not denied to the shell');
   }
-  for (const d of homes.flatMap((h) => ['plugins', 'skills', 'agents', 'commands'].map((x) => path.join(h, x)))) {
+  const CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins'];
+  for (const d of homes.flatMap((h) => CODE_DIRS.map((x) => path.join(h, x)))) {
     assert.ok(deny.includes(`Edit(${ruleAbs(d)}/**)`), d + ' is not denied to the file tools');
     assert.ok(dw.includes(realOrLeaf(d)), d + ' is not denied to the shell');
   }
   // A config home made after the guard was written: the permission-layer globs.
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', '.claude.json'))})`), 'no glob for a later home .claude.json');
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', 'plugins'))}/**)`), 'no glob for a later home plugins folder');
-  for (const x of ['skills', 'agents', 'commands']) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', x))}/**)`), 'no glob for a later home ' + x + ' folder');
+  for (const x of CODE_DIRS) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', x))}/**)`), 'no glob for a later home ' + x + ' folder');
+  // Review 3: every global-config name for a later home, not only the plain one.
+  for (const x of SFX) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', `.claude${x}.json`))})`), 'no glob for a later home .claude' + x + '.json');
+  // Review 3: the agent's own .claude whole, to the file tools (its project agents, commands, skills, workflows).
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude'))}/**)`), 'the agent own .claude is open to the file tools');
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', '.config.json'))})`), 'no glob for a later home legacy config');
   // CONTROL: the config homes themselves are not denied whole (Claude Code keeps its runtime state there).
   for (const h of [path.join(HOME, '.claude'), path.join(HOME, '.claude-acct')]) {
@@ -109,9 +116,27 @@ test('#5516 part 2 (review 1): off darwin the file-tool rules are written all th
 });
 
 test('#5516 part 2 (review 2): with many account homes the guard stays whole (inside the sandbox size ceiling)', () => {
-  for (let i = 0; i < 10; i++) fs.mkdirSync(path.join(HOME, '.claude-acct' + i), { recursive: true });
+  const home = path.join(path.dirname(HOME), 'home-many');   // its own home (review 3), so no later test sees these
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  for (let i = 0; i < 12; i++) fs.mkdirSync(path.join(home, '.claude-acct' + i), { recursive: true });
   const dir = agentDir('pilot-cfg-many');
-  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-many', DEPS);
-  assert.equal(g.ok, true, 'twelve config homes tripped the guard: ' + JSON.stringify(g));
-  assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-acct9', '.config.json'))})`), 'CONTROL: the new homes were seen');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-many', { ...DEPS, home });
+  assert.equal(g.ok, true, 'thirteen config homes tripped the guard: ' + JSON.stringify(g));
+  assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude-acct11', '.config.json'))})`), 'CONTROL: the new homes were seen');
+});
+
+test('#5516 part 2 (review 3): a config home code folder that is a link has its target denied in both layers', () => {
+  const home = path.join(path.dirname(HOME), 'home-link');
+  const target = path.join(path.dirname(HOME), 'shared-skills');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.mkdirSync(target, { recursive: true });
+  fs.symlinkSync(target, path.join(home, '.claude', 'skills'));
+  const dir = agentDir('pilot-cfg-link');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-link', { ...DEPS, home });
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const s = readSettings(dir);
+  const real = fs.realpathSync.native(target);
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude', 'skills'))}/**)`), 'CONTROL: the link itself is named');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(real)}/**)`), 'the link target is open to the file tools');
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(real), 'the link target is open to the shell');
 });

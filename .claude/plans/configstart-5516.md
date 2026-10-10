@@ -15,7 +15,11 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 - Review 2: the config homes' agents and commands folders join plugins and skills (their definitions can carry hooks and servers). The ancestors' project server files go to the file tools only, since the shell cannot write there and the sandbox profile has a size limit; a test keeps the guard whole with twelve config homes.
 - What is asserted and what was measured by hand: the tests assert the rules written. That Claude Code still writes its own state under these denies was measured by hand (one version); the class itself is read from the installed binary, so a later Claude Code that reads a new file is a gap until added.
 
+- Review 3: the agent's own .claude is now denied whole to the file tools; it had only the three named files there, so its project agents, commands, skills and workflows were open to its Write and Edit tools. Got wrong: my comment said they were "already denied", true only of the sandbox layer, in the same change that calls the file-tool layer the load-bearing one. The config homes' members widen to every code or instruction member of Claude Code's own protected list (not its runtime state), and a member that is a link has its target named in both layers. Ancestors are walked by both the given and the resolved path.
+
 ## Gaps, stated (the rest of the card)
+- A config home Claude Code is pointed at outside ~/.claude and ~/.claude-* (CLAUDE_CONFIG_DIR elsewhere): not enumerated, so not covered. Kosmos's own accounts live in ~/.claude-<label>.
+- The resolved-path walk of the ancestors is not exercised by a test (the test folders' parents are not links).
 - The scripts a hook, the status line or a server's command points at, wherever they sit: not covered here (they can live anywhere; a next part).
 - Shell startup files, what start-time files pull in, and links the agent makes itself: later parts of the card, as listed there.
 
