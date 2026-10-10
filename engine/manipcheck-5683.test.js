@@ -1786,3 +1786,26 @@ test('#5683 slice 3 review 43: the hourly flag slots are capped, the oldest hour
   assert.ok(hours.includes(hourNow), 'CONTROL: the newest hour was shed');
   assert.ok(Math.min(...hours) > hourNow - 40, 'an oldest hour was kept while newer ones were shed: ' + Math.min(...hours));
 });
+
+test('#5683 slice 3 review 44: a token-only agent whose collision clears on a blind tick keeps the refusals written after it', async (t) => {
+  const { root, tdir, c } = await enrolled(t, 'blindtok');
+  const fileA = path.join(tdir, 'blind-a.jsonl');
+  const fileB = path.join(tdir, 'blind-b.jsonl');
+  fs.writeFileSync(fileA, '');
+  fs.writeFileSync(fileB, '');
+  let shared = true;
+  let all = ['a.b', 'a-b'];
+  const sources = { everyAgent: () => ['a.b', 'a-b'], transcriptDirsOf: (d) => (shared ? ['/projects/-w-a-b'] : [d]), guarded: () => true,
+    agents: () => ['a.b', 'a-b'], allAgents: () => all, dirOf: (n) => '/w/' + n, transcripts: async (d) => [d === '/w/a.b' ? fileA : fileB] };
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: true });
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: true });
+  shared = false;   // the collision clears...
+  all = null;   // ...on a tick that cannot read the agent list
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: true });
+  all = ['a.b', 'a-b'];
+  await new Promise((r) => setTimeout(r, 1100));
+  fs.appendFileSync(fileA, [use('bt-1', 'Bash', { command: 'cat z' }), result('bt-1', 'Permission to use Bash with command cat z has been denied.', true)].join('\n') + '\n');
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: true });
+  const refusals = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.filter((e) => e.rule !== 'manipulation-check').map((e) => e.toolUseRef));
+  assert.ok(refusals.includes('bt-1'), 'a refusal written after a blind clearing tick was skipped: ' + JSON.stringify(refusals));
+});

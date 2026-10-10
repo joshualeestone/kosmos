@@ -1465,8 +1465,13 @@ async function tickOnce(opts) {
     /* Only a tick that could compute every collision may clear one (review 18): on a tick with the check off, an unknown
        policy or words, or an unreadable agent list, the earlier collisions are carried forward. */
     const collisionsKnown = manip && !agentsUnknown && !foldersUnknown;
-    const clearedNow = new Set(collisionsKnown ? prevFlagCollided.filter((n) => !flagCollidedNow.has(n)) : []);
-    st.flagCollided = collisionsKnown ? [...flagCollidedNow] : [...new Set([...prevFlagCollided, ...flagCollidedNow])];
+    /* A token-only agent's collision is slice 1's own (collidedNow), known even on a tick that cannot see the rest, and
+       slice 1 reads it again for refusals from the tick it clears (its listing reset). So it clears here on that same
+       tick (review 44: carried past a blind tick, its mark cleared on the next known tick and started its files at their
+       end, skipping the refusals written between). Nothing is lost: the listing reset bounds refusals at now. */
+    const tokenCleared = prevFlagCollided.filter((n) => tokenOnly.has(n) && !collidedNow.has(n) && !unguardedNow.has(n) && !flagCollidedNow.has(n));
+    const clearedNow = new Set([...(collisionsKnown ? prevFlagCollided.filter((n) => !flagCollidedNow.has(n)) : []), ...tokenCleared]);
+    st.flagCollided = (collisionsKnown ? [...flagCollidedNow] : [...new Set([...prevFlagCollided, ...flagCollidedNow])]).filter((n) => !tokenCleared.includes(n));
     // A cleared agent stays marked until each of its files has its end-of-file start (review 18).
     const keepCleared = (n) => { if (!st.flagCollided.includes(n)) st.flagCollided.push(n); };
     // Collided agents are read for nothing; an unguarded one only for flags, while the check is on (her review 16).
