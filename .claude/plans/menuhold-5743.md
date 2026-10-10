@@ -59,6 +59,11 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
   "Do you want to" question just above it; both real captures plus the older select footer) feeds
   the same refusal and hold, with its own sentence (answer it in the window; the DM route cannot answer it).
 
+- The plan-approval prompt ("Would you like to proceed?") is matched by wording only; no real capture yet. Other
+  approval screens with other wording would not be seen.
+- No choice buttons exist on main (#3419 removed them), and #5406 slice C serves them only for the single-select
+  question menu, so a permission prompt never shows buttons that this floor would then refuse.
+
 ## Weakest premise
 
 The snapshot reads needs_you while the menu is up. Not caught, recorded rather than fixed here (each needs the board's
