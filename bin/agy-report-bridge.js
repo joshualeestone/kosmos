@@ -137,9 +137,11 @@ function readStdin() {
     const finish = () => {
       if (done) return;
       done = true;
-      /* Let go of stdin without closing it (#5576): destroy() could free fd 0 (measured on the Linux lane), and the
-         report's socket then took that number, which libuv aborts on when it closes it (fd > STDERR_FILENO). An agy
-         that left stdin open cannot keep this process alive: main always ends in process.exit. */
+      /* Let go of stdin without closing it (#5576, defensive): on the Linux lane fd 0 was free by the time the report
+         went and the report's socket took it (libuv aborts closing a handle on fd 0 to 2). What freed it is not
+         measured; destroy() was the only stdin call in between, so it is no longer made. holdStdioFds below is the
+         guard either way. An agy that left stdin open cannot keep this process alive: main always ends in
+         process.exit. */
       try { process.stdin.pause(); process.stdin.unref?.(); } catch { /* already closed */ }
       resolve(data);
     };
@@ -277,7 +279,8 @@ function flushed() {
 
 /* #5576: before any socket opens, put the null device on whichever of fds 0 to 2 is free, lowest first, so it gets
    that number and no socket can. libuv aborts when it closes a handle whose fd is 0 to 2. Whoever freed the fd, this
-   holds it. Returns the fds it filled; never throws. */
+   holds it, if it closed it before this runs. Returns the fds it filled; never throws. On Windows the fds are the C
+   runtime's and sockets never use them, so this changes nothing there. */
 function holdStdioFds(fsMod = require('node:fs'), devNull = require('node:os').devNull) {
   const filled = [];
   for (const fd of [0, 1, 2]) {

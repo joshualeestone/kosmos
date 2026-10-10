@@ -348,7 +348,7 @@ test('#5576 fix: holdStdioFds fills a free fd 0 to 2 with the null device, and l
   assert.deepEqual(opened, [['/nul', 'r']], 'fd 0 is opened for reading');
   opened.length = 0;
   assert.deepEqual(bridge.holdStdioFds(fake([0, 2], [0, 2]), '/nul'), [0, 2]);
-  assert.deepEqual(opened.map((o) => o[1]), ['r', 'w'], 'fds 1 and 2 are opened for writing');
+  assert.deepEqual(opened.map((o) => o[1]), ['r', 'w'], 'fd 2 is opened for writing');
   // An open that landed on another number is closed again, not left behind.
   assert.deepEqual(bridge.holdStdioFds(fake([1], [7]), '/nul'), []);
   assert.deepEqual(closed, [7]);
@@ -377,4 +377,26 @@ test('#5576 fix: in a real process, after fd 0 is freed the guard holds it, so t
   assert.equal(zero, 'chr', 'fd 0 is not held by the null device');
   // CONTROL: without the guard, the same open takes fd 0 (the state the abort needs), so this test can fail.
   assert.equal((await run(false)).split(' ')[0], '0', 'premise: a freed fd 0 is taken by the next open');
+});
+
+test('#5576 fix: the real bridge holds a freed fd 0 before its report, so the report\'s socket is never numbered 0', async () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-free0-'));
+  const closer = path.join(dir, 'close-fd-0.js');
+  /* stdout first, then fd 0: on a Mac, making process.stdout reopens the null device on a closed fd 0 (measured), which
+     hid this on Macs; with stdout made before the close, fd 0 stays free into the report, as on the Linux lane. Loads
+     before the trace, so "start" sees it freed. */
+  fs.writeFileSync(closer, 'void process.stdout;\nrequire("node:fs").closeSync(0);\n');
+  let board = null;
+  try {
+    board = await standInBoard();
+    const r = await runBridge('Stop', { ...process.env, AGENT_WORKFORCE_DATA: dir, KOSMOS_PORT: String(board.port), TMUX_PANE: '%free0-' + process.pid,
+      NODE_OPTIONS: '--require ' + JSON.stringify(closer) });
+    assert.equal(r.code, 0, howItEnded(r));
+    assert.match(r.err, /^agy-trace start \| 0:EBADF /m, 'premise: fd 0 was not freed before the bridge ran: ' + r.err.slice(0, 300));
+    assert.match(r.err, /^agy-trace fetch begin \| 0:chr@/m, 'fd 0 was not held by the null device when the report went: ' + r.err.slice(0, 400));
+    assert.doesNotMatch(r.err, /^agy-trace [^|]*\| 0:sock@/m, 'a socket took fd 0');
+  } finally {
+    if (board) board.server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
