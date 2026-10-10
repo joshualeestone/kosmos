@@ -21449,7 +21449,7 @@ function start(port = PORT) {
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
             deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
-            /* #4588 ask 3: the cap too. #5743: and Claude's question menu on its screen (a playbook typed there would
+            /* #4588 ask 3: the cap too. #5743/#5754: and Claude waiting on its screen (question menu, permission prompt; a playbook typed there would
                pick the highlighted answer): the convening waits, nothing typed and no attempt spent. */
             heldUntil: (session) => agyQuota.heldForAgy(session, roster, Date.now())
               ?? (chat.menuHeld(session, roster) ? new Date(Date.now() + 60e3).toISOString() : null),   // only non-null is read

@@ -4,14 +4,15 @@ Card: joshualeestone/kosmos#5743. Follow-up to #5406 slice A (merged #5746), whi
 
 ## Finished looks like
 
-While Claude's question menu is on an agent's screen (any menu drawn with its "Enter to select · ... Esc to cancel"
-footer: single-select, multi-select, multi-question), no path types a message into that pane:
-- automatic deliveries that can reach a needs_you card (a colleague's room post, the unanswered-post nudge, the
-  restart hello, the handoff pickup, the auto-handoff) are HELD (COULD_NOT, held: true,
-  heldBy: 'menu'), so the room keeps the post and the next idle flush, after the question is answered, delivers it;
-- every other sender (a person's room post, the task line, slash commands) is refused COULD_NOT with a sentence that
-  says why and where to answer (the agent's direct messages, or its window). Nothing is typed, so re-sending is safe.
-The direct-message route keeps slice A's behaviour (a number answers, other text closes the menu first, then delivers).
+While a Claude agent's screen waits for an answer (any form of the question menu, a permission prompt, or the safeguards
+model-switch menu), no path types into that pane:
+- automatic deliveries are HELD (COULD_NOT, held: true, heldBy: 'menu'), so the room keeps the post and the member is
+  told at its idle flush or next typed arrival, after the screen is answered;
+- every other sender (a person's room post, the task line, slash commands) is refused COULD_NOT, nothing typed, with a
+  sentence naming what is on screen and saying to answer it in the agent's window (plus, for the single-choice
+  question menu only, by its number in its direct messages).
+The direct-message route keeps slice A's behaviour for the single-select question menu (a number answers, other text
+closes the menu first, then delivers).
 
 ## Decided
 
@@ -69,6 +70,10 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
   because it would change the recommender's attempt counting.
 - Held lines and logs say "waits for an answer on its screen" for both screens; the refusal sentence itself names which
   (a question, or a permission request).
+
+- Other runners' approval prompts (Codex's command approval, for one) are not covered: this floor is Claude-only.
+- The safeguards model-switch menu (#5051) is refused and held too (review 10): Kosmos never presses it, and a typed
+  line's Enter would.
 
 ## Weakest premise
 
