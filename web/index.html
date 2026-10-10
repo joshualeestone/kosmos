@@ -37380,8 +37380,8 @@ let TALK_QUERY = '';
    `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
    screen before it sends a key (409 when the menu moved). */
 let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
-/* Per agent: the question it last ANSWERED from here (a placed press) and when. Drawn as "Sent." with the buttons off
-   while the lock lasts; cleared when that agent's menu goes or its read fails. A refusal is not kept here: its sentence
+/* Per agent: the question a press here may have answered (placed, or could not confirm) and when. Drawn with the
+   buttons off while the lock lasts ("Sent." only when placed); cleared when that agent's menu goes or its read fails. A refusal is not kept here: its sentence
    goes on the conversation's own line, which survives a repaint that draws another question or none. */
 const DM_CHOICE_ANSWERED = new Map();   // session -> { asked, at, sure }: sure = placed; otherwise the key may have gone
 /* How long an answered question keeps its buttons off. A placed answer means the server saw the menu go after the key
