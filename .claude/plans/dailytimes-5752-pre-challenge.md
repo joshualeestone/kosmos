@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: dailytimes-5752
-diff_hash: b6b7175ef5ff5e27b3455616b2f80b519076e6e1b473396747921104d3e423d8
+diff_hash: 9ddf805047e59cbe0da05a445364be5b9483804184298a207c26effa3aa43dfc
 validation: scoped (on this Mac at b28b8ac3 through the heavy queue: 355 test files, every web.* page test plus the repeat, task, CLI and agent-rules files, 2758 tests, 0 failed; the two gated browser checks on the Repeats control's surface, render-runrollup-5643 and render-onhold-4771, all checks passed; 30+ mutants each caught; the full suite was not run locally, CI runs it)
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-10T07:17:08Z
@@ -66,6 +66,9 @@ converged: true
 | 8 | 5 | WARNING | web/index.html | SELF | frequency-only repaint not caught | FIXED | 92f8ce30 |
 
 ### Validation actually run
+- Re-hashed after merging main again (108df6af0): slice 2's test landed at the end of server.task-repeat-4787.test.js beside
+  this branch's, a both-added conflict resolved by keeping both tests (the file: 15 of 15 pass). This branch's lines are
+  unchanged apart from one blank separator line that moved.
 - Re-hashed after merging main (f22f0de85, 56 commits, including web/index.html): a clean merge, and this branch's 561
   added and removed lines are byte-identical before and after it. CI's first run was green in node (18314 tests, 0
   failed) and red only on the browser-check surface gate for render-onhold-4771, which was run locally and passed; the
