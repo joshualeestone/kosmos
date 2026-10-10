@@ -1089,10 +1089,33 @@ async function taskRan(ctx, args) {
   return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), unchanged, from_pane: '' }, false);
 }
 async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnly, alsoReviewer) {
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which, body);
+  const path = '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which;
+  let r = await ctx.call('POST', path, body);
+  /* kosmos#5643, as install/kosmos: a run the board did not take (no answer, a timeout, a cut reply, or a 503 while it
+     could not check who is running) is asked again, twice, before the agent hears it failed: a run whose check
+     succeeded was lost when one busy moment ended the only attempt. Safe to repeat: the board takes a repeat from the
+     same agent inside a minute as the same run (engine/tasks.js RUN_DEDUP_MS), and the attempts fit inside one.
+     A rule (repeat) is asked once, as before. */
+  let mayHaveLanded = !r.reached && !r.refused;
+  for (let tries = 0; which === 'ran' && tries < 2 && (!r.reached || r.status === 503); tries += 1) {
+    ctx.err('Kosmos did not take that run; asking again (a repeat inside a minute is the same run)...');
+    await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env) * (tries === 0 ? 2 : 8)));
+    r = await ctx.call('POST', path, body);
+    if (!r.reached && !r.refused) mayHaveLanded = true;
+  }
+  if (which === 'ran' && !mayHaveLanded && (!r.reached || r.status === 503)) {
+    ctx.err(r.reached
+      ? 'Kosmos could not record that run: ' + (ctx.refusedBy(r) || 'it was busy') + '. It was not recorded; run the same command again in a minute.'
+      : 'We could not reach Kosmos to record that run, so it was not recorded. Run the same command again once Kosmos is running.');
+    return 1;
+  }
+  if (which === 'ran' && mayHaveLanded && r.reached && r.status === 503) {
+    return maybe(ctx.err, 'Kosmos was slow to answer and then busy. The run may have been recorded; check the task (kosmos task list ' + project + ') before recording it again.');
+  }
   if (!r.reached) {
     /* review 1: not "safe" to repeat for a run: a second ran records a second run (a minute apart or more). */
-    return r.timedOut ? maybe(ctx.err, which === 'ran'
+    // A run that may have landed on an earlier attempt keeps that "maybe", whatever the last attempt was (#5643).
+    return (r.timedOut || (which === 'ran' && mayHaveLanded)) ? maybe(ctx.err, which === 'ran'
       ? 'Kosmos was slow to answer and we stopped waiting. The run may have been recorded; check the task (kosmos task list ' + project + ') before recording it again.'
       : 'Kosmos was slow to answer and we stopped waiting. It may have been done; check the task (kosmos task list ' + project + ') before doing it again.')
       : ctx.unreachable('change that task');
