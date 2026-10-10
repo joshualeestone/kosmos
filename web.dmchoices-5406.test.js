@@ -127,7 +127,15 @@ test('#5406 C: an outcome that may have sent the key says "could not confirm", n
     m.from(BODY, CUR.sessionName);
     await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
     assert.equal(line.textContent, want, name);
-    assert.doesNotMatch(m.html(Q), / disabled>/, name + ': retry must stay possible');
+    if (name.startsWith('could_not')) {
+      assert.doesNotMatch(m.html(Q), / disabled>/, name + ': nothing was typed, so the buttons come straight back');
+    } else {
+      // The key may have gone: the same short lock as an answer, so a quick second press cannot answer twice; not "Sent.".
+      assert.match(m.html(Q), / disabled>/, name + ': a may-have-sent outcome re-offered the buttons at once');
+      assert.doesNotMatch(m.html(Q), /Sent\./, name + ': an unconfirmed answer was drawn as sent');
+      m.answered(CUR.sessionName).at -= 7000;
+      assert.doesNotMatch(m.html(Q), / disabled>/, name + ': retry stayed impossible after the lock');
+    }
   }
 });
 
