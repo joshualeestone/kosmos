@@ -1,7 +1,7 @@
-# kosmos#3987: the checks tools/browser-checks.sh runs on the shared first-run board ($B8), ONE
 # NAME PER LINE, SORTED. When that board does not boot, the runner reports every name here as
-# failed. It was one long line in the runner (so every PR adding a check to the group conflicted),
 # and it had drifted: 6 of the group's 30 checks were missing, so a failed boot never named them.
+# failed. It was one long line in the runner (so every PR adding a check to the group conflicted),
+# kosmos#3987: the checks tools/browser-checks.sh runs on the shared first-run board ($B8), ONE
 # tools.browser-checks-wired.test.js checks this file names exactly the group's run_one checks.
 contrast
 import-agent-flow
@@ -27,6 +27,7 @@ render-optout-403-2020
 render-orgchart-file-4559
 render-orgchart-import-1280
 render-permission-slider-2620
+render-policy-company-5534
 render-push-718
 render-pwa-installable-718
 render-reboot-note-5359
