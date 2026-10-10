@@ -456,6 +456,8 @@ async function sendOthers(c) {
   const next = {};
   const prev = c.prev && typeof c.prev === 'object' ? c.prev : {};
   // Only under words that name every Kosmos on this computer (the coordinator refuses the rest): none read, none sent.
+  // Words that do not name every Kosmos keep no signatures (board review 2, decided): words naming them again start
+  // clean, as the enrolled Kosmos's state does on new words, and a daily resends every Kosmos anyway.
   if (!c.accepted || c.accepted.everyKosmosConsented !== true) return next;
   let list = [];
   const seen = new Set();
@@ -485,10 +487,16 @@ async function sendOthers(c) {
     if (!now2 || now2.world !== c.rec.world || now2.consentHash !== c.rec.consentHash) break;
     let r;
     try { r = await c.remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
-    if (r && r.ok) { if (!g.partial) next[got.world] = sig; continue; }
+    if (r && r.ok) { next[got.world] = sig; continue; }
     const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
     console.error('orgrollup: the company did not take another Kosmos\'s rollup (' + code + ')');
-    if (code === 'org_rollup_too_many_worlds') break;
+    if (code === 'org_rollup_too_many_worlds') {
+      /* The company is full (board review 2): the Kosmoses not reached this time keep their signatures, so the next
+         change send does not resend them all and hit the cap again at once. A Leave or new words drop them instead
+         (the breaks above): new words start clean, as the enrolled Kosmos's own state does. */
+      for (const k of Object.keys(prev)) if (!seen.has(k)) next[k] = prev[k];
+      break;
+    }
   }
   return next;
 }

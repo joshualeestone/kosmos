@@ -21153,12 +21153,17 @@ function orgRollupTick() {
     }
     /* kosmos#5532 widening: this board serves another Kosmos, and the enrolled one (if any on this computer) still
        reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
-       timing, print and key are its own. */
+       timing, print and key are its own. One board runs per computer, so one such child at a time (ORG_ROLLUP_RUNNING,
+       held until it ends, at most TICK_CHILD_TIMEOUT_MS); the enrolled Kosmos's own state paces its sends. */
     const enrolled = rollup.otherWorlds(require('./engine/store').ROOT, { all: true }).find((w) => { try { return oe.isEnrolledHere({ root: w.root }); } catch { return false; } });
     if (!enrolled) return;   // no work Kosmos on this computer: nothing is read or sent
     ORG_ROLLUP_RUNNING = true;
     require('child_process').execFile(process.execPath, [path.join(__dirname, 'engine', 'orgrollup-child.js'), 'tick'],
-      { env: enrolled.env, timeout: rollup.TICK_CHILD_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, () => { ORG_ROLLUP_RUNNING = false; });
+      { env: enrolled.env, timeout: rollup.TICK_CHILD_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (err) => {
+        ORG_ROLLUP_RUNNING = false;
+        // A failed child is said, not swallowed (board review 2); the next tick tries again.
+        if (err) console.error('orgrollup: the enrolled Kosmos\'s rollup, run for it from this board, failed (' + String(err.signal || err.code || err.message) + ')');
+      });
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own

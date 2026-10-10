@@ -165,6 +165,24 @@ test('#5532 widening (board review 1): another Kosmos read in part is not sent, 
     'a partial read was sent as the day\'s, or one Kosmos went twice');
 });
 
+test('#5532 widening (board review 2): past the company\'s cap, the Kosmoses not reached keep their signatures', async (t) => {
+  const prev = { [BETA]: 'sig-beta', [GAMMA]: 'sig-gamma' };
+  const sent = [];
+  const c = {
+    o: { otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }, { id: 'gamma', env: { K: 'gamma' } }],
+      gatherIn: async (env) => ({ world: env.K === 'beta' ? BETA : GAMMA, gathered: JSON.parse(JSON.stringify(inv(env.K))) }) },
+    oe: { mayReport: () => true, readEnrollment: () => ({ world: 'a'.repeat(32), consentHash: 'h' }) },
+    eo: {}, rec: { world: 'a'.repeat(32), consentHash: 'h' }, accepted: { everyKosmosConsented: true, usageConsented: false },
+    pf: { fields: {} }, root: '/nowhere', now: T0, reason: 'daily', prev,
+    remote: { macRequest: async (m, route, body) => { sent.push(body.world); return { ok: false, because: '409 org_rollup_too_many_worlds' }; } },
+  };
+  const next = await r.sendOthers(c);
+  assert.deepEqual(sent, [BETA], 'it kept sending past the cap');
+  assert.equal(next[GAMMA], 'sig-gamma', 'a Kosmos not reached lost its signature');
+  // The refused one keeps the signature of its last send that landed, not of the one refused.
+  assert.equal(next[BETA], 'sig-beta');
+});
+
 test('#5532 widening: a change send skips another Kosmos that did not change and sends one that did', async (t) => {
   const root = world(t);
   const c = coordinator();
