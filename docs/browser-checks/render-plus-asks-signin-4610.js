@@ -93,10 +93,10 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       chk(!where.topCard, '[' + W + '] #4610 and not in the top card, the band that spread above everything', JSON.stringify(where));
       chk(where.withinSection && where.belowHeader, '[' + W + '] #4610 they sit inside the settings column, below the header, not across the window', JSON.stringify(where));
       /* kosmos#5786 (Josh 10-10, a new customer with Mac · Safari VR-D6 and nowhere to check it): a browser on a computer
-         is told its code is on the Kosmos+ page; the phone row, the CONTROL, keeps "the device in your hand". */
+         is told its code is in that browser, in the tab where they signed in; the phone row, the CONTROL, keeps "the device in your hand". */
       const safariRow = (where.texts || []).find((t) => /VR-D6/.test(t)) || '', phoneRow = (where.texts || []).find((t) => /W6-M4/.test(t)) || '';
-      chk(/Allow only if this code is showing in Safari, on the page where you signed in\./.test(safariRow), '[' + W + '] #5786 the Mac \u00b7 Safari card says its code is in Safari, on the page where they signed in', safariRow);
-      chk(/Allow only if this code is showing on the device in your hand\./.test(phoneRow) && !/Kosmos\+ page/.test(phoneRow), '[' + W + '] #5786 CONTROL: the iPhone · Safari card keeps "the device in your hand"', phoneRow);
+      chk(/Allow only if this code is showing in Safari, in the tab where you signed in\./.test(safariRow), '[' + W + '] #5786 the Mac \u00b7 Safari card says its code is in Safari, in the tab where they signed in', safariRow);
+      chk(/Allow only if this code is showing on the device in your hand\./.test(phoneRow) && !/tab where you signed in/.test(phoneRow), '[' + W + '] #5786 CONTROL: the iPhone · Safari card keeps "the device in your hand"', phoneRow);
       chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the sign-in wizard', JSON.stringify(where));
       /* State 1 (not enrolled, the marketing pane) is the tall one: placed after it, the first Allow sat at y=985 at
          1400 wide, which the done step above is too short to show. */
