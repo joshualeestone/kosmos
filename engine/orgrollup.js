@@ -495,10 +495,12 @@ async function sendOthers(c) {
   let list = [];
   const seen = new Set();
   try { list = (c.o.otherWorlds || otherWorlds)(c.root) || []; } catch { return prev; }
+  let complete = true;   // every Kosmos read, and no stop: only then may the holds forget an id (board review 6)
   for (const w of list) {
-    if (!c.oe.mayReport(c.eo)) break;   // left meanwhile: nothing more goes
+    if (!c.oe.mayReport(c.eo)) { complete = false; break; }   // left meanwhile: nothing more goes
     let got = null;
     try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
+    if (!got) complete = false;
     // A read that failed drops its signature, so the next change send sends it again (the safe direction). Two
     // entries that resolve to one id are one Kosmos: it goes once (board review 1).
     if (!got || !/^[0-9a-f]{32}$/.test(got.world) || got.world === c.rec.world || seen.has(got.world)) continue;
@@ -506,7 +508,7 @@ async function sendOthers(c) {
     /* A Kosmos enrolled itself (to this company, or another: a contractor's computer) is never sent under this
        enrollment (board review 3): its record says whom it reports to, and that is not ours to decide. A child that
        could not say is treated as enrolled. */
-    if (got.enrolled !== false) { held.delete(got.world); continue; }
+    if (got.enrolled !== false) { held.delete(got.world); missed.delete(got.world); continue; }
     if (Object.prototype.hasOwnProperty.call(prev, got.world)) next[got.world] = prev[got.world];
     const g = got.gathered;
     if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
@@ -535,7 +537,7 @@ async function sendOthers(c) {
     /* Re-checked just before this send (board review 1), as the enrolled tick re-checks after its read: a read can take
        minutes, and a Leave, or new words (which may no longer name every Kosmos), in that time stops every later send. */
     const now2 = c.oe.mayReport(c.eo) ? c.oe.readEnrollment(c.eo) : null;
-    if (!now2 || now2.world !== c.rec.world || now2.consentHash !== c.rec.consentHash) break;
+    if (!now2 || now2.world !== c.rec.world || now2.consentHash !== c.rec.consentHash) { complete = false; break; }
     let r;
     try { r = await c.remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
     if (r && r.ok) { if (reason === 'daily') missed.delete(got.world); if (!g.partial) next[got.world] = sig; continue; }
@@ -543,15 +545,19 @@ async function sendOthers(c) {
     const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
     console.error('orgrollup: the company did not take another Kosmos\'s rollup (' + code + ')');
     // Refused for the member, not the Kosmos (board review 5): every later one would be refused too, after its read.
-    if (code === 'org_consent_changed' || code === 'org_not_enrolled' || code === 'org_not_member') break;
+    if (code === 'org_consent_changed' || code === 'org_not_enrolled' || code === 'org_not_member') { complete = false; break; }
     if (code === 'org_rollup_too_many_worlds') {
       /* The company is full (board review 2): the Kosmoses not reached this time keep their signatures, so the next
          change send does not resend them all and hit the cap again at once. A Leave or new words drop them instead
          (the breaks above), the safe direction: those Kosmoses are resent in full. */
       for (const k of Object.keys(prev)) if (!seen.has(k)) next[k] = prev[k];
+      complete = false;
       break;
     }
   }
+  /* A Kosmos deleted, or one past the fifteen, would otherwise stay held or missed for good (board review 6). Pruned
+     only after a pass that read every Kosmos: a failed read must not cost a held or missed daily. */
+  if (complete) for (const set of [held, missed]) for (const id of [...set]) if (!seen.has(id)) set.delete(id);
   return next;
 }
 

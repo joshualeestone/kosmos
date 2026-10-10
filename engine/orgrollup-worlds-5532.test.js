@@ -246,6 +246,24 @@ test('#5532 widening (board review 5): the enrolled Kosmos is found in the whole
   assert.deepEqual(child, { pid: 1 }, 'the child is not handed back for the board to stop');
 });
 
+test('#5532 widening (board review 6): ids no longer on the computer leave the holds after a full pass, not after a failed read', async () => {
+  const GONE = 'e'.repeat(32);
+  const base = (gatherIn) => ({
+    o: { otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }], gatherIn },
+    oe: { mayReport: () => true, readEnrollment: () => ({ world: 'a'.repeat(32), consentHash: 'h' }) },
+    eo: {}, rec: { world: 'a'.repeat(32), consentHash: 'h' }, accepted: { everyKosmosConsented: true, usageConsented: false },
+    pf: { fields: {} }, root: '/nowhere', now: T0, reason: 'change', prev: {}, held: [GONE], missed: [GONE],
+    remote: { macRequest: async () => ({ ok: true, data: { ok: true } }) },
+  });
+  const full = base(async () => ({ world: BETA, enrolled: false, gathered: JSON.parse(JSON.stringify(inv('Ada'))) }));
+  await r.sendOthers(full);
+  assert.deepEqual([[...full.heldNext], [...full.missedNext]], [[], []], 'a gone Kosmos stayed held or missed after a full pass');
+  // CONTROL: a pass with a failed read keeps them.
+  const failed = base(async () => null);
+  await r.sendOthers(failed);
+  assert.deepEqual([[...failed.heldNext], [...failed.missedNext]], [[GONE], [GONE]], 'a failed read cost a held or missed daily');
+});
+
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
   const root = world(t);
   const c = coordinator();
