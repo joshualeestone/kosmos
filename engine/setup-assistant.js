@@ -744,7 +744,7 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
    files other than those part 2 denies (part 2, in tokenOnlySettingsRules: the global config by every name and its
    legacy file, the project server file in the agent folder and above it, the config homes' code and instruction
-   members, and the agent's own .claude whole; NOT the scripts a hook, the status line or a server's command points
+   members (and the same members of a .claude above the agent folder, and of the agent's own); NOT the scripts a hook, the status line or a server's command points
    at, wherever they sit), the code in shell startup files, and what a file the start
    reads can pull in or run in turn (tmux includes, run-shell and plugins; config other started programs read, such as
    git's). Program files are named to the file tools only (review 23: the sandbox profile has a size limit). Both layers match by
@@ -1235,8 +1235,10 @@ const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-c
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
    and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
    (shell-snapshots, session-env, projects, backups). Folders denied whole; files by name. */
-const CONFIG_HOME_CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins'];
-const CONFIG_HOME_CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json'];
+const CONFIG_HOME_CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins',
+  // Review 5: a locally installed claude, and the scheduled jobs and daemon it runs.
+  'local', 'jobs', 'daemon'];
+const CONFIG_HOME_CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json', 'loop.md'];
 /* Every folder above `dir`, nearest first, up to the root (its .mcp.json is read at start too). */
 function ancestorsOf(dir) {
   // Both chains (review 3): the path as given and its resolved one, since Claude Code walks up from its own cwd.
@@ -1251,10 +1253,14 @@ function ancestorsOf(dir) {
 }
 /* A path and, when it is a link (the leaf itself, review 3: a config home's code folder linked to another place), the
    place it resolves to, so both layers name the target too. */
-function withTarget(p) {
+function withTarget(p, unsafe) {
   let real = null;
   try { real = fs.realpathSync.native(p); } catch { real = null; }
-  return real && real !== path.resolve(p) ? [p, real] : [p];
+  if (!real || real === path.resolve(p)) return [p];
+  /* Review 5: a target whose path the rule syntax cannot carry is NAMED (the guard is then not whole, and says which),
+     never left to the generic drop below, which would blame the agent's own folder. */
+  if (unsafe && ruleHasPatternChar(`Edit(${ruleAbs(real)}/**)`)) { unsafe.push(`${p} (it links to ${real}, a path the permission rules cannot carry)`); return [p]; }
+  return [p, real];
 }
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
@@ -1274,7 +1280,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      reads as instructions. The global config by every name (its servers; the first account keeps it beside the home,
      as ~/.claude.json) and the legacy file read instead of it; the project server file in the agent folder (both
      layers) and in every folder above (file tools only); each config home's code and instruction members
-     (CONFIG_HOME_CODE_DIRS, CONFIG_HOME_CODE_FILES); and the agent's own .claude whole to the file tools. A member that
+     (CONFIG_HOME_CODE_DIRS, CONFIG_HOME_CODE_FILES), the same members of the agent's own .claude to the file tools. A member that
      is a link has its target named too. Measured on Claude Code 2.1.296: with both layers
      denying .claude.json, Claude Code still writes its own state there (its own process is in neither layer), so the
      deny takes nothing from Claude Code; the person's own servers stay as they are. Kosmos writes none of these for a
@@ -1282,6 +1288,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      folder and temp, so the sandbox entries outside them are defence in depth, and Claude Code protects some of these
      names itself. The agent's tools under bypass permissions are refused only by these Edit rules: do not drop them as
      "covered by the sandbox". */
+  const configUnsafe = [];   // review 5: a link target the rule syntax cannot carry, named
   const configStartFiles = [...new Set([
     // The global config by every name Claude Code 2.1.296 gives it (CLAUDE_GLOBAL_CONFIG_SUFFIXES), beside the home and
     // in each config home, and the legacy .config.json it reads INSTEAD when one exists (review 1: a BLOCKER).
@@ -1291,22 +1298,29 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // Project-scope servers: the agent folder's own .mcp.json (both layers; its ancestors' are below).
     path.join(dir, '.mcp.json'),
   ])];
-  /* Every ancestor's .mcp.json (review 1: Claude Code reads it from each folder up to the root), to the FILE TOOLS only
-     (review 2): the shell cannot write above the agent folder anyway, and the sandbox profile has a size limit. */
-  /* Above the agent folder: its server file, and the instruction files every agent below reads (review 4: the same
-     reason the config home's CLAUDE.md is in, it reaches other agents). The agent's OWN CLAUDE.md is not here: it
-     reaches only the agent itself, and Kosmos writes it. Links followed to their targets. */
-  const ancestorMcp = [...new Set(ancestorsOf(dir).filter((d) => d !== path.resolve(dir))
-    .flatMap((d) => ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md'].map((f) => path.join(d, f))).flatMap(withTarget))];
+  /* Every folder ABOVE the agent folder, up to the root (reviews 1, 4 and 5): Claude Code reads there a server file, the
+     instruction files, and a .claude holding the same code and instruction members a config home holds (its walk up
+     the folders loads skills, agents, workflows, rules and CLAUDE.md for every agent below). File tools only: the
+     shell cannot write above the agent folder (its writable set is the folder and temp), so a shell-layer copy adds
+     nothing; the file-tool rules still count toward the profile size (review 5: Claude Code builds the profile from
+     them too), which the many-homes test bounds. The agent's OWN CLAUDE.md is not here: it reaches only the agent, and
+     Kosmos writes it; its own .claude members are denied below like a config home's. Links followed to their
+     targets. */
+  const ancestorMcp = [];
+  const ancestorDirs = [];
+  for (const d of ancestorsOf(dir).filter((x) => x !== path.resolve(dir))) {
+    for (const f of ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', ...CONFIG_HOME_CODE_FILES.map((x) => path.join('.claude', x))]) ancestorMcp.push(...withTarget(path.join(d, f), configUnsafe));
+    for (const x of CONFIG_HOME_CODE_DIRS) ancestorDirs.push(...withTarget(path.join(d, '.claude', x), configUnsafe));
+  }
   /* Each config home's plugins folder, and its skills folder (review 1: a skills subfolder can be adopted as a plugin,
      with servers of its own). Kosmos's own skills writes are the board's process, in neither layer; an agent's own
-     skills are in its folder's .claude, already denied. */
+     skills are in its folder's .claude, denied to its tools by the settingsDir entries below. */
   // Review 2: agents and commands too (their definitions can carry hooks and servers of their own).
-  const pluginDirs = [...new Set(concreteHomes.flatMap((h) => CONFIG_HOME_CODE_DIRS.map((d) => path.join(h, d))).flatMap(withTarget))];
+  const pluginDirs = [...new Set(concreteHomes.flatMap((h) => CONFIG_HOME_CODE_DIRS.map((d) => path.join(h, d))).flatMap((d) => withTarget(d, configUnsafe)))];
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
-    ...configStartFiles.flatMap(withTarget).map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
-    { f: path.join(home, '.claude-*', '.config.json') }, ...ancestorMcp.map((p) => ({ f: p }))];
+    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
+    { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorMcp)].map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
   // registry's own path there; its temp and lock names by the permission-layer .* glob only).
@@ -1361,6 +1375,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
+    ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
     ...CONFIG_HOME_CODE_DIRS.map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),
     ...CONFIG_HOME_CODE_FILES.map((f) => `Edit(${ruleAbs(path.join(home, '.claude-*', f))})`),
     /* Reviews 3 and 4: the code and instruction members of the agent's OWN .claude (its project agents, commands,
@@ -1411,7 +1426,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
   else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, pluginDirs, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
@@ -1625,6 +1640,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     // Review 22: as with a dropped rule, a store or registry that could not be worked out leaves a token place unguarded.
     if (rules.rootsMissed && rules.rootsMissed.length) return { ok: false, because: 'Kosmos could not work out where ' + rules.rootsMissed.join(', ') + ' keep the board token, so the guard cannot be written whole' };
     if (rules.tokenRuleDropped) return { ok: false, because: 'a folder path (the agent, its home or Kosmos) has a character the permission rules cannot carry, so the guard cannot be written whole' };
+    if (rules.configUnsafe && rules.configUnsafe.length) return { ok: false, because: 'a file or folder Claude Code reads at start could not be covered (' + rules.configUnsafe.join(', ') + ')' };
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
     if ((deps.platform || process.platform) !== 'darwin' && !deps.atLaunch) process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
@@ -1673,7 +1689,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap(withTarget).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf)];   // a linked folder's target is listed itself (withTarget)
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf)];   // a linked folder's target is listed itself (withTarget)
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.

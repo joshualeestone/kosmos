@@ -64,13 +64,15 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
      each config home; the legacy .config.json it reads instead when present; .mcp.json in the folder and every
      ancestor. A member missing from the guard is a red here, not a silent gap. */
   const SFX = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
+  const CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins', 'local', 'jobs', 'daemon'];
+  const CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json', 'loop.md'];
   const homes = [path.join(HOME, '.claude'), path.join(HOME, '.claude-acct')];
   const ancestors = [];
   for (let d = path.resolve(dir); ; d = path.dirname(d)) { ancestors.push(d); if (path.dirname(d) === d) break; }
   const files = [
     ...SFX.flatMap((x) => [path.join(HOME, `.claude${x}.json`), ...homes.map((h) => path.join(h, `.claude${x}.json`))]),
     ...homes.map((h) => path.join(h, '.config.json')),
-    ...homes.flatMap((h) => ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json'].map((f) => path.join(h, f))),
+    ...homes.flatMap((h) => CODE_FILES.map((f) => path.join(h, f))),
     path.join(dir, '.mcp.json'),
   ];
   // Review 2: the ancestors' .mcp.json go to the file tools only (the shell cannot write there; the profile has a size limit).
@@ -83,7 +85,6 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
     assert.ok(deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools');
     assert.ok(dw.includes(realOrLeaf(f)), f + ' is not denied to the shell');
   }
-  const CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins'];
   for (const d of homes.flatMap((h) => CODE_DIRS.map((x) => path.join(h, x)))) {
     assert.ok(deny.includes(`Edit(${ruleAbs(d)}/**)`), d + ' is not denied to the file tools');
     assert.ok(dw.includes(realOrLeaf(d)), d + ' is not denied to the shell');
@@ -96,7 +97,12 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
   for (const x of SFX) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', `.claude${x}.json`))})`), 'no glob for a later home .claude' + x + '.json');
   // Reviews 3 and 4: the code and instruction members of the agent's own .claude, to the file tools.
   for (const x of CODE_DIRS) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude', x))}/**)`), 'the agent own .claude/' + x + ' is open to the file tools');
-  for (const f of ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json']) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude', f))})`), 'the agent own .claude/' + f + ' is open');
+  for (const f of CODE_FILES) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude', f))})`), 'the agent own .claude/' + f + ' is open');
+  // Review 5: a .claude in a folder ABOVE the agent holds the same members, read for every agent below.
+  for (const a of ancestors.slice(1)) {
+    for (const x of CODE_DIRS) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(a, '.claude', x))}/**)`), a + '/.claude/' + x + ' is open to the file tools');
+    for (const f of CODE_FILES) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(a, '.claude', f))})`), a + '/.claude/' + f + ' is open to the file tools');
+  }
   // CONTROL: not the folder whole, so its plans and worktrees stay writable to its tools.
   assert.ok(!deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude'))}/**)`), 'the agent own .claude is denied whole (its plans and worktrees with it)');
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', '.config.json'))})`), 'no glob for a later home legacy config');
@@ -124,6 +130,8 @@ test('#5516 part 2 (review 2): with many account homes the guard stays whole (in
   const dir = agentDir('pilot-cfg-many');
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-many', { ...DEPS, home });
   assert.equal(g.ok, true, 'thirteen config homes tripped the guard: ' + JSON.stringify(g));
+  // Review 5: the guard says ok WITH a warning past the profile ceiling; no warning is what this test is for.
+  assert.equal(g.warning, undefined, 'thirteen config homes passed the sandbox size ceiling: ' + g.warning);
   assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude-acct11', '.config.json'))})`), 'CONTROL: the new homes were seen');
 });
 
@@ -141,4 +149,16 @@ test('#5516 part 2 (review 3): a config home code folder that is a link has its 
   assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude', 'skills'))}/**)`), 'CONTROL: the link itself is named');
   assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(real)}/**)`), 'the link target is open to the file tools');
   assert.ok(s.sandbox.filesystem.denyWrite.includes(real), 'the link target is open to the shell');
+});
+
+test('#5516 part 2 (review 5): a link to a path the rule syntax cannot carry is named, and the guard is not whole', () => {
+  const home = path.join(path.dirname(HOME), 'home-oddlink');
+  const target = path.join(path.dirname(HOME), 'Drive (Personal)', 'skills');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.mkdirSync(target, { recursive: true });
+  fs.symlinkSync(target, path.join(home, '.claude', 'skills'));
+  const dir = agentDir('pilot-cfg-odd');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-odd', { ...DEPS, home });
+  assert.equal(g.ok, false, 'an uncovered link target read as a whole guard');
+  assert.match(String(g.because), /Drive \(Personal\)/, 'the reason does not name the link target: ' + g.because);
 });
