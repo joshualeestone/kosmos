@@ -171,16 +171,30 @@ test('#5516 part 2 (review 2): with many account homes the guard stays whole (in
   assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude-acct11', '.config.json'))})`), 'CONTROL: the new homes were seen');
 });
 
-test('#5516 part 2 (review 16): a folder deep enough to pass the size ceiling through its ancestors still gets a whole guard, with the warning', () => {
-  // Measured: about 14 short-named levels stay under the ceiling and about 19 pass it; a Kosmos agent folder is 5 to 8.
-  let dir = path.join(SANDBOX, 'deep');
-  for (let i = 0; i < 16; i++) dir = path.join(dir, 'level-' + i + '-xxxxxx');
-  fs.mkdirSync(dir, { recursive: true });
+test('#5516 part 2 (reviews 16 and 17): a folder deep enough to pass the size ceiling through its ancestors still gets a whole guard, with the warning', () => {
+  // Review 17: the depth that passes the ceiling depends on how deep the temp folder is and whether it is reached
+  // through a link (each ancestor is then denied by both spellings), so levels are added until the warning fires, with
+  // a bound, rather than a fixed count. The first level is the control: no warning there.
   const quiet = (fn) => { const w = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = w; } };
-  const g = quiet(() => setup.guardTokenOnlyFolder(dir, 'pilot-cfg-deep', DEPS));
-  assert.equal(g.ok, true, 'a deep folder refused the guard: ' + JSON.stringify(g));
-  assert.ok(typeof g.warning === 'string' && /past what Kosmos can say the sandbox will take/.test(g.warning), 'a deep folder passed the ceiling with no warning: ' + JSON.stringify(g));
+  let dir = path.join(SANDBOX, 'deep');
+  let g = null;
+  let levels = 0;
+  for (; levels < 60; levels++) {
+    dir = path.join(dir, 'd' + levels + '-xxxxxxx');
+    fs.mkdirSync(dir, { recursive: true });
+    g = quiet(() => setup.guardTokenOnlyFolder(dir, 'pilot-cfg-deep', DEPS));
+    if (levels === 0) assert.equal(g.warning, undefined, 'CONTROL: one level below the sandbox already passed the ceiling: ' + g.warning);
+    assert.equal(g.ok, true, 'a deep folder refused the guard at ' + (levels + 1) + ' levels: ' + JSON.stringify(g));
+    if (g.warning) break;
+  }
+  assert.ok(typeof g.warning === 'string' && /past what Kosmos can say the sandbox will take/.test(g.warning), 'sixty levels down still passed the ceiling with no warning: ' + JSON.stringify(g));
   assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(path.dirname(dir), '.mcp.json'))})`), 'CONTROL: the ancestors were denied');
+});
+
+test('#5516 part 2 (review 17): the fix advice is given only where renaming is the fix', () => {
+  const g = setup.guardTokenOnlyFolder(agentDir('pilot-cfg-lookup'), 'pilot-cfg-lookup', { ...DEPS, workersRoot: 42 });
+  assert.ok(g.ok === false && /the agents' folder \(it could not be worked out/.test(g.because), 'CONTROL: the failed lookup is named: ' + JSON.stringify(g));
+  assert.ok(!/renaming that folder/.test(g.because), 'a failed lookup was told to rename a folder: ' + g.because);
 });
 
 test('#5516 part 2 (review 3): a config home code folder that is a link has its target denied in both layers', () => {
@@ -371,7 +385,7 @@ test('#5516 part 2 (review 13): a board start replaces only the non-PATH part of
   assert.ok(line.because.includes('/launch-only/bin'), 'the launch PATH gap was dropped: ' + line.because);
   assert.ok(!line.because.includes('relative/bin'), 'the board PATH was shown as the agent own: ' + line.because);
   assert.ok(/could not be covered \(.*Box \(P\)/.test(line.because), 'the config gap is not named: ' + line.because);
-  assert.ok(/renaming that folder so its name has no/.test(line.because), 'the refusal does not say how to fix it (review 15): ' + line.because);
+  assert.ok(/renaming that folder so its name has none of \( \) \[ \] \{ \} \* \? ! or \\/.test(line.because), 'the refusal does not say how to fix it (review 15): ' + line.because);
   // 2. The person fixes the link: the next board start clears the config part and keeps the launch's PATH part.
   fs.unlinkSync(link);
   quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, boardStart: true }));

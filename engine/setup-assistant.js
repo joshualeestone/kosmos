@@ -1671,10 +1671,10 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     const merged = parts.length
       ? { ok: false, because: parts.join('; and ') + (nowOther === null || Object.prototype.hasOwnProperty.call(r, 'pathReason') ? '; the rest of the guard is in place' : ''), ...(pathReason ? { pathReason } : {}), ...(nowOther ? { otherReason: nowOther } : {}), ...(keptWarning ? { warning: keptWarning } : {}) }
       : (keptWarning ? { ok: true, warning: keptWarning } : { ok: true });
-    recordGuardState(agentName, merged, deps);
+    recordGuardState(agentName, merged, { ...deps, exclusive: false });
     return r;
   }
-  recordGuardState(agentName, r, deps);
+  recordGuardState(agentName, r, { ...deps, exclusive: false });   // review 17: a launch always writes over, whatever the caller passed
   return r;
 }
 function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
@@ -1829,7 +1829,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     /* Review 7: after the write, as for the launch path, so one uncarriable link never stops the rest being refreshed.
        Review 8: both reasons together when both apply, so fixing one does not hide the other until the next refresh. */
     const pathReason = rules.launchUnsafe && rules.launchUnsafe.length ? LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')' : null;
-    const otherReason = rules.configUnsafe && rules.configUnsafe.length ? 'a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + '): renaming that folder so its name has no ( ) [ or ], or pointing the link somewhere else, lets Kosmos cover it' : null;   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it
+    const otherReason = rules.configUnsafe && rules.configUnsafe.length ? 'a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')' + (rules.configUnsafe.some((e) => /cannot carry/.test(e)) ? ": renaming that folder so its name has none of ( ) [ ] { } * ? ! or \\, or pointing the link somewhere else, lets Kosmos cover it" : '') : null;   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it; review 17: every character the rules refuse, and only where renaming is the fix
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
     /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace
