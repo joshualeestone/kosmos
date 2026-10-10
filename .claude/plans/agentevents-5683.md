@@ -104,7 +104,7 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 
 ## Review 5 (sonnet), all fixed unless stated
 - A sandbox refusal whose call was lost (a restart between the call and its result) was dropped: an "Operation not
-  permitted" result with no known call is taken as Bash (the EPERM premise already stated). Test.
+  permitted" result with no known call is taken as Bash (REVERSED in challenge-loop iteration 1: a lost call is no longer reported) (the EPERM premise already stated). Test.
 - A rewritten file's reset offset made the budget grow: the budget counts the bytes actually read. Test.
 - Every transcript ever seen was opened every tick: a file whose size has not changed is only stat'ed. Test.
 - The budget was spent in directory order (one large backlog could starve other agents' files): the agent read first
@@ -633,3 +633,19 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - CONVENTION, DEFERRED: "extract targetClass's shell parser into its own module". A reorganisation, not a defect; a
   large move this late risks the misclassing the loop has been closing. Worth a follow-up once slice 1 ships.
 - NITs noted: long seam-excuse strings; a repeated sentence in test-connector-verbs.sh.
+
+## Challenge-loop iteration 3 (opus)
+- WARNING, FIXED: "another agent's folder" was built from the agents READ this tick only, so a sandbox write into an
+  agent that is not token-only (or one dropped this tick) fell to home and, since iteration 1, vanished. It is now
+  every folder the tick resolved. Test, red by mutation.
+- WARNING, FIXED: the server discarded the tick's reason, so a board that will never send looked like one with nothing
+  to send. Each distinct reason it sends nothing is now logged once (server.js agentEventsTick).
+- WARNING, DEFERRED (stated): the deny-rule text match is anchored at its end, so a later Claude Code that appends
+  after "has been denied." would stop matching silently. The anchor is what keeps a command's own output from forging
+  a refusal, so it stays; the match was measured on Claude Code 2.1.295 and must be re-measured on a Claude Code
+  upgrade.
+- NITs FIXED: a queued entry is checked on every contract field when read (one damaged entry sank its whole batch);
+  Windows returns before the agent survey (nothing is guarded there).
+- NITs DEFERRED: Glob's pattern and Grep's glob are not classed (their deny-rule refusals are still reported, with a
+  weaker class); the call map is bounded per file, not overall; the server gate test is a source-text match (stated
+  in review 37).

@@ -1185,7 +1185,7 @@ test('#5683 r37: a withdrawal keeps no queue (checked directly, no tick in betwe
 test('#5683 r37: a bad queue entry or send size is dropped on read', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-rs-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const good = { at: 5, kind: 'refused' };
+  const good = { world: 'w1', agent: 'Scout', at: 5, action: 'run', rule: 'sandbox', targetClass: 'board-files', sessionRef: 's1', toolUseRef: 'tu1' };
   for (const [sendMax, want] of [[-3, null], [0, null], [2.5, null], [4, 4]]) {
     fs.writeFileSync(path.join(root, 'agent-events.json'), JSON.stringify({ pending: [null, 5, { at: 'x' }, good], sendMax }));
     const st = ae._readState(root);
@@ -1625,4 +1625,41 @@ test('#5683 cl2: only the contract\'s eight fields are sent, whatever a stored e
   const e = sent.find((x) => x.toolUseRef === 'tu-extra');
   assert.ok(e, 'the stored entry was not sent');
   assert.deepEqual(Object.keys(e).sort(), ['action', 'agent', 'at', 'rule', 'sessionRef', 'targetClass', 'toolUseRef', 'world']);
+});
+
+/* ---- challenge-loop iteration 3 ---- */
+
+test('#5683 cl3: a sandbox refusal of a write into an agent that is not read this tick is another agent\'s', async (t) => {
+  const { s, c } = await enrolled(t);
+  /* rex is on the board but not token-only: not read, yet its folder is still another agent's. */
+  const rexDir = '/Users/ann/work/workers/rex';
+  const src = { ...s.sources(), everyAgent: () => ['Scout', 'Rex'],
+    dirOf: (n) => '/Users/ann/work/workers/' + n.toLowerCase(), transcriptDirsOf: (d) => ['/p' + d] };
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('rx', 'Bash', { command: 'touch ' + rexDir + '/x' }), result('rx', 'touch: Operation not permitted', true));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
+  const ev = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
+  assert.deepEqual(ev.filter((e) => e.toolUseRef === 'rx').map((e) => e.targetClass), ['other-agent'],
+    'a write into an agent the tick did not read fell to home and was dropped');
+});
+
+test('#5683 cl3: a damaged queued entry is dropped on read; good ones stay', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-cl3-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const good = { world: 'w1', agent: 'Scout', at: 5, action: 'run', rule: 'sandbox', targetClass: 'board-files', sessionRef: 's1', toolUseRef: 'tu1' };
+  const bad = [{ ...good, agent: 7 }, { ...good, rule: 'made-up' }, { ...good, targetClass: 'everything' }, { ...good, toolUseRef: 'has space' },
+    { ...good, action: 'delete' }, { ...good, world: '' }];
+  fs.writeFileSync(path.join(root, 'agent-events.json'), JSON.stringify({ pending: [...bad, good] }));
+  assert.deepEqual(ae._readState(root).pending, [good]);
+});
+
+test('#5683 cl3: on Windows nothing is surveyed or read', async (t) => {
+  const { s, c } = await enrolled(t);
+  let asked = 0;
+  const src = { ...s.sources(), everyAgent: () => { asked += 1; return ['Scout']; } };
+  const r = await ae.tick({ platform: 'win32', root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.match(r.because || '', /Windows/);
+  assert.equal(asked, 0, 'the agent survey ran on Windows');
+  assert.equal(s.read.length, 0);
 });
