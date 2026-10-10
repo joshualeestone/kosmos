@@ -1,5 +1,7 @@
 # fingerprint-5532-win32b: the Windows reader for the computer print (#5532), on main's module
 
+**Posture:** production
+
 Written 2026-10-10 by the Windows lane. Supersedes PR #5557 (branch `fingerprint-5532-win32`), which was stacked on the
 first Mac commit (d3fbd84eb) and could not merge once the Mac module was rebuilt and merged as #5565 (4d620e429).
 This branch redoes it on main, following the Mac owner's review on #5557.
