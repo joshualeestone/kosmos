@@ -1386,6 +1386,20 @@ function codexScreenRefusal(card, sessionName, roster) {
   return status.codexHookTrustedTable(view.text) ? status.CODEX_HOOK_LIST_SENTENCE : null;
 }
 
+/* #5743: a Claude agent showing its question menu (any form, status.claudeQuestionMenuUp) is not typed at: the menu
+   ignores a paste and the Enter after it takes the HIGHLIGHTED answer (measured on 2.1.29x, #5406), so the agent gets a
+   default nobody chose and nothing says so. Read fresh, and only when the snapshot already says needs_you (a card on
+   that menu reads needs_you), so an ordinary delivery costs no capture. A read that fails is not a refusal: it was
+   never one before this card, and the trust-dialog floor above covers the dialog that ends a session. */
+const CLAUDE_MENU_SENTENCE = 'it is showing a question on its screen, and a message typed now would pick an answer nobody chose, '
+  + 'so we did not type anything; answer it in its direct messages or in its window';
+function claudeMenuRefusal(card, sessionName, roster) {
+  if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
+  if (card.state !== status.STATE.NEEDS_YOU) return null;
+  const view = viewport(sessionName, roster);
+  return view && typeof view.text === 'string' && status.claudeQuestionMenuUp(view.text) ? CLAUDE_MENU_SENTENCE : null;
+}
+
 /**
  * Put one message into one agent's session.
  *
@@ -1451,6 +1465,12 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   {
     const codex = codexScreenRefusal(allowed.card, sessionName, roster);
     if (codex) return { state: DELIVERY.COULD_NOT, because: codex, at, paneState: null, paneNote: null };
+  }
+  /* #5743: the floor under every sender. The direct-message route closes or answers the menu first (#5406), so it
+     only reaches here once the menu is gone; automatic senders are held before this (menuHeldVerdict). */
+  {
+    const menu = claudeMenuRefusal(allowed.card, sessionName, roster);
+    if (menu) return { state: DELIVERY.COULD_NOT, because: menu, at, paneState: null, paneNote: null, menu: true };
   }
 
   /**
@@ -1817,7 +1837,22 @@ function quotaHeldVerdict(sessionName, roster, opts = {}) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
+/* #5743: a timer's line for a Claude agent on its question menu is HELD, never typed and never closing the menu (that
+   would dismiss a question the person may not have seen). The #4588 hold shape, so every automatic sender already
+   keeps it: a room keeps the post for the member's next idle flush, which comes after the question is answered. */
+function menuHeldVerdict(sessionName, roster) {
+  const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
+  if (!card || card.isNamedOurs !== true || addressable(sessionName, roster).ok !== true) return null;
+  const menu = claudeMenuRefusal(card, sessionName, roster);
+  if (!menu) return null;
+  return {
+    state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu', because: 'held: ' + menu,
+    at: new Date().toISOString(), paneState: null, paneNote: null,
+  };
+}
 function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}) {
+  const menuHeld = menuHeldVerdict(sessionName, roster);
+  if (menuHeld) return menuHeld;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
   // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
@@ -1831,6 +1866,8 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
 /* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
    delivered by sendPostAsync, the #4624 idle flush). */
 async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer, opts = {}) {
+  const menuHeld = menuHeldVerdict(sessionName, roster);
+  if (menuHeld) return menuHeld;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
   // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.

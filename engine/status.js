@@ -2433,6 +2433,27 @@ function claudeQuestionMenu(text) {
   return { at, question, options, count: opts.length };
 }
 
+/* #5743: is ANY form of Claude Code's question menu on screen (single-select, multi-select, multi-question)? Wider than
+   claudeQuestionMenu, which answers only the single-select form by key: this one decides whether a message may be
+   typed at all, and every form takes a pasted line's Enter as a choice. The menu's footer within the last three
+   non-blank lines, and its own free-answer entry ("Type something" / "Chat about this") among the rows above it, which
+   is what tells it from a permission prompt drawn with the same footer. */
+const CLAUDE_QMENU_FREE_ROW = /^\s*(?:[❯›]\s*)?\d{1,2}\.\s+(?:\[[ x✓✔]\]\s+)?(?:Type something\.?|Chat about this)\s*$/;
+function claudeQuestionMenuUp(text) {
+  const t = String(text == null ? '' : text);
+  if (safeguardsMenuAt(t)) return false;
+  const lines = t.split('\n');
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (!CLAUDE_QMENU_FOOTER.test(lines[i])) continue;
+    for (let j = i - 1; j >= Math.max(0, i - 40); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return true;
+    return false;
+  }
+  return false;
+}
+
 function safeguardsMenu(tail) {
   const live = safeguardsMenuAt(tail);
   if (!live) return null;
@@ -8961,7 +8982,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu,
+  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
