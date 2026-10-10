@@ -114,15 +114,15 @@ jobs:
       # removed from the SDK repo, so requesting it fails on a fresh runner with
       # "Failed to find package 'tools'" (the first CI run caught exactly this -- it had
       # built locally only because the fleet box still had the old package). The set
-      # below matches the toolchain the module targets (compileSdk/targetSdk 36,
-      # build-tools 35.0.0); android-36 is installed explicitly rather than left to AGP's
-      # auto-download. android-35 is retained to match the toolchain that built green
-      # before the compileSdk 36 bump; whether it is still needed is unverified, so its
-      # removal is deferred to the #5700 cleanup. AGP auto-downloads anything else it needs.
+      # below matches the toolchain the module targets (AGP 8.13.0, compileSdk/targetSdk 36,
+      # build-tools 36.0.0); android-36 is installed explicitly rather than left to AGP's
+      # auto-download. android-35 is no longer installed: #5700 dropped the Robolectric
+      # API-35 pin (Robolectric 4.17 fetches its own jars and does not use the installed
+      # platform), so nothing here needs it. AGP auto-downloads anything else it needs.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: "platform-tools platforms;android-35 platforms;android-36 build-tools;35.0.0"
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
       # Legibility: surface the toolchain versions so drift arrives here as a readable
       # line rather than later as an opaque red (mirrors test.yml's "which node").

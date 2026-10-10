@@ -81,6 +81,16 @@ android {
 
     testOptions {
         unitTests.includeAndroidResources = true
+        // Robolectric 4.17 sets up API-36 ApplicationSharedMemory at test start, which
+        // reflects into FileDescriptor internals via jdk.internal.access.SharedSecrets.
+        // On JDK 17+ that package is not exported to the unnamed module, so the
+        // @RunWith(RobolectricTestRunner) suites fail with "Failed to interact with raw
+        // FileDescriptor internals" unless the test JVM exports it. --add-exports (not
+        // --add-opens) is the minimal grant: Robolectric calls a public method here and
+        // never setAccessible, so an export is enough and an open would over-grant.
+        unitTests.all {
+            it.jvmArgs '--add-exports=java.base/jdk.internal.access=ALL-UNNAMED'
+        }
     }
 }
 
@@ -92,8 +102,8 @@ dependencies {
     // Plain JVM tests for the address rule (AddressChoice has no Android types).
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'androidx.test:core:1.6.1'
-    // 4.14 is the first release with Android 15 / API 35 support. It does NOT support
-    // API 36, so the unit tests are pinned to API 35 in
-    // src/test/resources/robolectric.properties (removed after the upgrade in #5700).
-    testImplementation 'org.robolectric:robolectric:4.14.1'
+    // 4.17 supports API 36 (first added in 4.16), so the unit tests run at the manifest
+    // targetSdk (36) with no robolectric.properties pin. Robolectric at API 36 requires
+    // a JDK 21 runtime (this box's Gradle daemon toolchain, per gradle.properties).
+    testImplementation 'org.robolectric:robolectric:4.17'
 }

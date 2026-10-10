@@ -28,10 +28,10 @@ cannot (that needs a separate native shell, deferred until Xcode exists).
 ```
 android/
 ├── settings.gradle, build.gradle, gradle.properties   Gradle project
-├── gradlew, gradlew.bat, gradle/wrapper/              Gradle 8.9 wrapper (real jar)
+├── gradlew, gradlew.bat, gradle/wrapper/              Gradle 8.13 wrapper (real jar)
 ├── gradle/gradle-daemon-jvm.properties                pins the daemon to JDK 21
 ├── app/
-│   ├── build.gradle                                   AGP 8.6.1, compile/target SDK 36
+│   ├── build.gradle                                   AGP 8.13.0, compile/target SDK 36
 │   └── src/main/
 │       ├── AndroidManifest.xml                        LauncherActivity + push delegation
 │       ├── res/mipmap-anydpi-v26/                     adaptive + round launcher icons
@@ -93,11 +93,11 @@ ANDROID_SDK_ROOT=/opt/homebrew/share/android-commandlinetools
 PATH += platform-tools
 ```
 
-Installed: cmdline-tools, platform-tools 37.0.1 (`adb`), build-tools 35.0.0,
-platforms android-35 and android-36 (compileSdk is 36; android-35 is retained to match
-the toolchain that built green before the compileSdk 36 bump, pending the #5700 cleanup).
-There is **no system Gradle and no Android Studio** by design, which is why this
-project ships the Gradle wrapper.
+Installed: cmdline-tools, platform-tools 37.0.1 (`adb`), build-tools 36.0.0,
+platform android-36 (compileSdk is 36; the Robolectric API-35 pin is gone with the
+#5700 AGP/Robolectric upgrade, so android-35 is no longer needed). There is **no
+system Gradle and no Android Studio** by design, which is why this project ships the
+Gradle wrapper.
 
 ## Build status: verified green (with a JDK 21), and the JDK-26 catch
 
@@ -126,7 +126,7 @@ launched under the default JDK 26 builds green, because the daemon runs on 21.
 line in `gradle.properties` is the single machine-specific piece: it points at
 this box's keg-only JDK 21 (`brew install openjdk@21`, which does not disturb
 the default 26). The `toolchainVersion=21` criteria are machine-independent, but
-Gradle 8.9's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
+Gradle 8.13's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
 *present* on whatever machine runs the build:
 
 - **Another dev machine:** repoint or remove the `installations.paths` line and
@@ -180,7 +180,7 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 Verify the signature with `apksigner` from build-tools:
 
 ```
-$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --print-certs \
+$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs \
   app/build/outputs/apk/release/app-release.apk
 ```
 
@@ -229,7 +229,7 @@ Re-measure a fingerprint rather than copying it:
 ```
 tools/print-signing-fingerprint.sh            # debug key
 KEYSTORE_PASS=... tools/print-signing-fingerprint.sh <release.keystore> <alias>
-$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --print-certs <apk>
+$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs <apk>
 ```
 
 **Confirm `applicationId` before the first Play upload.** `io.kosmos.app` in

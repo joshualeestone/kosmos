@@ -1,8 +1,7 @@
 // Root build script. The Android Gradle Plugin is declared here and applied in
-// app/build.gradle. Pinned to AGP 8.6.1. The module compiles against compileSdk 36
-// (Play requires targetSdk 36, #4090); AGP 8.6.1 predates API 36, so
-// android.suppressUnsupportedCompileSdk=36 in gradle.properties lets it compile against
-// 36 without an AGP upgrade (that upgrade is tracked as #5700).
+// app/build.gradle. Pinned to AGP 8.13.0, which officially supports compileSdk 36
+// (Play requires targetSdk 36, #4090), so no suppressUnsupportedCompileSdk flag is
+// needed. 8.13.0 is the latest 8.x; AGP 9.x is a separate major-version upgrade.
 plugins {
-    id 'com.android.application' version '8.6.1' apply false
+    id 'com.android.application' version '8.13.0' apply false
 }
