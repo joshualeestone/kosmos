@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { eventually } = require('../test-support/eventually');
 
 const FAKE = path.join(__dirname, '..', 'test-support', 'fake-agy-signin.sh');
 function findTmux() {
@@ -51,10 +52,18 @@ function setup(flow) {
   };
   return { signin, dir, log, cleanup, logText: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '') };
 }
+// #5727: delegate to the shared load-aware poll helper. At scale 1 this is equivalent to the
+// old `while (Date.now() < end)` loop (200ms step, resolves when fn() is truthy, fails at ms),
+// with one difference: eventually probes once more past the deadline, so a success landing
+// within one step after ms passes instead of failing. That is strictly MORE lenient, never
+// stricter, so no assertion is weakened. The old 'waiting for <what>' detail is preserved
+// through describe; under load the deadline scales with the box's load-per-core.
 async function until(fn, ms = 20000, what = 'the condition') {
-  const end = Date.now() + ms;
-  while (Date.now() < end) { if (fn()) return; await new Promise((r) => setTimeout(r, 200)); }
-  throw new Error('timed out waiting for ' + what);
+  return eventually(fn, (v) => v, {
+    timeoutMs: ms,
+    stepMs: 200,
+    describe: () => 'waiting for ' + what,
+  });
 }
 
 test('#3998: the whole sign-in runs hidden: menu, code from Kosmos, colour, terms left UNTICKED, own folder trusted', { skip }, async () => {

@@ -27,6 +27,7 @@ const TMUX = findTmux();
 const skip = TMUX ? false : 'no tmux on this machine (CI installs it in test.yml)';
 const signin = require('./musesignin');
 const musestatus = require('./musestatus');
+const { eventually } = require('../test-support/eventually');
 test.after(() => { signin.resetForTests(); fs.rmSync(DATA, { recursive: true, force: true }); });
 
 function setup(flow) {
@@ -54,10 +55,18 @@ function setup(flow) {
   };
   return { dir, log, cleanup, logText: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '') };
 }
+// #5727: delegate to the shared load-aware poll helper. At scale 1 this is equivalent to the
+// old `while (Date.now() < end)` loop (100ms step, resolves when fn() is truthy, fails at ms),
+// with one difference: eventually probes once more past the deadline, so a success landing
+// within one step after ms passes instead of failing. That is strictly MORE lenient, never
+// stricter, so no assertion is weakened. The old 'waiting for <what> (state ...)' diagnostic
+// is preserved through describe; under load the deadline scales with the box.
 async function until(fn, ms = 15000, what = 'the condition') {
-  const end = Date.now() + ms;
-  while (Date.now() < end) { if (fn()) return; await new Promise((r) => setTimeout(r, 100)); }
-  throw new Error('timed out waiting for ' + what + ' (state ' + JSON.stringify(signin.status()) + ')');
+  return eventually(fn, (v) => v, {
+    timeoutMs: ms,
+    stepMs: 100,
+    describe: () => 'waiting for ' + what + ' (state ' + JSON.stringify(signin.status()) + ')',
+  });
 }
 const onMac = process.platform === 'darwin';
 
