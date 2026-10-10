@@ -1100,7 +1100,7 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
      A rule (repeat) is asked once, as before. */
   let mayHaveLanded = !r.reached && !r.refused && !r.notConnected;
   for (let tries = 0; which === 'ran' && tries < 2 && (!r.reached || r.status === 503); tries += 1) {
-    ctx.err('Kosmos did not answer or was busy; asking again (it takes the same run only once)...');
+    ctx.err('Kosmos did not answer or was busy; asking again...');
     await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env) * (tries === 0 ? 2 : 8)));
     r = await ctx.call('POST', path, body);
     if (!r.reached && !r.refused && !r.notConnected) mayHaveLanded = true;
@@ -1127,7 +1127,7 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {
-    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + (r.json.task && r.json.task.lastRunUnchanged === true ? (body && body.unchanged === true ? ' that found nothing new.' : ". It repeats the note before it.") : '.'))   // kosmos#5643 review 1/2: the board's answer, and who said it
+    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + (r.json.task && r.json.task.lastRunUnchanged === true ? (body && body.unchanged === true ? ' that found nothing new.' : ". It repeats the note before it.") : '.'))   // kosmos#5643 review 1/2: the board's answer, and who said it
       : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
         : reviewerOnly === 'none' ? 'Nobody is told now when task ' + num + ' on ' + project + ' misses a run.'
         : reviewerOnly ? reviewerOnly + ' will be told when task ' + num + ' on ' + project + ' misses a run.'

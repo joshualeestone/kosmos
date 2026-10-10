@@ -164,7 +164,7 @@ test('#5643 retry review 1 Mac: a cut then a duplicate says it was already recor
   await withStub(['cut', 'dup'], async (port, seen) => {
     const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /already recorded a moment ago/);
+    assert.match(r.out, /already recorded, so it was not recorded twice/);
   });
   await withStub(['cutclose'], async (port) => {
     const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
