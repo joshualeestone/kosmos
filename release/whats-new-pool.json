@@ -201,15 +201,15 @@
     },
     {
       "title": "A daily task can repeat at several times",
-      "line": "An agent can now set a repeating task to run at several times a day, for example at 9am and 9pm.",
+      "line": "A repeating task can now run at several times a day, for example at 9am and 9pm.",
       "icon": "list",
       "rank": 9.5,
       "since": "0.7.38",
       "status": "pending"
     },
     {
-      "title": "Token Usage opens faster",
-      "line": "Reopening Token Usage now reads only what was added to today's records since you last opened it, not all of today again.",
+      "title": "Token Usage reads only what is new today",
+      "line": "While Kosmos runs, reopening Token Usage reads only what was added to today's records since you last opened it.",
       "icon": "spark",
       "rank": 10.5,
       "since": "0.7.38",
