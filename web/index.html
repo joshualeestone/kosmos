@@ -61810,10 +61810,22 @@ function tkRepeatKeepOthers(list, box) {
 }
 /* A saved choice is now what is stored: the repaint after it follows it (review 2), and the others are the saved times
    other than the box's (kosmos#5752 round 2: the others from before the save brought back a time the person had just
-   removed; round 3: the box is left showing what the person put in it, whichever place it sorts to). */
-function tkRepeatSaved(sent) {
-  document.getElementById('tk-repeat-every').dataset.stored = JSON.stringify(sent);
-  tkRepeatKeepOthers(sent && sent.every === 'day' ? sent.at : '', document.getElementById('tk-repeat-at').value);
+   removed; round 3: the box is left showing what the person put in it, whichever place it sorts to). `boxAtSend` is the
+   box's time when Save was pressed. Round 4: if the box shows something else by the time the answer lands (the person
+   left the task and came back, so it was repainted from the old rule, or typed during the save), the controls show
+   what was saved, since what they show no longer matches it; an edit typed in that moment is visibly replaced. */
+function tkRepeatSaved(sent, boxAtSend) {
+  const every = document.getElementById('tk-repeat-every');
+  every.dataset.stored = JSON.stringify(sent);
+  if (document.getElementById('tk-repeat-at').value !== boxAtSend) { tkRepeatShowChoice(sent); return; }
+  tkRepeatKeepOthers(sent && sent.every === 'day' ? sent.at : '', boxAtSend);
+}
+/* The controls set to a choice (a stored one, or one just saved). Review 1: a choice with no time or day of its own
+   starts from Monday 9am, never the last task's unsaved choice. */
+function tkRepeatShowChoice(c) {
+  document.getElementById('tk-repeat-every').value = c.clear ? '' : c.every;
+  tkRepeatFillAt(c.at);
+  document.getElementById('tk-repeat-day').value = c.on || 'mon';
 }
 /* kosmos#5752 round 3: the stored rule changed elsewhere (an agent) while the person has an unsaved edit. The edit stands
    (review 2), but the others follow the new rule: the box stands for its first time, the rest are kept. Otherwise Save
@@ -61858,11 +61870,7 @@ function tkPaintRepeat(p, t) {
   const edited = choiceNow !== every.dataset.stored;
   if (newTask || (every.dataset.stored !== stored && !edited)) {
     if (!newTask && msg && msg.dataset.task === key) msg.textContent = '';   // review 2: a rule changed elsewhere retires the Saved line
-    const c = tkRepeatStoredChoice(t);
-    every.value = c.clear ? '' : c.every;
-    // Review 1: a task with no time or day of its own starts from Monday 9am, never the last task's unsaved choice.
-    tkRepeatFillAt(c.at);
-    document.getElementById('tk-repeat-day').value = c.on || 'mon';
+    tkRepeatShowChoice(tkRepeatStoredChoice(t));
     every.dataset.task = key;
     every.dataset.stored = stored;
   } else if (every.dataset.stored !== stored) tkRepeatFollowUnderEdit(t);   // kosmos#5752 round 3
@@ -61967,6 +61975,7 @@ document.getElementById('tk-repeat-save').addEventListener('click', async () => 
   btn.disabled = true;
   if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }
   const sent = tkRepeatChoice();
+  const boxAtSend = document.getElementById('tk-repeat-at').value;   // kosmos#5752 round 4
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sent),
@@ -61976,7 +61985,7 @@ document.getElementById('tk-repeat-save').addEventListener('click', async () => 
     const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
     if (!res.ok) { if (still()) { if (msg) msg.textContent = (out && out.error) || 'we could not change how that task repeats'; tkRepeatDirty(t); } return; }
     // Review 2: what was saved is now what is stored, so the repaint below follows it rather than reading it as unsaved.
-    if (still()) tkRepeatSaved(sent);
+    if (still()) tkRepeatSaved(sent, boxAtSend);
     await pjReload();
     paintTaskActivity(TK_OPEN);
     if (still()) {

@@ -66,3 +66,12 @@ is read by tasks.setRepeat (JSON compare of the normalised rule), the route (fro
 - An agent's change under an unsaved edit updates the others, so Save never sends a time on no screen.
 - A test drives the page's own paint loop with a stub page.
 - Left as is (NIT): `--at ' 09:00 '` (one time with spaces) is still refused, as today; a list is trimmed.
+
+## Review round 4 fixes
+- Save records the box's time when it is pressed. If the box shows something else when the answer lands (the person
+  left the task and came back, so the controls were repainted from the old rule, or typed during the save), the
+  controls show what was saved; an edit typed in that moment is visibly replaced. Before, the others were worked out
+  from the box at answer time, which could leave Save lit with a third time nobody chose.
+- `tkRepeatShowChoice` sets the controls to a choice, shared by the repaint and that path.
+- Left as is (NITs): the 5-second poll can light Save while a save is in flight (true before this change); two daily
+  times 15 to 20 minutes apart get a 4 to 5 minute miss grace, so a run reported that early is ambiguous between them.
