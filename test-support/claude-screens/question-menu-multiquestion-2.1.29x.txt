@@ -1,0 +1,14 @@
+────────────────────────────────────────────────────────────────────────────────
+←  ☐ Fruit  ☐ Colour  ✔ Submit  →
+
+Which fruit do you want?
+
+❯ 1. Apple
+     Apple
+  2. Banana
+     Banana
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel

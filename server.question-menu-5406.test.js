@@ -134,7 +134,7 @@ test('#5406 review 1: Escape that does not close the menu sends nothing; a permi
     assert.equal(r.status, 409, JSON.stringify(r.json));
     assert.equal(calls.filter((a) => a[0] === 'set-buffer').length, 0, 'the message was pasted into a menu that stayed');
   } finally { chat.resetForTests(); board.restore(); }
-  const PERM = 'Bash command\n\n  rm photo.jpg\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n\nEsc to cancel';
+  const PERM = 'Bash command\n\n  rm photo.jpg\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n\nEnter to select · ↑/↓ to navigate · Esc to cancel';
   const b2 = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: PERM })]);
   try {
     const calls = [];
@@ -160,4 +160,33 @@ test('#5406 review 2: a Codex card whose screen ends like this menu is not answe
     await post({ text: '2' });
     assert.equal(calls.filter((a) => a[0] === 'send-keys' && /^(2|Escape)$/.test(a[a.length - 1])).length, 0, 'a Claude menu key went to a Codex card');
   } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5406 review 3: a question that changed between the read and the key is refused; a failed message says the question was closed', async () => {
+  const OTHER = MENU.replace('Which fruit do you want?', 'Which colour do you want?');
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+  try {
+    const screens = [MENU, OTHER];
+    const calls = [];
+    chat.setRunner((args) => { calls.push(args); if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: screens.length > 1 ? screens.shift() : screens[0], err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const r = await post({ text: '2' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 0, 'a key went to a question the person did not see');
+  } finally { chat.resetForTests(); board.restore(); }
+  const b2 = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+  try {
+    let screen = MENU;
+    chat.setRunner((args) => { if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: screen, err: '' };
+      if (args[0] === 'send-keys' && args[args.length - 1] === 'Escape') { screen = IDLE; return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; }
+      if (args[0] === 'set-buffer' || args[0] === 'paste-buffer' || args[0] === 'load-buffer') return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no such pane' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const r = await post({ text: 'something else' });
+    assert.notEqual(r.json.delivery.state, 'placed', JSON.stringify(r.json));
+    assert.match(r.json.delivery.because, /Its question was closed before this was sent/);
+  } finally { chat.resetForTests(); b2.restore(); }
 });

@@ -16291,7 +16291,7 @@ const server = http.createServer(async (req, res) => {
         let qmenuAnswer = null;
         let qmenuClosed = false;
         // Review 2: a Claude card only (Codex and Gemini answer their own menus by their own keys).
-        if (!automatic && seenNow && askingCard && askingCard.runner !== 'codex' && askingCard.runner !== 'gemini') {
+        if (!automatic && seenNow && askingCard && String(askingCard.runner || 'claude') === 'claude') {
           const cq = seenNow.text ? require('./engine/status').claudeQuestionMenu(seenNow.text) : null;
           if (cq) {
             const said = String(body.text).trim();

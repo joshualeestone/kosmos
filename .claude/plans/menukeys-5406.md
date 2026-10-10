@@ -27,3 +27,4 @@ fixture). A managed agent whose own report says otherwise keeps today's path.
 - Escape closes only the question the person saw; a button press carrying files or a reply is refused (409), never recorded as a choice.
 - Known gap, filed as #5743: room posts and automatic deliveries still paste into the menu (decide hold vs close at the delivery level).
 - Review 2: at most 9 entries (one key per answer); Claude cards only; a message that fails after its question was closed says so on the record.
+- Review 3 (measured with real captures, now fixtures): multi-select ([ ] options) and multi-question ("←  ☐ A  ☐ B  ✔ Submit  →") are refused; an unreadable screen is never answered or closed; Claude cards by allowlist; no key while a delivery is being typed into the pane.

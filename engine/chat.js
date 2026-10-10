@@ -1154,8 +1154,17 @@ const QMENU_SETTLE_MS = 1200;
 const qmenuWait = (ms) => new Promise((done) => setTimeout(done, ms));
 /* Send the bare digit for option `n`, only if the live menu still asks `question` and option `n` is still `label`.
    Resolves { ok: true, key, screen } (screen: what the pane shows after) or { ok: false, because }. */
-async function answerQuestionMenu(sessionName, n, roster, expect) {
+/* Review 3: a Claude card only, and never while a delivery is being typed into the same pane (a key in its paste-to-Enter
+   gap would land on whatever the screen is then). */
+function questionMenuKeysAllowed(sessionName, roster) {
   const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return allowed;
+  if (String(allowed.card.runner || 'claude') !== 'claude') return { ok: false, because: 'that is not a Claude agent' };
+  if (deliveryQueues.has(paneTarget(allowed.card))) return { ok: false, because: 'a message is being typed to it right now; try again in a moment' };
+  return allowed;
+}
+async function answerQuestionMenu(sessionName, n, roster, expect) {
+  const allowed = questionMenuKeysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
   const t = paneTarget(allowed.card);
   const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
@@ -1172,17 +1181,20 @@ async function answerQuestionMenu(sessionName, n, roster, expect) {
   await qmenuWait(QMENU_SETTLE_MS);
   const after = look();
   const still = after ? status.claudeQuestionMenu(after) : null;
-  return { ok: true, key: String(opt.n), label: opt.label, answered: !(still && still.question === menu.question), screen: after };
+  // Review 3: a screen that could not be read after the key is not "answered": the record says unconfirmed.
+  return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !(still && still.question === menu.question), screen: after };
 }
 /* Close the live question menu with Escape before a message goes (the person answered in their own words). Resolves
    { ok: true, closed } (closed: there was a menu and it went) or { ok: false, because }. No menu: { ok: true, closed: false }. */
 async function closeQuestionMenu(sessionName, roster, expect) {
-  const allowed = keysAllowed(sessionName, roster);
+  const allowed = questionMenuKeysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
   const t = paneTarget(allowed.card);
   const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
   const before = look();
-  const shown = before ? status.claudeQuestionMenu(before) : null;
+  // Review 3: the route saw the menu; a screen it cannot read now is not "no menu" (a paste there takes its default).
+  if (!before) return { ok: false, because: 'we could not see its screen to close its question, so this was not sent; try again' };
+  const shown = status.claudeQuestionMenu(before);
   if (!shown) return { ok: true, closed: false };
   // Review round 1: only the question the person saw; a menu that redrew into another one is not closed for them.
   if (expect && expect.question && expect.question !== shown.question) {
@@ -1192,7 +1204,9 @@ async function closeQuestionMenu(sessionName, roster, expect) {
   if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not close its question to send this; look at its window' };
   await qmenuWait(QMENU_SETTLE_MS);
   const after = look();
-  if (after && status.claudeQuestionMenu(after)) return { ok: false, because: 'its question is still on its screen, so this was not sent; answer it there or press a choice' };
+  // Review 3: an unreadable screen is not a closed menu; a paste into a menu that stayed takes its highlighted option.
+  if (!after) return { ok: false, because: 'we could not see its screen after closing its question, so this was not sent; try again' };
+  if (status.claudeQuestionMenu(after)) return { ok: false, because: 'its question is still on its screen, so this was not sent; answer it there or press a choice' };
   return { ok: true, closed: true };
 }
 
