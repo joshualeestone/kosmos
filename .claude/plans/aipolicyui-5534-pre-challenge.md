@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: aipolicyui-5534
-diff_hash: 3d48061614a974af0676100c28ced29a6289b19c82f083231b0cb1fa4ae7d48f
+diff_hash: 89f64bbf56f0c802554cf299fdbe2e4c9dc148e75b64b539986ba688a9e8f259
 validation: passed (rebased on origin/main after slice 3 (#5733) merged; web.policy-company-5534 (runs the shipped paintPolicy against a DOM stub, with control arms), the server.test.js slice 4 case, browser-checks-reason-grep and browser-checks-indexed, tools/test-browser-checks-workflow.sh, and the new headless browser check render-policy-company-5534 through tools/browser-checks.sh (company arm and control arm all PASS, screenshot taken))
 subdir_audit: passed
 timestamp: 2026-10-10T01:19:01Z
@@ -24,7 +24,7 @@ first and read-only, above the person's own; the screen no longer says there are
 
 #### Iteration 1 (opus)
 - Checked and sound: textContent only (no innerHTML), a board without a company policy unchanged, order and no
-  buttons tested in both the stub test and the browser check, the four browser-check indices agree, no new styling.
+  buttons tested in both the stub test and the browser check, the browser-check indices agree (b8-board.txt added after CI named it), no new styling.
 - [NIT] no visual tag beyond the provenance line --> DECIDED (plan). [NIT] card shown while the person's record is
   unreadable --> accepted (rare, base-branch behaviour). [NIT] the browser check has no company-only arm --> covered by
   the stub test. [NIT] the opening can split a surrogate pair --> pre-existing for the person's own policies.
