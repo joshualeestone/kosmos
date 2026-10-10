@@ -15997,8 +15997,11 @@ const server = http.createServer(async (req, res) => {
       /* #5406 part 2 slice C: the question's identity (chat.questionAbove, the twin of the check the POST makes), sent
          with the options so a button press names the question it was drawn for; the page never re-derives it. Null in
          the setup guide's thread: everything served there is masked (#3769), and this is unmasked screen text. Claude
-         cards only: the key-answer path a press relies on is Claude's (the same allowlist as questionMenuKeysAllowed). */
-      asked: !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude' && Array.isArray(options) && question && typeof question.text === 'string' ? chat.questionAbove(question.text) : null,
+         cards only: the key-answer path a press relies on is Claude's (the same allowlist as questionMenuKeysAllowed).
+         And only for the single-select question menu that path answers (status.claudeQuestionMenu): a permission prompt
+         also reads as numbered options, but a press there would be pasted, and its Enter picks the highlighted option. */
+      asked: !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude' && Array.isArray(options)
+        && Boolean(view && view.text && require('./engine/status').claudeQuestionMenu(view.text)) && question && typeof question.text === 'string' ? chat.questionAbove(question.text) : null,
     });
     return;
   }
@@ -16112,7 +16115,7 @@ const server = http.createServer(async (req, res) => {
          */
         /* #5406 slice C: a press that names its question (`asked`) is checked even when its words were dropped by the
            bounds above: otherwise its digit would skip every check below and be typed as an ordinary prompt. */
-        const askedGiven = typeof body.asked === 'string' && body.asked.trim() !== '';
+        const askedGiven = typeof body.asked === 'string' && chat.cleanMessage(body.asked).trim() !== '';
         if (chose || askedGiven) {
           /**
            * ⚠️ A BUTTON SEND IS REFUSED WHEN THE SCREEN CONTRADICTS IT, rather
@@ -16243,10 +16246,22 @@ const server = http.createServer(async (req, res) => {
              its digit would otherwise land in the composer as a new prompt. Unlike `chose` alone, `asked` says the press
              was for a menu, so a screen without one contradicts it. */
           if (askedAbove && nowClean === null) {
-            const gone = new Error('its question is no longer on its screen, so we did not send the answer. '
-              + 'What is on this page now is current.');
+            /* Asking, but the screen could not be read: say that, not that the question went. */
+            const unread = Boolean(card && card.state === STATE.NEEDS_YOU && !(seen && seen.text));
+            const gone = new Error(unread
+              ? 'we could not read its screen just now, so we did not send the answer. Press again in a moment.'
+              : 'its question is no longer on its screen, so we did not send the answer. What is on this page now is current.');
             gone.status = 409;
             throw gone;
+          }
+          /* A press is answered only as a key on Claude's single-select question menu. Any other Claude screen that
+             reads as a numbered menu (a permission prompt) would take the paste's Enter as its highlighted option. */
+          if (askedAbove && card && String(card.runner || 'claude') === 'claude' && seen && seen.text
+            && !require('./engine/status').claudeQuestionMenu(seen.text)) {
+            const notThis = new Error('that question cannot be answered with a button, so we did not send anything. '
+              + 'Answer it in its window.');
+            notThis.status = 409;
+            throw notThis;
           }
         }
         // Deliver first, then record the verdict with it — and record even a

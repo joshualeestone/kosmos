@@ -296,3 +296,28 @@ test('#5406 slice C: a press whose words fail the bounds is still checked by its
     assert.equal(calls.pasted(), '', 'a press with dropped words was typed as a prompt');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5406 slice C: a permission prompt draws no buttons, and a press at one is refused with nothing typed', async () => {
+  const PERM = '⏺ Update(a.js)\n\n Edit file\n a.js\n\n Do you want to make this edit to a.js?\n ❯ 1. Yes\n   2. Yes, allow all edits during this session (shift+tab)\n   3. No, and tell Claude what to do differently (esc)\n\n Enter to select · ↑/↓ to navigate · Esc to cancel';
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: PERM })]);
+  try {
+    const calls = [];
+    chat.setRunner((args) => {
+      calls.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: PERM, err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+    assert.equal(back.asking, true, 'premise: the prompt reads as asking');
+    assert.ok(Array.isArray(back.options) && back.options.length === 3, 'premise: the prompt reads as numbered options: ' + JSON.stringify(back.options));
+    assert.equal(back.asked, null, 'a permission prompt was offered as answer buttons');
+    // A crafted press with the identity the screen would give: refused, nothing typed or pasted.
+    const q = chat.questionIn(PERM, 'claude');
+    const r = await post({ text: '3', chose: back.options[2].label, asked: chat.questionAbove(q.text) });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /cannot be answered with a button/);
+    assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), [], 'a press at a permission prompt was typed');
+  } finally { chat.resetForTests(); board.restore(); }
+});

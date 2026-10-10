@@ -37385,6 +37385,7 @@ let DM_CHOICE_NOTE = null;   // { session, asked, text, placed, at }: what becam
    (it says unconfirmed otherwise), so this covers only the page's own poll still showing the old screen; past it, the
    same question drawn again (agents repeat questions word for word) is pressable. */
 const DM_CHOICE_ANSWERED_MS = 6000;
+let DM_CHOICE_LAST_REFUSAL = '';   // the sentence a refusal put on #d-say-msg, cleared by the next success only if still there
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
@@ -37451,7 +37452,10 @@ async function dmChoicePress(btn) {
   if (ok && CURRENT && CURRENT.sessionName === session) {
     const quiet = document.getElementById('d-reply-say');
     if (quiet) quiet.textContent = 'Sent.';
+    const line = document.getElementById('d-say-msg');   // an earlier refusal's sentence is no longer true
+    if (line && line.textContent === DM_CHOICE_LAST_REFUSAL) line.textContent = '';
   }
+  DM_CHOICE_LAST_REFUSAL = ok ? '' : note;
   /* Every outcome repaints: a refusal usually means the menu moved, and the buttons should show the one up now. */
   if (!CURRENT || CURRENT.sessionName !== session) return;   // switched agents meanwhile: neither repaint nor move focus
   await paintTalk(CURRENT.sessionName, CURRENT.name);
