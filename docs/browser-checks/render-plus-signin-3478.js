@@ -166,6 +166,7 @@ const visible = (page, sel) => page.evaluate((s) => {
     for (const key of Object.keys(SCENARIOS)) {
       const sc = SCENARIOS[key];
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
+      await page.addInitScript(() => { window.__kosmosRestartHoldMs = 0; });   // #5785: no K-loader hold on a register
       page.__url = URL;
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
@@ -543,6 +544,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       if (wk) {
         try {
           const page = await wk.newPage({ viewport: { width: 1400, height: 950 } });
+          await page.addInitScript(() => { window.__kosmosRestartHoldMs = 0; });   // #5785: no K-loader hold on a register
           page.__url = URL;
           await openPlusState1(page);
           await page.click('#plus-signin-top');
@@ -580,6 +582,7 @@ const visible = (page, sel) => page.evaluate((s) => {
     {
       const k = 'sign-out-in-flight';
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
+      await page.addInitScript(() => { window.__kosmosRestartHoldMs = 0; });   // #5785: no K-loader hold on a register
       page.__url = URL;
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
