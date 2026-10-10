@@ -2696,7 +2696,7 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
     });
 });
 
-test('the same question still on screen passes the identity check, so the check above is not refusing everything', async () => {
+test('the same question still on screen is not refused BY THE IDENTITY CHECK (the permission-prompt refusal answers instead)', async () => {
   reset();
   /* ⚠️ THE CONTROL FOR IT. Without this, the refusal above passes for a server
      that 409s every button send, which would be worse than the hole it closes:
@@ -2750,7 +2750,7 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
     });
 });
 
-test('the cursor moving inside a SHORT prompt keeps the same identity, because the window clamps', async () => {
+test('the cursor moving inside a SHORT prompt keeps the same identity (questionAbove), because the window clamps', async () => {
   reset();
   /**
    * ⚠️ THE FALSE REFUSAL THE FIRST VERSION OF THIS GUARD SHIPPED WITH, and a
