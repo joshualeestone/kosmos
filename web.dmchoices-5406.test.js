@@ -86,6 +86,10 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
   // Answered: the redrawn buttons stay off for that question (the menu can linger a few seconds after the key).
   assert.equal((m.html(Q).match(/ disabled>/g) || []).length, 2, 'an answered question offered its buttons again');
   assert.match(m.html(Q), />Sent\.</);
+  // The lock covers only the page's own stale poll: past DM_CHOICE_ANSWERED_MS the same question drawn again is pressable.
+  m.note().at -= 7000;
+  assert.doesNotMatch(m.html(Q), / disabled>/, 'a question repeated word for word stayed locked');
+  m.note().at += 7000;
   // CONTROL: a NEW question on the same agent is pressable.
   m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
   assert.doesNotMatch(m.html(Q), / disabled>/);

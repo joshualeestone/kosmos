@@ -277,3 +277,22 @@ test('#5406 slice C: a button press for a question that is no longer on screen i
     assert.match(calls.pasted(), /\] 1$/, 'the typed reply did not go as an ordinary message');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5406 slice C: a press whose words fail the bounds is still checked by its question, never typed as a prompt', async () => {
+  const bad = 'Apple\u0007';   // a control character: chose is dropped by its bounds check
+  // The menu is up and the question matches, but the words could not be checked: refused, nothing sent.
+  await withMenu(async (calls) => {
+    const r = await post({ text: '1', chose: bad, asked: 'Which fruit do you want?' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.deepEqual(calls.keys(), []);
+    assert.equal(calls.pasted(), '');
+  });
+  // No question on screen: refused as gone, nothing typed.
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
+  try {
+    const calls = armPane();
+    const r = await post({ text: '1', chose: bad, asked: 'Which fruit do you want?' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.equal(calls.pasted(), '', 'a press with dropped words was typed as a prompt');
+  } finally { chat.resetForTests(); board.restore(); }
+});
