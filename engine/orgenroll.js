@@ -68,7 +68,9 @@ function remoteFor(opts) {
 function worldId(opts) { return mintedId(opts, WORLD_ID_FILE); }
 /* kosmos#5532 widening (board review 7): the id this Kosmos is reported under when it is ANOTHER Kosmos in the
    enrolled one's rollup. Separate from worldId on purpose: if this Kosmos later enrolls itself, with this company or
-   another, the id it enrolls under was never sent anywhere, so two companies cannot match it. */
+   another, the id it enrolls under was never sent anywhere, so a company cannot match its enrollment to its sibling
+   reports. It is one id per Kosmos, not per company (board review 13): two Kosmoses enrolled to two companies on one
+   computer report a third under the same sibling id, which tells them no more than the computer print they share. */
 const SIBLING_ID_FILE = 'org-sibling-id';
 function siblingId(opts) { return mintedId(opts, SIBLING_ID_FILE); }
 function mintedId(opts, name) {

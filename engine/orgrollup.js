@@ -825,7 +825,13 @@ function takeRunLock(root, now) {
   for (let i = 0; i < 2; i++) {
     try {
       const fd = fs.openSync(file, 'wx', 0o600);
-      try { fs.writeSync(fd, JSON.stringify({ at: now, token })); } finally { fs.closeSync(fd); }
+      try { fs.writeSync(fd, JSON.stringify({ at: now, token })); } catch (w) {
+        // Created but not written (a full disk): removed, so it does not hold every run for the bound (board review 13).
+        try { fs.closeSync(fd); } catch { /* closed */ }
+        try { fs.unlinkSync(file); } catch { /* gone */ }
+        throw w;
+      }
+      fs.closeSync(fd);
       return token;
     } catch (e) {
       if (!e || e.code !== 'EEXIST') return null;   // cannot be taken: never send unlocked

@@ -21159,7 +21159,7 @@ function orgRollupTick() {
     }
     /* kosmos#5532 widening: this board serves another Kosmos, and the enrolled one (if any on this computer) still
        reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
-       timing, print and key are its own. One board runs per computer, so one such child at a time (ORG_ROLLUP_RUNNING,
+       timing, print and key are its own. One board runs per computer, so one such child at a time (ORG_ROLLUP_ELSEWHERE.running,
        held until it ends, at most TICK_CHILD_TIMEOUT_MS); the enrolled Kosmos's own state paces its sends. */
     // The search, its throttle and the child's bookkeeping: rollup.elsewhereRunner (tested there, board review 11).
     ORG_ROLLUP_ELSEWHERE.tick(require('./engine/store').ROOT);

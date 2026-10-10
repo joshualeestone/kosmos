@@ -13,8 +13,12 @@ shipped before that ruling, so only the enrolled Kosmos reports.
   own opaque id, and ONLY when those words name every Kosmos on this computer (`orgenroll` `NAMES_EVERY_KOSMOS`,
   `/\bevery kosmos on this computer\b/i`, the phrase the coordinator's CONSENT_NAMES_EVERY_KOSMOS is pinned to,
   kosmos-relay#354): otherwise no other Kosmos is read or sent. Before each send the enrollment and its consent hash
-  are read again, so a Leave or new words during a read stop every later send. A partial read of another Kosmos is
-  never sent. A change send skips a Kosmos whose signature did not move (kept per id in the state, `others`).
+  are read again, so a Leave or new words during a read stop every later send. A partial daily of another Kosmos is
+  held for one real daily, then sent marked truncated while it stays partial; a partial read is never a change send. A
+  daily that did not land rides the next send as a daily. A Kosmos that may belong to a company itself (any enrollment,
+  unknown join or pending leave file, readable or not) is never read, written or sent. Another Kosmos is reported under
+  its `siblingId`, never its enrollment id. One run of a Kosmos's rollup at a time, across processes (an O_EXCL lock
+  file with a token, `org-rollup.lock`). A change send skips a Kosmos whose signature did not move (kept per id in the state, `others`).
   Usage is withheld unless the words name it, as for the enrolled one; the policy version is left out (the company's
   policy is the computer's, reported by the enrolled Kosmos). A refusal past the coordinator's cap
   (`org_rollup_too_many_worlds`) stops the rest. Nothing of another Kosmos goes when the enrolled send fails, or after
@@ -24,9 +28,11 @@ shipped before that ruling, so only the enrolled Kosmos reports.
   `KOSMOS_WORLD`, `applyAgentWorldEnv`). A folder that is none of the registry's Kosmoses (a sandbox, a folder given by
   hand) has no others.
 - `engine/orgrollup-child.js`: `gather` reads one Kosmos's inventory in a child process with that Kosmos's folders
-  (no reader changes) and mints its opaque id in its own data root; `tick` runs the enrolled Kosmos's own tick.
-- `server.js` `orgRollupTick`: when the board on screen is not the enrolled Kosmos, it finds the enrolled one among the
-  others and runs its tick in a child with its folders (its words, timing, print and key).
+  (no reader changes) and mints its sibling id in its own data root, after checking it holds no enrollment; `tick`
+  runs the enrolled Kosmos's own tick. Each bounds itself.
+- `server.js` `orgRollupTick`: when the board on screen is not the enrolled Kosmos, `elsewhereRunner` finds the
+  enrolled one in the whole registry (`enrolledElsewhere`, at most once per CHANGE_MIN_MS) and runs its tick in a child
+  with its folders (`spawnEnrolledTick`: its words, timing, print and key), one at a time, stopped with the board.
 
 ## Decided
 - The others follow the enrolled Kosmos's schedule: a change in another Kosmos alone reaches the company at the
@@ -38,8 +44,11 @@ shipped before that ruling, so only the enrolled Kosmos reports.
 - The child's real `gather` is not run in a test: it reads the computer's live panes (status.snapshot), which on a
   test machine are the fleet's. Its unknown-mode refusal is tested, and the parent's handling of what a child returns
   is tested through the injected `gatherIn`.
-- The server path that runs the enrolled Kosmos's tick from another Kosmos's board has no test (it is inside
-  `orgRollupTick`, which has no seam).
+- `orgRollupTick`'s own two-line dispatch (which path to take) is covered by the source guard only; everything under
+  it (`elsewhereRunner`, `enrolledElsewhere`, `spawnEnrolledTick`) is tested by behaviour.
+- A child stopped by its own time bound skips the tick's `finally`: its lock stays until it ages out and the other
+  Kosmoses' signatures of that run are not recorded, so the next send resends them (the safe direction).
+- A lock takeover's race between THREE runs at a dead run's lock (named in takeRunLock) cannot be scheduled from a test.
 
 ## Weakest premise
 That a reader's answer depends only on the folders in the environment and the shared Claude config folders, so a
@@ -65,3 +74,4 @@ agent's tokens once per Kosmos.
 - Iteration 10 (Sonnet): [WARNING] two runs that both judged a lock stale could each unlink and recreate it: the takeover now renames the stale lock aside (atomic; one run wins), reads what it moved, and if that was a live lock (another run replaced it meanwhile) links it back and stands down. Untested branch, stated: that interleaving cannot be scheduled from a test; the rule it relies on (liveness) is tested. [WARNING] an empty or unreadable lock read as free: it is live until its file is older than the bound (test, with an aged-file control). [WARNING] the lock was stamped with the tick's start, minutes early: stamped when taken. That change broke liveness for a lock stamped after another run's tick began (my own regression, caught before commit): liveness is now either side of now within the bound, and a test holds a lock stamped five seconds later; my first claim that the race test covered it was wrong (both runs stamp the same millisecond there), so the case has its own assertion. Mutations red: the one-sided check, the missing mtime fallback. Decided: review-number citations in comments stay (the codebase's convention); a NIT on the child's header taken.
 - Iteration 11 (Opus): [WARNING] the board-elsewhere path (search throttle, one child, its handle, stop on exit) was covered only by the source guard: extracted as `elsewhereRunner` (deps: now, find, spawn) and tested by behaviour; server.js keeps one runner and stops it on exit. NITs: the stale-read check is one helper, comparing against both what this run read and what it cleaned, so neither damage already on disk nor its own cleanup write reads as another run (three existing tests caught my first version, which compared only against the cleaned copy); the id pattern reuses orgenroll's WORLD_ID; comments state the three-run residual of the takeover, that NAMES_EVERY_KOSMOS matches a phrase not a meaning, and that the enrolled branch is a backstop. Four mutations red. CONVENTION: the commit subjects are reworded to `rollupworlds-5532 -- ...` (CLAUDE.md:132).
 - Iteration 12 (Sonnet): [WARNING] a spawn that threw synchronously left the elsewhere runner busy for good, so the enrolled Kosmos stopped reporting until the board restarted, unsaid: the spawn is caught, the runner freed, the failure said, and the next search tries again (test; mutated red). NITs taken: a hold begins as well as ends only at a real daily (a missed daily read in part on a change send waits, its mark kept; test; mutated red); the id check computed once; a comment pins the policy strip before the signature.
+- Iteration 13 (Opus): NOTHING ABOVE CONVENTION; the loop converged here. CONVENTIONs fixed: "The change" now describes the hold-then-send-truncated rule, the enrolled-sibling refusal, the sibling id and the run lock, and "Gaps" no longer claims the board-elsewhere path is untested (only orgRollupTick's dispatch is left to the source guard). NITs taken: the server comment names the flag it uses; a lock created but not written (a full disk) is removed rather than holding every run for 44 minutes; the child's header is rewrapped and states that a tick stopped by its own bound skips its finally (now under Gaps); the sibling-id comment no longer over-claims (one id per Kosmos, so two companies on one computer see the same sibling id, which tells them no more than the computer print they share).

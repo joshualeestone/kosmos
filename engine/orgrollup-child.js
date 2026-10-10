@@ -2,17 +2,19 @@
 /*
  * kosmos#5532 widening (Josh, #admin 2026-10-09 08:43: everything on a work computer is company property): the rollup
  * of a Kosmos that is NOT the one this board serves. The board starts this file with that Kosmos's folders applied to
- * the environment as an agent of it gets them (worlds.applyAgentWorldEnv), so every reader below resolves that Kosmos's own store, exactly as its own
- * board would. `gather` sends nothing (its one write is that Kosmos's own sibling id, below); `tick` is the enrolled Kosmos's own rollup tick. Each prints one line of JSON and
- * exits.
+ * the environment as an agent of it gets them (worlds.applyAgentWorldEnv), so every reader below resolves that
+ * Kosmos's own store, exactly as its own board would. Each mode prints one line of JSON and exits.
  *
- *   node engine/orgrollup-child.js gather   ->  {"ok":true,"world":"<opaque id>","gathered":{...}}
+ *   node engine/orgrollup-child.js gather   ->  {"ok":true,"world":"<sibling id>","enrolled":false,"gathered":{...}}
+ *                                                or {"ok":true,"enrolled":true} for a Kosmos that may belong to a
+ *                                                company (nothing read, nothing written)
  *   node engine/orgrollup-child.js tick     ->  {"ok":true,"result":{...}}   (the enrolled Kosmos's own rollup, when the
  *                                                board on screen serves another Kosmos; that tick sends)
  *
- * The world id is this Kosmos's own (minted in its own data root once, as the enrolled one's is). A failed gather
- * prints {"ok":false} and exits 0, so the caller treats it as "no report for this Kosmos this time". `tick` prints the
- * tick's own result, which the board does not read: it logs only a failed or timed-out child.
+ * `gather` sends nothing; its one write is that Kosmos's own sibling id (orgenroll.siblingId), minted once in its data
+ * root. A failed gather prints {"ok":false} and exits 0, so the caller treats it as "no report for this Kosmos this
+ * time". `tick` prints the tick's own result, which the board does not read: it logs only a failed or timed-out child.
+ * Each mode bounds itself; a tick stopped by its bound skips its `finally`, so its run lock ages out (plan: Gaps).
  */
 
 async function main(mode) {
@@ -44,7 +46,9 @@ if (require.main === module) {
     // Exit once the line is flushed (board review 1): a handle a reader left open must not turn every read into the
     // caller's timeout, which reads as no report.
     (out) => { process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0)); },
-    () => { process.stdout.write(JSON.stringify({ ok: false, because: 'the read failed' }) + '\n', () => process.exit(0)); },
+    () => {
+      process.stdout.write(JSON.stringify({ ok: false, because: 'the read failed' }) + '\n', () => process.exit(0));
+    },
   );
 }
 
