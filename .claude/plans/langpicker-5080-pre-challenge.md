@@ -2,22 +2,24 @@
 pre_challenge: true
 method: challenge-loop
 branch: langpicker-5080
-diff_hash: 97e422938f9cff1df5809d63a2ae924cb1dddf67f0bd28d8f8fdc87601535790
+diff_hash: aee2298165193a0448c3df853385666cf25f20de417ae478bcc6bd9678fb1cb6
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-10T20:21:47Z
-iterations: 10
+timestamp: 2026-10-10T22:47:50Z
+iterations: 13
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 10 blind reviews, alternating Opus and Sonnet (5 each)
+**Iterations:** 13 blind reviews, alternating Opus and Sonnet (7 Opus, 6 Sonnet)
 **Converged:** Yes. Iteration 8 found nothing new; the closing gate (6j) then failed twice (below), each fix ran
-another review (9, 10), and iteration 10 found nothing new. The final gate passed on the hash above
-(local validation, validation-log hash 97e42293, EXIT=0 at 15:21 CDT; subdir audit rc=0).
+another review (9, 10), and iteration 10 found nothing new. After the PR opened, its CI browser-checks job found one
+more missed sibling (below); the fix ran iterations 11 to 13, and 13 found nothing new. The final gate passed on the
+hash above (local validation, validation-log hash aee22981, node 18685 tests, 0 fail, EXIT=0 at 17:47 CDT; subdir
+audit rc=0). PR #5794's CI is all green on the same head 720f4d87a, browser-checks included.
 **Total actionable findings:** 1 BLOCKER, 23 WARNINGs (plus 2 synthetic final-validation BLOCKERs), many NITs
-**Fixed:** 22 | **Deferred:** 6 | **Asked (awaiting user):** 0
+**Fixed:** 28 | **Deferred:** 6 | **Asked (awaiting user):** 0
 
 **Self-generated (6c-bis):** not classified by blame this run. Recorded as unknown rather than estimated. Several
 later findings were plainly in earlier iterations' fixes (iteration 2 in iteration 1's stale-block code, iteration 6 in
@@ -92,6 +94,27 @@ iteration 4's cache key, iteration 7 in iteration 5's save message), so the loop
 #### Final validation (6j), third run
 Passed on edd59f116: node 18684 tests, 0 fail; shell part passed; EXIT=0.
 
+#### After the PR opened: CI browser-checks (PR #5794)
+- [BLOCKER] ci-browser-checks: render-prompter-label-1843 pins the Automation headings in order (the sibling of web.settings-nav that #3552 and #4288 also missed) --> FIXED 974a470dd; web.settings-nav now asserts the two lists match (reverting the check's list fails it). Run locally: exit 0. Then iterations 11 to 13.
+
+#### Iteration 11
+**Reviewer model:** opus
+- [WARNING] tools/check-block-delivery.js: comment described the block as Mac-only --> FIXED f9ac494d8
+- [WARNING] server.js PUT /api/agent-language: an agent token sent in the body was not refused (one PUT rewrites every agent) --> FIXED f9ac494d8 (+ route test)
+- [CONVENTION] engine/personlanguage.js setChoice: a failed save left no log line --> FIXED f9ac494d8
+- [CONVENTION] server.js: a failed live sync left no log line --> FIXED f9ac494d8
+
+#### Iteration 12
+**Reviewer model:** sonnet
+- [WARNING] server.communityturn-4947.test.js checked the FIRST site of the language sweep call, now the Settings route, leaving the boot sweep unguarded --> FIXED 720f4d87a (every site checked, both language sites asserted; removing the boot sweep's re-read fails it)
+
+#### Iteration 13
+**Reviewer model:** opus
+**New findings:** 0 (the failed-Mac-read removal is review 1's documented decision; the test override is iteration 2's deferral). Converged.
+
+#### Final validation (6j), fourth run
+Passed on 720f4d87a: node 18685 tests, 0 fail; shell part passed; EXIT=0 (hash aee22981).
+
 ### Final Ledger (actionable only)
 
 | # | Iter | Category | File | Origin | Description | Status | Resolution |
@@ -124,6 +147,12 @@ Passed on edd59f116: node 18684 tests, 0 fail; shell part passed; EXIT=0.
 | 26 | 9 | WARNING | server.js | BRANCH | re-read failure misreported | FIXED | 8ab06e7a1 |
 | 27 | 10 | WARNING | engine/personlanguage.js | BRANCH | Mac read cached until restart | DEFERRED | #5050 design |
 | 28 | 6j | BLOCKER | web/index.html | BRANCH | surface gate: token "msg" | FIXED | edd59f116 (trailers) |
+| 29 | CI | BLOCKER | docs/browser-checks/render-prompter-label-1843.js | BRANCH | Automation order (browser check) | FIXED | 974a470dd |
+| 30 | 11 | WARNING | tools/check-block-delivery.js | BRANCH | Mac-only comment | FIXED | f9ac494d8 |
+| 31 | 11 | WARNING | server.js | BRANCH | body agent token not refused | FIXED | f9ac494d8 |
+| 32 | 11 | CONVENTION | engine/personlanguage.js | BRANCH | failed save not logged | FIXED | f9ac494d8 |
+| 33 | 11 | CONVENTION | server.js | BRANCH | failed live sync not logged | FIXED | f9ac494d8 |
+| 34 | 12 | WARNING | server.communityturn-4947.test.js | BRANCH | first-site check left boot sweep unguarded | FIXED | 720f4d87a |
 
 Origin is BRANCH for every row because no blame classification ran (see above); that is the fail-safe value, not a measurement.
 
