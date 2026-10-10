@@ -67349,8 +67349,10 @@ function pjFoldRoomRows(rows) {
        the agent tried (`doing`): the folded band would say "tried to post here" and lose it (review 2). */
     if (m && m.kind === 'refused' && m.addable !== true && !m.doing) {
       const because = m.because || '';
-      const froms = [];
-      let j = i;
+      /* Starts past the first row, which the check above already admitted, so every pass consumes at least one row:
+         the loop cannot spin whatever the two checks say (review 3). */
+      const froms = [m.from];
+      let j = i + 1;
       while (j < rows.length && rows[j] && rows[j].kind === 'refused' && rows[j].addable !== true && !rows[j].doing
              && (rows[j].because || '') === because) {
         if (!froms.includes(rows[j].from)) froms.push(rows[j].from);

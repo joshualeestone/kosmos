@@ -2785,14 +2785,6 @@ function messageIdOf(value) {
   return hit ? 'm' + String(Number(hit[1])) : s;
 }
 
-/* Toggle one reactor's reaction on a post. Discord's click semantics: if the
-   reactor already has this emoji on this post it is REMOVED, otherwise ADDED.
-   The post must exist in the named project (a reaction to nothing is refused,
-   never silently stored). `operator:true` reacts as "you"; an agent reacts as
-   its own name and must be on the project (`members` is the project's member
-   sessionNames, the caller's derivation, same as sendPost -- the operator is
-   exempt, being in every room they own). Returns {ok, op, emoji, of} or
-   {ok:false, because}. */
 /* kosmos#5752 slice 3: an agent refused something in a project, logged as a `refused` row of that project's room,
    once per sender, project, reason and `doing` in the window (the room shows it: #315), and an `addable` one once per
    sender and project. `doing` is in the key so a refused rule change does not hide a refused run sharing its sentence. `project` rides the row so the room
@@ -2824,6 +2816,14 @@ function logRoomRefusal({ from, project, because, at, doing, addable }) {
    in one step instead of passing its work to a member. The person adds members on the project's page, with the + beside
    Members (its accessible name is "Add member"; the tab view shows only the +, round 1). Shared with server.js. */
 const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside Members on the project's page, then run the same command again";
+/* Toggle one reactor's reaction on a post. Discord's click semantics: if the
+   reactor already has this emoji on this post it is REMOVED, otherwise ADDED.
+   The post must exist in the named project (a reaction to nothing is refused,
+   never silently stored). `operator:true` reacts as "you"; an agent reacts as
+   its own name and must be on the project (`members` is the project's member
+   sessionNames, the caller's derivation, same as sendPost -- the operator is
+   exempt, being in every room they own). Returns {ok, op, emoji, of} or
+   {ok:false, because}. */
 function react({ project, of, emoji, from, operator, members }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too

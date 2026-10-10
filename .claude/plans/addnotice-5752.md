@@ -5,37 +5,35 @@ Card: joshualeestone/kosmos#5752 (decision comment, night shift 2026-10-10). Sta
 ## Why
 Slice 2 tells the AGENT how to ask to be added. The person still could not see the refusal unless the agent said so.
 
-## Change
-- engine/messages.js: `logRoomRefusal({ from, project, because, doing, addable })`, the room's refused row (#315),
-  once per sender, project and reason in the window. The room post's refusal now goes through it; a stranger's post
-  refusal is `addable` (a removed agent's is not: adding it again would not help).
-- server.js: every refused task WRITE for not being on the project logs that row with what the agent tried
-  (`doing`: add a task, close/reopen a task, change a task, move a task, record a run of a task, set how often a task
-  repeats, mark a task built, write in a task, set its role here) and `addable`. Reads are not logged (noise). The row
-  holds the bare sentence, never the agent-directed fix. The room route passes `doing` and `addable`; the agents' text
-  view of the room says "<agent> tried to <doing> here".
-- web/index.html: a refused row says what was tried ("tried to post here" when nothing is said, as before) and, when
-  `addable` and the agent is still not a member, shows "Add <name> to this project". It calls the Members add
-  (`addMemberToProject`) and repaints, which drops the button; a refusal says why on the row. Addable rows are not
-  folded, so each keeps its own button.
+## Change (the rules as they stand; the round sections below record how they got here)
+- engine/messages.js: `logRoomRefusal({ from, project, because, doing, addable })` writes the room's refused row (#315).
+  An `addable` row is ONE per agent and project in the window, whatever was tried; any other row is one per reason and
+  `doing`. No sender, no row. The room post's refusal goes through it: a stranger's post refusal is `addable` only when
+  the live post route named the sender by its agent token (`senderByToken`); a removed agent's, a pane claim's and an
+  outbox replay's never are.
+- engine/messages.js: the room's hold refusal dedups only against earlier HOLD refusals (`ROOM_HELD_REFUSAL`).
+- server.js: every refused task WRITE for not being on the project logs that row, with what the agent tried (`doing`:
+  add a task, close/reopen a task, change a task, move a task, record a run of a task, set how often a task repeats,
+  mark a task built, write in a task, set its role) and `addable` only when processCaller says `byToken`. Reads are not
+  logged. The row holds the bare sentence, never the agent-directed fix. The room route passes `doing` and `addable`;
+  the agents' text view says "<agent> tried to <doing> here".
+- web/index.html: a refused row says what was tried ("tried to post here" when nothing is said). An addable row whose
+  agent is a live board agent and not yet a member shows "Add <name> to this project": pjRefusedAddClick pins the
+  project, calls the Members add, then (if still on that project) repaints the room, announces the add and focuses the
+  composer. Rows with `addable` or `doing` are never folded; the fold's inner loop starts past the row it admitted, so
+  it always moves on. Room search matches `doing` too.
 
-## Tests
-- server.task-repeat-4787.test.js: five refused writes give five rows (one for a repeated refusal) with `doing`,
-  `addable` and the bare sentence, through GET /room; the text view's words; a member's run leaves none.
-- web.post-receipt.test.js (the real pjRoomRow and pjFoldRoomRows): the words and the button; no button for a member
-  or a non-addable row; addable rows are not folded, plain ones still are; the click wiring.
-- server.agent-projects-4491.test.js / engine/messages.test.js: a stranger's post row is addable, a removed agent's
-  is not.
-- 14 mutants: 13 caught by a red test; removing the fold's outer addable check makes the fold loop forever (caught as
-  a hang, the run killed; a node test timeout cannot interrupt a synchronous loop).
-
-## Weakest premise
-That a person seeing "Add zed to this project" in the room wants that agent there. The row says what it tried and
-why it was stopped; the person decides. The add is the same call as the Members "+", with its existing valve.
-
-## Not covered
-- Design review and screenshots (the design-shots skill) are owed before merge: a new button on a room band.
-- A gated browser check for the button is not written; the page functions are tested.
+## Tests (current)
+- server.task-repeat-4787.test.js: one addable row for an agent refused several writes; a fresh agent per verb, each
+  with its own row and `doing`; a pane-claimed refusal kept without the add; the role row's rendered sentence; a
+  member's run leaves no row.
+- server.agent-projects-4491.test.js: a stranger's token post is addable; the live route marks a pane-only post not
+  token-named and a token post token-named.
+- engine/messages.test.js: a hold refusal still logs after an unrelated refused row; the dedup rules; no sender no row;
+  a pane-claimed and an outbox-style post are not addable, a token-named one is.
+- web.post-receipt.test.js (the real pjRoomRow, pjFoldRoomRows, pjRefusedAddClick): words and button; no button for a
+  member, a non-addable row or a deleted agent; every fold check (outer and inner, addable and doing) has a mixed
+  fixture; the click: add, repaint with cache cleared, announce, focus; a refused add; a project switch mid-add.
 
 ## Fixed before review
 - The first commit's test passed alone and failed in its file: earlier tests' refusals by the same agent were in the
@@ -71,3 +69,11 @@ why it was stopped; the person decides. The add is the same call as the Members 
   removed-agent add to withhold there; a refused reaction is not logged as a room row.
 - Mutants: 9 caught; a fold that loops on a `doing` row is caught as a hang (no node test timeout can stop a
   synchronous loop).
+
+## Review round 3 fixes
+- Two fold mutants survived (the inner loop's checks); mixed fixtures now catch all four checks.
+- The fold's inner loop starts past the row the outer check admitted, so a broken check can no longer spin the page;
+  the two mutants that hung are clean reds now.
+- The plan's Change and Tests sections were rewritten to the current rules.
+- logRoomRefusal, ROOM_HELD_REFUSAL and NOT_ON_PROJECT_FIX moved above react()'s doc comment.
+- Left as is (NIT): a pane-claimed refusal and a later token-named one by the same agent and attempt leave two rows.

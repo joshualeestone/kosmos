@@ -486,6 +486,18 @@ test('#5752 slice 3: an addable refusal keeps its own row (its own button); othe
   // say "tried to post here" for both.
   const tried = [{ kind: 'refused', from: 'zed', because, doing: 'add a task', at }, { kind: 'refused', from: 'ann', because, doing: 'add a task', at }];
   assert.deepEqual(api.pjFoldRoomRows(tried).map((m) => m.kind), ['refused', 'refused']);
+  // Review 3: mixed runs, so each of the four checks (outer and inner, addable and doing) can fail on its own.
+  const show = (rows) => api.pjFoldRoomRows(rows).map((m) => m.kind + ':' + [].concat(m.from).join('+'));
+  const plainA = { kind: 'refused', from: 'ann', because, at };
+  const plainB = { kind: 'refused', from: 'bob', because, at };
+  assert.deepEqual(show([plainA, { kind: 'refused', from: 'zed', because, addable: true, at }]), ['refused:ann', 'refused:zed'],
+    'a plain row then an addable one: the addable keeps its own row and button');
+  assert.deepEqual(show([plainA, { kind: 'refused', from: 'zed', because, doing: 'add a task', at }]), ['refused:ann', 'refused:zed'],
+    'a plain row then one saying what was tried');
+  assert.deepEqual(show([{ kind: 'refused', from: 'zed', because, addable: true, at }, plainA, plainB]), ['refused:zed', 'refused-group:ann+bob'],
+    'an addable row then two plain ones: only the plain ones fold');
+  assert.deepEqual(show([{ kind: 'refused', from: 'zed', because, doing: 'add a task', at }, plainA, plainB]), ['refused:zed', 'refused-group:ann+bob'],
+    'a doing row then two plain ones');
 });
 
 test('#5752 slice 3: pressing Add adds that agent, repaints the room from what it last read, says so, and focuses the composer', async () => {
