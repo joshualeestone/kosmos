@@ -354,8 +354,12 @@ test('a good send PASTES the text then presses Enter, both pinned to the exact p
     assert.deepEqual(sends[0], ['send-keys', '-t', target, 'Enter']);
     // The set-buffer buffer name and the paste-buffer name match (same chunk).
     assert.equal(setBuffers[0][2], pastes[0][2]);
-    // And the pane was asked about itself FIRST, read-only, before any keystroke.
-    assert.equal(tmux.calls[0][0], 'display-message');
+    // And the pane was asked about itself FIRST, read-only, before any keystroke. #5743: a needs_you Claude card's
+    // screen is also read first (is its question menu up?), which is read-only too.
+    const firstKey = tmux.calls.findIndex((c) => c[0] === 'set-buffer' || c[0] === 'paste-buffer' || c[0] === 'send-keys');
+    const before = tmux.calls.slice(0, firstKey).map((c) => c[0]);
+    // Exactly: the floor's screen read (a needs_you card), then the pane check, then the first keystroke.
+    assert.deepEqual(before, ['capture-pane', 'display-message'], 'the reads before the first keystroke changed: ' + before.join(','));
   });
 });
 
@@ -2336,8 +2340,8 @@ test('an unconfirmed send does not also assert WHERE the message is sitting', ()
   assert.equal(chat.waitingNote('rate_limited', chat.DELIVERY.UNCONFIRMED), 'it was paused on a usage limit');
   // What it was DOING is still true and still useful, so that half stays.
   withFleet([fleet.agent('casey', { state: 'working' })], (board) => {
-    // set-buffer OK, paste-buffer OK, then the submit Enter is refused (#3419).
-    arm([ok(), ok(), refused('no current session')]);
+    // the #5743/#5754 screen read (a working card), set-buffer OK, paste-buffer OK, then the submit Enter is refused (#3419).
+    arm([ok(), ok(), ok(), refused('no current session')]);
     const verdict = chat.deliver('casey', 'hello', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED);
     assert.equal(verdict.paneNote, 'it was mid-task');

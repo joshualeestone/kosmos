@@ -1386,6 +1386,51 @@ function codexScreenRefusal(card, sessionName, roster) {
   return status.codexHookTrustedTable(view.text) ? status.CODEX_HOOK_LIST_SENTENCE : null;
 }
 
+/* #5743: a Claude agent showing its question menu (any form, status.claudeQuestionMenuUp) is not typed at: the menu
+   ignores a paste and the Enter after it takes the HIGHLIGHTED answer (measured on 2.1.29x, #5406), so the agent gets a
+   default nobody chose and nothing says so. Read fresh, when the snapshot says needs_you or working (see
+   claudeMenuRefusal); an idle card pays no capture. Decided: a read that fails is not a refusal, except for a card
+   whose own report says it is asking permission (see claudeMenuRefusal).
+   needs_you also covers permission prompts and every other question, and the direct-message route reaches here right
+   after closing the menu, so failing closed would refuse ordinary replies whenever one capture fails; the trust-dialog
+   floor above still covers the dialog that ends a session. */
+const CLAUDE_MENU_SENTENCE = 'it is showing a question on its screen, and a message typed now would pick an answer nobody chose, '
+  + 'so we did not type anything; answer the question in its window first';
+/* Said only when the screen is the form the direct-message route answers by number (status.claudeQuestionMenu). */
+const CLAUDE_MENU_DM_CLAUSE = ', or by its number in its direct messages';
+/* #5743 review 10: the safeguards model-switch menu (#5051). Kosmos never presses it, and a typed line's Enter would. */
+const CLAUDE_SAFEGUARDS_SENTENCE = 'it is asking on its screen whether to switch models, and a message typed now would '
+  + 'pick the highlighted option, so we did not type anything; answer it in its window first';
+/* A highlighted numbered option over an "Esc to cancel" footer, in no wording we know: a permission request worded
+   otherwise, or a picker someone opened. Its Enter would take the highlighted option either way. */
+const CLAUDE_WAITING_SENTENCE = 'it is waiting for an answer on its screen, and a message typed now would pick the '
+  + 'highlighted option, so we did not type anything; answer it in its window first';
+/* #5754: Claude's permission prompt. Measured on 2.1.296: the paste is ignored and the Enter approves the highlighted
+   option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
+const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
+  + '(usually Yes), so we did not type anything; answer it in its window first';
+function claudeMenuRefusal(card, sessionName, roster) {
+  if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
+  /* needs_you, and working too (review 11): an agent usually reaches a permission prompt mid-turn, while its card still
+     reads working. An idle agent cannot be showing one, so it pays no read. */
+  if (card.state !== status.STATE.NEEDS_YOU && card.state !== status.STATE.WORKING) return null;
+  const view = viewport(sessionName, roster);
+  if (!(view && typeof view.text === 'string')) {
+    /* A read that fails is not a refusal (decided), EXCEPT when the card itself says it is asking permission (its
+       PermissionRequest self-report): typing there is the measured #5754 harm, and the report is the evidence. */
+    const said = String(card.because || '') + ' ' + String(card.stateEvidence || '');
+    return card.state === status.STATE.NEEDS_YOU && /\basking permission to use\b/i.test(said) ? CLAUDE_PERMISSION_SENTENCE : null;
+  }
+  if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
+  if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
+    /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
+    return CLAUDE_MENU_SENTENCE + (card.state === status.STATE.NEEDS_YOU && status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
+  }
+  const kind = status.claudePermissionPromptKind(view.text);   // #5754
+  if (kind === 'wording') return CLAUDE_PERMISSION_SENTENCE;
+  return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers
+}
+
 /**
  * Put one message into one agent's session.
  *
@@ -1451,6 +1496,15 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   {
     const codex = codexScreenRefusal(allowed.card, sessionName, roster);
     if (codex) return { state: DELIVERY.COULD_NOT, because: codex, at, paneState: null, paneNote: null };
+  }
+  /* #5743/#5754: the floor under every sender (question menu, permission prompt, safeguards menu), read fresh here, right before typing. The direct-message route closes or
+     answers the single-select form first (#5406); the forms it does not handle (multi-select, multi-question) reach
+     here with the menu up and are refused. Automatic senders are held before this (menuHeldVerdict); this second read
+     is deliberate, a last look right before the keystrokes. */
+  {
+    let menu = null;
+    try { menu = claudeMenuRefusal(allowed.card, sessionName, roster); } catch { menu = null; }   // deliver never throws
+    if (menu) return { state: DELIVERY.COULD_NOT, because: menu, at, paneState: null, paneNote: null };
   }
 
   /**
@@ -1817,7 +1871,30 @@ function quotaHeldVerdict(sessionName, roster, opts = {}) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
+/* #5743/#5754: a timer's line for a Claude agent waiting on its screen (its question menu, a permission prompt, or the
+   safeguards menu; heldBy 'menu' covers all three) is HELD, never typed and never closing the menu (that
+   would dismiss a question the person may not have seen). The #4588 hold shape, so every automatic sender already
+   keeps it: a room keeps the post for the member's next idle flush once the question is answered and the turn ends,
+   or else for its next typed arrival. */
+function menuHeldVerdict(sessionName, roster) {
+  const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
+  if (!card || card.isNamedOurs !== true || addressable(sessionName, roster).ok !== true) return null;
+  const menu = claudeMenuRefusal(card, sessionName, roster);
+  if (!menu) return null;
+  return {
+    state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu', because: 'held: ' + menu,
+    at: new Date().toISOString(), paneState: null, paneNote: null,
+  };
+}
+/* #5743/#5754: true while this agent's screen waits for an answer (question menu, permission prompt, safeguards menu), for a sweep that decides BEFORE it types
+   anything (the recommender holds a whole convening on it, as it does on the quota). */
+function menuHeld(sessionName, roster) {
+  try { return menuHeldVerdict(sessionName, roster) !== null; } catch { return false; }
+}
 function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}) {
+  let menuHold = null;
+  try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
+  if (menuHold) return menuHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
   // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
@@ -1831,6 +1908,9 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
 /* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
    delivered by sendPostAsync, the #4624 idle flush). */
 async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer, opts = {}) {
+  let menuHold = null;
+  try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
+  if (menuHold) return menuHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
   // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
@@ -3600,7 +3680,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

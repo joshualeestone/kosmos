@@ -2329,12 +2329,13 @@ test('a button answer that never reached the pane is still recorded, wire and al
    * rewrites its own history. The screen decides what to SAY about it; the
    * store decides what is KEPT, and they are not the same decision.
    */
-  /* TWO runner entries, because a `chose` send captures the pane FIRST to check
-     the words against the visible menu and only then types. One entry was
-     eaten by the capture and the send got a default success -- which the
-     control below caught, on its first run. */
+  /* THREE runner entries, because a `chose` send captures the pane FIRST to check
+     the words against the visible menu, and (#5743) the delivery floor reads a
+     needs_you card's screen again before typing. One entry was eaten by the
+     capture and the send got a default success -- which the control below
+     caught, on its first run, and again when the floor's read was added. */
   await withAgent(fleet.agent('zeta', { state: 'needs_you' }),
-    [said(), { ran: true, spawnFailed: false, status: 1, out: '', err: 'no such pane' }],
+    [said(), said(), { ran: true, spawnFailed: false, status: 1, out: '', err: 'no such pane' }],
     async () => {
       const res = json(await post('/api/agent/zeta/thread', { text: '1', chose: '14 days' }));
       /* ⚠️ THE EXACT STATE, not "not placed". `unconfirmed` is also not placed and
