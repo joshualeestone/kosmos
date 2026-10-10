@@ -1046,6 +1046,29 @@ const SCREENS = [
       if (!t.includes(want)) throw new Error('the undo switch row does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
     }
   } },
+  /* kosmos#5752 slice 3 (PigeonPete): an agent not on the project was refused a task write, and the room offers the
+     person "Add <name> to this project". The refused row is the one the board writes (engine/messages.js
+     logRoomRefusal), appended once to this throwaway board's log; the agent is the second project's, a live board agent
+     that is not on this one. Kept last in the list so no other screen's room shows the row. */
+  { name: 'project-room-refused-5752', owner: 'PigeonPete', go: async (page, data) => {
+    if (!data.refusedSeeded) {
+      const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
+      fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), JSON.stringify({ kind: 'refused', from: data.outsider, to: data.projectId,
+        project: data.projectId, because: 'that agent is not on this project, so it cannot change its tasks', doing: 'record a run of a task',
+        addable: true, at: new Date().toISOString() }) + '\n');
+      data.refusedSeeded = true;
+    }
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-room [data-add-member]', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => { const b = document.querySelector('#pj-room [data-add-member]'); if (b) b.closest('.msg-valve').scrollIntoView({ block: 'center' }); });
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => { const b = document.querySelector('#pj-room [data-add-member]'); return b ? b.closest('.msg-valve').innerText : ''; });
+    for (const want of ['tried to record a run of a task here and Kosmos stopped it', 'to this project']) {
+      if (!t.includes(want)) throw new Error('the refused row does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
+    }
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
@@ -1406,7 +1429,7 @@ async function seed(base, roots) {
     const r = require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, { state: 'needs_you', because: DATA.ask, project: pid });
     if (r && r.recorded === false) throw new Error('the seed could not write the ask agent\'s needs-you state: ' + r.because);
   }
-  return { projectId: pid, chatAgent: DATA.chatAgent, askAgent: DATA.askAgent };
+  return { projectId: pid, chatAgent: DATA.chatAgent, askAgent: DATA.askAgent, outsider: DATA.secondProject.agents[0] };   // outsider: kosmos#5752
 }
 
 /* Before ANY screenshot: a sealed board must have no accounts at all. The page
