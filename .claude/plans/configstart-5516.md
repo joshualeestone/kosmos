@@ -25,6 +25,8 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 - A plugin folder Claude Code is pointed at by its plugin cache or seed environment variables, outside every config home: not covered (same shape as the CLAUDE_CONFIG_DIR gap).
 - A project-scope language-server file: named in the binary, not confirmed to be read from the project folder; not denied.
 - Claude Code features that write to the newly denied members on the agent's behalf (a durable scheduled task, creating an agent or a skill through Claude Code) may be refused for a token-only agent. Not measured; a token-only agent is Kosmos's restricted kind, and those features are not part of its work.
+- Another agent's auto-memory on the same account: Claude Code reads a project's memory index in the config home as instructions at start, and the token-only agent's tools can write another agent's. Not denied, decided: a deny of all memory would also stop the agent's own (its tools write it), and naming every other project's folder would spend the profile's size budget on a list that grows with every project. A follow-up, with the shape of a scoped rule to measure first.
+- Off macOS no sandbox is written, so everything here is the file-tool layer only, and the shell can write these files.
 - A link the agent itself makes later (a new link in a config home or above its folder): its target is not followed until the next guard refresh.
 - A config home Claude Code is pointed at outside ~/.claude and ~/.claude-* (CLAUDE_CONFIG_DIR elsewhere): not enumerated, so not covered. Kosmos's own accounts live in ~/.claude-<label>.
 - The resolved-path walk of the ancestors is not exercised by a test (the test folders' parents are not links).

@@ -742,10 +742,8 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
    inside scripts, what shell startup adds to PATH, a link held in an ancestor of the agent folder (such as /var in /),
    replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
-   files other than those part 2 denies (part 2, in tokenOnlySettingsRules: the global config by every name and its
-   legacy file, the project server file in the agent folder and above it, the config homes' code and instruction
-   members (and the same members of a .claude above the agent folder, and of the agent's own); NOT the scripts a hook, the status line or a server's command points
-   at, wherever they sit), the code in shell startup files, and what a file the start
+   files other than those part 2 denies (see tokenOnlySettingsRules for what part 2 covers; it does NOT cover the scripts a
+   hook, the status line or a server's command points at, wherever they sit), the code in shell startup files, and what a file the start
    reads can pull in or run in turn (tmux includes, run-shell and plugins; config other started programs read, such as
    git's). Program files are named to the file tools only (review 23: the sandbox profile has a size limit). Both layers match by
    PATH, so a hard link to a user-owned program made under another name is not covered either (as #4491 says of the
@@ -1210,24 +1208,6 @@ function writeLaunchRecord(file, rec) {
   } catch { return false; }
 }
 
-/*
- * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
- * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
- * own data folder is NOT denied -- only:
- *  - board.token (Read), and its temp copy, in EVERY root tokenOnlyTokenRoots returns, so the shell
- *    cannot read the board token slice 9 (#4864) already stops it SENDING; this stops it READING;
- *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
- *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
- *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
- *    the sandbox from where the agent-folder's cannot. Every ~/.claude-* account home that EXISTS is
- *    enumerated and gets CONCRETE settings-file denies in BOTH layers (so a non-default-account agent's
- *    real config home is covered by a measured file-write deny, not only the glob). A trailing
- *    ~/.claude-* glob stays in the permission layer for a home created later. What is NOT measured is
- *    whether Seatbelt translates a permission Edit-GLOB to a subprocess write (the guide's measurement
- *    only proved a Read-glob -> subprocess read); that is why existing homes are made concrete, and the
- *    glob-only future-home case is the reasoned residual the plan records.
- * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
- */
 /* #5516 part 2: the names Claude Code 2.1.296 gives its global config file, `.claude${suffix}.json` (the suffix comes
    from its OAuth environment; production's is empty). Read from the installed binary, so a new suffix in a later
    version is a gap until added here. */
@@ -1254,14 +1234,34 @@ function ancestorsOf(dir) {
 /* A path and, when it is a link (the leaf itself, review 3: a config home's code folder linked to another place), the
    place it resolves to, so both layers name the target too. */
 function withTarget(p, unsafe) {
+  // Resolved through the nearest existing parent when the member does not exist yet (review 6: a linked config home
+  // with an absent member), as the sandbox side's realOrLeaf does.
   let real = null;
-  try { real = fs.realpathSync.native(p); } catch { real = null; }
+  try { real = fs.realpathSync.native(p); } catch { real = realOrLeaf(p); }
   if (!real || real === path.resolve(p)) return [p];
   /* Review 5: a target whose path the rule syntax cannot carry is NAMED (the guard is then not whole, and says which),
      never left to the generic drop below, which would blame the agent's own folder. */
   if (unsafe && ruleHasPatternChar(`Edit(${ruleAbs(real)}/**)`)) { unsafe.push(`${p} (it links to ${real}, a path the permission rules cannot carry)`); return [p]; }
   return [p, real];
 }
+/*
+ * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
+ * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
+ * own data folder is NOT denied -- only:
+ *  - board.token (Read), and its temp copy, in EVERY root tokenOnlyTokenRoots returns, so the shell
+ *    cannot read the board token slice 9 (#4864) already stops it SENDING; this stops it READING;
+ *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
+ *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
+ *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
+ *    the sandbox from where the agent-folder's cannot. Every ~/.claude-* account home that EXISTS is
+ *    enumerated and gets CONCRETE settings-file denies in BOTH layers (so a non-default-account agent's
+ *    real config home is covered by a measured file-write deny, not only the glob). A trailing
+ *    ~/.claude-* glob stays in the permission layer for a home created later. What is NOT measured is
+ *    whether Seatbelt translates a permission Edit-GLOB to a subprocess write (the guide's measurement
+ *    only proved a Read-glob -> subprocess read); that is why existing homes are made concrete, and the
+ *    glob-only future-home case is the reasoned residual the plan records.
+ * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
+ */
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -1300,15 +1300,18 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   ])];
   /* Every folder ABOVE the agent folder, up to the root (reviews 1, 4 and 5): Claude Code reads there a server file, the
      instruction files, and a .claude holding the same code and instruction members a config home holds (its walk up
-     the folders loads skills, agents, workflows, rules and CLAUDE.md for every agent below). File tools only: the
-     shell cannot write above the agent folder (its writable set is the folder and temp), so a shell-layer copy adds
-     nothing; the file-tool rules still count toward the profile size (review 5: Claude Code builds the profile from
-     them too), which the many-homes test bounds. The agent's OWN CLAUDE.md is not here: it reaches only the agent, and
+     the folders loads skills, agents, workflows, rules and CLAUDE.md for every agent below). File tools only: ON MACOS
+     the shell cannot write above the agent folder (the sandbox's writable set is the folder and temp), so a shell-layer
+     copy adds nothing; off macOS no sandbox is written and these rules are the only layer (review 6). The file-tool
+     rules still count toward the profile size (review 5: Claude Code builds the profile from them too), which the
+     many-homes test bounds. The agent's OWN CLAUDE.md is not here: it reaches only the agent, and
      Kosmos writes it; its own .claude members are denied below like a config home's. Links followed to their
      targets. */
   const ancestorMcp = [];
   const ancestorDirs = [];
   for (const d of ancestorsOf(dir).filter((x) => x !== path.resolve(dir))) {
+    // Review 6: an ancestor whose path the rule syntax cannot carry is named, not left to the generic drop.
+    if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a folder above the agent whose path the permission rules cannot carry)`); continue; }
     for (const f of ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', ...CONFIG_HOME_CODE_FILES.map((x) => path.join('.claude', x))]) ancestorMcp.push(...withTarget(path.join(d, f), configUnsafe));
     for (const x of CONFIG_HOME_CODE_DIRS) ancestorDirs.push(...withTarget(path.join(d, '.claude', x), configUnsafe));
   }

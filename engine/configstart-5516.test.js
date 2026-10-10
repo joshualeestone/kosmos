@@ -162,3 +162,21 @@ test('#5516 part 2 (review 5): a link to a path the rule syntax cannot carry is 
   assert.equal(g.ok, false, 'an uncovered link target read as a whole guard');
   assert.match(String(g.because), /Drive \(Personal\)/, 'the reason does not name the link target: ' + g.because);
 });
+
+test('#5516 part 2 (review 6): a config home that is a link has its absent members named by their real path', () => {
+  const base = path.join(path.dirname(HOME), 'home-linked');
+  const real = path.join(path.dirname(HOME), 'real-account-home');
+  fs.mkdirSync(path.join(base, '.claude'), { recursive: true });
+  fs.mkdirSync(real, { recursive: true });
+  fs.symlinkSync(real, path.join(base, '.claude-linked'));
+  const dir = agentDir('pilot-cfg-linkedhome');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-linkedhome', { ...DEPS, home: base });
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const deny = readSettings(dir).permissions.deny;
+  const rreal = fs.realpathSync.native(real);
+  for (const f of ['daemon.json', 'scheduled_tasks.json', '.config.json']) {
+    assert.ok(!fs.existsSync(path.join(real, f)), 'CONTROL: ' + f + ' does not exist yet');
+    assert.ok(deny.includes(`Edit(${ruleAbs(path.join(base, '.claude-linked', f))})`), 'CONTROL: the link-side name of ' + f);
+    assert.ok(deny.includes(`Edit(${ruleAbs(path.join(rreal, f))})`), 'the real path of an absent ' + f + ' is open to the file tools');
+  }
+});
