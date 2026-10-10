@@ -1167,7 +1167,7 @@ function questionMenuKeysAllowed(sessionName, roster) {
   return allowed;
 }
 const QMENU_BUSY = new Set();   // pane targets with a key answer or a close in progress
-const QMENU_BUSY_SENTENCE = 'its question is being handled right now; look at this page again in a moment';
+const QMENU_BUSY_SENTENCE = 'its question is being handled right now, so nothing was sent; look at this page again in a moment';
 /* Run `fn` holding the pane's key-answer slot (the check above refused if it was taken). */
 async function withQmenuSlot(allowed, fn) {
   const t = paneTarget(allowed.card);
