@@ -21,6 +21,7 @@ const path = require('node:path');
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
   _readState: 'engine/agentevents.js (#5683 slice 1, review 37): the state reader, so engine/agentevents-5683.test.js can check that a bad queue entry or send size is dropped on read without a tick in between (a tick drained the queue and hid the check).',
+  _enrollmentKey: 'engine/agentevents.js (#5683 slice 3, rebase onto slice 1): the key a state is kept under, so engine/manipcheck-5683.test.js can write a queued state under exactly the key the tick computes rather than a second copy of its format (a copy in the old \'|\' form reset every state and emptied the queue).',
   _defaultSources: 'engine/agentevents.js (#5683 slice 1, review 17): the board\'s real sources, so engine/agentevents-5683.test.js can check its guard-in-force test against a folder guardTokenOnlyFolder actually wrote (a stub would agree with itself).',
   _callFiles: 'engine/agentevents.js (#5683 slice 1, challenge loop after the rebase): which transcripts hold unanswered calls in memory, so engine/agentevents-5683.test.js can check a file with none is dropped.',
   _chainWaitMs: 'engine/communitysend.js (#5623 Rule 2): a read-only view of agentCall\'s chain wait (chainWaitMs stays private), so engine/replynudge.assign-5623.test.js pins that every bad waitMs falls back to AGENT_WAIT_MS and that a caller omitting it keeps the old wait; agentCall itself is the production caller.',
