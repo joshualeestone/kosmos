@@ -26,8 +26,10 @@ async function main(mode) {
 
 if (require.main === module) {
   main(process.argv[2]).then(
-    (out) => { process.stdout.write(JSON.stringify(out) + '\n'); },
-    () => { process.stdout.write(JSON.stringify({ ok: false, because: 'the read failed' }) + '\n'); },
+    // Exit once the line is flushed (board review 1): a handle a reader left open must not turn every read into the
+    // caller's timeout, which reads as no report.
+    (out) => { process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0)); },
+    () => { process.stdout.write(JSON.stringify({ ok: false, because: 'the read failed' }) + '\n', () => process.exit(0)); },
   );
 }
 

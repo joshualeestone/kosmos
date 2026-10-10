@@ -10,7 +10,11 @@ shipped before that ruling, so only the enrolled Kosmos reports.
 ## The change
 - `engine/orgrollup.js` `tick`: after a SUCCESSFUL send of the enrolled Kosmos, `sendOthers` sends one rollup for each
   other Kosmos on the computer, same reason (daily or change), same accepted words and computer print, each under its
-  own opaque id. A change send skips a Kosmos whose signature did not move (kept per id in the state, `others`).
+  own opaque id, and ONLY when those words name every Kosmos on this computer (`orgenroll` `NAMES_EVERY_KOSMOS`,
+  `/\bevery kosmos on this computer\b/i`, the phrase the coordinator's CONSENT_NAMES_EVERY_KOSMOS is pinned to,
+  kosmos-relay#354): otherwise no other Kosmos is read or sent. Before each send the enrollment and its consent hash
+  are read again, so a Leave or new words during a read stop every later send. A partial read of another Kosmos is
+  never sent. A change send skips a Kosmos whose signature did not move (kept per id in the state, `others`).
   Usage is withheld unless the words name it, as for the enrolled one; the policy version is left out (the company's
   policy is the computer's, reported by the enrolled Kosmos). A refusal past the coordinator's cap
   (`org_rollup_too_many_worlds`) stops the rest. Nothing of another Kosmos goes when the enrolled send fails, or after
@@ -47,3 +51,6 @@ no usage leaves the board (no usageByDay source is wired, and the coordinator re
 counted. When the usage reader is wired, it must be scoped to the Kosmos's own roster (engine/usage.js
 worldUsageByModel already is); a reader that scanned a shared config folder without that scope would count one
 agent's tokens once per Kosmos.
+
+## Challenge loop notes
+- Iteration 1 (Opus): [BLOCKER] the review 24 guard test looked for the literal `require('./engine/orgrollup').tick()`, which the widening removed, so it read as ungated and reddened the suite: it now finds both send sites (this board's tick and the child tick) and asserts the live-execution gate precedes each. [WARNING] no re-check between another Kosmos's read and its send: added, as the enrolled tick does. [WARNING] a partial read of another Kosmos was sent as its daily: never sent now (the next full read carries it). [WARNING] the child tick's 30-minute bound was below the worst case: TICK_CHILD_TIMEOUT_MS from OTHERS_MAX and GATHER_TIMEOUT_MS. [WARNING] the child relied on exiting by itself: it exits once its line is flushed. [WARNING] the server searched for the enrolled Kosmos in the capped list: `otherWorlds(root, { all: true })`. NITs: the tick JSDoc back above `tick`; one id read twice goes once; a failed read drops its signature (safe direction, commented). Tests for the re-check, the partial skip and the duplicate id; each mutated red. Decided: no test of the child's real gather (it reads live panes; a test would read this computer's real data), as stated in Gaps.

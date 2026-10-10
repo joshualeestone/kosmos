@@ -389,11 +389,6 @@ function notePrintWait(root, st, enrolledAs, rec, why, now) {
   writeState(root, w);
 }
 
-/**
- * One tick: send if this world is the enrolled one AND (a day has passed OR the agents or projects changed and the
- * last send is CHANGE_MIN_MS old), unless a failure was within RETRY_AFTER_FAIL_MS. Never throws.
- * opts: { root, remote, sources, now } (tests); the board passes nothing.
- */
 /* ------------------------------------------------------------------------------------------------------------------
    kosmos#5532 widening (Josh, #admin 2026-10-09 08:43: everything on a work computer is company property). The
    enrolled Kosmos reports, and with each of its sends so does every other Kosmos on this computer, each under its own
@@ -403,10 +398,16 @@ function notePrintWait(root, st, enrolledAs, rec, why, now) {
    member (ORG_ROLLUP_WORLDS_MAX), so at most 15 others. */
 const OTHERS_MAX = 15;
 const GATHER_TIMEOUT_MS = 2 * 60 * 1000;
+/* The board's bound on a whole tick run in a child (server.js, a board serving another Kosmos): the enrolled Kosmos's
+   own read and send, every other Kosmos's read, and the sends, with room to spare (board review 1: 30 minutes was
+   less than the worst case). */
+const TICK_CHILD_TIMEOUT_MS = (OTHERS_MAX + 2) * GATHER_TIMEOUT_MS + 10 * 60 * 1000;
 
 /* Every other Kosmos on this computer (hidden ones too: hiding stops agents, the Kosmos is still there), each with
-   the environment its own board would run in. [] when the registry cannot be read. */
-function otherWorlds(root) {
+   the environment its own board would run in. [] when the registry cannot be read. At most OTHERS_MAX, the ones that
+   may send; `all` lifts that for a search (board review 1: the server's search for the enrolled Kosmos must see every
+   Kosmos, not the first fifteen). */
+function otherWorlds(root, opts) {
   const worlds = require('./worlds');
   let base;
   try { base = require('./worldenv').bootedBaseDir() || worlds.baseRoot(worlds.preWorldEnv(process.env)); } catch { return []; }
@@ -429,7 +430,7 @@ function otherWorlds(root) {
       try { worlds.applyAgentWorldEnv(env); } catch { continue; }
     }
     out.push({ id: w.id, root: wroot, env });
-    if (out.length >= OTHERS_MAX) break;
+    if (!(opts && opts.all) && out.length >= OTHERS_MAX) break;
   }
   return out;
 }
@@ -457,20 +458,31 @@ async function sendOthers(c) {
   // Only under words that name every Kosmos on this computer (the coordinator refuses the rest): none read, none sent.
   if (!c.accepted || c.accepted.everyKosmosConsented !== true) return next;
   let list = [];
+  const seen = new Set();
   try { list = (c.o.otherWorlds || otherWorlds)(c.root) || []; } catch { return prev; }
   for (const w of list) {
     if (!c.oe.mayReport(c.eo)) break;   // left meanwhile: nothing more goes
     let got = null;
     try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
-    if (!got || !/^[0-9a-f]{32}$/.test(got.world) || got.world === c.rec.world) continue;
+    // A read that failed drops its signature, so the next change send sends it again (the safe direction). Two
+    // entries that resolve to one id are one Kosmos: it goes once (board review 1).
+    if (!got || !/^[0-9a-f]{32}$/.test(got.world) || got.world === c.rec.world || seen.has(got.world)) continue;
+    seen.add(got.world);
     if (Object.prototype.hasOwnProperty.call(prev, got.world)) next[got.world] = prev[got.world];
     const g = got.gathered;
     if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
     delete g.policyVersion; delete g.policyRefused;   // the company's policy is the computer's, reported by the enrolled Kosmos
     const sig = signature(build(Object.assign({ world: got.world, nowMs: c.now, reason: 'change' }, g)));
-    if (c.reason === 'change' && (g.partial || prev[got.world] === sig)) continue;
+    /* A partial read is never sent (board review 1): the company takes a Kosmos's statuses from its first daily of the
+       day, and the enrolled Kosmos holds a partial daily for that reason. Another Kosmos's partial read goes nowhere,
+       and the next send that reads it in full carries it. */
+    if (g.partial || (c.reason === 'change' && prev[got.world] === sig)) continue;
     const body = build(Object.assign({ world: got.world, at: new Date(c.now).toISOString(), reason: c.reason, nowMs: c.now }, g));
     Object.assign(body, c.pf.fields);
+    /* Re-checked just before this send (board review 1), as the enrolled tick re-checks after its read: a read can take
+       minutes, and a Leave, or new words (which may no longer name every Kosmos), in that time stops every later send. */
+    const now2 = c.oe.mayReport(c.eo) ? c.oe.readEnrollment(c.eo) : null;
+    if (!now2 || now2.world !== c.rec.world || now2.consentHash !== c.rec.consentHash) break;
     let r;
     try { r = await c.remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
     if (r && r.ok) { if (!g.partial) next[got.world] = sig; continue; }
@@ -481,6 +493,11 @@ async function sendOthers(c) {
   return next;
 }
 
+/**
+ * One tick: send if this world is the enrolled one AND (a day has passed OR the agents or projects changed and the
+ * last send is CHANGE_MIN_MS old), unless a failure was within RETRY_AFTER_FAIL_MS. Never throws.
+ * opts: { root, remote, sources, now } (tests); the board passes nothing.
+ */
 async function tick(opts) {
   const o = opts || {};
   const oe = require('./orgenroll');
@@ -643,4 +660,5 @@ module.exports = {
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
   STATUS, statusWord, providerOfModel, build, gather, defaultSources, otherWorlds, gatherIn, sendOthers, OTHERS_MAX,
+  TICK_CHILD_TIMEOUT_MS,
 };

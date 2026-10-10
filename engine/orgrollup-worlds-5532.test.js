@@ -118,6 +118,53 @@ test('#5532 widening: under words that do not name every Kosmos on this computer
   assert.equal(rollups(c2).length, 3);
 });
 
+test('#5532 widening (board review 1): new words accepted while another Kosmos is read stop every later send', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const o = others({ beta: inv('Ada'), gamma: inv('Bo') });
+  const gatherIn = o.gatherIn;
+  let reads = 0;
+  o.gatherIn = async (env) => {
+    reads += 1;
+    // During the first read the person accepts other words: the record now carries another hash.
+    if (reads === 1) {
+      const f = path.join(root, oe.ENROLLMENT_FILE);
+      const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
+      rec.consentHash = 'ef'.repeat(32);
+      fs.writeFileSync(f, JSON.stringify(rec));
+    }
+    return gatherIn(env);
+  };
+  await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  assert.deepEqual(rollups(c).map((x) => x.world), [oe.readEnrollment({ root }).world], 'another Kosmos was sent under words that changed while it was read');
+  // CONTROL: the same tick with the words unchanged sends all three.
+  const root2 = world(t);
+  const c2 = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root: root2, remote: c2 });
+  accept(root2);
+  await r.tick(Object.assign({ root: root2, remote: c2, sources: sources(), now: T0 }, others({ beta: inv('Ada'), gamma: inv('Bo') })));
+  assert.equal(rollups(c2).length, 3);
+});
+
+test('#5532 widening (board review 1): another Kosmos read in part is not sent, and one id read twice goes once', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const part = Object.assign(inv('Ada'), { partial: true });
+  // gamma resolves to beta's id: two registry entries, one Kosmos.
+  const o = {
+    otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }, { id: 'gamma', env: { K: 'gamma' } }, { id: 'again', env: { K: 'again' } }],
+    gatherIn: async (env) => (env.K === 'beta' ? { world: BETA, gathered: JSON.parse(JSON.stringify(part)) }
+      : { world: GAMMA, gathered: JSON.parse(JSON.stringify(inv('Bo'))) }),
+  };
+  await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  assert.deepEqual(rollups(c).map((x) => x.world), [oe.readEnrollment({ root }).world, GAMMA],
+    'a partial read was sent as the day\'s, or one Kosmos went twice');
+});
+
 test('#5532 widening: a change send skips another Kosmos that did not change and sends one that did', async (t) => {
   const root = world(t);
   const c = coordinator();

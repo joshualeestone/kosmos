@@ -21154,11 +21154,11 @@ function orgRollupTick() {
     /* kosmos#5532 widening: this board serves another Kosmos, and the enrolled one (if any on this computer) still
        reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
        timing, print and key are its own. */
-    const enrolled = rollup.otherWorlds(require('./engine/store').ROOT).find((w) => { try { return oe.isEnrolledHere({ root: w.root }); } catch { return false; } });
+    const enrolled = rollup.otherWorlds(require('./engine/store').ROOT, { all: true }).find((w) => { try { return oe.isEnrolledHere({ root: w.root }); } catch { return false; } });
     if (!enrolled) return;   // no work Kosmos on this computer: nothing is read or sent
     ORG_ROLLUP_RUNNING = true;
     require('child_process').execFile(process.execPath, [path.join(__dirname, 'engine', 'orgrollup-child.js'), 'tick'],
-      { env: enrolled.env, timeout: 30 * 60 * 1000, maxBuffer: 1024 * 1024 }, () => { ORG_ROLLUP_RUNNING = false; });
+      { env: enrolled.env, timeout: rollup.TICK_CHILD_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, () => { ORG_ROLLUP_RUNNING = false; });
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own

@@ -418,7 +418,11 @@ test('#5532 rollup review 24: start() arms the rollup tick, and the joined view 
   // On a line of code, not in a comment (review 29: a commented-out gate must not pass).
   const gateLine = fn.split('\n').find((l) => /^\s*if \(!liveExecution\.liveExecutionAllowed\(\)\) return;/.test(l));
   const gate = gateLine ? fn.indexOf(gateLine) : -1;
-  assert.ok(gate > 0 && gate < fn.indexOf("require('./engine/orgrollup').tick()"), 'the rollup tick is not gated on live execution before it sends');
+  // Both send sites (kosmos#5532 widening): this board's own tick, and the enrolled Kosmos's tick in a child when this
+  // board serves another Kosmos. Each must exist and come after the gate.
+  const sites = [fn.indexOf('rollup.tick()'), fn.indexOf("'orgrollup-child.js'")];
+  assert.ok(sites.every((i) => i > 0), 'a send site moved: ' + JSON.stringify(sites));
+  assert.ok(gate > 0 && sites.every((i) => gate < i), 'the rollup tick is not gated on live execution before it sends');
   // The route: words remembered, but the rollup's own state says it waits for a print: not "reports".
   const rollup = require('./engine/orgrollup');
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
