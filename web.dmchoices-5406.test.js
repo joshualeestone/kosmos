@@ -354,4 +354,9 @@ test('#5406 C review 28: a question that changes gets a new button generation; t
   assert.equal(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'the same question changed generation');
   m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
   assert.notEqual(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'a new question kept the old generation');
+  // The same question line with OTHER choices is a new question too (agents repeat questions word for word).
+  m.from(BODY, CUR.sessionName);
+  const g2 = /data-gen="(\d+)"/.exec(m.html(Q))[1];
+  m.from({ ...BODY, options: [{ n: 1, label: 'Pear' }, { n: 2, label: 'Plum' }] }, CUR.sessionName);
+  assert.notEqual(/data-gen="(\d+)"/.exec(m.html(Q))[1], g2, 'other choices under the same question kept the generation');
 });

@@ -37399,6 +37399,8 @@ function dmChoiceBlocksSend(session) {
   return true;
 }
 let DM_CHOICE_GEN = 0;
+/* The options as one string, so a question repeated word for word with other choices is a NEW question (review 29). */
+const dmChoiceSig = (opts) => opts.map((o) => o.n + '\u0001' + o.label).join('\u0002');
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
@@ -37407,7 +37409,8 @@ function dmChoicesFrom(body, sessionName) {
   DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked && body.presence !== 'off')
     ? { session: sessionName, options: opts, asked: body.asked,
       /* a new number whenever the question (or agent) changes, so focus is never carried onto another question's button */
-      gen: prev && prev.session === sessionName && prev.asked === body.asked ? prev.gen : (DM_CHOICE_GEN += 1) }
+      gen: prev && prev.session === sessionName && prev.asked === body.asked && dmChoiceSig(prev.options) === dmChoiceSig(opts)
+        ? prev.gen : (DM_CHOICE_GEN += 1) }
     : null;
   if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
 }
