@@ -503,7 +503,7 @@ test('#5774 review 6: comments, here-documents, an unclosed quote, PATH=, unlist
   for (const c of ['setsid bash x.sh', 'flock /tmp/l bash x.sh', 'script -q -c "bash x.sh" /dev/null', 'some-runner x.sh']) assert.deepEqual(paths(c).runPaths, ['/A/x.sh'], c);
   assert.equal(paths('npm run lint').unsafe.length, 1, 'npm in the agent folder runs the agent\'s package.json');
   assert.equal(paths('python3 -m pytest').unsafe.length, 1);
-  assert.deepEqual(paths('cd /opt/p && npm test').unsafe, [], 'control: run in another folder, it is not the agent\'s code');
+  assert.match(String(paths('cd /opt/p && npm test').unsafe), /npm run in \/opt\/p/, 'review 15: another folder\'s package.json is code too, and named where it is');
   assert.deepEqual(paths('echo $PATH').paths, []);
 });
 
@@ -527,9 +527,9 @@ test('#5774 review 7: a runner\'s change-folder flag, a folder run as code, patt
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.ok(paths('uv --directory /ABS/weather run weather.py').runPaths.includes('/ABS/weather/weather.py'), 'the MCP quickstart shape');
-  assert.deepEqual(paths('make -C /opt/p').unsafe, [], 'make run in another folder is not the agent\'s code');
-  assert.deepEqual(paths('git -C /opt/r status').unsafe, []);
-  assert.deepEqual(paths('npm --prefix=/opt/x run b').unsafe, []);
+  assert.match(String(paths('make -C /opt/p').unsafe), /make run in \/opt\/p/, 'review 15: named in the folder the flag moved it to');
+  assert.match(String(paths('git -C /opt/r status').unsafe), /\/opt\/r/);
+  assert.match(String(paths('npm --prefix=/opt/x run b').unsafe), /\/opt\/x/);
   assert.equal(paths('make').unsafe.length, 1, 'control: make in the agent folder is named');
   assert.match(String(paths('make -C "$U"').unsafe), /cannot read/, 'a change-folder flag Kosmos cannot read');
   assert.equal(paths('cd "$U" && npm test').unsafe.length, 1, 'after a cd Kosmos cannot follow, the folder may be the agent\'s');
@@ -564,7 +564,8 @@ test('#5774 review 8: ~ in an assignment, package-script runners, jq filters, an
   assert.deepEqual(paths('PATH=/x:~:$PATH myhook').runPaths, ['/x/myhook', '/H/myhook'], 'a bare ~ between colons is the home');
   assert.deepEqual(paths('FOO=a~b x').runPaths, [], 'control: a ~ inside a value is literal');
   for (const c of ['bun run start', 'bun start', 'bun test', 'deno task start', 'uv run hook']) assert.match(String(paths(c).unsafe), /agent folder/, c);
-  for (const c of ['bun run x.ts', 'bun x.ts', 'deno run main.ts', 'uv run x.py', 'bun run --cwd /opt/p start']) assert.deepEqual(paths(c).unsafe, [], c);
+  for (const c of ['bun run x.ts', 'bun x.ts', 'deno run main.ts', 'uv run x.py']) assert.deepEqual(paths(c).unsafe, [], c);
+  assert.match(String(paths('bun run --cwd /opt/p start').unsafe), /\/opt\/p/, 'review 15: a package script in another folder is named there');
   assert.deepEqual(paths("jq -r '.tool_input.command'").paths, [], 'a jq filter is not a script');
   assert.match(String(paths('bash -c "bash -c \\"bash -c \\\\\\"bash -c /x.sh\\\\\\"\\""').unsafe), /nested too deep/);
 });
@@ -573,7 +574,7 @@ test('#5774 review 9: processWrapper and helper paths, $\'...\' quoting, perl -p
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(sc.commandsIn({ processWrapper: '/opt/launch', policyHelper: { path: '/opt/ph' } }), [{ line: '/opt/launch' }, { program: '/opt/ph', args: [], exec: true }]);
-  assert.deepEqual(paths("printf $'%s\\n' hi; ~/bin/hook"), { paths: ['/H/bin/hook'], runPaths: ['/H/bin/hook'], codePaths: [], unsafe: [] }, "$'...' is a quote, not an unclosed one");
+  assert.deepEqual(paths("printf $'%s\\n' hi; ~/bin/hook"), { paths: ['/H/bin/hook'], runPaths: ['/H/bin/hook'], codePaths: ['/H/bin/hook'], unsafe: [] }, "$'...' is a quote, not an unclosed one");
   assert.deepEqual(paths("IFS=$'\\n' x").unsafe, []);
   assert.deepEqual(paths('echo $"hi" /x.sh').runPaths, ['/x.sh']);
   assert.deepEqual(paths('perl -pe "s/a/b/" ~/x').runPaths, [], 'perl code is not read as shell, and is not a script path');
@@ -731,4 +732,34 @@ test('#5774 review 14: a plugin\'s monitors (default file and manifest path) and
     assert.ok(editDeniedBy(deny, outA).length > 0, 'the default monitors file is read');
     assert.ok(editDeniedBy(deny, outB).length > 0, 'a monitors file the manifest names is read');
   } finally { fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true }); }
+});
+
+test('#5774 review 15: a folder runner is named wherever it runs; a folder as the program; plugin server files; project entries', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  for (const c of ['cd ~/work/notes && git add -A', 'cd /opt/proj && make hook']) assert.equal(paths(c).unsafe.length, 1, c);
+  assert.deepEqual(paths('uvx --from=/x/dir mytool').codePaths, ['/x/dir'], 'a wrapper flag\'s path value is where the program comes from');
+  const dir = agentDir('pilot-r15');
+  const src = path.join(SANDBOX, 'uvx-src');
+  fs.mkdirSync(src, { recursive: true });
+  const plug = path.join(SANDBOX, 'my-plugins', 'p15');
+  touch(path.join(dir, 'lsp.js'));
+  writeJson(path.join(plug, '.lsp.json'), { ts: { command: 'node', args: ['lsp.js'] } });
+  writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'p15@local': [{ scope: 'user', installPath: plug }] } });
+  writeJson(path.join(HOME, '.claude.json'), { projects: { [dir]: { mcpServers: {}, lastRun: { command: '/should/not/be/read.sh' } } } });
+  try {
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-r15', DEPS);
+    assert.equal(g.ok, true, 'a plugin .lsp.json server starts in the project folder, and a project entry\'s runtime state is not a command: ' + JSON.stringify(g));
+    const deny = readSettings(dir).permissions.deny;
+    assert.ok(editDeniedBy(deny, path.join(dir, 'lsp.js')).length > 0);
+    assert.deepEqual(editDeniedBy(deny, '/should/not/be/read.sh'), []);
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `uvx --from ${src} mytool` }] }] } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r15', DEPS);
+    assert.equal(g.ok, false, 'a folder in the program position is named');
+    assert.match(String(g.because), /runs as code/);
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+  }
 });

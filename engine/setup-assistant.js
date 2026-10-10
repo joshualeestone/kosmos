@@ -1365,7 +1365,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   /* #5774 part 1: the scripts the commands in that config RUN, outside the sandbox (a hook's or the status line's script,
      an auth helper, a server's program file), wherever they sit, and each installed plugin's folder wherever it sits:
      the config is denied above, but a script it names elsewhere could still be rewritten. Both layers, links followed,
-     as configStartFiles. A script inside a folder already denied whole is left to that rule (profile size). A path the
+     as configStartFiles. A script inside a folder already denied whole is left to that rule (profile size); for a folder
+     above the agent that rule is the file tools' only (on macOS, by default, the shell cannot write there, as above). A path the
      rules cannot carry is named when it exists (the guard is then not whole); one that does not exist is skipped, since
      a word that merely looks like a path (a sed expression) is far likelier than a missing script with such a name.
      A command whose script path is built when it runs cannot be read and is named. See engine/startcommands.js. */

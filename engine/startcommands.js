@@ -331,8 +331,12 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
   let runnerPending = null;
   let cmdCwd = null;   // where this one command runs, when a change-folder flag moved it
   const flushRunner = () => {
+    /* Review 15: wherever it runs. In another folder it runs THAT folder's package.json, Makefile, .git hooks or test
+       config, which the agent's tools can rewrite there just as well, so it is named everywhere, not only in the agent
+       folder; Kosmos cannot list every file such a program may read. */
     const where = cmdCwd || lastCwd;
-    if (runnerPending && (where === UNKNOWN_CWD || inAgentFolder(where))) unsafe.push(`${runnerPending} run in ${where === UNKNOWN_CWD ? 'a folder Kosmos cannot read, which may be the' : 'the'} agent folder (it runs code that folder supplies: its package.json, node_modules, Makefile, build or test config); give the program by a full path to an installed copy, or run it from another folder`);
+    const place = where === UNKNOWN_CWD ? 'a folder Kosmos cannot read' : inAgentFolder(where) ? 'the agent folder' : where;
+    if (runnerPending) unsafe.push(`${runnerPending} run in ${place} (it runs code that folder supplies: its package.json, node_modules, Makefile, .git hooks, build or test config, which Kosmos cannot list); change the command to run a script by its full path`);
     runnerPending = null;
   };
   const folderRunner = (name) => { if (!runnerPending) runnerPending = name; };
@@ -385,7 +389,13 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       if (valueNext) { valueNext = false; continue; }
       if (!w.dynamic && wrapper === 'env' && /^(?:-S|--split-string)$/.test(w.text)) { splitNext = true; continue; }
       if (!w.dynamic && wrapper === 'env' && w.text.startsWith('--split-string=')) { pendingHead = false; more(w.text.slice(w.text.indexOf('=') + 1)); continue; }
-      if (!w.dynamic && w.text.startsWith('-')) { valueNext = !!(WRAPPER_VALUE_FLAGS[wrapper] && WRAPPER_VALUE_FLAGS[wrapper].test(w.text)); continue; }   // a wrapper's own flag
+      if (!w.dynamic && w.text.startsWith('-')) {   // a wrapper's own flag
+        // Review 15: a wrapper flag's =value that is a path (uvx --from=/src tool) is code the program comes from.
+        const eq = w.text.indexOf('=');
+        if (eq > 0 && /\//.test(w.text.slice(eq + 1))) { const p = path.resolve(cwds[0], w.text.slice(eq + 1)); paths.push(p); runPaths.push(p); codePaths.push(p); }
+        valueNext = !!(WRAPPER_VALUE_FLAGS[wrapper] && WRAPPER_VALUE_FLAGS[wrapper].test(w.text));
+        continue;
+      }
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.text)) { assignment(w, w.text); continue; }   // env X=/y, export PATH=...
       if (wrapper === 'flock' && !w.dynamic && durationNext) { durationNext = false; continue; }   // flock's lock file
       if (wrapper === 'script' && !w.dynamic && before === '-c') { pendingHead = false; more(w.text); continue; }
@@ -488,7 +498,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       if (!runs && inAgentFolder(p)) continue;   // an argument in the agent's own folder is its work, not code
       paths.push(p);
       if (runs) runPaths.push(p);
-      if (codeSlot) codePaths.push(p);
+      if (codeSlot || isHead) codePaths.push(p);   // review 15: a folder as the program means the parse went wrong: named
     }
   }
   flushRunner();
@@ -581,7 +591,9 @@ function configSources(dir, homes, home, deps = {}) {
     const own = { mcpServers: j.mcpServers };
     for (const [k, v] of Object.entries(j)) if (typeof v === 'string' && (HELPER_KEYS.has(k) || /Helper$/.test(k))) own[k] = v;
     const projects = j.projects;
-    const mine = projects && typeof projects === 'object' ? folders.map((d) => projects[d]).filter(Boolean) : [];
+    // Review 15: the project entries the same way, servers and helpers only (the most-churned part of the file).
+    const pick = (e) => { const o = { mcpServers: e.mcpServers }; for (const [k, v] of Object.entries(e)) if (typeof v === 'string' && (HELPER_KEYS.has(k) || /Helper$/.test(k))) o[k] = v; return o; };
+    const mine = projects && typeof projects === 'object' ? folders.map((d) => projects[d]).filter((e) => e && typeof e === 'object').map(pick) : [];
     return [own, ...mine];
   };
   for (const g of [...new Set(globals)]) out.push({ file: g, pick: pickGlobal });
@@ -718,7 +730,9 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     for (const f of pluginConfigFiles(p.dir)) {
       const r = readJsonFile(f);
       if (r.error) unsafe.push(`${f} (could not be read: ${r.error}), so the commands in it are unknown`);
-      else if (!r.missing) take(commandsIn(r.json), vars, f);
+      // Review 15: a plugin's .mcp.json and .lsp.json hold servers (started in the project folder), with or without an
+      // mcpServers key.
+      else if (!r.missing) take(commandsIn(r.json, [], 0, /\.(?:mcp|lsp)\.json$/.test(f)), vars, f);
     }
   }
   /* Never a folder: `cd "$CLAUDE_PROJECT_DIR"` or `rg x ~/work` names one, and denying it would take the agent's own
