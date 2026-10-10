@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: fsyncbatch-5434
-diff_hash: a1892ea423d7d6e119f3444da9b0e4d7ec24cd67b82263a982619a2dbae5d67d
+diff_hash: 85059f9a521ff62d7ae6d30ae97eb1906bcf4c8e7c389d8d65d0c2f91dbf8cfc
 validation: passed (Mortals)
 subdir_audit: passed
-timestamp: 2026-10-09T23:08:37Z
+timestamp: 2026-10-10T00:39:50Z
 iterations: 22
 converged: true
 ---
@@ -17,7 +17,8 @@ alternating, then cherry-picked here with its commits kept).
 **Converged:** Yes. Every slice's last round raised NITs only, applied or recorded in that slice's plan.
 **Fixed:** every BLOCKER and WARNING raised, or recorded as a decision in the slice plan with its reason | **Asked:** 0
 
-Validation: full suite on Mortals for this exact diff (hash a1892ea423d7, head 75ee9a2ab): PASSED. Combined related set
+Validation: full suite on Mortals for this exact diff (hash 85059f9a521f, head 6ee6af185, which adds only the batch's
+plan file to 75ee9a2ab; 75ee9a2ab itself also passed, a1892ea423d7): PASSED. Combined related set
 (421 files): 8139, 0 fail. Slice 9 separately: Mortals PASSED (069738a108f7).
 
 ### Per-slice breakdown (plans in .claude/plans/<slice>-*.md)
