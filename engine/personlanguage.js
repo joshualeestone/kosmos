@@ -238,6 +238,15 @@ function tellAgent(sessionName, roster, opts) {
     // never creates one, so there is nothing to change and nothing to report, in any language (review 14). Something
     // there that cannot be read safely is not that: it is reported, as connections.tellAgent does (review 15).
     if (!current.exists && !somethingAt(current.path)) return { state: projects.TOLD.TOLD, because: null, changed: false };
+    // #5080: Automatic with no sure read only ever takes out a block an earlier choice in Settings wrote. A file it cannot
+    // read, or one with two blocks, is left exactly as it is and reported as nothing to do, as before the picker (no boot
+    // noise on every Windows and Linux start).
+    if (!got.sure) {
+      const text = current.exists ? (current.text || '') : '';
+      const one = current.exists ? projects.findBlock(text, START, END) : null;
+      const stale = one && !one.ambiguous && text.slice(one.start, one.end).includes(', ' + SETTINGS_SOURCE + ')');
+      if (!stale) return { state: projects.TOLD.TOLD, because: null, changed: false };
+    }
     if (!current.exists) return { state: projects.TOLD.COULD_NOT, because: current.because || 'it keeps its instructions somewhere we cannot safely change' };
     const found = projects.findBlock(current.text || '', START, END);
     if (found && found.ambiguous) {
@@ -246,15 +255,8 @@ function tellAgent(sessionName, roster, opts) {
         because: `its instructions contain ${found.pairs} Kosmos language blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    let next;
-    if (got.sure) next = applyTo(current.text || '', got.tag, got.from);
-    else {
-      // #5080: Automatic with no sure read. Only a block from an earlier choice in Settings comes out; one the computer's
-      // own setting wrote stays, as before the picker.
-      const text = current.text || '';
-      const block = found && !found.ambiguous ? text.slice(found.start, found.end) : '';
-      next = block.includes(', ' + SETTINGS_SOURCE + ')') ? applyTo(text, null) : text;
-    }
+    // Sure: the block for the language read. Not sure (only reached for a stale Settings block, above): no block.
+    const next = got.sure ? applyTo(current.text || '', got.tag, got.from) : applyTo(current.text || '', null);
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: got.from === 'settings' ? WROTE_WHY_SETTINGS : WROTE_WHY });
     // kosmos#5304: changed owes the running agent a re-read; a removal (English again) owes none (instructionreread.oweEach).

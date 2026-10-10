@@ -34,7 +34,7 @@ test('#5080: Automatic names the computer\'s language only when the board is sur
   assert.match(code, /const autoSure = !!\(a && a\.sure && a\.name\);\s*opts\.push\(\{ value: 'auto', text: autoSure \? 'Automatic: ' \+ a\.name \+ ', from this computer' : 'Automatic: English for now' \}\);/);
   // Mona Lisa's review: a not-sure option never promises the computer's language (no block is written, so it is English).
   assert.doesNotMatch(code, /'Automatic: this computer/, 'an Automatic option promises the computer\'s language');
-  assert.match(code, /id="agent-language-auto-note"[^>]*hidden>Kosmos could not tell this computer’s language, so your agents write in English\. Pick a language above to change it\.<\/p>/);
+  assert.match(code, /id="agent-language-auto-note"[^>]*hidden>Kosmos could not tell this computer’s language, so new agents write in English, and an agent that already had a language from this computer keeps it\. Pick a language above to set it for all of them\.<\/p>/);
   assert.match(code, /document\.getElementById\('agent-language-auto-note'\)\.hidden = unread \|\| sel\.value !== 'auto' \|\| autoSure;/);
 });
 
