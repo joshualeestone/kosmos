@@ -64,8 +64,8 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
      each config home; the legacy .config.json it reads instead when present; .mcp.json in the folder and every
      ancestor. A member missing from the guard is a red here, not a silent gap. */
   const SFX = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
-  const CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins', 'local', 'jobs', 'daemon'];
-  const CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json', 'loop.md'];
+  const CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins', 'local', 'jobs', 'daemon', 'mcp-skill-archives', 'ide'];
+  const CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json', 'loop.md', 'remote-settings.json'];
   const homes = [path.join(HOME, '.claude'), path.join(HOME, '.claude-acct')];
   const ancestors = [];
   for (let d = path.resolve(dir); ; d = path.dirname(d)) { ancestors.push(d); if (path.dirname(d) === d) break; }
@@ -76,7 +76,13 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
     path.join(dir, '.mcp.json'),
   ];
   // Review 2: the ancestors' .mcp.json go to the file tools only (the shell cannot write there; the profile has a size limit).
-  for (const f of ancestors.slice(1).flatMap((d) => ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md'].map((x) => path.join(d, x)))) {
+  // Review 7: the agent's own files are never denied as an ancestor's, by its given OR its resolved path (the test runs
+  // under the temp folder, whose path on macOS runs through a link, so the resolved chain is exercised here).
+  const ownReal = fs.realpathSync.native(dir);
+  for (const own of [path.resolve(dir), ownReal]) {
+    for (const f of ['CLAUDE.md', 'CLAUDE.local.md']) assert.ok(!deny.includes(`Edit(${ruleAbs(path.join(own, f))})`), 'the agent own ' + f + ' was denied as an ancestor file (' + own + ')');
+  }
+  for (const f of ancestors.slice(1).flatMap((d) => ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json')].map((x) => path.join(d, x)))) {
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools');
     assert.ok(!s.sandbox.filesystem.denyWrite.includes(realOrLeaf(f)), f + ' went into the sandbox profile');
   }
@@ -115,7 +121,8 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
 
 test('#5516 part 2 (review 1): off darwin the file-tool rules are written all the same, with no sandbox block', () => {
   const dir = agentDir('pilot-cfg-linux');
-  setup.guardTokenOnlyFolder(dir, 'pilot-cfg-linux', { ...DEPS, platform: 'linux' });
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-linux', { ...DEPS, platform: 'linux' });
+  assert.equal(g.ok, true, JSON.stringify(g));
   const s = readSettings(dir);
   assert.equal(s.sandbox, undefined, 'CONTROL: no sandbox block off darwin');
   for (const f of [path.join(HOME, '.claude.json'), path.join(HOME, '.claude', '.config.json'), path.join(dir, '.mcp.json')]) {
@@ -161,6 +168,11 @@ test('#5516 part 2 (review 5): a link to a path the rule syntax cannot carry is 
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-odd', { ...DEPS, home });
   assert.equal(g.ok, false, 'an uncovered link target read as a whole guard');
   assert.match(String(g.because), /Drive \(Personal\)/, 'the reason does not name the link target: ' + g.because);
+  // Review 7: the rest of the guard is still written, and the sandbox carries the target the permission syntax cannot.
+  assert.match(String(g.because), /the rest of the guard is in place/);
+  const s = readSettings(dir);
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude', 'CLAUDE.md'))})`), 'the rest of the guard was not written');
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(fs.realpathSync.native(target)), 'the uncarriable target is missing from the sandbox layer too');
 });
 
 test('#5516 part 2 (review 6): a config home that is a link has its absent members named by their real path', () => {

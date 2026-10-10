@@ -21,6 +21,8 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 
 - Review 5: a .claude above the agent folder holds the same members a config home does, loaded for every agent below, so they join the ancestors. Claude Code's own locally installed copy, its jobs and daemon folders, and its loop instructions join the members. The comment that said the ancestors stayed out of the sandbox profile to save size was wrong: Claude Code builds the profile from the file-tool rules too. The ancestors stay out of the shell layer only because the shell cannot write there. Measured headroom: thirteen config homes give 1,164 denied entries, 11,287 distinct characters against 40 KB, and 119,359 raw bytes against 160 KB (73%). The test fails if the guard warns.
 
+- Review 7: one uncarriable link target no longer stops the rest of the guard being written (the launch path's rule): it is reported after the write, and the sandbox still carries it (it always did: the sandbox side resolves a linked folder to its target, measured; a change I made to add it was redundant and is reverted). The agent's own folder is excluded from the ancestors by its resolved path too (its own CLAUDE.md was being denied whenever its path ran through a link). An ancestor's .claude settings files join the ancestors' members; cached skill archives, the IDE lock folder and the remote settings cache join the config homes'.
+
 ## Gaps, stated (the rest of the card)
 - A plugin folder Claude Code is pointed at by its plugin cache or seed environment variables, outside every config home: not covered (same shape as the CLAUDE_CONFIG_DIR gap).
 - A project-scope language-server file: named in the binary, not confirmed to be read from the project folder; not denied.
@@ -29,7 +31,9 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 - Off macOS no sandbox is written, so everything here is the file-tool layer only, and the shell can write these files.
 - A link the agent itself makes later (a new link in a config home or above its folder): its target is not followed until the next guard refresh.
 - A config home Claude Code is pointed at outside ~/.claude and ~/.claude-* (CLAUDE_CONFIG_DIR elsewhere): not enumerated, so not covered. Kosmos's own accounts live in ~/.claude-<label>.
-- The resolved-path walk of the ancestors is not exercised by a test (the test folders' parents are not links).
+- The resolved-path walk of the ancestors runs in every test on macOS (the temp folder's path runs through a link); it is asserted for the agent's own files (review 7), not for each resolved ancestor.
+- On macOS the shell's writable set excludes the folders above the agent BY DEFAULT; the person's own settings can widen it (an allowWrite or an additional directory), and the board-start refresh only says so. Where they do, the ancestors' members are open to the shell.
+- A link target denied earlier stays denied after the link is repointed (only launch rules are pruned); harmless, but it counts toward the profile size.
 - The scripts a hook, the status line or a server's command points at, wherever they sit: not covered here (they can live anywhere; a next part).
 - Shell startup files, what start-time files pull in, and links the agent makes itself: later parts of the card, as listed there.
 
