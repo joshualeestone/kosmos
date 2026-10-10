@@ -20957,13 +20957,13 @@ function modelLine(a) {
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
-  /* #3566: a Gemini or Grok agent's model is its own vendor's, never a Claude one, so it
-     gets no "Claude " prefix (#4416: the engine reads the id into words, "Gemini 3.8
-     Flash"), or the provider when none is known. */
   /* #5804: a running Gemini agent whose reply came from a model other than the one it is set to (the CLI's own
      fallback) says so. The board decides (engine/geminimodelswitch.js) and sends settingModelName only then; kept
      inside modelLine so every caller and test that lifts it from the page gets the same words. */
   if (a.runner === 'gemini' && name && !notRunning && a.settingModelName) return name + ' (set to ' + a.settingModelName + ')';
+  /* #3566: a Gemini or Grok agent's model is its own vendor's, never a Claude one, so it
+     gets no "Claude " prefix (#4416: the engine reads the id into words, "Gemini 3.8
+     Flash"), or the provider when none is known. */
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
