@@ -456,24 +456,37 @@ test('paintRoom turns the whole wall into a single refusal band on the screen', 
 
 /* kosmos#5752 slice 3: a refused task write's room row says what the agent tried and, while it is still not a member,
    offers the person the add. Driven through the real pjRoomRow and pjFoldRoomRows. */
+/* Real cards from test-support/fleet (fixture-discipline: never a hand-built card), in a data sandbox of their own. */
+function realCards(names) {
+  const os = require('node:os');
+  if (!process.env.AGENT_WORKFORCE_DATA) process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'refused-add-'));
+  const fleet = require('./test-support/fleet');
+  const cards = fleet.install(names.map((n) => fleet.agent(n))).agents;
+  return { fleet, card: (n) => cards.find((c) => c.name === n) };
+}
+
 test('#5752 slice 3: a refused row says what was tried and offers the add only while the agent is not a member', () => {
-  const row = { kind: 'refused', from: 'zed', because: 'that agent is not on this project, so it cannot change its tasks',
+  const { fleet, card } = realCards(['mona', 'zed']);
+  const row = { kind: 'refused', from: card('zed').sessionName, because: 'that agent is not on this project, so it cannot change its tasks',
     doing: 'record a run of a task', addable: true, at: new Date().toISOString() };
-  const p = { id: 'p1', agents: [{ sessionName: 'mona', name: 'mona' }] };
-  api.setLast([{ sessionName: 'mona' }, { sessionName: 'zed' }]);   // zed is an agent on this board
+  const zedKey = card('zed').sessionName;
+  const p = { id: 'p1', agents: [card('mona')] };
+  api.setLast([card('mona'), card('zed')]);   // zed is an agent on this board
   const html = api.pjRoomRow(row, p);
-  assert.match(html, /zed tried to record a run of a task here and Kosmos stopped it: /);
-  assert.match(html, /<div class="pj-refused-act"><button type="button" class="pj-refused-add" data-add-member="zed">Add zed to this project<\/button>/);
+  assert.match(html, /tried to record a run of a task here and Kosmos stopped it: /);
+  assert.ok(html.includes('<div class="pj-refused-act"><button type="button" class="pj-refused-add" data-add-member="' + zedKey + '">Add '),
+    'the add names the agent by its session: ' + html.slice(0, 400));
   assert.ok(html.indexOf('class="msg-t"') >= 0 && html.indexOf('class="msg-t"') < html.indexOf('pj-refused-act'), 'the time stays with the sentence, before the add');
-  assert.doesNotMatch(api.pjRoomRow(row, { id: 'p1', agents: [{ sessionName: 'zed', name: 'zed' }] }), /data-add-member/,
+  assert.doesNotMatch(api.pjRoomRow(row, { id: 'p1', agents: [card('zed')] }), /data-add-member/,
     'already a member: no button');
-  const legacy = { kind: 'refused', from: 'zed', because: 'the room is held', at: new Date().toISOString() };
+  const legacy = { kind: 'refused', from: zedKey, because: 'the room is held', at: new Date().toISOString() };
   const lh = api.pjRoomRow(legacy, p);
-  assert.match(lh, /zed tried to post here and Kosmos stopped it/, 'a row with no doing is a room post, as before');
+  assert.match(lh, /tried to post here and Kosmos stopped it/, 'a row with no doing is a room post, as before');
   assert.doesNotMatch(lh, /data-add-member/, 'CONTROL: a refusal adding would not end offers no add');
-  api.setLast([{ sessionName: 'mona' }]);   // zed deleted from the board since
+  api.setLast([card('mona')]);   // zed deleted from the board since
   assert.doesNotMatch(api.pjRoomRow(row, p), /data-add-member/, 'a deleted agent is not offered: it would be added as a ghost');
   api.setLast([]);
+  fleet.restore();
 });
 
 test('#5752 slice 3: an addable refusal keeps its own row (its own button); other same-reason refusals still fold', () => {

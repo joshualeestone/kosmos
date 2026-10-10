@@ -3476,7 +3476,8 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
   const delivery = (asynchronousDelivery ? messages.sendPostAsync : messages.sendPost)({
     fromPane,
     sender,
-    senderByToken: senderByToken === true,   // kosmos#5752 slice 3: only then may a refusal offer the room's Add
+    // kosmos#5752 slice 3: only a sender the token helper resolved may have a refusal offer the room's Add.
+    senderByToken: senderByToken === true && !!(sender && sender.ok),
     project: found.id,
     // The NAME for the envelope the agent reads, the id for everything a
     // machine keys on. Both, from the same record, so they cannot drift.
@@ -15510,11 +15511,10 @@ const server = http.createServer(async (req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
-        const tokenSender = senderFromAgentToken(req, body, roster);
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: tokenSender,
-          senderByToken: !!(tokenSender && tokenSender.ok),   // the outbox drain never sets it: its sender may be a pane claim
+          sender: senderFromAgentToken(req, body, roster),
+          senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
           project: body.project,
           text: body.text,
           replyExpected: body.reply_expected,
