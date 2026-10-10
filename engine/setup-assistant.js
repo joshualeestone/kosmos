@@ -1375,7 +1375,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
   // guard says it is not whole.
   let startCmds;
-  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir }); } catch (e) { startCmds = { files: [], pluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
+  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied }); } catch (e) { startCmds = { files: [], pluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...startCmds.unsafe);
   for (const d of startCmds.pluginDirs) {
     if (underDenied(d)) continue;

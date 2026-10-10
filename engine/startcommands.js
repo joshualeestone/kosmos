@@ -47,6 +47,9 @@ const path = require('path');
    from its OAuth environment; production's is empty). Read from the installed binary, so a new suffix in a later
    version is a gap until added here. One list, used here and by the guard (engine/setup-assistant.js). */
 const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
+const runnerSay = (name, place) => `${name} run in ${place} (it runs code that folder supplies: its package.json, node_modules, Makefile, .git hooks, build or test config, which Kosmos cannot list); change the command to run a script by its full path`;
+/* Where a command runs when a cd Kosmos cannot follow moved it. */
+const UNKNOWN_RUN_CWD = '/\0unknown';
 /* What $PATH reads as here: a marker, so `PATH="$HOME/bin:$PATH"` is read as one known folder and the rest. */
 const PATH_MARK = '\u0000PATH';
 // Review 9: processWrapper too (2.1.296's own list of command settings: a launcher prefix for background sessions).
@@ -290,9 +293,10 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,]+)/g;
  * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
  * words whose value cannot be known.
  */
-function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true) {
+function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true, deferRunners = false) {
   const paths = [];
   const runPaths = [];   // the subset named where something runs
+  const runners = [];    // folder runners: { name, where, place }
   const unsafe = [];
   /* Review 4: the folders this line may be in. `cd` (pushd) moves it, and a relative path is read from every folder
      seen so far (a subshell's cd is not undone, so this over-counts rather than misses); a cd Kosmos cannot follow
@@ -306,11 +310,11 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
   let lastCwd = cwds[cwds.length - 1];   // where the line most recently cd'd to
   const pathDirs = [];   // review 6: folders a PATH= assignment put in front, where a bare program is then found
   const codePaths = [];  // review 7: the paths in an interpreter's code position, where a folder is code too
-  const UNKNOWN_CWD = '/\0unknown';
+  const UNKNOWN_CWD = UNKNOWN_RUN_CWD;
   const more = (line) => {
     if (depth >= 3) { unsafe.push('commands nested too deep for Kosmos to read'); return; }   // review 8: named, not dropped
-    const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds, anchored);
-    paths.push(...r.paths); runPaths.push(...r.runPaths); codePaths.push(...r.codePaths); unsafe.push(...r.unsafe);
+    const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds, anchored, deferRunners);
+    paths.push(...r.paths); runPaths.push(...r.runPaths); codePaths.push(...r.codePaths); runners.push(...(r.runners || [])); unsafe.push(...r.unsafe);
   };
   let cwdReal = cwd;
   try { cwdReal = fs.realpathSync.native(cwd); } catch { /* as given */ }
@@ -336,7 +340,9 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
        folder; Kosmos cannot list every file such a program may read. */
     const where = cmdCwd || lastCwd;
     const place = where === UNKNOWN_CWD ? 'a folder Kosmos cannot read' : inAgentFolder(where) ? 'the agent folder' : where;
-    if (runnerPending) unsafe.push(`${runnerPending} run in ${place} (it runs code that folder supplies: its package.json, node_modules, Makefile, .git hooks, build or test config, which Kosmos cannot list); change the command to run a script by its full path`);
+    // Decided by startCommandScripts, which knows the folders the guard denies whole (a plugin's own folder is covered).
+    if (runnerPending && deferRunners) runners.push({ name: runnerPending, where, place });
+    else if (runnerPending) unsafe.push(runnerSay(runnerPending, place));
     runnerPending = null;
   };
   const folderRunner = (name) => { if (!runnerPending) runnerPending = name; };
@@ -502,7 +508,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     }
   }
   flushRunner();
-  return { paths, runPaths, codePaths, unsafe };
+  return { paths, runPaths, codePaths, unsafe, ...(deferRunners ? { runners } : {}) };
 }
 
 /* Every command in a parsed config: { line } for a shell line, { program, args } for a server (started directly). */
@@ -666,7 +672,8 @@ function pluginConfigFiles(dir) {
  * folder; runFiles are those named where something runs), the installed plugin folders (whose own code runs, wherever they sit; never the agent folder, a folder above
  * it or the home), and what could not be worked out.
  */
-function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, managedDir: md, managedPrefsDir } = {}) {
+function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, managedDir: md, managedPrefsDir, covered = [] } = {}) {
+  const runnerSeen = [];   // folder runners, decided once the plugin folders are known
   const agentDir = path.resolve(dir);
   const raw = [];
   const runRaw = new Set();
@@ -700,11 +707,12 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
       // A server (program and args) starts in the project folder; a shell line in the session's current one.
-      const r = pathsOfWords(wordsOf(c, vars), agentDir, vars, 0, null, !!c.server);
+      const r = pathsOfWords(wordsOf(c, vars), agentDir, vars, 0, null, !!c.server, true);
       raw.push(...r.paths);
       for (const p of r.runPaths) runRaw.add(p);
       for (const p of r.codePaths) codeRaw.add(p);
       for (const u of r.unsafe) unsafe.push(`${u} (in ${where}: a command whose script Kosmos cannot read)`);
+      for (const x of r.runners) runnerSeen.push({ ...x, from: where });
     }
   };
   for (const s of sources) {
@@ -745,6 +753,14 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     // folder whole, so it is named.
     if (st && st.isDirectory()) { if (codeRaw.has(p)) unsafe.push(`${p} (a folder a start-time command runs as code, which Kosmos does not deny whole)`); continue; }
     files.push(p);
+  }
+  /* Review 15: a folder runner is named wherever it runs, unless that folder is one the guard denies whole anyway (a
+     plugin's own folder, a config home's code folders): then the code it reads there is covered. */
+  const coveredDirs = [...covered, ...plugins.map((p) => p.dir)].map((d) => path.resolve(d));
+  const isCovered = (w) => w !== UNKNOWN_RUN_CWD && coveredDirs.some((d) => w === d || w.startsWith(d + path.sep));
+  for (const x of runnerSeen) {
+    if (isCovered(x.where)) continue;
+    unsafe.push(`${runnerSay(x.name, x.place)} (in ${x.from})`);
   }
   return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], unsafe: [...new Set(unsafe)] };
 }

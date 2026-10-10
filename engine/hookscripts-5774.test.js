@@ -763,3 +763,28 @@ test('#5774 review 15: a folder runner is named wherever it runs; a folder as th
     fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
   }
 });
+
+test('#5774 review 15: a folder runner inside a folder the guard denies whole (a plugin\'s own) is covered; elsewhere it is named', () => {
+  const dir = agentDir('pilot-r15b');
+  const plug = path.join(SANDBOX, 'my-plugins', 'p15b');
+  writeJson(path.join(plug, '.mcp.json'), { mcpServers: { d: { command: 'bun', args: ['run', '--cwd', '${CLAUDE_PLUGIN_ROOT}', '--silent', 'start'] } } });
+  writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'p15b@local': [{ scope: 'user', installPath: plug }] } });
+  const other = path.join(SANDBOX, 'not-a-plugin');
+  fs.mkdirSync(other, { recursive: true });
+  try {
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-r15b', DEPS);
+    assert.equal(g.ok, true, 'the plugin folder is denied whole, so the package.json its server runs is covered: ' + JSON.stringify(g));
+    fs.mkdirSync(path.join(HOME, '.claude', 'skills', 'tool'), { recursive: true });
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cd ${path.join(HOME, '.claude', 'skills', 'tool')} && make` }] }] } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r15b', DEPS);
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+    assert.equal(g.ok, true, 'a config home\'s code folder (denied whole by the guard) covers a runner there too: ' + JSON.stringify(g));
+    writeJson(path.join(HOME, '.claude.json'), { mcpServers: { e: { command: 'bun', args: ['run', '--cwd', other, 'start'] } } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r15b', DEPS);
+    assert.equal(g.ok, false, 'control: the same server shape in an uncovered folder is named');
+    assert.match(String(g.because), /not-a-plugin/);
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+  }
+});
