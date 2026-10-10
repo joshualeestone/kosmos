@@ -6975,6 +6975,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    a bodyless row has none. */
 .msg:hover .msg-bd { background-image: linear-gradient(rgba(120,120,128,.08), rgba(120,120,128,.08)); }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
+/* #5406 part 2 slice C: a question's choices, inside its bubble (Josh #3419: no box, no banner). The old answer buttons'
+   tokens (AA on both themes); labels wrap, never nowrap (an agent's words are unbounded, and a nowrap button stretches
+   the row sideways). No primary: two equal answers, and emphasising one would recommend it. */
+.dmchoices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 2px; }
+.dmchoice { font: inherit; font-size: .875rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-optline); border-radius: 10px; padding: .4em .9em; cursor: pointer; text-align: left; max-width: 100%; }
+.dmchoice:hover { border-color: var(--k-ink-2); }
+.dmchoice:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.dmchoice[disabled] { opacity: .5; cursor: not-allowed; }
+.dmchoice-n { color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
+.dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #3134-followup (Josh 6.72): name + timestamp now live INSIDE the bubble. The agent
    name is a bold heading at the TOP; the timestamp is a small muted line at the
    bottom-RIGHT under the body. Scoped to .msg-bd so the .msg-valve inline timestamp
@@ -37156,6 +37167,7 @@ function dmRow(m, name, replyAdjacent) {
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
       + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
       + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+      + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : '')   // #5406 (guarded: the lifted dmRow tests run without it)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
@@ -37362,6 +37374,163 @@ function talkFilterRows(rows, name, q) {
     || String(m.text || '').toLowerCase().includes(needle));
 }
 let TALK_QUERY = '';
+/* #5406 part 2 slice C: the choices of the question an agent's screen shows, as buttons in that question's bubble.
+   Josh's #3419 ruling: no prompt box and no banner; the question is an ordinary message, and these sit inside it, to
+   press or to ignore (typing still works). Only what the server could be sure of (options and the question's identity,
+   `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
+   screen before it sends a key (409 when the menu moved). */
+let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
+/* Per agent: the question a press here may have answered (placed, or could not confirm) and when. Drawn with the
+   buttons off while the lock lasts ("Sent." only when placed); cleared when that agent's menu goes or its read fails. A refusal is not kept here: its sentence
+   goes on the conversation's own line, which survives a repaint that draws another question or none. */
+const DM_CHOICE_ANSWERED = new Map();   // session -> { asked, at, sure }: sure = placed; otherwise the key may have gone
+/* How long an answered question keeps its buttons off. A placed answer means the server saw the menu go after the key
+   (it says unconfirmed otherwise), so this covers only the page's own poll still showing the old screen; past it, the
+   same question drawn again (agents repeat questions word for word) is pressable. */
+const DM_CHOICE_ANSWERED_MS = 6000;
+let DM_CHOICE_LAST_REFUSAL = '';   // the sentence a press put on #d-say-msg, cleared by the next success only if still there
+const DM_CHOICE_WAIT_LINE = 'Still sending your choice. Try again in a moment.';   // said by sendTalk; cleared when the press ends
+/* sendTalk asks this first: while a press to this agent is in the air a typed send is refused (not queued), with the
+   line above, so one key and one paste never overlap. True when it refused. */
+function dmChoiceBlocksSend(session) {
+  if (!DM_CHOICE_INFLIGHT.has(session)) return false;
+  const m0 = document.getElementById('d-say-msg');
+  if (m0) m0.textContent = DM_CHOICE_WAIT_LINE;
+  return true;
+}
+let DM_CHOICE_GEN = 0;
+/* The options as one string, so a question repeated word for word with other choices is a NEW question (review 29). */
+const dmChoiceSig = (opts) => opts.map((o) => o.n + '\u0001' + o.label).join('\u0002');
+/* Review 32: the header and run-up above the question line count too, so a menu whose question line and choices stay
+   but whose header changed is a new question. Only the lines up to the question line: the option lines below it carry
+   the highlight, which moves without the question changing, and the options are in dmChoiceSig already. */
+function dmChoiceHead(body, asked) {
+  const t = body && body.question && typeof body.question.text === 'string' ? body.question.text : '';
+  const lines = t.split('\n');
+  // The line that IS the question first (a header can contain its words), else the last line holding them (review 33).
+  let at = lines.findIndex((l) => l.trim() === asked);
+  if (at < 0) for (let i = lines.length - 1; i >= 0; i -= 1) if (lines[i].includes(asked)) { at = i; break; }
+  return at < 0 ? '' : lines.slice(0, at + 1).map((l) => l.trim()).join('\n');
+}
+const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
+function dmChoicesFrom(body, sessionName) {
+  const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
+  /* No buttons where the composer is closed (presence off: the agent cannot be typed into), the same rule as the box. */
+  const prev = DM_CHOICES;
+  DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked && body.presence !== 'off')
+    ? { session: sessionName, options: opts, asked: body.asked, head: dmChoiceHead(body, body.asked),
+      /* a new number whenever the question (or agent) changes, so focus is never carried onto another question's button */
+      gen: prev && prev.session === sessionName && prev.asked === body.asked && dmChoiceSig(prev.options) === dmChoiceSig(opts)
+        && prev.head === dmChoiceHead(body, body.asked) ? prev.gen : (DM_CHOICE_GEN += 1) }
+    : null;
+  if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
+}
+function dmChoicesHtml(m) {
+  if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
+  /* Any press in the air for this agent draws its buttons off (a press on another question of the same agent would be
+     ignored by dmChoicePress, so it must not look pressable). */
+  const flying = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session)
+    || (typeof TALK_SENDING !== 'undefined' && TALK_SENDING && TALK_FLIGHT === DM_CHOICES.session);   // a typed send too
+  const done = DM_CHOICE_ANSWERED.get(DM_CHOICES.session);
+  /* Answered: the menu can stay up a few seconds after the key, and a second press then would answer twice. */
+  const locked = Boolean(done && done.asked === DM_CHOICES.asked && Date.now() - done.at < DM_CHOICE_ANSWERED_MS);
+  const off = flying || locked;
+  const pressing = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);   // a typed send in the air draws them off but says nothing here
+  const note = pressing ? 'Sending…' : (locked && done.sure) ? 'Sent.' : '';
+  return '<div class="dmchoices" role="group" aria-label="Choices">'
+    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
+      + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
+    + '<span class="dmchoices-msg" role="status" aria-live="polite">' + esc(note) + '</span></div>';
+}
+const DM_CHOICE_UNSURE = 'We could not confirm that it went (pressing again may answer twice).';
+async function dmChoicePress(btn) {
+  const c = DM_CHOICES;
+  if (!c || !CURRENT || CURRENT.sessionName !== c.session || DM_CHOICE_INFLIGHT.has(c.session)) return;
+  if (typeof TALK_SENDING !== 'undefined' && TALK_SENDING && TALK_FLIGHT === c.session) return;   // a typed send is in the air
+  const opt = c.options.find((o) => String(o.n) === btn.getAttribute('data-n'));
+  if (!opt) return;
+  const box = btn.closest('.dmchoices');
+  const msg = box && box.querySelector('.dmchoices-msg');
+  if (box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = true; });
+  if (msg) msg.textContent = 'Sending…';
+  const session = c.session;
+  DM_CHOICE_ANSWERED.delete(session);
+  DM_CHOICE_INFLIGHT.set(session, c.asked);
+  let ok = false;
+  let unsure = false;   // the key may have gone (could not confirm)
+  let note = '';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: String(opt.n), chose: opt.label, asked: c.asked }),
+    });
+    const out = (await res.json().catch(() => null)) || {};
+    /* A 200 carries the real outcome in delivery.state: only `placed` is sent, and `could_not` typed nothing. Anything
+       else after the server acted (`unconfirmed`, or a 200 with no verdict we can read) may have sent the key. */
+    const d = (out && out.delivery) || {};
+    ok = res.ok && d.state === 'placed';
+    /* A 5xx may come after the key went (a crash or a proxy past the send), so it cannot be read as "did not go". */
+    if (res.status >= 500) { note = DM_CHOICE_UNSURE; unsure = true; }
+    else if (!res.ok) note = pjSentence(out.error || 'that did not go; try again');
+    else if (d.state === 'could_not') note = pjSentence(d.because || 'that did not go; try again');
+    else if (!ok) { note = DM_CHOICE_UNSURE + (d.because ? ' ' + pjSentence(d.because) : ''); unsure = true; }
+  } catch {
+    /* The request may have reached the board before it failed (a restart mid-press), so this is not "did not go". */
+    note = DM_CHOICE_UNSURE;
+    unsure = true;
+  } finally {
+    DM_CHOICE_INFLIGHT.delete(session);
+  }
+  if (ok) note = 'Sent.';
+  /* Placed, or may have been sent (could not confirm): the same short lock, so a quick second press cannot answer twice
+     while the page's poll is still catching up. Only a refusal or could_not (nothing typed) gives the buttons back now. */
+  const mayHaveSent = ok || unsure;
+  if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok });
+  /* Review 32: emptied either way; a success is announced once, in #d-reply-say below (the repaint draws "Sent." here
+     for the eye, in a new node a screen reader does not read out again). */
+  if (msg) msg.textContent = '';
+  if (!mayHaveSent && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
+  /* Why it did not go goes on the conversation's own line, said once: a refusal usually means the question changed or
+     went, and the repaint then draws another question's bubble, or none. */
+  if (!ok && CURRENT && CURRENT.sessionName === session) {
+    const line = document.getElementById('d-say-msg');
+    if (line) line.textContent = note;
+  }
+  /* A success is announced quietly in the live region that survives repaints (the bubble's own is redrawn with it). */
+  if (ok && CURRENT && CURRENT.sessionName === session) {
+    const quiet = document.getElementById('d-reply-say');
+    if (quiet) { quiet.textContent = ''; quiet.textContent = 'Sent.'; }   // cleared first; some screen readers still skip a repeat
+    const line = document.getElementById('d-say-msg');   // an earlier refusal's sentence is no longer true
+    if (line && line.textContent === DM_CHOICE_LAST_REFUSAL) line.textContent = '';
+  }
+  DM_CHOICE_LAST_REFUSAL = ok ? '' : note;
+  if (CURRENT && CURRENT.sessionName === session) {   // the "still sending your choice" a typed send put up is over now
+    const waitLine = document.getElementById('d-say-msg');
+    if (waitLine && waitLine.textContent === DM_CHOICE_WAIT_LINE) waitLine.textContent = '';
+  }
+  /* Every outcome repaints: a refusal usually means the menu moved, and the buttons should show the one up now. */
+  if (!CURRENT || CURRENT.sessionName !== session) return;   // switched agents meanwhile: neither repaint nor move focus
+  await paintTalk(CURRENT.sessionName, CURRENT.name);
+  if (!CURRENT || CURRENT.sessionName !== session) return;
+  /* Disabling the pressed button dropped focus to the page. Placed or could not confirm: the buttons stay disabled for
+     the lock, so focus goes to the message box. Refused: back to the same choice (or the group's first) if the
+     question is still the one pressed, else the message box. Only when
+     focus has gone nowhere else. */
+  if (!document.activeElement || document.activeElement === document.body) {
+    const thread = document.getElementById('d-dmthread');
+    const sameQuestion = DM_CHOICES && DM_CHOICES.session === session && DM_CHOICES.gen === c.gen;   // same question AND choices
+    const choice = (mayHaveSent || !sameQuestion) ? null   // locked, or the question changed (review 28)
+      : thread && (thread.querySelector('.dmchoice[data-n="' + CSS.escape(String(opt.n)) + '"]') || thread.querySelector('.dmchoice'));
+    /* Review 32: a choice drawn disabled (a typed send now in the air) cannot take focus: the message box does, the
+       same rule as paintTalkThread's. */
+    const back = choice && !choice.disabled ? choice : document.getElementById('d-say');
+    if (back) back.focus({ preventScroll: true });
+  }
+}
+document.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
+  if (b && !b.disabled) dmChoicePress(b);
+});
 function paintTalkThread(body, name) {
   const allRows = Array.isArray(body.messages) ? body.messages : [];
   /* #4256: the rows by `at` and the reply strip, for the agent this paint is for, before any branch below can
@@ -37503,7 +37672,21 @@ function paintTalkThread(body, name) {
     /* #4256: reply headers by dmReplyAdjacency. */
     const dmHtml = rows.map((m, i) => dmRow(m, name, replyAdj.rows[i])).join('')
       + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
+    /* #5406: a rewrite replaces a focused choice button; put focus back on the same choice (same digit). */
+    const onChoice = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('dmchoice')
+      && thread.contains(document.activeElement) ? document.activeElement : null;
+    const choiceFocus = onChoice ? onChoice.getAttribute('data-n') : null;
+    const focusGen = onChoice ? onChoice.getAttribute('data-gen') : null;
     setThread(thread, dmHtml, threadKey);
+    if (choiceFocus !== null && !thread.contains(document.activeElement)) {
+      /* Review 28: back onto the same choice only for the SAME question; a redraw that changed the question sends focus
+         to the message box, so a keyboard user's next Enter never answers a question they have not read. */
+      const same = DM_CHOICES && String(DM_CHOICES.gen) === focusGen;
+      const choice = same ? thread.querySelector('.dmchoice[data-n="' + CSS.escape(choiceFocus) + '"]') : null;
+      // A choice drawn disabled (the answered lock, a press in the air) cannot take focus: the message box does.
+      const cb = choice && !choice.disabled ? choice : document.getElementById('d-say');
+      if (cb) cb.focus({ preventScroll: true });
+    }
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
     if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
       const r = thread.querySelector('.msg[data-mid="' + CSS.escape(DM_JUMP_FOCUS) + '"]');
@@ -37608,6 +37791,8 @@ async function paintTalk(sessionName, agentName) {
   } catch (err) {
     if (mine !== TALK_LOAD) return;
     if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    DM_CHOICES = null;   // #5406: no thread read, no choices
+    DM_CHOICE_ANSWERED.delete(sessionName);
     /* ⚠️ WHERE THE PERSON IS STANDING, READ BEFORE ANYTHING HIDES OR DISABLES.
        Disabling a focused control blurs it synchronously, so asking afterwards
        always answers BODY. The success path carries four rescues for exactly
@@ -37671,6 +37856,7 @@ async function paintTalk(sessionName, agentName) {
   }
   if (mine !== TALK_LOAD) return;
   if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  dmChoicesFrom(body, sessionName);   // #5406: after the two checks above, so an older read never replaces a newer one's
 
 
   // Whose send is in the air, if any. Read before anything that disables.
@@ -37943,28 +38129,11 @@ async function paintTalk(sessionName, agentName) {
       // steal is recovered, so deliberately-placed focus is never disturbed.
     }
   }
-  /**
-   * ⚠️ THE BUTTONS DIE WITH THE COMPOSER (Mona Lisa, state 6). A live option
-   * above a closed box promises a route that is shut, which is the same lie as
-   * a composer that swallows text: it looks like an answer and it is nowhere.
-   * So they are offered only when the menu is certain AND the agent can
-   * actually be typed into.
-   */
-  /**
-   * ⚠️ AND NOT WHILE THIS PERSON'S OWN ANSWER IS IN THE AIR. `asking` comes
-   * from a pane capture, and the pane has not necessarily redrawn in the beat
-   * between the send landing and this repaint — so the server can honestly
-   * still say "asking" about a question that has just been answered. Offering
-   * the buttons again there invites the second press that answers a numbered
-   * prompt twice.
-   */
-  /* #3419 (Josh, 0.6.89): NO answer-menu buttons. A needs_you question is an
-     ordinary thread bubble now (engine withQuestionRow, #3455) that the person
-     answers in the normal composer or ignores -- "no prompt box". The engine's
-     injected question row carries only text (no options), so the boxed option
-     buttons, their focus-preserving rebuild, and the answer-hold that guarded a
-     double-press are all gone with the menu. The #d-qopts / #d-qout elements are
-     removed from the markup; nothing renders an option here. */
+  /* #3419 (Josh, 0.6.89): no answer box here. A needs_you question is an ordinary thread bubble (engine
+     withQuestionRow, #3455); the #d-qopts / #d-qout elements are gone from the markup. #5406 slice C puts a menu's
+     choices back INSIDE that bubble (dmChoicesHtml), and the old box's two rules travel with them there: no buttons
+     where the composer is closed (presence off), and none pressable while this person's own answer or typed send to
+     this agent is in the air, or for a few seconds after an answer while the pane catches up. */
 
   /* --- the thread --- */
   const rows = Array.isArray(body.messages) ? body.messages : [];
@@ -38182,6 +38351,9 @@ async function sendTalk(text, attachment) {
     return;
   }
   if (!CURRENT) return;
+  /* #5406: one thing in the air per agent. A typed send arriving while a choice's key is settling could close the menu
+     or land on whatever the screen is then. */
+  if (dmChoiceBlocksSend(CURRENT.sessionName)) return;
   // The agent this send TOOK OFF from. Everything afterwards is about this
   // name, never about whichever agent happens to be open when the verdict
   // lands.

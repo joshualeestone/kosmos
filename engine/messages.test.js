@@ -882,6 +882,8 @@ test('#2442: a removed agent cannot POST to a room it was on (refused at the mem
       assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'a removed agent must not post to the room');
       assert.match(out.because || '', /not on that project/,
         'refused at the same membership gate a non-member hits -- the removed agent is no longer a member');
+      // kosmos#5752 round 2: but not told to get added, which would not help a removed agent still on the record.
+      assert.doesNotMatch(out.because || '', /ask the person to add/);
       assert.equal(tmux.sends().length, 0, 'and nothing was typed into any pane');
     } finally { clearRemoved2442(); }
   });

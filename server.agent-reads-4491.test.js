@@ -114,13 +114,28 @@ test('on its token alone an agent reads only the room and tasks of a project it 
   withProject(t);
   const roomText = await call('GET', '/api/project/other4491/room?as=text', asAgent(agentToken));
   assert.equal(roomText.code, 403, 'a non-member read the room: ' + roomText.text.slice(0, 120));
-  assert.equal(roomText.text, 'that agent is not on this project, so it cannot read its room\n', 'the text arm prints its sentence bare, for the bash CLI');
+  assert.equal(roomText.text, 'that agent is not on this project, so it cannot read its room; ask the person to add this agent with the + beside Members on the project\'s page, then run the same command again\n', 'the text arm prints its sentence bare, for the bash CLI');
   const roomJson = await call('GET', '/api/project/other4491/room', asAgent(agentToken));
   assert.equal(roomJson.code, 403);
   assert.match(JSON.parse(roomJson.text).error, /not on this project/);
   const tasks = await call('GET', '/api/tasks?project=other4491', asAgent(agentToken));
   assert.equal(tasks.code, 403, 'a non-member read the tasks: ' + tasks.text.slice(0, 120));
   assert.doesNotMatch(tasks.text, /not yours/);
+  /* kosmos#5752 round 1: a token that names no agent (an older key-only token whose key another name now also holds
+     tokens under: resolveName says ok, a key, no name, twins) is not told to get added, since adding would not help.
+     Building that token file for real takes the old format, so the resolver gives that exact answer for this token. */
+  const realResolveName = sendertoken.resolveName;
+  sendertoken.resolveName = (tok) => (tok === agentToken ? { ok: true, key: 'otto4491', name: null, twins: true, instance: null } : realResolveName(tok));
+  try {
+    const nobodyTasks = await call('GET', '/api/tasks?project=other4491', asAgent(agentToken));
+    assert.equal(nobodyTasks.code, 403);
+    assert.equal(JSON.parse(nobodyTasks.text).error, 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks');
+    const nobodyRoom = await call('GET', '/api/project/other4491/room?as=text', asAgent(agentToken));
+    assert.equal(nobodyRoom.code, 403);
+    assert.equal(nobodyRoom.text, 'Kosmos could not tell which agent this token belongs to, so it cannot read its room\n');
+  } finally { sendertoken.resolveName = realResolveName; }
+  // kosmos#5752 slice 2: the task read's refusal names the fix too.
+  assert.equal(JSON.parse(tasks.text).error, "that agent is not on this project, so it cannot read its tasks; ask the person to add this agent with the + beside Members on the project's page, then run the same command again");
   /* Never the global set. */
   const all = await call('GET', '/api/tasks', asAgent(agentToken));
   assert.equal(all.code, 403, 'the global task list was read on an agent token alone: ' + all.text.slice(0, 120));
