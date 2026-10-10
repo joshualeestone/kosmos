@@ -1145,7 +1145,8 @@ test('#2738: after a reopen, a re-loop within the same window logs a FRESH valve
     // recent enough to sit inside the raw window (so the OLD code would dedup
     // against them).
     fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'leo', to: 'henderson-lease', project: 'henderson-lease', at: w(30000), because: 'x', stopped: true }) + '\n');
-    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'refused', from: 'leo', to: 'henderson-lease', project: 'henderson-lease', at: w(30000), because: 'y' }) + '\n');
+    // kosmos#5752 slice 3: the earlier refusal is a HOLD refusal (only those dedup the next hold refusal now).
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'refused', from: 'leo', to: 'henderson-lease', project: 'henderson-lease', at: w(30000), because: 'the room was going back and forth without landing, so Kosmos was holding it for the person' }) + '\n');
     if (withReopen) {
       fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reopen', from: 'you', to: 'henderson-lease', project: 'henderson-lease', operator: true, at: w(10000) }) + '\n');
     }
@@ -1700,6 +1701,67 @@ test('a valve-blocked agent leaves a refused row the room can serve, stamped wit
     } finally {
       limits.write({ on: true, perHour: 20 });
     }
+  });
+});
+
+test('kosmos#5752 slice 3: an earlier refused task write does not swallow the agent\'s first held-room refusal (#315)', () => {
+  withFleet(room3(), (board) => {
+    assert.equal(limits.write({ on: true, perHour: 10 }).ok, true);
+    try {
+      const now = Date.now();
+      fs.rmSync(messages.LOG, { force: true });
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      for (let i = 0; i < 20; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'q' + (i + 1), from: 'leo', project: 'saturday-plans', to: ['mara', 'april'],
+          text: 'round ' + i, at: new Date(now - 60000).toISOString(), outcomes: { mara: 'placed', april: 'placed' },
+        }) + '\n');
+      }
+      // mara was refused a task write here before the person added her (a row in the same window).
+      messages.logRoomRefusal({ from: 'mara', project: 'saturday-plans', because: 'that agent is not on this project, so it cannot change its tasks', doing: 'record a run of a task', addable: true });
+      armSender('mara-discord');
+      arm([]);
+      const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'here now' }, board.agents, ['leo', 'mara', 'april']);
+      assert.equal(sent.state, chat.DELIVERY.COULD_NOT, 'precondition: the valve fired');
+      const held = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara' && /holding it for the person/.test(m.because));
+      assert.equal(held.length, 1, 'her held-room refusal has its own row');
+    } finally {
+      limits.write({ on: true, perHour: 20 });
+    }
+  });
+});
+
+test('kosmos#5752 slice 3: an addable refusal is one row per agent and project; a plain one is one per reason; no sender, no row', () => {
+  fs.rmSync(messages.LOG, { force: true });
+  const rows = () => messages.record().rows.filter((m) => m.kind === 'refused');
+  messages.logRoomRefusal({ from: 'zed', project: 'p', because: 'a', doing: 'add a task', addable: true });
+  messages.logRoomRefusal({ from: 'zed', project: 'p', because: 'b', doing: 'mark a task built', addable: true });
+  assert.equal(rows().length, 1, 'zed wants in: one row, whatever it tried next');
+  messages.logRoomRefusal({ from: 'zed', project: 'q', because: 'a', doing: 'add a task', addable: true });
+  assert.equal(rows().length, 2, 'another project: its own row');
+  messages.logRoomRefusal({ from: 'ann', project: 'p', because: 'a', doing: 'add a task' });
+  messages.logRoomRefusal({ from: 'ann', project: 'p', because: 'a', doing: 'mark a task built' });
+  assert.equal(rows().length, 4, 'not addable (a pane claim): one row per reason and doing');
+  assert.equal(rows().filter((m) => m.from === 'ann').every((m) => m.addable !== true), true, 'and no add offered');
+  messages.logRoomRefusal({ from: '', project: 'p', because: 'a' });
+  const raw = fs.readFileSync(messages.LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((m) => m.kind === 'refused');
+  assert.equal(raw.length, 4, 'no sender: nothing is written (the raw log, since the reader drops such rows anyway)');
+});
+
+test('kosmos#5752 slice 3: a stranger\'s refused post offers the add only when its token named it, not on a pane claim', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    armSender('mara-discord');   // the pane resolves to mara; the room below does not list her
+    arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'other-room', text: 'let me in' }, board.agents, ['leo']);
+    const byPane = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara');
+    assert.equal(byPane.length, 1, 'precondition: the refusal is logged');
+    assert.notEqual(byPane[0].addable, true, 'a pane claim: no add offered (it may not be mara asking)');
+    fs.rmSync(messages.LOG, { force: true });
+    const card = board.agents.find((c) => c.sessionName === 'mara');
+    messages.sendPost({ sender: { ok: true, card }, project: 'other-room', text: 'let me in' }, board.agents, ['leo']);
+    const byToken = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara');
+    assert.equal(byToken.length === 1 && byToken[0].addable, true, 'named by its token: the add is offered');
   });
 });
 

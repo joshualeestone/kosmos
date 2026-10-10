@@ -326,15 +326,25 @@ test('#5752 slice 3: a non-member\'s refused task writes are room rows saying wh
   const rows = (room.rows || room.messages || room).filter((m) => m && m.kind === 'refused' && m.from === 'zed');
   assert.deepEqual(rows.map((m) => [m.doing, m.addable, m.because]), [
     ['record a run of a task', true, 'that agent is not on this project, so it cannot change its tasks'],
-    ['set how often a task repeats', true, 'that agent is not on this project, so it cannot change its tasks'],
-    ['mark a task built', true, 'that agent is not on this project, so it cannot mark its tasks'],
-    ['write in a task', true, 'that agent is not on this project, so it cannot write in its tasks'],
-    ['add a task', true, 'that agent is not on this project, so it cannot add tasks to it'],
-    ['set its role here', true, 'that agent is not on this project'],
-  ], 'one row per refusal, the bare sentence (never the agent-directed fix): ' + JSON.stringify(room).slice(0, 300));
+  ], 'zed (named by its token) wants in: ONE row with the add, however many writes were refused; the bare sentence, '
+    + 'never the agent-directed fix: ' + JSON.stringify(room).slice(0, 300));
   // The agents' own view of the room says what was tried too.
   const text = await (await fetch(base + `/api/project/${encodeURIComponent(projectId)}/room?as=text`, { headers: screen })).text();
   assert.match(text, /zed tried to record a run of a task here and Kosmos stopped it: that agent is not on this project/);
+  // A caller named only by its pane (fake tmux ties every pane to `fixture`, not on this project): the row is kept, with
+  // no add offered, since a pane claim is advisory (review 1).
+  await post(`/api/project/${projectId}/tasks`, { sentence: 'by pane', from_pane: '%9' });
+  const pane = (await (await fetch(base + `/api/project/${encodeURIComponent(projectId)}/room`, { headers: screen })).json()).rows
+    .filter((m) => m && m.kind === 'refused' && m.from === 'fixture');
+  assert.equal(pane.length, 1, 'precondition: the pane caller\'s refusal is a row: ' + JSON.stringify(pane));
+  assert.notEqual(pane[0].addable, true, 'no add on a pane claim');
+  // Its own role, refused first on another project: "tried to set its role here" (review 1: it read "here here").
+  const delta = projects.create({ name: 'Delta' });
+  projects.addAgent(delta.id, 'mona', roster);
+  await post(`/api/project/${delta.id}/role`, { role: 'checker' }, zed);
+  const dtext = await (await fetch(base + `/api/project/${encodeURIComponent(delta.id)}/room?as=text`, { headers: screen })).text();
+  assert.match(dtext, /zed tried to set its role here and Kosmos stopped it: that agent is not on this project/);
+  assert.doesNotMatch(dtext, /here here/);
   // CONTROL: a member's own run leaves no refused row.
   const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
   await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona);

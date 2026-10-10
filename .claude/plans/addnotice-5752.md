@@ -41,3 +41,19 @@ why it was stopped; the person decides. The add is the same call as the Members 
 - The first commit's test passed alone and failed in its file: earlier tests' refusals by the same agent were in the
   same window. It now uses its own project. Found with it: the dedup key left out `doing`, so a refused rule change
   hid a refused run sharing its sentence; `doing` is in the key now (mutant caught).
+
+## Review round 1 fixes
+- The room's held-refusal dedup counted ANY refused row for the agent, so a task-write row swallowed its first hold
+  refusal (#315); it counts only earlier hold refusals now (#2738's fixture uses the real hold sentence).
+- An addable refusal is ONE row per agent and project in the window (one agent looping through task verbs left a row
+  and a button each); a plain refusal is one per reason and doing. No sender, no row.
+- "set its role here here": `doing` is "set its role", and the test asserts the rendered sentence.
+- Pressing Add now repaints the room (pjReload alone does not), says "Added <name> to this project", and focuses the
+  composer; the handler is `pjRefusedAddClick`, driven by a behaviour test (the source-text assertion is gone).
+- The button shows only for an agent this board still has (a deleted one would be added as a ghost member).
+- `addable` only for a caller its TOKEN named (processCaller returns byToken; the room post checks resolvedSender): a
+  pane claim is advisory, and a button on it would let one process ask in another agent's name. The row is still
+  kept, without the button.
+- Room search matches what was tried.
+- Left as is (NIT): a deliberately removed agent's old row offers the add again.
+- 11 mutants, each caught.

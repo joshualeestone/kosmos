@@ -4522,7 +4522,8 @@ function processCaller(req, body, roster, viaScreen, notDone) {
       card = targetCard || (byPane && byPane.ok ? byPane.card : null);
     } catch { card = null; }
   }
-  return { card: card || null, byKey: panelessCaller(tokenSender) };
+  // byToken (kosmos#5752 slice 3): the caller was named by its agent token, not by a pane claim (advisory).
+  return { card: card || null, byKey: panelessCaller(tokenSender), byToken: !!(tokenSender && tokenSender.ok) };
 }
 /* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
@@ -4543,8 +4544,10 @@ function processCaller(req, body, roster, viaScreen, notDone) {
 const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
 /* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
    having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
-function logNotOnProject(name, id, because, doing) {
-  messages.logRoomRefusal({ from: name, project: id, because, doing, addable: true });
+/* `addable` (the room's Add button) only for a caller its token named: a pane claim is advisory, so a button on it
+   would let one process ask, in another agent's name, to be added (review 1). Without a token the row is still kept. */
+function logNotOnProject(name, id, because, doing, byToken) {
+  messages.logRoomRefusal({ from: name, project: id, because, doing, addable: byToken === true });
 }
 function notOnProjectRefusal(who, id, verb, notDone, doing) {
   if (!who || !who.card) return null;
@@ -4555,7 +4558,7 @@ function notOnProjectRefusal(who, id, verb, notDone, doing) {
   const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
   if (stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey))) return null;
   const because = 'that agent is not on this project, so it cannot ' + verb;
-  if (doing) logNotOnProject(who.card.sessionName, id, because, doing);
+  if (doing) logNotOnProject(who.card.sessionName, id, because, doing, who.byToken === true);
   return [403, because + NOT_ON_PROJECT_FIX];
 }
 /* #4887, shared with #4914's `task assign`: the agent a CLI's `who` names on project `id`. For an agent caller
@@ -19609,11 +19612,13 @@ const server = http.createServer(async (req, res) => {
       const viaScreen = isViaScreen(req, body);
       const roster = safeRoster();
       let name = null;
+      let roleByToken = false;   // kosmos#5752 slice 3
       if (viaScreen) {
         name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
         if (!name) { sendJson(res, 400, { error: 'say which member' }); return; }
       } else {
         const caller = processCaller(req, body, roster, false, 'the role was not set');
+        roleByToken = caller.byToken === true;
         if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
         name = (caller.card && caller.card.sessionName) || null;
         // A roster nobody could read names nobody: a 503, not "could not tell which agent you are".
@@ -19637,7 +19642,7 @@ const server = http.createServer(async (req, res) => {
         if (/no project by that name/.test(because)) { sendJson(res, 404, { error: because }); return; }
         // kosmos#5752: an agent setting its OWN role here is told how to be added; the person (the screen) is not.
         if (/not on this project/.test(because)) {
-          if (!viaScreen) logNotOnProject(name, id, because, 'set its role here');   // kosmos#5752 slice 3
+          if (!viaScreen) logNotOnProject(name, id, because, 'set its role', roleByToken);   // kosmos#5752 slice 3
           sendJson(res, viaScreen ? 400 : 403, { error: viaScreen ? because : because + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -19697,7 +19702,7 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
           logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot change its tasks',
-            taskRepeat[3] === 'ran' ? 'record a run of a task' : 'set how often a task repeats');
+            taskRepeat[3] === 'ran' ? 'record a run of a task' : 'set how often a task repeats', !!(tokenSender && tokenSender.ok));
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -19780,7 +19785,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
-          logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot mark its tasks', 'mark a task built');
+          logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot mark its tasks', 'mark a task built', !!(tokenSender && tokenSender.ok));
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -19881,7 +19886,7 @@ const server = http.createServer(async (req, res) => {
           }
           const stored = memberRecord;
           if (stored && !projectHasAgent(stored, senderCard.sessionName, byKey)) {
-            logNotOnProject(senderCard.sessionName, id, 'that agent is not on this project, so it cannot write in its tasks', 'write in a task');
+            logNotOnProject(senderCard.sessionName, id, 'that agent is not on this project, so it cannot write in its tasks', 'write in a task', !!(tokenSender && tokenSender.ok));
             sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' + NOT_ON_PROJECT_FIX });
             return;
           }

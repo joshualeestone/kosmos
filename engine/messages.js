@@ -1700,7 +1700,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     /* kosmos#5752: the fix only where adding would help. An agent still on the record but removed from Kosmos is
        filtered out above; adding it again changes nothing, so it gets the sentence without the fix. */
     // kosmos#5752 slice 3: a stranger's refusal is `addable`: the room row offers the person the add.
-    return refuse('you are not on that project, so this room is not yours to post into', onRecord ? '' : NOT_ON_PROJECT_FIX, { addable: !onRecord });
+    /* Addable only for a sender its token named: a pane claim is advisory, and an Add button on it would let one
+       process put words in another agent's mouth ("mara tried to post here", review 1). */
+    return refuse('you are not on that project, so this room is not yours to post into', onRecord ? '' : NOT_ON_PROJECT_FIX, { addable: !onRecord && !!resolvedSender });
   }
   const recipients = operator === true ? members.slice() : members.filter((m) => m !== from);
   /**
@@ -1981,12 +1983,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
         // per-agent refused dedup as well -- a re-offending agent after a
         // reopen leaves a fresh refused row instead of being swallowed by its
         // pre-reopen one. Unchanged on the common path (countFrom===windowFrom).
+        /* kosmos#5752 slice 3: only an earlier HOLD refusal counts here. Other refused rows (a task write by an agent
+           not yet on the project, then added) must not swallow its first hold refusal (#315). */
         const already = log.some((m) => m && m.kind === 'refused'
-          && m.from === from && m.project === projectId
+          && m.from === from && m.project === projectId && m.because === ROOM_HELD_REFUSAL
           && Date.parse(m.at) >= countFrom);
         if (!already) {
-          appendLog({ kind: 'refused', from, to: projectId, project: projectId,
-            because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
+          appendLog({ kind: 'refused', from, to: projectId, project: projectId, because: ROOM_HELD_REFUSAL, at });
         }
       } catch { /* the record is best-effort; the verdict is not */ }
       // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
@@ -2790,20 +2793,25 @@ function messageIdOf(value) {
    exempt, being in every room they own). Returns {ok, op, emoji, of} or
    {ok:false, because}. */
 /* kosmos#5752 slice 3: an agent refused something in a project, logged as a `refused` row of that project's room,
-   once per sender, project, reason and `doing` in the window (the room shows it: #315). `doing` is in the key so a
-   refused rule change does not hide a refused run that shares its sentence. `project` rides the row so the room
+   once per sender, project, reason and `doing` in the window (the room shows it: #315), and an `addable` one once per
+   sender and project. `doing` is in the key so a refused rule change does not hide a refused run sharing its sentence. `project` rides the row so the room
    claims its own refusals and only its own: `to` alone cannot tell a project from an agent sharing the slug space.
    `doing` says what the agent tried ("record a run of a task"; none for a room post). `addable` marks a refusal that
    adding the agent to the project would end: the room offers the person the add on that row. Best effort: a failed
    write loses the row, never the verdict. Shared by the room post's refusal and the board's task-write refusals. */
+const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so Kosmos was holding it for the person';
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
+  if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
   const when = typeof at === 'string' && at ? at : new Date().toISOString();
   try {
     const now2 = Date.parse(when);
     const did = typeof doing === 'string' && doing ? doing : undefined;
-    const already = readLog().some((m) => m && m.kind === 'refused'
-      && m.from === from && m.to === toLogged && m.because === because && m.doing === did
+    /* An `addable` refusal is ONE row per agent and project in the window, whatever it tried: it stands for "this
+       agent wants in", and one agent looping through task verbs would otherwise leave a row and a button each
+       (review 1). Any other refusal is one row per reason and `doing`. */
+    const already = readLog().some((m) => m && m.kind === 'refused' && m.from === from && m.to === toLogged
+      && (addable === true ? m.addable === true : (m.because === because && m.doing === did))
       && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
     if (!already) {
       appendLog({ kind: 'refused', from, to: toLogged, project: toLogged, because, at: when,
