@@ -840,3 +840,38 @@ test('#5774 review 19: an assignment value is not a command; -eo pipefail; packa
   assert.deepEqual(line('python3.12 -X utf8 ~/s.py').unsafe, [], 'python3.12 uses python\'s table');
   assert.match(String(line('node /opt/homebrew/lib/node_modules/srv/dist/index.js').unsafe), /package folder/, 'a package folder anywhere is named, in its own words');
 });
+
+test('#5774 review 21: plugin source commands and producer folders, marketplaces, python on stdin, uv tool run, flag values, jq //', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.equal(paths("python3 - <<'EOF'\nimport json\nEOF").unsafe.length, 1, 'python reading a here-document imports from where it runs');
+  assert.equal(paths("python3 <<'EOF'\nimport json\nEOF").unsafe.length, 1, 'with no - too');
+  assert.equal(paths('python3 < /abs/hook.py').unsafe.length, 1, 'and from standard input');
+  assert.deepEqual(paths('python3 -I - <<EOF\nimport json\nEOF').unsafe, [], 'control: isolated');
+  assert.deepEqual(paths('uv tool run mcp-server-fetch').unsafe, [], 'uv tool run is uvx, not a package script');
+  const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
+  assert.deepEqual(line('ruff check --config=ruff.toml').unsafe.filter((u) => /relative to the folder/.test(u)), [], 'a config file value is data, not a script');
+  assert.equal(line('node --require=./pre.js ~/s.js').unsafe.length, 1, 'control: a script value still is');
+  assert.deepEqual(paths('jq -r \'.x // "none"\'').paths, [], 'jq\'s // is no path');
+  const dir = agentDir('pilot-r21');
+  const plug = path.join(SANDBOX, 'my-plugins', 'p21');
+  const producer = path.join(SANDBOX, 'producer-p21');
+  fs.mkdirSync(producer, { recursive: true });
+  const build = path.join(SANDBOX, 'scripts', 'build-plugin.sh');
+  const mkt = path.join(SANDBOX, 'mkt21');
+  const mktCmd = path.join(SANDBOX, 'scripts', 'mkt.sh');
+  touch(build); touch(mktCmd);
+  writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'p21@m': [{ scope: 'user', installPath: plug, sourceProducerPath: producer, sourceCommand: `bash ${build}` }] } });
+  writeJson(path.join(HOME, '.claude', 'plugins', 'known_marketplaces.json'), { m: { source: { source: 'command', command: `bash ${mktCmd}` }, installLocation: mkt } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-r21', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(dir).permissions.deny;
+    assert.ok(editDeniedBy(deny, build).length > 0, 'a plugin\'s source command is read');
+    assert.ok(editDeniedBy(deny, mktCmd).length > 0, 'a marketplace\'s command is read');
+    assert.ok(editDeniedBy(deny, path.join(producer, 'x.js')).length > 0, 'a producer folder is denied whole');
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude', 'plugins', 'known_marketplaces.json'), { force: true });
+  }
+});

@@ -297,7 +297,7 @@ function shellWords(cmd, vars = {}) {
 }
 
 /* An absolute path inside a word that is not itself a path (require('/x.js'), --config=/x). */
-const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,]+)/g;
+const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*)/g;   // review 21: jq's // is no path
 
 /*
  * The file paths a list of words names. `cwd` is where the command runs (the agent folder); `vars` are the variables
@@ -376,6 +376,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
   let trapDone = false;   // trap's command line has been read
   let inlineProgDone = false;   // awk's or sed's program text has been read
   let pyIsolated = false;   // python -I or -P: the folder it runs in is not on its import path
+  let uvTool = false;   // uv tool: the next run makes it uvx
+  let inputRunnerDone = false;   // python's stdin program already named
   let packageScriptNext = false;   // bun run <name>: a package.json script when <name> is no file
   let slotTaken = false;   // the first plain word after an interpreter is its script (or the folder it runs)
   let prog = '';
@@ -400,11 +402,15 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       if (w.heredocMode === 'string' && !w.dynamic && /^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) more(w.text);   // bash <<< "cmd" (review 10)
       else if (w.heredocMode === 'string' && w.dynamic && /^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) unsafe.push('a here-string given to a shell, made when the command runs');
       if (typeof w.body === 'string' && /^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) more(w.body);
-      else if (typeof w.body === 'string' && INTERPRETER.test(prog)) for (const m of w.body.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
+      else if (typeof w.body === 'string' && INTERPRETER.test(prog)) {
+        for (const m of w.body.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
+        // Review 21: a program given on standard input imports from the folder it runs in, as -c does (review 18).
+        if ((/^python[0-9.]*$/.test(prog) && !pyIsolated) || (/^(?:node|nodejs|deno|bun)$/.test(prog) && /\brequire\s*\(|\bimport\b/.test(w.body))) folderRunner(`${prog} <<`);
+      }
       continue;
     }
     if (w.assign) { assignment(w, w.text); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=..., PATH=...
-    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; inlineProgDone = false; pyIsolated = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
+    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; trapDone = false; inlineProgDone = false; pyIsolated = false; uvTool = false; inputRunnerDone = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
       if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; anchored = true; } }   // a bare cd goes home
@@ -486,6 +492,14 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       if (!w.dynamic && !text.includes('/') && !/\.[A-Za-z0-9]{1,5}$/.test(text)) continue;
       if (!w.dynamic && /[*?]/.test(text)) continue;   // --include="*.ts" is a pattern, not a file (review 7)
     }
+    // Review 21: `uv tool run X` is uvx X (a wrapper), not a package script named "tool".
+    if (!isHead && !w.dynamic && prog === 'uv' && runnerSub && text === 'tool') { runnerSub = null; uvTool = true; continue; }
+    if (uvTool && !w.dynamic && text === 'run') { uvTool = false; pendingHead = true; wrapper = 'uvx'; continue; }
+    // Review 21: python reading its program from standard input (python3 -, python3 < x) imports from where it runs.
+    if (!isHead && !w.dynamic && /^python[0-9.]*$/.test(prog) && !pyIsolated && ((text === '-' && scriptSlot) || (w.input && !inputRunnerDone))) {
+      inputRunnerDone = true; folderRunner(`${prog} reading standard input`);
+      if (text === '-') { scriptSlot = false; continue; }
+    }
     if (!isHead && !isFlag && !inline && !w.dynamic && !flagScript && runnerSub) {
       const sub = runnerSub; runnerSub = null;
       if (sub.test(text)) { scriptSlot = true; packageScriptNext = PACKAGE_SCRIPT_RUNNER.test(prog); continue; }
@@ -507,8 +521,10 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     // Review 18: one test for a word that IS a script (the program, the code position, input to a shell, a flag's path,
     // a script extension; .command only as a path, review 16), shared by `runs` and the relative-script checks below.
     const extScript = !w.dynamic && !w.globbed && !/[*?\s]/.test(text) && (SCRIPT_EXT.test(text) || (/\.command$/i.test(text) && /^[~./]|\//.test(text)));
-    const scriptWord = isHead || codeSlot || (w.input && INTERPRETER.test(prog)) || flagValue || flagScript || extScript;
-    const runs = scriptWord || inScriptSlot || inline;   // where something RUNS
+    // Review 21: a flag's value names a SCRIPT only with a script's extension (--config=ruff.toml is data), though any
+    // path value still counts where something runs.
+    const scriptWord = isHead || codeSlot || (w.input && INTERPRETER.test(prog)) || flagScript || extScript;
+    const runs = scriptWord || inScriptSlot || inline || flagValue;   // where something RUNS
     if (w.dynamic) {
       // A flag's unknown value names a path only when it has a slash (--header="$H" names nothing).
       // Review 12: only where the script itself sits; a later argument the hook passes ("$FOO", "$@") names no script.
@@ -589,10 +605,15 @@ function commandsIn(node, out = [], depth = 0, server = false, helper = false) {
 /* The words of one command. A server's command and args are literal words (no shell), with ${VAR} expanded. */
 function wordsOf(cmd, vars) {
   if (cmd.line !== undefined) return shellWords(cmd.line, vars);
-  if (cmd.exec) {
+  if (cmd.exec || cmd.server) {
+    // A hook's exec form expands only Claude Code's own variables; a server's, any ${VAR} or ${VAR:-default} (review
+    // 21: never a bare $VAR, which it leaves as text).
     const one = (s, head) => {
       let dynamic = false;
-      const text = s.replace(/\$\{(CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_PLUGIN_DATA)\}/g, (m, n) => (Object.prototype.hasOwnProperty.call(vars, n) ? vars[n] : (dynamic = true, '')))
+      const has = (n) => Object.prototype.hasOwnProperty.call(vars, n);
+      const text = (cmd.server
+        ? s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (m, n, def) => (has(n) ? vars[n] : def !== undefined ? def : (dynamic = true, '')))
+        : s.replace(/\$\{(CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_PLUGIN_DATA)\}/g, (m, n) => (has(n) ? vars[n] : (dynamic = true, ''))))
         .replace(/\$\{user_config\.[^}]*\}/g, () => { dynamic = true; return ''; });
       return { text, dynamic, quoted: true, globbed: false, head, assign: false, written: false, input: false, heredoc: false, subs: [] };
     };
@@ -678,6 +699,7 @@ function configSources(dir, homes, home, deps = {}) {
    be read, or an install path that is not absolute, is named in `unsafe`. */
 function installedPlugins(homes, unsafe) {
   const out = [];
+  out.sourceCommands = [];
   const seen = new Set();
   for (const h of homes) {
     for (const f of ['installed_plugins.json', 'installed_plugins_v2.json']) {
@@ -690,10 +712,17 @@ function installedPlugins(homes, unsafe) {
         for (const e of Array.isArray(entries) ? entries : [entries]) {
           if (!e || typeof e.installPath !== 'string') continue;
           if (!path.isAbsolute(e.installPath)) { unsafe.push(`the plugin ${id} (its folder is not a full path: ${JSON.stringify(e.installPath)})`); continue; }
-          const dir = path.normalize(e.installPath);
-          if (seen.has(h + '\0' + dir)) continue;
-          seen.add(h + '\0' + dir);
-          out.push({ dir, home: h, id });
+          // Review 21: a plugin served in place from a producer folder is that folder's code too, denied whole the same way.
+          for (const d of [e.installPath, e.sourceProducerPath, ...(Array.isArray(e.previousProducerPaths) ? e.previousProducerPaths : [])]) {
+            if (typeof d !== 'string' || !d) continue;
+            if (!path.isAbsolute(d)) { unsafe.push(`the plugin ${id} (its folder is not a full path: ${JSON.stringify(d)})`); continue; }
+            const dir = path.normalize(d);
+            if (seen.has(h + '\0' + dir)) continue;
+            seen.add(h + '\0' + dir);
+            out.push({ dir, home: h, id });
+          }
+          // Review 21: a command-sourced plugin's command, which Claude Code re-runs once per session.
+          if (typeof e.sourceCommand === 'string') out.sourceCommands.push({ line: e.sourceCommand, from: file });
         }
       }
     }
@@ -780,12 +809,30 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const never = new Set([...foldersFrom(agentDir), ...(home ? [path.resolve(home)] : []), ...homes.map((h) => path.resolve(h))]);
   const realOf = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };
   for (const d of [...never]) never.add(realOf(d));
-  const plugins = installedPlugins(homes, unsafe).filter((p) => {
+  const installed = installedPlugins(homes, unsafe);
+  const plugins = installed.filter((p) => {
     const inside = [agentDir, realOf(agentDir)].some((d) => [p.dir, realOf(p.dir)].some((x) => x.startsWith(d + path.sep)));   // review 4: inside the agent folder
     if (!inside && !never.has(p.dir) && !never.has(realOf(p.dir))) return true;   // review 3: by its resolved path too, and never a config home
     unsafe.push(`the plugin ${p.id} (its folder ${p.dir} holds the agent's own work or a config home, so Kosmos does not deny it whole)`);
     return false;
   });
+  /* Review 21: a command-sourced plugin's command (re-run once per session), and the commands of the marketplaces the
+     plugins come from (known_marketplaces.json and each marketplace's own marketplace.json). */
+  take(installed.sourceCommands, baseVars, 'the installed plugins record (sourceCommand)');
+  for (const h of homes) {
+    const km = path.join(h, 'plugins', 'known_marketplaces.json');
+    const r = readJsonFile(km);
+    if (r.error) { unsafe.push(`${km} (could not be read: ${r.error}), so its marketplaces' commands are unknown`); continue; }
+    if (r.missing || !r.json || typeof r.json !== 'object') continue;
+    try { take(commandsIn(r.json), baseVars, km); } catch (e) { unsafe.push(`${km} (its commands could not be read: ${(e && e.message) || e})`); }
+    for (const m of Object.values(r.json)) {
+      if (!m || typeof m.installLocation !== 'string' || !path.isAbsolute(m.installLocation)) continue;
+      const mf = path.join(m.installLocation, '.claude-plugin', 'marketplace.json');
+      const mr = readJsonFile(mf);
+      if (mr.error) unsafe.push(`${mf} (could not be read: ${mr.error}), so its commands are unknown`);
+      else if (!mr.missing) { try { take(commandsIn(mr.json), baseVars, mf); } catch (e) { unsafe.push(`${mf} (its commands could not be read: ${(e && e.message) || e})`); } }
+    }
+  }
   for (const p of plugins) {
     const vars = { ...baseVars, CLAUDE_PLUGIN_ROOT: p.dir, CLAUDE_PLUGIN_DATA: path.join(p.home, 'plugins', 'data', p.id.replace(/[^a-zA-Z0-9\-_]/g, '-')) };
     for (const f of pluginConfigFiles(p.dir)) {

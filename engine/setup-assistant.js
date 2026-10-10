@@ -1367,9 +1367,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      the config is denied above, but a script it names elsewhere could still be rewritten. Both layers, links followed,
      as configStartFiles. A script inside a folder already denied whole is left to that rule (profile size); for a folder
      above the agent that rule is the file tools' only (on macOS, by default, the shell cannot write there, as above). A path the
-     rules cannot carry is named when it exists (the guard is then not whole); one that does not exist is skipped, since
-     a word that merely looks like a path (a sed expression) is far likelier than a missing script with such a name.
-     A command whose script path is built when it runs cannot be read and is named. See engine/startcommands.js. */
+     rules cannot carry is named when it exists or when it sits where something runs (the agent could create it there);
+     otherwise it is skipped, since a word that only looks like a path (a sed expression) is far likelier. A command
+     whose script path is built when it runs cannot be read and is named. See engine/startcommands.js. */
   const wholeDenied = [...pluginDirs, ...ancestorDirs, ...CONFIG_HOME_CODE_DIRS.map((d) => path.join(settingsDir, d))];
   const underDenied = (p) => wholeDenied.some((d) => p === d || p.startsWith(d + path.sep));
   // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
