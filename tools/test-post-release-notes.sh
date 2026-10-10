@@ -31,6 +31,7 @@ cat > "$PAGE" <<'HTML'
       <div class="rel-h"><h2 class="rel-v"><a href="#v0-9-7"><span class="num">0.9.7</span></a></h2>
         <span class="rel-d">September 2, 2026, 1:00 PM CDT</span></div>
       <p>Answer it in the agent&#39;s window &amp; the board&#8217;s &quot;Allow&quot; stays yours.</p>
+      <p>Named &rsquo;s and &lsquo;x&rsquo; and &apos;y&#x27; and &#x2019;z and &ldquo;q&rdquo; and &#x201C;r&#x201D;.</p>
     </article>
 </body></html>
 HTML
@@ -159,6 +160,12 @@ APOS="$(env KOSMOS_VERSIONS_PAGE="$PAGE" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" ba
 WANT="Answer it in the agent's window & the board's \"Allow\" stays yours."
 has "$APOS" "$WANT" && pass "entities: &#39; &#8217; &amp; &quot; decode to the exact sentence" \
   || bad "entities: sentence garbled | $(printf '%s' "$APOS" | grep -m1 'Answer it' | tr -d '\n' | tail -c 200)"
+# The note is only the FIRST <p>, so the named/hex forms go through a second fixture page.
+PAGE2="$T/versions2.html"; sed 's#<p>Answer it[^<]*</p>##' "$PAGE" > "$PAGE2"
+NAMED="$(env KOSMOS_VERSIONS_PAGE="$PAGE2" KOSMOS_SOCIAL_PREVIEW_DIR="$PREVIEW" bash "$SCRIPT" 0.9.7 2>&1)"
+WANT2="Named 's and 'x' and 'y' and 'z and \"q\" and \"r\"."
+has "$NAMED" "$WANT2" && pass "entities: named and hex quote forms (&rsquo; &lsquo; &apos; &#x27; &#x2019; &ldquo; &rdquo; &#x201C;) decode" \
+  || bad "entities: named/hex forms garbled | $(printf '%s' "$NAMED" | grep -m1 'Named' | tr -d '\n' | tail -c 200)"
 
 # 9. a non-numeric version is refused
 env bash "$SCRIPT" "not-a-version" >/dev/null 2>&1; [ $? = 2 ] && pass "non-numeric version -> refuse (exit 2)" || bad "non-numeric version not refused"
