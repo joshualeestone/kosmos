@@ -34,6 +34,7 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-devicecode-3436-')
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 
 const openai = require('./openaiaccounts');
+const { eventually } = require('../test-support/eventually');
 /* 0.6.96: a win32 device sign-in now opens its page in the default browser. Every arm
    here that injects win32 would open a real browser on a Windows box, so the opener is
    a recorder for the whole file. */
@@ -110,14 +111,15 @@ process.stdout.write(process.env.STANDIN_SAY || '');
 setTimeout(() => process.exit(0), 30000);
 `);
 
+// #5727: delegate to the shared load-aware poll helper. At scale 1 this is byte-identical
+// (25ms step, returns the first status matching pred, fails at ms); the old
+// 'timeout; last <status>' detail is preserved through describe.
 async function waitFor(sessionId, pred, ms = 8000) {
-  const start = Date.now();
-  for (;;) {
-    const s = openai.chatgptLoginStatus(sessionId);
-    if (pred(s)) return s;
-    if (Date.now() - start > ms) throw new Error(`timeout; last ${JSON.stringify(s)}`);
-    await new Promise((r) => setTimeout(r, 25));
-  }
+  return eventually(() => openai.chatgptLoginStatus(sessionId), pred, {
+    timeoutMs: ms,
+    stepMs: 25,
+    describe: (s) => `last ${JSON.stringify(s)}`,
+  });
 }
 
 // Start a sign-in against the stand-in. NODE_OPTIONS is set only across the

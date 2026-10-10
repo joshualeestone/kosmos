@@ -18,6 +18,7 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-grok-sub-3391-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 delete process.env.AGENT_WORKFORCE_GROK_HOME;
 const grok = require('./grokaccounts');
+const { eventually } = require('../test-support/eventually');
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const ENTRY = (extra) => ({ 'https://auth.x.ai::0000-uuid': { email: 'person@example.com', auth_mode: 'oidc', ...extra } });
@@ -154,17 +155,11 @@ fs.writeFileSync(FAKE, [
 ].join('\n') + '\n', { mode: 0o755 });
 
 // 15s, not 5s: these spawn real child processes, and a loaded shared box can be slow to schedule them.
+// #5727: delegate to the shared load-aware poll helper. At scale 1 this is byte-identical
+// to the former hand-rolled loop (25ms step, resolves the first truthy pred() value, fails
+// at ms); under load the deadline scales with the box's load-per-core.
 function waitFor(pred, ms = 15000) {
-  const until = Date.now() + ms;
-  return new Promise((resolve, reject) => {
-    const tick = () => {
-      let v; try { v = pred(); } catch (e) { reject(e); return; }
-      if (v) { resolve(v); return; }
-      if (Date.now() > until) { reject(new Error('timed out waiting')); return; }
-      setTimeout(tick, 25);
-    };
-    tick();
-  });
+  return eventually(pred, (v) => v, { timeoutMs: ms, stepMs: 25 });
 }
 function withMode(mode, fn) {
   const rec = nodePath.join(SANDBOX, `rec-${mode}-${Math.random().toString(36).slice(2)}`);
