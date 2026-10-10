@@ -393,7 +393,8 @@ function companyEntry() {
 
 /* What every agent is handed: the company's entry first (the company mandates it), then the person's own. The block
    is the single-policy shape when only one exists, as before. 'unknown' when the person's record is unreadable: no
-   agent is told a half list (read()'s rule), the company's entry included. */
+   agent is told a half list (read()'s rule), the company's entry included. Accepted (plan, review 2): while the
+   person's file is unreadable, a company change does not reach agents and they keep the text they have. */
 function effective() {
   const record = read();
   if (record.state === 'unknown') return record;
