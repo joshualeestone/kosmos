@@ -175,7 +175,8 @@ function hardwareId() {
   if (failedAt !== null && now - failedAt < backoff) return null;   // but not at once (review 2)
   let id = null;
   let ran = false;
-  // 🛑 Never log this error: on a timeout or a non-zero exit its .stdout is the full ioreg dump, raw id and serial number.
+  // 🛑 Never log these errors: on a timeout or a non-zero exit their .stdout is the full ioreg dump (raw id and serial
+  // number) or reg.exe/PowerShell output holding the raw MachineGuid.
   let out = '';
   if (platform === 'win32') {
     try { id = readMachineGuid(); } catch { id = null; }   // ran stays false: Windows has no lasting "no id here"
@@ -249,8 +250,8 @@ function printFor(salt, company) {
 function _testRunner(fn, opts) {
   const o = opts || {};
   defaultRun = fn || realRun;
-  if (!fn || o.fallback === 'real') defaultFallback = readPowerShell;
-  else defaultFallback = typeof o.fallback === 'function' ? o.fallback : null;
+  if (typeof o.fallback === 'function') defaultFallback = o.fallback;
+  else defaultFallback = !fn || o.fallback === 'real' ? readPowerShell : null;
   testPlatform = o.platform || null;
   testNow = o.now != null ? o.now : null;
   cached = undefined;
