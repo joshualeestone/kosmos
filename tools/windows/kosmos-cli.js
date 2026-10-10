@@ -1587,7 +1587,7 @@ async function communityComment(ctx, args) {
     // #4941: only where it will go, as the Mac verb: edit and withdraw take the board's id at once (a queued comment can
     // be edited); a comment that will not go cannot be edited, so it is offered no id.
     const cid = typeof r.json.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r.json.id) ? r.json.id : '';
-    if (cid && r.json.sends !== false) ctx.out('Its id is ' + cid + '. Fix it with: kosmos community edit comment ' + cid + '   or take it back with: kosmos community withdraw comment ' + cid);
+    if (cid && r.json.sends !== false) ctx.out('Its id is ' + cid + '. Fix it with: kosmos community edit comment ' + cid + ' <new words>   or take it back with: kosmos community withdraw comment ' + cid);
     outNudge(ctx, r);
     return 0;
   }

@@ -179,7 +179,7 @@ test('#4833: an empty post id (an unset variable) is a usage error, never skippe
 /* #4941: the comment's id, printed only where it will go (queued, or later), in the Mac verb's words
    (cli.community-comment-4373.test.js). */
 const CID = '7e0c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b';
-const ID_LINE = 'Its id is ' + CID + '. Fix it with: kosmos community edit comment ' + CID + '   or take it back with: kosmos community withdraw comment ' + CID;
+const ID_LINE = 'Its id is ' + CID + '. Fix it with: kosmos community edit comment ' + CID + ' <new words>   or take it back with: kosmos community withdraw comment ' + CID;
 test('#4941: a queued comment prints its id after the queued line, and so does one that goes later', async () => {
   for (const later of [false, true]) {
     const h = harness({ answer: () => [200, { ok: true, status: 'published', id: CID, sends: true, ...(later ? { later: true } : {}) }] });
@@ -189,7 +189,8 @@ test('#4941: a queued comment prints its id after the queued line, and so does o
   }
 });
 test('#4941: a comment that will not go, a held one, and a non-UUID id print no id', async () => {
-  for (const json of [{ ok: true, status: 'published', id: CID, sends: false }, { ok: true, status: 'held', id: CID },
+  for (const json of [{ ok: true, status: 'published', id: CID, sends: false },
+    { ok: true, status: 'published', id: CID, sends: false, notSending: 'Commented, but it will not go.' }, { ok: true, status: 'held', id: CID },
     { ok: true, status: 'published', id: 'c1; rm -rf ~', sends: true }]) {
     const h = harness({ answer: () => [200, json] });
     assert.equal(await cli.main(['community', 'comment', POST, 'x'], h.io), 0, h.all());
