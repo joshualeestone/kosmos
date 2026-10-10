@@ -435,3 +435,11 @@ the content view #5686 logs who looked). Never the matched text. Off unless the 
 ## Review 37 (Opus, post-rebase, base 900854f2d): nothing above NIT
 - NITs fixed: dead `sinceS` and `clashNow` removed; readFlats wrapped in the try Kitty's version had (logs and fails closed); the `-m` comment says only what the code ensures. Decided: the per-kind loop's early reads on a flags-only queue (cheap).
 - Validation: Mortals full suite at d0afd1e3c ran under load 14; its 9 reds were all in load-sensitive files (supervisor tokens, hooks, source channel, create), the same class Kitty's base run failed on the same machine the same night (23 reds). Every failing file, 19 distinct across two Mortals runs, passes locally on d0afd1e3c at load 2 (469 + 650 tests, 0 failed).
+
+## Rebased onto main after slice 1 merged (d82642d70), 04:1x 2026-10-10
+- Slice 1 merged by rebase with post-rebase changes. Conflicts resolved keeping each of them (sandbox refusals judged by the touched path, the call-files test seam, a lost call classed without the agent folder) beside this slice's own-input match and flag state.
+- Got wrong in the resolution, caught by the tests: I took slice 1's line that marks a guard-gap agent collided, which slice 1 clears later through a set this slice had removed, so the agent went silent (slice 1's r24 red here, green on main as a control). A gap now only restarts the agent's reading; a real clash still marks it (r28 green).
+
+## Review 38 (Opus, base origin/main): one WARNING, fixed
+- WARNING: a check-only agent's transcript, idle past the window, was read from byte 0 when the agent joined the token-only list while the check had been on for weeks (the reading point fell back to the turn-on), spending the tick's read budget on lines the window then drops. The reading point is now never earlier than the window. Tested with a file bigger than one tick's budget, last written ten days ago: it starts at its end; red with the clamp removed (read 4 MB of 18 MB).
+- NIT taken: a comment says folders only the survey found are used to keep agents apart and are never read for flags.

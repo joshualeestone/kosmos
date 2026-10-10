@@ -1450,6 +1450,8 @@ async function tickOnce(opts) {
     // A cleared agent stays marked until each of its files has its end-of-file start (review 18).
     const keepCleared = (n) => { if (!st.flagCollided.includes(n)) st.flagCollided.push(n); };
     // Collided agents are read for nothing; an unguarded one only for flags, while the check is on (her review 16).
+    // Read for flags: the token-only list and every registered agent. A folder only the survey found (every) is used to
+    // keep agents apart, never read: it can be a stray folder, not an agent.
     const names = (manip && !foldersUnknown ? [...new Set([...tokenOnly, ...everyAgent])] : [...refusalAgents]).filter((n) => !collidedNow.has(n) && !checkOnlyCollided.has(n));
     const dirs = new Map(names.map((n) => [n, src.dirOf(n)]));
     /* A refusal's target class must not depend on whether the check is on (review 3): "another agent's folder" is every
@@ -1553,7 +1555,9 @@ async function tickOnce(opts) {
              filtered away, delaying its new refusals). */
           /* #5683 slice 3: while the check is on, a flag counts from its own turn-on, not the listing (which bounds refusals
              only), so the earlier of the two decides. */
-          const countsFrom = manip && Number.isFinite(st.manipSince) ? Math.min(fromS, Math.floor(st.manipSince / 1000)) : fromS;
+          /* Never earlier than the window (review after the rebase onto main): nothing older than PAST_MS is ever sent, so a
+             transcript idle past it starts at its end rather than being read from byte 0 only to be filtered away. */
+          const countsFrom = Math.max(Math.floor((now - PAST_MS) / 1000), manip && Number.isFinite(st.manipSince) ? Math.min(fromS, Math.floor(st.manipSince / 1000)) : fromS);
           if (m.mtimeMs < countsFrom * 1000 || countsFrom >= Math.floor(now / 1000) - 1) { st.offsets[file] = m.size; continue; }
           st.offsets[file] = 0;
         }

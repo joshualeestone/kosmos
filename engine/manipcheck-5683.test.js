@@ -1704,3 +1704,22 @@ test('#5683 slice 3 review 35: a transcript out of time order is read from its s
   await ae.tick({ root, remote: c, sources, now: Date.now() + 1000, manipulationCheck: true });
   assert.ok(flagged().includes('early'), 'a line that counts before the halving\'s start was skipped');
 });
+
+test('#5683 slice 3 (review after the rebase onto main): a token-only transcript first seen, idle past the window, starts at its end even with the check on for weeks', async (t) => {
+  const { root, tdir, c } = await enrolled(t, 'win');
+  const rec = oe.readEnrollment({ root });
+  const now = Date.now();
+  fs.writeFileSync(path.join(root, 'agent-events.json'), JSON.stringify({ offsets: {}, pending: [], enrolledAs: ae._enrollmentKey(rec), manipSince: now - 30 * 86400e3 }));
+  // Bigger than one tick's read budget (16 MB), so reading it from byte 0 cannot reach its end in one tick.
+  const old = path.join(tdir, 'sess-old.jsonl');
+  const line = JSON.stringify({ type: 'user', message: { content: 'x'.repeat(1000) } }) + '\n';
+  fs.writeFileSync(old, line.repeat(17 * 1024));
+  const tenDays = (now - 10 * 86400e3) / 1000;
+  fs.utimesSync(old, tenDays, tenDays);
+  const size = fs.statSync(old).size;
+  assert.ok(size > 16 * 1024 * 1024, 'CONTROL: the file is bigger than one tick reads');
+  const sources = { everyAgent: () => [], transcriptDirsOf: (d) => [d], guarded: () => true, agents: () => ['Scout'], allAgents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [old] };
+  await ae.tick({ root, remote: c, sources, now, manipulationCheck: true });
+  const st = ae._readState(root);
+  assert.equal(st.offsets[old], size, 'an idle file past the window was read from its start (offset ' + st.offsets[old] + ' of ' + size + ')');
+});
