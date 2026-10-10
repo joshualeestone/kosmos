@@ -11401,7 +11401,10 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-pill[data-state="connecting"] { background: rgba(126,160,240,.14); color: #9cc0ff; }
 #s-sec-plus .plus-pill[data-state="down"] { background: rgba(232,112,94,.14); color: #f0a397; }
 /* #4640: data-state="waiting" has no rule on purpose: it stays the plain grey pill (render-plus-panel-3829 pins it to the off colour). */
-#s-sec-plus .plus-chip { margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 18px 12px 16px; }
+/* #5787: padding 6px on the right, as the one-line box always had (#4744): its line is then exactly as wide as before,
+   so the one-line rule's 490px container threshold starts at the same window width. 12px there cost the line 6px and
+   wrapped Josh's sentence at a 600px window in CI. */
+#s-sec-plus .plus-chip { margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 18px 6px 16px 12px; }
 /* #5787: the one-line sentence and Copy keep #4744's rules on their own line inside the connect block. */
 #s-sec-plus .plus-chip-line { display: flex; align-items: center; gap: 8px; container-type: inline-size; }
 #s-sec-plus .plus-cx-art { display: block; width: 190px; max-width: 60%; height: auto; color: #B8C2DA; margin: 0 0 14px; }
