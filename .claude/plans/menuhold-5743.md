@@ -85,6 +85,13 @@ closes the menu first, then delivers).
 - The recommender's wiring is pinned by source text (as every #4588 timer is); its held behaviour is the recommender's
   own tests' (heldUntil non-null holds the convening).
 
+- A failed screen read on a WORKING card at a permission prompt (its PermissionRequest report not yet on the card) is
+  still typed into: the fail-open decision, narrowed only by the self-report exception.
+- A picker the person opened in the agent's window (model, resume, rewind) holds automatic lines and refuses others
+  until it is closed; held room posts age out after two hours like any held post. Accepted: it fails safe, and the
+  person is at that window.
+- Not memoised: the automatic senders' second read is the deliberate last look before typing.
+
 ## Weakest premise
 
 The snapshot reads working or needs_you while the screen is up. Not caught: a screen drawn while the snapshot still
