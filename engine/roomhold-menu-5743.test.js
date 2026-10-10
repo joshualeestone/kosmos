@@ -90,6 +90,7 @@ test('#5743 room: the PERSON\'s own post to a member on its menu is refused (not
     chat.setRunner(tmux); chat.setDryRun(false);
     const sent = messages.sendPost({ operator: true, project: PROJECT, text: '@april can you check clause 4?' }, board.agents, MEMBERS);
     assert.ok(sent.outcomes && sent.outcomes.april, 'premise: april was a recipient: ' + JSON.stringify(sent));
+    assert.equal(sent.outcomes.april, chat.DELIVERY.COULD_NOT, 'a person\'s post to a member on its menu was not refused: ' + JSON.stringify(sent.outcomes));
     assert.notEqual(sent.outcomes.april, roomhold.HELD, 'a person\'s post was held like a colleague\'s: ' + JSON.stringify(sent.outcomes));
     assert.deepEqual(tmux.typedTo('april'), [], 'a person\'s room post was typed into the question menu');
   } finally { board.restore(); }
