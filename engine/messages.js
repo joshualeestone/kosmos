@@ -3009,7 +3009,7 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
     const card = roster.find((c) => c && c.sessionName === name);
     if (!card || !card.target) continue;   // only an addressable card, as the #185 sweep
     const sent = chat.deliverAutomatic(name, line, roster);
-    if (sent && sent.held === true) continue;   // held on a shared quota: nothing typed, the gap not spent
+    if (sent && sent.held === true) continue;   // held (a shared quota, or a Claude screen waiting on its menu or a permission prompt): nothing typed, the gap not spent
     ownPostNudgedAt.set(key, now);
     appendLog({ kind: 'nudge', post: postId, to: name, project: projectId, at: new Date(now).toISOString(),
       outcome: sent && sent.state, reason: 'own-computer' });
