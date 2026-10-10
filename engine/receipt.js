@@ -503,4 +503,4 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
 
 module.exports = { forAgent, forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
   /* #5683: engine/agentevents.js reads the same transcript folders (one rule for where they are). */
-  _transcriptDirs: transcriptDirs, _transcriptsIn: transcriptsIn };
+  transcriptDirs, transcriptsIn };

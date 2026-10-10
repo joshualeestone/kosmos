@@ -603,3 +603,19 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   with a control (a refusal after the first tick is sent); red when both the time filter and the first-sight skip are
   disabled.
 - CONVERGED: the first round since review 29 with no real defect.
+
+## Challenge-loop iteration 1 (opus), all fixed unless stated
+- BLOCKER: events would be sent under consent words that never name them; the coordinator's own contract (v1.4,
+  org.rs consent()) says the words list only what is sent and change, with a re-accept, when something new starts. The
+  board now reads nothing unless the accepted words carry a line with EVENTS_CONSENT_PHRASE ("stopped by your
+  company's rules"); the coordinator's line is a separate relay change (filed), and until it is served and accepted
+  this module is dormant. Test (and its control), red by mutation.
+- WARNING: "Operation not permitted" is mostly macOS privacy control (TCC), not the company sandbox. A sandbox refusal
+  now counts only for targets that sandbox denies: board-files, agent-config, other-agent. A lost call (unknown target)
+  is no longer reported: REVERSES review 5, by decision. Test, red by mutation. Weakest premise: that the company
+  sandbox denies nothing else; if it grows a deny, SANDBOX_TARGETS must grow with it.
+- CONVENTION: receipt.js exported its production helpers under the test-seam prefix; renamed (transcriptDirs,
+  transcriptsIn).
+- NITs fixed: one enrollmentKey() (a JSON array) instead of '|' joins in two places and a split in a third; the
+  events tick's first look is two minutes after start, a minute after the rollup's; the reset comment names `listed`
+  as what keeps the gap out, and an unchecked clause in my new consent comment was deleted.
