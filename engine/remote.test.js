@@ -4235,3 +4235,86 @@ test('kosmos#5651 board review 6: a refusal for a setup that is gone says start 
   assert.equal(t.because, 'that company sign-in has ended; start again on the computer', 'a dead setup was left on the code step');
   assert.doesNotMatch(t.because, /all the texts|wait \d+ seconds/, 'a gone setup reads like a metered answer');
 });
+
+/* kosmos#5786 (b) (Josh, 2026-10-10 14:02): after this computer signs in, the browser it opens at #allow=<S> proves
+   itself with HMAC(S, its device id), and only that row is allowed, once. */
+const vouchFor = (secret, id) => require('node:crypto').createHmac('sha256', secret).update(id, 'utf8').digest('base64url');
+async function vouchSignedIn(name) {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister(name);
+  assert.equal(reg.ok, true, reg.because);
+  const secret = remote.vouchSecretForTests();
+  assert.ok(secret && /^[A-Za-z0-9_-]{43}$/.test(secret), 'premise: a sign-in mints a 43-character secret');
+  const plant = (devices) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices }));
+  return { secret, plant };
+}
+const nowS = () => Math.floor(Date.now() / 1000);
+const allowsOf = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+
+test('#5786 (b): the browser this computer opened is allowed by its vouch, once, and noted as on this computer', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchmac');
+  // Nothing recent waits yet: no browser is opened.
+  plant([]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a browser was opened with nothing waiting');
+  // Safari's request (Josh's case): the browser is opened at the sign-in page with the secret in the fragment.
+  plant([{ device_id: 'dev-safari', name: 'Mac · Safari', first_seen: nowS() - 360, code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.match(remote.vouchOpenedUrlForTests(), new RegExp('^https?://[^/#]+/#allow=' + secret + '$'));
+  // The page's vouch arrives on that row.
+  plant([{ device_id: 'dev-safari', name: 'Mac · Safari', first_seen: nowS() - 360, code: 'VR-D6', vouch: vouchFor(secret, 'dev-safari') }]);
+  const before = allowsOf().filter((x) => x === 'dev-safari').length;
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-safari'], 'the vouched allow to be noted');
+  assert.equal(allowsOf().filter((x) => x === 'dev-safari').length, before + 1, 'exactly one allow');
+  assert.equal(remote.vouchSecretForTests(), null, 'the secret is spent');
+  const c = remote.pendingDevices().connected_here;
+  assert.equal(c && c.device_id, 'dev-safari');
+  assert.equal(c && c.name, 'Mac · Safari');
+  // Spent: the same vouch does nothing more.
+  remote.vouchTickForTests();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(allowsOf().filter((x) => x === 'dev-safari').length, before + 1, 'a spent secret allowed again');
+  remote.setOn(false);
+});
+
+test('#5786 (b) CONTROLS: a wrong vouch, a joining computer and this computer\'s own sign-in are never allowed', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchctl');
+  const self = remote.read().device_id;
+  plant([{ device_id: 'dev-recent', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: the browser was opened');
+  plant([
+    { device_id: 'dev-other', name: 'Mac · Chrome', first_seen: nowS(), code: 'K7-3M', vouch: vouchFor('not-' + secret, 'dev-other') },
+    { device_id: 'dev-swapped', name: 'iPhone', first_seen: nowS(), code: 'Q2-9P', vouch: vouchFor(secret, 'dev-recent') },
+    { device_id: 'dev-pc', name: 'computer', first_seen: nowS(), code: '', joining_computer: 'herpc', vouch: vouchFor(secret, 'dev-pc') },
+    { device_id: self, name: 'this computer', first_seen: nowS(), code: 'W6-M4', vouch: vouchFor(secret, self) },
+  ]);
+  const before = allowsOf().length;
+  remote.vouchTickForTests();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(allowsOf().slice(before).filter((x) => x !== self), [], 'a row was allowed without its own vouch');
+  assert.ok(remote.vouchSecretForTests(), 'the secret is still live after only bad vouches');
+  // The arm that must work, on the same tick shape, so the controls above are not passing by never matching.
+  plant([{ device_id: 'dev-recent', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-recent') }]);
+  remote.vouchTickForTests();
+  await until(() => allowsOf().includes('dev-recent'), 'the right vouch to allow');
+  remote.setOn(false);
+});
+
+test('#5786 (b): removing a vouched device (Undo) drops its "on this computer" note', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchundo');
+  plant([{ device_id: 'dev-undo', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-undo', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-undo') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-undo'], 'the vouched allow to be noted');
+  const r = await remote.deviceRemove('dev-undo');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(remote.read().vouched['dev-undo'], undefined, 'the note survived the Undo');
+  assert.equal(remote.pendingDevices().connected_here, null, 'the notice still offers an Undo for a removed device');
+  remote.setOn(false);
+});

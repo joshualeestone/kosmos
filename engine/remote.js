@@ -245,6 +245,9 @@ function read() {
     /* client-clock ms when fedLive was last written; drives the TTL refresh. 0 = never
        stamped -> immediately stale. */
     fedLive_at: typeof parsed.fedLive_at === 'number' ? parsed.fedLive_at : 0,
+    /* kosmos#5786 (b): devices this computer allowed because the browser it opened proved itself (vouchTick), as
+       { <device_id>: { at: <seconds>, name } }, for the "connected" notice and the "on this computer" label. */
+    vouched: parsed.vouched && typeof parsed.vouched === 'object' && !Array.isArray(parsed.vouched) ? parsed.vouched : {},
     ok: true,
   };
 }
@@ -1118,6 +1121,7 @@ async function forget() {
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
+  stopVouch();   // kosmos#5786 (b): nor an open-browser secret
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1684,6 +1688,108 @@ function allowSelfQuietly() {
     .finally(() => { if (epoch === selfEpoch) selfAllowing = false; });
   return true;
 }
+/* kosmos#5786 (b) (Josh, 2026-10-10 14:02: "this should automatically just allow since i am on this computer"): after
+   this computer signs in, it may open the default browser at the sign-in page with #allow=<S>, where S is a secret
+   minted here and kept only in this process. That page, signed in as the person, sends the coordinator
+   HMAC-SHA256(S, its own device id), never S. The tunnel's snapshot carries that back as the row's `vouch`, and this
+   computer allows the ONE row whose vouch it can reproduce.
+   What it proves: the device asking holds a session on this account AND was opened by this computer in the last
+   VOUCH_WINDOW_MS. The coordinator never sees S, so a coordinator (or anyone holding it) cannot produce a matching
+   vouch, and a stranger with a stolen match code has no S (#3311).
+   What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
+   The browser is opened only once the snapshot holds a phone or browser request from the last VOUCH_RECENT_S, so an
+   app-only sign-up never gets a stray sign-in tab. A joining computer is never allowed this way: computers pair by
+   code (#4794, Baron's tunnel review). */
+const VOUCH_WINDOW_MS = 10 * 60 * 1000;
+const VOUCH_RECENT_S = 30 * 60;
+const VOUCH_POLL_MS = 3000;
+const VOUCH_NOTICE_MS = 10 * 60 * 1000;
+let vouchState = null;   // { secret, until, epoch, opened, matched, allowing }
+let vouchTimer = null;
+let vouchOpenedUrl = '';   // the last address opened, for tests (the opener's own argv drops it under a test command)
+function stopVouch() {
+  vouchState = null;
+  if (vouchTimer) { clearInterval(vouchTimer); vouchTimer = null; }
+}
+/* The sign-in page's address: the coordinator's own origin (it serves the page at /). https only, or plain http on
+   this computer's loopback for a local coordinator. */
+function vouchUrl(secret) {
+  let u;
+  try { u = new URL(COORDINATOR()); } catch { return null; }
+  const loopback = u.hostname === '127.0.0.1' || u.hostname === 'localhost';
+  if (!(u.protocol === 'https:' || (u.protocol === 'http:' && loopback))) return null;
+  return u.origin + '/#allow=' + secret;
+}
+function startVouch() {
+  stopVouch();
+  vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, opened: false, matched: '', allowing: false };
+  vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
+  if (vouchTimer.unref) vouchTimer.unref();
+}
+/* The rows a vouch may allow: valid ids, not this computer's own sign-ins, and never a computer (a joining one carries
+   joining_computer, or a code wait). null while there is no snapshot. */
+function vouchRows() {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
+  if (!raw || !Array.isArray(raw.devices)) return null;
+  const selves = ownDeviceIds();
+  return raw.devices.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
+    && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait);
+}
+function vouchMatches(secret, d) {
+  if (typeof d.vouch !== 'string') return false;
+  const want = Buffer.from(crypto.createHmac('sha256', secret).update(String(d.device_id), 'utf8').digest('base64url'));
+  const got = Buffer.from(d.vouch);
+  return got.length === want.length && crypto.timingSafeEqual(got, want);
+}
+function vouchTick() {
+  const v = vouchState;
+  if (!v) return;
+  if (Date.now() > v.until || v.epoch !== selfEpoch || !enrolled() || !read().on) { stopVouch(); return; }
+  const rows = vouchRows();
+  if (!rows) return;
+  if (!v.opened) {
+    const now = Math.floor(Date.now() / 1000);
+    if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
+    v.opened = true;
+    const url = vouchUrl(v.secret);
+    if (!url) { stopVouch(); return; }
+    vouchOpenedUrl = url;
+    runCompanyOpener(url).then((ok) => { if (!ok && vouchState === v) stopVouch(); });
+    return;
+  }
+  if (v.allowing) return;
+  // One device per secret: the first row that matched, retried until it is allowed or the window ends.
+  const hit = rows.find((d) => (!v.matched || String(d.device_id) === v.matched) && vouchMatches(v.secret, d));
+  if (!hit) return;
+  const id = String(hit.device_id);
+  const name = typeof hit.name === 'string' && hit.name.trim() ? hit.name.trim().slice(0, 60) : '';
+  v.matched = id;
+  v.allowing = true;
+  Promise.resolve()
+    .then(() => deviceAllow(id, name || undefined))
+    .then((r) => {
+      if (vouchState !== v || !r || !r.ok) return;
+      stopVouch();
+      const kept = Object.entries({ ...read().vouched, [id]: { at: Math.floor(Date.now() / 1000), name } })
+        .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
+      const saved = write({ vouched: Object.fromEntries(kept) });
+      if (!saved.ok) process.stderr.write('kosmos+: allowed the browser this computer opened, but could not note it: ' + saved.because + '\n');
+    })
+    .catch(() => null)
+    .finally(() => { v.allowing = false; });
+}
+/* The newest device allowed this way in the last VOUCH_NOTICE_MS, for the "connected" notice with its Undo. */
+function recentlyVouched(settings = read()) {
+  const now = Math.floor(Date.now() / 1000);
+  let best = null;
+  for (const [id, e] of Object.entries(settings.vouched || {})) {
+    const at = Number(e && e.at) || 0;
+    if (!DEVICE_ID.test(id) || now - at > VOUCH_NOTICE_MS / 1000) continue;
+    if (!best || at > best.at) best = { device_id: id, name: e && typeof e.name === 'string' && e.name ? e.name : null, at };
+  }
+  return best;
+}
 /* kosmos#4794: the reasons kosmos-tunnel's devices.rs gives for a joining computer's empty code (pairing.rs wait_reason,
    plus was_a_computer). Anything else is dropped rather than shown. */
 const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer']);
@@ -1724,7 +1830,7 @@ function pendingDevices() {
          fixed list so the page words each one; null while the code is shown or being worked out. */
       code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null,
     }));
-  return { devices, snapshot: raw !== null, email: settings.email || '' };
+  return { devices, snapshot: raw !== null, email: settings.email || '', connected_here: recentlyVouched(settings) };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
    of JSON. Other lines
@@ -1771,6 +1877,7 @@ async function devicesList() {
   const r = parseSaid(await setupRun(deviceArgs('list', null, false)));
   if (!r.ok) return r;
   const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
+  const vouched = read().vouched;
   return { ok: true, because: null, data: { devices: list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
     .map((d) => ({
@@ -1783,6 +1890,9 @@ async function devicesList() {
          computers (its signed allow reached this one). null when this computer allowed it, and for a tunnel
          without part C, which sends nothing. */
       allowed_on: typeof d.allowed_on === 'string' && d.allowed_on.trim() ? d.allowed_on.trim().slice(0, 60) : null,
+      /* kosmos#5786 (b): allowed because the browser this computer opened proved itself, so the page can say
+         "on this computer". */
+      on_this_computer: Object.prototype.hasOwnProperty.call(vouched, String(d.device_id)),
     })) } };
 }
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
@@ -1844,9 +1954,17 @@ async function deviceRemove(id) {
   if (!r.ok && r.code === 2 && /unexpected argument '--coordinator'/.test(said)) {
     // A Forget may have started between the two spawns; the same refusal as the first call then.
     { const b = busy(); if (b) return b; }
-    return removeAnswer(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
+    return forgetVouched(id, removeAnswer(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs()))));
   }
-  return removeAnswer(r);
+  return forgetVouched(id, removeAnswer(r));
+}
+/* kosmos#5786 (b): a removed device (the notice's Undo, or the list's Remove) is no longer "on this computer". */
+function forgetVouched(id, answer) {
+  if (answer && answer.ok && read().vouched[id]) {
+    const { [id]: _gone, ...rest } = read().vouched;
+    write({ vouched: rest });
+  }
+  return answer;
 }
 /* #4824: a connector killed on the timeout answers `timed_out`, and the page points at the list. */
 function removeAnswer(r) {
@@ -2250,6 +2368,7 @@ function signinCancel() {
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: as the session: no secret is left behind a sign out
+  stopVouch();   // kosmos#5786 (b): the same for the open-browser secret
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
@@ -2746,6 +2865,7 @@ async function signinRegister(name) {
       turnOnAfterSignin();
       ensure(localPort);
       signinSession = null;
+      startVouch();   // kosmos#5786 (b)
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
       // uniform shape (always a standing key) is easier for the wizard than a
@@ -2808,6 +2928,7 @@ async function signinRegister(name) {
      flag (busy) is cleared, and a fresh identity may be granted at once (the retry window starts over). */
   resetSelfGrant();
   setImmediate(allowSelfQuietly);
+  startVouch();   // kosmos#5786 (b): after resetSelfGrant, so its epoch is this sign-in's
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
   registerTakesOver();   // kosmos#4277: the register's start is not a relaunch
@@ -2898,7 +3019,10 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  vouchTickForTests: () => vouchTick(),
+  vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
+  vouchOpenedUrlForTests: () => vouchOpenedUrl,
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
