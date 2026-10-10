@@ -98,11 +98,22 @@ test('#5663: the record cannot be rewritten by the agent: it is denied to the fi
 test('#5663: a sandbox layer past the measured ceiling is a warning (the guard is whole and written), never a refusal', () => {
   const dir = agentDir('lp-ceiling');
   const many = [];
-  for (let i = 0; i < 1400; i++) many.push(binDir(`ceiling/pkg${i}/1.${i}/bin`));
+  /* #5765: long enough to be past the raw limit in ONE spelling. On macOS every rule is counted twice (/var and
+     /private/var, /tmp and /private/tmp), which carried short entries past it; on Linux the spellings are one, and
+     1400 short entries under /tmp came to about 100,000 characters, under the limit, so the test was red there only. */
+  const pad = 'p'.repeat(100);
+  for (let i = 0; i < 1400; i++) many.push(binDir(`ceiling/${pad}${i}/1.${i}/bin`));
   const r = setup.guardTokenOnlyFolder(dir, 'lp-ceiling', { ...BASE, atLaunch: true, panePath: many.join(path.delimiter) });
   // Review 4: a warning, never a refusal (creation refuses on ok:false, and the limits are fitted to measurements).
   assert.equal(r.ok, true, JSON.stringify(r).slice(0, 200));
-  assert.match(r.warning, /denied path entries across the read and write clauses \(\d+ distinct characters, \d+ in all\) are past/);
+  /* #5765: what was written, in the failure message, so a red on another platform says why without a rerun. */
+  const st = readSettings(dir);
+  const fsb = st.sandbox.filesystem;
+  const chars = (list) => (list || []).reduce((n, x) => n + String(x).length, 0);
+  const seen = JSON.stringify({ tmp: require('node:os').tmpdir(), deny: st.permissions.deny.length, denyChars: chars(st.permissions.deny),
+    denyWrite: (fsb.denyWrite || []).length, denyWriteChars: chars(fsb.denyWrite), denyRead: (fsb.denyRead || []).length, denyReadChars: chars(fsb.denyRead),
+    sampleDeny: st.permissions.deny.find((x) => x.includes('ceiling')), sampleWrite: (fsb.denyWrite || []).find((x) => x.includes('ceiling')) });
+  assert.match(String(r.warning), /denied path entries across the read and write clauses \(\d+ distinct characters, \d+ in all\) are past/, 'no ceiling warning; written: ' + seen);
   assert.ok(readSettings(dir).sandbox.filesystem.denyWrite.length > 1000, 'the guard was not written');
   // CONTROL: the same agent with a handful of folders is whole.
   assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, atLaunch: true, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
