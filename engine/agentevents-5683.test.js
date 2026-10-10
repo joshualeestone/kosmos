@@ -1680,3 +1680,15 @@ test('#5683 cl-rebase: a sandbox refusal inside a network command is judged by t
   assert.deepEqual(got.map((e) => [e.toolUseRef, e.rule, e.targetClass]),
     [['n1', 'sandbox', 'agent-config'], ['n2', 'sandbox', 'other-agent'], ['n4', 'token-only-guard', 'network-host']]);
 });
+
+test('#5683 cl-rebase: a transcript with no unanswered call holds no memory', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('open-1', 'Bash', { command: 'ls' }));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.ok(ae._callFiles().includes(s.file), 'control: an unanswered call is kept');
+  append(s.file, result('open-1', 'ok', false));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(ae._callFiles().includes(s.file), false, 'a transcript with every call answered still holds a map');
+});

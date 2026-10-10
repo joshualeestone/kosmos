@@ -993,7 +993,7 @@ async function tickOnce(opts) {
     if (unwritten) UNWRITTEN_STOP = false;   // the withdrawn start is on disk now
     /* The calls are kept only now: had the write failed, the next tick re-reads those lines WITH their calls (review 23:
        a consumed call left the re-read classed without its target). */
-    for (const [f, m] of nextCalls) CALLS.set(f, m);
+    for (const [f, m] of nextCalls) { if (m.size) CALLS.set(f, m); else CALLS.delete(f); }
     if (st.pending.length === 0) return { sent: 0, because: null };
     if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: 0, because: 'waiting after a failed send' };
     /* Re-checked after the scan (review 2, the rollup's review 3): a Leave pressed, or words withdrawn, while the
@@ -1076,4 +1076,4 @@ async function tickOnce(opts) {
 }
 
 module.exports = { ROUTE, SEND_MAX, EVENTS_CONSENT_PHRASE, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn, withdrawIfStopped, _readState: readState,
-  _defaultSources: defaultSources };   // the guard check's round-trip test (review 17)
+  _defaultSources: defaultSources, _callFiles: () => [...CALLS.keys()] };   // the guard check's round-trip test (review 17)
