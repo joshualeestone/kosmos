@@ -38,7 +38,7 @@ test('#5080: no file is Automatic, and Automatic reads exactly as before the pic
   clearChoice();
   assert.deepEqual(pl.readChoice(), { choice: 'auto', ok: true });
   pl._resetForTests(LINUX);
-  assert.deepEqual(pl.read(), { tag: 'es-ES', sure: false, from: 'computer' }, 'off a Mac, Automatic is still not sure');
+  assert.deepEqual(pl.read(), { tag: 'es-ES', sure: false, from: 'computer', auto: true }, 'off a Mac, Automatic is still not sure');
   pl._resetForTests(SPANISH_MAC);
   assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true, from: 'computer' });
 });
@@ -131,4 +131,74 @@ test('#5080: only the bracketed source differs; the computer\'s wording is byte-
   assert.equal(b, a.replace('(es-419, from this computer\'s language setting)', '(es-419, chosen in Kosmos Settings)'));
   assert.notEqual(a, b, 'CONTROL: the two differ at all');
   assert.equal(pl.blockBody('en', 'settings'), null);
+});
+
+test('#5080 review 1: Automatic after a choice, on a computer it cannot read, takes the chosen block out', () => {
+  const original = '# Cy\n\nYou are Cy, who drafts the newsletter for the person.\n';
+  agentFile('cy', original);
+  const board = fleet.install([fleet.agent('cy')]);
+  try {
+    clearChoice();
+    pl._resetForTests(LINUX);
+    pl.setChoice('es-419');
+    pl.syncEveryone(board.roster);
+    assert.match(fileOf('cy'), /chosen in Kosmos Settings/, 'CONTROL: the choice wrote its block');
+    pl.setChoice('auto');
+    const told = pl.syncEveryone(board.roster);
+    assert.equal(fileOf('cy'), original, 'Automatic left the old choice in place while the page says English');
+    assert.equal(told[0].changed, true);
+    // A block the computer's own setting wrote is not touched by an unsure Automatic, as before the picker.
+    pl.tellAgent('cy', board.roster, { tag: 'es-MX', sure: true, from: 'computer' });
+    const computerBlock = fileOf('cy');
+    pl.syncEveryone(board.roster);
+    assert.equal(fileOf('cy'), computerBlock, 'an unsure Automatic removed a block the computer\'s setting wrote');
+    // And an unreadable choice still changes nothing, even over a Settings block.
+    pl.setChoice('pt-BR');
+    pl.syncEveryone(board.roster);
+    const ptBlock = fileOf('cy');
+    fs.writeFileSync(pl.CHOICE_FILE, '{broken');
+    pl._resetForTests(LINUX);
+    pl.syncEveryone(board.roster);
+    assert.equal(fileOf('cy'), ptBlock, 'an unreadable choice removed a Settings block');
+  } finally { board.restore(); clearChoice(); }
+});
+
+test('#5080 review 1: what Automatic reads is kept, so opening Settings does not ask `defaults` every time', () => {
+  clearChoice();
+  let calls = 0;
+  pl._resetForTests({ env: {}, platform: 'darwin', intl: 'en-US', run: () => { calls += 1; return '(\n    "pt-BR"\n)\n'; } });
+  assert.equal(pl.automatic().tag, 'pt-BR');
+  pl.automatic(); pl.automatic();
+  assert.equal(calls, 1, 'defaults was asked again for a sure Automatic read');
+  // A failed read is asked again only after the window, as read() does.
+  calls = 0;
+  pl._resetForTests({ env: {}, platform: 'darwin', intl: 'en-US', run: () => { calls += 1; throw new Error('timed out'); } });
+  pl.automatic(); pl.automatic();
+  assert.equal(calls, 1, 'a failed defaults was asked again inside the window');
+  pl._ageFallbackForTests();
+  pl.automatic();
+  assert.equal(calls, 2, 'CONTROL: it is asked again once the window passes');
+  pl._resetForTests();
+});
+
+test('#5080 review 1: the edit history names Settings as the reason when the choice wrote it', () => {
+  const instructions = require('./instructions');
+  agentFile('dee', '# Dee\n\nYou are Dee, who sorts the receipts for the person.\n');
+  const board = fleet.install([fleet.agent('dee')]);
+  const file = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'dee', 'CLAUDE.md');
+  try {
+    clearChoice();
+    pl._resetForTests(LINUX);
+    pl.setChoice('es-419');
+    pl.syncEveryone(board.roster);
+    assert.equal((instructions.wroteBy('dee', fs.statSync(file).mtimeMs) || {}).because, 'the language the person chose in Settings (#5080)');
+    pl.tellAgent('dee', board.roster, { tag: 'pt-BR', sure: true, from: 'computer' });
+    assert.equal((instructions.wroteBy('dee', fs.statSync(file).mtimeMs) || {}).because, 'the person\'s language, from this computer\'s language setting (#5050)', 'CONTROL: the computer\'s reason');
+  } finally { board.restore(); clearChoice(); }
+});
+
+test('#5080 review 1: a new agent\'s step names Settings when English came from the choice', () => {
+  const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
+  assert.match(create, /label: got\.from === 'settings' \? 'took out a language section from its instructions, because you chose English in Settings' : 'took out a language section from its instructions, because this computer\\'s language is English'/);
 });
