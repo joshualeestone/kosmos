@@ -37380,7 +37380,7 @@ let TALK_QUERY = '';
    `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
    screen before it sends a key (409 when the menu moved). */
 let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
-let DM_CHOICE_NOTE = null;   // { session, text }: what became of the last press, kept across the repaint it asks for
+let DM_CHOICE_NOTE = null;   // { session, asked, text }: what became of the last press, kept across the repaint it asks for
 let DM_CHOICE_INFLIGHT = null;   // { session, asked } while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
@@ -37392,7 +37392,8 @@ function dmChoicesFrom(body, sessionName) {
 function dmChoicesHtml(m) {
   if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
   const flying = DM_CHOICE_INFLIGHT && DM_CHOICE_INFLIGHT.session === DM_CHOICES.session && DM_CHOICE_INFLIGHT.asked === DM_CHOICES.asked;
-  const note = flying ? 'Sending…' : (DM_CHOICE_NOTE && DM_CHOICE_NOTE.session === DM_CHOICES.session ? DM_CHOICE_NOTE.text : '');
+  const note = flying ? 'Sending…' : (DM_CHOICE_NOTE && DM_CHOICE_NOTE.session === DM_CHOICES.session
+    && DM_CHOICE_NOTE.asked === DM_CHOICES.asked ? DM_CHOICE_NOTE.text : '');
   return '<div class="dmchoices" role="group" aria-label="Choices">'
     + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '"' + (flying ? ' disabled' : '') + '>'
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
@@ -37400,7 +37401,7 @@ function dmChoicesHtml(m) {
 }
 async function dmChoicePress(btn) {
   const c = DM_CHOICES;
-  if (!c || !CURRENT || CURRENT.sessionName !== c.session || DM_CHOICE_INFLIGHT) return;
+  if (!c || !CURRENT || CURRENT.sessionName !== c.session || (DM_CHOICE_INFLIGHT && DM_CHOICE_INFLIGHT.session === c.session)) return;
   const opt = c.options.find((o) => String(o.n) === btn.getAttribute('data-n'));
   if (!opt) return;
   const box = btn.closest('.dmchoices');
@@ -37418,8 +37419,13 @@ async function dmChoicePress(btn) {
       body: JSON.stringify({ text: String(opt.n), chose: opt.label, asked: c.asked }),
     });
     const out = await res.json().catch(() => ({}));
-    ok = res.ok;
-    if (!ok) note = pjSentence(out.error || 'that did not go; try again');
+    /* A 200 carries the real outcome in delivery.state: only `placed` is sent. `unconfirmed` (the menu was still up
+       after the key) and `could_not` say why, in the server's words. */
+    const d = (out && out.delivery) || {};
+    ok = res.ok && d.state === 'placed';
+    if (!res.ok) note = pjSentence(out.error || 'that did not go; try again');
+    else if (!ok) note = (d.state === 'unconfirmed' ? 'We could not confirm that went. ' : '')
+      + pjSentence(d.because || 'that did not go; try again');
   } catch {
     note = 'We could not reach Kosmos; try again.';
   } finally {
@@ -37427,10 +37433,17 @@ async function dmChoicePress(btn) {
   }
   if (ok) note = 'Sent.';
   if (msg) msg.textContent = note;
-  DM_CHOICE_NOTE = { session, text: note };
+  DM_CHOICE_NOTE = { session, asked: c.asked, text: note };
   if (!ok && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
-  /* A refusal repaints too: it usually means the menu moved, and the buttons should show the one up now. */
-  if (CURRENT && CURRENT.sessionName === session) paintTalk(CURRENT.sessionName, CURRENT.name);
+  /* Every outcome repaints: a refusal usually means the menu moved, and the buttons should show the one up now. */
+  if (CURRENT && CURRENT.sessionName === session) await paintTalk(CURRENT.sessionName, CURRENT.name);
+  /* Disabling the pressed button dropped focus to the page; put it back on the same choice (or the group's first)
+     when it is still on the page and focus has gone nowhere else. */
+  if (!document.activeElement || document.activeElement === document.body) {
+    const thread = document.getElementById('d-dmthread');
+    const back = thread && (thread.querySelector('.dmchoice[data-n="' + CSS.escape(String(opt.n)) + '"]') || thread.querySelector('.dmchoice'));
+    if (back) back.focus({ preventScroll: true });
+  }
 }
 document.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;

@@ -18,10 +18,12 @@ const REGION = SCRIPT.slice(SCRIPT.indexOf('let DM_CHOICES = null;'), SCRIPT.ind
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function load(env) {
-  const fn = new Function('esc', 'CURRENT', 'fetch', 'pjSentence', 'paintTalk', REGION
+  const fn = new Function('esc', 'CURRENT', 'fetch', 'pjSentence', 'paintTalk', 'document', 'CSS', REGION
     + '\nreturn { from: dmChoicesFrom, html: dmChoicesHtml, press: dmChoicePress, get: () => DM_CHOICES, note: () => DM_CHOICE_NOTE };');
-  return fn(esc, env.CURRENT, env.fetch || (async () => ({ ok: true, json: async () => ({}) })), (s) => s, env.paintTalk || (() => {}));
+  const doc = env.document || { activeElement: null, getElementById: () => null };
+  return fn(esc, env.CURRENT, env.fetch || (async () => ({ ok: true, json: async () => PLACED })), (s) => s, env.paintTalk || (async () => {}), doc, { escape: (x) => x });
 }
+const PLACED = { delivery: { state: 'placed' } };
 const BODY = { asking: true, asked: 'Which fruit do you want?', options: [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana <b>' }] };
 const Q = { kind: 'question', id: 'needs-you-question:casey', text: 'Which fruit do you want?' };
 /* CURRENT is a board card, so it comes from the fleet fixture (fixture-discipline), not a hand-built object. */
@@ -68,7 +70,7 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
       duringFlight = { disabled: btns.map((b) => b.disabled), msg: msg.textContent, redrawn: m.html(Q) };
       await m.press(btn);   // a second press while the first is in the air (a repaint re-drew the buttons) sends nothing
       sent.push({ url, body: JSON.parse(init.body) });
-      return { ok: true, json: async () => ({}) };
+      return { ok: true, json: async () => PLACED };
     },
     paintTalk: () => { painted += 1; },
   });
@@ -99,4 +101,52 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
   // CONTROL: once the menu is gone the note goes with it.
   m2.from({ ...BODY, asking: false }, CUR.sessionName);
   assert.equal(m2.note(), null, 'a note outlived the menu it was about');
+});
+
+test('#5406 C: a 200 that did not place the key says so, and the note belongs to its question', async () => {
+  const CUR = realCard();
+  const m = load({ CURRENT: CUR, fetch: async () => ({ ok: true, json: async () => ({ delivery: { state: 'unconfirmed', because: 'its question was still on its screen after the answer' } }) }) });
+  m.from(BODY, CUR.sessionName);
+  const b = [{ disabled: false }]; const msg = { textContent: '' };
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => b, querySelector: () => msg }) });
+  assert.equal(msg.textContent, 'We could not confirm that went. its question was still on its screen after the answer', 'an unconfirmed answer read as sent');
+  assert.match(m.html(Q), /We could not confirm/);
+  // A NEW question on the same agent opens clean: the note was about the old one.
+  m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
+  assert.doesNotMatch(m.html(Q), /We could not confirm|Sent\./, 'an old outcome showed under a new question');
+  // CONTROL: back on the question it was about, the note shows.
+  m.from(BODY, CUR.sessionName);
+  assert.match(m.html(Q), /We could not confirm/);
+});
+
+test('#5406 C: after a press, focus goes back to the same choice when it fell to the page', async () => {
+  const CUR = realCard();
+  const focused = [];
+  const body = {};
+  const thread = { querySelector: (sel) => (sel.includes('data-n="2"') ? { focus: () => focused.push('2') } : null) };
+  const doc = { activeElement: body, body, getElementById: (id) => (id === 'd-dmthread' ? thread : null) };
+  const m = load({ CURRENT: CUR, document: doc });
+  m.from(BODY, CUR.sessionName);
+  const b = [{ disabled: false }]; const msg = { textContent: '' };
+  await m.press({ getAttribute: () => '2', closest: () => ({ querySelectorAll: () => b, querySelector: () => msg }) });
+  assert.deepEqual(focused, ['2'], 'focus was left on the page after the press');
+  // CONTROL: focus that went somewhere else is left there.
+  doc.activeElement = { other: true }; focused.length = 0;
+  await m.press({ getAttribute: () => '2', closest: () => ({ querySelectorAll: () => b, querySelector: () => msg }) });
+  assert.deepEqual(focused, []);
+});
+
+test('#5406 C: a press on one agent does not block a press on another', async () => {
+  const CUR = realCard();
+  let release; const sent = [];
+  const cur = { ...CUR };
+  const m = load({ CURRENT: cur, fetch: async (url) => { sent.push(url); if (sent.length === 1) await new Promise((r) => { release = r; }); return { ok: true, json: async () => PLACED }; } });
+  m.from(BODY, cur.sessionName);
+  const mk = (n) => ({ getAttribute: () => n, closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  const first = m.press(mk('1'));
+  cur.sessionName = 'other-agent';   // the person switched agents while the first press is in the air
+  m.from(BODY, 'other-agent');
+  await m.press(mk('2'));
+  assert.equal(sent.length, 2, 'a press on another agent was dropped while the first was in flight');
+  release(); await first;
 });
