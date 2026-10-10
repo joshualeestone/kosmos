@@ -47,3 +47,11 @@ test('#5080: no em dash and no "this Mac" in the new words', () => {
     assert.doesNotMatch(s, /this Mac/i);
   }
 });
+
+test('#5080 review 2: a read still out from page load cannot drop a save\'s answer', () => {
+  const fn = code.slice(code.indexOf('async function agentLanguageChange'), code.indexOf("document.getElementById('agent-language').addEventListener"));
+  assert.ok(fn.length > 500, 'CONTROL: the save function was found');
+  assert.match(fn, /const mine = \+\+AGENT_LANG_SAVE_EPOCH;\s*AGENT_LANG_EPOCH \+= 1;/);
+  assert.match(fn, /if \(mine !== AGENT_LANG_SAVE_EPOCH\) return;/);
+  assert.doesNotMatch(fn, /mine !== AGENT_LANG_EPOCH/, 'the save is again dropped by a read\'s epoch');
+});

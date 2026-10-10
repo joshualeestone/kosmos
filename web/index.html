@@ -32800,7 +32800,8 @@ document.getElementById('community-industry').addEventListener('change', industr
 
 /* #5080: "The language your agents write to you in" (GET/PUT /api/agent-language). Automatic names what this computer
    reads now when it is sure of it. An unreadable choice shows "Could not be read just now" (disabled), never a choice. */
-let AGENT_LANG_EPOCH = 0;
+let AGENT_LANG_EPOCH = 0;        // reads: an older read never paints over a newer answer
+let AGENT_LANG_SAVE_EPOCH = 0;   // saves, counted apart, so a read still out from page load cannot drop a save's answer
 let AGENT_LANG_SAVING = false;
 function agentLanguagePaint(r, keepMsg) {
   const sel = document.getElementById('agent-language');
@@ -32846,7 +32847,8 @@ async function agentLanguageChange() {
   if (sel.value === '__unknown') return;
   if (AGENT_LANG_SAVING) { AGENT_LANG_PENDING = sel.value; return; }
   AGENT_LANG_SAVING = true;
-  const mine = ++AGENT_LANG_EPOCH;
+  const mine = ++AGENT_LANG_SAVE_EPOCH;
+  AGENT_LANG_EPOCH += 1;   // any read already out is older than this save: it no longer paints
   const msg = document.getElementById('agent-language-msg');
   try {
     const res = await fetch('/api/agent-language', {
@@ -32855,8 +32857,9 @@ async function agentLanguageChange() {
       body: JSON.stringify({ choice: sel.value }),
     });
     const body = await res.json().catch(() => ({}));
-    if (mine !== AGENT_LANG_EPOCH) return;
+    if (mine !== AGENT_LANG_SAVE_EPOCH) return;
     if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; refreshAgentLanguage(true); return; }
+    AGENT_LANG_EPOCH += 1;   // nor does a read started while this save was out
     agentLanguagePaint(body);
     const n = Number(body.couldNot) || 0;
     msg.textContent = body.ok !== true ? 'Saved, but we could not read it back just now.'

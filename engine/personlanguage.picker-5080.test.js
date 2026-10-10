@@ -202,3 +202,22 @@ test('#5080 review 1: a new agent\'s step names Settings when English came from 
   const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
   assert.match(create, /label: got\.from === 'settings' \? 'took out a language section from its instructions, because you chose English in Settings' : 'took out a language section from its instructions, because this computer\\'s language is English'/);
 });
+
+test('#5080 review 2: only the bracketed Settings source marks a block as ours to take out', () => {
+  const head = '# Eli\n\nYou are Eli, who books the travel for the person and keeps the receipts.\n\n';
+  const pasted = head + projects_block('## The person\'s language\n\nNotes: the phrase chosen in Kosmos Settings appears here in prose.');
+  agentFile('eli', pasted);
+  const board = fleet.install([fleet.agent('eli')]);
+  try {
+    clearChoice();
+    pl._resetForTests(LINUX);
+    pl.syncEveryone(board.roster);
+    assert.equal(fileOf('eli'), pasted, 'a block that only mentions the phrase was removed');
+    // CONTROL: the same file with the block a choice writes IS taken out, so the check above could fail.
+    const ours = head + projects_block(pl.blockBody('es-419', 'settings'));
+    agentFile('eli', ours);
+    pl.syncEveryone(board.roster);
+    assert.doesNotMatch(fileOf('eli'), /chosen in Kosmos Settings/, 'CONTROL: the block a choice wrote was not taken out');
+  } finally { board.restore(); clearChoice(); }
+});
+function projects_block(body) { return pl.START + '\n' + body + '\n' + pl.END + '\n'; }
