@@ -55,7 +55,12 @@ test('#5534 slice 3: the company\'s AI policy text is handed to an agent, with i
     assert.equal(told.changed, true, 'a write was not reported as a change, so a running agent is never told');
     const one = fs.readFileSync(bootFile('casey'), 'utf8');
     assert.ok(one.includes('Never paste client names into a prompt.'), 'the company text did not reach the agent');
-    assert.match(one, /Set by your company in its Kosmos policy \(version 3\)/);
+    assert.ok(one.includes('Set by your company in its Kosmos policy.'), 'no provenance line for the company entry');
+    // Review 1: a new company version with the same AI text changes nothing in the file, so nobody is owed a re-read.
+    applyCompany({ name: 'Acme legal', text: 'Never paste client names into a prompt.' }, 4);
+    const again = policy.tellAgent('casey', roster);
+    assert.equal(again.changed, undefined, 'a new version with the same words rewrote the agent\'s file');
+    assert.equal(fs.readFileSync(bootFile('casey'), 'utf8'), one);
     assert.ok(one.includes('Do the work well'), 'the agent\'s own words did not survive');
 
     // With the person's own policy: one stacked block, the company's first.

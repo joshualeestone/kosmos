@@ -20973,19 +20973,31 @@ function orgEnrollRefresh() {
   } catch { /* best effort */ }
 }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
-   every agent's policy block when it changes: a new version applied by a refresh, or cleared by leaving. Compared by
-   what agents would be handed (name, text, version), so a refresh that changed nothing writes nothing. The first call
-   (at board start, after the boot sweep wrote every file) only records it. */
+   every agent's policy block when it changes: a new company policy applied by a refresh, or cleared by leaving.
+   Compared by what agents are handed (name and text), so a refresh, or a new version that changed only other
+   settings, writes nothing. The first call (at board start, right after the boot sweep) only records it. What it
+   records is kept only once every agent was told (review 1): an agent that could not be told is tried again on the
+   next refresh, not left on the old text until the next board start. */
 let COMPANY_POLICY_SEEN;
+const COMPANY_POLICY_RETRY = Symbol('retry');   // never equal to a recorded value: the next call writes every agent
 function companyPolicySync() {
   try {
     const c = policyEngine.companyEntry();
-    const now = c ? JSON.stringify([c.name, c.text, c.version]) : null;
-    if (COMPANY_POLICY_SEEN === undefined || now === COMPANY_POLICY_SEEN) { COMPANY_POLICY_SEEN = now; return; }
-    COMPANY_POLICY_SEEN = now;
+    const now = c ? JSON.stringify([c.name, c.text]) : null;
+    // Text the applied policy carries that no agent can be handed: said, never dropped silently (review 1).
+    if (!c) {
+      try {
+        const a = require('./engine/orgpolicy').appliedNow();
+        const ai = a && a.policy && a.policy.ai_policy;
+        if (ai && typeof ai === 'object' && typeof ai.text === 'string' && ai.text.trim()) process.stderr.write(`Kosmos did not hand your company's AI policy (version ${a.version}) to its agents: its text is longer than ${policyEngine.TEXT_MAX} characters\n`);
+      } catch { /* the line is only a courtesy */ }
+    }
+    if (COMPANY_POLICY_SEEN === undefined) { COMPANY_POLICY_SEEN = now; return; }
+    if (now === COMPANY_POLICY_SEEN) return;
     const told = policyEngine.syncEveryone(safeRoster());
     instructionRereadOweEach(told, 'policy');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (!stuck.length) COMPANY_POLICY_SEEN = now;
     if (stuck.length) process.stderr.write(`Kosmos could not hand your company's AI policy to ${stuck.length} of ${told.length} agent(s); they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${(stuck[0] && stuck[0].because) || 'no reason given'}\n`);
   } catch (err) {
     process.stderr.write(`Kosmos could not hand your company's AI policy to its agents: ${String(err && err.message)}\n`);
@@ -22230,10 +22242,12 @@ if (require.main === module) {
   }
   /* #5534 slice 3: the AI policy block at boot, as reports and connections are: before this, an agent that existed when a
      policy was saved was the only one that had it, and the company's policy text reaches every agent's next start. */
+  let bootPolicyAllTold = false;
   try {
     const told = policyEngine.syncEveryone(safeRoster());
     instructionRereadOweEach(told, 'policy');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    bootPolicyAllTold = stuck.length === 0;
     if (stuck.length) {
       const why = (stuck[0] && stuck[0].because) || 'no reason given';
       process.stderr.write(`Kosmos could not refresh the AI policies of ${stuck.length} of ${told.length} agent(s); they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
@@ -22241,7 +22255,9 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh the AI policies agents are handed: ${String(err && err.message)}\n`);
   }
-  companyPolicySync();   // records what was handed out, so a later refresh writes only on a change
+  // Records what was handed out, so a later refresh writes only on a change; when some agent was not told, nothing is
+  // recorded as handed out, so the next refresh tries every agent again (review 1).
+  if (bootPolicyAllTold) companyPolicySync(); else COMPANY_POLICY_SEEN = COMPANY_POLICY_RETRY;
   try {
     const told = connections.syncEveryone(safeRoster());
     instructionRereadOweEach(told, 'connections');
