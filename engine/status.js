@@ -9020,7 +9020,7 @@ module.exports = {
   countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
-  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
+  rank, paneOrder, modelDisplayName, readGeminiSession, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
   codexLastCompletionAt,
   // #3296 observability follow-on: the Gemini completion-time helper (wired into
   // snapshot's GOOGLE observation arm; exported for the direct-caller/test path).

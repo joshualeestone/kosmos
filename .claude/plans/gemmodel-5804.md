@@ -17,7 +17,11 @@ sometimes silently); its base Flash is gemini-3.5-flash. So "Gemini 3.5 Flash" o
   aside); anything unreadable. Reads injectable.
 - engine/geminisession.js: `modelAt`, when the model-naming reply was written.
 - server.js row: `startedModelName`, only for a running Gemini agent of ours with a recorded model. Cost per running
-  Gemini agent per poll: one job read, one session read, the cached tmux session list.
+  Gemini agent per poll: a SECOND job read and a SECOND session read (the status read that produced modelName does not
+  carry modelAt out), plus the cached tmux session list. Accepted for now (Gemini agents are few per board); carrying
+  model/modelAt out of the status read is the cheaper follow-up if a board runs many (review 2).
+- Same-run check: a model change restarts the agent by closing its tmux session (engine/remove.js restart:
+  sessionOps.end), and the supervisor starts a fresh one, so the session start moves (review 2 asked; verified).
 - web/index.html modelLine: "<answering model> (started on <started>)" when the board sends it. modelLine feeds the card,
   the list row, the detail meta line, the "Right now" line, the model menu's "Runs on" option and the model sort; all get
   the same words on purpose (one question, one answer; the sort then groups by what the card says).
