@@ -2692,6 +2692,7 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
       const asked = chatEngine.questionAbove(chatEngine.questionIn('Edit file src/a.js?\n❯ 1. Yes\n  2. No').text);
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
       assert.equal(res.status, 409, 'the screen is asking about a different file now');
+      assert.match(String(json(res).error), /cannot be answered with a button/, 'refused, but not as a non-menu screen (the identity case is server.question-menu-5406.test.js\'s)');
       assert.equal(calls.sends().length, 0, 'and nothing was typed into the pane');
     });
 });
@@ -2727,8 +2728,9 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
    * "rm -rf /Users/josh/build" above the same Yes/No menu, and containment
    * called that the same question.
    *
-   * Equality refuses it. The reason equality is safe again is that the identity
-   * no longer moves with the cursor -- see `questionAbove`.
+   * #5406 slice C: this Yes/No screen is not Claude's single-select question menu, so a press here is refused
+   * before the identity check runs ("cannot be answered with a button"). Equality versus containment is pinned on
+   * the live menu in server.question-menu-5406.test.js (the accumulated-question test).
    */
   const chatEngine = require('./engine/chat');
   const painted = 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n\n> ';
@@ -2742,6 +2744,7 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
     [said(accumulated), said(), said()], async ({ calls }) => {
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
       assert.equal(res.status, 409, 'answering the older question would type 1 at the newer one');
+      assert.match(String(json(res).error), /cannot be answered with a button/, 'refused, but not as a non-menu screen');
       assert.equal(calls.sends().length, 0, 'and nothing reached the pane');
     });
 });
