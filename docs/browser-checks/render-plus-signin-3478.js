@@ -1029,25 +1029,32 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
-      /* #4608 (Josh, 2026-09-29 12:49): while this computer connects, the heading says "Signing in..." and the
-         app's ring loader turns beside the words. (No K animates in the card on main either: the k === 0 part is
-         a guard against one arriving, not evidence for this change.) */
+      /* #4608 (Josh, 2026-09-29 12:49): while this computer connects, the heading says "Signing in...". #5785 (Josh,
+         2026-10-10 14:00): the big K-to-circle loader plays above it, in place of the small ring loader beside the
+         words, centred for this automatic connect, with "This takes about half a minute." under the address. */
       await page.waitForSelector('#plus-si-owned', { state: 'visible', timeout: 5000 });
       await page.waitForTimeout(300);
       const during = await page.evaluate(() => {
         const sp = document.getElementById('plus-si-spin');
         const card = document.getElementById('plus-state2');
+        const cv = document.querySelector('#plus-si-k canvas');
+        const note = document.getElementById('plus-si-k-note');
         return { title: document.getElementById('plus-si-title').textContent,
-          spin: !!sp && !sp.hidden && sp.getClientRects().length > 0 && sp.classList.contains('spin-sweep'),
-          k: card ? card.querySelectorAll('canvas, .kspin, img[src*="kosmos-"]').length : -1 };
+          spin: !!sp && !sp.hidden && sp.getClientRects().length > 0,
+          k: !!cv && cv.getClientRects().length > 0,
+          note: !!note && !note.hidden && note.getClientRects().length > 0,
+          centred: !!card && card.classList.contains('plus-si-busy') };
       });
-      chk(during.title === 'Signing in...' && during.spin && during.k === 0,
-        `[${k}] #4608 while this computer connects: the heading says Signing in..., the ring loader turns, no K`, JSON.stringify(during));
+      chk(during.title === 'Signing in...' && !during.spin && during.k && during.note && during.centred,
+        `[${k}] #4608/#5785 while this computer connects: Signing in..., the big K loader (not the small ring), centred, the wait said`, JSON.stringify(during));
       await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 5000 });
       const siAfter = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent,
-        spin: !document.getElementById('plus-si-spin').hidden }));
-      chk(siAfter.title === 'Sign in to activate Kosmos+' && !siAfter.spin,
-        `[${k}] #4608 when the connect fails, the heading and the loader go back`, JSON.stringify(siAfter));
+        spin: !document.getElementById('plus-si-spin').hidden,
+        k: document.getElementById('plus-si-k').childElementCount,
+        note: !document.getElementById('plus-si-k-note').hidden,
+        centred: document.getElementById('plus-state2').classList.contains('plus-si-busy') }));
+      chk(siAfter.title === 'Sign in to activate Kosmos+' && !siAfter.spin && siAfter.k === 0 && !siAfter.note && !siAfter.centred,
+        `[${k}] #4608/#5785 when the connect fails, the heading goes back and the loader, the note and the centring go`, JSON.stringify(siAfter));
       const f = await page.evaluate(() => ({ lead: document.getElementById('plus-si-owned').textContent.trim(), btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
       chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
       await page.click('#plus-si-register-go');

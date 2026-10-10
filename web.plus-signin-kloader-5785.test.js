@@ -45,7 +45,7 @@ test('#5785: a register plays it instead of the small spinner, holds one whole l
   assert.match(reg, /const kEpoch = PLUS_SI_EPOCH;/);
   // Review 2: an error or refusal is not held; a success is, as a running register, for both kinds.
   assert.match(reg, /catch \(e\) \{ if \(kEpoch === PLUS_SI_EPOCH\) PLUS_SI_REGISTERING = false; siRestore\(\); if \(!owned\) plusSiMsg\(''\); throw e; \}/);
-  assert.match(reg, /if \(r\.stale\) return;\s*if \(r\.ok\) \{\s*PLUS_SI_REGISTERING = true;\s*await kHold\(\);\s*if \(kEpoch !== PLUS_SI_EPOCH\) return;\s*\}\s*PLUS_SI_REGISTERING = false;/);
+  assert.match(reg, /if \(r\.stale\) return;\s*if \(r\.ok\) \{\s*await kHold\(\);\s*if \(kEpoch !== PLUS_SI_EPOCH\) return;\s*\}\s*PLUS_SI_REGISTERING = false;/);
   assert.equal((reg.match(/await kHold\(\)/g) || []).length, 1, 'a second hold is back (a refusal or an error would wait out the loop)');
 });
 
@@ -76,4 +76,15 @@ test('#5785 Mona\'s review: centred while it connects, with the wait said, and b
   assert.match(code, /plusSiKStart\(owned\);/);
   assert.match(code, /#plus-si-k canvas \{[^}]*margin: 0 0 16px;[^}]*\}\s*#plus-state2\.plus-si-busy #plus-si-k canvas \{ margin: 0 auto 16px; \}/);
   assert.match(fnBody('plusSiKStop'), /card\.classList\.remove\('plus-si-busy'\)[\s\S]*note\.hidden = true/);
+});
+
+test('#5785 review 7: the #4608 sign-in check asserts the big loader during a connect, and that it goes after', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'render-plus-signin-3478.js'), 'utf8');
+  assert.match(src, /during\.title === 'Signing in\.\.\.' && !during\.spin && during\.k && during\.note && during\.centred/);
+  assert.match(src, /siAfter\.k === 0 && !siAfter\.note && !siAfter\.centred/);
+  assert.doesNotMatch(src, /during\.spin && during\.k === 0/, 'the old #4608 arm (small ring, no K) is back');
+});
+
+test('#5785 review 7: a new sign-in (plusSiEnter) makes an older answer stale, as Start over and Sign out do', () => {
+  assert.match(fnBody('plusSiEnter'), /PLUS_SI_EPOCH \+= 1;\s*plusSiClear\(\);/);
 });

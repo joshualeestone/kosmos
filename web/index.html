@@ -48505,6 +48505,9 @@ function plusSiEnter(e) {
   /* #4079: a new sign-in replaces the Remove this computer result. */
   { const f = document.getElementById('plus-forgot-msg'); if (f) { f.hidden = true; f.textContent = ''; } }
   plusSiMsg('');
+  /* #5785 review 7: a new sign-in makes any answer still out for an older one stale, as Start over and Sign out do;
+     the K loader's hold would otherwise let a held success land on this fresh email step. */
+  PLUS_SI_EPOCH += 1;
   plusSiClear();
   plusSiShow('plus-si-email');
   const s1 = document.getElementById('plus-state1'); if (s1) s1.hidden = true;
@@ -49226,11 +49229,10 @@ async function plusSiDoRegister(name, owned) {
   catch (e) { if (kEpoch === PLUS_SI_EPOCH) PLUS_SI_REGISTERING = false; siRestore(); if (!owned) plusSiMsg(''); throw e; }
   if (r.stale) return;
   /* Review 2: only a connect that worked holds (the flash is a success's); a refusal or error shows at once. Through
-     the hold the register still counts as running (set again: an older answer's stale path may have cleared it), so
-     the status tick does not paint the connected view early; an answer held past a Sign out or Start over is dropped (both clear the flag, in plusSiClear). Any NEW
+     the hold the register still counts as running (the flag set at its start), so the status tick does not paint the
+     connected view early; an answer held past a Sign out or Start over is dropped (both clear the flag, in plusSiClear). Any NEW
      bump of PLUS_SI_EPOCH reachable from this step must clear it too, or the flag stays set and pins state 2. */
   if (r.ok) {
-    PLUS_SI_REGISTERING = true;
     await kHold();
     if (kEpoch !== PLUS_SI_EPOCH) return;
   }
