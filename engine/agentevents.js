@@ -20,6 +20,9 @@
  * ⚠️ Claude Code only (review 29): the transcripts are found under Claude Code's projects folder and read as its
  * tool_use / tool_result rows, so a Codex, Gemini or Grok agent is NOT checked. A company that turns the check on is
  * covered for its Claude Code agents alone; the other runners' transcript shapes are a later slice.
+ * ⚠️ Not on Windows (review 41): a Windows work Kosmos reads no transcript at all (slice 1 returns first, since no agent
+ * is guarded there), so the check is off there too, whatever the policy and the words say. Reading Windows transcripts is
+ * unmeasured; it is the Windows lane's to build.
  *
  * WHERE A REFUSAL IS SEEN. Claude Code writes a deny-rule refusal into the session transcript as an error tool result,
  * "Permission to use <Tool> with command <cmd> has been denied." (measured, 2.1.295). Its PermissionDenied hook fires
@@ -1758,6 +1761,8 @@ async function tickOnce(opts) {
           const left = readStateForUpdate(root);
           if (!left) return { sent, because: 'the state could not be read; nothing changed' };   // her review 43
           left.pending = left.pending.filter((e) => !sentKeys.has(eventKey(e)));   // exactly that batch (not a prefix)
+          // A dropped flag keeps its hourly slot (review 41): a coordinator that does not yet take flags costs that
+          // session and category its flag for the hour, never more.
           writeState(root, left);
           dropped += batch.length;
           continue;
@@ -1780,7 +1785,8 @@ async function tickOnce(opts) {
         const failed = readStateForUpdate(root);
         if (!failed) return { sent, because: 'the state could not be read; nothing changed' };   // her review 43
         /* Review 2: no signed request every five minutes while it keeps failing. A FLAG send's failure waits on its own
-           clock (review 12): a coordinator that does not yet take flags must not hold the refusals back. */
+           clock (review 12): a coordinator that does not yet take flags must not hold the refusals back. One way only
+           (review 41): a refusal send that failed holds the flag send too, as a coordinator failing one fails both. */
         failed[kind === isManipulation ? 'flagFailAt' : 'failAt'] = now;
         writeState(root, failed);
         return { sent, because: why || 'the send failed' };
