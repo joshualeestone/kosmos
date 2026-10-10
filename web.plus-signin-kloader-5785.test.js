@@ -44,8 +44,8 @@ test('#5785: a register plays it instead of the small spinner, holds one whole l
   // counts as running until the hold ends (the status tick must not paint the connected view early).
   assert.match(reg, /const kEpoch = PLUS_SI_EPOCH;/);
   // Review 2: an error or refusal is not held; a success is, as a running register, for both kinds.
-  assert.match(reg, /catch \(e\) \{ PLUS_SI_REGISTERING = false; siRestore\(\); if \(!owned\) plusSiMsg\(''\); throw e; \}/);
-  assert.match(reg, /if \(r\.stale\) \{ PLUS_SI_REGISTERING = false; return; \}\s*if \(r\.ok\) \{\s*PLUS_SI_REGISTERING = true;\s*await kHold\(\);\s*if \(kEpoch !== PLUS_SI_EPOCH\) return;\s*\}\s*PLUS_SI_REGISTERING = false;/);
+  assert.match(reg, /catch \(e\) \{ if \(kEpoch === PLUS_SI_EPOCH\) PLUS_SI_REGISTERING = false; siRestore\(\); if \(!owned\) plusSiMsg\(''\); throw e; \}/);
+  assert.match(reg, /if \(r\.stale\) return;\s*if \(r\.ok\) \{\s*PLUS_SI_REGISTERING = true;\s*await kHold\(\);\s*if \(kEpoch !== PLUS_SI_EPOCH\) return;\s*\}\s*PLUS_SI_REGISTERING = false;/);
   assert.equal((reg.match(/await kHold\(\)/g) || []).length, 1, 'a second hold is back (a refusal or an error would wait out the loop)');
 });
 
