@@ -480,3 +480,35 @@ test('#5516 part 2 (review 21): a board start that reaches the same reason the l
   assert.equal((line.because.match(/runs on codex/g) || []).length, 1, 'the reason was said twice: ' + line.because);
   assert.ok(!line.otherReason, 'the launch reason was copied into the board part: ' + JSON.stringify(line));
 });
+
+test('#5516 part 2 (review 22): a PATH line from before the parts were kept is read as the PATH part; rules are written once', () => {
+  const name = 'pilot-cfg-r22';
+  const dir = agentDir(name);
+  const home5 = path.join(SANDBOX, 'home-r22');
+  const odd = path.join(SANDBOX, 'Box (R)', 'skills');
+  fs.mkdirSync(odd, { recursive: true });
+  fs.mkdirSync(path.join(home5, '.claude'), { recursive: true });
+  const link = path.join(home5, '.claude', 'skills');
+  const stateDir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(stateDir, { recursive: true });
+  const file = path.join(stateDir, name + '.json');
+  const quiet = (fn) => { const w = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = w; } };
+  const launchPath = 'the PATH this agent starts with has an entry Kosmos could not cover (/old-launch/bin)';
+  fs.writeFileSync(file, JSON.stringify({ ok: false, because: launchPath + '; the rest of the guard is in place', at: 't-old' }));
+  fs.symlinkSync(odd, link);
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home5, boardStart: true }));
+  const line = setup.readGuardState()[name];
+  assert.ok(line.pathReason === launchPath && !line.launchReason, 'the old PATH line was not read as the PATH part: ' + JSON.stringify(line));
+  assert.equal((line.because.match(/the rest of the guard is in place/g) || []).length, 1, 'the old ending was carried into the sentence: ' + line.because);
+  assert.ok(line.because.startsWith(launchPath + '; and ') && /could not be covered \(/.test(line.because), 'CONTROL: both parts are said: ' + line.because);
+  fs.unlinkSync(link);
+  // A config home that is also a folder above the agent: its members are reached both ways, and written once.
+  const hdup = path.join(SANDBOX, 'hdup');
+  fs.mkdirSync(path.join(hdup, '.claude'), { recursive: true });
+  const inside = path.join(hdup, 'work', 'agent');
+  fs.mkdirSync(inside, { recursive: true });
+  setup.guardTokenOnlyFolder(inside, 'pilot-cfg-dup', { ...DEPS, home: hdup });
+  const deny = readSettings(inside).permissions.deny;
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(hdup, '.claude', 'skills'))}/**)`), 'CONTROL: the home is covered');
+  assert.equal(new Set(deny).size, deny.length, 'a rule was written twice');
+});

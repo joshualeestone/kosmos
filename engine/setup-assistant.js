@@ -1680,9 +1680,13 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     const hasParts = !!r && Object.prototype.hasOwnProperty.call(r, 'pathReason');
     const prev = old || {};
     const oldHasParts = Object.prototype.hasOwnProperty.call(prev, 'pathReason') || Object.prototype.hasOwnProperty.call(prev, 'otherReason');
-    const pathReason = typeof prev.pathReason === 'string' ? prev.pathReason : null;
-    const launchReason = typeof prev.launchReason === 'string' ? prev.launchReason
-      : (old && old.ok === false && !oldHasParts && old.because ? String(old.because) : null);
+    /* Review 22: a line with neither part whose reason is the PATH one (a launch from before the parts were kept wrote
+       it so; only the PATH check says that sentence) is read as the PATH part, without its "rest of the guard" ending;
+       any other such reason is kept whole as the launch part. */
+    const bare = old && old.ok === false && !oldHasParts && old.because ? String(old.because) : null;
+    const barePath = bare !== null && bare.startsWith(LAUNCH_PATH_REASON) ? bare.replace(/; the rest of the guard is in place$/, '') : null;
+    const pathReason = typeof prev.pathReason === 'string' ? prev.pathReason : barePath;
+    const launchReason = typeof prev.launchReason === 'string' ? prev.launchReason : (barePath === null ? bare : null);
     // Review 21: a board start that reaches the same reason the launch recorded (another runner, Windows) adds nothing.
     const measured = r && !r.ok ? (hasParts ? r.otherReason || null : String(r.because || '') || null) : null;
     const nowOther = measured !== null && measured === launchReason ? null : measured;
