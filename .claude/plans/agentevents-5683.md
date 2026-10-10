@@ -649,3 +649,18 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - NITs DEFERRED: Glob's pattern and Grep's glob are not classed (their deny-rule refusals are still reported, with a
   weaker class); the call map is bounded per file, not overall; the server gate test is a source-text match (stated
   in review 37).
+
+## Challenge loop after the rebase onto 7682fe246, iteration 1 (opus)
+- WARNING, fixed: two earlier decisions combined to drop a real sandbox refusal. A network command is network-host
+  (review 43), and a sandbox refusal is reported only for board-files, agent-config and other-agent (iteration 1), so
+  curl -o ~/.claude/settings.json refused by the sandbox was dropped. Each call now also keeps the class of the path it
+  touched (ctx.pathOnly skips the network precedence, computed only for a Bash call that came out network-host), and a
+  sandbox refusal uses that. A deny-rule refusal keeps network-host. Test, red with the fix reverted.
+- WARNING, deferred: net/url are flags for the whole line, not per command, so echo https://x; git status is
+  network-host. Moving them per command would miss curl "$(printf https://x)", whose URL is in the inner command; that
+  under-reports a network command, which is worse than over-classing a line. Its sandbox consequence is fixed above.
+  Weakest premise: that a company's deny rule on such a mixed line is rare.
+- NITs fixed: every reason is logged once, including "sent; the state could not be updated", and at most 32 reasons are
+  kept (a send failure's text comes from the remote and varies); collided keeps only strings; the comma operator is a
+  block.
+- NIT deferred, as before: splitting targetClass into its own functions (a reorganisation, not a defect).

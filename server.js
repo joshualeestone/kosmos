@@ -21041,11 +21041,11 @@ function agentEventsTick() {
        when it has really stopped, never on a read that failed (review 37). */
     if (!require('./engine/orgenroll').isEnrolledHere()) { require('./engine/agentevents').withdrawIfStopped(); return; }
     AGENT_EVENTS_RUNNING = true;
-    /* Each distinct reason it sends nothing is said once (challenge-loop iteration 3): a board that will never send
+    /* Each distinct reason is said once (challenge-loop iteration 3): a board that will never send
        must not look the same as one with nothing to send. */
     require('./engine/agentevents').tick().then((r) => {
-      const why = r && r.sent === 0 && typeof r.because === 'string' ? r.because : null;
-      if (why && !AGENT_EVENTS_SAID.has(why)) { AGENT_EVENTS_SAID.add(why); console.error('agentevents: ' + why); }
+      const why = r && typeof r.because === 'string' ? r.because : null;
+      if (why && !AGENT_EVENTS_SAID.has(why) && AGENT_EVENTS_SAID.size < 32) { AGENT_EVENTS_SAID.add(why); console.error('agentevents: ' + why); }
     }).catch(() => { /* best effort */ }).finally(() => { AGENT_EVENTS_RUNNING = false; });
   } catch { AGENT_EVENTS_RUNNING = false; }
 }
