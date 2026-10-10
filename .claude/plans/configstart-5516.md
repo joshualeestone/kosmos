@@ -12,6 +12,8 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 - Kosmos writes none of these for a Claude agent (searched), so nothing Kosmos does is refused.
 - Review 1 widened the class, each member read from the installed Claude Code: the global config by every name it is given (an environment suffix), the legacy file it reads instead when present, the project server file in the agent folder and every folder above it, and each config home's skills folder (a skills subfolder can be adopted as a plugin). The test pins each member.
 - The file-tool layer carries the weight: the shell's own writable set already excludes most of these. The sandbox entries are defence in depth.
+- Review 2: the config homes' agents and commands folders join plugins and skills (their definitions can carry hooks and servers). The ancestors' project server files go to the file tools only, since the shell cannot write there and the sandbox profile has a size limit; a test keeps the guard whole with twelve config homes.
+- What is asserted and what was measured by hand: the tests assert the rules written. That Claude Code still writes its own state under these denies was measured by hand (one version); the class itself is read from the installed binary, so a later Claude Code that reads a new file is a gap until added.
 
 ## Gaps, stated (the rest of the card)
 - The scripts a hook, the status line or a server's command points at, wherever they sit: not covered here (they can live anywhere; a next part).

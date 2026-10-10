@@ -57,7 +57,9 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
   const s = readSettings(dir);
   const deny = s.permissions.deny;
   const dw = s.sandbox.filesystem.denyWrite;
-  /* The CLASS, pinned (review 1): the global config by each name Claude Code 2.1.296 gives it, beside the home and in
+  /* Read from the installed Claude Code (grep -a its binary under ~/.local/share/claude/versions/<v> for ".config.json",
+     `.claude${`, ".mcp.json"); re-derive this list when Claude Code changes it.
+     The CLASS, pinned (review 1): the global config by each name Claude Code 2.1.296 gives it, beside the home and in
      each config home; the legacy .config.json it reads instead when present; .mcp.json in the folder and every
      ancestor. A member missing from the guard is a red here, not a silent gap. */
   const SFX = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
@@ -67,21 +69,27 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
   const files = [
     ...SFX.flatMap((x) => [path.join(HOME, `.claude${x}.json`), ...homes.map((h) => path.join(h, `.claude${x}.json`))]),
     ...homes.map((h) => path.join(h, '.config.json')),
-    ...ancestors.map((d) => path.join(d, '.mcp.json')),
+    path.join(dir, '.mcp.json'),
   ];
+  // Review 2: the ancestors' .mcp.json go to the file tools only (the shell cannot write there; the profile has a size limit).
+  for (const d of ancestors.slice(1)) {
+    const f = path.join(d, '.mcp.json');
+    assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools');
+    assert.ok(!s.sandbox.filesystem.denyWrite.includes(realOrLeaf(f)), f + ' went into the sandbox profile');
+  }
   assert.ok(ancestors.length >= 3 && ancestors.includes('/'), 'CONTROL: the ancestor walk reached the root');
   for (const f of files) {
     assert.ok(deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools');
     assert.ok(dw.includes(realOrLeaf(f)), f + ' is not denied to the shell');
   }
-  for (const d of homes.flatMap((h) => [path.join(h, 'plugins'), path.join(h, 'skills')])) {
+  for (const d of homes.flatMap((h) => ['plugins', 'skills', 'agents', 'commands'].map((x) => path.join(h, x)))) {
     assert.ok(deny.includes(`Edit(${ruleAbs(d)}/**)`), d + ' is not denied to the file tools');
     assert.ok(dw.includes(realOrLeaf(d)), d + ' is not denied to the shell');
   }
   // A config home made after the guard was written: the permission-layer globs.
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', '.claude.json'))})`), 'no glob for a later home .claude.json');
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', 'plugins'))}/**)`), 'no glob for a later home plugins folder');
-  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', 'skills'))}/**)`), 'no glob for a later home skills folder');
+  for (const x of ['skills', 'agents', 'commands']) assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', x))}/**)`), 'no glob for a later home ' + x + ' folder');
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', '.config.json'))})`), 'no glob for a later home legacy config');
   // CONTROL: the config homes themselves are not denied whole (Claude Code keeps its runtime state there).
   for (const h of [path.join(HOME, '.claude'), path.join(HOME, '.claude-acct')]) {
@@ -98,4 +106,12 @@ test('#5516 part 2 (review 1): off darwin the file-tool rules are written all th
   for (const f of [path.join(HOME, '.claude.json'), path.join(HOME, '.claude', '.config.json'), path.join(dir, '.mcp.json')]) {
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools off darwin');
   }
+});
+
+test('#5516 part 2 (review 2): with many account homes the guard stays whole (inside the sandbox size ceiling)', () => {
+  for (let i = 0; i < 10; i++) fs.mkdirSync(path.join(HOME, '.claude-acct' + i), { recursive: true });
+  const dir = agentDir('pilot-cfg-many');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-many', DEPS);
+  assert.equal(g.ok, true, 'twelve config homes tripped the guard: ' + JSON.stringify(g));
+  assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-acct9', '.config.json'))})`), 'CONTROL: the new homes were seen');
 });

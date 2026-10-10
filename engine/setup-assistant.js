@@ -1231,6 +1231,9 @@ function writeLaunchRecord(file, rec) {
    from its OAuth environment; production's is empty). Read from the installed binary, so a new suffix in a later
    version is a gap until added here. */
 const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
+/* The config-home folders whose contents Claude Code can run or start servers from: plugins, skills (a skills subfolder
+   can be adopted as a plugin), and agents and commands (their definitions can carry hooks and servers). Denied whole. */
+const CONFIG_HOME_CODE_DIRS = ['plugins', 'skills', 'agents', 'commands'];
 /* Every folder above `dir`, nearest first, up to the root (its .mcp.json is read at start too). */
 function ancestorsOf(dir) {
   const out = [];
@@ -1267,18 +1270,21 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // in each config home, and the legacy .config.json it reads INSTEAD when one exists (review 1: a BLOCKER).
     ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.flatMap((sfx) => [path.join(home, `.claude${sfx}.json`), ...concreteHomes.map((h) => path.join(h, `.claude${sfx}.json`))]),
     ...concreteHomes.map((h) => path.join(h, '.config.json')),
-    // Project-scope servers: the agent folder's .mcp.json and every ancestor's (review 1: Claude Code reads .mcp.json
-    // from each folder up to the root).
-    ...ancestorsOf(dir).map((d) => path.join(d, '.mcp.json')),
+    // Project-scope servers: the agent folder's own .mcp.json (both layers; its ancestors' are below).
+    path.join(dir, '.mcp.json'),
   ])];
+  /* Every ancestor's .mcp.json (review 1: Claude Code reads it from each folder up to the root), to the FILE TOOLS only
+     (review 2): the shell cannot write above the agent folder anyway, and the sandbox profile has a size limit. */
+  const ancestorMcp = ancestorsOf(path.dirname(path.resolve(dir))).map((d) => path.join(d, '.mcp.json'));
   /* Each config home's plugins folder, and its skills folder (review 1: a skills subfolder can be adopted as a plugin,
      with servers of its own). Kosmos's own skills writes are the board's process, in neither layer; an agent's own
      skills are in its folder's .claude, already denied. */
-  const pluginDirs = concreteHomes.flatMap((h) => [path.join(h, 'plugins'), path.join(h, 'skills')]);
+  // Review 2: agents and commands too (their definitions can carry hooks and servers of their own).
+  const pluginDirs = concreteHomes.flatMap((h) => CONFIG_HOME_CODE_DIRS.map((d) => path.join(h, d)));
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
     ...configStartFiles.map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
-    { f: path.join(home, '.claude-*', '.config.json') }];
+    { f: path.join(home, '.claude-*', '.config.json') }, ...ancestorMcp.map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
   // registry's own path there; its temp and lock names by the permission-layer .* glob only).
@@ -1332,8 +1338,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     `Edit(${ruleAbs(guardRecord)}/**)`,
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
-    ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`), `Edit(${ruleAbs(path.join(home, '.claude-*', 'plugins'))}/**)`,   // #5516 part 2
-    `Edit(${ruleAbs(path.join(home, '.claude-*', 'skills'))}/**)`,
+    ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
+    ...CONFIG_HOME_CODE_DIRS.map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),
   ];
   /* #5516 (review 3): the launch folders' file-tool rules are kept OUT of the filter below. A launch folder whose path
      has a rule-pattern character (an installed "App (Beta)") must not stop the WHOLE guard from being written: its rule
