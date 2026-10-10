@@ -445,3 +445,38 @@ test('#5516 part 2 (review 19): a launch reason with neither part is kept throug
   assert.ok(line.ok === false && /could not be covered \(/.test(line.because) && !line.because.includes('relative/bin') && !line.pathReason, 'CONTROL: the created line lost its config gap or carried the board PATH: ' + JSON.stringify(line));
   fs.unlinkSync(link);
 });
+
+test('#5516 part 2 (review 21): a config member linked to something absent has its target denied in both layers', () => {
+  const home = path.join(path.dirname(HOME), 'home-dangle');
+  const base = fs.realpathSync.native(path.dirname(HOME));
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  // An absolute link to an absent folder, and a relative one into a folder that does not exist yet.
+  const absent = path.join(base, 'unmounted', 'skills');
+  fs.symlinkSync(absent, path.join(home, '.claude', 'skills'));
+  fs.symlinkSync(path.join('..', 'not-yet', 'agents'), path.join(home, '.claude', 'agents'));
+  const dir = agentDir('pilot-cfg-dangle');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-dangle', { ...DEPS, home });
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const s = readSettings(dir);
+  const rel = path.join(fs.realpathSync.native(home), 'not-yet', 'agents');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude', 'skills'))}/**)`), 'CONTROL: the link itself is named');
+  for (const t of [absent, rel]) {
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(t, 'x', 'SKILL.md')).length, 'the absent target is open to the file tools: ' + t);
+    assert.ok(s.sandbox.filesystem.denyWrite.includes(t), 'the absent target is open to the shell: ' + t);
+  }
+});
+
+test('#5516 part 2 (review 21): a board start that reaches the same reason the launch recorded does not say it twice', () => {
+  const empty = path.join(SANDBOX, 'accounts-r21');
+  fs.mkdirSync(empty, { recursive: true });
+  const name = 'pilot-cfg-twice';
+  const dir = agentDir(name);
+  const codex = { ...DEPS, runner: 'codex', runnerOf: () => 'codex', accountConfigDir: empty };
+  setup.guardTokenOnlyFolder(dir, name, { ...codex, atLaunch: true });
+  const launched = setup.readGuardState()[name];
+  assert.ok(launched.ok === false && /runs on codex/.test(launched.because), 'CONTROL: the launch recorded the runner: ' + JSON.stringify(launched));
+  setup.guardTokenOnlyFolder(dir, name, { ...codex, boardStart: true });
+  const line = setup.readGuardState()[name];
+  assert.equal((line.because.match(/runs on codex/g) || []).length, 1, 'the reason was said twice: ' + line.because);
+  assert.ok(!line.otherReason, 'the launch reason was copied into the board part: ' + JSON.stringify(line));
+});

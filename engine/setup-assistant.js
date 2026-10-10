@@ -1244,11 +1244,26 @@ function ancestorsOf(dir) {
 }
 /* A path and, when it is a link (the leaf itself, review 3: a config home's code folder linked to another place), the
    place it resolves to, so both layers name the target too. */
+/* Review 21: a member that is a link to something absent (a synced or unmounted folder) has no realpath, and resolving
+   its parent keeps the link's own name, so its target went unnamed and the agent could create it there by its own path.
+   Follow the link itself (a few hops, for a link to a link) to where it points, absent or not. */
+function danglingTarget(p) {
+  let cur = path.resolve(p);
+  for (let hop = 0; hop < 8; hop++) {
+    let st = null;
+    try { st = fs.lstatSync(cur); } catch { return cur; }
+    if (!st.isSymbolicLink()) return cur;
+    let to = null;
+    try { to = fs.readlinkSync(cur); } catch { return cur; }
+    cur = path.resolve(realOrLeaf(path.dirname(cur)), to);   // a relative target is read from the link's real folder
+  }
+  return cur;
+}
 function withTarget(p, unsafe) {
   // Resolved through the nearest existing parent when the member does not exist yet (review 6: a linked config home
   // with an absent member), as the sandbox side's realOrLeaf does.
   let real = null;
-  try { real = fs.realpathSync.native(p); } catch { real = realOrLeaf(p); }
+  try { real = fs.realpathSync.native(p); } catch { real = realOrLeaf(danglingTarget(p)); }
   if (!real || real === path.resolve(p)) return [p];
   /* Review 5: a target whose path the rule syntax cannot carry is NAMED (the guard is then not whole, and says which),
      never left to the generic drop below, which would blame the agent's own folder. */
@@ -1663,13 +1678,15 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     let old = null;
     try { old = guardLineOf(fs.readFileSync(guardStateFileFor(agentName, deps), 'utf8')); } catch { old = null; }
     const hasParts = !!r && Object.prototype.hasOwnProperty.call(r, 'pathReason');
-    const nowOther = r && !r.ok ? (hasParts ? r.otherReason || null : String(r.because || '') || null) : null;
     const prev = old || {};
     const oldHasParts = Object.prototype.hasOwnProperty.call(prev, 'pathReason') || Object.prototype.hasOwnProperty.call(prev, 'otherReason');
-    if (old && (prev.otherReason || null) === nowOther) return r;
     const pathReason = typeof prev.pathReason === 'string' ? prev.pathReason : null;
     const launchReason = typeof prev.launchReason === 'string' ? prev.launchReason
       : (old && old.ok === false && !oldHasParts && old.because ? String(old.because) : null);
+    // Review 21: a board start that reaches the same reason the launch recorded (another runner, Windows) adds nothing.
+    const measured = r && !r.ok ? (hasParts ? r.otherReason || null : String(r.because || '') || null) : null;
+    const nowOther = measured !== null && measured === launchReason ? null : measured;
+    if (old && (prev.otherReason || null) === nowOther) return r;
     const parts = [launchReason, pathReason, nowOther].filter(Boolean);
     // Review 15: a launch's size warning is about the profile Claude Code built at that launch, so it is kept like the
     // PATH part when this board start has none of its own.
