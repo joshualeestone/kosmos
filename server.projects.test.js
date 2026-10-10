@@ -2692,7 +2692,7 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
       const asked = chatEngine.questionAbove(chatEngine.questionIn('Edit file src/a.js?\n❯ 1. Yes\n  2. No').text);
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
       assert.equal(res.status, 409, 'the screen is asking about a different file now');
-      assert.match(String(json(res).error), /cannot be answered with a button/, 'refused, but not as a non-menu screen (the identity case is server.question-menu-5406.test.js\'s)');
+      assert.match(String(json(res).error), /moved between drawing that button/, 'a different question was not refused as a moved screen');
       assert.equal(calls.sends().length, 0, 'and nothing was typed into the pane');
     });
 });
@@ -2728,9 +2728,9 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
    * "rm -rf /Users/josh/build" above the same Yes/No menu, and containment
    * called that the same question.
    *
-   * #5406 slice C: this Yes/No screen is not Claude's single-select question menu, so a press here is refused
-   * before the identity check runs ("cannot be answered with a button"). Equality versus containment is pinned on
-   * the live menu in server.question-menu-5406.test.js (the accumulated-question test).
+   * #5406 slice C: this Yes/No screen is not Claude's single-select question menu; a press is refused as a moved
+   * screen when its question differs (by equality), as a non-button question when it is the same. Equality versus
+   * containment on the live menu: server.question-menu-5406.test.js (the accumulated-question test).
    */
   const chatEngine = require('./engine/chat');
   const painted = 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n\n> ';
@@ -2744,7 +2744,7 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
     [said(accumulated), said(), said()], async ({ calls }) => {
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
       assert.equal(res.status, 409, 'answering the older question would type 1 at the newer one');
-      assert.match(String(json(res).error), /cannot be answered with a button/, 'refused, but not as a non-menu screen');
+      assert.match(String(json(res).error), /moved between drawing that button/, 'the older question was not refused as a moved screen');
       assert.equal(calls.sends().length, 0, 'and nothing reached the pane');
     });
 });
@@ -2760,8 +2760,10 @@ test('the cursor moving inside a SHORT prompt keeps the same identity (questionA
    * prose line above it once the person arrows to 2. The run-up window shifts
    * with the anchor, so `above` changes while the question, the options and
    * the labels do not. Equality refused that send and told the person their
-   * screen was asking something else. Containment accepts it, because one
-   * window is a prefix of the other whenever only the anchor moved.
+   * screen was asking something else. Since then the identity keys on the
+   * lines ABOVE the run (questionAbove), so the cursor does not move it; this
+   * pins that, and that the press here is refused for being a non-menu screen,
+   * not as a moved one.
    */
   /* ⚠️ THE IDENTITY IS DERIVED, NOT TYPED. A hand-written `asked` pins what the
      test's author believed the page sends, which is how this test kept passing
@@ -2787,6 +2789,7 @@ test('the cursor moving inside a SHORT prompt keeps the same identity (questionA
       /* #5406 slice C / #5754: a press at this permission prompt is refused before any identity check, so the clamp is
          read off the identity itself. */
       assert.equal(chatEngine.questionAbove(chatEngine.questionIn(moved).text), asked, 'a short prompt clamps to the same window at either cursor position');
+      assert.match(String(json(res).error), /cannot be answered with a button/, 'the cursor moving was read as a moved screen');
       assert.equal(calls.sends().length, 0, 'a press was typed into a permission prompt');
     });
 });

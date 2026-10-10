@@ -19,6 +19,7 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+/* The real menu draws "4. Type something."; the server serves only the answers (1 to 3), as OPTIONS does. */
 const QUESTION = ' ☐ Fruit\n\nWhich fruit do you want?\n\n❯ 1. Apple\n     Apple\n  2. Banana\n     Banana\n  3. Cherry\n     Cherry\n  4. Type something.';
 const row = (reported) => ({ id: 'needs-you-question:april', at: null, text: QUESTION, from: 'april', delivery: null, kind: 'question', reported });
 const base = { olderCount: 0, historyBecause: null, historyUnfilable: false, owes: null, presence: 'on', presenceBecause: null,
