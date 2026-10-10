@@ -15994,9 +15994,8 @@ const server = http.createServer(async (req, res) => {
       options: guideThread && Array.isArray(options) ? options.map((o) => (o && typeof o.label === 'string' ? { ...o, label: guideMasked(guideName, o.label) } : o)) : options,
       /* #5406 part 2 slice C: the question's identity (chat.questionAbove, the twin of the check the POST makes), sent
          with the options so a button press names the question it was drawn for; the page never re-derives it. Null in
-         the setup guide's thread: everything served there is masked (#3769), and this is unmasked screen text. Null for
-         the folder-trust dialog too: a press there is always refused (#1629), so no buttons are drawn for it. */
-      asked: !guideThread && !(view && view.text && trustPrompt(view.text) !== null) && Array.isArray(options) && question && typeof question.text === 'string' ? chat.questionAbove(question.text) : null,
+         the setup guide's thread: everything served there is masked (#3769), and this is unmasked screen text. */
+      asked: !guideThread && Array.isArray(options) && question && typeof question.text === 'string' ? chat.questionAbove(question.text) : null,
     });
     return;
   }

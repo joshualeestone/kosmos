@@ -27,7 +27,8 @@ const OPTIONS = [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana' }, { n: 3, la
 const ARMS = {
   choices: { ...base, messages: [row(false)], options: OPTIONS, asked: 'Which fruit do you want?' },
   'no-menu': { ...base, messages: [row(false)], options: null, asked: null },
-  reported: { ...base, messages: [row(true)], question: { text: 'Which fruit do you want?', reported: true }, options: null, asked: null },
+  /* Served WITH options and asked, so only the page's own reported-row guard can keep the buttons off. */
+  reported: { ...base, messages: [row(true)], question: { text: 'Which fruit do you want?', reported: true }, options: OPTIONS, asked: 'Which fruit do you want?' },
 };
 
 const problems = [];
@@ -93,6 +94,8 @@ async function run() {
           await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
           await page.waitForTimeout(150);
           const posted = await page.evaluate(() => window.__posted);
+          const said = await page.evaluate(() => (document.querySelector('#d-dmthread .dmchoices-msg') || {}).textContent || '');
+          check(`[${theme}] choices: a placed press says Sent.`, said === 'Sent.', JSON.stringify(said));
           check(`[${theme}] choices: a press sends the digit, the words and the question`, posted.length === 1
             && posted[0].text === '2' && posted[0].chose === 'Banana' && posted[0].asked === 'Which fruit do you want?', JSON.stringify(posted));
         } else {
