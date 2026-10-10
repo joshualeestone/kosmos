@@ -280,6 +280,101 @@ test('AUTH: a valid AGENT token creates, and createdBy is the AUTHENTICATED call
     assert.ok(b, 'the agent-created member has no birth record');
     assert.equal(b.createdBy, 'pmagent', 'createdBy must be the authenticated caller, not the forged body.creator');
     assert.notEqual(b.createdBy, 'IMPERSONATED', 'a self-declared creator was trusted (forgery)');
+    // #4475: the birth carries the creator's exact token name, which the removal route matches.
+    assert.equal(b.createdByName, 'pmagent', 'the agent path did not record its token name on the birth');
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
+test('#4475: the birth records the creator\'s EXACT token name, not its lossy sessionName', async () => {
+  create.setClaudeProbe(LIVE);
+  const store = require('./engine/store');
+  const tok = sendertoken.mint('Dr. Pm').token;
+  liveness.seen(store.safeKey('Dr. Pm'));
+  const board = fleet.install([]); // paneless: the card (and createdBy) is the store key, drpm
+  try {
+    const r = await postTeam({ purpose: 'agent builds a team', members: [{ name: 'drpmmadeone', role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const b = birthOf('drpmmadeone');
+    assert.ok(b, 'no birth record');
+    assert.equal(b.createdBy, store.safeKey('Dr. Pm'), 'CONTROL: createdBy is the lossy key, so the next line can tell them apart');
+    assert.equal(b.createdByName, 'Dr. Pm', 'the birth recorded the sessionName, not the token name');
+    assert.ok(typeof b.askedAt === 'string' && b.askedAt <= b.at, 'the birth has no time the creator asked, or one after the birth: ' + b.askedAt);
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
+test('#4475 END TO END: an agent removes what it made with its own token; once its identity ends, a later agent of its name cannot', async () => {
+  create.setClaudeProbe(LIVE);
+  const tok = sendertoken.mint('chainpm').token;
+  liveness.seen('chainpm');
+  const board = fleet.install([]);
+  const del = async (name, token) => {
+    const res = await fetch(`${base}/api/agent/${name}/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': token } });
+    let json = null; try { json = await res.json(); } catch { json = null; }
+    return { status: res.status, json };
+  };
+  try {
+    const made = await postTeam({ purpose: 'agent builds a team', members: [{ name: 'chainkid', role: 'pm' }, { name: 'chainkidtwo', role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const ok = await del('chainkid', tok);
+    assert.ok(ok.json && typeof ok.json.outcome === 'string', 'its own creation did not reach the removal engine: ' + JSON.stringify(ok));
+    sendertoken.revoke('chainpm');   // what removing chainpm, deleting its leftovers, or making a new chainpm all call
+    const tok2 = sendertoken.mint('chainpm').token;
+    const no = await del('chainkidtwo', tok2);
+    assert.equal(no.status, 403, 'a later agent named chainpm removed the old one\'s creation: ' + JSON.stringify(no.json));
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
+test('#4475 END TO END: an agent that makes a member under a live remote agent\'s name cannot then remove that name', async () => {
+  create.setClaudeProbe(LIVE);
+  sendertoken.mint('remotev');          // a live remote agent: a token and a heartbeat, no folder, job or pane
+  liveness.seen('remotev');
+  const tok = sendertoken.mint('takerpm').token;
+  liveness.seen('takerpm');
+  const board = fleet.install([]);
+  try {
+    const made = await postTeam({ purpose: 'agent builds a team', members: [{ name: 'remotev', role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const b = birthOf('remotev');
+    assert.ok(b && b.tookTokens === true, 'the birth did not record that a token already stood for the name: ' + JSON.stringify(b));
+    const res = await fetch(`${base}/api/agent/remotev/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': tok } });
+    assert.equal(res.status, 403, 'the agent removed the name of a remote agent it took over');
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
+test('#4475 END TO END: a member name padded past the birth log\'s cut does not make its creator the owner of a shorter name', async () => {
+  create.setClaudeProbe(LIVE);
+  const tok = sendertoken.mint('padpm').token;
+  liveness.seen('padpm');
+  const board = fleet.install([]);
+  const del = async (name) => (await fetch(`${base}/api/agent/${name}/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': tok } })).status;
+  try {
+    const padded = 'Padhelper' + ' '.repeat(200) + 'Zed';
+    const made = await postTeam({ purpose: 'agent builds a team', members: [{ name: padded, role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const b = create.createdLog().filter((e) => e && e.createdByName === 'padpm').pop();
+    assert.ok(b && b.outcome === 'created', 'CONTROL: the padded member was not created: ' + JSON.stringify(made.json));
+    assert.equal(create.slugFor(b.name), 'padhelper', 'CONTROL: the cut typed name no longer slugs to the shorter name, so this test proves nothing');
+    assert.notEqual(b.slug, 'padhelper', 'the birth recorded the cut name\'s slug, not the one create acted on');
+    assert.equal(await del('padhelper'), 403, 'the creator could remove a shorter name its padded member\'s cut name slugs to');
+    assert.notEqual(await del(b.slug), 403, 'CONTROL: the creator could not remove the member it actually made (' + b.slug + ')');
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
+test('#4475 END TO END: a typed name whose key differs from its board name still records that a token stood for the board name', async () => {
+  create.setClaudeProbe(LIVE);
+  sendertoken.mint('remote-w');         // a live remote agent on the board name the create will act on
+  liveness.seen('remote-w');
+  const tok = sendertoken.mint('takerpm2').token;
+  liveness.seen('takerpm2');
+  const board = fleet.install([]);
+  try {
+    const made = await postTeam({ purpose: 'agent builds a team', members: [{ name: 'Remote W', role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const b = birthOf('Remote W');
+    assert.ok(b && b.slug === 'remote-w', 'CONTROL: the member was not made as remote-w: ' + JSON.stringify(b));
+    assert.equal(b.tookTokens, true, 'the token on the board name was missed because the typed name\'s key was checked');
+    const res = await fetch(`${base}/api/agent/remote-w/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': tok } });
+    assert.equal(res.status, 403);
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
@@ -296,6 +391,7 @@ test('AUTH: the BOARD token drives the operator path (createdBy = body.creator)'
     const b = birthOf('opsmadeone');
     assert.ok(b);
     assert.equal(b.createdBy, 'opsboss', 'the operator path records the operator-supplied creator');
+    assert.equal(b.createdByName, undefined, '#4475: the operator path recorded a creator token name, so an agent named opsboss could remove this');
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
