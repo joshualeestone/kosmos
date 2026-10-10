@@ -58,6 +58,8 @@ converged: true
 | 5 | 4 | CONVENTION | engine/usage.js | SELF | review-round labels in comments | FIXED | 63c1e7a7 |
 
 ### Validation actually run
+- Re-hashed after merging main (f22f0de85, 26 commits): a clean merge, and this branch's 716 added and removed lines are
+  byte-identical before and after it (only context moved). CI runs on the merged head.
 - engine/usage-cursor-5759.test.js: 19/19. Every step compares the cursor with scanUsage on the same files (whole result and key order) and asserts whether it rebuilt and how many bytes it consumed.
 - Every test file naming the usage engine: 129 tests, 0 failed (run from the repo root).
 - 16 mutants, one per safeguard, each caught: shrink, inode, seam, owner order, launch change, vanish, half line, whole unterminated line, dailyUsageByModel's use, the per-pass head memo, the head re-check, sorted sums, opening an unchanged file, the decode guard, the string limit, the read limit.
