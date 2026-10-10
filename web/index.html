@@ -59965,7 +59965,8 @@ async function loadProjects() {
     PROJECTS = body.projects || [];
     PJ_READ_SHOWN = readNo;
     /* #5551 review: an agent page opened from a project names it; a rename (or a list that arrives late) repaints it. */
-    if (DETAIL_FROM_PROJECT && typeof detailBackPaint === 'function') detailBackPaint();
+    /* typeof first: loadProjects is lifted and run alone by tests (web.projects-signed-out-718), where this global is absent. */
+    if (typeof DETAIL_FROM_PROJECT !== 'undefined' && DETAIL_FROM_PROJECT && typeof detailBackPaint === 'function') detailBackPaint();
     /* #2407: ring the bubble-pop if any project's unread rose since the last load.
        Placed on the fresh PROJECTS, before the first-load deep-link work below, and
        itself no-ops on the first load (it only baselines then). */
