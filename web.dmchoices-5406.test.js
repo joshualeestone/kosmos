@@ -10,6 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const fleet = require('./test-support/fleet');
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = PAGE.slice(PAGE.lastIndexOf('<script>'));
@@ -23,11 +24,21 @@ function load(env) {
 }
 const BODY = { asking: true, asked: 'Which fruit do you want?', options: [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana <b>' }] };
 const Q = { kind: 'question', id: 'needs-you-question:casey', text: 'Which fruit do you want?' };
+/* CURRENT is a board card, so it comes from the fleet fixture (fixture-discipline), not a hand-built object. */
+const pick = ({ sessionName, name }) => ({ sessionName, name });
+function realCard() {
+  const board = fleet.install([fleet.agent('casey')]);
+  const card = board.agents.find((a) => a.sessionName === 'casey');
+  fleet.restore();
+  assert.ok(card && card.sessionName, 'the fixture produced no card');
+  return pick(card);
+}
 
 test('#5406 C: buttons only on the question row, only when the server is sure, labels escaped', () => {
   assert.ok(REGION.includes('function dmChoicePress'), 'premise: the region holds the shipped code');
-  const m = load({ CURRENT: { sessionName: 'casey', name: 'Casey' } });
-  m.from(BODY, 'casey');
+  const CUR = realCard();
+  const m = load({ CURRENT: CUR });
+  m.from(BODY, CUR.sessionName);
   const html = m.html(Q);
   assert.match(html, /role="group" aria-label="Choices"/);
   assert.equal((html.match(/class="dmchoice"/g) || []).length, 2);
@@ -35,7 +46,7 @@ test('#5406 C: buttons only on the question row, only when the server is sure, l
   assert.equal(m.html({ kind: 'agent', text: 'hi' }), '', 'buttons on an ordinary message');
   // Not sure, not asking, or another agent's thread: no buttons.
   for (const b of [{ ...BODY, asked: null }, { ...BODY, asking: false }, { ...BODY, options: null }, { ...BODY, options: [] }]) {
-    m.from(b, 'casey');
+    m.from(b, CUR.sessionName);
     assert.equal(m.html(Q), '', JSON.stringify(b));
   }
   m.from(BODY, 'otheragent');
@@ -44,22 +55,23 @@ test('#5406 C: buttons only on the question row, only when the server is sure, l
 
 test('#5406 C: a press sends the digit, the option\'s words and the question it was drawn for, then repaints', async () => {
   const sent = []; let painted = 0;
+  const CUR = realCard();
   const m = load({
-    CURRENT: { sessionName: 'casey', name: 'Casey' },
+    CURRENT: CUR,
     fetch: async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); return { ok: true, json: async () => ({}) }; },
     paintTalk: () => { painted += 1; },
   });
-  m.from(BODY, 'casey');
+  m.from(BODY, CUR.sessionName);
   const btns = [{ disabled: false }, { disabled: false }];
   const msg = { textContent: '' };
   const box = { querySelectorAll: () => btns, querySelector: () => msg };
   const btn = { getAttribute: () => '2', closest: () => box };
   await m.press(btn);
-  assert.deepEqual(sent, [{ url: '/api/agent/casey/thread', body: { text: '2', chose: 'Banana <b>', asked: 'Which fruit do you want?' } }]);
+  assert.deepEqual(sent, [{ url: '/api/agent/' + encodeURIComponent(CUR.sessionName) + '/thread', body: { text: '2', chose: 'Banana <b>', asked: 'Which fruit do you want?' } }]);
   assert.equal(painted, 1, 'no repaint after the answer');
   // A refusal (the menu moved) says why and gives the buttons back.
-  const m2 = load({ CURRENT: { sessionName: 'casey', name: 'Casey' }, fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }) });
-  m2.from(BODY, 'casey');
+  const m2 = load({ CURRENT: CUR, fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }) });
+  m2.from(BODY, CUR.sessionName);
   const b2 = [{ disabled: false }]; const msg2 = { textContent: '' };
   await m2.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => b2, querySelector: () => msg2 }) });
   assert.equal(msg2.textContent, 'its screen moved');
