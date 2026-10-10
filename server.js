@@ -16108,7 +16108,10 @@ const server = http.createServer(async (req, res) => {
          * that has moved on. The digit is unaffected either way; only the
          * bubble's wording is at stake.
          */
-        if (chose) {
+        /* #5406 slice C: a press that names its question (`asked`) is checked even when its words were dropped by the
+           bounds above: otherwise its digit would skip every check below and be typed as an ordinary prompt. */
+        const askedGiven = typeof body.asked === 'string' && body.asked.trim() !== '';
+        if (chose || askedGiven) {
           /**
            * ⚠️ A BUTTON SEND IS REFUSED WHEN THE SCREEN CONTRADICTS IT, rather
            * than stripped of its words and sent anyway.
@@ -16140,13 +16143,13 @@ const server = http.createServer(async (req, res) => {
            */
           const card = askingCard;
           if (!card || card.state !== STATE.NEEDS_YOU) chose = null;
-          const seen = chose ? seenNow : null;
+          const seen = (card && card.state === STATE.NEEDS_YOU) ? seenNow : null;
           const asked = (seen && seen.text) ? chat.questionIn(seen.text, card && card.runner) : null;
           /* #5051: a BUTTON can never answer Claude Code's safeguards model-switch menu. The page draws no buttons for it
              (chat.optionsIn refuses it), so a button press that lands on it was drawn for some other question and the pane
              redrew; option 1 there switches models and saves that choice in the agent's Claude settings. Refused like
              any changed question. A person typing the digit themselves (no `chose`) is their own answer and goes through. */
-          if (chose && asked && require('./engine/status').safeguardsMenuAt(asked.text)) {
+          if ((chose || askedGiven) && asked && require('./engine/status').safeguardsMenuAt(asked.text)) {
             const moved = new Error('that question changed on its screen before this was sent, '
               + 'so we did not answer it. Its current question is on this page.');
             moved.status = 409;

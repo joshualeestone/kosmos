@@ -37380,7 +37380,11 @@ let TALK_QUERY = '';
    `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
    screen before it sends a key (409 when the menu moved). */
 let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
-let DM_CHOICE_NOTE = null;   // { session, asked, text, placed }: what became of the last press, kept across the repaint it asks for
+let DM_CHOICE_NOTE = null;   // { session, asked, text, placed, at }: what became of the last press, kept across the repaint it asks for
+/* How long an answered question keeps its buttons off. A placed answer means the server saw the menu go after the key
+   (it says unconfirmed otherwise), so this covers only the page's own poll still showing the old screen; past it, the
+   same question drawn again (agents repeat questions word for word) is pressable. */
+const DM_CHOICE_ANSWERED_MS = 6000;
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
@@ -37395,7 +37399,7 @@ function dmChoicesHtml(m) {
   const mine = DM_CHOICE_NOTE && DM_CHOICE_NOTE.session === DM_CHOICES.session && DM_CHOICE_NOTE.asked === DM_CHOICES.asked;
   const note = flying ? 'Sending…' : (mine ? DM_CHOICE_NOTE.text : '');
   /* Answered: the menu can stay up a few seconds after the key, and a second press then would answer twice. */
-  const off = flying || Boolean(mine && DM_CHOICE_NOTE.placed);
+  const off = flying || Boolean(mine && DM_CHOICE_NOTE.placed && Date.now() - DM_CHOICE_NOTE.at < DM_CHOICE_ANSWERED_MS);
   return '<div class="dmchoices" role="group" aria-label="Choices">'
     + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '"' + (off ? ' disabled' : '') + '>'
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
@@ -37435,13 +37439,18 @@ async function dmChoicePress(btn) {
   }
   if (ok) note = 'Sent.';
   if (msg) msg.textContent = note;
-  DM_CHOICE_NOTE = { session, asked: c.asked, text: note, placed: ok };
+  DM_CHOICE_NOTE = { session, asked: c.asked, text: note, placed: ok, at: Date.now() };
   if (!ok && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
   /* The reason also goes on the conversation's own line: a refusal usually means the question changed or went, and the
      repaint then draws another question's bubble (or none), where the note above does not show. */
   if (!ok && CURRENT && CURRENT.sessionName === session) {
     const line = document.getElementById('d-say-msg');
     if (line) line.textContent = note;
+  }
+  /* A success is announced quietly in the live region that survives repaints (the bubble's own is redrawn with it). */
+  if (ok && CURRENT && CURRENT.sessionName === session) {
+    const quiet = document.getElementById('d-reply-say');
+    if (quiet) quiet.textContent = 'Sent.';
   }
   /* Every outcome repaints: a refusal usually means the menu moved, and the buttons should show the one up now. */
   if (!CURRENT || CURRENT.sessionName !== session) return;   // switched agents meanwhile: neither repaint nor move focus
