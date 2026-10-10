@@ -14,3 +14,6 @@
 ## Decided
 - The label fix ships in BOTH looks (the old label sent people somewhere it did not say); everything visual is behind the new-look switch.
 - Home and Settings drawings not built: Home has no drawing of Josh's; Settings A/B is his brand call (#5097).
+
+## Surface gate (#2518)
+- 13 checks share tokens with this diff. Read each: none asserts what changes in the default look (the new row is display:none there; #detail-back text changes only for an agent opened from a project, and these open from the board). Per-check trailers record it; GitHub CI runs the whole browser-checks suite on the PR.
