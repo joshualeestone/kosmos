@@ -62,7 +62,7 @@ if [ -n "$NODE" ] && [ -f "$PAGE" ]; then
     // write \u0027 (an apostrophe here ends the quote and garbled the 0.7.37 preview).
     let t=m[1].replace(/<[^>]+>/g," ")
       .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,"\"").replace(/&#34;/g,"\"")
-      .replace(/&#39;|&#x27;|&apos;/gi,"\u0027").replace(/&#821[67];|&rsquo;|&lsquo;/g,"\u0027").replace(/&#8220;|&#8221;/g,"\"")
+      .replace(/&#39;|&#x27;|&apos;/gi,"\u0027").replace(/&#821[67];|&#x201[89];|&rsquo;|&lsquo;/gi,"\u0027").replace(/&#8220;|&#8221;|&#x201[cd];|&ldquo;|&rdquo;/gi,"\"")
       .replace(/&#8211;|&#8212;|&#x201[34];|&ndash;|&mdash;/gi,"-").replace(/&nbsp;/g," ")
       .replace(/&amp;/g,"&")
       .replace(/[\u2013\u2014]/g,"-")   // any LITERAL en/em-dash char -> hyphen (Josh no-em-dash rule; a post can never carry U+2014)
