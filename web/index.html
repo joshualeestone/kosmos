@@ -6975,6 +6975,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    a bodyless row has none. */
 .msg:hover .msg-bd { background-image: linear-gradient(rgba(120,120,128,.08), rgba(120,120,128,.08)); }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
+/* #5406 part 2 slice C: a question's choices, inside its bubble (Josh #3419: no box, no banner). The old answer buttons'
+   tokens (AA on both themes); labels wrap, never nowrap (an agent's words are unbounded, and a nowrap button stretches
+   the row sideways). No primary: two equal answers, and emphasising one would recommend it. */
+.dmchoices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 2px; }
+.dmchoice { font: inherit; font-size: .875rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-optline); border-radius: 10px; padding: .4em .9em; cursor: pointer; text-align: left; max-width: 100%; }
+.dmchoice:hover { border-color: var(--k-ink-2); }
+.dmchoice:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.dmchoice[disabled] { opacity: .5; cursor: not-allowed; }
+.dmchoice-n { color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
+.dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #3134-followup (Josh 6.72): name + timestamp now live INSIDE the bubble. The agent
    name is a bold heading at the TOP; the timestamp is a small muted line at the
    bottom-RIGHT under the body. Scoped to .msg-bd so the .msg-valve inline timestamp
@@ -37156,6 +37167,7 @@ function dmRow(m, name, replyAdjacent) {
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
       + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
       + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+      + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : '')   // #5406 (guarded: the lifted dmRow tests run without it)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
@@ -37362,6 +37374,54 @@ function talkFilterRows(rows, name, q) {
     || String(m.text || '').toLowerCase().includes(needle));
 }
 let TALK_QUERY = '';
+/* #5406 part 2 slice C: the choices of the question an agent's screen shows, as buttons in that question's bubble.
+   Josh's #3419 ruling: no prompt box and no banner; the question is an ordinary message, and these sit inside it, to
+   press or to ignore (typing still works). Only what the server could be sure of (options and the question's identity,
+   `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
+   screen before it sends a key (409 when the menu moved). */
+let DM_CHOICES = null;   // { session, options: [{ n, label }], asked, sig } or null
+function dmChoicesFrom(body, sessionName) {
+  const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
+  DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked)
+    ? { session: sessionName, options: opts, asked: body.asked, sig: body.asked + '\u0001' + opts.map((o) => o.n + ':' + o.label).join('\u0001') }
+    : null;
+}
+function dmChoicesHtml(m) {
+  if (!DM_CHOICES || !m || m.kind !== 'question' || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
+  return '<div class="dmchoices" role="group" aria-label="Choices">'
+    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '">'
+      + '<span class="dmchoice-n" aria-hidden="true">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
+    + '<span class="dmchoices-msg" role="status" aria-live="polite"></span></div>';
+}
+async function dmChoicePress(btn) {
+  const c = DM_CHOICES;
+  if (!c || !CURRENT || CURRENT.sessionName !== c.session) return;
+  const opt = c.options.find((o) => String(o.n) === btn.getAttribute('data-n'));
+  if (!opt) return;
+  const box = btn.closest('.dmchoices');
+  const msg = box && box.querySelector('.dmchoices-msg');
+  if (box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = true; });
+  if (msg) msg.textContent = 'Sending…';
+  const session = c.session;
+  let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: String(opt.n), chose: opt.label, asked: c.asked }),
+    });
+    const out = await res.json().catch(() => ({}));
+    ok = res.ok;
+    if (!ok && msg) msg.textContent = pjSentence(out.error || 'that did not go; try again');
+  } catch {
+    if (msg) msg.textContent = 'We could not reach Kosmos; try again.';
+  }
+  if (!ok && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
+  if (ok && CURRENT && CURRENT.sessionName === session) paintTalk(CURRENT.sessionName, CURRENT.name);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
+  if (b && !b.disabled) dmChoicePress(b);
+});
 function paintTalkThread(body, name) {
   const allRows = Array.isArray(body.messages) ? body.messages : [];
   /* #4256: the rows by `at` and the reply strip, for the agent this paint is for, before any branch below can
@@ -37499,7 +37559,8 @@ function paintTalkThread(body, name) {
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
-      + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
+      + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '')
+      + (DM_CHOICES ? '\u0000' + DM_CHOICES.sig : '');   // #5406: new choices (or none) repaint the question's buttons
     /* #4256: reply headers by dmReplyAdjacency. */
     const dmHtml = rows.map((m, i) => dmRow(m, name, replyAdj.rows[i])).join('')
       + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
@@ -37605,6 +37666,7 @@ async function paintTalk(sessionName, agentName) {
        for a tied card. An older server that does not send `because` reads as
        transient, which is the arm that keeps its time phrase and its detail. */
     if (!res.ok) { standing = body.because === 'borrowed'; throw new Error(body.error || 'we could not read this conversation'); }
+    dmChoicesFrom(body, sessionName);   // #5406: the menu the agent's screen offers, drawn in its question's bubble
   } catch (err) {
     if (mine !== TALK_LOAD) return;
     if (!CURRENT || CURRENT.sessionName !== sessionName) return;
