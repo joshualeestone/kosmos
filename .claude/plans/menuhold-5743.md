@@ -22,8 +22,9 @@ closes the menu first, then delivers).
   Rejected: the DM rule in rooms (digit answers) - a room post "1" is far likelier a list item than an answer.
 - Where: one floor in deliverWithGap (every sender passes it, like the trust-dialog and Codex floors) plus the held
   verdict in deliverAutomatic(Async) (the existing #4588 hold shape, so rooms already keep and re-deliver it).
-- The fresh screen read happens only when the roster snapshot already says needs_you (a Claude card on its menu reads
-  needs_you, slice A's measured premise), so ordinary deliveries pay no extra capture.
+- The fresh screen read happens when the roster snapshot says needs_you OR working (review 11: an agent reaches a
+  permission prompt mid-turn, while its card still reads working). Cost: one capture per delivery to a working or
+  needs_you Claude agent; an idle agent pays nothing (it cannot be showing either screen).
 
 - A failed screen read is not a refusal: needs_you covers every question (permission prompts too) and the DM route
   reaches the floor right after closing the menu, so failing closed would refuse ordinary replies on one bad capture.

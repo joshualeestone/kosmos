@@ -2340,8 +2340,8 @@ test('an unconfirmed send does not also assert WHERE the message is sitting', ()
   assert.equal(chat.waitingNote('rate_limited', chat.DELIVERY.UNCONFIRMED), 'it was paused on a usage limit');
   // What it was DOING is still true and still useful, so that half stays.
   withFleet([fleet.agent('casey', { state: 'working' })], (board) => {
-    // set-buffer OK, paste-buffer OK, then the submit Enter is refused (#3419).
-    arm([ok(), ok(), refused('no current session')]);
+    // the #5743/#5754 screen read (a working card), set-buffer OK, paste-buffer OK, then the submit Enter is refused (#3419).
+    arm([ok(), ok(), ok(), refused('no current session')]);
     const verdict = chat.deliver('casey', 'hello', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED);
     assert.equal(verdict.paneNote, 'it was mid-task');

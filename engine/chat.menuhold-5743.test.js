@@ -27,7 +27,7 @@ const SCREENS = path.join(__dirname, '..', 'test-support', 'claude-screens');
 const MENU = fs.readFileSync(path.join(SCREENS, 'question-menu-2.1.29x.txt'), 'utf8');
 const MULTISELECT = fs.readFileSync(path.join(SCREENS, 'question-menu-multiselect-2.1.29x.txt'), 'utf8');
 const MULTIQUESTION = fs.readFileSync(path.join(SCREENS, 'question-menu-multiquestion-2.1.29x.txt'), 'utf8');
-/* #5754: Claude's permission prompts, real captures (2.1.296) and an older build's footer. Not the question menu (no
+/* #5754: Claude's permission prompts, real captures (2.1.296) and a SYNTHETIC one with the select footer (not captured). Not the question menu (no
    free-answer entry), but the floor refuses and holds on them too: their Enter approves the highlighted Yes. */
 const PERM_BASH = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-2.1.296.txt'), 'utf8');
 const PERM_EDIT = fs.readFileSync(path.join(SCREENS, 'permission-prompt-edit-2.1.296.txt'), 'utf8');
@@ -224,4 +224,24 @@ test('#5743 CONTROL: a needs_you Claude card whose screen shows none of the thre
     assert.doesNotMatch(String(v.because), /on its screen/, JSON.stringify(v));
     assert.ok(calls.typed().length > 0, 'an ordinary needs_you screen was refused');
   });
+});
+
+test('#5754 review 11: a WORKING card that reached a permission prompt mid-turn is read and refused too', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'working' })]);
+  try {
+    const calls = arm(PERM_BASH);
+    const roster = board.agents.map((c) => ({ ...c }));   // the snapshot predates the prompt: it still reads working
+    assert.equal(roster[0].state, 'working', 'premise: the card reads working');
+    const v = await chat.deliverAsync('casey', 'A room post for Casey.', roster);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
+    assert.match(v.because, /asking for permission/);
+    assert.equal((await chat.deliverAutomaticAsync('casey', 'A timer line.', roster)).held, true);
+    assert.deepEqual(calls.typed(), [], 'typed into a permission prompt behind a working card');
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5754 review 11: a permission prompt in other wording is caught by its shape (highlighted numbered option over the footer)', () => {
+  assert.equal(status.claudePermissionPromptUp(' Allow Claude to fetch example.com?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend'), true);
+  // CONTROL: the same wording with no highlighted numbered option and no footer is not a prompt.
+  assert.equal(status.claudePermissionPromptUp('⏺ Allow Claude to fetch example.com? I think so.\n\n❯ \n'), false);
 });
