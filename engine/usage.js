@@ -333,6 +333,216 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
   return { days, folders, folderModels, unreadable, rootsRead: roots };
 }
 
+/* kosmos#5759: TODAY's transcripts, read once and then only for what was appended. With every past day frozen (#5363),
+   the usual open still re-read every transcript written today, which is never frozen: 155 files, 392 MB and about 10
+   seconds a page open on the fleet Mac, 6 hours into the UTC day. This is the per-file byte-offset cursor the
+   dailyUsageByModel docblock named: in this board process, each of the day's transcripts remembers how far it was read
+   and what its rows added, and the next call reads only the bytes after that.
+
+   🛑 THE RESULT IS EXACTLY WHAT A FULL READ OF THE SAME FILES WOULD GIVE, OR THE CURSOR IS THROWN AWAY. scanUsage is
+   the definition: its seenIds keeps the FIRST copy of a message in (root, sorted path) order, and a transcript's rows
+   go to its FIRST cwd (a subagent's to its top-level transcript's). Anything after which an incremental read could
+   disagree with that throws Rebuild, and the call reads every file from the start, in order, which cannot disagree:
+   - a file that vanished, could not be stat-ed or read, shrank below its cursor, or is a different file (inode);
+   - a message id already counted for a file that sorts AFTER the one now holding it (a full read credits this one);
+   - a launch folder that changes after rows were counted under the old one (a first cwd written late, or a
+     subagent's parent changing);
+   - a new UTC day or a different set of config roots (a fresh cursor, not a rebuild in place).
+   A last line with no newline yet is read only when it parses whole, as the full read's split would parse it; a
+   half-written one is left for next time.
+   Held in memory only: a board restart starts from a full read of the day, as before. Calls are chained, so two
+   requests never move one cursor at once. */
+const DAY_CURSOR = { day: null, roots: null, files: new Map(), owner: new Map(), heads: new Map() };
+const lastDayCursorRun = { rebuilt: false, bytesRead: 0 };
+let dayCursorChain = Promise.resolve();
+class Rebuild extends Error {}
+
+function resetDayCursor(day = null, roots = null) {
+  DAY_CURSOR.day = day;
+  DAY_CURSOR.roots = roots;
+  DAY_CURSOR.files = new Map();
+  DAY_CURSOR.owner = new Map();
+  DAY_CURSOR.heads = new Map();
+}
+
+function scanDayCursor(day) {
+  const run = dayCursorChain.then(() => scanDayCursorNow(day));
+  dayCursorChain = run.catch(() => {});
+  return run;
+}
+
+async function scanDayCursorNow(day) {
+  if (windowCutMs(day) === null) return scanUsage({ sinceDay: day, untilDay: day, mtimeCut: true });   // not a real day
+  const roots = configRoots();
+  const key = JSON.stringify(roots);
+  let rebuilt = false;
+  if (DAY_CURSOR.day !== day || DAY_CURSOR.roots !== key) { resetDayCursor(day, key); rebuilt = true; }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const out = await dayCursorPass(day, roots);
+      lastDayCursorRun.rebuilt = rebuilt;
+      lastDayCursorRun.bytesRead = out.bytesRead;
+      return out.result;
+    } catch (err) {
+      if (!(err instanceof Rebuild)) { resetDayCursor(); throw err; }
+      resetDayCursor(day, key);
+      rebuilt = true;
+    }
+  }
+  // A from-the-start pass asked to rebuild again (it should not be able to): the full read, and no cursor kept.
+  resetDayCursor();
+  lastDayCursorRun.rebuilt = true;
+  lastDayCursorRun.bytesRead = -1;
+  return scanUsage({ sinceDay: day, untilDay: day, mtimeCut: true });
+}
+
+async function readBytes(file, start, end) {
+  const fh = await fsp.open(file, 'r');
+  try {
+    const buf = Buffer.alloc(end - start);
+    let got = 0;
+    while (got < buf.length) {
+      const { bytesRead } = await fh.read(buf, got, buf.length - got, start + got);
+      if (!bytesRead) break;
+      got += bytesRead;
+    }
+    return buf.subarray(0, got);
+  } finally { await fh.close(); }
+}
+
+/* The first cwd among `lines`, by the full read's rule (the first line naming a cwd that parses with a non-empty one). */
+function firstCwdOf(lines) {
+  for (const line of lines) {
+    if (!line.includes('"cwd"')) continue;
+    let r;
+    try { r = JSON.parse(line); } catch { continue; }
+    if (r && typeof r.cwd === 'string' && r.cwd) return r.cwd;
+  }
+  return '';
+}
+
+const orderBefore = (a, b) => a.ri < b.ri || (a.ri === b.ri && a.file < b.file);
+
+function addBucket(map, k, usage) {
+  if (!map[k]) map[k] = emptyBuckets();
+  for (const field of BUCKET_FIELDS) map[k][field] += Number(usage[field]) || 0;
+  map[k].rows += 1;
+}
+
+async function dayCursorPass(day, roots) {
+  const cutMs = windowCutMs(day);
+  const C = DAY_CURSOR;
+  let unreadable = 0;
+  let bytesRead = 0;
+  const listed = new Set();
+  const skippedTop = new Set();
+  const passHeads = new Map();   // a skipped parent is head-read at most once a pass, as the full read's launchOf does
+  for (let ri = 0; ri < roots.length; ri += 1) {
+    const root = roots[ri];
+    for (const file of (await walkTranscriptsUnder(root, () => { unreadable += 1; })).sort()) {
+      const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
+      const isSub = sub !== -1;
+      let st;
+      try { st = await fsp.stat(file); } catch { if (C.files.has(file)) throw new Rebuild(); unreadable += 1; continue; }
+      if (st.mtimeMs < cutMs) {
+        if (C.files.has(file)) throw new Rebuild();
+        if (!isSub) skippedTop.add(file);
+        continue;
+      }
+      let s = C.files.get(file);
+      if (s && (s.ri !== ri || s.ino !== st.ino || s.dev !== st.dev || st.size < s.offset)) throw new Rebuild();
+      const fresh = !s;
+      if (fresh) s = { ri, file, ino: st.ino, dev: st.dev, offset: 0, firstCwd: '', counted: false, launch: '', orphan: false, days: {}, folders: {}, folderModels: {} };
+      let lines = [];
+      if (st.size > s.offset) {
+        let buf;
+        try { buf = await readBytes(file, s.offset, st.size); }
+        catch { if (!fresh) throw new Rebuild(); unreadable += 1; continue; }
+        const nl = buf.lastIndexOf(0x0a);
+        let take = buf.length;
+        if (nl !== buf.length - 1) {
+          // No newline after the last line yet: take it only if it parses whole (the full read would parse it too).
+          const tail = buf.subarray(nl + 1).toString('utf8');
+          let whole = false;
+          try { JSON.parse(tail); whole = true; } catch { /* half written */ }
+          if (!whole) take = nl + 1;
+        }
+        lines = buf.subarray(0, take).toString('utf8').split('\n');
+        s.offset += take;
+        bytesRead += take;
+      }
+      if (fresh) C.files.set(file, s);
+      listed.add(file);
+      if (!s.firstCwd) s.firstCwd = firstCwdOf(lines);
+      let launch = s.firstCwd;
+      let orphan = false;
+      if (isSub) {
+        const parentFile = file.slice(0, sub) + '.jsonl';
+        let parent;
+        const ps = C.files.get(parentFile);
+        if (ps && listed.has(parentFile)) parent = ps.firstCwd;
+        else if (skippedTop.has(parentFile)) {
+          // A parent last written before the window: its first cwd, head-read once per version of that file.
+          let pst = null;
+          try { pst = await fsp.stat(parentFile); } catch { /* read below fails the same way */ }
+          const h = C.heads.get(parentFile);
+          if (passHeads.has(parentFile)) parent = passHeads.get(parentFile);
+          else if (h && pst && h.mtimeMs === pst.mtimeMs && h.size === pst.size) parent = h.cwd;
+          else {
+            let failed = false;
+            parent = await firstCwd(parentFile, () => { failed = true; unreadable += 1; });
+            if (!failed && pst) C.heads.set(parentFile, { mtimeMs: pst.mtimeMs, size: pst.size, cwd: parent });
+          }
+          passHeads.set(parentFile, parent);
+        }
+        if (parent) launch = parent; else orphan = true;
+      }
+      if (s.counted && (s.launch !== launch || s.orphan !== orphan)) throw new Rebuild();
+      s.launch = launch;
+      s.orphan = orphan;
+      for (const line of lines) {
+        if (!line || SYNTHETIC_ROW.test(line)) continue;
+        let row;
+        try { row = JSON.parse(line); } catch { continue; }
+        const message = row && row.message;
+        const usage = message && message.usage;
+        if (!usage) continue;
+        if (utcDay(row.timestamp) !== day) continue;
+        if (message.id) {
+          const owner = C.owner.get(message.id);
+          if (owner) {
+            if (owner !== s && orderBefore(s, owner)) throw new Rebuild();   // a full read counts it here, not there
+            continue;
+          }
+          C.owner.set(message.id, s);
+        }
+        const model = message.model || 'unknown';
+        addBucket(s.days, model, usage);
+        addBucket(s.folders, launch, usage);
+        const scoped = orphan ? '' : launch;
+        if (!s.folderModels[scoped]) s.folderModels[scoped] = {};
+        addBucket(s.folderModels[scoped], model, usage);
+        s.counted = true;
+      }
+    }
+  }
+  for (const file of C.files.keys()) if (!listed.has(file)) throw new Rebuild();   // gone, or now unreadable
+  const days = {};
+  const folders = {};
+  const folderModels = {};
+  const sum = (into, from) => { for (const [k, b] of Object.entries(from)) addInto(into, k, b); };
+  for (const s of C.files.values()) {
+    if (!s.counted) continue;
+    sum((days[day] = days[day] || {}), s.days);
+    sum((folders[day] = folders[day] || {}), s.folders);
+    for (const [scoped, models] of Object.entries(s.folderModels)) {
+      if (!folderModels[day]) folderModels[day] = {};
+      sum((folderModels[day][scoped] = folderModels[day][scoped] || {}), models);
+    }
+  }
+  return { result: { days, folders, folderModels, unreadable, rootsRead: roots }, bytesRead };
+}
+
 /* This Kosmos's own agent folders, from its roster, exactly as the usage screen builds them (server.js, the per-agent
    split). Null when the roster cannot be read. An agent whose folder cannot be resolved stays in the list as null, so
    the count says it left that agent out rather than looking whole. */
@@ -509,10 +719,12 @@ function todayUtc() {
  * without that, every OTHER route on this server (agent status polling
  * included) would stall for the scan's full duration, found in review as
  * a real, not hypothetical, consequence of the first synchronous version.
- * A genuinely cheaper re-scan (a persistent per-file byte-offset cursor,
- * so an already-fully-read file only has its NEW bytes reparsed next
- * time) is out of scope for this card -- a separate piece of work, not a
- * corner cut here, and distinct from the event-loop-blocking fix above.
+ * #5759: today, when it is the only missing day (the usual open), is read
+ * through a per-file byte-offset cursor (scanDayCursor): each of the day's
+ * transcripts is read once, then only for the bytes appended since, with the
+ * same answer as a full read (it rebuilds whenever it could disagree). The
+ * cursor lives in this board process, so the first open after a restart, and
+ * any open with a past day missing, still reads in full.
  *
  * The scan range is narrowed to the missing days' own span (not the full
  * requested window), so the ACCUMULATION and per-day freeze work scoped to
@@ -567,7 +779,11 @@ async function dailyUsageByModel(days = 7) {
     const sinceDay = missingSorted[0];
     const untilDay = missingSorted[missingSorted.length - 1];
     // #5363: files last written before the first missing day (less an hour) are not read (see scanUsage).
-    const scanResult = await scanUsage({ sinceDay, untilDay, mtimeCut: true });
+    /* kosmos#5759: when today is the only missing day (the usual open), its transcripts are read through the cursor
+       (scanDayCursor): only what was appended since the last open, with the same result as a full read. */
+    const scanResult = sinceDay === today && untilDay === today
+      ? await scanDayCursor(today)
+      : await scanUsage({ sinceDay, untilDay, mtimeCut: true });
     rootsRead = scanResult.rootsRead;
     for (const day of missing) {
       /* Whichever half of a past day is already frozen keeps it: re-deriving
@@ -737,6 +953,9 @@ module.exports = {
   configRoots, // re-exported so a caller can report roots without a second require
   walkTranscriptsUnder,
   scanUsage,
+  scanDayCursor,      // kosmos#5759
+  resetDayCursor,     // kosmos#5759: tests start from an empty cursor
+  lastDayCursorRun,   // kosmos#5759: tests read whether the last call rebuilt and how many bytes it read
   dailyUsageByModel,
   worldUsageByModel,
   worldAgentDirs,
