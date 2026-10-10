@@ -42,3 +42,10 @@ The Kosmos+ remote view serves the same page. Not checked on a phone.
 
 ## Not covered
 - Slice 3: a notice on the person's board where the refusal happened, with an Add as member button.
+
+## Review round 2 fixes
+- An agent still on the project's record but removed from Kosmos is filtered out of the room before the post and
+  react checks; it now gets the sentence WITHOUT the fix (adding it again would not help). The removed-agent tests in
+  engine/messages.test.js and engine/reactions-2255.test.js assert the fix is absent, with a stranger as the control.
+- Left as is (NITs): close/act and move share the helper with add, which is tested; the "could not tell which agent
+  this token belongs to" sentence is not matched by the bash CLI's restart hint (it is accurate as it stands).

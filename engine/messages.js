@@ -1697,6 +1697,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      remove.js documents, rather than re-admitting every removed agent. */
   const room = _roomMembers(members);
   if (!room.ok) return refuse('we could not check which agents have been removed, so nothing was posted');
+  const onRecord = Array.isArray(members) && members.includes(from);   // kosmos#5752 round 2: removed, not a stranger
   members = room.members;
   /* The room is its members: an AGENT sender who is not on the project
      is not in the room, and speaking into a room you are not in is
@@ -1704,7 +1705,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      prevent. The operator is in every room they own -- membership lists
      agents, not the person. */
   if (operator !== true && !members.includes(from)) {
-    return refuse('you are not on that project, so this room is not yours to post into' + NOT_ON_PROJECT_FIX);
+    /* kosmos#5752: the fix only where adding would help. An agent still on the record but removed from Kosmos is
+       filtered out above; adding it again changes nothing, so it gets the sentence without the fix. */
+    return refuse('you are not on that project, so this room is not yours to post into' + (onRecord ? '' : NOT_ON_PROJECT_FIX));
   }
   const recipients = operator === true ? members.slice() : members.filter((m) => m !== from);
   /**
@@ -2835,7 +2838,8 @@ function react({ project, of, emoji, from, operator, members }) {
       return { ok: false, because: 'we could not check which agents have been removed, so nothing was reacted' };
     }
     if (!room.members.includes(reactor)) {
-      return { ok: false, because: 'you are not on that project, so this room is not yours to react in' + NOT_ON_PROJECT_FIX };
+      // kosmos#5752 round 2: a removed agent still on the record is not told to get added (it would not help).
+      return { ok: false, because: 'you are not on that project, so this room is not yours to react in' + (members.includes(reactor) ? '' : NOT_ON_PROJECT_FIX) };
     }
   }
   const rec = record();
