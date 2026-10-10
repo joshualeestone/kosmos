@@ -2,19 +2,19 @@
 pre_challenge: true
 method: challenge-loop
 branch: manipcheck-5683
-diff_hash: 806ff960aa081896077ca8c103d71dc68f398b60796f713a679106b3c2ce3901
-validation: passed with a load caveat, stated: Mortals full suite at d0afd1e3c ran at load 14 and its 9 reds were all in load-sensitive files (the same class failed on the base branch agentevents-5683 900854f2d on the same machine that night); all 19 distinct files that went red across two Mortals runs pass locally on d0afd1e3c at load 2 (469 + 650 tests, 0 failed); the three slice files (manipcheck-5683, agentevents-5683, engine.reachable) 203 + 7 pass; the head differs from d0afd1e3c only in the plan
+diff_hash: 01f19aad772c4cff2bb701dba04958635ad50ee7461272867ebab5ba6c0b22b2
+validation: passed (full suite on Mortals, run tools/run-tests.sh at 0138b2406 after the rebase onto main d82642d70 where slice 1 merged: 18558 tests, 18316 pass, 0 fail, leak check clean)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff; the one CLAUDE.md change is a routing-table row in the root file, out of the audit's scope)
-timestamp: 2026-10-10T03:07:36Z
-iterations: 37
+timestamp: 2026-10-10T11:21:16Z
+iterations: 45
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 37 blind reviews alternating Opus and Sonnet (36 before the rebase onto slice 1, one after)
-**Converged:** Yes: review 36 had nothing above NIT, and review 37 (post-rebase, base 900854f2d) had nothing above NIT; its NITs are fixed
-**Stacked on:** agentevents-5683 (kosmos#5683 slice 1, Ice Cream Kitty), base 900854f2d
+**Iterations:** 45 blind reviews alternating Opus and Sonnet (36 before the rebase onto slice 1, one after it, and 8 after the rebase onto main once slice 1 merged)
+**Converged:** Yes: review 45 (after the rebase onto main) had nothing above NIT; reviews 38 to 44 each found a WARNING, fixed or decided as below
+**Base:** main d82642d70 (kosmos#5683 slice 1, Ice Cream Kitty, merged by rebase); earlier stacked on agentevents-5683 at 900854f2d
 
 The change (kosmos#5683 slice 3): an on-device manipulation check. When the company policy turns it on and the accepted words name it, a tool result addressed to the model, or asking for a secret to be sent out, is flagged to the company (session and tool-use refs, never the text). A tripwire for common phrasings, not a detector; every decision and miss is in `.claude/plans/manipcheck-5683.md`.
 
@@ -94,3 +94,43 @@ The change (kosmos#5683 slice 3): an on-device manipulation check. When the comp
 - No BLOCKER and no WARNING; the reviewer ran both test files (191 pass), probed 13 adversarial 250 KB inputs (worst 118 ms), and found no path by which matched text or input reaches an event.
 #### Iteration 37 (opus): nothing above NIT
 - NITs fixed: dead `sinceS` and `clashNow` removed; readFlats wrapped in the try Kitty's version had (logs and fails closed); the `-m` comment says only what the code ensures. Decided: the per-kind loop's early reads on a flags-only queue (cheap).
+
+#### Rebase onto main (slice 1 merged as d82642d70), before iteration 38
+- [NIT] Slice 1 merged by rebase with post-rebase changes. Conflicts resolved keeping each of them (sandbox refusals judged by the touched path, the call-files test seam, a lost call classed without the agent folder) beside this slice's own-input match and flag state.
+- [WARNING] Got wrong in the resolution, caught by the tests: I took slice 1's line that marks a guard-gap agent collided, which slice 1 clears later through a set this slice had removed, so the agent went silent (slice 1's r24 red here, green on main as a control). A gap now only restarts the agent's reading; a real clash still marks it (r28 green).
+
+#### Iteration 38 (opus)
+- [WARNING] WARNING: a check-only agent's transcript, idle past the window, was read from byte 0 when the agent joined the token-only list while the check had been on for weeks (the reading point fell back to the turn-on), spending the tick's read budget on lines the window then drops. The reading point is now never earlier than the window. Tested with a file bigger than one tick's budget, last written ten days ago: it starts at its end; red with the clamp removed (read 4 MB of 18 MB).
+- [NIT] NIT taken: a comment says folders only the survey found are used to keep agents apart and are never read for flags.
+
+#### Iteration 39 (sonnet)
+- [WARNING] WARNING: collision marks gathered while the check was off were carried into its first tick on, read as "just cleared", and started a token-only agent's files at their end, losing that tick's refusals. A fresh turn-on now carries no earlier marks (a check-only file first seen then starts at its end anyway, and a token-only agent's own collisions are slice 1's listing reset). Tested; red without the change.
+- [NIT] NIT taken: the span comment says up to SPANS_MAX, and that past the cap an agent's own span can be flagged (the safe side).
+- [NIT] NIT recorded, a known miss: after a board restart the call map is empty, so a result whose call was lost is scanned even if its tool was Edit or Write, and a write tool's echo of the agent's own text can be flagged. It needs a restart and a result landing in a later tick; the flag says what was received, so the company sees an agent's own words, not a hidden attack.
+
+#### Iteration 40 (opus)
+- [WARNING] WARNING, fixed: a Kosmos that joined another company keeps an applied-policy record holding only the old version marks (orgpolicy clear()), and the check read that as "policy unknown" on every tick, so a check left on would scan and keep flags with no end. Only a record that does not parse is unknown now; one that parses with no policy is off. Tested with a record the real clear() wrote; red with the old rule.
+- [WARNING] WARNING, taken without a test: a cleared collision whose agent has no folder this tick (or is not in the read list) dropped its mark without starting the agent's files at their end. Its mark is now kept, as the listing-failure and stat-failure paths already did. I built the reviewer's scenario (an offset from before the collision, lines written while shared, the clearing tick with no folder): with this change undone the file was read from before the collision and still nothing was flagged or queued, by a filter I did not identify. So the harm was not shown, no test pins the line, and it stays for consistency with its two siblings. Weakest premise of this entry: that the unidentified filter is general and not an accident of the fixture.
+- [NIT] NITs: the cut-path comment now says each call's own-input match is computed again (a pending call needs it); the cut offset is measured on decoded text, exact for the well-formed UTF-8 Claude Code writes (stated); the policy read can apply a bundle as inForce() does (stated); a flag-only result computes a target class it does not use (cost only, kept).
+
+#### Iteration 41 (sonnet)
+- [WARNING] WARNING: a Windows work Kosmos reads no transcript (slice 1 returns first: no agent is guarded there), so the check is silently off on Windows even with the policy on and the words accepted. Decided: stated, not built. Reading Windows transcripts is unmeasured, and Windows-side changes go to the Windows lane. The header comment and the CLAUDE.md row now say no Windows agent is checked, so "no flags" there is a recorded gap, not a reading of clean. Weakest premise: that a company turning the check on reads the row or the console note before trusting no flags from Windows members.
+- [NIT] NITs taken: the failure-clock comment says the independence is one way (a failed refusal send holds flags too); a dropped flag keeps its hourly slot, said where it is dropped. NIT noted: the CLAUDE.md row cites slice 1's tests, which are on main now.
+
+#### Iteration 42 (opus)
+- [WARNING] WARNING: the hourly flag slot was keyed on the wire's action, which folds every tool it does not know into 'run', so an MCP tool, Task or a lost call shared Bash's slot: one noisy Bash flag hid a real injection arriving through an MCP result for the hour, the hiding review 7 put the kind in the key to stop. The slot now keys on a local kind (mcp, tool, unknown, or the action for known tools), kept on the queued event and never sent; a flag queued before keeps its action. Tested (a Bash flag, then an MCP one and a second Bash one in the same hour: the MCP one is sent, the second Bash one is not, nothing named kind reaches the wire); red with the old key.
+- [WARNING] CONVENTION taken: the misses line now says only look-alikes from another script pass; fullwidth and accented text is caught.
+- [NIT] NITs recorded: a call recorded while its agent was read only for flags has no target, so if its guard comes into force and the refusal lands a tick after, it reports 'other' or (a sandbox refusal) nothing: rare, and toward silence. The agent list and folders are looked up every tick even with the check off, and flags held while the policy cannot be read still pass the send's checks before sending nothing: cost only.
+
+#### Iteration 43 (sonnet)
+- [WARNING] WARNING, decided at review 41: a failed refusal send holds the flag send too (one way). A comment now says so where the check is, not only at the send.
+- [WARNING] WARNING, fixed: the hourly flag slots were bounded by the window but not by count. Capped at 4000, the oldest hours shed first; a slot shed early can let a re-read line from that hour flag again (an extra report, never a hidden one). Tested (4100 slots: 4000 kept, the newest hour kept, the oldest gone), red with no cap and red with the newest shed first.
+- [NIT] NIT taken: a stored kind is validated on read like the action. NITs decided: tickOnce is long (a split is its own change, not this slice's); review numbers in comments, as the file did before.
+
+#### Iteration 44 (opus)
+- [WARNING] WARNING: the review 39 loss by another path. A token-only agent whose collision cleared on a blind tick (agent list, folder, policy or words unreadable) was read again for refusals on that tick by slice 1, but its flag mark was carried; on the next known tick the mark cleared and started its files at their end, skipping the refusals written between. A token-only agent's collision is slice 1's own and known even on a blind tick, so it now clears on slice 1's transition, that same tick, and its mark is dropped; nothing is lost, because slice 1's listing reset bounds its refusals at that tick. Only agents carrying a flag mark, so an agent whose guard came back is not reset. Tested (two token-only agents share a folder, the collision clears on a tick with no agent list, a refusal written after is sent); red without the change.
+- [NIT] NITs recorded, cost only: the cut offset after a rewritten file overshoots and the next tick re-reads (deduped); a resumed big token-only session first seen while the check is on gets no bisection; an unguarded token-only agent is bounded by the hourly slots, not the per-tick cap; the consent file is read twice per tick; each slot stores a date nobody reads.
+
+#### Iteration 45 (sonnet)
+- [NIT] NIT taken here: flags have no retry of their own while a refusal send is failing; they wait out the refusals' 30 minutes (decided at review 41).
+- [NIT] NITs recorded: a flag beside a refusal the tick later drops is queued as "-m" with no sibling row (harmless; resolvers strip "-m", as the comment says); the local kind is validated on read and never reaches the wire (confirmed).
