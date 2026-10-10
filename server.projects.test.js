@@ -2697,7 +2697,7 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
     });
 });
 
-test('a press at a permission-style prompt is refused as not a button question, nothing typed (the identity check is server.question-menu-5406.test.js\'s)', async () => {
+test('a press that names its question (asked) at a permission-style prompt is refused as not a button question, nothing typed (a words-only press there is #5754\'s delivery floor; the identity check is server.question-menu-5406.test.js\'s)', async () => {
   reset();
   /* ⚠️ THE CONTROL FOR IT. Without this, the refusal above passes for a server
      that 409s every button send, which would be worse than the hole it closes:
@@ -2749,7 +2749,7 @@ test('a pane that ACCUMULATED a new question above the same menu is refused', as
     });
 });
 
-test('the cursor moving inside a SHORT prompt keeps the same identity (questionAbove), because the window clamps', async () => {
+test('the cursor moving inside a SHORT prompt keeps the same identity (questionAbove), because the window clamps (the server-level clamp is server.question-menu-5406.test.js review 21)', async () => {
   reset();
   /**
    * ⚠️ THE FALSE REFUSAL THE FIRST VERSION OF THIS GUARD SHIPPED WITH, and a

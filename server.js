@@ -16353,7 +16353,7 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (!opt && (chose || askedGiven)) {
-              const e = new Error('that number is not on the menu its screen shows now, so we did not send it. Answer it in its window.');
+              const e = new Error('that is not one of the numbers on the menu its screen shows now, so we did not send it. Answer it in its window.');
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
