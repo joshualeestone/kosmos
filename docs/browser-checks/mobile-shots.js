@@ -27,6 +27,12 @@
  * leaves this computer. Two differences from a real phone, neither shown by any screen today: a board redirect is
  * followed by the router (the page never sees the 3xx), and the made-up http host is not a secure context, so no
  * service worker registers.
+ * --data marketing (#5782) is the store fleet with a shape, for installkosmos.com's product shots: Cleo leads and the
+ * others report to her (the org chart draws a team), the person is a made-up "Sam Rivera" (the hub shows an initial),
+ * and the tasks are spread across the team, each agent reporting what it is on. --faces DIR seeds pictures from a
+ * folder of <claim>.jpg|png|webp|gif (cleo, dana, eli, farah) and you.<ext>, through the engine's own picture writers.
+ * 🛑 The leak guard reads page TEXT, not images: --faces must only ever hold made-up or licensed faces (the site's own
+ * meet/faces), never a photo of a real person from this Mac. desktop2x is 1280x800 always saved at 2x.
  * --data store seeds a clean fleet for App Store and Play screenshots instead
  * of the stress-test sample (no stopped agent, no overlong names, no code
  * block); --scale device saves at the device's pixels, not CSS pixels. The
@@ -95,7 +101,7 @@ const SIZES = {
   // rules) are skipped for it. Not in the default sweep.
   desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
   /* #5782: the same desktop at 2x, for marketing composites that are shown larger than 1280. Not in the default sweep. */
-  desktop2x: { width: 1280, height: 800, dpr: 2, label: 'desktop at 2x', desktop: true },
+  desktop2x: { width: 1280, height: 800, dpr: 2, label: 'desktop at 2x', desktop: true, scale: 'device' },   // always saved at 2x (2560x1600), whatever --scale says
 };
 /* --remote's address (kosmos#5510): .test is reserved and never resolves, so a slip can only fail, never reach a real host. */
 const REMOTE_BASE = 'http://kosmos-shots.kosmosplus.test';
@@ -397,6 +403,7 @@ const SCREENS = [
   // Kano: projects, a room, and the waiting-on-you ask.
   { name: 'projects', owner: 'Kano', go: async (page) => openTab(page, 'projects') },
   { name: 'project-room', owner: 'Kano', go: async (page, data) => {
+    freshCommitments();
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
@@ -1226,6 +1233,14 @@ DATA_SETS.marketing = {
   },
 };
 let FACES_DIR = null;   // --faces: pictures for the seeded agents and the person
+/* #5782 review: an agent's report is a claim stamped when it is made, and the board calls it stale after 30 minutes
+   (engine/commitments.js STALE_AFTER_MS). A long sweep or a --keep board would then show "last reported N minutes ago"
+   on every task card, so a screen that shows tasks re-reports first, exactly as a working agent keeps reporting. */
+function freshCommitments() {
+  if (!DATA.commitments) return;
+  const commitments = require(path.join(REPO, 'engine', 'commitments'));
+  for (const [agent, what] of Object.entries(DATA.commitments)) commitments.report(agent, [{ id: 'c-' + agent, what }]);
+}
 let DATA = DATA_SETS.sample;   // run() picks the set before the board is seeded
 /* #4994: the removed agent the leftover-delete screen opens the delete confirmation for. Invented. Seeded only when
    that screen is asked for (run() sets SEED_LEFTOVER), so every other screen's board has no "Show removed agents". */
@@ -1257,19 +1272,19 @@ function seedFiles(roots) {
   }
   /* #5782: --faces, through the engine's own picture writers (the same doors Settings uses). A folder with no
      picture for someone leaves them on their initial, as today. */
-  if (DATA.you) {
-    const r = require(path.join(REPO, 'engine', 'you')).save(DATA.you);
-    if (r && r.ok === false) throw new Error('the seed could not save the person: ' + (r.because || r.error));
-  }
+  if (DATA.you) require(path.join(REPO, 'engine', 'you')).save(DATA.you);   // throws, with its reason, on a bad record
   if (FACES_DIR) {
-    const pick = (key) => ['.jpg', '.jpeg', '.png'].map((e) => path.join(FACES_DIR, key + e)).find((f) => fs.existsSync(f));
-    const typeOf = (f) => (/\.png$/i.test(f) ? 'image/png' : 'image/jpeg');
+    const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' };
+    const pick = (key) => Object.keys(TYPES).map((e) => path.join(FACES_DIR, key + e)).find((f) => fs.existsSync(f));
+    const named = (f, what, fn) => { try { return fn(); } catch (e) { throw new Error('--faces ' + path.basename(f) + ' could not be saved as ' + what + ': ' + e.message); } };
+    let used = 0;
     for (const a of AGENTS) {
-      const f = pick(a.claim);
-      if (f) { const r = store.saveAvatar(a.claim, typeOf(f), fs.readFileSync(f)); if (r && r.ok === false) throw new Error('the seed could not save ' + a.claim + "'s picture: " + r.because); }
+      const f = pick(a.claim);   // keyed by the claim (farah.jpg), not the display name
+      if (f) { named(f, a.claim + "'s picture", () => store.saveAvatar(a.claim, TYPES[path.extname(f).toLowerCase()], fs.readFileSync(f))); used += 1; }
     }
     const yf = pick('you');
-    if (yf) { const r = require(path.join(REPO, 'engine', 'you')).savePicture(typeOf(yf), fs.readFileSync(yf)); if (!r || !r.ok) throw new Error('the seed could not save your picture: ' + (r && r.because)); }
+    if (yf) { named(yf, 'your picture', () => require(path.join(REPO, 'engine', 'you')).savePicture(TYPES[path.extname(yf).toLowerCase()], fs.readFileSync(yf))); used += 1; }
+    if (!used) console.log('mobile-shots: --faces ' + FACES_DIR + ' has no <claim>.jpg|png|webp|gif for ' + AGENTS.map((a) => a.claim).join(', ') + ' or you: no pictures seeded');
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
   /* #4820: an existing install no longer owes a one-time Community notice (#4524 marked it seen here so it
@@ -1458,10 +1473,7 @@ async function seed(base, roots) {
   for (const [s2, who] of taskList) {
     await post('/api/project/' + pid + '/tasks', { sentence: s2, who });
   }
-  if (DATA.commitments) {
-    const commitments = require(path.join(REPO, 'engine', 'commitments'));
-    for (const [agent, what] of Object.entries(DATA.commitments)) commitments.report(agent, [{ id: 'c-' + agent, what }]);
-  }
+  freshCommitments();
   await post('/api/projects', DATA.secondProject);
   const t0 = Date.now() - 1800e3;
   const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
@@ -1737,7 +1749,7 @@ async function run() {
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
   FACES_DIR = args.faces ? path.resolve(args.faces) : null;
-  if (FACES_DIR && !fs.existsSync(FACES_DIR)) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
+  if (FACES_DIR && !(fs.existsSync(FACES_DIR) && fs.statSync(FACES_DIR).isDirectory())) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
   SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
 
   const board = await startBoard();
@@ -1809,7 +1821,7 @@ async function run() {
                   err.leak = true;
                   throw err;
                 }
-                await page.screenshot({ path: path.join(out, file), scale: args.scale });
+                await page.screenshot({ path: path.join(out, file), scale: SIZES[sz].scale || args.scale });
                 /* The page re-renders on its tick, so the scan above and the shot are two reads:
                    scan again, and a hit painted in between deletes the shot before anything
                    else can pick it up. */
