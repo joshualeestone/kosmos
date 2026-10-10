@@ -11453,6 +11453,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #askcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #plus-state2 h3 { font-size: 1.3rem; margin: 0 0 .25rem; }
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
+/* #5785: the branded K-to-circle loader (#2692) above "Signing in..." while this computer connects; the restart
+   interstitial's canvas size. Empty (and so taking no room) the rest of the time. */
+#plus-si-k canvas { width: 88px; height: 103px; display: block; margin: 0 0 16px; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
 #plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
@@ -18706,6 +18709,9 @@ window.kosmosMeasureScrollbarWidth();
          state is reachable by the design's intent and not yet by a signal. That is the
          requested state rather than an omission. -->
     <div id="plus-state2" hidden>
+      <!-- #5785 (Josh, 2026-10-10 14:00): a connect takes about half a minute (the certificate's DNS settle), so the big
+           K-to-circle loader plays here while it runs, mounted by plusSiDoRegister and removed when it answers. -->
+      <div id="plus-si-k" aria-hidden="true"></div>
       <h3 id="plus-si-title">Sign in to activate Kosmos+</h3>
       <!-- #3478: state 2 is now WIRED. #1115 (Josh, 2026-08-27) settled the split
            and the state-1 copy states it: sign-UP (email, code, card) is done on
@@ -48285,6 +48291,15 @@ function plusSiWayOut(step) {
   if (step === 'plus-si-done') return '';      // signed in and connected: Done is the way on
   return 'Start over';
 }
+/* #5785: the branded K loader (#2692) while a register runs. Mounted fresh each time and removed by emptying the holder:
+   startKLoader ends its frame loop once its canvas has left the page, so hiding it would leave it drawing. */
+function plusSiKStart() {
+  const holder = document.getElementById('plus-si-k');
+  if (!holder) return;
+  holder.innerHTML = '<canvas width="176" height="206" aria-hidden="true"></canvas>';
+  if (typeof startKLoader === 'function') startKLoader(holder.firstElementChild);
+}
+function plusSiKStop() { const holder = document.getElementById('plus-si-k'); if (holder) holder.textContent = ''; }
 function plusSiShow(step) {
   for (const id of PLUS_SI_STEPS) {
     const el = document.getElementById(id);
@@ -48293,6 +48308,7 @@ function plusSiShow(step) {
   const title = document.getElementById('plus-si-title');
   if (title) title.textContent = step === 'plus-si-done' ? "You're signed in to Kosmos+" : 'Sign in to activate Kosmos+';
   { const sp = document.getElementById('plus-si-spin'); if (sp) sp.hidden = true; }   // #4608: a step change ends any wait
+  plusSiKStop();   // #5785: and the big loader with it
   const out = document.getElementById('plus-si-cancel');
   if (out) {
     const label = plusSiWayOut(step);
@@ -49157,10 +49173,17 @@ async function plusSiDoRegister(name, owned) {
   const siTitle = document.getElementById('plus-si-title');
   const siSpin = document.getElementById('plus-si-spin');
   if (siTitle) siTitle.textContent = 'Signing in...';
-  if (siSpin) siSpin.hidden = !owned;
+  if (siSpin) siSpin.hidden = true;   // #5785: the big loader below replaces the small one for this wait
+  plusSiKStart();
+  const kStart = Date.now();
+  /* #5785: at least one whole K-into-circle loop before the answer shows (#2692's rule), so a fast connect does not
+     flash. The restart interstitial's floor and test seam. */
+  const kHoldMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
+  const kHold = () => new Promise((res) => setTimeout(res, Math.max(0, kHoldMs - (Date.now() - kStart))));
   if (!owned) plusSiMsg('Signing in...');
   const siRestore = () => {
     if (siSpin) siSpin.hidden = true;
+    plusSiKStop();
     if (siTitle && siTitle.textContent === 'Signing in...') siTitle.textContent = 'Sign in to activate Kosmos+';
   };
   if (owned) {
@@ -49178,9 +49201,10 @@ async function plusSiDoRegister(name, owned) {
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
   let r;
   try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
-  catch (e) { siRestore(); if (!owned) plusSiMsg(''); throw e; }
+  catch (e) { await kHold(); siRestore(); if (!owned) plusSiMsg(''); throw e; }
   PLUS_SI_REGISTERING = false;
   if (r.stale) return;
+  await kHold();
   siRestore();
   if (!owned && r.ok) plusSiMsg('');
   btn.disabled = false;
