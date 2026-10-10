@@ -10795,6 +10795,18 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    turned into the drawing's icon: that is a behaviour change (a button that opens a field), and fields keep
    their edge in the look. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-settings-cog { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); }
+/* #5551 (agent page, Josh's drawing of 2026-10-09): the conversation's header is "(Back) All agents / Direct Message
+   to <agent>", the project page's header shape. Off in today's look; in the new look the small link above the
+   page steps aside while the conversation is open (Profile and AI Settings keep it, having no such row). The lead
+   says where Back goes: detailBackPaint writes the project's name when the agent was opened from one. */
+.d-crumb-back, .d-crumb-rootwrap { display: none; }
+:root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) > #detail-back { display: none; }
+:root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-back { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); display: grid; place-items: center; flex: none; margin-right: 2px; }
+:root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: 0 1 auto; min-width: 0; font-size: 1.375rem; line-height: 1.2; letter-spacing: -.02em; }
+:root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-root { font: inherit; color: var(--nl-ink-3); padding: 0; text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-root:hover { color: var(--k-ink); text-decoration: underline; text-underline-offset: 4px; }
+:root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap > .pj-crumb-sep { flex: none; opacity: .55; margin: 0 8px; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #d-talk-box .d-talk-caprow > #d-talk-label { flex: 0 1 auto; margin-right: auto; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: none; font-size: 1.625rem; line-height: 1.2; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root { font: inherit; color: var(--nl-ink-3); padding: 0; text-decoration: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root:hover { color: var(--k-ink); text-decoration: underline; text-underline-offset: 4px; }
@@ -11711,6 +11723,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
+  /* #5551: on a phone the heading is hidden (the compact header names the agent), so the new look's row is just
+     the round Back button and "All agents" (or the project's name), as the drawing has it: no slash, a 44px target. */
+  :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-back { width: 44px; height: 44px; }
+  :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap { font-size: .9375rem; letter-spacing: 0; }
+  :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap > .pj-crumb-sep { display: none; }
   /* #718 row 7: the agent Files surfaces need phone-sized touch targets without changing the
      shared project file rows or desktop geometry. Talk still hides #d-files above; Profile and
      the other agent sections keep this short list, and View All opens #d-sec-files. */
@@ -11748,6 +11765,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 @media (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box #d-talk-search-wrap:has(#d-talk-search:placeholder-shown):not(:focus-within) { display: none; }
+  /* #5551: the new look's Back row steps aside here too, for the same 44px. */
+  :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box :is(.d-crumb-back, .d-crumb-rootwrap) { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) { margin: 0; }
   /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
@@ -12557,6 +12576,13 @@ window.kosmosMeasureScrollbarWidth();
          belongs to a project, so it says nothing. #d-talk-label + the search ids are
          unchanged so the label-setter and the filter JS are untouched. -->
     <div class="d-talk-caprow">
+      <!-- #5551 (V2, new look only): Josh's drawing of 2026-10-09 puts the way back in this row, as the project
+           page has it: a round Back button, then "All agents /" in front of his ruled heading (#3414, unchanged).
+           display:none unless the new look is on, where the small "All agents" link above the page steps aside
+           while the conversation is open. Both go where #detail-back goes, and detailBackPaint names that place
+           (a project the agent was opened from, or All agents). -->
+      <button class="pj-back d-crumb-back" id="d-crumb-back" type="button" aria-label="Back to All agents"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <span class="d-crumb-rootwrap"><button class="linkish d-crumb-root" id="d-crumb-root" type="button">All agents</button><span class="pj-crumb-sep" aria-hidden="true">/</span><span class="vh">, </span></span>
       <h3 id="d-talk-label"></h3>
       <div class="tsearch" id="d-talk-search-wrap">
         <span class="tsearch-i" aria-hidden="true">
@@ -39076,6 +39102,7 @@ function openDetail(sessionName, section, fromProject) {
      detail-back returns to the project; every existing caller passes no 3rd
      arg -> null -> the unchanged All-agents back. */
   DETAIL_FROM_PROJECT = fromProject || null;
+  if (typeof detailBackPaint === 'function') detailBackPaint();   // #5551: the back link names where it goes
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first visit to its section (under Profile since #4550)
@@ -42780,6 +42807,21 @@ document.getElementById('detail-back').addEventListener('click', () => {
   else if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); }
   else showTab('agents');
 });
+/* #5551: say where Back goes. Opened from a project (#2574), Back returns there, so the link names that project
+   instead of "All agents", which it said before even then. The new look's header row (Back button and lead) says
+   the same, and both simply press #detail-back, so there is one place that decides where Back goes. A project
+   whose name is not loaded yet reads "Project", never "All agents", which would be wrong about the click. */
+function detailBackPaint() {
+  const pid = DETAIL_FROM_PROJECT;
+  const pj = pid && Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === pid) : null;
+  const where = pid ? ((pj && pj.name) ? String(pj.name) : 'Project') : 'All agents';
+  document.getElementById('detail-back').textContent = '← ' + where;
+  document.getElementById('d-crumb-root').textContent = where;
+  document.getElementById('d-crumb-back').setAttribute('aria-label', 'Back to ' + where);
+}
+for (const id of ['d-crumb-back', 'd-crumb-root']) {
+  document.getElementById(id).addEventListener('click', () => document.getElementById('detail-back').click());
+}
 
 /* #4885: an agent's picture travels with it to the Kosmos+ community, which takes a still PNG, JPEG or WebP of at most
    60,000 bytes with each side from 16 to 2,048 px (kosmos-community app/avatars.py). A still PNG that already meets
