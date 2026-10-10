@@ -51,6 +51,28 @@ case "$got" in
   *) bad "no-arg live read is out of range or malformed: '$got'" ;;
 esac
 
+# #5727 drift guard: the [floor, cap] bounds have TWO derivations -- this shell lib and
+# test-support/eventually.js (the clamp for a direct `node --test` that bypasses the
+# runner). A cap changed in one file but not the other is the one real hazard, so assert
+# the JS constants AGREE with this lib's own clamp ends (4.00 at a saturating load, 1.00
+# at zero). The JS value is read from the module, not hard-coded, so a missing export or
+# a changed JS cap fails this; compared numerically so 4 matches 4.00. node is present
+# (the suite runs on it); if the module cannot load, js_* is empty and the guard fails.
+js_cap="$(KOSMOS_EV="$REPO/test-support/eventually" node -e 'process.stdout.write(String(require(process.env.KOSMOS_EV).SCALE_CAP))' 2>/dev/null)"
+js_floor="$(KOSMOS_EV="$REPO/test-support/eventually" node -e 'process.stdout.write(String(require(process.env.KOSMOS_EV).SCALE_FLOOR))' 2>/dev/null)"
+sh_cap="$(kosmos_test_time_scale 999 8)"   # saturating load -> this lib's cap
+sh_floor="$(kosmos_test_time_scale 0 8)"   # zero load -> this lib's floor
+if awk -v a="$js_cap" -v b="$sh_cap" 'BEGIN{exit !(a != "" && a+0 == b+0)}'; then
+  ok "JS SCALE_CAP agrees with the shell cap (JS '$js_cap' == shell '$sh_cap')"
+else
+  bad "cap DRIFT: JS SCALE_CAP '$js_cap' != shell cap '$sh_cap' -- change both or neither"
+fi
+if awk -v a="$js_floor" -v b="$sh_floor" 'BEGIN{exit !(a != "" && a+0 == b+0)}'; then
+  ok "JS SCALE_FLOOR agrees with the shell floor (JS '$js_floor' == shell '$sh_floor')"
+else
+  bad "floor DRIFT: JS SCALE_FLOOR '$js_floor' != shell floor '$sh_floor'"
+fi
+
 echo ""
 if [ "$fails" -eq 0 ]; then
   echo "test-time-scale-5727: ALL PASS"

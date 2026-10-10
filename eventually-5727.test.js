@@ -4,6 +4,10 @@
 // on the predicate and a call COUNT, never on measured wall time -- so this test does
 // not itself join the flaky class it guards. (The one deadline test uses a predicate
 // that is never satisfiable, so load can only change WHEN it times out, never WHETHER.)
+// The non-deadline tests carry a GENEROUS timeoutMs purely as an upper bound: the
+// predicate returns early (after a fixed call count), so the budget is never reached
+// and a stalled box cannot turn them red. Only the one deadline test below is meant to
+// time out, and its predicate is never satisfiable, so load changes WHEN, never WHETHER.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -50,10 +54,31 @@ test('a scale above 1 stretches budgets (ceil), leaving the literal as the floor
   assert.equal(half.scaleBudget(3), 8); // ceil(3 * 2.5) = 8, never below 3
 });
 
+test('a scale above 4 is capped to 4 (mutation control: 77 gives exactly 4)', () => {
+  // The runner's shell lib caps the computed value at 4, but a direct `node --test`
+  // with KOSMOS_TEST_TIME_SCALE forced bypasses the runner, so the helper must cap too
+  // (a stray 77 would otherwise make a hung wait take minutes). The expected 4 is a
+  // LITERAL here, not read from the module, so this is an independent oracle: remove or
+  // widen Math.min(RAW, SCALE_CAP) and 77 stops giving 4 and this test fails.
+  const big = loadWithScale('77');
+  assert.equal(big.SCALE, 4, 'a stray scale of 77 must cap to 4, not run 77x');
+  assert.equal(big.scaleBudget(4000), 16000, 'the 4000ms budget caps at 16000ms (4x)');
+
+  const exact = loadWithScale('4');
+  assert.equal(exact.SCALE, 4, 'exactly 4 is kept (the cap is inclusive)');
+
+  const justOver = loadWithScale('4.5');
+  assert.equal(justOver.SCALE, 4, 'just above the cap clamps to 4');
+
+  // Guards against a mutation that caps EVERYTHING: a value under the cap is unchanged.
+  const justUnder = loadWithScale('3.9');
+  assert.equal(justUnder.SCALE, 3.9, 'a value below the cap is left alone');
+});
+
 test('eventually returns the value once the predicate holds (by call count, not clock)', async () => {
   const { eventually } = loadWithScale('1');
   let calls = 0;
-  const v = await eventually(() => ++calls, (n) => n >= 3, { timeoutMs: 1000, stepMs: 1 });
+  const v = await eventually(() => ++calls, (n) => n >= 3, { timeoutMs: 30000, stepMs: 1 });
   assert.equal(v, 3);
   assert.equal(calls, 3);
 });
@@ -90,7 +115,7 @@ test('eventually awaits an async probe', async () => {
   const v = await eventually(
     async () => { calls++; return calls; },
     (n) => n >= 2,
-    { timeoutMs: 1000, stepMs: 1 }
+    { timeoutMs: 30000, stepMs: 1 }
   );
   assert.equal(v, 2);
 });

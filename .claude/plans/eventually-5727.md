@@ -15,8 +15,11 @@ per-directory batches. #5723 and the (a) "assert-on-work-done" rewrites stay Mon
 ## Changes
 - `test-support/eventually.js` (new): `eventually(probe, pred, {timeoutMs, stepMs, describe})`
   polls like the hand-rolled loops but multiplies the deadline by `KOSMOS_TEST_TIME_SCALE`.
-  `SCALE` read once at module load, floored at 1 (never shortens a budget). Exports
-  `eventually`, `scaleBudget`, `SCALE`.
+  `SCALE` read once at module load and clamped to [1, 4] against named `SCALE_FLOOR` /
+  `SCALE_CAP` bounds (one derivation in JS): floored so it never shortens a budget, capped
+  so a value forced on a direct `node --test` that bypasses the runner cannot run away (a
+  stray 77 scales by 4). The runner's shell lib mirrors the same [1, 4] for the value it
+  computes. Exports `eventually`, `scaleBudget`, `SCALE`.
 - `tools/lib/test-time-scale.sh` (new): `kosmos_test_time_scale [load] [cores]` computes the
   scale = `load / (0.5 * cores)`, floor 1, cap 4x, knee at half-subscription. Fail-safe to 1
   on an empty/garbage load. Sourceable, bash 3.2 safe, with explicit-arg seams for the test.
