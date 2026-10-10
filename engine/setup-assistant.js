@@ -1376,7 +1376,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
   // guard says it is not whole.
   let startCmds;
-  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir }); } catch (e) { startCmds = { files: [], pluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
+  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir }); } catch (e) { startCmds = { files: [], pluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...startCmds.unsafe);
   for (const d of startCmds.pluginDirs) {
     if (underDenied(d)) continue;
@@ -1389,7 +1389,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) {
       let there = false;
       try { fs.lstatSync(f); there = true; } catch { there = false; }
-      if (there) configUnsafe.push(`${f} (a script a start-time command runs, whose path the permission rules cannot carry)`);
+      // Review 3: also when it is named where something runs, though not there yet (the agent could create it).
+      if (there || (startCmds.runFiles || []).includes(f)) configUnsafe.push(`${f} (a script a start-time command runs, whose path the permission rules cannot carry)`);
       continue;
     }
     commandScripts.push(...withTarget(f, configUnsafe));

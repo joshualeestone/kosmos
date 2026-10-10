@@ -148,7 +148,7 @@ test('#5774: a script path built when the command runs cannot be read, so the gu
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
-test('#5774: a linked script has its target denied too; an uncarriable path is named only when it exists', () => {
+test('#5774: a linked script has its target denied too; an uncarriable path is named where it runs, or when it exists', () => {
   const dir = agentDir('pilot-link');
   const real = path.join(SANDBOX, 'real-scripts', 'target.sh');
   touch(real);
@@ -157,19 +157,26 @@ test('#5774: a linked script has its target denied too; an uncarriable path is n
   fs.rmSync(link, { force: true });
   fs.symlinkSync(real, link);
   const odd = path.join(SANDBOX, 'odd (dir)', 'x.sh');
-  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${link}; sed 's/(a)/b/' f; bash "${odd}"` }] }] } });
+  const oddArg = path.join(SANDBOX, 'odd (arg)', 'data.txt');
   try {
-    // The odd path does not exist: it is skipped, so the guard is whole (a sed expression looks the same).
+    // A sed expression and a file an argument names, with pattern characters and nothing there: skipped, so whole.
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${link}; sed 's/(a)/b/' f; cat "${oddArg}"` }] }] } });
     let g = setup.guardTokenOnlyFolder(dir, 'pilot-link', DEPS);
     assert.equal(g.ok, true, JSON.stringify(g));
     const deny = readSettings(dir).permissions.deny;
     assert.ok(editDeniedBy(deny, link).length > 0, 'the link by its own name');
     assert.ok(editDeniedBy(deny, fs.realpathSync.native(real)).length > 0, 'and the file it points at, by its real path');
-    // Once it exists, it is a script the rules cannot carry: named, not whole.
-    touch(odd);
+    // Review 3: the same characters where a script RUNS, though not there yet: named, not whole (the agent could create it).
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash "${odd}"` }] }] } });
     g = setup.guardTokenOnlyFolder(dir, 'pilot-link', DEPS);
     assert.equal(g.ok, false, JSON.stringify(g));
     assert.match(String(g.because), /odd \(dir\)/);
+    // And an argument's file once it exists: named too.
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cat "${oddArg}"` }] }] } });
+    touch(oddArg);
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-link', DEPS);
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /odd \(arg\)/);
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
@@ -360,4 +367,50 @@ test('#5774 review 2: a plugin whose folder is the agent folder, or not a full p
     assert.equal(g.ok, false, JSON.stringify(g));
     assert.match(String(g.because), /rel@x/);
   } finally { fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true }); }
+});
+
+test('#5774 review 3: the test command is not a pattern; script flags; managed preferences; a plugin folder that resolves to the agent folder or is a config home', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(paths('[ -f "$CLAUDE_PROJECT_DIR/x" ] && bash run.sh'), { paths: ['/A/run.sh'], runPaths: ['/A/run.sh'], unsafe: [] });
+  assert.deepEqual(paths('[[ -n $FOO ]] && echo hi').unsafe, []);
+  assert.deepEqual(paths('java -jar tools/hook.jar').runPaths, ['/A/tools/hook.jar']);
+  assert.deepEqual(paths('awk -f tools/x.awk in.txt').runPaths, ['/A/tools/x.awk']);
+  assert.deepEqual(paths('bash -p run.sh').runPaths, ['/A/run.sh']);   // -p is not an inline flag for a shell
+  assert.deepEqual(paths('bash "tools (v2)/run.sh"').runPaths, ['/A/tools (v2)/run.sh']);   // a quoted word is the path itself, brackets and all
+  assert.deepEqual(paths('curl --header="$H" x').unsafe, []);
+  assert.equal(paths('node --require="$X"/y.js s.js').unsafe.length, 1);
+  const dir = agentDir('pilot-r3');
+  fs.writeFileSync(path.join(dir, 'notes.md'), 'mine\n');
+  const hook = path.join(SANDBOX, 'scripts', 'r3.sh');
+  touch(hook);
+  const prefs = path.join(SANDBOX, 'prefs');
+  fs.mkdirSync(prefs, { recursive: true });
+  const plist = path.join(prefs, 'com.anthropic.claudecode.plist');
+  writeJson(plist + '.json', { hooks: { Stop: [{ hooks: [{ type: 'command', command: `[ -f x ] && bash ${hook}` }] }] } });
+  require('child_process').execFileSync('/usr/bin/plutil', ['-convert', 'xml1', '-o', plist, plist + '.json']);
+  const D = { ...DEPS, managedPrefsDir: prefs };
+  const linkToAgent = path.join(SANDBOX, 'plugin-link-to-agent');
+  fs.rmSync(linkToAgent, { force: true });
+  fs.symlinkSync(dir, linkToAgent);
+  try {
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-r3', D);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, hook).length > 0, 'a hook in the managed preferences is read');
+    for (const installPath of [linkToAgent, path.join(HOME, '.claude-acct')]) {
+      writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'bad@x': [{ scope: 'user', installPath }] } });
+      g = setup.guardTokenOnlyFolder(dir, 'pilot-r3', D);
+      assert.equal(g.ok, false, installPath);
+      const s = readSettings(dir);
+      assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(dir, 'notes.md')), [], `${installPath}: the agent keeps its own folder`);
+      assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(HOME, '.claude-acct', 'projects', 'm.md')), [], `${installPath}: a config home is not denied whole`);
+    }
+    fs.writeFileSync(plist, 'not a plist');
+    fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r3', D);
+    assert.equal(g.ok, false, 'managed preferences that cannot be converted are named');
+  } finally {
+    fs.rmSync(prefs, { recursive: true, force: true });
+    fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
+  }
 });
