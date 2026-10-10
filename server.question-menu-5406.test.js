@@ -379,3 +379,19 @@ test('#5406 slice C: a question identity that is not text is refused, nothing ty
     assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), [], 'a button send was typed into a permission prompt');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5406 slice C: a menu with a label a press could never carry (over the length limit) gets no buttons', async () => {
+  const LONG = MENU.replace('2. Banana', '2. ' + 'B'.repeat(10500));
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: LONG })]);
+  try {
+    chat.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: LONG, err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+    assert.ok(Array.isArray(back.options) && back.options.length === 3, 'premise: the long label is read as an option');
+    assert.equal(back.asked, null, 'buttons were offered for a label a press could never carry');
+  } finally { chat.resetForTests(); board.restore(); }
+});

@@ -16002,6 +16002,7 @@ const server = http.createServer(async (req, res) => {
          And only for the single-select question menu that path answers (status.claudeQuestionMenu): a permission prompt
          also reads as numbered options, but a press there would be pasted, and its Enter picks the highlighted option. */
       asked: !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude' && Array.isArray(options)
+        && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry: no buttons
         && Boolean(view && view.text && require('./engine/status').claudeQuestionMenu(view.text)) && question && typeof question.text === 'string' ? chat.questionAbove(question.text) : null,
     });
     return;
@@ -16173,7 +16174,7 @@ const server = http.createServer(async (req, res) => {
              drift from the screen. */
           if (chose) chose = chat.cleanMessage(chose);
           if (menu && askedGiven && !chose) {   // #5406 slice C: words that failed their check are not "a changed question"
-            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Press it again.');
+            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Answer it in its window, or type its number.');
             unchecked.status = 409;
             throw unchecked;
           }
@@ -16340,6 +16341,16 @@ const server = http.createServer(async (req, res) => {
           if (cq) {
             const said = String(body.text).trim();
             const opt = /^\d$/.test(said) ? cq.options.find((o) => String(o.n) === said) : null;
+            /* A press is answered only as the option the live menu shows under that number, with the words the page
+               drew for it: the two menu readers (optionsIn above, claudeQuestionMenu here) must agree. */
+            if (opt && chose && chat.cleanMessage(opt.label) !== chose) {
+              const e = new Error('that question changed on its screen before this was sent, so we did not answer it. Its current question is on this page.');
+              e.status = 409; throw e;
+            }
+            if (!opt && (chose || askedGiven)) {
+              const e = new Error('that number is not on the menu its screen shows now, so we did not send it. Answer it in its window.');
+              e.status = 409; throw e;
+            }
             if (opt && !files.recs.length && !answered) {
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label });
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
