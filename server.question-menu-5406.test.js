@@ -95,7 +95,11 @@ test('#5406: any other reply closes the menu with Escape first, then goes as a m
     assert.equal(keys[0], 'Escape', 'the menu was not closed first: ' + JSON.stringify(keys));
     assert.match(calls.pasted(), /I want a mango/, 'the message did not go after the menu closed');
   });
-  // A number that is not an answer ("4. Type something.") is a message too, so it closes the menu first.
+  // A number that is not an answer ("0", or "4. Type something.") is a message too, so it closes the menu first.
+  await withMenu(async (calls) => {
+    await post({ text: '0' });
+    assert.equal(calls.keys()[0], 'Escape', '"0" was sent as a key');
+  });
   await withMenu(async (calls) => {
     await post({ text: '4' });
     assert.equal(calls.keys()[0], 'Escape', '"4" was sent as a key to "Type something."');

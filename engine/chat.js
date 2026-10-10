@@ -1152,8 +1152,6 @@ function answerGeminiQuotaStop(sessionName, roster) {
    did not see, and again after, so the answer is reported from what the screen shows. */
 const QMENU_SETTLE_MS = 1200;
 const qmenuWait = (ms) => new Promise((done) => setTimeout(done, ms));
-/* Send the bare digit for option `n`, only if the live menu still asks `question` and option `n` is still `label`.
-   Resolves { ok: true, key, screen } (screen: what the pane shows after) or { ok: false, because }. */
 /* Review 3: a Claude card only, and never while a delivery is being typed into the same pane (a key in its paste-to-Enter
    gap would land on whatever the screen is then). */
 function questionMenuKeysAllowed(sessionName, roster) {
@@ -1163,6 +1161,8 @@ function questionMenuKeysAllowed(sessionName, roster) {
   if (deliveryQueues.has(paneTarget(allowed.card))) return { ok: false, because: 'a message is being typed to it right now; try again in a moment' };
   return allowed;
 }
+/* Send the bare digit for option `n`, only if the live menu still asks `question` and option `n` is still `label`.
+   Resolves { ok: true, key, label, answered, screen } (screen: what the pane shows after) or { ok: false, because }. */
 async function answerQuestionMenu(sessionName, n, roster, expect) {
   const allowed = questionMenuKeysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
