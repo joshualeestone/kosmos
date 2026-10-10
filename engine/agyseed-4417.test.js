@@ -336,3 +336,45 @@ test('#5576: a line is never written into fd 2 once its number belongs to someth
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('#5576 fix: holdStdioFds fills a free fd 0 to 2 with the null device, and leaves the rest alone', () => {
+  const opened = []; const closed = [];
+  const fake = (free, next) => ({
+    fstatSync: (fd) => { if (free.includes(fd)) throw Object.assign(new Error('bad'), { code: 'EBADF' }); if (free.includes('other' + fd)) throw Object.assign(new Error('other'), { code: 'EIO' }); return {}; },
+    openSync: (p, flag) => { opened.push([p, flag]); return next.shift(); },
+    closeSync: (fd) => { closed.push(fd); },
+  });
+  assert.deepEqual(bridge.holdStdioFds(fake([0], [0]), '/nul'), [0], 'a free fd 0 was not filled');
+  assert.deepEqual(opened, [['/nul', 'r']], 'fd 0 is opened for reading');
+  opened.length = 0;
+  assert.deepEqual(bridge.holdStdioFds(fake([0, 2], [0, 2]), '/nul'), [0, 2]);
+  assert.deepEqual(opened.map((o) => o[1]), ['r', 'w'], 'fds 1 and 2 are opened for writing');
+  // An open that landed on another number is closed again, not left behind.
+  assert.deepEqual(bridge.holdStdioFds(fake([1], [7]), '/nul'), []);
+  assert.deepEqual(closed, [7]);
+  // An fd that fails to read for another reason (not EBADF) is not free: it is left alone.
+  opened.length = 0;
+  assert.deepEqual(bridge.holdStdioFds(fake(['other1'], [1]), '/nul'), []);
+  assert.deepEqual(opened, [], 'an fd that failed for another reason was treated as free');
+  // CONTROL: nothing free, nothing opened.
+  assert.deepEqual(bridge.holdStdioFds(fake([], []), '/nul'), []);
+  assert.deepEqual(opened, []);
+});
+
+test('#5576 fix: in a real process, after fd 0 is freed the guard holds it, so the next open is never fd 0', async () => {
+  const run = (guard) => new Promise((resolve) => {
+    const script = 'const fs=require("node:fs");const b=require(' + JSON.stringify(BRIDGE_FILE) + ');fs.closeSync(0);'
+      + (guard ? 'b.holdStdioFds();' : '') + 'const fd=fs.openSync(' + JSON.stringify(BRIDGE_FILE) + ',"r");'
+      + 'let zero="EBADF";try{zero=fs.fstatSync(0).isCharacterDevice()?"chr":"other";}catch{}'
+      + 'process.stdout.write(fd+" "+zero,()=>process.exit(0));';
+    const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-hold-'));
+    const c = spawn(process.execPath, ['-e', script], { env: { ...process.env, AGENT_WORKFORCE_DATA: dir }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = ''; c.stdout.on('data', (d) => { out += d; });
+    c.on('close', () => { fs.rmSync(dir, { recursive: true, force: true }); resolve(out.trim()); });
+  });
+  const [fd, zero] = (await run(true)).split(' ');
+  assert.notEqual(fd, '0', 'with the guard, an fd opened after fd 0 was freed still took number 0');
+  assert.equal(zero, 'chr', 'fd 0 is not held by the null device');
+  // CONTROL: without the guard, the same open takes fd 0 (the state the abort needs), so this test can fail.
+  assert.equal((await run(false)).split(' ')[0], '0', 'premise: a freed fd 0 is taken by the next open');
+});
