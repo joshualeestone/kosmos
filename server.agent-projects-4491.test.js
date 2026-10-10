@@ -116,6 +116,7 @@ test('the maker can post in the room of the project it made, which is what its w
   const refusedRows = messagesEngine.record().rows.filter((m) => m && m.kind === 'refused' && m.project === id);
   assert.deepEqual(refusedRows.map((m) => m.because), ['you are not on that project, so this room is not yours to post into'],
     'the person\'s refused row: ' + JSON.stringify(refusedRows));
+  assert.deepEqual(refusedRows.map((m) => m.addable), [true], 'kosmos#5752 slice 3: a stranger\'s refusal offers the person the add');
   const reacted = await call('POST', '/api/react', { headers: { 'x-kosmos-agent-token': otto }, body: { project: id, of: 'abc12345', emoji: '👍' } });
   assert.match(reacted.text, /not yours to react in; ask the person to add this agent with the \+ beside Members on the project's page, then run the same command again/,
     'react: ' + reacted.code + ' ' + reacted.text.slice(0, 200));

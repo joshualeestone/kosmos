@@ -64859,6 +64859,16 @@ async function rxnToggle(forProject, box, emoji) {
    toggles the SHARED picker for THIS post; a pill or a quick default toggles that
    reaction via the react route (the full-list picks live in `#rxn-picker` and are
    handled there). */
+/* kosmos#5752 slice 3: Add on a refused row adds that agent to the open project (the Members add's own call), then
+   repaints, which drops the button. A refusal says why on the row and the button can be pressed again. */
+document.getElementById('pj-room').addEventListener('click', async (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-add-member]') : null;
+  if (!btn || !PJ_CURRENT) return;
+  const msg = btn.nextElementSibling && btn.nextElementSibling.classList.contains('pj-refused-msg') ? btn.nextElementSibling : { textContent: '' };
+  btn.disabled = true;
+  if (await addMemberToProject(btn.getAttribute('data-add-member'), msg)) await pjReload();
+  else btn.disabled = false;
+});
 document.getElementById('pj-room').addEventListener('click', async (e) => {
   const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
   if (!box) return;
@@ -67322,11 +67332,12 @@ function pjFoldRoomRows(rows) {
   let i = 0;
   while (i < rows.length) {
     const m = rows[i];
-    if (m && m.kind === 'refused') {
+    /* kosmos#5752 slice 3: an `addable` refusal keeps its own row, since it carries that one agent's add button. */
+    if (m && m.kind === 'refused' && m.addable !== true) {
       const because = m.because || '';
       const froms = [];
       let j = i;
-      while (j < rows.length && rows[j] && rows[j].kind === 'refused'
+      while (j < rows.length && rows[j] && rows[j].kind === 'refused' && rows[j].addable !== true
              && (rows[j].because || '') === because) {
         if (!froms.includes(rows[j].from)) froms.push(rows[j].from);
         j++;
@@ -67396,9 +67407,17 @@ function pjRoomRow(m, p, hideHeader) {
   }
   if (m.kind === 'refused') {
     const whenR = pjWhen(m.at) || '';
-    return '<div class="msg-valve">' + esc(pjNameOf(p, m.from) || m.from)
-      + ' tried to post here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
-      + (whenR ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
+    const nameR = pjNameOf(p, m.from) || m.from;
+    /* kosmos#5752 slice 3: what the agent tried (a room post when none is said), and, for a refusal that adding the agent
+       would end, the add itself while it is still not a member. It goes away once it is. */
+    const onIt = (p && Array.isArray(p.agents) ? p.agents : []).some((a) => a && (a.sessionName || a) === m.from);
+    const add = m.addable === true && !onIt
+      ? ' <button type="button" class="btn-quiet pj-refused-add" data-add-member="' + esc(m.from) + '">Add ' + esc(nameR)
+        + ' to this project</button><span class="pj-refused-msg" role="status"></span>'
+      : '';
+    return '<div class="msg-valve">' + esc(nameR)
+      + ' tried to ' + esc(m.doing || 'post') + ' here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
+      + add + (whenR ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   if (m.kind === 'refused-group') {
     /* #2700: a valve-stopped room refuses every agent that then tries to post,

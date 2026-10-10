@@ -452,3 +452,33 @@ test('paintRoom turns the whole wall into a single refusal band on the screen', 
   // the valve headline still stands on its own, above the collapsed band.
   assert.match(html, /asked everyone to bring you in/, 'the valve notice was lost in the fold');
 });
+
+/* kosmos#5752 slice 3: a refused task write's room row says what the agent tried and, while it is still not a member,
+   offers the person the add. Driven through the real pjRoomRow and pjFoldRoomRows. */
+test('#5752 slice 3: a refused row says what was tried and offers the add only while the agent is not a member', () => {
+  const row = { kind: 'refused', from: 'zed', because: 'that agent is not on this project, so it cannot change its tasks',
+    doing: 'record a run of a task', addable: true, at: new Date().toISOString() };
+  const p = { id: 'p1', agents: [{ sessionName: 'mona', name: 'mona' }] };
+  const html = api.pjRoomRow(row, p);
+  assert.match(html, /zed tried to record a run of a task here and Kosmos stopped it: /);
+  assert.match(html, /<button type="button" class="btn-quiet pj-refused-add" data-add-member="zed">Add zed to this project<\/button>/);
+  assert.doesNotMatch(api.pjRoomRow(row, { id: 'p1', agents: [{ sessionName: 'zed', name: 'zed' }] }), /data-add-member/,
+    'already a member: no button');
+  const legacy = { kind: 'refused', from: 'zed', because: 'the room is held', at: new Date().toISOString() };
+  const lh = api.pjRoomRow(legacy, p);
+  assert.match(lh, /zed tried to post here and Kosmos stopped it/, 'a row with no doing is a room post, as before');
+  assert.doesNotMatch(lh, /data-add-member/, 'CONTROL: a refusal adding would not end offers no add');
+});
+
+test('#5752 slice 3: an addable refusal keeps its own row (its own button); other same-reason refusals still fold', () => {
+  const at = new Date().toISOString();
+  const because = 'that agent is not on this project, so it cannot change its tasks';
+  const addable = [{ kind: 'refused', from: 'zed', because, addable: true, at }, { kind: 'refused', from: 'ann', because, addable: true, at }];
+  assert.deepEqual(api.pjFoldRoomRows(addable).map((m) => m.kind), ['refused', 'refused']);
+  const plain = [{ kind: 'refused', from: 'zed', because: 'held', at }, { kind: 'refused', from: 'ann', because: 'held', at }];
+  assert.deepEqual(api.pjFoldRoomRows(plain).map((m) => m.kind), ['refused-group'], 'CONTROL: the fold still works');
+  // The page wires the button: one delegated handler on the room that adds the agent and repaints.
+  const src = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(src, /closest\('\[data-add-member\]'\)/);
+  assert.match(src, /if \(await addMemberToProject\(btn\.getAttribute\('data-add-member'\), msg\)\) await pjReload\(\);/);
+});
