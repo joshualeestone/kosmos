@@ -445,7 +445,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     const runs = isHead || inScriptSlot || (w.input && INTERPRETER.test(prog)) || flagValue || inline || flagScript || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && SCRIPT_EXT.test(text));   // where something RUNS
     if (w.dynamic) {
       // A flag's unknown value names a path only when it has a slash (--header="$H" names nothing).
-      if (runs && (!flagValue || text.includes('/'))) unsafe.push(`a ${isHead ? 'program' : 'path'} made when the command runs${text.includes('/') ? ', ending ' + text.slice(text.lastIndexOf('/')) : ''}`);
+      // Review 12: only where the script itself sits; a later argument the hook passes ("$FOO", "$@") names no script.
+      if ((isHead || codeSlot || (w.input && INTERPRETER.test(prog)) || inline || flagScript || (flagValue && text.includes('/'))) && runs) unsafe.push(`a ${isHead ? 'program' : 'path'} made when the command runs${text.includes('/') ? ', ending ' + text.slice(text.lastIndexOf('/')) : ''}`);
       continue;
     }
     if (inline) {
@@ -539,6 +540,8 @@ function configSources(dir, homes, home, deps = {}) {
   for (const d of folders) {
     // The agent folder's own two settings files (by either path) are rewritten by the guard itself (an unreadable one
     // is kept as a dated copy and replaced, #4491 review 18), so their old text never loads: unreadable there is not a gap.
+    // Review 12 asked to skip the agent's own two: not done, since the guard keeps every key outside the sandbox block
+    // in both (settings.json is merged; cleanLocalSettings leaves process-starting keys), so their commands still run.
     for (const f of ['settings.json', 'settings.local.json']) out.push({ file: path.join(d, '.claude', f), pick: whole, settings: true, rewritten: own.includes(d) });
     out.push({ file: path.join(d, '.mcp.json'), pick: whole });
   }

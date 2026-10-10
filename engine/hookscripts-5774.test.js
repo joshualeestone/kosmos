@@ -671,3 +671,18 @@ test('#5774 review 11: a hook runs in the session\'s current folder, so a relati
     fs.rmSync(path.join(HOME, '.claude-acct', 'settings.json'), { force: true });
   }
 });
+
+test('#5774 review 12: an unknown argument after the script is not a gap; the agent\'s own settings.local.json hooks are read', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  for (const c of ['node ~/x.js "$FOO"', 'python3 ~/hooks/x.py "$CLAUDE_ENV_FILE"', 'bash ~/x.sh $1', 'sh ~/h.sh "$@"']) assert.deepEqual(paths(c).unsafe, [], c);
+  for (const c of ['bash "$S"', '"$P" x']) assert.equal(paths(c).unsafe.length, 1, `control: ${c}`);
+  const dir = agentDir('pilot-r12');
+  const hook = path.join(SANDBOX, 'scripts', 'local-hook.sh');
+  touch(hook);
+  writeJson(path.join(dir, '.claude', 'settings.local.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${hook}` }] }] } });
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-r12', DEPS);
+  assert.equal(g.ok, true, JSON.stringify(g));
+  assert.ok(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.local.json'), 'utf8')).hooks, 'precondition: the guard leaves the hooks there, so they run');
+  assert.ok(editDeniedBy(readSettings(dir).permissions.deny, hook).length > 0, 'so their script is denied');
+});
