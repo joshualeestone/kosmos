@@ -253,7 +253,7 @@ function tellAgent(sessionName, roster, opts) {
       // own setting wrote stays, as before the picker.
       const text = current.text || '';
       const block = found && !found.ambiguous ? text.slice(found.start, found.end) : '';
-      next = block.includes(SETTINGS_SOURCE) ? applyTo(text, null) : text;
+      next = block.includes(', ' + SETTINGS_SOURCE + ')') ? applyTo(text, null) : text;
     }
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: got.from === 'settings' ? WROTE_WHY_SETTINGS : WROTE_WHY });
