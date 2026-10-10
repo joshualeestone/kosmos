@@ -75,3 +75,12 @@ that cannot decode is re-read every call (no worse than before); yesterday's cur
 - The "Round N:" labels in the code comments and test titles are gone (the round history is this file); each reason
   stays.
 - The docblock's cost figure names its measurement (0.7.35, 2026-10-10, 10 to 11 s); the -1 sentinel is commented.
+
+## Review round 5 (Opus)
+No BLOCKER, WARNING or CONVENTION. The reviewer's own differential fuzzer (16 step kinds, CRLF, garbage lines, nested
+subagents, multibyte text, unreadable and readable again) matched the full read on 24 seeds of 400 steps, outside the
+stated unterminated-line bound. NITs left as is: that bound could be closed by remembering an open tail and rebuilding
+if the next byte is not a newline (about three lines; not done, no writer does it); a new file just over the longest
+string that ends in a half line is counted where the full read fails (unreachable in practice); the docblock's rebuild
+list omits an mtime set back below the cut and a changed root index (both rebuild); a non-real date leaves the last
+run stats as they were; the key-order check covers days and folders but not folderModels.
