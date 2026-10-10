@@ -51,12 +51,12 @@ function workKosmos() {
 
 /* A store standing in for both uploaders: keeps every object, hands out keys in the given period. */
 function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucket/', manifestAnswer, longKeys, org = 'o1', epoch = '1', keyFor, manifestPeriod } = {}) {
-  const objects = new Map(), batches = [], manifests = [];
+  const objects = new Map(), batches = [], manifests = [], chunkOpts = [];
   let n = 0;
   return {
-    objects, batches, manifests,
-    uploadChunks: async (deps, batch) => {
-      batches.push(batch.length);
+    objects, batches, manifests, chunkOpts,
+    uploadChunks: async (deps, batch, opts) => {
+      batches.push(batch.length); chunkOpts.push(opts);
       const keys = new Map(), lockedUntil = new Map();
       for (const { name, object } of batch) {
         if (failChunksAfter !== undefined && n >= failChunksAfter) return { ok: false, retryLater: true, because: 'grant ran out', keys, lockedUntil, bucket };
@@ -130,6 +130,17 @@ test('a snapshot round-trips through the real restore byte for byte; the token, 
     assert.equal(st.manifests[0].opts.bucket, 'bucket/');
     assert.deepEqual(st.manifests[0].opts.chunks.map((c) => c.key).sort(), Object.values(opened.objects).sort());
     assert.ok(st.manifests[0].opts.chunks.every((c) => c.lockedUntilMs === LOCK));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5744: every chunk batch and the manifest are uploaded naming the key epoch they were sealed under', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r1 = await take(k, w.root, st, { deps: { batchBytes: 1 } });
+    assert.equal(r1.ok, true, r1.because);
+    assert.ok(st.chunkOpts.length > 1);
+    assert.ok(st.chunkOpts.every((o) => o && o.epoch === k.ctx.epoch), JSON.stringify(st.chunkOpts));
+    assert.equal(st.manifests[0].opts.epoch, k.ctx.epoch);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
@@ -478,7 +489,8 @@ test('a file whose name is another entry\'s folder, to restore, is skipped: rest
 test('a granted key under another org, or over-long, fails the run, and every usable chunk is still kept', async () => {
   const w = workKosmos(), k = keys();
   try {
-    // (The epoch segment is not checked: the coordinator writes a constant there; the member key is bound per index entry.)
+    // (The epoch segment of an indexed key is not checked here: the uploader checks a NEW grant's epoch, #5744; the
+    // member key is bound per index entry.)
     for (const [what, opts] of [['org', { org: 'o9' }]]) {
       const st = store(opts);
       const r = await take(k, w.root, st);

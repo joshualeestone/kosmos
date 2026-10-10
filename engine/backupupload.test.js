@@ -60,7 +60,7 @@ function coordinator(b, opts) {
     const expMs = typeof o.expiresAt === 'function' ? o.expiresAt() : (o.expiresAt || Date.now() + 15 * 60 * 1000);
     const retain = iso(Math.floor(expMs / 1000) * 1000 - 15 * 60 * 1000 + 33 * 86400 * 1000);
     const uploads = body.chunks.map((c) => {
-      const key = `org1/acct1/1/2026-W41/${o.tag || ''}k${++n}`;
+      const key = `org1/acct1/${o.keyEpoch || 1}/2026-W41/${o.tag || ''}k${++n}`;
       const signedAt = Math.floor(expMs / 1000) * 1000 - 15 * 60 * 1000;
       const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDTEST%2F20261008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=${amzDate(signedAt)}&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`;
       return { key, url, headers: { 'content-md5': c.md5, 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': retain } };
@@ -858,7 +858,7 @@ function manifestCoordinator(b, opts) {
     const expMs = typeof o.expiresAt === 'function' ? o.expiresAt() : (o.expiresAt || Date.now() + 15 * 60 * 1000);
     const signedAt = Math.floor(expMs / 1000) * 1000 - 15 * 60 * 1000;
     const retain = iso(o.retainMs ? o.retainMs(expMs) : signedAt + 33 * DAY);
-    const key = `org1/acct1/1/2026-W41/mK${++n}`;
+    const key = `org1/acct1/${o.keyEpoch || 1}/2026-W41/mK${++n}`;
     const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDTEST%2F20261008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=${amzDate(signedAt)}&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED_M)}&X-Amz-Signature=00`;
     const upload = { key, url, headers: { 'x-amz-checksum-sha256': Buffer.from(body.sha256, 'hex').toString('base64'), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': retain } };
     const data = { epoch: 1, period: '2026-W41', retain_until: retain, expires_at: iso(expMs), upload };
@@ -1548,5 +1548,57 @@ test('S3 saying "expired" after only connection failures is still the clock case
     assert.match(r.because, /expired on the first attempt that reached it/);
     assert.strictEqual(mc.bodies.length, 1, 'a new grant was asked for');
     assert.strictEqual(n, 3);
+  } finally { await b.close(); }
+});
+
+test('#5744: a chunk grant naming another key epoch than the bytes were sealed under is refused before anything is sent', async () => {
+  const b = await bucket();
+  try {
+    for (const [what, opts, want] of [
+      ['the answer\'s epoch', { tamper: (d) => { d.epoch = 2; } }, /names key epoch 2, not 1/],
+      ['a string epoch', { tamper: (d) => { d.epoch = '1'; } }, /names key epoch "1", not 1/],
+      ['the keys\' epoch segment', { keyEpoch: 2 }, /is not under key epoch 1/],
+    ]) {
+      const c = coordinator(b, Object.assign({ tag: what.length + 'e' }, opts));
+      const r = await up.uploadChunks(deps(c), [chunk(1)], { epoch: '1' });
+      assert.strictEqual(r.ok, false, what);
+      assert.match(r.because, want, what);
+      assert.strictEqual(c.bodies.length, 1, `${what}: one grant asked, none asked again`);
+    }
+    assert.strictEqual(b.puts, 0, 'nothing was sent');
+    // Controls: the matching epoch, as a context id or a number, uploads; no epoch given is not checked.
+    for (const [i, e] of ['1', 1, undefined].entries()) {
+      const r = await up.uploadChunks(deps(coordinator(b, { tag: `ok${i}` })), [chunk(2)], e === undefined ? undefined : { epoch: e });
+      assert.strictEqual(r.ok, true, `${e}: ${r.because}`);
+    }
+    // An epoch that is not a context id is refused before any grant is asked for.
+    for (const bad of ['01', '0', 'x', -1, 1.5]) {
+      const c = coordinator(b);
+      const r = await up.uploadChunks(deps(c), [chunk(3)], { epoch: bad });
+      assert.strictEqual(r.ok, false, String(bad));
+      assert.strictEqual(c.bodies.length, 0, `${bad}: no grant asked`);
+    }
+  } finally { await b.close(); }
+});
+
+test('#5744: a manifest grant naming another key epoch is refused before anything is sent; the matching one stores', async () => {
+  const b = await bucket();
+  try {
+    for (const [what, opts, want] of [
+      ['the answer\'s epoch', { tamper: (d) => { d.epoch = 2; } }, /names key epoch 2, not 1/],
+      ['the key\'s epoch segment', { keyEpoch: 2 }, /is not under key epoch 1/],
+    ]) {
+      const mc = manifestCoordinator(b, opts);
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { epoch: '1' }));
+      assert.strictEqual(r.ok, false, what);
+      assert.match(r.because, want, what);
+      assert.strictEqual(r.grantSpent, true, what);
+    }
+    assert.strictEqual(b.puts, 0, 'nothing was sent');
+    const r = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { epoch: '1' }));
+    assert.strictEqual(r.ok, true, r.because);
+    const bad = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { epoch: '01' }));
+    assert.strictEqual(bad.ok, false);
+    assert.strictEqual(bad.grantSpent, false, 'refused before any grant');
   } finally { await b.close(); }
 });
