@@ -1400,12 +1400,12 @@ const CLAUDE_MENU_DM_CLAUSE = ', or by its number in its direct messages';
 /* #5743 review 10: the safeguards model-switch menu (#5051). Kosmos never presses it, and a typed line's Enter would. */
 const CLAUDE_SAFEGUARDS_SENTENCE = 'it is asking on its screen whether to switch models, and a message typed now would '
   + 'pick that answer, so we did not type anything; answer it in its window first';
-/* #5754: Claude's permission prompt. Measured on 2.1.296: the paste is ignored and the Enter approves the highlighted
-   option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
 /* A highlighted numbered option over an "Esc to cancel" footer, in no wording we know: a permission request worded
    otherwise, or a picker someone opened. Its Enter would take the highlighted option either way. */
 const CLAUDE_WAITING_SENTENCE = 'it is waiting for an answer on its screen, and a message typed now would pick the '
   + 'highlighted option, so we did not type anything; answer it in its window first';
+/* #5754: Claude's permission prompt. Measured on 2.1.296: the paste is ignored and the Enter approves the highlighted
+   option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
 const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
   + '(usually Yes), so we did not type anything; answer it in its window first';
 function claudeMenuRefusal(card, sessionName, roster) {
@@ -1414,7 +1414,12 @@ function claudeMenuRefusal(card, sessionName, roster) {
      reads working. An idle agent cannot be showing one, so it pays no read. */
   if (card.state !== status.STATE.NEEDS_YOU && card.state !== status.STATE.WORKING) return null;
   const view = viewport(sessionName, roster);
-  if (!(view && typeof view.text === 'string')) return null;
+  if (!(view && typeof view.text === 'string')) {
+    /* A read that fails is not a refusal (decided), EXCEPT when the card itself says it is asking permission (its
+       PermissionRequest self-report): typing there is the measured #5754 harm, and the report is the evidence. */
+    const said = String(card.because || '') + ' ' + String(card.stateEvidence || '');
+    return card.state === status.STATE.NEEDS_YOU && /\basking permission to use\b/i.test(said) ? CLAUDE_PERMISSION_SENTENCE : null;
+  }
   if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
     /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
