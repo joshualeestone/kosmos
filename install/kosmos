@@ -4859,10 +4859,12 @@ cmd_task() {
       # minute as the same run (engine/tasks.js RUN_DEDUP_MS), and each command sends one run_id on every attempt, which
       # the board takes as the same run however late it lands. A rule (repeat) is asked once, as before.
       # The pause: KOSMOS_RETRY_PAUSE_MS (digits only, as the Windows CLI reads it; 1000 by default), 2x then 8x.
-      _pause=1000; case "${KOSMOS_RETRY_PAUSE_MS:-}" in ''|*[!0-9]*) ;; *) _pause=$((10#${KOSMOS_RETRY_PAUSE_MS:0:6})) ;; esac   # at most 999999 ms
+      _pause=1000; case "${KOSMOS_RETRY_PAUSE_MS:-}" in ''|*[!0-9]*) ;; *) _pause=$((10#${KOSMOS_RETRY_PAUSE_MS:0:6})) ;; esac   # its first six digits
+      # Each attempt's time limit, 15 s; KOSMOS_RAN_TIMEOUT_S (digits) is a test seam, so a timeout can be tested fast.
+      local _mt=15; case "${KOSMOS_RAN_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) [ "$sub" = ran ] && _mt=$((10#${KOSMOS_RAN_TIMEOUT_S:0:3})) ;; esac
       while :; do
         rc=0
-        body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w '\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
+        body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_mt" -w '\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
           -H 'content-type: application/json' --data "$data" 2>/dev/null) || rc=$?
         _code=$(printf '%s' "$body" | tail -n 1); body=$(printf '%s' "$body" | sed '$d')
         case "$rc" in 18|28|52|56) _maybe=1 ;; esac

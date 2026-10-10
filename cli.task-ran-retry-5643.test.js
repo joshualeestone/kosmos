@@ -44,6 +44,7 @@ function withStub(script, fn) {
       req.on('data', (c) => { raw += c; }); req.on('end', () => {
         const step = script[Math.min(seen.length, script.length - 1)];
         seen.push(req.url); try { bodies.push(JSON.parse(raw)); } catch { bodies.push(null); }
+        if (step === 'slow') { setTimeout(() => { try { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(OK)); } catch { /* the CLI gave up */ } }, 2500); return; }
         if (step === 'cut' || step === 'cutclose') { req.socket.destroy(); if (step === 'cutclose') server.close(); return; }
         const status = step === 'dup' ? 200 : step;
         res.writeHead(status, { 'content-type': 'application/json' });
@@ -197,4 +198,33 @@ test('#5643 retry review 2 Mac: a rule (task repeat) that fails says only what i
     const r = await sh(port, home, ['task', 'repeat', 'proj', '3', 'daily']);
     assert.doesNotMatch(r.out, /that run|stopped answering while we recorded/, r.out);
   });
+});
+
+test('#5643 retry review 5 Mac: every attempt timing out says it may have been recorded (exit 3), one id; a timeout then a duplicate is recorded once', async () => {
+  const home = makeHome();
+  const shT = (port, args) => new Promise((resolve, reject) => execFile(CLI, args, { env: { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '', KOSMOS_AGENT_TOKEN: TOKEN, KOSMOS_RETRY_PAUSE_MS: '0', KOSMOS_RAN_TIMEOUT_S: '1' }, timeout: 30000 }, (err, so, se) => {
+    if (err && typeof err.code !== 'number') { reject(err); return; }
+    resolve({ code: err ? err.code : 0, out: String(so) + String(se) });
+  }));
+  await withStub(['slow'], async (port, seen, bodies) => {
+    const r = await shT(port, ['task', 'ran', 'proj', '3', 'all clear']);
+    assert.equal(r.code, 3, r.out);
+    assert.equal(posts(seen), 3);
+    assert.match(r.out, /may still have happened/);
+    assert.doesNotMatch(r.out, /was not recorded/);
+    assert.ok(bodies.every((b) => b && b.run_id === bodies[0].run_id), 'the attempts carried different run ids');
+  });
+  await withStub(['slow', 'dup'], async (port, seen) => {
+    const r = await shT(port, ['task', 'ran', 'proj', '3', 'all clear']);
+    assert.equal(r.code, 0, r.out);
+    assert.equal(posts(seen), 2);
+    assert.match(r.out, /already recorded, so it was not recorded twice/);
+  });
+});
+
+test('#5643 retry review 5 Windows: every attempt timing out says it may have been recorded (exit 3)', async () => {
+  const r = await win(['task', 'ran', 'proj', '3', 'all clear'], ['timeout']);
+  assert.deepEqual([r.code, r.calls], [3, 3], r.out);
+  assert.match(r.out, /may have been recorded/);
+  assert.doesNotMatch(r.out, /was not recorded/);
 });
