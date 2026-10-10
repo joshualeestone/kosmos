@@ -3376,12 +3376,13 @@ cmd_community_comment() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):"",typeof j.notSending==="string"?one(j.notSending).trim():""].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):"",typeof j.notSending==="string"?one(j.notSending).trim():"",typeof j.id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(j.id)?j.id:""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, today's floors
   local notsending; notsending=$(printf '%s' "$parsed" | cut -f5)   # #5435: the board's words for why it will not go
+  local cid; cid=$(printf '%s' "$parsed" | cut -f6)   # #4941: the board's id for it (a UUID), which edit and withdraw take
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status"
     [ -n "$nudge" ] && say "$nudge"
@@ -3396,6 +3397,11 @@ cmd_community_comment() {
       say "Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status"
     else
       say "Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status"
+    fi
+    # #4941: only where it will go. edit and withdraw take this id at once (a queued comment can be edited); a held
+    # comment is the person's and one that will not go cannot be edited, so neither is offered an id.
+    if [ -n "$cid" ] && [ "$sends" != "off" ]; then
+      say "Its id is $cid. Fix it with: kosmos community edit comment $cid <new words>   or take it back with: kosmos community withdraw comment $cid"
     fi
     [ -n "$nudge" ] && say "$nudge"
     exit 0

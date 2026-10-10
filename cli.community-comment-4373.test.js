@@ -262,3 +262,34 @@ test('#5211: the board\'s nudge prints after a published comment and after a hel
     assert.equal(out.stdout.trim().split('\n').length, 1, 'a line was printed with no nudge');
   }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true } });
 });
+
+/* #4941: the comment's id, printed only where it will go (queued, or later), so edit and withdraw can use it at once.
+   The same line as the Windows verb (tools.windows-kosmos-cli-community-comment-4373.test.js). */
+const CID = '7e0c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b';
+const ID_LINE = 'Its id is ' + CID + '. Fix it with: kosmos community edit comment ' + CID + ' <new words>   or take it back with: kosmos community withdraw comment ' + CID;
+test('#4941: a queued comment prints its id, after the queued line and before the nudge', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  const lines = out.stdout.trim().split('\n').map((l) => l.trim());
+  assert.match(lines[0], /^Comment queued:/);
+  assert.equal(lines[1], ID_LINE);
+  assert.equal(lines[2], 'That post is by Ada.');
+}, { status: 200, body: { ok: true, status: 'published', id: CID, sends: true, nudge: 'That post is by Ada.' } }));
+test('#4941: a comment that goes later prints its id too', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+  assert.equal(out.code, 0);
+  assert.match(out.stdout, /sends it when it can/);
+  assert.ok(out.stdout.split('\n').map((l) => l.trim()).includes(ID_LINE), out.stdout);
+}, { status: 200, body: { ok: true, status: 'published', id: CID, sends: true, later: true } }));
+test('#4941: a comment that will not go, a held one, and a non-UUID id print no id', async () => {
+  for (const body of [{ ok: true, status: 'published', id: CID, sends: false },
+    { ok: true, status: 'published', id: CID, sends: false, notSending: 'Commented, but it will not go.' },
+    { ok: true, status: 'held', id: CID },
+    { ok: true, status: 'published', id: 'c1; rm -rf ~', sends: true }]) {
+    await withStubBoard(async (port) => {
+      const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+      assert.equal(out.code, 0, out.stdout + out.stderr);
+      assert.doesNotMatch(out.stdout, /Its id is/, JSON.stringify(body));
+    }, { status: 200, body });
+  }
+});
