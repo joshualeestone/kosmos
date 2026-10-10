@@ -18,6 +18,8 @@
  */
 
 async function main(mode) {
+  /* `tick` SENDS, and checks no live-execution gate of its own: the board checks it before it starts this child
+     (server.js orgRollupTick, pinned by server.orgenroll-5531.test.js). Not a general entry point (board review 16). */
   if (mode === 'tick') return { ok: true, result: await require('./orgrollup').tick() };
   if (mode !== 'gather') return { ok: false, because: 'unknown mode' };
   const oe = require('./orgenroll');
