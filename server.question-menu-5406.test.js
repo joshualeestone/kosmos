@@ -225,3 +225,23 @@ test('#5406 slice C: the setup guide\'s thread serves no asked (everything there
     assert.equal(plain.asked, 'Which fruit do you want?');
   });
 });
+
+test('#5406 slice C: the folder-trust dialog (as observed, 2.1.29x) draws no buttons: no options and no asked are served', async () => {
+  const TRUST = [' Accessing workspace:', '', ' /Users/someone/work/proj', '',
+    ' Quick safety check: Is this a project you created or one you trust?', '',
+    ' Claude Code\'ll be able to read, edit, and execute files here.', '', ' Security guide', '',
+    ' ❯ No, exit', '   Yes, I trust this folder', '', ' Enter to confirm · Esc to cancel'].join('\n');
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: TRUST })]);
+  try {
+    chat.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: TRUST, err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+    assert.ok(back.answerNote, 'premise: the route read this as the trust dialog');
+    assert.equal(back.options, null, 'the trust dialog was offered as answer buttons');
+    assert.equal(back.asked, null);
+  } finally { chat.resetForTests(); board.restore(); }
+});
