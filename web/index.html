@@ -37398,12 +37398,16 @@ function dmChoiceBlocksSend(session) {
   if (m0) m0.textContent = DM_CHOICE_WAIT_LINE;
   return true;
 }
+let DM_CHOICE_GEN = 0;
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
   /* No buttons where the composer is closed (presence off: the agent cannot be typed into), the same rule as the box. */
+  const prev = DM_CHOICES;
   DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked && body.presence !== 'off')
-    ? { session: sessionName, options: opts, asked: body.asked }
+    ? { session: sessionName, options: opts, asked: body.asked,
+      /* a new number whenever the question (or agent) changes, so focus is never carried onto another question's button */
+      gen: prev && prev.session === sessionName && prev.asked === body.asked ? prev.gen : (DM_CHOICE_GEN += 1) }
     : null;
   if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
 }
@@ -37420,7 +37424,7 @@ function dmChoicesHtml(m) {
   const pressing = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);   // a typed send in the air draws them off but says nothing here
   const note = pressing ? 'Sending…' : (locked && done.sure) ? 'Sent.' : '';
   return '<div class="dmchoices" role="group" aria-label="Choices">'
-    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '"' + (off ? ' disabled' : '') + '>'
+    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
     + '<span class="dmchoices-msg" role="status" aria-live="polite">' + esc(note) + '</span></div>';
 }
@@ -37493,11 +37497,13 @@ async function dmChoicePress(btn) {
   await paintTalk(CURRENT.sessionName, CURRENT.name);
   if (!CURRENT || CURRENT.sessionName !== session) return;
   /* Disabling the pressed button dropped focus to the page. Placed or could not confirm: the buttons stay disabled for
-     the lock, so focus goes to the message box. Refused: back to the same choice (or the group's first). Only when
+     the lock, so focus goes to the message box. Refused: back to the same choice (or the group's first) if the
+     question is still the one pressed, else the message box. Only when
      focus has gone nowhere else. */
   if (!document.activeElement || document.activeElement === document.body) {
     const thread = document.getElementById('d-dmthread');
-    const back = mayHaveSent ? document.getElementById('d-say')   // its buttons stay off for the lock
+    const sameQuestion = DM_CHOICES && DM_CHOICES.session === session && DM_CHOICES.asked === c.asked;
+    const back = (mayHaveSent || !sameQuestion) ? document.getElementById('d-say')   // locked, or the question changed (review 28)
       : thread && (thread.querySelector('.dmchoice[data-n="' + CSS.escape(String(opt.n)) + '"]') || thread.querySelector('.dmchoice'));
     if (back) back.focus({ preventScroll: true });
   }
@@ -37648,11 +37654,16 @@ function paintTalkThread(body, name) {
     const dmHtml = rows.map((m, i) => dmRow(m, name, replyAdj.rows[i])).join('')
       + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
     /* #5406: a rewrite replaces a focused choice button; put focus back on the same choice (same digit). */
-    const choiceFocus = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('dmchoice')
-      && thread.contains(document.activeElement) ? document.activeElement.getAttribute('data-n') : null;
+    const onChoice = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('dmchoice')
+      && thread.contains(document.activeElement) ? document.activeElement : null;
+    const choiceFocus = onChoice ? onChoice.getAttribute('data-n') : null;
+    const focusGen = onChoice ? onChoice.getAttribute('data-gen') : null;
     setThread(thread, dmHtml, threadKey);
     if (choiceFocus !== null && !thread.contains(document.activeElement)) {
-      const cb = thread.querySelector('.dmchoice[data-n="' + CSS.escape(choiceFocus) + '"]');
+      /* Review 28: back onto the same choice only for the SAME question; a redraw that changed the question sends focus
+         to the message box, so a keyboard user's next Enter never answers a question they have not read. */
+      const same = DM_CHOICES && String(DM_CHOICES.gen) === focusGen;
+      const cb = same ? thread.querySelector('.dmchoice[data-n="' + CSS.escape(choiceFocus) + '"]') : document.getElementById('d-say');
       if (cb) cb.focus({ preventScroll: true });
     }
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */

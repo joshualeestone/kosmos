@@ -81,7 +81,7 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
   assert.deepEqual({ disabled: duringFlight.disabled, msg: duringFlight.msg }, { disabled: [true, true], msg: 'Sending…' }, 'the buttons stayed pressable while the answer was in flight');
   assert.equal(sent.length, 1, 'a second press during the first one\'s flight was sent');
   // A repaint during the flight draws the buttons disabled, still saying Sending.
-  assert.equal((duringFlight.redrawn.match(/class="dmchoice" data-n="\d+" disabled>/g) || []).length, 2, 'a mid-flight repaint gave the buttons back');
+  assert.equal((duringFlight.redrawn.match(/class="dmchoice" data-n="\d+" data-gen="\d+" disabled>/g) || []).length, 2, 'a mid-flight repaint gave the buttons back');
   assert.match(duringFlight.redrawn, />Sending…</);
   // Answered: the redrawn buttons stay off for that question (the menu can linger a few seconds after the key).
   assert.equal((m.html(Q).match(/ disabled>/g) || []).length, 2, 'an answered question offered its buttons again');
@@ -326,4 +326,32 @@ test('#5406 C review 20 pin: the composer send asks dmChoiceBlocksSend before it
   const at = SCRIPT.indexOf('if (dmChoiceBlocksSend(CURRENT.sessionName)) return;');
   assert.notEqual(at, -1, 'the composer send no longer checks for a press in the air');
   assert.ok(at < SCRIPT.indexOf('TALK_SENDING = true;', at - 4000) || SCRIPT.indexOf('TALK_SENDING = true;', at) > at, 'the check comes after the send takes off');
+});
+
+test('#5406 C review 28: after a refusal, focus returns to a choice only if the question is still the one pressed', async () => {
+  const CUR = realCard();
+  const focused = []; const body = {};
+  const thread = { querySelector: (sel) => (sel.includes('data-n="1"') ? { focus: () => focused.push('choice') } : null) };
+  const doc = { activeElement: body, body, getElementById: (id) => (id === 'd-dmthread' ? thread : id === 'd-say' ? { focus: () => focused.push('say') } : null) };
+  let changeTo = null;
+  const m = load({ CURRENT: CUR, document: doc, fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }),
+    paintTalk: async () => { if (changeTo) m.from({ ...BODY, asked: changeTo }, CUR.sessionName); } });
+  m.from(BODY, CUR.sessionName);
+  const press = () => m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  await press();
+  assert.deepEqual(focused, ['choice'], 'CONTROL: same question, focus back on the choice');
+  focused.length = 0; changeTo = 'Which colour?';
+  await press();
+  assert.deepEqual(focused, ['say'], 'focus was put on a different question\'s button');
+});
+
+test('#5406 C review 28: a question that changes gets a new button generation; the same question keeps it', () => {
+  const CUR = realCard();
+  const m = load({ CURRENT: CUR });
+  m.from(BODY, CUR.sessionName);
+  const g1 = /data-gen="(\d+)"/.exec(m.html(Q))[1];
+  m.from(BODY, CUR.sessionName);
+  assert.equal(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'the same question changed generation');
+  m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
+  assert.notEqual(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'a new question kept the old generation');
 });
