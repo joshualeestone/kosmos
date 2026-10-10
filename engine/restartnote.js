@@ -39,13 +39,12 @@ function readJson(file) {
   try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch { return null; }
 }
 function writeJson(file, data) {
-  const tmp = file + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, JSON.stringify(data) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    // #5434 slice 20: flushed before the rename, exact 0600; a failed save removes its own temp.
+    require('./securewrite').writeSecret(file, JSON.stringify(data) + '\n', 0o600, { atomicOnly: true });
     return true;
-  } catch { try { fs.unlinkSync(tmp); } catch { /* not there */ } return false; }
+  } catch { return false; }
 }
 const ms = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? t : null; };
 

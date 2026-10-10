@@ -257,9 +257,8 @@ function writeBook(book, now = Date.now()) {
   for (const [k, v] of book) { const keep = (Array.isArray(v) ? v : []).filter((t) => now - t < DAY_MS); if (keep.length) obj[k] = keep; }
   try {
     fs.mkdirSync(require('node:path').dirname(bookFile()), { recursive: true });
-    const tmp = bookFile() + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(obj) + '\n');
-    fs.renameSync(tmp, bookFile());
+    // #5434 slice 23: flushed before the rename
+    require('./store').saveFlushed(bookFile(), JSON.stringify(obj) + '\n');
     return true;
   } catch { return false; }
 }

@@ -62,10 +62,8 @@ function write({ on }) {
   }
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    // Same single-process tmp-rename shape as engmode.js and limits.js.
-    const tmp = FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ on }) + '\n');
-    fs.renameSync(tmp, FILE);
+    // Saved like engmode.js and limits.js: store.saveFlushed.
+    store.saveFlushed(FILE, JSON.stringify({ on }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };

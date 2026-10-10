@@ -319,3 +319,31 @@ test('#5668 review 9: a board start that finds the guard not whole for a non-PAT
   try { quiet(() => setup.guardTokenOnlyFolder(path.join(SANDBOX, 'workers', 'gs-r9'), 'gs-r9', { ...BASE, accountConfigDir: empty, boardStart: true })); } finally { fs.linkSync = realLink; }
   assert.equal(setup.readGuardState()['gs-r9'].ok, true, 'with no hard links an unreadable line was kept');
 });
+
+/* #5434 slice 25: the guard-state line is flushed before it is published, by either path: the board start's exclusive
+   hard link, and the launch's rename. */
+function publishRecording(fn) {
+  const events = [];
+  const fdPath = new Map();
+  const real = { open: fs.openSync, fsync: fs.fsyncSync, link: fs.linkSync, rename: fs.renameSync };
+  fs.openSync = (p, ...rest) => { const fd = real.open.call(fs, p, ...rest); fdPath.set(fd, String(p)); return fd; };
+  fs.fsyncSync = (fd) => { events.push(['fsync', fdPath.get(fd)]); return real.fsync(fd); };
+  fs.linkSync = (a, b) => { events.push(['link', String(a), String(b)]); return real.link(a, b); };
+  fs.renameSync = (a, b) => { events.push(['rename', String(a), String(b)]); return real.rename(a, b); };
+  try { fn(); } finally { fs.openSync = real.open; fs.fsyncSync = real.fsync; fs.linkSync = real.link; fs.renameSync = real.rename; }
+  return events;
+}
+for (const [label, extra, kind] of [['the board start\'s exclusive link', { boardStart: true }, 'link'], ['a launch\'s rename', {}, 'rename']]) {
+  test('#5434 slice 25: the guard-state line is flushed before ' + label + ' publishes it', () => {
+    const name = 'gs-flush-' + (extra.boardStart ? 'start' : 'launch');
+    const stateFile = path.join(store.ROOT, setup.GUARD_STATE_DIR, name + '.json');
+    fs.rmSync(stateFile, { force: true });
+    const empty = path.join(SANDBOX, 'accounts', 'flush-' + name);
+    fs.mkdirSync(empty, { recursive: true });
+    const events = publishRecording(() => quiet(() => setup.guardTokenOnlyFolder(agentDir(name), name, { ...BASE, accountConfigDir: empty, managedSettingsPath: null, ...extra })));
+    // review 1: the expected publish KIND, so the link test cannot quietly exercise the rename.
+    const p = events.findIndex((e) => e[0] === kind && e[2] === stateFile);
+    assert.ok(p >= 0, 'no ' + kind + ' published the guard-state line: ' + JSON.stringify(events.filter((e) => e[0] !== 'fsync')));
+    assert.ok(events.slice(0, p).some((e) => e[0] === 'fsync' && e[1] === events[p][1]), 'the guard-state line was not flushed before it was published');
+  });
+}

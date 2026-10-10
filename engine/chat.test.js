@@ -2170,8 +2170,11 @@ test('an earlier project’s messages being moved aside is reported EVEN when th
    * because only the success return carried word of it. The person is told the
    * message was not recorded and never told their older conversation moved.
    *
-   * Forced through the real path: a DIRECTORY planted at the per-pid temp name
-   * makes `writeFileSync` fail after the rename has already happened.
+   * Forced through the real path: the save's temp cannot be created, so the write
+   * fails after the move aside has already happened. (#5434 slice 18: the save's temp
+   * is now securewrite's unique `<file>.kosmos-...tmp`, so a directory planted at the
+   * old `<file>.<pid>.new` name no longer blocks it; the failure is injected at the
+   * temp's open instead, with an EISDIR so the errno-hiding check below still bites.)
    */
   const born = '2026-01-01T00:00:00.000Z';
   const reborn = '2026-08-01T00:00:00.000Z';
@@ -2180,8 +2183,12 @@ test('an earlier project’s messages being moved aside is reported EVEN when th
   }, born);
 
   const file = chat.threadFile('asidefail', 'casey');
-  const blocker = `${file}.${process.pid}.new`;
-  fs.mkdirSync(blocker, { recursive: true });
+  const realOpen = fs.openSync;
+  let blocked = 0;
+  fs.openSync = (p, ...rest) => {
+    if (String(p).startsWith(file + '.kosmos-')) { blocked += 1; const e = new Error("EISDIR: illegal operation on a directory, open '" + p + "'"); e.code = 'EISDIR'; throw e; }
+    return realOpen.call(fs, p, ...rest);
+  };
   try {
     const kept = chat.appendMessage('asidefail', 'casey', {
       text: 'said to the SECOND project', delivery: { state: chat.DELIVERY.PLACED },
@@ -2192,10 +2199,11 @@ test('an earlier project’s messages being moved aside is reported EVEN when th
     // ⚠️ And the sentence is ours, not an errno. "EISDIR: illegal operation on
     // a directory, open '/var/folders/…new'" is not a thing a person can act on.
     assert.match(kept.because, /could not write this conversation down/);
-    assert.ok(!/EISDIR|\/var\/folders|\.new/.test(kept.because),
+    assert.ok(!/EISDIR|\/var\/folders|\.new|\.tmp|\.kosmos-/.test(kept.because),
       `an error code and an internal path reached the person: ${kept.because}`);
+    assert.ok(blocked >= 1, 'the save never tried to create its temp, so this tested nothing');
   } finally {
-    fs.rmSync(blocker, { recursive: true, force: true });
+    fs.openSync = realOpen;
   }
   // And nothing of the person's was lost: the earlier conversation is beside it.
   const aside = fs.readdirSync(path.dirname(file))

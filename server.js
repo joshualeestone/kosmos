@@ -16498,7 +16498,6 @@ const server = http.createServer(async (req, res) => {
         if (!/^\d+\.\d+\.\d+$/.test(v)) { sendJson(res, 400, { error: 'that is not a version we can record' }); return; }
         try {
           fs.mkdirSync(store.ROOT, { recursive: true });
-          const tmp = path.join(store.ROOT, 'seen-version.json.tmp');
           /* #4928: also which highlights this dismissed (the file's main version), kept from before when
              this version has none (#5224: or none for this platform), so the same words are not opened again under
              another number. */
@@ -16507,8 +16506,8 @@ const server = http.createServer(async (req, res) => {
           if (!highlightsFor) {
             try { highlightsFor = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8')).highlightsFor || null; } catch { highlightsFor = null; }
           }
-          fs.writeFileSync(tmp, JSON.stringify(highlightsFor ? { version: v, highlightsFor } : { version: v }) + '\n');
-          fs.renameSync(tmp, path.join(store.ROOT, 'seen-version.json'));
+          // #5434 slice 23: flushed before the rename
+          store.saveFlushed(path.join(store.ROOT, 'seen-version.json'), JSON.stringify(highlightsFor ? { version: v, highlightsFor } : { version: v }) + '\n');
           sendJson(res, 200, { seen: v });
         } catch { sendJson(res, 500, { error: 'we could not record that' }); }
       })
@@ -18161,8 +18160,8 @@ const server = http.createServer(async (req, res) => {
      /seen above, keyed by agent instead of project. POST, behind the same
      cross-site write guard. The count itself is server-derived (see
      withDmUnread); this only moves the cursor. A malformed agent name is a 400
-     (markDmSeen throws BAD_THREAD), any other write failure a 500 -- the sibling
-     shape. */
+     (markDmSeen throws BAD_THREAD), any other write failure a 500 in our own words
+     (#5434 slice 18; the cause goes to the board log, never to the page). */
   const dmSeen = pathname.match(/^\/api\/agent\/([^/]+)\/seen$/);
   if (dmSeen && req.method === 'POST') {
     const name = decodeSegment(dmSeen[1]);
@@ -18170,8 +18169,10 @@ const server = http.createServer(async (req, res) => {
     let at;
     try { at = chat.markDmSeen(name); }
     catch (err) {
-      const code = (err && err.code === 'BAD_THREAD') ? 400 : 500;
-      sendJson(res, code, { error: String((err && err.message) || 'we could not record that') });
+      // #5434 slice 18 (review 1): a 500 answers in our words, never the write's errno and internal path.
+      const bad = err && err.code === 'BAD_THREAD';
+      if (!bad) console.error('[kosmos] #5434 dm seen-cursor not saved for ' + name + ': ' + String((err && (err.code || err.message)) || err));
+      sendJson(res, bad ? 400 : 500, { error: bad ? String(err.message) : 'we could not record that' });
       return;
     }
     sendJson(res, 200, { seen: at, dmUnread: 0 });

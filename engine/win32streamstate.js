@@ -114,12 +114,9 @@ function writeState(name, record) {
   try {
     fs.mkdirSync(stateDir(), { recursive: true });
     const at = statePath(name);
-    /* Write-then-rename, as store.writeProfile does, so the board can never read a
-       half-written file. The temp name carries the pid so two writers could not
-       share one temp file. */
-    const tmp = at + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(record));
-    fs.renameSync(tmp, at);
+    /* Write-then-rename through store.saveFlushed, as store.writeProfile does, so the board can never read a
+       half-written file, and a crash cannot leave it zero-filled (#5434 slice 21); a unique temp per save. */
+    store.saveFlushed(at, JSON.stringify(record));
     return { ok: true };
   } catch (e) {
     return { ok: false, because: (e && e.code) || 'unknown' };

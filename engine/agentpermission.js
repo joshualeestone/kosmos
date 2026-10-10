@@ -74,9 +74,7 @@ function ensureSettings(opts) {
     try { cur = fs.readFileSync(file, 'utf8'); } catch { cur = null; }
     if (cur !== text) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      const tmp = file + '.tmp-' + process.pid;
-      fs.writeFileSync(tmp, text, { mode: 0o600 });
-      try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone already */ } throw e; }   // no leftover temp (review 5)
+      require('./securewrite').writeSecret(file, text, 0o600, { atomicOnly: true });   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX); exact 0600; no leftover temp (review 5)
     }
     return file;
   } catch { return null; }

@@ -69,13 +69,9 @@ function write({ on, perHour }) {
   }
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    // A fixed tmp path serializes fine inside one process (sync writes);
-    // two PROCESSES writing at once could interleave renames, a
-    // multi-instance setup this app does not run. The rename keeps the
-    // file itself untearable either way.
-    const tmp = FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ on, perHour }) + '\n');
-    fs.renameSync(tmp, FILE);
+    // A unique temp per save (store.saveFlushed), so even two processes cannot
+    // interleave one temp; the rename keeps the file itself untearable.
+    store.saveFlushed(FILE, JSON.stringify({ on, perHour }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };

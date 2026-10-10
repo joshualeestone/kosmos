@@ -207,18 +207,17 @@ function latest() {
 
 /* One new event file, created by rename so no reader ever sees half of one. Then, best effort,
    events older than the newest of their OWN kind are removed: a remover only removes a file when it
-   sees a strictly newer one of that kind, so the newest of each kind always survives. Leftover
-   temporary files (a process killed between the write and the rename) older than a minute go too. */
+   sees a strictly newer one of that kind, so the newest of each kind always survives. A temp a killed
+   writer left is now securewrite's to reap (its own name shape, a provably dead writer); the dot-temp
+   loop below only clears temps left by releases before #5434 slice 23. */
 function record(kind, at, body) {
   if (!Number.isSafeInteger(at) || at < 0 || at >= MAX_AT) throw new Error('an event time must be a whole number of milliseconds');
   const dir = eventsFolder();
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const name = String(at).padStart(15, '0') + '-' + kind + '-' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.json';
-  const tmp = path.join(dir, '.' + name + '.tmp');
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(body) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, path.join(dir, name));
-  } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* none */ } throw e; }
+  /* #5434 slice 23: flushed before the rename, so a new event never appears zero-filled (mode 0600; a failure removes
+     its own temp and still throws). The name is fresh, so this only ever creates a file. */
+  require('./securewrite').writeSecret(path.join(dir, name), JSON.stringify(body) + '\n', 0o600, { atomicOnly: true });
   try {
     const all = fs.readdirSync(dir);
     const mine = all.map((n) => EVENT_NAME.exec(n)).filter((m) => m && m[2] === kind);

@@ -59,18 +59,14 @@ function keepModel(workspace, model) {
     const got = require('./workerfile').readWorkerFile(file, workspace);
     if (got && got.ok && got.buf.toString('utf8').trim() === model) return true;
   }
-  // Review 3: a random name opened exclusively ('wx'), so nothing planted at a predictable name is followed.
-  const tmp = file + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
-  let wrote = false;
+  // Review 3: securewrite's temp is a unique name opened exclusively ('wx'), so nothing planted at a predictable name is
+  // followed. Review 4, restated: the only files ever removed are this file's own temps whose writer is provably dead.
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, model + '\n', { mode: 0o600, flag: 'wx' });
-    wrote = true;
-    fs.renameSync(tmp, file);
+    // #5434 slice 23: flushed before the rename (mode 0600; ownTempsOnly, the person's workspace is not Kosmos's folder)
+    require('./securewrite').writeSecret(file, model + '\n', 0o600, { atomicOnly: true, ownTempsOnly: true });
     return true;
   } catch {
-    // Only our own temp is removed (review 4), never a file that was already at that name.
-    if (wrote) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } }
     return false;
   }
 }

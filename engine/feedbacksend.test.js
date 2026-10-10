@@ -278,15 +278,28 @@ test('setOn does not wipe the sent marker, and markSent does not flip on', () =>
   assert.equal(feedbacksend.read().on, false, 'markSent flipped the opt-in');
 });
 
+/* #5434 slice 19: the settings file now saves through store.saveFlushed, whose temp is securewrite's unique
+   `<file>.kosmos-...tmp`, so a directory planted at the old `<file>.tmp` no longer blocks the write. This refuses the
+   save's own temp-name shape at open instead (EISDIR, as the planted directory gave); reading the file still works.
+   Each caller keeps its own "the write did not fail, so this proves nothing" precondition. */
+function blockSettingsWrite() {
+  const prefix = feedbacksend.FILE + '.kosmos-';
+  const realOpen = fs.openSync;
+  fs.openSync = (p, ...rest) => {
+    if (String(p).startsWith(prefix)) { const e = new Error('EISDIR: illegal operation on a directory'); e.code = 'EISDIR'; throw e; }
+    return realOpen.call(fs, p, ...rest);
+  };
+  return () => { fs.openSync = realOpen; };
+}
+
 test('sendDailyOnce does NOT send if the sent-marker write fails (no all-day re-POST)', () => {
   // The re-send hole: if markSent's disk write fails but the POST succeeds, `sent`
   // never persists and every sweep re-POSTs the same day forever. The fix sends
   // only when the mark persisted. Force write to fail (read still succeeds) by
-  // blocking the atomic-rename temp path with a directory of the same name.
+  // refusing the atomic write's temp (blockSettingsWrite).
   feedback.write('a finding', { date: '2026-09-04' });
   feedbacksend.setOn(true); // FILE now readable as {on:true}
-  const tmpBlock = feedbacksend.FILE + '.tmp';
-  fs.mkdirSync(tmpBlock, { recursive: true }); // writeFileSync(tmp) will now EISDIR
+  const unblock = blockSettingsWrite();
   let calls = 0;
   feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
   try {
@@ -296,7 +309,7 @@ test('sendDailyOnce does NOT send if the sent-marker write fails (no all-day re-
     feedbacksend.sendDailyOnce('2026-09-04');
     assert.equal(calls, 0, 'a send happened even though the sent-marker could not be recorded (re-POST-forever risk)');
   } finally {
-    fs.rmSync(tmpBlock, { recursive: true, force: true });
+    unblock();
   }
 });
 
@@ -358,14 +371,13 @@ test('#4766: a re-send whose marker cannot be written does not POST (the no-re-P
   const bodies = capture();
   await sweep(T0);
   feedback.write('first finding\nmore', { date: '2026-09-30' });
-  const tmpBlock = feedbacksend.FILE + '.tmp';
-  fs.mkdirSync(tmpBlock, { recursive: true }); // the atomic write's temp path is now a directory
+  const unblock = blockSettingsWrite();   // the atomic write's temp cannot be created
   try {
     assert.equal(feedbacksend.markSent('2026-09-30', 'x', T0).ok, false, 'setup: the write did not fail, so this proves nothing');
     await sweep(T0 + 3 * H + 1);
     assert.equal(bodies.length, 1, 'a re-send went out although its marker could not be recorded');
   } finally {
-    fs.rmSync(tmpBlock, { recursive: true, force: true });
+    unblock();
   }
 });
 
@@ -895,14 +907,15 @@ test('#5294 review 1: an unreadable setting file is "unreadable", not "off", and
 test('#5294 the marker cannot be saved: "unsent", and nothing is POSTed (the sweep\'s rule)', async () => {
   feedback.write('body', { date: '2026-09-04' });
   feedbacksend.setOn(true);
-  // A directory where the settings file's temp file must go makes the write fail; reading still says on.
-  fs.mkdirSync(feedbacksend.FILE + '.tmp', { recursive: true });
+  // The settings file's temp cannot be created, so the write fails; reading still says on.
+  const unblock = blockSettingsWrite();
   let calls = 0;
   feedbacksend.setSender(() => { calls += 1; return Promise.resolve({ ok: true }); });
   try {
+    assert.equal(feedbacksend.markSent('2026-09-04').ok, false, 'setup: the write did not fail, so this proves nothing');
     assert.equal((await feedbacksend.sendNow('2026-09-04', 1000)).state, 'unsent');
     assert.equal(calls, 0, 'a send went out with no marker, so every sweep would repeat it');
-  } finally { fs.rmSync(feedbacksend.FILE + '.tmp', { recursive: true, force: true }); }
+  } finally { unblock(); }
 });
 
 test('#5294 a test run never phones home: a real endpoint is "blocked"; only loopback may be reached', async () => {

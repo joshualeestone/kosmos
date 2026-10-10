@@ -90,9 +90,7 @@ function readOnce() {
 function write(next) {
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(next) + '\n');
-    fs.renameSync(tmp, FILE);
+    store.saveFlushed(FILE, JSON.stringify(next) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };

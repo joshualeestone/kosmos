@@ -98,9 +98,7 @@ function readMap(base) {
 function writeMap(base, map) {
   try {
     fs.mkdirSync(base, { recursive: true });
-    const tmp = path.join(base, `${FILE}.${process.pid}.tmp`);
-    fs.writeFileSync(tmp, JSON.stringify(map, null, 2) + '\n');
-    fs.renameSync(tmp, attemptsPath(base));
+    require('./store').saveFlushed(attemptsPath(base), JSON.stringify(map, null, 2) + '\n');   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX)
   } catch { /* fail-open: a guard that cannot persist must not block the board */ }
 }
 
@@ -174,9 +172,7 @@ function markConfirmed(base, id) {
   map[id] = true;
   try {
     fs.mkdirSync(base, { recursive: true });
-    const tmp = path.join(base, `${CONFIRMED_FILE}.${process.pid}.tmp`);
-    fs.writeFileSync(tmp, JSON.stringify(map, null, 2) + '\n');
-    fs.renameSync(tmp, confirmedPath(base));
+    require('./store').saveFlushed(confirmedPath(base), JSON.stringify(map, null, 2) + '\n');   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX)
   } catch { /* fail-open */ }
 }
 

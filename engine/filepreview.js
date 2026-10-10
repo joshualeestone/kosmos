@@ -146,9 +146,8 @@ function noteSource(dir, target, owner) {
   try { if (fs.readFileSync(f, 'utf8') === body) return; } catch { /* not there yet */ }
   try {
     fs.mkdirSync(dir, { recursive: true });
-    const tmp = path.join(dir, '.' + SOURCE_FILE + '.' + process.pid + '.tmp');
-    fs.writeFileSync(tmp, body, { mode: 0o600 });
-    fs.renameSync(tmp, f);
+    // #5434 slice 23: flushed before the rename (mode 0600, in the board's own cache folder)
+    require('./securewrite').writeSecret(f, body, 0o600, { atomicOnly: true });
   } catch { /* the sweep removes a folder it cannot read a record for */ }
 }
 function sweep(deps = {}) {
