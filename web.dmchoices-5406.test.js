@@ -83,9 +83,12 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
   // A repaint during the flight draws the buttons disabled, still saying Sending.
   assert.equal((duringFlight.redrawn.match(/class="dmchoice" data-n="\d+" disabled>/g) || []).length, 2, 'a mid-flight repaint gave the buttons back');
   assert.match(duringFlight.redrawn, />Sending…</);
-  // CONTROL: after the flight the redrawn buttons are pressable again and say what happened.
-  assert.doesNotMatch(m.html(Q), / disabled>/);
+  // Answered: the redrawn buttons stay off for that question (the menu can linger a few seconds after the key).
+  assert.equal((m.html(Q).match(/ disabled>/g) || []).length, 2, 'an answered question offered its buttons again');
   assert.match(m.html(Q), />Sent\.</);
+  // CONTROL: a NEW question on the same agent is pressable.
+  m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
+  assert.doesNotMatch(m.html(Q), / disabled>/);
   assert.equal(msg.textContent, 'Sent.');
   // A refusal (the menu moved) says why and gives the buttons back.
   let painted2 = 0;
@@ -95,7 +98,7 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
   await m2.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => b2, querySelector: () => msg2 }) });
   assert.equal(msg2.textContent, 'its screen moved');
   assert.equal(b2[0].disabled, false, 'the buttons stayed disabled after a refusal');
-  assert.equal(painted2, 1, 'a refusal did not repaint, so stale buttons stay up');
+  assert.equal(painted2, 1, 'expected one repaint after a refusal (stale buttons would stay up)');
   // The repaint keeps the reason: the redrawn bubble carries it.
   assert.match(m2.html(Q), /role="status" aria-live="polite">its screen moved</, 'the repaint dropped why the press did not go');
   // CONTROL: once the menu is gone the note goes with it.
@@ -109,7 +112,8 @@ test('#5406 C: a 200 that did not place the key says so, and the note belongs to
   m.from(BODY, CUR.sessionName);
   const b = [{ disabled: false }]; const msg = { textContent: '' };
   await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => b, querySelector: () => msg }) });
-  assert.equal(msg.textContent, 'We could not confirm that went. its question was still on its screen after the answer', 'an unconfirmed answer read as sent');
+  assert.equal(msg.textContent, 'We could not confirm that went (pressing again may answer twice). its question was still on its screen after the answer', 'an unconfirmed answer read as sent');
+  assert.doesNotMatch(m.html(Q), / disabled>/, 'an unconfirmed answer locked the buttons (retry must stay possible)');
   assert.match(m.html(Q), /We could not confirm/);
   // A NEW question on the same agent opens clean: the note was about the old one.
   m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
@@ -119,13 +123,20 @@ test('#5406 C: a 200 that did not place the key says so, and the note belongs to
   assert.match(m.html(Q), /We could not confirm/);
 });
 
-test('#5406 C: after a press, focus goes back to the same choice when it fell to the page', async () => {
+test('#5406 C: after a press, focus goes to the message box (answered) or back to the same choice (not), when it fell to the page', async () => {
   const CUR = realCard();
   const focused = [];
   const body = {};
   const thread = { querySelector: (sel) => (sel.includes('data-n="2"') ? { focus: () => focused.push('2') } : null) };
-  const doc = { activeElement: body, body, getElementById: (id) => (id === 'd-dmthread' ? thread : null) };
-  const m = load({ CURRENT: CUR, document: doc });
+  const say = { focus: () => focused.push('say') };
+  const doc = { activeElement: body, body, getElementById: (id) => (id === 'd-dmthread' ? thread : id === 'd-say' ? say : null) };
+  const placed = load({ CURRENT: CUR, document: doc });
+  placed.from(BODY, CUR.sessionName);
+  const b0 = [{ disabled: false }]; const msg0 = { textContent: '' };
+  await placed.press({ getAttribute: () => '2', closest: () => ({ querySelectorAll: () => b0, querySelector: () => msg0 }) });
+  assert.deepEqual(focused, ['say'], 'an answered press left focus on the page (its buttons stay disabled)');
+  focused.length = 0;
+  const m = load({ CURRENT: CUR, document: doc, fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }) });
   m.from(BODY, CUR.sessionName);
   const b = [{ disabled: false }]; const msg = { textContent: '' };
   await m.press({ getAttribute: () => '2', closest: () => ({ querySelectorAll: () => b, querySelector: () => msg }) });
