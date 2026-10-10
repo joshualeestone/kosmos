@@ -27,6 +27,11 @@ no banner (Josh #3419).
 - Buttons go in the bubble, not a separate control (Josh #3419).
 - The server, not the page, supplies `asked`: the page re-deriving it could drift from the POST's check.
 
+## Where no buttons show (typing is the fallback, the safe direction)
+
+- The setup guide's thread; a question the agent reported rather than one on its screen; a question row the engine did
+  not add (withQuestionRow skips it when the last stored message already says the same text).
+
 ## Weakest premise
 
 The card must read "asking" while the menu is up (slice A's premise); if it does not, no buttons show and typing is the

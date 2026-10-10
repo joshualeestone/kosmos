@@ -37380,7 +37380,8 @@ let TALK_QUERY = '';
    `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
    screen before it sends a key (409 when the menu moved). */
 let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
-let DM_CHOICE_NOTE = null;   // { session, text }: why the last press did not go, kept across the repaint it asks for
+let DM_CHOICE_NOTE = null;   // { session, text }: what became of the last press, kept across the repaint it asks for
+let DM_CHOICE_INFLIGHT = null;   // { session, asked } while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
   DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked)
@@ -37390,15 +37391,16 @@ function dmChoicesFrom(body, sessionName) {
 }
 function dmChoicesHtml(m) {
   if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
-  const note = DM_CHOICE_NOTE && DM_CHOICE_NOTE.session === DM_CHOICES.session ? DM_CHOICE_NOTE.text : '';
+  const flying = DM_CHOICE_INFLIGHT && DM_CHOICE_INFLIGHT.session === DM_CHOICES.session && DM_CHOICE_INFLIGHT.asked === DM_CHOICES.asked;
+  const note = flying ? 'Sending…' : (DM_CHOICE_NOTE && DM_CHOICE_NOTE.session === DM_CHOICES.session ? DM_CHOICE_NOTE.text : '');
   return '<div class="dmchoices" role="group" aria-label="Choices">'
-    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '">'
+    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '"' + (flying ? ' disabled' : '') + '>'
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
     + '<span class="dmchoices-msg" role="status" aria-live="polite">' + esc(note) + '</span></div>';
 }
 async function dmChoicePress(btn) {
   const c = DM_CHOICES;
-  if (!c || !CURRENT || CURRENT.sessionName !== c.session) return;
+  if (!c || !CURRENT || CURRENT.sessionName !== c.session || DM_CHOICE_INFLIGHT) return;
   const opt = c.options.find((o) => String(o.n) === btn.getAttribute('data-n'));
   if (!opt) return;
   const box = btn.closest('.dmchoices');
@@ -37407,6 +37409,7 @@ async function dmChoicePress(btn) {
   if (msg) msg.textContent = 'Sending…';
   const session = c.session;
   DM_CHOICE_NOTE = null;
+  DM_CHOICE_INFLIGHT = { session, asked: c.asked };
   let ok = false;
   let note = '';
   try {
@@ -37419,12 +37422,13 @@ async function dmChoicePress(btn) {
     if (!ok) note = pjSentence(out.error || 'that did not go; try again');
   } catch {
     note = 'We could not reach Kosmos; try again.';
+  } finally {
+    DM_CHOICE_INFLIGHT = null;
   }
-  if (msg) msg.textContent = ok ? 'Sent.' : note;
-  if (!ok) {
-    DM_CHOICE_NOTE = { session, text: note };
-    if (box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
-  }
+  if (ok) note = 'Sent.';
+  if (msg) msg.textContent = note;
+  DM_CHOICE_NOTE = { session, text: note };
+  if (!ok && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
   /* A refusal repaints too: it usually means the menu moved, and the buttons should show the one up now. */
   if (CURRENT && CURRENT.sessionName === session) paintTalk(CURRENT.sessionName, CURRENT.name);
 }
@@ -37573,7 +37577,14 @@ function paintTalkThread(body, name) {
     /* #4256: reply headers by dmReplyAdjacency. */
     const dmHtml = rows.map((m, i) => dmRow(m, name, replyAdj.rows[i])).join('')
       + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
+    /* #5406: a rewrite replaces a focused choice button; put focus back on the same choice (same digit). */
+    const choiceFocus = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('dmchoice')
+      && thread.contains(document.activeElement) ? document.activeElement.getAttribute('data-n') : null;
     setThread(thread, dmHtml, threadKey);
+    if (choiceFocus !== null && !thread.contains(document.activeElement)) {
+      const cb = thread.querySelector('.dmchoice[data-n="' + CSS.escape(choiceFocus) + '"]');
+      if (cb) cb.focus({ preventScroll: true });
+    }
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
     if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
       const r = thread.querySelector('.msg[data-mid="' + CSS.escape(DM_JUMP_FOCUS) + '"]');

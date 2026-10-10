@@ -60,22 +60,30 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
   const CUR = realCard();
   const btns = [{ disabled: false }, { disabled: false }];
   const msg = { textContent: '' };
+  const box = { querySelectorAll: () => btns, querySelector: () => msg };
+  const btn = { getAttribute: () => '2', closest: () => box };
   const m = load({
     CURRENT: CUR,
     fetch: async (url, init) => {
-      duringFlight = { disabled: btns.map((b) => b.disabled), msg: msg.textContent };
+      duringFlight = { disabled: btns.map((b) => b.disabled), msg: msg.textContent, redrawn: m.html(Q) };
+      await m.press(btn);   // a second press while the first is in the air (a repaint re-drew the buttons) sends nothing
       sent.push({ url, body: JSON.parse(init.body) });
       return { ok: true, json: async () => ({}) };
     },
     paintTalk: () => { painted += 1; },
   });
   m.from(BODY, CUR.sessionName);
-  const box = { querySelectorAll: () => btns, querySelector: () => msg };
-  const btn = { getAttribute: () => '2', closest: () => box };
   await m.press(btn);
   assert.deepEqual(sent, [{ url: '/api/agent/' + encodeURIComponent(CUR.sessionName) + '/thread', body: { text: '2', chose: 'Banana <b>', asked: 'Which fruit do you want?' } }]);
   assert.equal(painted, 1, 'no repaint after the answer');
-  assert.deepEqual(duringFlight, { disabled: [true, true], msg: 'Sending…' }, 'the buttons stayed pressable while the answer was in flight');
+  assert.deepEqual({ disabled: duringFlight.disabled, msg: duringFlight.msg }, { disabled: [true, true], msg: 'Sending…' }, 'the buttons stayed pressable while the answer was in flight');
+  assert.equal(sent.length, 1, 'a second press during the first one\'s flight was sent');
+  // A repaint during the flight draws the buttons disabled, still saying Sending.
+  assert.equal((duringFlight.redrawn.match(/class="dmchoice" data-n="\d+" disabled>/g) || []).length, 2, 'a mid-flight repaint gave the buttons back');
+  assert.match(duringFlight.redrawn, />Sending…</);
+  // CONTROL: after the flight the redrawn buttons are pressable again and say what happened.
+  assert.doesNotMatch(m.html(Q), / disabled>/);
+  assert.match(m.html(Q), />Sent\.</);
   assert.equal(msg.textContent, 'Sent.');
   // A refusal (the menu moved) says why and gives the buttons back.
   let painted2 = 0;
