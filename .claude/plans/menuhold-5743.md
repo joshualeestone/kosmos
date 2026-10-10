@@ -51,6 +51,9 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
   quota's) now also asks chat.menuHeld: a stuck agent on its menu is not convened, nothing typed and no attempt spent,
   and a peer on its menu is left out of the asks like any unreachable peer. The question is the person's to answer.
 
+- Permission prompts are out of scope: this floor does not fire there, and typing into one (its Enter likely takes the
+  highlighted Yes) is the open half of #5406, recorded there.
+
 ## Weakest premise
 
 The snapshot reads needs_you while the menu is up. Not caught, recorded rather than fixed here (each needs the board's

@@ -94,7 +94,9 @@ test('#5743 the synchronous sender is refused too', async () => {
   });
 });
 
-test('#5743 CONTROLS: an idle agent and a permission prompt are typed into as before', async () => {
+/* The permission-prompt arm pins only that THIS card's floor does not fire there. It does not say typing into a
+   permission prompt is right (its Enter likely takes the highlighted "Yes"): that is open on #5406. */
+test('#5743 CONTROLS: an idle agent is typed into as before; a permission prompt is not refused by this floor', async () => {
   await onScreen('⏺ Done.\n\n────────\n❯ \n────────\n  bypass permissions on (shift+tab to cycle)', 'idle', async (board, calls) => {
     const v = await chat.deliverAutomaticAsync('casey', 'A line for Casey.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
@@ -105,7 +107,7 @@ test('#5743 CONTROLS: an idle agent and a permission prompt are typed into as be
   await onScreen(PERMISSION, 'needs_you', async (board, calls) => {
     const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
     assert.doesNotMatch(String(v.because), /showing a question on its screen/, 'a permission prompt was refused as the question menu');
-    assert.ok(calls.typed().length > 0, 'the permission-prompt path changed');
+    assert.doesNotMatch(String(v.because), /showing a question on its screen/, 'this floor fired on a permission prompt');
   });
 });
 
@@ -151,5 +153,5 @@ test('#5743 pin: the recommender\'s hold hook asks about the menu too, so a stuc
   const at = src.indexOf('const out = recommender.runOnce({');
   assert.notEqual(at, -1, 'premise: the recommender sweep was found');
   const call = src.slice(at, src.indexOf('});', at));
-  assert.match(call, /heldUntil: \(session\) => agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)\s*\?\? \(chat\.menuHeld\(session, roster\)/, 'the recommender hold hook does not ask about the menu');
+  assert.match(call, /heldUntil: \(session\) => \{[\s\S]*?agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)[\s\S]*?chat\.menuHeld\(session, roster\)/, 'the recommender hold hook does not ask about the menu');
 });

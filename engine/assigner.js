@@ -598,8 +598,8 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
     }
     if (held) {
       /* #4588 PR B: held, nothing typed. A backstop: step() already skips a quota-held agent, so this runs only if that
-         hold starts between step() and the ask (a #5743 menu hold cannot reach here: step() asks only idle cards, and the
-         menu check reads only needs_you ones). Not a failure: the charge comes back off the hour and the
+         hold starts between step() and the ask (a #5743 menu hold is not expected here: step() asks idle cards and the menu
+         check reads needs_you ones, so only a card that changed in between). Not a failure: the charge comes back off the hour and the
          ask is due again after ASK_RETRY_MS, with no failure counted toward the day-long wait. */
       const i = out.next.askLog.findIndex((e) => e.at === now && e.session === item.session && e.projectId === item.projectId);
       if (i !== -1) out.next.askLog.splice(i, 1);

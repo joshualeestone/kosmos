@@ -1846,7 +1846,8 @@ function quotaHeldVerdict(sessionName, roster, opts = {}) {
 }
 /* #5743: a timer's line for a Claude agent on its question menu is HELD, never typed and never closing the menu (that
    would dismiss a question the person may not have seen). The #4588 hold shape, so every automatic sender already
-   keeps it: a room keeps the post for the member's next idle flush, which comes after the question is answered. */
+   keeps it: a room keeps the post for the member's next idle flush once the question is answered and the turn ends,
+   or else for its next typed arrival. */
 function menuHeldVerdict(sessionName, roster) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   if (!card || card.isNamedOurs !== true || addressable(sessionName, roster).ok !== true) return null;
