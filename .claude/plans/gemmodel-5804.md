@@ -33,14 +33,15 @@ canonical id (a numeric revision, -latest, -preview, -exp suffix is the same mod
 
 ## Not here
 Grok and Antigravity (no report; their fallback not traced). Stopping the CLI's fallback (a rate limit would become a
-failed reply). Naming WHY it switched (the session file does not say; only that it did). A fixture test of geminisession's modelAt
-(it needs the CLI's project-hash layout; modelAt uses the same parseTs and lastGemini as lastAt and model, already
-tested); the model menu and sort wording (intended, same words everywhere).
+failed reply). Naming WHY it switched (the session file does not say; only that it did). The model menu and sort wording (intended,
+same words everywhere). Design shots: the board's shot fixtures have no running Gemini agent whose model switched, and
+the change is longer text in the same element (deferred; review on the next release). The per-poll double read: a
+follow-up card (filed), carrying model id and modelAt out of the status snapshot.
 
 ## Weakest premise
 That the switch is the CLI's fallback: not seen in Liu Kang's session file yet (asked on the card). "(set to X)" is
 true whatever made it switch.
 
 ## Tests
-engine/geminimodelswitch-5804.test.js (injected deps: switch, default, alias, stale reply, same model, unreadable, with a
+engine/geminisession.runner-3296.test.js (modelAt read from the real captured session); engine/geminimodelswitch-5804.test.js (injected deps: switch, default, alias, stale reply, same model, unreadable, with a
 control); web.gemini-model-switch-5804.test.js (the page's modelLine run; server wiring by source).

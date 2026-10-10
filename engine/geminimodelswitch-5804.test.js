@@ -46,10 +46,15 @@ test('#5804 review 3: the same model spelled with a revision, -latest or -previe
   assert.equal(settingModelName('a', deps({ session: () => ({ found: true, model: 'gemini-3.5-flash-001', modelAt: START + 1500 }) })), 'Gemini 2.5 Flash');
 });
 
-test('#5804: geminisession reports when the model-naming reply was written', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'geminisession.js'), 'utf8');
-  assert.match(src, /const modelAt = model && Number\.isFinite\(parseTs\(lastGemini\)\) \? parseTs\(lastGemini\) : null;/);
-  assert.match(src, /\n    model,\n    modelAt,\n  \};/);
+test('#5804 review 7: the real wiring names functions that exist (a rename would otherwise turn the note off silently)', () => {
+  const status = require('./status');
+  const create = require('./create');
+  for (const f of ['readGeminiSession', 'sessionStartedAtFromTmux', 'modelDisplayName']) assert.equal(typeof status[f], 'function', 'status.' + f);
+  assert.equal(typeof create.plannedModelOf, 'function', 'create.plannedModelOf');
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'geminimodelswitch.js'), 'utf8');
+  for (const call of ['create.plannedModelOf(name)', 'status.readGeminiSession(name)', 'status.sessionStartedAtFromTmux(name)', 'status.modelDisplayName(id)']) {
+    assert.ok(src.includes(call), 'realDeps no longer calls ' + call);
+  }
 });
 
 test('#5804 review 6: every same-model suffix status.js GEMINI_WINDOWS knows is one canonicalId strips (the copies stay in step)', () => {
