@@ -32,8 +32,10 @@ test('#5785: it is the existing branded loader (startKLoader on a fresh canvas),
 });
 
 test('#5785: a register plays it instead of the small spinner, holds one whole loop, and removes it on the answer', () => {
-  const reg = code.slice(code.indexOf('async function plusSiDoRegister('), code.indexOf("plusSiPost('/api/remote/signin-register'") + 900);
-  assert.ok(reg.length > 1000, 'CONTROL: the register function was found');
+  const reg = fnBody('plusSiDoRegister');   // review 5: the whole function, not a fixed slice past the post
+  assert.match(reg, /plusSiPost\('\/api\/remote\/signin-register'/, 'CONTROL: the register function was found');
+  // Review 5: running from the start, for both kinds (not only inside if (owned)).
+  assert.match(reg, /PLUS_SI_REGISTERING = true;\s*if \(owned\) \{/);
   assert.match(reg, /if \(siSpin\) siSpin\.hidden = true;[^\n]*\n\s*plusSiKStart\(owned\);/, 'expected the small spinner hidden just before plusSiKStart');
   assert.doesNotMatch(reg, /siSpin\.hidden = !owned/, 'the small spinner is back beside the line during the register');
   assert.match(reg, /const kHoldMs = \(typeof window\.__kosmosRestartHoldMs === 'number' \? window\.__kosmosRestartHoldMs : RESTART_HOLD_MS\);/);

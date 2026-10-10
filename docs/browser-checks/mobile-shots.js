@@ -251,7 +251,10 @@ async function plusSigningIn(page, owned) {
   await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
   await page.evaluate((own) => {
     for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
-    PLUS_SI_REGISTERING = true;   // as a real register: paintPlus keeps state 2 up
+    // As a real sign-in on this not-signed-in board: PLUS_SIGNIN_ACTIVE keeps state 2 up (paintPlus's not-enrolled
+    // branch), PLUS_SI_REGISTERING as the register sets it (its enrolled branch).
+    PLUS_SIGNIN_ACTIVE = true;
+    PLUS_SI_REGISTERING = true;
     document.getElementById('plus-state2').hidden = false;
     plusSiShow('plus-si-register');
     document.getElementById('plus-si-title').textContent = 'Signing in...';
@@ -279,7 +282,7 @@ async function plusSigningIn(page, owned) {
   if (!(await page.isVisible('#plus-state2')) || !(await page.isVisible('#plus-si-k canvas'))) throw new Error('plus-signing-in: the sign-in card was repainted away before the shot');
 }
 async function plusSigningInEnd(page) {
-  await page.evaluate(() => { PLUS_SI_REGISTERING = false; if (typeof plusSiKStop === 'function') plusSiKStop(); });
+  await page.evaluate(() => { PLUS_SI_REGISTERING = false; PLUS_SIGNIN_ACTIVE = false; if (typeof plusSiKStop === 'function') plusSiKStop(); });
 }
 
 const SCREENS = [
@@ -590,8 +593,8 @@ const SCREENS = [
   } },
   /* #5785: the sign-in card while this computer connects (the register step): the big K loader above "Signing in...",
      the "Connecting this computer as <name>.kosmosplus.com..." line under it. Put in that state with the page's own
-     functions (no coordinator here); the loader is the real one, caught mid-animation. PLUS_SI_REGISTERING is set as a
-     real register sets it, so the status tick does not repaint the card to the not-signed-in state mid-shot. */
+     functions (no coordinator here); the loader is the real one, caught mid-animation. The sign-in flags are set as a
+     real sign-in sets them, so the status tick does not repaint the card away mid-shot (and the shot fails if it did). */
   { name: 'plus-signing-in', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
     await plusSigningIn(page, true);
   }, after: async (page) => { await plusSigningInEnd(page); } },
