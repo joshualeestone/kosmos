@@ -1199,9 +1199,10 @@ function writeLaunchRecord(file, rec) {
     let old = null;
     try { old = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
     if (old === text) return true;
-    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;   // review 6: two refreshes in one process
-    fs.writeFileSync(tmp, text, { mode: 0o600 });
-    try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
+    // #5434 slice 21: flushed before the rename, exact 0600; a unique temp per save (review 6: two refreshes in one process).
+    // ownTempsOnly: this is the agent's own .claude folder, which can be the person's, so only this file's dead temps
+    // are reaped there, never a folder-wide sweep (as reporthook.js and slice 11's settings saves in the same folder).
+    require('./securewrite').writeSecret(file, text, 0o600, { atomicOnly: true, ownTempsOnly: true });
     return true;
   } catch { return false; }
 }
@@ -1401,8 +1402,17 @@ function recordGuardState(agentName, r, deps = {}) {
     const file = guardStateFileFor(agentName, deps);
     const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
-    fs.writeFileSync(tmp, JSON.stringify(line, null, 2) + '\n', { mode: 0o600 });
+    /* #5434 slice 25: written through a descriptor and FLUSHED before either publish below (the exclusive hard link or
+       the rename), so a crash cannot leave the guard-state line at full length but zero-filled (#5431); the folder is
+       flushed after. The temp name, the exclusive link and the `.new` sweep of this folder are unchanged. */
+    const { flushOrThrow, syncDir } = require('./securewrite');
     try {
+      {
+        const fd = fs.openSync(tmp, 'w', 0o600);
+        let pending = null;
+        try { fs.writeFileSync(fd, JSON.stringify(line, null, 2) + '\n'); flushOrThrow(fd); } catch (e) { pending = e; throw e; }
+        finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+      }
       if (deps.exclusive) {
         /* Only when there is no line, and atomically (review 5): a hard link of the whole temp file either lands or
            fails with EEXIST, so a line another run wrote first is kept and no half-written file is left. A line that
@@ -1427,7 +1437,8 @@ function recordGuardState(agentName, r, deps = {}) {
           }
         }
       } else fs.renameSync(tmp, file);
-    } finally { try { fs.unlinkSync(tmp); } catch { /* renamed, or gone */ } }
+      syncDir(dir);   // #5434 slice 25: the link or rename itself, POSIX only, never throws
+    } finally { try { fs.unlinkSync(tmp); } catch { /* renamed, linked (the published name keeps the data), or gone */ } }
   } catch (e) { process.stderr.write(`#5668: the guard state for ${agentName} could not be recorded (${(e && e.code) || e})\n`); }
 }
 /* #5668 (Pete's step 3): the user-level settings file the agent's ACCOUNT reads also reaches its sandbox profile, so its

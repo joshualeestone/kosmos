@@ -131,10 +131,7 @@ function read() {
 function write(next) {
   const dir = path.dirname(FILE());
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = FILE() + '.' + process.pid + '.' + Date.now() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), { flag: 'wx' });
-  try { fs.renameSync(tmp, FILE()); }
-  catch (err) { try { fs.unlinkSync(tmp); } catch { /* the write failed louder */ } throw err; }
+  require('./store').saveFlushed(FILE(), JSON.stringify(next, null, 2));   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX); a unique `wx` temp, removed on failure
 }
 
 /* One request, one write: both halves validated BEFORE anything lands,

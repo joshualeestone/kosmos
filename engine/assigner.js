@@ -326,19 +326,17 @@ function loadMemory(now) {
 }
 
 /* Writes only when the saved form changed since the last write (`last`, the JSON it returned), so a quiet board does
-   not rewrite the file every minute. Atomic: a pid-scoped temp, then rename (engine/prompternudge.js's pattern). */
+   not rewrite the file every minute. Atomic: securewrite's unique temp, flushed, then renamed (#5434). */
 function saveMemory(mem, last) {
   const json = JSON.stringify(savedForm(mem));
   if (json === last) return last;
   const file = MEMORY_FILE();
-  const tmp = file + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, json + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    // #5434 slice 23: flushed before the rename (mode 0600 kept; a failed save removes its own temp)
+    require('./securewrite').writeSecret(file, json + '\n', 0o600, { atomicOnly: true });
     return json;
   } catch {
-    try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
     return last;
   }
 }
@@ -599,8 +597,9 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
       try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; held = Boolean(v && v.held === true); } catch { state = null; }
     }
     if (held) {
-      /* #4588 PR B: held on the shared Google quota, nothing typed. A backstop: step() already skips a held agent, so this
-         runs only if the hold starts between step() and the ask. Not a failure: the charge comes back off the hour and the
+      /* #4588 PR B: held, nothing typed. A backstop: step() already skips a quota-held agent, so this runs only if that
+         hold starts between step() and the ask (a #5743 menu hold cannot reach here: runOnce hands step() and the ask the same
+         roster, step() asks only idle cards, and an idle card's screen is not read). Not a failure: the charge comes back off the hour and the
          ask is due again after ASK_RETRY_MS, with no failure counted toward the day-long wait. */
       const i = out.next.askLog.findIndex((e) => e.at === now && e.session === item.session && e.projectId === item.projectId);
       if (i !== -1) out.next.askLog.splice(i, 1);

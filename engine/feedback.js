@@ -188,9 +188,7 @@ function write(body, opts) {
     const content = header + (prior.length === 1 && prior[0].key === ''
       ? prior[0].text + '\n'
       : prior.map((x) => sectionMarker(x.key) + '\n' + sectionHeading(x.key) + '\n\n' + x.text + '\n').join('\n'));
-    const tmp = dest + '.tmp';
-    fs.writeFileSync(tmp, content);
-    fs.renameSync(tmp, dest);
+    require('./store').saveFlushed(dest, content);   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX)
     return { ok: true, path: dest, date, from: key || null, writers: prior.length };
   });
 }

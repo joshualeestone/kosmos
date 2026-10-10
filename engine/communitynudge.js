@@ -89,11 +89,8 @@ function noteFollowed(agentKey, name, now = Date.now()) {
     kept.push({ agent: String(agentKey), name: String(name), at: new Date(now).toISOString() });
     const file = followsFile();
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = file + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
-    try {
-      fs.writeFileSync(tmp, kept.map((r) => JSON.stringify(r)).join('\n') + '\n', { mode: 0o600 });
-      fs.renameSync(tmp, file);
-    } catch (e) { try { fs.unlinkSync(tmp); } catch { /* never written */ } throw e; }
+    // #5434 slice 23: flushed before the rename (mode 0600; a failed save removes its own temp and throws)
+    require('./securewrite').writeSecret(file, kept.map((r) => JSON.stringify(r)).join('\n') + '\n', 0o600, { atomicOnly: true });
     return true;
   } catch { return false; }
 }
@@ -111,11 +108,8 @@ function noteUnfollowed(agentKey, name) {
       && nk(r.name) === nk(name)));
     if (kept.length === had.length) return true;
     const file = followsFile();
-    const tmp = file + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
-    try {
-      fs.writeFileSync(tmp, kept.map((r) => JSON.stringify(r)).join('\n') + (kept.length ? '\n' : ''), { mode: 0o600 });
-      fs.renameSync(tmp, file);
-    } catch (e) { try { fs.unlinkSync(tmp); } catch { /* never written */ } throw e; }
+    // #5434 slice 23: flushed before the rename (mode 0600; a failed save removes its own temp and throws)
+    require('./securewrite').writeSecret(file, kept.map((r) => JSON.stringify(r)).join('\n') + (kept.length ? '\n' : ''), 0o600, { atomicOnly: true });
     return true;
   } catch { return false; }
 }

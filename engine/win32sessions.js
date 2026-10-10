@@ -46,7 +46,8 @@ const FILE_MODE = 0o600;
 /* How long a write waits for the record's lock before refusing (#2669). The wait
    is synchronous and blocks the caller's whole process, and one caller is a
    supervisor's stdout handler, so it is kept far below filelock's 2s default. A
-   holder's critical section is one small read, one small write and one rename (milliseconds), so
+   holder's critical section is one small read, one small write, a flush and one rename (milliseconds; #5434
+   slice 21 added the flush, and a refused rename retries the write+flush up to three times), so
    250ms still outlasts any live holder. So a refusal needs a holder that died
    mid-write, whose lock stays until filelock's 10s staleness rule collects it.
    What each writer does then:
@@ -124,9 +125,7 @@ function rewrite(failure, change) {
       const next = change(read());
       if (!next) return { ok: true };
       try {
-        const tmp = file() + '.' + process.pid + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify(next) + '\n', { mode: FILE_MODE });
-        fs.renameSync(tmp, file());
+        require('./securewrite').writeSecret(file(), JSON.stringify(next) + '\n', FILE_MODE, { atomicOnly: true });   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX); exact FILE_MODE
       } catch (e) { return fail(e); }
       return { ok: true };
     }, { busy: failure + ' (the record is busy, ELOCKBUSY)', cannotAccess: failure + ' (we could not lock it)', waitMs: RECORD_LOCK_WAIT_MS });

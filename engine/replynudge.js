@@ -190,9 +190,8 @@ function writePersons(root, sessionName, owed) {
   try {
     const f = personsFile(root, sessionName);
     fs.mkdirSync(path.dirname(f), { recursive: true });
-    const tmp = f + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ owed }));
-    fs.renameSync(tmp, f);
+    // #5434 slice 23: flushed before the rename
+    require('./store').saveFlushed(f, JSON.stringify({ owed }));
     return true;
   } catch { return false; }
 }
@@ -299,9 +298,8 @@ function writeNudged(root, sessionName, set) {
   try {
     const f = nudgedFile(root, sessionName);
     fs.mkdirSync(path.dirname(f), { recursive: true });
-    const tmp = f + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ ids: [...set].slice(-NUDGED_MAX) }));
-    fs.renameSync(tmp, f);
+    // #5434 slice 23: flushed before the rename
+    require('./store').saveFlushed(f, JSON.stringify({ ids: [...set].slice(-NUDGED_MAX) }));
     return true;
   } catch { return false; }
 }
@@ -651,8 +649,8 @@ async function sweepOnce(o) {
            Review 8 (Opus): either is said once per change of state (as skipSaid), so it is on record without a line every pass. */
         if (held || paneBusy) {
           rollBack();
-          const act = held ? 'quota-held' : 'pane-busy';
-          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : '; held on the shared Google quota') : p.because });
+          const act = held ? (heldBy === 'menu' ? 'menu-held' : 'quota-held') : 'pane-busy';
+          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : '; held on the shared Google quota') : p.because });
           const m = book.get(session) || {};
           if (m.waitSaid !== act) { say({ name: display, session, act, delivered: false, delivery: state, because: p.because }); book.set(session, { ...m, waitSaid: act }); }
           continue;

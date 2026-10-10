@@ -65,9 +65,8 @@ function writeAnchor(key, anchor) {
     if (!anchor) { try { fs.unlinkSync(fileFor(key)); } catch { /* already gone */ } return; }
     fs.mkdirSync(dir(), { recursive: true });
     const dest = fileFor(key);
-    const tmp = dest + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ state: anchor.state, sinceAt: anchor.sinceAt }));
-    fs.renameSync(tmp, dest);   // atomic on the same filesystem
+    // #5434 slice 23: flushed before the rename (atomic on the same filesystem)
+    store.saveFlushed(dest, JSON.stringify({ state: anchor.state, sinceAt: anchor.sinceAt }));
   } catch { /* a board that cannot write its own data dir simply does not escalate; never fatal */ }
 }
 

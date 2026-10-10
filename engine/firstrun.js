@@ -55,17 +55,9 @@ function seen() {
 
 function complete() {
   fs.mkdirSync(path.dirname(FLAG), { recursive: true });
-  const tmp = `${FLAG}.${process.pid}.new`;
-  fs.writeFileSync(tmp, `${JSON.stringify({ completedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
-  try {
-    fs.renameSync(tmp, FLAG);
-  } catch (err) {
-    // ⚠️ Take the half-written file with us. A full disk or a read-only volume
-    // leaves `first-run.json.<pid>.new` sitting beside the real flag forever,
-    // and the next reader of this directory has to work out which is which.
-    try { fs.unlinkSync(tmp); } catch { /* it was never the point */ }
-    throw err;
-  }
+  // #5434 slice 19: flushed before the rename; a failed save removes its own temp (the half-written-file worry the
+  // old code handled by hand) and throws, as before.
+  store.saveFlushed(FLAG, `${JSON.stringify({ completedAt: new Date().toISOString() }, null, 2)}\n`);
   /**
    * ⚠️ THIS IS WEAKER THAN "we read it back and it is there", and the route
    * above it should not claim otherwise. `seen()` deliberately answers

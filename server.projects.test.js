@@ -969,6 +969,25 @@ test('an agent the person removed does not appear on a project row', async () =>
 const chat = require('./engine/chat');
 
 /**
+ * Seed a long thread through the ENGINE, without its per-append disk flush.
+ *
+ * #5434 slice 18 made every appendMessage rewrite the thread through
+ * store.saveFlushed (the file and its folder flushed before and after the
+ * rename). Measured on this Mac: about 10 ms an append flushed, 0.5 ms not.
+ * One flush per message a person sends is the intended cost, but a test that
+ * appends 205 in a synchronous loop blocks the board in this same process for
+ * seconds, longer on CI's disk, and the next request met a socket the board
+ * had already dropped (ECONNRESET, PR #5751). The rows are still produced by
+ * appendMessage, so the fixture keeps the producer's shape; only the flush,
+ * which these bounding tests do not test, is skipped while seeding.
+ */
+function seedUnflushed(fn) {
+  const real = fs.fsyncSync;
+  fs.fsyncSync = () => {};
+  try { fn(); } finally { fs.fsyncSync = real; }
+}
+
+/**
  * Arm the chat seam with a scripted tmux, and hand back what was called.
  *
  * ⚠️ THE JUST-BEFORE-SENDING PROBE IS ANSWERED SEPARATELY, and healthy by
@@ -1952,11 +1971,13 @@ test('the thread GET returns a bounded tail with the older count stated, never t
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
     const chat = require('./engine/chat');
-    for (let i = 0; i < 205; i += 1) {
-      chat.appendMessage(project.id, 'zeta', {
-        text: 'row ' + i, delivery: { state: chat.DELIVERY.PLACED },
-      }, project.createdAt);
-    }
+    seedUnflushed(() => {
+      for (let i = 0; i < 205; i += 1) {
+        chat.appendMessage(project.id, 'zeta', {
+          text: 'row ' + i, delivery: { state: chat.DELIVERY.PLACED },
+        }, project.createdAt);
+      }
+    });
     const body = json(await req(`/api/project/${project.id}/thread/zeta`));
     assert.equal(body.messages.length, 200, 'the tail must be bounded');
     assert.equal(body.olderCount, 5, 'and the count of unshown rows stated');
@@ -2308,12 +2329,13 @@ test('a button answer that never reached the pane is still recorded, wire and al
    * rewrites its own history. The screen decides what to SAY about it; the
    * store decides what is KEPT, and they are not the same decision.
    */
-  /* TWO runner entries, because a `chose` send captures the pane FIRST to check
-     the words against the visible menu and only then types. One entry was
-     eaten by the capture and the send got a default success -- which the
-     control below caught, on its first run. */
+  /* THREE runner entries, because a `chose` send captures the pane FIRST to check
+     the words against the visible menu, and (#5743) the delivery floor reads a
+     needs_you card's screen again before typing. One entry was eaten by the
+     capture and the send got a default success -- which the control below
+     caught, on its first run, and again when the floor's read was added. */
   await withAgent(fleet.agent('zeta', { state: 'needs_you' }),
-    [said(), { ran: true, spawnFailed: false, status: 1, out: '', err: 'no such pane' }],
+    [said(), said(), { ran: true, spawnFailed: false, status: 1, out: '', err: 'no such pane' }],
     async () => {
       const res = json(await post('/api/agent/zeta/thread', { text: '1', chose: '14 days' }));
       /* ⚠️ THE EXACT STATE, not "not placed". `unconfirmed` is also not placed and
@@ -2477,7 +2499,7 @@ test('the thread is bounded, and the page is told how many it is not showing', a
     }));
     // Written through the ENGINE, so the fixture cannot hold a shape the
     // producer does not make.
-    for (const m of many) chat.appendMessage(chat.DIRECT, 'zeta', m);
+    seedUnflushed(() => { for (const m of many) chat.appendMessage(chat.DIRECT, 'zeta', m); });
     const body = json(await req('/api/agent/zeta/thread'));
     assert.equal(body.messages.length, 200, 'the tail is bounded');
     assert.equal(body.olderCount, 5, 'and the payload says how many it is not showing');

@@ -268,18 +268,17 @@ async function pull(dir, opts) {
     try { rec = JSON.parse(text); }
     catch { skipped += 1; continue; }
     if (!rec || typeof rec !== 'object' || typeof rec.body !== 'string') { skipped += 1; continue; }
-    let tmp = null;
+    const dest = path.join(target, fileName(rec));
     try {
-      const dest = path.join(target, fileName(rec));
-      fs.writeFileSync(dest + '.tmp', toMarkdown(rec));
-      tmp = dest + '.tmp';   // set only once THIS call wrote it
-      fs.renameSync(tmp, dest);
+      /* #5434 slice 24: flushed before the rename (a crash cannot leave a pulled report zero-filled, #5431). The temp
+         is securewrite's own unique `wx` name, removed on failure, so a concurrent pull's temp is never touched (what
+         the old "only a .tmp this call wrote" rule protected). ownTempsOnly: `dir` can be any folder the caller names,
+         so only this report's own dead temps are reaped there; the mode is the umask default, as before. */
+      require('./securewrite').writeSecret(dest, toMarkdown(rec), null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
       written += 1;
     } catch (e) {
-      skipped += 1; unwritten += 1; lastWriteError = String((e && e.message) || e);
-      // Best effort: remove only a .tmp this call wrote (a rename failed after it), never
-      // one a concurrent pull may be writing.
-      if (tmp) { try { fs.rmSync(tmp, { force: true }); } catch { /* cleanup only */ } }
+      // The code and the report's own name, not the raw message, which would name securewrite's long internal temp path.
+      skipped += 1; unwritten += 1; lastWriteError = ((e && e.code) || 'error') + ' saving ' + path.basename(dest);
     }
   }
   const total = Array.isArray(blobs) ? blobs.length : 0;

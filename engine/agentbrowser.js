@@ -202,14 +202,10 @@ function configFor(o) {
 function writeConfigIfNeeded(file, text) {
   const same = () => { try { return fs.readFileSync(file, 'utf8') === text; } catch { return false; } };
   if (same()) return true;
-  const tmp = file + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, file);
-  } catch {
-    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
-  }
+    require('./store').saveFlushed(file, text);   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX)
+  } catch { /* best effort: same() below decides */ }
   /* A rename refused because a sibling supervisor won the race is fine, as long as
      what it wrote is what we would have. */
   return same();

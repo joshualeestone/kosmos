@@ -35,6 +35,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const connect = require('./connect');
+const { eventually } = require('../test-support/eventually');
 const subscription = require('./subscription');
 const win32signin = require('./win32signin');
 
@@ -76,18 +77,20 @@ const CONNECTED_CONFIG = {
 const writeClaudeConfig = (obj) => fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(obj));
 const clearClaudeConfig = () => { try { fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true }); } catch { /* fine */ } };
 
+// #5727: delegate to the shared load-aware poll helper. At scale 1 this is equivalent to the
+// old setInterval(10) loop: 10ms step, resolves the first truthy fn(), propagates a thrown
+// fn() (eventually awaits the probe, as the old reject(e) did), fails at ms (default 3000).
+// One difference, strictly MORE lenient and only for POSITIVE waits (all 30 call sites here
+// wait for a phase to be REACHED, never prove an absence): the old setInterval fired first at
+// t=10ms, while eventually probes at t=0, so it checks once sooner. describe LEADS with the
+// phase (Sonya's tip for a readable red), then keeps the whole state the old throw dumped, so
+// the compound waits that key on `because` / `url` still show those fields on a red. Under load
+// the deadline scales with the box.
 function until(fn, ms) {
-  const deadline = Date.now() + (ms || 3000);
-  return new Promise((resolve, reject) => {
-    const t = setInterval(() => {
-      let v;
-      try { v = fn(); } catch (e) { clearInterval(t); reject(e); return; }
-      if (v) { clearInterval(t); resolve(v); return; }
-      if (Date.now() > deadline) {
-        clearInterval(t);
-        reject(new Error('condition never became true; state: ' + JSON.stringify(connect.state())));
-      }
-    }, 10);
+  return eventually(fn, (v) => v, {
+    timeoutMs: ms || 3000,
+    stepMs: 10,
+    describe: () => 'phase ' + connect.state().phase + '; ' + JSON.stringify(connect.state()),
   });
 }
 const phase = () => connect.state().phase;
