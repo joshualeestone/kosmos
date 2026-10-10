@@ -74,8 +74,7 @@ function setChoice(choice) {
   } catch {
     return { ok: false, because: 'we could not save that setting' };
   }
-  cached = undefined; fallbackAt = 0;   // the next read uses the new choice (Automatic's own read is unaffected)
-  return { ok: true };
+  return { ok: true };   // the next read sees the new choice (read() keys its cache on it)
 }
 
 /* A BCP 47 tag, or null. Accepts the Mac's spellings too ("es_MX", "zh-Hans-CN"). */
@@ -115,10 +114,13 @@ function read(o) {
     const picked = source && source.choice !== undefined ? source.choice : readChoice();
     const key = JSON.stringify(picked);
     if (cached !== undefined && cachedChoice === key && (cached.sure || Date.now() - fallbackAt < FALLBACK_MS)) return cached;
-    const got = read({ ...(source || {}), choice: picked });
+    // Review 5: Automatic chosen again reuses what Automatic last read, so a save does not ask a hanging `defaults` anew.
+    const autoFresh = picked.ok && picked.choice === AUTO && autoCached !== undefined
+      && (autoCached.sure || Date.now() - autoAt < FALLBACK_MS);
+    const got = autoFresh ? autoCached : read({ ...(source || {}), choice: picked });
     cached = got; cachedChoice = key; fallbackAt = got.sure ? 0 : Date.now();
     // With Automatic chosen this IS what Automatic reads, so the Settings page does not ask `defaults` a second time.
-    if (picked.ok && picked.choice === AUTO) { autoCached = got; autoAt = fallbackAt; }
+    if (picked.ok && picked.choice === AUTO && !autoFresh) { autoCached = got; autoAt = fallbackAt; }
     return got;
   }
   const opts = o;
@@ -180,7 +182,7 @@ function blockBody(tag, from) {
   if (isEnglish(tag)) return null;
   const name = languageName(tag);
   // #5080: only the source in brackets differs for a choice made in Settings; the computer's wording is byte-identical.
-  const source = from === 'settings' ? 'chosen in Kosmos Settings' : 'from this computer\'s language setting';
+  const source = from === 'settings' ? SETTINGS_SOURCE : 'from this computer\'s language setting';
   /* April's tested variant A word for word (appended at the end of the file: Spanish 2/2 against English 2/2 with no
      block), plus the one sentence she carried over from variant B, which names the confusion the test exposed. */
   return [
@@ -268,7 +270,7 @@ function tellAgent(sessionName, roster, opts) {
     // Sure: the block for the language read. Not sure (only reached for a stale Settings block, above): no block.
     const next = got.sure ? applyTo(current.text || '', got.tag, got.from) : applyTo(current.text || '', null);
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
-    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: got.from === 'settings' ? WROTE_WHY_SETTINGS : WROTE_WHY });
+    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: got.from === 'settings' || !got.sure ? WROTE_WHY_SETTINGS : WROTE_WHY });   // not sure: a Settings block taken out
     // kosmos#5304: changed owes the running agent a re-read; a removal (English again) owes none (instructionreread.oweEach).
     return { state: projects.TOLD.TOLD, because: null, changed: true, removed: !projects.findBlock(next, START, END) };
   } catch (err) {

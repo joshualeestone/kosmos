@@ -8793,15 +8793,17 @@ const server = http.createServer(async (req, res) => {
         const saved = personlanguage.setChoice(body && body.choice);
         if (!saved.ok) { sendJson(res, saved.because === 'we could not save that setting' ? 500 : 400, { error: saved.because }); return; }
         let changed = 0;
+        let removed = 0;   // review 5: a removed block owes no re-read, so running agents drop it at their next start
         let couldNot = 0;
         try {
           const told = personlanguage.syncEveryone(safeRoster());
           instructionRereadOweEach(told, 'language');
           changed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed).length;
+          removed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed && t.removed).length;
           // The roster itself could not be read: one entry with no agent, so no count of agents is known.
           couldNot = told.some((t) => t && t.agent === null) ? -1 : told.filter((t) => t && t.state !== projects.TOLD.TOLD).length;
         } catch { couldNot = -1; }   // saved; the next board start brings the agents in line
-        sendJson(res, 200, { ...agentLanguageBody(), changed, couldNot });
+        sendJson(res, 200, { ...agentLanguageBody(), changed, removed, couldNot });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;

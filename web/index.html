@@ -1045,7 +1045,8 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
 /* #5510: the kind-of-business select sizes to its longest option ("A construction or trades business", 290px), which
    ran 3px past the Settings panel on a 360px phone. It may be no wider than its row; a long option is then shortened
-   in the closed select only (the open list shows it whole). render-settings-fit-5510.js holds it. */
+   in the closed select only (the open list shows it whole). render-settings-fit-5510.js holds it. #5080: the language
+   select in the box below it shares the rule. */
 #community-industry, #agent-language { max-width: 100%; }
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
@@ -32865,6 +32866,7 @@ async function agentLanguageChange() {
     msg.textContent = body.ok !== true ? 'Saved, but we could not read it back just now.'
       : n < 0 ? 'Saved. Your agents pick it up the next time Kosmos starts.'
         : n ? 'Saved. ' + n + (n === 1 ? ' agent' : ' agents') + ' could not be changed just now and keep the language they have until Kosmos next starts.'
+        : Number(body.removed) > 0 ? 'Saved. New agents use it now. Agents already running drop their old language the next time they start.'
         : 'Saved. Your agents switch to it once they finish what they are doing.';
   } catch {
     msg.textContent = 'We could not save that setting.';

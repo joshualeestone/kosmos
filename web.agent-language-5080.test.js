@@ -55,3 +55,7 @@ test('#5080 review 2: a read still out from page load cannot drop a save\'s answ
   assert.match(fn, /if \(mine !== AGENT_LANG_SAVE_EPOCH\) return;/);
   assert.doesNotMatch(fn, /mine !== AGENT_LANG_EPOCH/, 'the save is again dropped by a read\'s epoch');
 });
+
+test('#5080 review 5: a save that removed blocks says running agents drop them at their next start', () => {
+  assert.match(code, /: Number\(body\.removed\) > 0 \? 'Saved\. New agents use it now\. Agents already running drop their old language the next time they start\.'/);
+});

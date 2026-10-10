@@ -260,3 +260,15 @@ test('#5080 review 4: with Automatic chosen, the read the sweep made is what Set
   assert.equal(calls, 1, 'Settings asked defaults again after the sweep had');
   pl._resetForTests();
 });
+
+test('#5080 review 5: going back to Automatic reuses what Automatic last read (a hanging defaults is not asked again)', () => {
+  clearChoice();
+  let calls = 0;
+  pl._resetForTests({ env: {}, platform: 'darwin', intl: 'en-US', run: () => { calls += 1; throw new Error('timed out'); } });
+  pl.automatic();
+  assert.equal(calls, 1, 'CONTROL: Settings asked once');
+  pl.setChoice('es-419'); pl.read();
+  pl.setChoice('auto'); pl.read();
+  assert.equal(calls, 1, 'going back to Automatic asked a failing defaults again inside its window');
+  pl._resetForTests();
+});
