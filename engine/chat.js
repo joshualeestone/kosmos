@@ -1397,11 +1397,17 @@ const CLAUDE_MENU_SENTENCE = 'it is showing a question on its screen, and a mess
   + 'so we did not type anything; answer the question in its window first';
 /* Said only when the screen is the form the direct-message route answers by number (status.claudeQuestionMenu). */
 const CLAUDE_MENU_DM_CLAUSE = ', or by its number in its direct messages';
+/* #5754: Claude's permission prompt. Measured on 2.1.296: the paste is ignored and the Enter approves the highlighted
+   option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
+const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
+  + '(usually Yes), so we did not type anything; answer it in its window first';
 function claudeMenuRefusal(card, sessionName, roster) {
   if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
   if (card.state !== status.STATE.NEEDS_YOU) return null;
   const view = viewport(sessionName, roster);
-  if (!(view && typeof view.text === 'string' && status.claudeQuestionMenuUp(view.text))) return null;
+  if (!(view && typeof view.text === 'string')) return null;
+  if (status.claudePermissionPromptUp(view.text)) return CLAUDE_PERMISSION_SENTENCE;   // #5754
+  if (!status.claudeQuestionMenuUp(view.text)) return null;
   return CLAUDE_MENU_SENTENCE + (status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
 }
 

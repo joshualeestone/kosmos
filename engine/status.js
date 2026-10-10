@@ -2456,6 +2456,31 @@ function claudeQuestionMenuUp(text) {
   return false;
 }
 
+/* #5754: is Claude Code's PERMISSION prompt on screen ("Do you want to proceed?", "Do you want to create x?", with
+   "1. Yes" first)? Measured on 2.1.296: a pasted line is ignored there and the Enter after it takes the highlighted
+   option, usually Yes, so a typed message approves a command or an edit nobody chose. Its footer ends "Esc to cancel"
+   ("Esc to cancel · Tab to amend" on 2.1.296; older builds drew the select footer). Three things together, all near
+   the bottom: that footer within the last three non-blank lines, an option row "1. Yes" within 10 rows above it, and
+   a "Do you want to ..." question within 14. The folder-trust dialog (no "1. Yes") is not this; it has its own floor. */
+const CLAUDE_PERMISSION_FOOTER = /Esc to cancel(?:\s*·.*)?\s*$/;
+const CLAUDE_PERMISSION_YES = /^\s*(?:[❯›]\s*)?1\.\s+Yes\b/;
+const CLAUDE_PERMISSION_QUESTION = /^\s*Do you want to\b/;
+function claudePermissionPromptUp(text) {
+  const lines = String(text == null ? '' : text).split('\n');
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (!CLAUDE_PERMISSION_FOOTER.test(lines[i])) continue;
+    let yes = false;
+    for (let j = i - 1; j >= Math.max(0, i - 10); j -= 1) if (CLAUDE_PERMISSION_YES.test(lines[j])) { yes = true; break; }
+    if (!yes) return false;
+    for (let j = i - 1; j >= Math.max(0, i - 14); j -= 1) if (CLAUDE_PERMISSION_QUESTION.test(lines[j])) return true;
+    return false;
+  }
+  return false;
+}
+
 function safeguardsMenu(tail) {
   const live = safeguardsMenuAt(tail);
   if (!live) return null;
@@ -8984,7 +9009,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp,
+  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
