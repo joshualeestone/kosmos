@@ -50,3 +50,18 @@ test('#5643: the ran route records an unchanged run (sent as the screen sends a 
   assert.equal(bad.status, 400, 'a non-boolean unchanged was taken');
   assert.match(bad.json.error, /unchanged is true or false/);
 });
+
+test('#5643 retry review 1: the ran route passes run_id, so the same id is one run however late it lands', async () => {
+  const p = projects.create({ name: 'Ran route id' });
+  const n = tasks.create(p.id, { sentence: 'Watch it' }).number;
+  tasks.setRepeat(p.id, n, { every: 'hour' });
+  const a = await ran(p.id, n, { note: 'all clear', run_id: 'ab12cd34ef56ab78' });
+  assert.equal(a.status, 200, JSON.stringify(a.json));
+  assert.equal(a.json.task.lastRunId, 'ab12cd34ef56ab78', 'the route dropped run_id');
+  // Push the recorded run past the time window, as a board that stalled would see it.
+  projects.mutate(p.id, (pr) => { const t = tasks.byNumber(pr, n); t.lastRunAt = new Date(Date.now() - 5 * 60 * 1000).toISOString(); return pr; });
+  const b = await ran(p.id, n, { note: 'all clear', run_id: 'ab12cd34ef56ab78' });
+  assert.equal(b.json.duplicate, true, 'a late attempt of the same command was recorded twice');
+  const c = await ran(p.id, n, { note: 'all clear', run_id: 'ffffeeee00001111' });
+  assert.notEqual(c.json.duplicate, true, 'CONTROL: a new command was taken as the old run');
+});

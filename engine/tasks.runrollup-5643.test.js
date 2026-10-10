@@ -166,3 +166,21 @@ test('#5643 review 4: clearing the repeat drops the streak AT ONCE, and a task c
   assert.ok(t.closedAt || tasks.progressOf(t).closed, 'fixture: closing the last part did not close the task');
   assert.deepEqual([t.unchangedRuns, t.lastChangeAt, t.lastRunUnchanged], [undefined, undefined, undefined], 'a task closed by its last part kept the streak');
 });
+
+test('#5643 retry review 1: the same run id from the same runner is the same run however late; another id is a new run', () => {
+  const { id, n } = freshRepeating();
+  const t0 = Date.UTC(2026, 9, 9, 12, 0, 0);
+  const first = tasks.recordRun(id, n, 'leo', 'all clear', t0, { runId: 'aa11bb22cc33dd44' });
+  assert.notEqual(first.duplicate, true);
+  // Landed 90 s later (a board that stalled past the minute): the same command's attempt, not a second run.
+  const late = tasks.recordRun(id, n, 'leo', 'all clear', t0 + 90 * 1000, { runId: 'aa11bb22cc33dd44' });
+  assert.equal(late.duplicate, true, 'a late retry of the same command was recorded as a second run');
+  // CONTROL: another command (another id) 90 s later is a new run; so is the same id from another runner.
+  const next = tasks.recordRun(id, n, 'leo', 'all clear', t0 + 90 * 1000, { runId: 'ee55ff66aa77bb88' });
+  assert.notEqual(next.duplicate, true, 'a new command with a new id was taken as the old run');
+  const other = tasks.recordRun(id, n, 'mona', 'all clear', t0 + 200 * 1000, { runId: 'ee55ff66aa77bb88' });
+  assert.notEqual(other.duplicate, true, 'another runner\'s run was taken as a duplicate by id');
+  // An id that is not hex is ignored (time dedup only).
+  const junk = tasks.recordRun(id, n, 'mona', 'x', t0 + 400 * 1000, { runId: 'not-hex!' });
+  assert.notEqual(junk.duplicate, true);
+});
