@@ -201,7 +201,7 @@
     },
     {
       "title": "A project shows an agent it stopped",
-      "line": "When an agent not on a project tries to change its tasks, the project's room says so and offers to add that agent.",
+      "line": "When an agent not on a project tries to change its tasks, the project's room says so, with a button to add that agent when it can.",
       "icon": "list",
       "rank": 9.5,
       "since": "0.7.38",
