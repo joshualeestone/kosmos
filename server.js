@@ -15995,7 +15995,8 @@ const server = http.createServer(async (req, res) => {
       /* #5406 part 2 slice C: the question's identity (chat.questionAbove, the twin of the check the POST makes), sent
          with the options so a button press names the question it was drawn for; the page never re-derives it. Null in
          the setup guide's thread: everything served there is masked (#3769), and this is unmasked screen text. Claude
-         cards only: the key-answer path a press relies on is Claude's (the same allowlist as questionMenuKeysAllowed).
+         cards only: the key-answer path a press relies on is Claude's (the runner half of questionMenuKeysAllowed; the
+         page draws no buttons where the composer is closed, and the POST refuses what a key cannot reach).
          And only for the single-select question menu that path answers (status.claudeQuestionMenu): a permission prompt
          also reads as numbered options, but a press there would be pasted, and its Enter picks the highlighted option. */
       asked: !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude' && Array.isArray(options)
@@ -16055,7 +16056,7 @@ const server = http.createServer(async (req, res) => {
           throw new Error('automatic is true or left out');
         }
         const automatic = body.automatic === true;
-        if (automatic && (body.chose !== undefined || (body.reply_to !== undefined && body.reply_to !== null)
+        if (automatic && (body.chose !== undefined || body.asked !== undefined || (body.reply_to !== undefined && body.reply_to !== null)
           || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
           throw new Error('an automatic message is plain text');
         }
