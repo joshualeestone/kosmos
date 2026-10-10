@@ -21,3 +21,4 @@ scheduler-owned tasks (#5456, released). Deferred: structured comparison fields 
   every attempt, and recordRun takes the same id from the same runner as the same run however late it lands.
 - A board that went away after a cut reply is never said to be running; "may have been recorded" exits 3 on both CLIs.
 - Retry wording, the pause setting (digits only, 2x then 8x, as Windows), notConnected not counted as maybe-landed.
+- Review 3: the board keeps the last 5 run ids per task (keyed by runner), an id the one-minute window absorbed included, so a late attempt of an absorbed or older command is never recorded; a rule change forgets them.

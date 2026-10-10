@@ -57,7 +57,7 @@ test('#5643 retry review 1: the ran route passes run_id, so the same id is one r
   tasks.setRepeat(p.id, n, { every: 'hour' });
   const a = await ran(p.id, n, { note: 'all clear', run_id: 'ab12cd34ef56ab78' });
   assert.equal(a.status, 200, JSON.stringify(a.json));
-  assert.equal(a.json.task.lastRunId, 'ab12cd34ef56ab78', 'the route dropped run_id');
+  assert.ok((a.json.task.recentRunIds || []).some((k) => k.endsWith(':ab12cd34ef56ab78')), 'the route dropped run_id');
   // Push the recorded run past the time window, as a board that stalled would see it.
   projects.mutate(p.id, (pr) => { const t = tasks.byNumber(pr, n); t.lastRunAt = new Date(Date.now() - 5 * 60 * 1000).toISOString(); return pr; });
   const b = await ran(p.id, n, { note: 'all clear', run_id: 'ab12cd34ef56ab78' });

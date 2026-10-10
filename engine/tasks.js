@@ -1187,6 +1187,8 @@ function setReviewer(projectId, n, who, opts = {}) {
  * and the history row says `unchanged` and, when only inferred, `inferred`.
  */
 const RUN_DEDUP_MS = 60 * 1000;
+// kosmos#5643 retry review 3: how many recent run ids (per task, keyed by runner) are kept to absorb a late retry.
+const RUN_IDS_KEPT = 5;
 function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   /* review 5: the person is a FLAG, never a name (as setBuilt's builtByPerson): an agent called "operator" is not the person. */
   const isPerson = opts.person === true;
@@ -1208,13 +1210,22 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     // review 2: only the SAME runner's repeat, and only a recorded run not in the future (a clock stepped back).
     const prev = Date.parse(t.lastRunAt || '');
     const sameRunner = (t.lastRunByPerson === true) === isPerson && (isPerson || (t.lastRunBy || null) === runner);
-    if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
-    /* kosmos#5643 retry review 1: the same attempt id from the same runner is the same run however late it lands (a
-       board that stalls past the minute above on a retried command). The CLIs send one id per command, on every attempt. */
+    /* kosmos#5643 retry reviews 1 and 3: the same command's id from the same runner is the same run however late it
+       lands (a board that stalls past the minute below on a retried command). The CLIs send one id per command, on every
+       attempt. The last RUN_IDS_KEPT ids are kept, an id the minute absorbed included, so neither a later run nor a
+       duplicate that was never stored lets an old attempt through. Keyed by runner, so another agent's id never matches. */
     const runId = typeof opts.runId === 'string' && /^[0-9a-f]{8,64}$/.test(opts.runId) ? opts.runId : null;
-    if (runId && sameRunner && t.lastRunId === runId) { duplicate = true; changed = t; return p; }
+    const idKey = runId ? (isPerson ? 'person' : runner) + ':' + runId : null;
+    const seenIds = Array.isArray(t.recentRunIds) ? t.recentRunIds.filter((k) => typeof k === 'string') : [];
+    if (idKey && seenIds.includes(idKey)) { duplicate = true; changed = t; return p; }
+    const keptIds = idKey ? [...seenIds, idKey].slice(-RUN_IDS_KEPT) : seenIds;
+    if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) {
+      duplicate = true;
+      if (idKey) t.recentRunIds = keptIds;   // remembered, so a late attempt of this command is absorbed too
+      changed = t; return p;
+    }
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
-    if (runId) changed.lastRunId = runId; else delete changed.lastRunId;
+    if (keptIds.length) changed.recentRunIds = keptIds; else delete changed.recentRunIds;
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
     /* kosmos#5643: an UNCHANGED run found nothing new: said with --unchanged (opts.unchanged), or a note that is the same
        text as the run before it (whitespace aside), which is how an agent that repeats "all clear" says it. A run with no
@@ -1261,7 +1272,7 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
 /** kosmos#5643: the run streak's fields (how many runs in a row found nothing new, and the last change), which belong to
     one repeat rule: dropped when the rule changes, is cleared, or the task closes. */
 function dropRunStreak(t) {
-  delete t.unchangedRuns; delete t.unchangedInferred; delete t.lastRunUnchanged; delete t.lastChangeAt; delete t.lastChangeNote; delete t.lastRunId;
+  delete t.unchangedRuns; delete t.unchangedInferred; delete t.lastRunUnchanged; delete t.lastChangeAt; delete t.lastChangeNote; delete t.recentRunIds;
 }
 
 /**
