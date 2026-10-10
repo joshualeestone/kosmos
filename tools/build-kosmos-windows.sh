@@ -545,4 +545,8 @@ _repomods="$(ls "$REPO"/engine/*.js | grep -vc '\.test\.js')"
 echo "==> $_repomods engine modules, 0 test files"
 
 echo "==> $ZIPOUT"
-echo "==> $(unzip -l "$ZIPOUT" | tail -1)"
+# The zip's own size first: unzip -l's total line is the UNPACKED size, which
+# once read as the download tripling (45 MB zip, 121 MB unpacked).
+_zipbytes="$(wc -c < "$ZIPOUT" | tr -d ' ')"
+read -r _unpacked _nfiles _ <<<"$(printf '%s\n' "$LISTING" | tail -1)"
+echo "==> zip $_zipbytes bytes; unpacked $_unpacked bytes in $_nfiles files"
