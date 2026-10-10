@@ -16152,6 +16152,16 @@ const server = http.createServer(async (req, res) => {
           const card = askingCard;
           if (!card || card.state !== STATE.NEEDS_YOU) chose = null;
           const seen = (card && card.state === STATE.NEEDS_YOU) ? seenNow : null;
+          /* #5406 slice C review 18: the press-kind refusals FIRST, so their sentence is the true one (a press for another
+             runner, or at a screen that is not the single-select menu, would otherwise be told its question is gone or
+             its words could not be checked). */
+          if (askedGiven && ((card && String(card.runner || 'claude') !== 'claude')
+            || (seen && seen.text && !require('./engine/status').claudeQuestionMenu(seen.text)))) {
+            const notThis = new Error('that question cannot be answered with a button, so we did not send anything. '
+              + 'Answer it in its window.');
+            notThis.status = 409;
+            throw notThis;
+          }
           const asked = (seen && seen.text) ? chat.questionIn(seen.text, card && card.runner) : null;
           /* #5051: a BUTTON can never answer Claude Code's safeguards model-switch menu. The page draws no buttons for it
              (chat.optionsIn refuses it), so a button press that lands on it was drawn for some other question and the pane

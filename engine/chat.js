@@ -229,6 +229,7 @@ function setChannel(fn) {
 }
 
 function resetForTests() {
+  QMENU_BUSY.clear();
   runner = null;
   pauser = null;
   channel = null;
@@ -1159,13 +1160,27 @@ function questionMenuKeysAllowed(sessionName, roster) {
   if (!allowed.ok) return allowed;
   if (String(allowed.card.runner || 'claude') !== 'claude') return { ok: false, because: 'that is not a Claude agent' };
   if (deliveryQueues.has(paneTarget(allowed.card))) return { ok: false, because: 'a message is being typed to it right now; try again in a moment' };
+  /* #5406 slice C review 18: one key answer per pane at a time. The page's own lock covers one tab; two surfaces on the
+     same agent could each read the menu before it redraws and both send a digit, the second landing on whatever is
+     on screen then. Held from before the first read to after the settle read. */
+  if (QMENU_BUSY.has(paneTarget(allowed.card))) return { ok: false, because: 'it is already being answered from another window; look at this page again in a moment' };
   return allowed;
+}
+const QMENU_BUSY = new Set();   // pane targets with a key answer or a close in progress
+/* Run `fn` holding the pane's key-answer slot (the check above refused if it was taken). */
+async function withQmenuSlot(allowed, fn) {
+  const t = paneTarget(allowed.card);
+  QMENU_BUSY.add(t);
+  try { return await fn(); } finally { QMENU_BUSY.delete(t); }
 }
 /* Send the bare digit for option `n`, only if the live menu still asks `question` and option `n` is still `label`.
    Resolves { ok: true, key, label, answered, screen } (screen: what the pane shows after) or { ok: false, because }. */
 async function answerQuestionMenu(sessionName, n, roster, expect) {
   const allowed = questionMenuKeysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
+  return withQmenuSlot(allowed, () => answerQuestionMenuHeld(sessionName, n, roster, expect, allowed));
+}
+async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   const t = paneTarget(allowed.card);
   const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
   const before = look();
@@ -1189,6 +1204,9 @@ async function answerQuestionMenu(sessionName, n, roster, expect) {
 async function closeQuestionMenu(sessionName, roster, expect) {
   const allowed = questionMenuKeysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
+  return withQmenuSlot(allowed, () => closeQuestionMenuHeld(sessionName, roster, expect, allowed));
+}
+async function closeQuestionMenuHeld(sessionName, roster, expect, allowed) {
   const t = paneTarget(allowed.card);
   const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
   const before = look();

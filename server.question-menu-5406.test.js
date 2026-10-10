@@ -334,6 +334,7 @@ test('#5406 slice C: a press for an agent not run by Claude is refused, never pa
     const calls = armPane();
     const r = await post({ text: '1', chose: 'Apple', asked: 'Which fruit do you want?' });
     assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /cannot be answered with a button/, 'a press for another runner was given a sentence that is not true');
     assert.deepEqual(calls.keys(), []);
     assert.equal(calls.pasted(), '', 'a press for another runner was pasted');
   } finally { chat.resetForTests(); board.restore(); }
@@ -376,6 +377,7 @@ test('#5406 slice C: a question identity that is not text is refused, nothing ty
     chat.setDryRun(false); chat.setPauser(() => {});
     const bad = await post({ text: '1', chose: 'Yes', asked: { q: 'x' } });
     assert.equal(bad.status >= 400, true, JSON.stringify(bad.json));
+    assert.match(String(bad.json && bad.json.error), /a question identity is text/, 'refused for some other reason');
     assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), [], 'a button send was typed into a permission prompt');
   } finally { chat.resetForTests(); board.restore(); }
 });
@@ -394,4 +396,17 @@ test('#5406 slice C: a menu with a label a press could never carry (over the len
     assert.ok(Array.isArray(back.options) && back.options.length === 3, 'premise: the long label is read as an option');
     assert.equal(back.asked, null, 'buttons were offered for a label a press could never carry');
   } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5406 slice C review 18: one key answer per agent at a time, so a press from a second window is refused while the first settles', async () => {
+  await withMenu(async (calls) => {
+    const roster = require('./engine/status').snapshot().agents;
+    const first = chat.answerQuestionMenu('casey', 1, roster, { question: undefined, label: 'Apple' });   // holds the slot through its settle
+    const second = await chat.answerQuestionMenu('casey', 2, roster, { label: 'Banana' });
+    assert.equal(second.ok, false, JSON.stringify(second));
+    assert.match(second.because, /already being answered/);
+    const one = await first;
+    assert.equal(one.ok, true, JSON.stringify(one));
+    assert.deepEqual(calls.keys(), ['1'], 'two keys reached the menu');
+  });
 });

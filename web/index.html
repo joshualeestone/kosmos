@@ -37388,7 +37388,8 @@ const DM_CHOICE_ANSWERED = new Map();   // session -> { asked, at, sure }: sure 
    (it says unconfirmed otherwise), so this covers only the page's own poll still showing the old screen; past it, the
    same question drawn again (agents repeat questions word for word) is pressable. */
 const DM_CHOICE_ANSWERED_MS = 6000;
-let DM_CHOICE_LAST_REFUSAL = '';   // the sentence a press put on #d-say-msg, cleared by the next success only if still there
+let DM_CHOICE_LAST_REFUSAL = '';
+const DM_CHOICE_WAIT_LINE = 'Still sending your choice. Try again in a moment.';   // said by sendTalk; cleared when the press ends   // the sentence a press put on #d-say-msg, cleared by the next success only if still there
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
@@ -37473,6 +37474,10 @@ async function dmChoicePress(btn) {
     if (line && line.textContent === DM_CHOICE_LAST_REFUSAL) line.textContent = '';
   }
   DM_CHOICE_LAST_REFUSAL = ok ? '' : note;
+  if (CURRENT && CURRENT.sessionName === session) {   // the "still sending your choice" a typed send put up is over now
+    const waitLine = document.getElementById('d-say-msg');
+    if (waitLine && waitLine.textContent === DM_CHOICE_WAIT_LINE) waitLine.textContent = '';
+  }
   /* Every outcome repaints: a refusal usually means the menu moved, and the buttons should show the one up now. */
   if (!CURRENT || CURRENT.sessionName !== session) return;   // switched agents meanwhile: neither repaint nor move focus
   await paintTalk(CURRENT.sessionName, CURRENT.name);
@@ -38308,7 +38313,7 @@ async function sendTalk(text, attachment) {
      or land on whatever the screen is then. */
   if (DM_CHOICE_INFLIGHT.has(CURRENT.sessionName)) {
     const m0 = document.getElementById('d-say-msg');
-    if (m0) m0.textContent = 'Still sending your choice. Try again in a moment.';
+    if (m0) m0.textContent = DM_CHOICE_WAIT_LINE;
     return;
   }
   // The agent this send TOOK OFF from. Everything afterwards is about this
