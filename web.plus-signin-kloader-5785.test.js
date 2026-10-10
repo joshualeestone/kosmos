@@ -34,7 +34,7 @@ test('#5785: it is the existing branded loader (startKLoader on a fresh canvas),
 test('#5785: a register plays it instead of the small spinner, holds one whole loop, and removes it on the answer', () => {
   const reg = code.slice(code.indexOf('async function plusSiDoRegister('), code.indexOf("plusSiPost('/api/remote/signin-register'") + 900);
   assert.ok(reg.length > 1000, 'CONTROL: the register function was found');
-  assert.match(reg, /if \(siSpin\) siSpin\.hidden = true;[^\n]*\n\s*plusSiKStart\(\);/, 'expected the small spinner hidden just before plusSiKStart');
+  assert.match(reg, /if \(siSpin\) siSpin\.hidden = true;[^\n]*\n\s*plusSiKStart\(owned\);/, 'expected the small spinner hidden just before plusSiKStart');
   assert.doesNotMatch(reg, /siSpin\.hidden = !owned/, 'the small spinner is back beside the line during the register');
   assert.match(reg, /const kHoldMs = \(typeof window\.__kosmosRestartHoldMs === 'number' \? window\.__kosmosRestartHoldMs : RESTART_HOLD_MS\);/);
   assert.match(reg, /const siRestore = \(\) => \{[\s\S]{0,120}plusSiKStop\(\);/);
@@ -59,16 +59,19 @@ test('#5785 review 1: the browser checks that drive a register skip the hold (th
   for (const f of ['render-plus-bought-4756.js', 'render-plus-signin-enter-0929.js', 'render-plus-signin-3478.js']) {
     const src = fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', f), 'utf8');
     const pages = (src.match(/const page = await \w+\.newPage\(/g) || []).length;
-    const seams = (src.match(/await page\.addInitScript\(\(\) => \{ window\.__kosmosRestartHoldMs = 0; \}\);/g) || []).length;
+    // Review 3: each seam right after ITS page, not just the same count somewhere in the file.
+    const bound = (src.match(/const page = await \w+\.newPage\([^\n]*\);\n\s*await page\.addInitScript\(\(\) => \{ window\.__kosmosRestartHoldMs = 0; \}\);/g) || []).length;
     assert.ok(pages > 0, 'CONTROL: ' + f + ' opens a page');
-    assert.equal(seams, pages, f + ': a page that drives a register would wait out the 4.4 s hold');
+    assert.equal(bound, pages, f + ': a page that drives a register would wait out the 4.4 s hold');
   }
 });
 
 test('#5785 Mona\'s review: centred while it connects, with the wait said, and both put back when it ends', () => {
-  assert.match(code, /#plus-si-k canvas \{[^}]*margin: 0 auto 16px;/);
   assert.match(code, /#plus-state2\.plus-si-busy #plus-si-title, #plus-state2\.plus-si-busy #plus-si-owned, #plus-state2\.plus-si-busy #plus-si-k-note \{ text-align: center; \}/);
   assert.match(code, /<p class="plus-si-lead" id="plus-si-k-note" hidden>This takes about half a minute\.<\/p>/);
-  assert.match(fnBody('plusSiKStart'), /card\.classList\.add\('plus-si-busy'\)[\s\S]*note\.hidden = false/);
+  assert.match(fnBody('plusSiKStart'), /card\.classList\.toggle\('plus-si-busy', !!centred\)[\s\S]*note\.hidden = false/);
+  // Review 3: centred only for the automatic connect; a typed name keeps the card's left alignment.
+  assert.match(code, /plusSiKStart\(owned\);/);
+  assert.match(code, /#plus-si-k canvas \{[^}]*margin: 0 0 16px;[^}]*\}\s*#plus-state2\.plus-si-busy #plus-si-k canvas \{ margin: 0 auto 16px; \}/);
   assert.match(fnBody('plusSiKStop'), /card\.classList\.remove\('plus-si-busy'\)[\s\S]*note\.hidden = true/);
 });
