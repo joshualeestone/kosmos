@@ -2056,7 +2056,8 @@ function questionIn(text, runner) {
   }
   /* #5406 part 2: Claude Code's question menu (status.claudeQuestionMenu) matches none of the markers; when it is the
      live screen, the region is its header or question line to the end, so the person reads the question and the
-     choices. A shape, not a marker phrase, so it is read for every runner. */
+     choices. Read for any runner here, where it only shows text (its footer, free-answer entry and highlighted option
+     together are Claude's); the thread route answers it by key for a Claude card only. */
   const cq = status.claudeQuestionMenu(whole);
   if (cq) return { text: lines.slice(cq.at).join('\n').replace(/\s+$/, '') };
   // The LAST match, not the first: a pane accumulates, and an older question

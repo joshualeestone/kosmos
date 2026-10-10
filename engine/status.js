@@ -2399,7 +2399,8 @@ function claudeQuestionMenu(text) {
     if (/^\s*\[[ x✓✔]\]/.test(l)) return null;         // a checkbox menu (multiSelect)
     break;
   }
-  if (opts.length < 2 || selected !== 1) return null;
+  // Review 2: at most 9 entries, so every answer is ONE key (send-keys "10" would type "1", which selects at once).
+  if (opts.length < 2 || opts.length > 9 || selected !== 1) return null;
   if (opts.some((o, k) => o.n !== k + 1)) return null;
   /* The question: the run of non-blank lines just above the first option (Claude Code wraps a long question itself,
      so it can be several lines; review round 1), joined; the header ("☐ ...") above it, if any. */

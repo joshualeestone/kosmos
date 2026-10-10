@@ -146,3 +146,18 @@ test('#5406 review 1: Escape that does not close the menu sends nothing; a permi
     assert.equal(calls.filter((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Escape').length, 0, 'Escape was sent to a permission prompt');
   } finally { chat.resetForTests(); b2.restore(); }
 });
+
+test('#5406 review 2: a Codex card whose screen ends like this menu is not answered by these keys', async () => {
+  /* The board does not read this screen as asking on a Codex card (measured: "unknown"), so the route's capture never
+     happens; the route's own Claude-only check is a second layer this test cannot reach on its own. */
+  const board = fleet.install([fleet.agent('casey', { state: 'unknown', runner: 'codex', command: 'node', screen: MENU })]);
+  try {
+    const calls = [];
+    chat.setRunner((args) => { calls.push(args); return args[0] === 'display-message'
+      ? { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' }
+      : { ran: true, spawnFailed: false, status: 0, out: args[0] === 'capture-pane' ? MENU : '', err: '' }; });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    await post({ text: '2' });
+    assert.equal(calls.filter((a) => a[0] === 'send-keys' && /^(2|Escape)$/.test(a[a.length - 1])).length, 0, 'a Claude menu key went to a Codex card');
+  } finally { chat.resetForTests(); board.restore(); }
+});
