@@ -40,3 +40,10 @@ shipped before that ruling, so only the enrolled Kosmos reports.
 ## Weakest premise
 That a reader's answer depends only on the folders in the environment and the shared Claude config folders, so a
 child reproduces what that Kosmos's own board would report.
+
+## Contract for usage (from the relay half's review)
+The coordinator sums usage across a member's Kosmoses. So each Kosmos must report only its OWN agents' usage. Today
+no usage leaves the board (no usageByDay source is wired, and the coordinator refuses usage), so nothing is double
+counted. When the usage reader is wired, it must be scoped to the Kosmos's own roster (engine/usage.js
+worldUsageByModel already is); a reader that scanned a shared config folder without that scope would count one
+agent's tokens once per Kosmos.
