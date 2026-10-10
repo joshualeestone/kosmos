@@ -238,3 +238,25 @@ test('#5080 review 3: an unsure Automatic says nothing about a file it cannot us
     assert.equal(pl.tellAgent('fay', board.roster, { tag: 'es-MX', sure: true }).state, require('./projects').TOLD.COULD_NOT);
   } finally { board.restore(); }
 });
+
+test('#5080 review 4: a choice saved by anything but setChoice is not hidden behind the cached read', () => {
+  clearChoice();
+  pl._resetForTests(SPANISH_MAC);
+  assert.equal(pl.read().tag, 'es-MX', 'CONTROL: a sure Mac read, cached');
+  fs.mkdirSync(path.dirname(pl.CHOICE_FILE), { recursive: true });
+  fs.writeFileSync(pl.CHOICE_FILE, JSON.stringify({ choice: 'pt-BR' }));   // a restore, or a second board, not the route
+  assert.deepEqual(pl.read(), { tag: 'pt-BR', sure: true, from: 'settings' });
+  clearChoice();
+  assert.equal(pl.read().tag, 'es-MX', 'back to Automatic was hidden behind the cache');
+  pl._resetForTests();
+});
+
+test('#5080 review 4: with Automatic chosen, the read the sweep made is what Settings shows (no second `defaults`)', () => {
+  clearChoice();
+  let calls = 0;
+  pl._resetForTests({ env: {}, platform: 'darwin', intl: 'en-US', run: () => { calls += 1; return '(\n    "es-MX"\n)\n'; } });
+  pl.read();
+  assert.equal(pl.automatic().tag, 'es-MX');
+  assert.equal(calls, 1, 'Settings asked defaults again after the sweep had');
+  pl._resetForTests();
+});
