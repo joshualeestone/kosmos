@@ -98,6 +98,7 @@ test('#5774: every start-time command tier has its script denied in both layers,
     }
     // The plugin's folder is denied whole (its own code runs), so its run.sh needs no rule of its own.
     assert.ok(deny.includes(`Edit(//${plug.replace(/^\/+/, '')}/**)`), 'an installed plugin outside the config homes is denied whole');
+    assert.ok(!deny.includes(`Edit(//${path.join(plug, 'run.sh').replace(/^\/+/, '')})`), 'review 9: a script inside it needs no rule of its own (profile size)');
   } finally {
     for (const f of [path.join(HOME, '.claude', 'settings.json'), path.join(HOME, '.claude-acct', 'settings.json'), path.join(HOME, '.claude-acct', 'settings.local.json'), path.join(HOME, '.claude-acct', 'remote-settings.json'), path.join(SANDBOX, '.mcp.json'), path.join(HOME, '.claude.json'), path.join(HOME, '.claude', 'plugins', 'installed_plugins.json')]) fs.rmSync(f, { force: true });
     fs.rmSync(MANAGED, { recursive: true, force: true });
@@ -567,4 +568,37 @@ test('#5774 review 8: ~ in an assignment, package-script runners, jq filters, an
   for (const c of ['bun run x.ts', 'bun x.ts', 'deno run main.ts', 'uv run x.py', 'bun run --cwd /opt/p start']) assert.deepEqual(paths(c).unsafe, [], c);
   assert.deepEqual(paths("jq -r '.tool_input.command'").paths, [], 'a jq filter is not a script');
   assert.match(String(paths('bash -c "bash -c \\"bash -c \\\\\\"bash -c /x.sh\\\\\\"\\""').unsafe), /nested too deep/);
+});
+
+test('#5774 review 9: processWrapper and helper paths, $\'...\' quoting, perl -pe, login variables, an unlistable drop-in folder', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(sc.commandsIn({ processWrapper: '/opt/launch', policyHelper: { path: '/opt/ph' } }), [{ line: '/opt/launch' }, { program: '/opt/ph', args: [] }]);
+  assert.deepEqual(paths("printf $'%s\\n' hi; ~/bin/hook"), { paths: ['/H/bin/hook'], runPaths: ['/H/bin/hook'], codePaths: [], unsafe: [] }, "$'...' is a quote, not an unclosed one");
+  assert.deepEqual(paths("IFS=$'\\n' x").unsafe, []);
+  assert.deepEqual(paths('echo $"hi" /x.sh').runPaths, ['/x.sh']);
+  assert.deepEqual(paths('perl -pe "s/a/b/" ~/x').runPaths, [], 'perl code is not read as shell, and is not a script path');
+  assert.deepEqual(paths('node -e "require(\'/opt/x.js\')"').runPaths, ['/opt/x.js'], 'an absolute path inside inline code still counts');
+  const dir = agentDir('pilot-r9');
+  const user = require('os').userInfo().username;
+  const hook = path.join(SANDBOX, 'scripts', 'r9.sh');
+  touch(hook);
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash "/nonexistent/$USER/x.sh"; bash ${hook}` }] }] }, processWrapper: path.join(SANDBOX, 'scripts', 'launch.sh') });
+  const dropIns = path.join(MANAGED, 'managed-settings.d');
+  try {
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-r9', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(dir).permissions.deny;
+    assert.ok(editDeniedBy(deny, path.join('/nonexistent', user, 'x.sh')).length > 0, '$USER is the login');
+    assert.ok(editDeniedBy(deny, path.join(SANDBOX, 'scripts', 'launch.sh')).length > 0, 'processWrapper names a program');
+    fs.mkdirSync(dropIns, { recursive: true });
+    fs.chmodSync(dropIns, 0o000);
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r9', DEPS);
+    assert.equal(g.ok, false, 'a drop-in folder that cannot be listed is named');
+    assert.match(String(g.because), /managed-settings\.d/);
+  } finally {
+    try { fs.chmodSync(dropIns, 0o755); } catch { /* not made */ }
+    fs.rmSync(MANAGED, { recursive: true, force: true });
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+  }
 });

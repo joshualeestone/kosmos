@@ -49,7 +49,8 @@ const path = require('path');
 const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
 /* What $PATH reads as here: a marker, so `PATH="$HOME/bin:$PATH"` is read as one known folder and the rest. */
 const PATH_MARK = '\u0000PATH';
-const HELPER_KEYS = new Set(['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'otelHeadersHelper', 'proxyAuthHelper', 'headersHelper']);
+// Review 9: processWrapper too (2.1.296's own list of command settings: a launcher prefix for background sessions).
+const HELPER_KEYS = new Set(['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'otelHeadersHelper', 'proxyAuthHelper', 'headersHelper', 'processWrapper']);
 /* The keys whose entries are servers, started directly rather than through a shell. */
 const SERVER_KEYS = new Set(['mcpServers', 'lspServers', 'managedMcpServers']);
 const OPERATORS = new Set([';', '&', '|', '(', ')', '<', '>', '\n']);
@@ -88,7 +89,8 @@ function inlineFlag(prog, word) {
   if (/^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) return /^-[A-Za-z]*c[A-Za-z]*$/.test(word);   // review 5: -ce too
   if (/^python[0-9.]*$/.test(prog)) return /^-[A-Za-z]*c$/.test(word);
   if (/^(?:node|nodejs|bun|deno)$/.test(prog)) return /^(?:-e|--eval|-p|--print)$/.test(word);
-  if (/^(?:perl|ruby|osascript|lua)$/.test(prog)) return /^-[eE]$/.test(word);
+  if (/^(?:perl|ruby)$/.test(prog)) return /^-[A-Za-z]*[eE]$/.test(word);   // review 9: -pe, -ne, -lne
+  if (/^(?:osascript|lua)$/.test(prog)) return word === '-e';
   if (prog === 'php') return word === '-r';
   if (prog === 'pwsh') return /^-(?:c|Command)$/i.test(word);
   return false;
@@ -255,6 +257,15 @@ function shellWords(cmd, vars = {}) {
       i = nl < 0 ? cmd.length : nl;
       continue;
     }
+    // Review 9: $'...' (ANSI-C, backslash escapes) and $"..." (a double-quoted string) are quotes, not variables.
+    if (c === '$' && cmd[i + 1] === "'") {
+      start(); cur.quoted = true;
+      let j = i + 2;
+      while (j < cmd.length && cmd[j] !== "'") { if (cmd[j] === '\\' && j + 1 < cmd.length) { cur.text += cmd[j + 1]; j += 2; } else { cur.text += cmd[j]; j++; } }
+      if (j >= cmd.length) quote = "'";   // never closed
+      i = j + 1; continue;
+    }
+    if (c === '$' && cmd[i + 1] === '"') { start(); cur.quoted = true; quote = '"'; i += 2; continue; }
     start();
     if (c === '$') { i = dollar(i); continue; }
     if (c === '`') { i = tick(i); continue; }
@@ -429,7 +440,14 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
       if (runs && (!flagValue || text.includes('/'))) unsafe.push(`a ${isHead ? 'program' : 'path'} made when the command runs${text.includes('/') ? ', ending ' + text.slice(text.lastIndexOf('/')) : ''}`);
       continue;
     }
-    if (inline) { scriptSlot = false; more(text); for (const m of text.matchAll(INNER_ABS)) paths.push(path.normalize(m[1])); continue; }
+    if (inline) {
+      // A shell's inline script is shell; another interpreter's (perl -pe, node -e) is not, so only the absolute
+      // paths in it are taken (review 9: its code read as shell named nonsense files).
+      scriptSlot = false;
+      if (/^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) more(text);
+      else for (const m of text.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
+      continue;
+    }
     if (!text || text === '{}' || text.includes(PATH_MARK) || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text)) continue;   // a URL, find's {} placeholder or $PATH is not a file
     // A pattern counts where it names a path or a script; `[` and `[[` as the program are the test command (review 3).
     if (w.globbed && runs && (text.includes('/') || !isHead)) { unsafe.push(`a pattern where a script is named (${text}), which Kosmos does not expand`); continue; }
@@ -452,10 +470,12 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
 }
 
 /* Every command in a parsed config: { line } for a shell line, { program, args } for a server (started directly). */
-function commandsIn(node, out = [], depth = 0, server = false) {
+function commandsIn(node, out = [], depth = 0, server = false, helper = false) {
   if (!node || typeof node !== 'object' || depth > 32) return out;
-  if (Array.isArray(node)) { for (const x of node) commandsIn(x, out, depth + 1, server); return out; }
+  if (Array.isArray(node)) { for (const x of node) commandsIn(x, out, depth + 1, server, helper); return out; }
   for (const [k, v] of Object.entries(node)) {
+    // Review 9: inside a helper object (the managed policyHelper / policyHelpers), a path or executable is a program.
+    if (helper && (k === 'path' || k === 'executable') && typeof v === 'string') { out.push({ program: v, args: [] }); continue; }
     if (k === 'command' && typeof v === 'string') {
       const args = Array.isArray(node.args) ? node.args.filter((a) => typeof a === 'string') : null;
       if (server || args) out.push({ program: v, args: args || [] });
@@ -463,7 +483,7 @@ function commandsIn(node, out = [], depth = 0, server = false) {
     } else if (typeof v === 'string' && (HELPER_KEYS.has(k) || /Helper$/.test(k))) {
       out.push({ line: v });
     } else if (v && typeof v === 'object') {
-      commandsIn(v, out, depth + 1, server || SERVER_KEYS.has(k));
+      commandsIn(v, out, depth + 1, server || SERVER_KEYS.has(k), helper || /Helpers?$/.test(k));
     }
   }
   return out;
@@ -528,7 +548,11 @@ function configSources(dir, homes, home, deps = {}) {
   const md = deps.managedDir !== undefined ? deps.managedDir : managedDir(platform);
   if (md) {
     out.push({ file: path.join(md, 'managed-settings.json'), pick: whole, settings: true }, { file: path.join(md, 'managed-mcp.json'), pick: whole });
-    try { for (const f of fs.readdirSync(path.join(md, 'managed-settings.d')).filter((x) => x.endsWith('.json')).sort()) out.push({ file: path.join(md, 'managed-settings.d', f), pick: whole, settings: true }); } catch { /* none */ }
+    const dropIns = path.join(md, 'managed-settings.d');
+    try { for (const f of fs.readdirSync(dropIns).filter((x) => x.endsWith('.json')).sort()) out.push({ file: path.join(dropIns, f), pick: whole, settings: true }); } catch (e) {
+      // Review 9: none there is fine; one that cannot be listed is named, as an unreadable file is.
+      if (!(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'))) out.push({ file: dropIns, pick: whole, settings: true, failed: (e && e.code) || String(e) });
+    }
   }
   /* Review 3: on macOS, managed preferences (MDM), device-level and per-user, which 2.1.296 reads through plutil. */
   const prefs = deps.managedPrefsDir !== undefined ? deps.managedPrefsDir : (platform === 'darwin' ? '/Library/Managed Preferences' : null);
@@ -596,7 +620,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const unsafe = [];
   const sources = [];
   for (const s of configSources(agentDir, homes, home, { platform, managedDir: md, managedPrefsDir })) {
-    const r = s.plist ? readPlistFile(s.file) : readJsonFile(s.file);
+    const r = s.failed ? { error: s.failed } : s.plist ? readPlistFile(s.file) : readJsonFile(s.file);
     if (r.error) { if (!s.rewritten) unsafe.push(`${s.file} (could not be read: ${r.error}), so the commands in it are unknown`); }
     else if (!r.missing) sources.push({ ...s, json: r.json });
   }
@@ -614,7 +638,11 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   for (const [k, vs] of envValues) if (vs.size === 1 && !vs.has('\0not a string')) settingsEnv[k] = [...vs][0];
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
   // PWD: hooks run in the agent folder (review 5).
-  const baseVars = { ...settingsEnv, PATH: PATH_MARK, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, PWD: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
+  // Review 9: the login's own name and temp folder, which hooks see unchanged.
+  let login = {};
+  try { const u = require('os').userInfo().username; login = { USER: u, LOGNAME: u }; } catch { login = {}; }
+  const tmp = process.env.TMPDIR || require('os').tmpdir();
+  const baseVars = { ...settingsEnv, ...login, TMPDIR: tmp, PATH: PATH_MARK, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, PWD: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
       const r = pathsOfWords(wordsOf(c, vars), agentDir, vars);

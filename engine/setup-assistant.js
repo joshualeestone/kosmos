@@ -1379,7 +1379,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   for (const d of startCmds.pluginDirs) {
     if (underDenied(d)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (an installed plugin's folder, whose path the permission rules cannot carry)`); continue; }
-    pluginDirs.push(...withTarget(d, configUnsafe));
+    const both = withTarget(d, configUnsafe);
+    pluginDirs.push(...both);
+    wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
   const commandScripts = [];
   for (const f of startCmds.files) {
