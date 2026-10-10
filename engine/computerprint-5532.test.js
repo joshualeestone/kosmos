@@ -319,6 +319,7 @@ test('#5532 Windows: System32\'s reg.exe by full path, against the 64-bit regist
   assert.deepEqual([...cp.REG_ARGS], ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64']);
   assert.deepEqual([...cp.PS_ARGS], ['-NoProfile', '-NonInteractive', '-Command',
     "Get-ItemPropertyValue -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid"]);
+  // Rewrites process-wide variables, restored in finally: safe because node:test runs this file's tests one at a time.
   const saved = { root: process.env.SystemRoot, wow: process.env.PROCESSOR_ARCHITEW6432 };
   const put = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
   try {

@@ -209,7 +209,7 @@ const EXCUSED = {
    read the module). Keyed by FILE, like TRIAGED_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
-  // #5532: the ioreg runner and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
+  // #5532: the hardware reader (ioreg, or reg.exe and its PowerShell fallback) and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
   // pins the formula through (callers use printFor, which reads the id itself).
   _testRunner: 'engine/computerprint.js',
   _testClock: 'engine/computerprint.js',
