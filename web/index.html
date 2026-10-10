@@ -47118,7 +47118,7 @@ function paintAsk() {
        into this sentence. A phone, a tablet, an app or any other name keeps "the device in your hand". */
     const deskBrowser = /^(Mac|Windows PC|Chromebook|Linux computer) \u00b7 (Edge|Opera|Firefox|Samsung Internet|Chrome|Safari)$/.exec(String(d.name || ''));
     const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
-      : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ' on the Kosmos+ page at login.kosmosplus.com, once you are signed in there; reload it if the code is not there yet.'
+      : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ' on the Kosmos+ page at login.kosmosplus.com, once you are signed in there.'
         : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
        happening, so an earlier refusal is not repeated beside it (review 1). */

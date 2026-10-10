@@ -185,7 +185,7 @@ test('#5786 a desktop browser is told its code is on the Kosmos+ page; a phone o
     'Mac · Safari, or on any screen, even if it differs', 'Mac · Brave', 'Windows PC · ']) {
     assert.equal(re.exec(name), null, name + ' was read as a browser on a computer');
   }
-  assert.match(JS, /'Allow only if this code is showing in ' \+ askEsc\(deskBrowser\[2\]\) \+ ' on the Kosmos\+ page at login\.kosmosplus\.com, once you are signed in there; reload it if the code is not there yet\.'/);
+  assert.match(JS, /'Allow only if this code is showing in ' \+ askEsc\(deskBrowser\[2\]\) \+ ' on the Kosmos\+ page at login\.kosmosplus\.com, once you are signed in there\.'/);
   // The browser name is escaped where it is put into the card.
   assert.doesNotMatch(JS, /showing in ' \+ deskBrowser\[2\]/);
 });

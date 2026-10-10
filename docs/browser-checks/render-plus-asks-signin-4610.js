@@ -95,7 +95,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       /* kosmos#5786 (Josh 10-10, a new customer with Mac · Safari VR-D6 and nowhere to check it): a browser on a computer
          is told its code is on the Kosmos+ page; the phone row, the CONTROL, keeps "the device in your hand". */
       const safariRow = (where.texts || []).find((t) => /VR-D6/.test(t)) || '', phoneRow = (where.texts || []).find((t) => /W6-M4/.test(t)) || '';
-      chk(/Allow only if this code is showing in Safari on the Kosmos\+ page at login\.kosmosplus\.com, once you are signed in there; reload it if the code is not there yet\./.test(safariRow), '[' + W + '] #5786 the Mac \u00b7 Safari card says its code is in Safari on the Kosmos+ page', safariRow);
+      chk(/Allow only if this code is showing in Safari on the Kosmos\+ page at login\.kosmosplus\.com, once you are signed in there\./.test(safariRow), '[' + W + '] #5786 the Mac \u00b7 Safari card says its code is in Safari on the Kosmos+ page', safariRow);
       chk(/Allow only if this code is showing on the device in your hand\./.test(phoneRow) && !/Kosmos\+ page/.test(phoneRow), '[' + W + '] #5786 CONTROL: the iPhone · Safari card keeps "the device in your hand"', phoneRow);
       chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the sign-in wizard', JSON.stringify(where));
       /* State 1 (not enrolled, the marketing pane) is the tall one: placed after it, the first Allow sat at y=985 at
