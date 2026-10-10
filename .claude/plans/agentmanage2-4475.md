@@ -1,4 +1,32 @@
-# agentmanage-4475: step 3 of #4475, the board enforces "remove only an agent you created"
+# agentmanage2-4475: step 3 of #4475 on current main (re-applied from the closed #5123)
+
+## Why a new branch (2026-10-10)
+#5123 (branch agentmanage-4475) was stacked on #5122 (#4491). When #5122 was squash-merged on 10-09, GitHub closed
+#5123 with its base branch, 2,679 commits behind main. This branch applies ONLY step 3's own changes
+(0dd07d175..bf1ba4817, the commits after the old #5122 tip) onto current main. The design below is unchanged and
+was reviewed over 21 rounds on #5123 (approved 10-03).
+
+## What changed in the re-application
+- `engine/setup-assistant.js`: main's token-only guard grew after the fork, and its `tokenDirs` already Read- and
+  Edit-deny every sender-token folder. So step 3's `senderTokenDirs` is dropped as a duplicate. Step 3 adds only:
+  the launch hand-off folders (`launchSecretDirs`) to the Read deny and the sandbox denyRead, and the trusted records
+  (`trustedFiles`: created.jsonl, ended-agents.jsonl, agent-token-only.json) to the Edit deny and the sandbox
+  denyWrite. Both pass main's pattern-character filter like every other rule there.
+- `engine/sendertoken.js`: main added `revokeIfUnchanged` (#5418, the fixture-token cleanup), which removes a whole
+  token file. A whole-file removal ends the identity, so it now calls `noteEnded` before it unlinks, as `revoke`
+  does; a file it KEEPS is not an end. Test: engine/sendertoken.revokeifunchanged-5418.test.js (both arms;
+  mutation-checked: without the call the test fails).
+- `server.js` and server.agent-token-sender-570.test.js: the agent-token route list is main's plus
+  `DELETE /api/agent/<name>/removal`.
+- Retire paths (one run ends, the agent stays) still record no end, as decided on #5123.
+
+## Validation (re-application)
+- Focused: the step-3 tests and every test touching the token guard, the sender tokens, team and removal, plus the
+  repo guards (fixture-discipline, no-brand-refs, no-name-refs, engine.reachable, the #1732 Windows guards):
+  450 + 250 pass, 0 fail. Full suite: queued.
+
+---
+
 
 Card: kosmos#4475. Stacked on boardkeychain-4491 (#4491, the board token out of a token-only agent's reach), per
 Splinter 2026-10-02 17:06: one full run of this branch (the stack's top) validates both; they merge in order.
