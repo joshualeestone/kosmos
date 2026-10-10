@@ -2456,14 +2456,16 @@ function claudeQuestionMenuUp(text) {
   return false;
 }
 
-/* #5754: is Claude Code's PERMISSION prompt on screen ("Do you want to proceed?", "Do you want to create x?", with
-   "1. Yes" first)? Measured on 2.1.296: a pasted line is ignored there and the Enter after it takes the highlighted
+/* #5754: is Claude Code's PERMISSION prompt on screen (it asks "Do you want to proceed?", "Do you want to create x?"
+   and the like, its first option usually Yes)? Measured on 2.1.296: a pasted line is ignored there and the Enter after it takes the highlighted
    option, usually Yes, so a typed message approves a command or an edit nobody chose. Its footer ends "Esc to cancel"
    ("Esc to cancel · Tab to amend" on 2.1.296; older builds drew the select footer). Two things together, at the
-   bottom: that footer within the last three non-blank lines, and a "Do you want to ..." question within 14 rows above
-   it. The folder-trust dialog ("Quick safety check") is not this; it has its own floor. */
+   bottom: that footer within the last three non-blank lines, and a "Do you want to ..." or "Would you like to ..."
+   question within 14 rows above it ("Would you like to proceed?" is the plan-approval prompt's wording, not yet
+   captured). Not when the question menu's own free-answer row is there: a menu question may begin "Do you want to"
+   too, and it has its own detector and sentence. The folder-trust dialog ("Quick safety check") has its own floor. */
 const CLAUDE_PERMISSION_FOOTER = /Esc to cancel(?:\s*·.*)?\s*$/;
-const CLAUDE_PERMISSION_QUESTION = /^\s*Do you want to\b/;
+const CLAUDE_PERMISSION_QUESTION = /^\s*(?:Do you want to|Would you like to)\b/;
 function claudePermissionPromptUp(text) {
   const lines = String(text == null ? '' : text).split('\n');
   let seen = 0;
@@ -2471,6 +2473,7 @@ function claudePermissionPromptUp(text) {
     if (!lines[i].trim()) continue;
     seen += 1;
     if (!CLAUDE_PERMISSION_FOOTER.test(lines[i])) continue;
+    for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return false;   // the question menu
     for (let j = i - 1; j >= Math.max(0, i - 14); j -= 1) if (CLAUDE_PERMISSION_QUESTION.test(lines[j])) return true;
     return false;
   }

@@ -1406,9 +1406,10 @@ function claudeMenuRefusal(card, sessionName, roster) {
   if (card.state !== status.STATE.NEEDS_YOU) return null;
   const view = viewport(sessionName, roster);
   if (!(view && typeof view.text === 'string')) return null;
-  if (status.claudePermissionPromptUp(view.text)) return CLAUDE_PERMISSION_SENTENCE;   // #5754
-  if (!status.claudeQuestionMenuUp(view.text)) return null;
-  return CLAUDE_MENU_SENTENCE + (status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
+  if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
+    return CLAUDE_MENU_SENTENCE + (status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
+  }
+  return status.claudePermissionPromptUp(view.text) ? CLAUDE_PERMISSION_SENTENCE : null;   // #5754
 }
 
 /**

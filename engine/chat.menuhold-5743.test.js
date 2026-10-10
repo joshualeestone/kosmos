@@ -114,6 +114,12 @@ test('#5754 the detector: both real permission prompts and an older footer are u
   for (const [name, t] of [['menu', MENU], ['multiselect', MULTISELECT], ['multiquestion', MULTIQUESTION]]) {
     assert.equal(status.claudePermissionPromptUp(t), false, name + ' read as a permission prompt');
   }
+  // A question MENU whose question begins "Do you want to" is the menu (its own sentence), not a permission prompt.
+  const DWT = MENU.replace('Which fruit do you want?', 'Do you want to use TypeScript?');
+  assert.equal(status.claudeQuestionMenuUp(DWT), true, 'premise: the reworded menu is still the menu');
+  assert.equal(status.claudePermissionPromptUp(DWT), false, 'a "Do you want to" question menu read as a permission prompt');
+  // The plan-approval wording (not yet captured; same select dialog).
+  assert.equal(status.claudePermissionPromptUp(' Would you like to proceed?\n ❯ 1. Yes, and auto-accept edits\n   2. No, keep planning\n\n Esc to cancel · Tab to amend'), true);
   const TRUST = ' Quick safety check: Is this a project you created or one you trust?\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel';
   assert.equal(status.claudePermissionPromptUp(TRUST), false, 'the trust dialog (its own floor) read as a permission prompt');
   const IDLE_UNDER = '\n\n⏺ Done.\n\n' + '─'.repeat(40) + '\n❯ \n' + '─'.repeat(40) + '\n  bypass permissions on (shift+tab to cycle)\n';
@@ -180,4 +186,14 @@ test('#5743 pin: the recommender\'s hold hook asks about the menu too, so a stuc
   assert.notEqual(at, -1, 'premise: the recommender sweep was found');
   const call = src.slice(at, src.indexOf('});', at));
   assert.match(call, /heldUntil: \(session\) => agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)\s*\?\? \(chat\.menuHeld\(session, roster\)/, 'the recommender hold hook does not ask about the menu');
+});
+
+test('#5754 a question menu that begins "Do you want to" gets the menu sentence (with its direct-message clause), not the permission one', async () => {
+  const DWT = MENU.replace('Which fruit do you want?', 'Do you want to use TypeScript?');
+  await onScreen(DWT, 'needs_you', async (board, calls) => {
+    const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
+    assert.match(v.because, /showing a question on its screen/);
+    assert.doesNotMatch(v.because, /asking for permission/);
+    assert.deepEqual(calls.typed(), []);
+  });
 });
