@@ -16202,8 +16202,7 @@ const server = http.createServer(async (req, res) => {
            * compare what is left, rather than to stop looking.
            */
           const bound = (v) => chat.cleanMessage(v).slice(0, 2000);
-          const askedAbove = typeof body.asked === 'string' && body.asked.trim()
-            ? bound(body.asked) : null;
+          const askedAbove = askedGiven ? bound(body.asked) : null;   // one test for "a press named its question
           const nowAbove = asked ? chat.questionAbove(asked.text) : null;
           const nowClean = nowAbove ? bound(nowAbove) : null;
           /**
@@ -16252,10 +16251,11 @@ const server = http.createServer(async (req, res) => {
             gone.status = 409;
             throw gone;
           }
-          /* A press is answered only as a key on Claude's single-select question menu. Any other Claude screen that
-             reads as a numbered menu (a permission prompt) would take the paste's Enter as its highlighted option. */
-          if (askedAbove && card && String(card.runner || 'claude') === 'claude' && seen && seen.text
-            && !require('./engine/status').claudeQuestionMenu(seen.text)) {
+          /* A press is answered only as a key on Claude's single-select question menu (the GET serves `asked` for nothing
+             else). Any other screen that reads as a numbered menu (a permission prompt, another runner's list) would take
+             the paste's Enter as its highlighted option. */
+          if (askedAbove && (!card || String(card.runner || 'claude') !== 'claude'
+            || (seen && seen.text && !require('./engine/status').claudeQuestionMenu(seen.text)))) {
             const notThis = new Error('that question cannot be answered with a button, so we did not send anything. '
               + 'Answer it in its window.');
             notThis.status = 409;

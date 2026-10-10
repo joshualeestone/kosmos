@@ -37380,7 +37380,8 @@ let TALK_QUERY = '';
    `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
    screen before it sends a key (409 when the menu moved). */
 let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
-let DM_CHOICE_NOTE = null;   // { session, asked, text, placed, at }: what became of the last press, kept across the repaint it asks for
+let DM_CHOICE_NOTE = null;   // { session, asked, text, placed, at }: what became of the last press; drawn under that same question
+                             // across repaints, cleared when the menu goes or a read fails
 /* How long an answered question keeps its buttons off. A placed answer means the server saw the menu go after the key
    (it says unconfirmed otherwise), so this covers only the page's own poll still showing the old screen; past it, the
    same question drawn again (agents repeat questions word for word) is pressable. */
