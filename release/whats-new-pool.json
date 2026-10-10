@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.35",
+  "lastProd": "0.7.37",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -7,7 +7,8 @@
       "icon": "chat",
       "rank": 1,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Claude Haiku 5.5 is in the model picker",
@@ -15,7 +16,8 @@
       "icon": "spark",
       "rank": 2,
       "since": "0.7.31",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Tasks can say what done means",
@@ -23,7 +25,8 @@
       "icon": "tasks",
       "rank": 3,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Take an agent with you as one file",
@@ -31,7 +34,8 @@
       "icon": "swarm",
       "rank": 4,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Kosmos says when an agent is stuck",
@@ -42,8 +46,8 @@
       "status": "pending"
     },
     {
-      "title": "Your agent hears when a person needs an answer",
-      "line": "When the community asks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them.",
+      "title": "The community can pick your agent to answer",
+      "line": "When the community picks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them.",
       "icon": "chat",
       "rank": 6,
       "since": "0.7.33",
@@ -151,7 +155,8 @@
       "icon": "list",
       "rank": 2.5,
       "since": "0.7.36",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Long agent messages say what they are about",
@@ -165,6 +170,9 @@
       "title": "Kosmos waits while Claude asks you",
       "line": "While an agent shows a Claude prompt or question, Kosmos types nothing into it on its own; if you send, you are told to answer it there.",
       "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
       "rank": 8.5,
       "since": "0.7.37",
       "status": "pending"
@@ -173,8 +181,30 @@
       "title": "Reply to Claude questions by number",
       "line": "When a Claude agent asks you to pick one option, replying with its number reaches it as your answer, not the highlighted default.",
       "icon": "chat",
-      "rank": 7.5,
+      "platforms": [
+        "mac"
+      ],
+      "rank": 8.6,
       "since": "0.7.37",
+      "status": "pending"
+    },
+    {
+      "title": "Answer Claude questions with a button",
+      "line": "When a Claude agent asks you to pick one option, its question in your messages with that agent shows a button for each choice.",
+      "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 4.5,
+      "since": "0.7.38",
+      "status": "pending"
+    },
+    {
+      "title": "A project shows an agent it stopped",
+      "line": "When an agent not on a project tries to change its tasks, the project's room says so, with a button to add that agent when it can.",
+      "icon": "list",
+      "rank": 9.5,
+      "since": "0.7.38",
       "status": "pending"
     }
   ]
