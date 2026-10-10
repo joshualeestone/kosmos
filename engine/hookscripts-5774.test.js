@@ -372,7 +372,7 @@ test('#5774 review 2: a plugin whose folder is the agent folder, or not a full p
 test('#5774 review 3: the test command is not a pattern; script flags; managed preferences; a plugin folder that resolves to the agent folder or is a config home', () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
-  assert.deepEqual(paths('[ -f "$CLAUDE_PROJECT_DIR/x" ] && bash run.sh'), { paths: ['/A/run.sh'], runPaths: ['/A/run.sh'], unsafe: [] });
+  assert.deepEqual(paths('[ -f "$CLAUDE_PROJECT_DIR/x" ] && bash run.sh'), { paths: ['/A/run.sh'], runPaths: ['/A/run.sh'], codePaths: ['/A/run.sh'], unsafe: [] });
   assert.deepEqual(paths('[[ -n $FOO ]] && echo hi').unsafe, []);
   assert.deepEqual(paths('java -jar tools/hook.jar').runPaths, ['/A/tools/hook.jar']);
   assert.deepEqual(paths('awk -f tools/x.awk in.txt').runPaths, ['/A/tools/x.awk']);
@@ -463,7 +463,7 @@ test('#5774 review 5: a quoted value before the program, an interpreter\'s value
   assert.ok(paths('bash -euo pipefail scripts/h.sh').runPaths.includes('/A/scripts/h.sh'), 'a flag value does not take the script slot');
   assert.ok(paths('ruby -I lib hook.rb').runPaths.includes('/A/hook.rb'));
   assert.deepEqual(paths('bash -ce "python3 /x.py"').runPaths, ['/x.py']);
-  assert.deepEqual(paths('node "${CLAUDE_PROJECT_DIR:-.}/x.ts"'), { paths: ['/A/x.ts'], runPaths: ['/A/x.ts'], unsafe: [] });
+  assert.deepEqual(paths('node "${CLAUDE_PROJECT_DIR:-.}/x.ts"'), { paths: ['/A/x.ts'], runPaths: ['/A/x.ts'], codePaths: ['/A/x.ts'], unsafe: [] });
   assert.equal(paths('node "${NOPE:-.}/x.ts"').unsafe.length, 1, 'control: an unknown variable with a default is still unknown');
   assert.deepEqual(paths('ba\\\nsh x.sh').runPaths, ['/A/x.sh'], 'a line continuation joins the word');
 });
@@ -521,4 +521,37 @@ test('#5774 review 6: a commented multi-line hook still has its script denied; n
     assert.equal(g.ok, false, JSON.stringify(g));
     assert.match(String(g.because), /npm run in the agent folder/);
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
+});
+
+test('#5774 review 7: a runner\'s change-folder flag, a folder run as code, patterns with a script extension, a runner after an unknown cd', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.ok(paths('uv --directory /ABS/weather run weather.py').runPaths.includes('/ABS/weather/weather.py'), 'the MCP quickstart shape');
+  assert.deepEqual(paths('make -C /opt/p').unsafe, [], 'make run in another folder is not the agent\'s code');
+  assert.deepEqual(paths('git -C /opt/r status').unsafe, []);
+  assert.deepEqual(paths('npm --prefix=/opt/x run b').unsafe, []);
+  assert.equal(paths('make').unsafe.length, 1, 'control: make in the agent folder is named');
+  assert.match(String(paths('make -C "$U"').unsafe), /cannot read/, 'a change-folder flag Kosmos cannot read');
+  assert.equal(paths('cd "$U" && npm test').unsafe.length, 1, 'after a cd Kosmos cannot follow, the folder may be the agent\'s');
+  assert.equal(paths('cd /tmp && cd - && npm test').unsafe.length, 1);
+  for (const c of ['case "$f" in *.py) black "$f";; esac', 'if [[ "$F" == *.ts ]]; then echo y; fi', "find . -name '*.py'", 'grep -r foo --include="*.ts" .']) {
+    assert.deepEqual(paths(c).unsafe, [], c);
+    assert.deepEqual(paths(c).runPaths, [], c);
+  }
+  assert.deepEqual(paths('java -cp ~/lib Main').codePaths, ['/H/lib']);
+  assert.deepEqual(paths('ruby -I lib hook.rb').codePaths, ['/A/hook.rb'], 'a value flag does not take the code position');
+});
+
+test('#5774 review 7: a folder an interpreter runs is named, never denied whole', () => {
+  const dir = agentDir('pilot-r7');
+  const srv = path.join(SANDBOX, 'nodesrv');
+  fs.mkdirSync(srv, { recursive: true });
+  fs.writeFileSync(path.join(srv, 'index.js'), '');
+  writeJson(path.join(HOME, '.claude.json'), { mcpServers: { s: { command: 'node', args: [srv] } } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-r7', DEPS);
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /runs as code/);
+    assert.deepEqual(editDeniedBy(readSettings(dir).permissions.deny, path.join(srv, 'index.js')), [], 'not denied whole');
+  } finally { fs.rmSync(path.join(HOME, '.claude.json'), { force: true }); }
 });

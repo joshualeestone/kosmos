@@ -54,14 +54,16 @@ const HELPER_KEYS = new Set(['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExp
 const SERVER_KEYS = new Set(['mcpServers', 'lspServers', 'managedMcpServers']);
 const OPERATORS = new Set([';', '&', '|', '(', ')', '<', '>', '\n']);
 /* Programs whose first plain argument is a script they run. */
-const INTERPRETER = /^(?:(?:ba|z|da|k|fi|c|tc)?sh|source|\.|node|nodejs|deno|bun|tsx|ts-node|ruby|perl|php|lua|Rscript|osascript|pwsh|python[0-9.]*)$/;
+const INTERPRETER = /^(?:(?:ba|z|da|k|fi|c|tc)?sh|source|\.|node|nodejs|deno|bun|tsx|ts-node|ruby|perl|php|lua|Rscript|osascript|pwsh|swift|python[0-9.]*)$/;
 /* Runners whose script comes after a subcommand (deno run x.ts). */
 const RUNNER_SUB = { deno: /^run$/, bun: /^(?:run|x)$/, uv: /^run$/, go: /^run$/ };
 /* Words before the real program: it is the next word that is not a flag, a NAME=value or (for timeout) a duration. */
 const WRAPPER = /^(?:env|exec|nohup|time|sudo|doas|g?timeout|nice|ionice|command|builtin|xargs|stdbuf|caffeinate|npx|pnpx|bunx|uvx|watch|parallel|setsid|chronic|flock|script|export|if|then|elif|else|while|until|do|!|\{)$/;
 /* Review 6: a word with a script's file extension is code wherever it sits in the command, so an unlisted wrapper
    (some-runner hook.sh) cannot hide it. */
-const SCRIPT_EXT = /\.(?:sh|bash|zsh|command|js|mjs|cjs|ts|mts|cts|py|rb|pl|php|lua|ps1|jar|awk|scpt|applescript)$/i;
+const SCRIPT_EXT = /\.(?:sh|bash|zsh|command|js|mjs|cjs|ts|mts|cts|py|rb|pl|php|lua|ps1|jar|awk|scpt|applescript|swift|kts)$/i;
+/* Review 7: a runner's own change-folder flag, which moves where it runs (uv --directory /x run s.py, make -C /x). */
+const CHDIR_FLAGS = { uv: /^--directory$/, make: /^-C$/, gmake: /^-C$/, npm: /^--prefix$/, pnpm: /^(?:-C|--dir)$/, yarn: /^--cwd$/, bun: /^--cwd$/, git: /^-C$/, go: /^-C$/ };
 /* Review 6: programs that run code the folder they run in supplies (package.json scripts and node_modules, a Makefile,
    build scripts, test configs, git hooks). Run in the agent folder, that code is the agent's, so Kosmos names it. */
 const FOLDER_RUNNER = /^(?:npm|pnpm|yarn|npx|pnpx|bunx|make|gmake|just|rake|cargo|mvn|gradle|git|pytest|tox|jest|vitest)$/;
@@ -69,8 +71,9 @@ const FOLDER_RUNNER = /^(?:npm|pnpm|yarn|npx|pnpx|bunx|make|gmake|just|rake|carg
 const WRAPPER_VALUE_FLAGS = { sudo: /^-[ughpCDrtU]$/, doas: /^-[uC]$/, env: /^-[uCP]$/, timeout: /^-[sk]$/, gtimeout: /^-[sk]$/, nice: /^-n$/, ionice: /^-[cnp]$/, xargs: /^-[InPLdEs]$/, watch: /^-n$/, parallel: /^-[jS]$/, flock: /^-[wE]$/ };
 /* A program's own flags that take the next word as a value, so it is not the script (review 4). */
 const VALUE_FLAGS = {
-  uv: /^(?:--with|--with-requirements|--python|-p|--from|--project|--directory|--env-file|--extra|--group|--index|--package)$/,
-  deno: /^(?:--config|-c|--import-map|--env-file|--lock|--location|--cert)$/, bun: /^(?:--cwd|--env-file|--config|-c)$/,
+  uv: /^(?:--with|--with-requirements|--python|-p|--from|--project|--env-file|--extra|--group|--index|--package)$/,
+  deno: /^(?:--config|-c|--import-map|--env-file|--lock|--location|--cert)$/, bun: /^(?:--env-file|--config|-c)$/,
+  bash: /^-[oO]$/, sh: /^-[oO]$/, zsh: /^-[oO]$/, ruby: /^-[Ir]$/, perl: /^-[IM]$/, osascript: /^-l$/, tsx: /^--tsconfig$/,
   python: /^-[XWm]$/, python3: /^-[XWm]$/, node: /^(?:--env-file|--inspect-port|--title)$/,
 };
 /* python -m mod: a module, not a script file (a module in the agent folder is a stated gap). */
@@ -88,7 +91,7 @@ function inlineFlag(prog, word) {
   return false;
 }
 /* Programs that run a script named after a flag (java -jar x.jar, awk -f x.awk), not given as their first argument. */
-const SCRIPT_FLAG = { node: /^(?:-r|--require|--import|--loader|--experimental-loader)$/, bun: /^(?:-r|--preload)$/, java: /^-jar$/, awk: /^-f$/, gawk: /^-f$/, mawk: /^-f$/, sed: /^-f$/, gsed: /^-f$/, jq: /^(?:-f|--from-file)$/, make: /^-f$/, gmake: /^-f$/, gdb: /^-x$/, vim: /^-S$/, nvim: /^-S$/ };
+const SCRIPT_FLAG = { node: /^(?:-r|--require|--import|--loader|--experimental-loader)$/, bun: /^(?:-r|--preload)$/, java: /^(?:-jar|-cp|-classpath|--class-path)$/, awk: /^-f$/, gawk: /^-f$/, mawk: /^-f$/, sed: /^-f$/, gsed: /^-f$/, jq: /^(?:-f|--from-file)$/, make: /^-f$/, gmake: /^-f$/, gdb: /^-x$/, vim: /^-S$/, nvim: /^-S$/ };
 
 /* Where Claude Code 2.1.296 reads managed settings, by platform (its own switch, read from the binary). */
 function managedDir(platform = process.platform) {
@@ -281,10 +284,12 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
   let cwdUnknown = false;
   let lastCwd = cwds[cwds.length - 1];   // where the line most recently cd'd to
   const pathDirs = [];   // review 6: folders a PATH= assignment put in front, where a bare program is then found
+  const codePaths = [];  // review 7: the paths in an interpreter's code position, where a folder is code too
+  const UNKNOWN_CWD = '/\0unknown';
   const more = (line) => {
     if (depth >= 3) return;
     const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds);
-    paths.push(...r.paths); runPaths.push(...r.runPaths); unsafe.push(...r.unsafe);
+    paths.push(...r.paths); runPaths.push(...r.runPaths); codePaths.push(...r.codePaths); unsafe.push(...r.unsafe);
   };
   let cwdReal = cwd;
   try { cwdReal = fs.realpathSync.native(cwd); } catch { /* as given */ }
@@ -300,7 +305,23 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
       for (const d of cwds) { const r = path.resolve(d, c); if (!pathDirs.includes(r)) pathDirs.push(r); }
     }
   };
-  const folderRunner = (name) => { if (inAgentFolder(lastCwd)) unsafe.push(`${name} run in the agent folder (it runs code that folder supplies: its package.json, Makefile, build or test config)`); };
+  /* Review 7: decided at the end of the command, so a change-folder flag on it counts; a folder Kosmos cannot follow
+     may be the agent's. */
+  let runnerPending = null;
+  let cmdCwd = null;   // where this one command runs, when a change-folder flag moved it
+  const flushRunner = () => {
+    const where = cmdCwd || lastCwd;
+    if (runnerPending && (where === UNKNOWN_CWD || inAgentFolder(where))) unsafe.push(`${runnerPending} run in ${where === UNKNOWN_CWD ? 'a folder Kosmos cannot read, which may be the' : 'the'} agent folder (it runs code that folder supplies: its package.json, node_modules, Makefile, build or test config); give the program by a full path to an installed copy, or run it from another folder`);
+    runnerPending = null;
+  };
+  const folderRunner = (name) => { if (!runnerPending) runnerPending = name; };
+  const chdir = (w, t) => {
+    if (w.dynamic) { cwdUnknown = true; cmdCwd = UNKNOWN_CWD; return; }
+    for (const d of [...cwds]) { const r = path.resolve(d, t); if (!cwds.includes(r)) cwds.push(r); }
+    cmdCwd = path.resolve(cmdCwd && cmdCwd !== UNKNOWN_CWD ? cmdCwd : lastCwd, t);
+  };
+  let chdirNext = false;
+  let slotTaken = false;   // the first plain word after an interpreter is its script (or the folder it runs)
   let prog = '';
   let scriptSlot = false;   // the next plain word is the script the program (an interpreter) runs
   let runnerSub = null;     // deno run x.ts: the subcommand that keeps the script slot open
@@ -325,11 +346,11 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
       continue;
     }
     if (w.assign) { assignment(w, w.text); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=..., PATH=...
-    if (w.head) { pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
+    if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
       if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; } }   // a bare cd goes home
-      else if (w.dynamic || w.text === '-') { cwdUnknown = true; lastCwd = '/\0unknown'; continue; }
+      else if (w.dynamic || w.text === '-') { cwdUnknown = true; lastCwd = UNKNOWN_CWD; continue; }
       else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } lastCwd = path.resolve(lastCwd, w.text); continue; }
       else { cdNext = true; continue; }   // cd -P dir
     }
@@ -359,6 +380,12 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     }
     if (!isHead && prog === 'find' && !w.dynamic && /^-(?:exec|execdir|ok|okdir)$/.test(w.text)) { inExec = true; pendingHead = true; wrapper = ''; continue; }
     if (skipNext) { skipNext = false; continue; }
+    if (chdirNext) { chdirNext = false; chdir(w, w.text); continue; }
+    if (!isHead && !w.input && w.text.startsWith('-') && CHDIR_FLAGS[prog]) {
+      const eq = w.text.indexOf('=');
+      if (eq < 0 && CHDIR_FLAGS[prog].test(w.text)) { chdirNext = true; continue; }
+      if (eq > 0 && CHDIR_FLAGS[prog].test(w.text.slice(0, eq))) { chdir(w, w.text.slice(eq + 1)); continue; }
+    }
     let text = w.text;
     if (!w.dynamic && PACKAGE_NAME.test(text)) continue;   // @scope/pkg (npx's program too) is a package, not a path (review 4)
     const inline = !isHead && inlineFlag(prog, before);   // only an interpreter's -c or -e (mkdir -p is not)
@@ -372,6 +399,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     if (flagValue) {
       text = text.slice(text.indexOf('=') + 1);
       if (!w.dynamic && !text.includes('/') && !/\.[A-Za-z0-9]{1,5}$/.test(text)) continue;
+      if (!w.dynamic && /[*?]/.test(text)) continue;   // --include="*.ts" is a pattern, not a file (review 7)
     }
     if (!isHead && !isFlag && !inline && !w.dynamic && !flagScript && runnerSub) {
       const sub = runnerSub; runnerSub = null;
@@ -382,7 +410,10 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     /* Review 5: every plain word after an interpreter counts, not only the first: a flag that takes a value
        (bash -o pipefail x.sh, ruby -I lib x.rb) would otherwise take the slot and leave the real script as an argument.
        A list of such flags is always partial; counting them all costs a data argument of the hook being denied too. */
-    const runs = isHead || inScriptSlot || w.input || flagValue || inline || flagScript || (!w.dynamic && SCRIPT_EXT.test(text));   // where something RUNS
+    const codeSlot = (inScriptSlot && !slotTaken) || flagScript;
+    if (inScriptSlot) slotTaken = true;
+    // A script extension counts anywhere, except on a pattern (case *.py), find -name '*.py': review 7).
+    const runs = isHead || inScriptSlot || w.input || flagValue || inline || flagScript || (!w.dynamic && !w.globbed && !/[*?]/.test(text) && SCRIPT_EXT.test(text));   // where something RUNS
     if (w.dynamic) {
       // A flag's unknown value names a path only when it has a slash (--header="$H" names nothing).
       if (runs && (!flagValue || text.includes('/'))) unsafe.push(`a ${isHead ? 'program' : 'path'} made when the command runs${text.includes('/') ? ', ending ' + text.slice(text.lastIndexOf('/')) : ''}`);
@@ -403,9 +434,11 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
       if (!runs && inAgentFolder(p)) continue;   // an argument in the agent's own folder is its work, not code
       paths.push(p);
       if (runs) runPaths.push(p);
+      if (codeSlot) codePaths.push(p);
     }
   }
-  return { paths, runPaths, unsafe };
+  flushRunner();
+  return { paths, runPaths, codePaths, unsafe };
 }
 
 /* Every command in a parsed config: { line } for a shell line, { program, args } for a server (started directly). */
@@ -549,6 +582,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const agentDir = path.resolve(dir);
   const raw = [];
   const runRaw = new Set();
+  const codeRaw = new Set();
   const unsafe = [];
   const sources = [];
   for (const s of configSources(agentDir, homes, home, { platform, managedDir: md, managedPrefsDir })) {
@@ -576,6 +610,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
       const r = pathsOfWords(wordsOf(c, vars), agentDir, vars);
       raw.push(...r.paths);
       for (const p of r.runPaths) runRaw.add(p);
+      for (const p of r.codePaths) codeRaw.add(p);
       for (const u of r.unsafe) unsafe.push(`${u} (in ${where}: a command whose script Kosmos cannot read)`);
     }
   };
@@ -608,7 +643,9 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   for (const p of new Set(raw)) {
     let st = null;
     try { st = fs.statSync(p); } catch { st = null; }
-    if (st && st.isDirectory()) continue;
+    // Review 7: a folder an interpreter runs (node /srv, python3 ~/app, java -cp ~/lib) IS code; Kosmos does not deny a
+    // folder whole, so it is named.
+    if (st && st.isDirectory()) { if (codeRaw.has(p)) unsafe.push(`${p} (a folder a start-time command runs as code, which Kosmos does not deny whole)`); continue; }
     files.push(p);
   }
   return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], unsafe: [...new Set(unsafe)] };
