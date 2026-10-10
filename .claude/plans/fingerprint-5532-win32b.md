@@ -46,7 +46,12 @@ real-registry test on this box and on the CI Windows runner passes, comparing pr
 - tools/windows-tests.js runs the file on the Windows CI job (its real-registry arm branches on a win32 host).
 
 ## Decided
-- Kept the reads exactly as #5557 had them (the Mac owner's item 5).
+- Kept the reads exactly as #5557 had them (the Mac owner's item 5), with one tightening from this branch's review:
+  Sysnative is chosen only when the process itself is 32-bit (`process.arch === 'ia32'`) AND PROCESSOR_ARCHITEW6432
+  is set. #5557 keyed on the variable alone, which a 64-bit child of a 32-bit parent can inherit (and an x64 process
+  emulated on ARM64 sees), sending the fallback to a folder that does not exist for it.
+- Validation on this box is the targeted suite through the schtasks preload (the full `yarn test` here makes
+  thousands of real schtasks calls); the full suite and the Windows job run in CI.
 - Weakest premise: a fifteen-second synchronous stall (reg.exe then PowerShell both hanging) once a minute for ten
   minutes, then at most once an hour, is acceptable on a managed PC that blocks both. The Mac owner accepted it on
   #5557; if measured worse, a lasting "both tools refused" answer is the place to stop, not a fixed count.
