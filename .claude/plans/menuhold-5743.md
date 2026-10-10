@@ -47,6 +47,9 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
 - A paused-swarm Claude agent on its menu is logged as menu-held rather than paused; its later flush is refused as paused.
 - The idle-only sweeps (assigner, agentnudge, firstreply, replynudge) never meet a menu hold; their menu-held wording is
   defensive.
+- The recommender targets needs_you agents, so it does meet Claude agents on their menu. Its hold hook (heldUntil, the
+  quota's) now also asks chat.menuHeld: a stuck agent on its menu is not convened, nothing typed and no attempt spent,
+  and a peer on its menu is left out of the asks like any unreachable peer. The question is the person's to answer.
 
 ## Weakest premise
 

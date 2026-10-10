@@ -21449,7 +21449,10 @@ function start(port = PORT) {
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
             deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
-            heldUntil: (session) => agyQuota.heldForAgy(session, roster, Date.now()),   // #4588 ask 3: the cap too
+            /* #4588 ask 3: the cap too. #5743: and Claude's question menu on its screen (a playbook typed there would
+               pick the highlighted answer): the convening waits, nothing typed and no attempt spent. */
+            heldUntil: (session) => agyQuota.heldForAgy(session, roster, Date.now())
+              ?? (chat.menuHeld(session, roster) ? new Date(Date.now() + 60e3).toISOString() : null),
             reserve: (session) => agyQuota.noteCapStart(session, roster, Date.now()),   // #4588 ask 3 review 9: the stuck agent first
             release: (slot) => agyQuota.releaseCapStart(slot),
           });
@@ -21460,7 +21463,7 @@ function start(port = PORT) {
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
-              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota or the Gemini limit, not convened yet\n`);
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held (the shared Google quota, the Gemini limit, or a question on its screen), not convened yet\n`);
               continue;
             }
             process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);

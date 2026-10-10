@@ -135,3 +135,21 @@ test('#5743 only Claude agents: another runner on the same screen is not refused
     assert.ok(calls.typed().length > 0, 'a non-Claude agent was refused by the Claude menu floor');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5743 menuHeld (for sweeps that decide before typing): true on the menu, false for an idle agent', async () => {
+  await onScreen(MENU, 'needs_you', async (board, calls) => {
+    assert.equal(chat.menuHeld('casey', board.agents), true);
+    assert.deepEqual(calls.typed(), [], 'asking whether it is held typed something');
+  });
+  await onScreen(null, 'idle', async (board) => {
+    assert.equal(chat.menuHeld('casey', board.agents), false);
+  });
+});
+
+test('#5743 pin: the recommender\'s hold hook asks about the menu too, so a stuck agent on its menu is not convened or charged', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('const out = recommender.runOnce({');
+  assert.notEqual(at, -1, 'premise: the recommender sweep was found');
+  const call = src.slice(at, src.indexOf('});', at));
+  assert.match(call, /heldUntil: \(session\) => agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)\s*\?\? \(chat\.menuHeld\(session, roster\)/, 'the recommender hold hook does not ask about the menu');
+});
