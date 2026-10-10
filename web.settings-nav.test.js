@@ -207,3 +207,10 @@ test('#5301: below 56rem #s-nav clears floating notices with --topnotes-clear', 
     '#s-nav is missing margin-top: var(--topnotes-clear, 0px) under max-width: 56rem');
 });
 
+
+test('#5080: the browser check render-prompter-label-1843 pins the same Automation order as this file (a missed sibling, three times)', () => {
+  const own = /assert\.deepEqual\(headings, (\[[^\]]+\])/.exec(fs.readFileSync(__filename, 'utf8'));
+  const bc = /JSON\.stringify\(sec\.headings\) === JSON\.stringify\((\[[^\]]+\])\)/.exec(fs.readFileSync(nodePath.join(__dirname, 'docs', 'browser-checks', 'render-prompter-label-1843.js'), 'utf8'));
+  assert.ok(own && bc, 'CONTROL: both lists were found');
+  assert.equal(bc[1], own[1], 'the browser check and this test name different Automation boxes');
+});
