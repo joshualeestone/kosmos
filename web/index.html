@@ -37388,8 +37388,16 @@ const DM_CHOICE_ANSWERED = new Map();   // session -> { asked, at, sure }: sure 
    (it says unconfirmed otherwise), so this covers only the page's own poll still showing the old screen; past it, the
    same question drawn again (agents repeat questions word for word) is pressable. */
 const DM_CHOICE_ANSWERED_MS = 6000;
-let DM_CHOICE_LAST_REFUSAL = '';
-const DM_CHOICE_WAIT_LINE = 'Still sending your choice. Try again in a moment.';   // said by sendTalk; cleared when the press ends   // the sentence a press put on #d-say-msg, cleared by the next success only if still there
+let DM_CHOICE_LAST_REFUSAL = '';   // the sentence a press put on #d-say-msg, cleared by the next success only if still there
+const DM_CHOICE_WAIT_LINE = 'Still sending your choice. Try again in a moment.';   // said by sendTalk; cleared when the press ends
+/* sendTalk asks this first: while a press to this agent is in the air a typed send is refused (not queued), with the
+   line above, so one key and one paste never overlap. True when it refused. */
+function dmChoiceBlocksSend(session) {
+  if (!DM_CHOICE_INFLIGHT.has(session)) return false;
+  const m0 = document.getElementById('d-say-msg');
+  if (m0) m0.textContent = DM_CHOICE_WAIT_LINE;
+  return true;
+}   // the sentence a press put on #d-say-msg, cleared by the next success only if still there
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
@@ -37482,12 +37490,12 @@ async function dmChoicePress(btn) {
   if (!CURRENT || CURRENT.sessionName !== session) return;   // switched agents meanwhile: neither repaint nor move focus
   await paintTalk(CURRENT.sessionName, CURRENT.name);
   if (!CURRENT || CURRENT.sessionName !== session) return;
-  /* Disabling the pressed button dropped focus to the page. Answered: the buttons stay disabled, so focus goes to the
-     message box, the next thing to use. Otherwise back to the same choice (or the group's first). Only when focus has
-     gone nowhere else. */
+  /* Disabling the pressed button dropped focus to the page. Placed or could not confirm: the buttons stay disabled for
+     the lock, so focus goes to the message box. Refused: back to the same choice (or the group's first). Only when
+     focus has gone nowhere else. */
   if (!document.activeElement || document.activeElement === document.body) {
     const thread = document.getElementById('d-dmthread');
-    const back = ok ? document.getElementById('d-say')
+    const back = mayHaveSent ? document.getElementById('d-say')   // its buttons stay off for the lock
       : thread && (thread.querySelector('.dmchoice[data-n="' + CSS.escape(String(opt.n)) + '"]') || thread.querySelector('.dmchoice'));
     if (back) back.focus({ preventScroll: true });
   }
@@ -38311,11 +38319,7 @@ async function sendTalk(text, attachment) {
   if (!CURRENT) return;
   /* #5406: one thing in the air per agent. A typed send arriving while a choice's key is settling could close the menu
      or land on whatever the screen is then. */
-  if (DM_CHOICE_INFLIGHT.has(CURRENT.sessionName)) {
-    const m0 = document.getElementById('d-say-msg');
-    if (m0) m0.textContent = DM_CHOICE_WAIT_LINE;
-    return;
-  }
+  if (dmChoiceBlocksSend(CURRENT.sessionName)) return;
   // The agent this send TOOK OFF from. Everything afterwards is about this
   // name, never about whichever agent happens to be open when the verdict
   // lands.
