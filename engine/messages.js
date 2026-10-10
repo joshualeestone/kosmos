@@ -2157,9 +2157,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
-      /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
+      /* #4588 PR B: held (the shared Google quota, or #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu), nothing typed. The post is kept for this member like a #4624
          hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless staleHeld drops it) in one line by the
-         idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
+         idle flush, the next typed arrival here, or (a quota hold only) roomhold.flushReleased after the reset. Could not keep it: not
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
       if (sent && sent.held === true) {
@@ -2575,7 +2575,7 @@ function sweepUnanswered(roster, now) {
         const line = '[the room has not seen an answer to ' + postId
           + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
         const sent = chat.deliverAutomatic(name, line, roster);
-        /* #4588 PR B: held on the shared Google quota, nothing typed. No row, so the pair's one nudge is still unspent, and
+        /* #4588 PR B: held (the shared Google quota, or #5743/#5754 an answer awaited on its screen), nothing typed. No row, so the pair's one nudge is still unspent, and
            unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so the post is still due after a long pause. */
         if (sent && sent.held === true) continue;
         appendLog({ kind: 'nudge', post: postId, to: name, project: projectId,

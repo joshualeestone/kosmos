@@ -2433,6 +2433,77 @@ function claudeQuestionMenu(text) {
   return { at, question, options, count: opts.length };
 }
 
+/* #5743: is ANY form of Claude Code's question menu on screen (single-select, multi-select, multi-question)? Wider than
+   claudeQuestionMenu, which answers only the single-select form by key: this one decides whether a message may be
+   typed at all, and every form takes a pasted line's Enter as a choice. The menu's footer within the last three
+   non-blank lines, and its own free-answer entry ("Type something" / "Chat about this") among the rows above it, which
+   is what tells it from a permission prompt drawn with the same footer. */
+const CLAUDE_QMENU_FREE_ROW = /^\s*(?:[❯›]\s*)?\d{1,2}\.\s+(?:\[[ x✓✔]\]\s+)?(?:Type something\.?|Chat about this)\s*$/;
+function claudeQuestionMenuUp(text) {
+  const t = String(text == null ? '' : text);
+  if (safeguardsMenuAt(t)) return false;
+  const lines = t.split('\n');
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (!CLAUDE_QMENU_FOOTER.test(lines[i])) continue;
+    /* The free-answer entry is the menu's last numbered row, just above the footer (two rows in every capture): look
+       only that close, so an old menu in scrollback above a live permission prompt is not taken for this one. */
+    for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return true;
+    return false;
+  }
+  return false;
+}
+
+/* #5754: is Claude Code's PERMISSION prompt on screen (it asks "Do you want to proceed?", "Do you want to create x?"
+   and the like, its first option usually Yes)? Measured on 2.1.296: a pasted line is ignored there and the Enter after it takes the highlighted
+   option, usually Yes, so a typed message approves a command or an edit nobody chose. Its footer ends "Esc to cancel"
+   ("Esc to cancel · Tab to amend" on 2.1.296; older builds drew the select footer). Two things together, at the
+   bottom: that footer within the last three non-blank lines, and a "Do you want to ..." or "Would you like to ..."
+   question within 14 rows above it ("Would you like to proceed?" is the plan-approval prompt's wording, not yet
+   captured), or, for any other wording, a highlighted numbered option within 10 rows above it. Not when the question menu's own free-answer row is there: a menu question may begin "Do you want to"
+   too, and it has its own detector and sentence. The folder-trust dialog ("Quick safety check") has its own floor. */
+/* The whole footer line (review 17): "Esc to cancel" first (2.1.296: "Esc to cancel · Tab to amend"), or the older
+   select footer ending in it, so agent prose that merely ends in those words is not a footer. */
+const CLAUDE_PERMISSION_FOOTER = /^\s*(?:Enter to select\s*·.*·\s*)?Esc to cancel(?:\s*·.*)?\s*$/;
+const CLAUDE_PERMISSION_QUESTION = /^\s*(?:Do you want to|Would you like to)\b/;
+/* 'wording' (a "Do you want to" / "Would you like to" question: a permission request), 'shape' (only a highlighted
+   numbered option over the footer: may be a permission request in other wording, or one of Claude Code's own pickers),
+   or null. */
+function claudePermissionPromptKind(text) {
+  const lines = String(text == null ? '' : text).split('\n');
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (!CLAUDE_PERMISSION_FOOTER.test(lines[i])) continue;
+    for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return null;   // the question menu
+    for (let j = i - 1; j >= Math.max(0, i - 14); j -= 1) if (CLAUDE_PERMISSION_QUESTION.test(lines[j])) return 'wording';
+    /* Review 11: or any other wording, by its shape: a highlighted numbered option just above that footer. */
+    for (let j = i - 1; j >= Math.max(0, i - 10); j -= 1) if (/^\s*❯\s*\d{1,2}\.\s+\S/.test(lines[j])) return 'shape';
+    return null;
+  }
+  return null;
+}
+
+/* #5743 review 10: the safeguards model-switch menu (#5051) LIVE at the bottom of the screen. claudeQuestionMenuUp leaves
+   it out on purpose (it is never answered by a press); this lets the delivery floor still refuse to type into it, whose
+   Enter would switch models for a choice nobody made. Its footer within the last three non-blank lines, so a menu left
+   in scrollback is not this. */
+function claudeSafeguardsMenuUp(text) {
+  const t = String(text == null ? '' : text);
+  if (!safeguardsMenuAt(t)) return false;
+  const lines = t.split('\n');
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (CLAUDE_QMENU_FOOTER.test(lines[i])) return true;
+  }
+  return false;
+}
+
 function safeguardsMenu(tail) {
   const live = safeguardsMenuAt(tail);
   if (!live) return null;
@@ -8961,7 +9032,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu,
+  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptKind, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
