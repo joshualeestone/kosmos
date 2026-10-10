@@ -1209,7 +1209,10 @@ const DATA_SETS = {
 DATA_SETS.marketing = {
   ...DATA_SETS.store,
   /* Farah shows as Farid: the four pictures the site already publishes (meet/faces) are two women and two men. */
-  agents: STORE_AGENTS.map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo-discord' })),
+  /* reportsTo is the profile key (the claim), the same key server.js walks for loops; the chart matches it to the card. */
+  agents: STORE_AGENTS.map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo' })),
+  /* The person at the hub: a made-up name, so the hub shows an initial (Josh's ruled empty-disc rule otherwise). */
+  you: { name: 'Sam Rivera', does: 'Runs a small home goods business' },
 };
 let FACES_DIR = null;   // --faces: pictures for the seeded agents and the person
 let DATA = DATA_SETS.sample;   // run() picks the set before the board is seeded
@@ -1243,6 +1246,10 @@ function seedFiles(roots) {
   }
   /* #5782: --faces, through the engine's own picture writers (the same doors Settings uses). A folder with no
      picture for someone leaves them on their initial, as today. */
+  if (DATA.you) {
+    const r = require(path.join(REPO, 'engine', 'you')).save(DATA.you);
+    if (r && r.ok === false) throw new Error('the seed could not save the person: ' + (r.because || r.error));
+  }
   if (FACES_DIR) {
     const pick = (key) => ['.jpg', '.jpeg', '.png'].map((e) => path.join(FACES_DIR, key + e)).find((f) => fs.existsSync(f));
     const typeOf = (f) => (/\.png$/i.test(f) ? 'image/png' : 'image/jpeg');
