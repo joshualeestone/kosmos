@@ -599,6 +599,13 @@ const SCREENS = [
     await page.waitForSelector('#plus-org-in', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
+  /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
+     address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */
+  { name: 'plus-connected', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-chip .plus-store', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.mouse.move(1, 1);
+  } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Check that homemac shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
