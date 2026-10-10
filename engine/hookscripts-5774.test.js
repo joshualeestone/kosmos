@@ -887,3 +887,25 @@ test('#5774 review 23: a cd that does not last (subshell, background, popd, cond
   assert.match(String(line('cd /opt && (cd /tmp && true) && make').unsafe), /make run in \/opt /, 'after the subshell the line is back in /opt');
   assert.deepEqual(line('bash -s -- arg < "$CLAUDE_PROJECT_DIR/bin/hook"').unsafe, [], 'bash -s: arg is an argument, the script is the input');
 });
+
+test('#5774 review 25: a nested line starts where its command runs; a cd anchors only before &&; a pipeline cd moves nothing', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const line = (c, anchored = false) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, anchored);
+  // A folder Kosmos cannot follow reaches bash -c, anchored or not.
+  for (const [c, a] of [['cd /abs && cd "$UNK" && bash -c ./x.sh', false], ['cd "$UNK" && bash -c ./x.sh', true]]) {
+    assert.ok(line(c, a).unsafe.length > 0, `${c}: the script runs in a folder Kosmos cannot read`);
+  }
+  // CONTROL: the same without the wrapper was already named.
+  assert.ok(line('cd /abs && cd "$UNK" && ./x.sh').unsafe.length > 0);
+  // After a subshell the line is back where it was, inside bash -c too: make runs in the agent folder, not /plug.
+  assert.match(String(line('cd /opt && (cd /plug) && bash -c make').unsafe), /make run in \/opt /, 'bash -c read the subshell\'s folder');
+  // ; runs on after a failed cd, so it does not anchor; && does (the control).
+  for (const c of ['cd "$CLAUDE_PROJECT_DIR/tools"; ./x.sh', 'cd /opt; ./x.sh', 'cd /opt || ./x.sh']) {
+    assert.equal(line(c).unsafe.length, 1, `${c}: a failed cd leaves the session where the agent put it`);
+  }
+  for (const c of ['cd "$CLAUDE_PROJECT_DIR/tools" && ./x.sh', 'cd /opt && ./x.sh']) assert.deepEqual(line(c).unsafe, [], `control: ${c}`);
+  // A pipeline stage's cd is its own subshell.
+  assert.equal(line('cd /opt | ./x.sh').unsafe.length, 1, 'a cd in a pipeline anchored the line');
+  // ... and does not move the next stage: make runs where the line was before that stage, /opt, not /plug.
+  assert.match(String(line('cd /opt && cd /plug | make').unsafe), /make run in \/opt /, 'a pipeline stage\'s cd moved the next stage');
+});

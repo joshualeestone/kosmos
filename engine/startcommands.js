@@ -250,6 +250,12 @@ function shellWords(cmd, vars = {}) {
         written = false; input = false; head = true;
         // Review 23: a subshell's bounds and a lone & (a background command) are kept as markers, so a cd inside them is undone.
         if (c === '(' || c === ')' || (c === '&' && prevC !== '&' && nextC !== '&')) words.push({ marker: c, text: '', subs: [] });
+        /* Review 25: which separator ends a command, so a cd anchors only when the next command runs only if it worked
+           (&&), and a pipeline stage's cd (its own subshell) moves nothing. */
+        else if (c === '&' && nextC === '&') words.push({ marker: '&&', text: '', subs: [] });
+        else if (c === '|' && nextC === '|') words.push({ marker: '||', text: '', subs: [] });
+        else if (c === '|' && prevC !== '|') words.push({ marker: '|', text: '', subs: [] });
+        else if (c === ';' || c === '\n') words.push({ marker: ';', text: '', subs: [] });
       }
       if (c === '\n' && bodies.length) {
         // Review 6: a here-document's body runs to its delimiter line; it is the delimiter word's body, not commands.
@@ -308,7 +314,7 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*
  * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
  * words whose value cannot be known.
  */
-function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true, deferRunners = false, pathDirsIn = null) {
+function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true, deferRunners = false, pathDirsIn = null, whereIn = null) {
   const paths = [];
   const runPaths = [];   // the subset named where something runs
   const runners = [];    // folder runners: { name, where, place }
@@ -317,18 +323,21 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
      seen so far (a subshell's cd is not undone, so this over-counts rather than misses); a cd Kosmos cannot follow
      makes a relative script unknowable. */
   const cwds = cwdsIn ? [...cwdsIn] : [cwd];
-  let cwdUnknown = false;
+  // Review 25: a nested line (bash -c, $(...)) starts where its command runs, known or not, never at the list's tail.
+  let cwdUnknown = !!(whereIn && whereIn.cwdUnknown);
   /* Review 11: a hook or status line runs in the session's CURRENT folder (2.1.296 passes the session's cwd), which the
      agent moves with cd into any folder inside its own. So until the line cd's somewhere absolute, a relative script
      could be one the agent made in any subfolder: it is named. A server runs in the project folder (anchored). */
   let anchored = anchoredIn;
-  let lastCwd = cwds[cwds.length - 1];   // where the line most recently cd'd to
+  let lastCwd = whereIn && whereIn.lastCwd ? whereIn.lastCwd : cwds[cwds.length - 1];   // where the line most recently cd'd to
   const pathDirs = pathDirsIn ? [...pathDirsIn] : [];   // review 6: folders a PATH= assignment put in front (review 23: carried into bash -c)
   const codePaths = [];  // review 7: the paths in an interpreter's code position, where a folder is code too
   const UNKNOWN_CWD = UNKNOWN_RUN_CWD;
   const more = (line) => {
     if (depth >= 3) { unsafe.push('commands nested too deep for Kosmos to read'); return; }   // review 8: named, not dropped
-    const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds, anchored, deferRunners, pathDirs);
+    const here = cmdCwd || lastCwd;
+    const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds, anchored, deferRunners, pathDirs,
+      { lastCwd: here === UNKNOWN_CWD ? UNKNOWN_CWD : here, cwdUnknown: cwdUnknown || here === UNKNOWN_CWD });
     paths.push(...r.paths); runPaths.push(...r.runPaths); codePaths.push(...r.codePaths); runners.push(...(r.runners || [])); unsafe.push(...r.unsafe);
   };
   let cwdReal = cwd;
@@ -398,6 +407,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
   const scopes = [];        // review 23: where the line was when each ( opened
   let cmdStart = null;      // where it was when this command started (a lone & undoes a cd in it)
   let headsSeen = 0;        // review 23: only the line's FIRST command's cd anchors it (a later one may be conditional)
+  let anchorPending = false;   // review 25: that cd, waiting to see an && after it (a ; would run on after a failed cd)
   let inExec = false;       // find ... -exec cmd ... ;
   let prev = '';
   for (const w of words) {
@@ -408,7 +418,10 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
     if (w.marker) {
       if (w.marker === '(') scopes.push({ anchored, lastCwd, cwdUnknown });
       else if (w.marker === ')' && scopes.length) ({ anchored, lastCwd, cwdUnknown } = scopes.pop());
-      else if (w.marker === '&' && cmdStart) ({ anchored, lastCwd, cwdUnknown } = cmdStart);
+      else if ((w.marker === '&' || w.marker === '|') && cmdStart) ({ anchored, lastCwd, cwdUnknown } = cmdStart);   // review 25: a pipeline stage too
+      // Review 25: an absolute cd anchors the line only when what follows runs only if it worked.
+      if (anchorPending && w.marker === '&&') anchored = true;
+      if (w.marker !== '(' && w.marker !== ')') anchorPending = false;
       prev = '';
       continue;
     }
@@ -431,7 +444,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       cdNext = false;
       if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; if (headsSeen <= 2 && !scopes.length) anchored = true; } }   // a bare cd goes home
       else if (w.dynamic || w.text === '-') { cwdUnknown = true; lastCwd = UNKNOWN_CWD; continue; }
-      else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } lastCwd = path.resolve(lastCwd, w.text); if (path.isAbsolute(w.text) && headsSeen === 1 && !scopes.length) anchored = true; continue; }
+      else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } lastCwd = path.resolve(lastCwd, w.text); if (path.isAbsolute(w.text) && headsSeen === 1 && !scopes.length) anchorPending = true; continue; }
       else { cdNext = true; continue; }   // cd -P dir
     }
     let isHead = w.head;
