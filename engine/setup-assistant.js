@@ -1482,10 +1482,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
    whole or past the sandbox size. Written by each launch through the supervisor (a separate process) and by creation;
-   a board start writes only an agent with no line yet (see guardTokenOnlyFolder). Read by the board, never recomputed
-   per request (a run scans the PATH). One file
-   per agent in one folder (review 2): a run writes only its own agent's file, so two runs at once (the board and a
-   launch) cannot write an older copy over each other's line. */
+   a board start creates a line, or replaces only the part of one it is the authority on (#5516 part 2: see
+   guardTokenOnlyFolder). Read by the board, never recomputed per request (a run scans the PATH). One file per agent in
+   one folder (review 2): a run writes only its own agent's file, so a run for one agent never writes over another's.
+   For the same agent, a board start reads the line and then writes it, so a launch that writes in between is replaced
+   until the next launch (a stated residual). */
 const GUARD_STATE_DIR = 'token-only-guard';
 /* The not-whole reason that depends on the PATH the run measured (a launch's pane PATH, or the board's own). Named once,
    where it is said and where a board start tells it apart (review 9). */
@@ -1543,7 +1544,7 @@ function recordGuardState(agentName, r, deps = {}) {
     const file = guardStateFileFor(agentName, deps);
     // #5516 part 2 review 13: the PATH part and the other part kept apart, so a board start can replace only its own.
     const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && typeof r.pathReason === 'string' ? { pathReason: r.pathReason } : {}),
-      ...(r && typeof r.otherReason === 'string' ? { otherReason: r.otherReason } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
+      ...(r && typeof r.otherReason === 'string' ? { otherReason: r.otherReason } : {}), ...(r && typeof r.launchReason === 'string' ? { launchReason: r.launchReason } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
     /* #5434 slice 25: written through a descriptor and FLUSHED before either publish below (the exclusive hard link or
        the rename), so a crash cannot leave the guard-state line at full length but zero-filled (#5431); the folder is
@@ -1653,25 +1654,32 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
      agent's settings file just now, and keeping an older "ok" would read as guarded. */
   /* #5516 part 2 review 13: over a readable line, a board start replaces only what it is the authority on (everything
      but the PATH), and keeps the PATH part the launch recorded; it writes only when that part changed, so a config gap
-     appears, and goes once fixed, without the board's own PATH ever being shown as the agent's. A line with neither
-     part (one written before the parts were kept, or a launch's runner or write failure) is kept, as review 4 decided
-     for any launch line, unless the board start finds a non-PATH gap of its own: it is what the running agent has
-     (review 14). */
+     appears, and goes once fixed, without the board's own PATH ever being shown as the agent's. Review 19: a launch's
+     line with neither part (a runner the guard cannot cover, a write that failed) is kept as a third part, launchReason,
+     so a board start never drops it and a config gap fixed later falls back to it, not to ok; it is what the running
+     agent has (review 4). A line a board start creates goes through the same merge with no launch parts, so the board's
+     own PATH reading is never recorded as one. */
   if (deps.boardStart) {
     let old = null;
     try { old = guardLineOf(fs.readFileSync(guardStateFileFor(agentName, deps), 'utf8')); } catch { old = null; }
-    if (!old) { recordGuardState(agentName, r, { ...deps, exclusive: true }); return r; }
-    const nowOther = r && !r.ok ? (Object.prototype.hasOwnProperty.call(r, 'pathReason') ? r.otherReason || null : String(r.because || '') || null) : null;
-    if ((old.otherReason || null) === nowOther) return r;
-    const pathReason = typeof old.pathReason === 'string' ? old.pathReason : null;
-    const parts = [pathReason, nowOther].filter(Boolean);
+    const hasParts = !!r && Object.prototype.hasOwnProperty.call(r, 'pathReason');
+    const nowOther = r && !r.ok ? (hasParts ? r.otherReason || null : String(r.because || '') || null) : null;
+    const prev = old || {};
+    const oldHasParts = Object.prototype.hasOwnProperty.call(prev, 'pathReason') || Object.prototype.hasOwnProperty.call(prev, 'otherReason');
+    if (old && (prev.otherReason || null) === nowOther) return r;
+    const pathReason = typeof prev.pathReason === 'string' ? prev.pathReason : null;
+    const launchReason = typeof prev.launchReason === 'string' ? prev.launchReason
+      : (old && old.ok === false && !oldHasParts && old.because ? String(old.because) : null);
+    const parts = [launchReason, pathReason, nowOther].filter(Boolean);
     // Review 15: a launch's size warning is about the profile Claude Code built at that launch, so it is kept like the
     // PATH part when this board start has none of its own.
-    const keptWarning = (r && r.warning) || (typeof old.warning === 'string' ? old.warning : null);
+    const keptWarning = (r && r.warning) || (typeof prev.warning === 'string' ? prev.warning : null);
+    // "The rest of the guard is in place" only when every part is a not-whole reason; a kept launch reason says its own.
+    const restInPlace = !launchReason && (nowOther === null || hasParts);
     const merged = parts.length
-      ? { ok: false, because: parts.join('; and ') + (nowOther === null || Object.prototype.hasOwnProperty.call(r, 'pathReason') ? '; the rest of the guard is in place' : ''), ...(pathReason ? { pathReason } : {}), ...(nowOther ? { otherReason: nowOther } : {}), ...(keptWarning ? { warning: keptWarning } : {}) }
+      ? { ok: false, because: parts.join('; and ') + (restInPlace ? '; the rest of the guard is in place' : ''), ...(launchReason ? { launchReason } : {}), ...(pathReason ? { pathReason } : {}), ...(nowOther ? { otherReason: nowOther } : {}), ...(keptWarning ? { warning: keptWarning } : {}) }
       : (keptWarning ? { ok: true, warning: keptWarning } : { ok: true });
-    recordGuardState(agentName, merged, { ...deps, exclusive: false });
+    recordGuardState(agentName, merged, { ...deps, exclusive: !old });
     return r;
   }
   recordGuardState(agentName, r, { ...deps, exclusive: false });   // review 17: a launch always writes over, whatever the caller passed

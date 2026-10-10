@@ -407,3 +407,41 @@ test('#5516 part 2 (review 13): a board start replaces only the non-PATH part of
   quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, panePath: 'relative/bin', boardStart: true }));
   assert.equal(setup.readGuardState()[name].at, 't-launch', 'a board start with only its own PATH gap rewrote the launch line');
 });
+
+test('#5516 part 2 (review 19): a launch reason with neither part is kept through a config gap and its fix; a line a board start creates never carries the board PATH', () => {
+  const name = 'pilot-cfg-r19';
+  const dir = agentDir(name);
+  const home4 = path.join(SANDBOX, 'home-r19');
+  const odd = path.join(SANDBOX, 'Box (Q)', 'skills');
+  fs.mkdirSync(odd, { recursive: true });
+  fs.mkdirSync(path.join(home4, '.claude'), { recursive: true });
+  const link = path.join(home4, '.claude', 'skills');
+  const stateDir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(stateDir, { recursive: true });
+  const file = path.join(stateDir, name + '.json');
+  const quiet = (fn) => { const w = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = w; } };
+  // 1. The launch could not write the guard: a line with neither part.
+  fs.writeFileSync(file, JSON.stringify({ ok: false, because: 'EACCES: the launch could not write the guard', at: 't-launch' }));
+  fs.symlinkSync(odd, link);
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home4, boardStart: true }));
+  let line = setup.readGuardState()[name];
+  assert.ok(line.ok === false && line.because.includes('EACCES') && /could not be covered \(/.test(line.because), 'a config gap dropped the launch reason: ' + JSON.stringify(line));
+  // 2. The gap is fixed: the line falls back to the launch's reason, never to ok.
+  fs.unlinkSync(link);
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home4, boardStart: true }));
+  line = setup.readGuardState()[name];
+  assert.ok(line.ok === false && line.because.includes('EACCES') && !/could not be covered \(/.test(line.because), 'a fixed config gap read ok over a failed launch: ' + JSON.stringify(line));
+  assert.ok(!/the rest of the guard is in place/.test(line.because), 'a failed launch was said to have the rest of its guard in place: ' + line.because);
+  // 3. A board start that creates the line, with only its own PATH gap: no PATH part is recorded as the agent's.
+  fs.rmSync(file, { force: true });
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home4, panePath: 'relative/bin', boardStart: true }));
+  line = setup.readGuardState()[name];
+  assert.ok(line.ok === true && !line.pathReason, 'a board start recorded its own PATH as the agent own: ' + JSON.stringify(line));
+  // CONTROL: a board start that creates the line with a config gap records that gap.
+  fs.rmSync(file, { force: true });
+  fs.symlinkSync(odd, link);
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home4, panePath: 'relative/bin', boardStart: true }));
+  line = setup.readGuardState()[name];
+  assert.ok(line.ok === false && /could not be covered \(/.test(line.because) && !line.because.includes('relative/bin') && !line.pathReason, 'CONTROL: the created line lost its config gap or carried the board PATH: ' + JSON.stringify(line));
+  fs.unlinkSync(link);
+});
