@@ -527,11 +527,12 @@ function parseManifestGrant(data, bytes, runPrefix, epoch) {
    filed under another's would be opened by a reviewer with the wrong key, so when the caller names the epoch it sealed
    under (opts.epoch), a grant whose answer or key names another is refused before anything is sent. */
 const EPOCH_ID = /^[1-9][0-9]{0,15}$/;
+/* Whether a context's epoch is one a grant can name (backupkeys allows any context id; the coordinator's are integers). */
+const isKeyEpoch = (e) => (typeof e === 'string' || typeof e === 'number') && EPOCH_ID.test(String(e));
 /* The caller's opts.epoch as a context id ('1'), null when it gives none, or undefined when it gives one we cannot use. */
 function sealedEpoch(o) {
   if (o.epoch === undefined || o.epoch === null) return null;
-  const e = String(o.epoch);
-  return EPOCH_ID.test(e) ? e : undefined;
+  return isKeyEpoch(o.epoch) ? String(o.epoch) : undefined;
 }
 function epochProblem(data, keys, epoch, label) {
   if (epoch === null || epoch === undefined) return null;
@@ -709,4 +710,4 @@ async function eachLimited(items, n, fn) {
   if (failed) throw failed.err;
 }
 
-module.exports = { allowHttpForTests, GRANT_ROUTE, MANIFEST_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_MANIFEST, MAX_REGRANTS, INITIAL_BATCH, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, parseManifestGrant, putOne, uploadChunks, uploadManifest };
+module.exports = { allowHttpForTests, GRANT_ROUTE, MANIFEST_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_MANIFEST, MAX_REGRANTS, INITIAL_BATCH, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, parseManifestGrant, putOne, uploadChunks, uploadManifest, isKeyEpoch };

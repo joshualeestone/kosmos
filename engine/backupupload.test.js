@@ -1564,6 +1564,7 @@ test('#5744: a chunk grant naming another key epoch than the bytes were sealed u
       assert.strictEqual(r.ok, false, what);
       assert.match(r.because, want, what);
       assert.strictEqual(c.bodies.length, 1, `${what}: one grant asked, none asked again`);
+      assert.strictEqual(r.grantSpent, true, `${what}: the refused grant's allowance is spent`);
     }
     assert.strictEqual(b.puts, 0, 'nothing was sent');
     // Controls: the matching epoch, as a context id or a number, uploads; no epoch given is not checked.
