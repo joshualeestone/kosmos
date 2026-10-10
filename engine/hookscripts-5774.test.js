@@ -414,3 +414,42 @@ test('#5774 review 3: the test command is not a pattern; script flags; managed p
     fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
   }
 });
+
+test('#5774 review 4: cd moves where a relative script is read; find -exec, env -S, runner flags, flag values and package names', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.ok(paths('cd /opt/hooks && bash x.sh').runPaths.includes('/opt/hooks/x.sh'), 'the script read from where cd went');
+  assert.ok(paths('cd ~/scripts && ./run.sh').runPaths.includes('/H/scripts/run.sh'));
+  assert.ok(paths('bash -c "cd /opt && ./a.sh"').runPaths.includes('/opt/a.sh'), 'inside an inline script too');
+  assert.ok(paths('cd /opt && bash -c "./a.sh"').runPaths.includes('/opt/a.sh'), 'an inline script starts where the outer cd went');
+  assert.ok(paths('cd; ./h.sh').runPaths.includes('/H/h.sh'), 'a bare cd goes home');
+  assert.equal(paths('cd "$D" && ./b.sh').unsafe.length, 1, 'a cd Kosmos cannot follow leaves a relative script unknowable');
+  assert.deepEqual(paths('cd "$D" && /abs/c.sh').unsafe, [], 'control: an absolute script after it is still known');
+  assert.deepEqual(paths('find . -exec bash x.sh {} \;').runPaths, ['/A/x.sh']);
+  assert.deepEqual(paths('env -S "bash /opt/x.sh"').runPaths, ['/opt/x.sh']);
+  assert.deepEqual(paths('uv run --with requests script.py').runPaths, ['/A/script.py']);
+  assert.deepEqual(paths('node --max-old-space-size=4096 /opt/x.js').paths, ['/opt/x.js'], 'a flag value that is no path is not denied');
+  assert.deepEqual(paths('python3 -m foo').paths, [], 'a module, not a script file');
+  assert.deepEqual(paths('npx -y @modelcontextprotocol/server-filesystem /data').runPaths, [], 'a package name is not a path');
+  assert.deepEqual(paths('node -r ./hook.js main.js').runPaths, ['/A/hook.js', '/A/main.js'], 'what -r loads runs, and the script slot stays open');
+});
+
+test('#5774 review 4: an empty config file holds nothing; a plugin inside the agent folder is named, not denied whole', () => {
+  const dir = agentDir('pilot-r4');
+  const plug = path.join(dir, 'vendor', 'plug');
+  fs.mkdirSync(plug, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'vendor', 'notes.md'), 'mine\n');
+  fs.writeFileSync(path.join(HOME, '.claude', 'settings.local.json'), '﻿  \n');
+  try {
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-r4', DEPS);
+    assert.equal(g.ok, true, 'an empty settings file is no gap: ' + JSON.stringify(g));
+    writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'in@x': [{ scope: 'project', installPath: plug }] } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r4', DEPS);
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /in@x/);
+    assert.deepEqual(editDeniedBy(readSettings(dir).permissions.deny, path.join(plug, 'x.js')), [], 'the agent keeps its own subfolder');
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'settings.local.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true });
+  }
+});
