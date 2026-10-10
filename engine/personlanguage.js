@@ -108,9 +108,19 @@ let cached;   // a SURE read is kept for the process (a language changed while t
 let fallbackAt = 0;
 const FALLBACK_MS = 5 * 60 * 1000;   // review 4: a hanging `defaults` (2 s timeout, synchronous: it blocks the whole board's
                                      // event loop) is asked at most once per window, not on every create
+let cachedChoice;   // review 4 (#5080): the stored choice the cached read was made with; the file is read on every
+                    // call (small, local), so a choice saved by anything but setChoice is not hidden behind the cache
 function read(o) {
-  if (!o && cached !== undefined && (cached.sure || Date.now() - fallbackAt < FALLBACK_MS)) return cached;
-  if (!o) { const got = read(source || {}); cached = got; fallbackAt = got.sure ? 0 : Date.now(); return got; }
+  if (!o) {
+    const picked = source && source.choice !== undefined ? source.choice : readChoice();
+    const key = JSON.stringify(picked);
+    if (cached !== undefined && cachedChoice === key && (cached.sure || Date.now() - fallbackAt < FALLBACK_MS)) return cached;
+    const got = read({ ...(source || {}), choice: picked });
+    cached = got; cachedChoice = key; fallbackAt = got.sure ? 0 : Date.now();
+    // With Automatic chosen this IS what Automatic reads, so the Settings page does not ask `defaults` a second time.
+    if (picked.ok && picked.choice === AUTO) { autoCached = got; autoAt = fallbackAt; }
+    return got;
+  }
   const opts = o;
   const env = opts.env || process.env;
   // A 2 or 3 letter language subtag, as the Mac read requires: BCP 47 also allows 5 to 8 letters, so "english" would be
@@ -286,4 +296,4 @@ function syncEveryone(roster, opts) {
   return told;
 }
 
-module.exports = { _resetForTests: (src) => { cached = undefined; fallbackAt = 0; autoCached = undefined; autoAt = 0; source = src || null; }, _ageFallbackForTests: () => { fallbackAt -= FALLBACK_MS; autoAt -= FALLBACK_MS; }, START, END, SETTINGS_SOURCE, CHOICE_FILE, CHOICES, AUTO, readChoice, setChoice, automatic, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
+module.exports = { _resetForTests: (src) => { cached = undefined; cachedChoice = undefined; fallbackAt = 0; autoCached = undefined; autoAt = 0; source = src || null; }, _ageFallbackForTests: () => { fallbackAt -= FALLBACK_MS; autoAt -= FALLBACK_MS; }, START, END, SETTINGS_SOURCE, CHOICE_FILE, CHOICES, AUTO, readChoice, setChoice, automatic, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
