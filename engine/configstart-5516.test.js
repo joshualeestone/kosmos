@@ -103,6 +103,12 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
       assert.ok(by.every((r) => r === sibGlob(f)), 'the agent own ' + f + ' was denied by more than the sibling glob (' + own + '): ' + by.join(', '));
     }
   }
+  /* Review 10: the sibling glob also covers the agent's own .claude instruction and code files, which its own rules deny
+     anyway: pinned, so the safe direction is asserted rather than assumed. */
+  for (const f of [path.join('.claude', 'CLAUDE.md'), path.join('.claude', 'AGENTS.md'), path.join('.claude', 'loop.md'), path.join('.claude', 'launch.json')]) {
+    const by = editDeniedBy(deny, path.join(dir, f));
+    assert.ok(by.includes(`Edit(${ruleAbs(path.join(dir, f))})`) && by.includes(sibGlob(f)) && by.length === 2, 'the agent own ' + f + ' is denied by ' + by.join(', '));
+  }
   // CONTROL, that the matcher can say yes: the agent's own CLAUDE.md IS covered by the sibling glob.
   assert.deepStrictEqual(editDeniedBy(deny, path.join(dir, 'CLAUDE.md')), [sibGlob('CLAUDE.md')], 'CONTROL: the matcher did not see the sibling glob');
   for (const f of ancestors.slice(1).flatMap((d) => ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json')].map((x) => path.join(d, x)))) {

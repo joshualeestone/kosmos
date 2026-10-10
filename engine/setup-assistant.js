@@ -1325,7 +1325,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      many-homes test bounds. The agent's OWN CLAUDE.md is not here: it reaches only the agent, and
      Kosmos writes it; its own .claude members are denied below like a config home's. Links followed to their
      targets. */
-  const ancestorMcp = [];
+  const ancestorFiles = [];
   const ancestorDirs = [];
   // Review 7: the agent folder by BOTH its given and its resolved path is not an ancestor of itself.
   let ownReal = null;
@@ -1334,7 +1334,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // Review 6: an ancestor whose path the rule syntax cannot carry is named, not left to the generic drop.
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a folder above the agent whose path the permission rules cannot carry)`); continue; }
     // Review 7: an ancestor's .claude settings files too (they can carry hooks; Claude Code protects them itself).
-    for (const f of PROJECT_START_FILES) ancestorMcp.push(...withTarget(path.join(d, f), configUnsafe));
+    for (const f of PROJECT_START_FILES) ancestorFiles.push(...withTarget(path.join(d, f), configUnsafe));
     for (const x of [...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS]) ancestorDirs.push(...withTarget(path.join(d, '.claude', x), configUnsafe));
   }
   /* Each config home's plugins folder, and its skills folder (review 1: a skills subfolder can be adopted as a plugin,
@@ -1358,7 +1358,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
     ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
-    { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorMcp)].map((p) => ({ f: p }))];
+    { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorFiles)].map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
   // registry's own path there; its temp and lock names by the permission-layer .* glob only).
@@ -1793,7 +1793,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
        Review 8: both reasons together when both apply, so fixing one does not hide the other until the next refresh. */
     const notWhole = [];
     if (rules.launchUnsafe && rules.launchUnsafe.length) notWhole.push(LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')');
-    if (rules.configUnsafe && rules.configUnsafe.length) notWhole.push('a file or folder Claude Code reads at start could not be covered (' + rules.configUnsafe.join(', ') + ')');
+    if (rules.configUnsafe && rules.configUnsafe.length) notWhole.push('a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')');   // review 10: a link reached twice is named once
     if (notWhole.length) return { ok: false, because: notWhole.join('; and ') + '; the rest of the guard is in place', ...(warning ? { warning } : {}) };
     return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
