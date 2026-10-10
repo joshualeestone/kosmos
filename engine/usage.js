@@ -353,7 +353,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
    Held in memory only: a board restart starts from a full read of the day, as before. Calls are chained, so two
    requests never move one cursor at once. */
 const DAY_CURSOR = { day: null, roots: null, files: new Map(), owner: new Map(), heads: new Map() };
-const lastDayCursorRun = { rebuilt: false, bytesRead: 0 };
+const lastDayCursorRun = { rebuilt: false, bytesConsumed: 0 };
 let dayCursorChain = Promise.resolve();
 class Rebuild extends Error {}
 
@@ -381,7 +381,7 @@ async function scanDayCursorNow(day) {
     try {
       const out = await dayCursorPass(day, roots);
       lastDayCursorRun.rebuilt = rebuilt;
-      lastDayCursorRun.bytesRead = out.bytesRead;
+      lastDayCursorRun.bytesConsumed = out.bytesConsumed;
       return out.result;
     } catch (err) {
       if (!(err instanceof Rebuild)) { resetDayCursor(); throw err; }
@@ -392,22 +392,20 @@ async function scanDayCursorNow(day) {
   // A from-the-start pass asked to rebuild again (it should not be able to): the full read, and no cursor kept.
   resetDayCursor();
   lastDayCursorRun.rebuilt = true;
-  lastDayCursorRun.bytesRead = -1;
+  lastDayCursorRun.bytesConsumed = -1;
   return scanUsage({ sinceDay: day, untilDay: day, mtimeCut: true });
 }
 
-async function readBytes(file, start, end) {
-  const fh = await fsp.open(file, 'r');
-  try {
-    const buf = Buffer.alloc(end - start);
-    let got = 0;
-    while (got < buf.length) {
-      const { bytesRead } = await fh.read(buf, got, buf.length - got, start + got);
-      if (!bytesRead) break;
-      got += bytesRead;
-    }
-    return buf.subarray(0, got);
-  } finally { await fh.close(); }
+const SEAM_BYTES = 64;   // round 1: bytes before the cursor, read back to tell an appended file from a rewritten one
+async function readFrom(fh, start, end) {
+  const buf = Buffer.alloc(Math.max(0, end - start));
+  let got = 0;
+  while (got < buf.length) {
+    const { bytesRead } = await fh.read(buf, got, buf.length - got, start + got);
+    if (!bytesRead) break;
+    got += bytesRead;
+  }
+  return buf.subarray(0, got);
 }
 
 /* The first cwd among `lines`, by the full read's rule (the first line naming a cwd that parses with a non-empty one). */
@@ -433,7 +431,7 @@ async function dayCursorPass(day, roots) {
   const cutMs = windowCutMs(day);
   const C = DAY_CURSOR;
   let unreadable = 0;
-  let bytesRead = 0;
+  let bytesConsumed = 0;   // new bytes taken into the counts (a half line left for later is read again, not consumed)
   const listed = new Set();
   const skippedTop = new Set();
   const passHeads = new Map();   // a skipped parent is head-read at most once a pass, as the full read's launchOf does
@@ -452,24 +450,46 @@ async function dayCursorPass(day, roots) {
       let s = C.files.get(file);
       if (s && (s.ri !== ri || s.ino !== st.ino || s.dev !== st.dev || st.size < s.offset)) throw new Rebuild();
       const fresh = !s;
-      if (fresh) s = { ri, file, ino: st.ino, dev: st.dev, offset: 0, firstCwd: '', counted: false, launch: '', orphan: false, days: {}, folders: {}, folderModels: {} };
+      if (fresh) s = { ri, file, ino: st.ino, dev: st.dev, offset: 0, seam: Buffer.alloc(0), mtimeMs: st.mtimeMs, firstCwd: '', counted: false, launch: '', orphan: false, days: {}, folders: {}, folderModels: {} };
       let lines = [];
-      if (st.size > s.offset) {
-        let buf;
-        try { buf = await readBytes(file, s.offset, st.size); }
-        catch { if (!fresh) throw new Rebuild(); unreadable += 1; continue; }
+      /* Round 1: every listed file is opened on every pass, read or not, so one that became unreadable is noticed
+         (the full read would drop its rows and count it unreadable), and an empty one that cannot be opened counts. */
+      let fh;
+      try { fh = await fsp.open(file, 'r'); } catch { if (!fresh) throw new Rebuild(); unreadable += 1; continue; }
+      let buf = null;
+      try {
+        /* Round 1: the SEAM, the last bytes before the cursor, is read back with any new bytes (and on its own when the
+           file was written without growing). A file truncated and rewritten, even longer and on the same inode, no
+           longer has it there, and the cursor rebuilds rather than read the middle of new content. */
+        const grew = st.size > s.offset;
+        if (!fresh && (grew || st.mtimeMs !== s.mtimeMs)) {
+          const from = s.offset - s.seam.length;
+          const back = await readFrom(fh, from, grew ? st.size : s.offset);
+          if (!back.subarray(0, s.seam.length).equals(s.seam)) throw new Rebuild();
+          if (grew) buf = back.subarray(s.seam.length);
+        } else if (grew) buf = await readFrom(fh, s.offset, st.size);
+      } catch (err) {
+        if (err instanceof Rebuild) throw err;
+        if (!fresh) throw new Rebuild();
+        unreadable += 1;
+        continue;
+      } finally { await fh.close().catch(() => {}); }
+      s.mtimeMs = st.mtimeMs;
+      if (buf && buf.length) {
         const nl = buf.lastIndexOf(0x0a);
         let take = buf.length;
         if (nl !== buf.length - 1) {
-          // No newline after the last line yet: take it only if it parses whole (the full read would parse it too).
+          // No newline after the last line yet: take it only if it parses whole (the full read would parse it too). A
+          // writer that later extends that same line into something unparseable is not caught (none does).
           const tail = buf.subarray(nl + 1).toString('utf8');
           let whole = false;
           try { JSON.parse(tail); whole = true; } catch { /* half written */ }
           if (!whole) take = nl + 1;
         }
         lines = buf.subarray(0, take).toString('utf8').split('\n');
+        s.seam = Buffer.concat([s.seam, buf.subarray(0, take)]).subarray(-SEAM_BYTES);
         s.offset += take;
-        bytesRead += take;
+        bytesConsumed += take;
       }
       if (fresh) C.files.set(file, s);
       listed.add(file);
@@ -486,8 +506,11 @@ async function dayCursorPass(day, roots) {
           let pst = null;
           try { pst = await fsp.stat(parentFile); } catch { /* read below fails the same way */ }
           const h = C.heads.get(parentFile);
+          // Round 1: the saved head is trusted only while the parent still opens (a full read would fail to head-read it).
+          const opens = h && pst && h.mtimeMs === pst.mtimeMs && h.size === pst.size
+            ? await fsp.open(parentFile, 'r').then((p) => p.close().then(() => true), () => false) : false;
           if (passHeads.has(parentFile)) parent = passHeads.get(parentFile);
-          else if (h && pst && h.mtimeMs === pst.mtimeMs && h.size === pst.size) parent = h.cwd;
+          else if (opens) parent = h.cwd;
           else {
             let failed = false;
             parent = await firstCwd(parentFile, () => { failed = true; unreadable += 1; });
@@ -531,7 +554,8 @@ async function dayCursorPass(day, roots) {
   const folders = {};
   const folderModels = {};
   const sum = (into, from) => { for (const [k, b] of Object.entries(from)) addInto(into, k, b); };
-  for (const s of C.files.values()) {
+  // Summed in (root, path) order, so the result's keys come in the order a full read gives them (round 1).
+  for (const s of [...C.files.values()].sort((a, b) => (orderBefore(a, b) ? -1 : orderBefore(b, a) ? 1 : 0))) {
     if (!s.counted) continue;
     sum((days[day] = days[day] || {}), s.days);
     sum((folders[day] = folders[day] || {}), s.folders);
@@ -540,7 +564,7 @@ async function dayCursorPass(day, roots) {
       sum((folderModels[day][scoped] = folderModels[day][scoped] || {}), models);
     }
   }
-  return { result: { days, folders, folderModels, unreadable, rootsRead: roots }, bytesRead };
+  return { result: { days, folders, folderModels, unreadable, rootsRead: roots }, bytesConsumed };
 }
 
 /* This Kosmos's own agent folders, from its roster, exactly as the usage screen builds them (server.js, the per-agent

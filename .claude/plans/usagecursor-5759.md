@@ -24,11 +24,23 @@ Every step asserts the cursor's answer deep-equals `scanUsage` on the same files
 many bytes it read: appends, half and unterminated lines, duplicates in files sorting after and before the owner,
 id-less rows, other days, a late first cwd, subagents (orphan, adopted, of a skipped parent), an unreadable skipped
 parent with two subagents, shrink, replace, delete, a seeded 300-step random run, and `dailyUsageByModel` reading
-nothing new on its second open. Each safeguard was removed in turn and a test went red (10 mutants).
+nothing new on its second open. Each safeguard was removed in turn and a test went red (14 mutants; the size and inode checks each have a case only
+they catch, with the mtime put back).
 
 ## Weakest premise
-That appending is the only way a transcript grows. A writer that rewrites bytes in place without changing the size
-or the inode would be missed until the next rebuild. Claude Code appends.
+That appending is the only way a transcript grows. Caught: a shrink, a new inode, and any rewrite that changes the
+last 64 bytes before the cursor (the seam, read back whenever the file grew or its mtime moved). Missed until the
+next rebuild: a same-size rewrite that leaves those 64 bytes alone, or a rewrite with the mtime put back to the
+nanosecond. A test pins that miss as the stated bound. Claude Code appends.
+
+## Review round 1 fixes
+- The seam: a file truncated and rewritten longer on the same inode was read from the middle of new content.
+- Every listed file is opened on every pass, so one that became unreadable is dropped and counted, as a full read
+  does; an empty unopenable new file counts; a skipped parent's saved head is trusted only while it still opens.
+- The result is summed in (root, path) order, so its keys come in a full read's order (the tests compare key order).
+- `bytesConsumed` (was bytesRead): a half line left for later is re-read, not consumed.
+- Left as is (NIT, now in the code comment): a writer extending an already-whole unterminated line into something
+  unparseable is not caught; none does.
 
 ## Not covered
 - The done condition is measured on the RUNNING board after release (under 2 s late in the UTC day); not measured

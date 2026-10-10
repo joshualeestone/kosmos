@@ -29,6 +29,7 @@ const H = 60 * 60 * 1000;
 function reset() {
   fs.rmSync(nodePath.join(ROOT, 'projects'), { recursive: true, force: true });
   usage.resetDayCursor();
+  Object.assign(usage.lastDayCursorRun, { rebuilt: null, bytesConsumed: null });   // no test reads the last one's run
 }
 const P = (rel) => nodePath.join(ROOT, 'projects', rel);
 function write(rel, text, mtimeMs) {
@@ -46,9 +47,12 @@ const full = () => usage.scanUsage({ sinceDay: DAY, untilDay: DAY, mtimeCut: tru
 /* The cursor's answer equals a full read of the same files, and says whether it rebuilt. */
 async function same(why, { rebuilt, bytes } = {}) {
   const got = await usage.scanDayCursor(DAY);
-  assert.deepEqual(got, await full(), why);
+  const want = await full();
+  assert.deepEqual(got, want, why);
+  // Round 1: the keys come in a full read's order too (deepEqual does not compare order).
+  for (const k of ['days', 'folders']) assert.deepEqual(Object.keys(got[k][DAY] || {}), Object.keys(want[k][DAY] || {}), why + ': ' + k + ' key order');
   if (rebuilt !== undefined) assert.equal(usage.lastDayCursorRun.rebuilt, rebuilt, why + ': rebuilt');
-  if (bytes !== undefined) assert.equal(usage.lastDayCursorRun.bytesRead, bytes, why + ': bytes read');
+  if (bytes !== undefined) assert.equal(usage.lastDayCursorRun.bytesConsumed, bytes, why + ': bytes read');
   return got;
 }
 
@@ -170,6 +174,98 @@ test('#5759: a file that shrank, was replaced or vanished makes the cursor rebui
   assert.equal(got.folders[DAY]['/w/b2'], undefined);
 });
 
+test('#5759 round 1: a file truncated and rewritten LONGER on the same inode is caught by its seam, never read from the middle', async () => {
+  reset();
+  const f = write('p/a.jsonl', cwdLine('/w/g') + row('g1', 5));
+  await same('start', { rebuilt: true });
+  const ino = fs.statSync(f).ino;
+  fs.writeFileSync(f, cwdLine('/w/g2') + row('g2', 9) + row('g3', 9), 'utf8');   // truncate, then write: same inode
+  assert.equal(fs.statSync(f).ino, ino, 'precondition: the same inode');
+  const got = await same('rewritten longer', { rebuilt: true });
+  assert.equal(got.folders[DAY]['/w/g2'].output_tokens, 18);
+  // A same-size rewrite inside the seam (the last row) is caught the same way: the mtime moved and the seam differs.
+  const now = fs.readFileSync(f, 'utf8');
+  const at = now.lastIndexOf('"output_tokens":9');
+  fs.writeFileSync(f, now.slice(0, at) + '"output_tokens":8' + now.slice(at + '"output_tokens":9'.length), 'utf8');
+  fs.utimesSync(f, new Date(Date.now() + 5000), new Date(Date.now() + 5000));
+  await same('a same-size rewrite of the last row', { rebuilt: true });
+});
+
+test('#5759 round 1 (the stated bound): a same-size rewrite BEFORE the seam is not seen until the next rebuild', async () => {
+  reset();
+  const f = write('p/a.jsonl', cwdLine('/w/g') + row('g1', 5) + row('g2', 9) + row('g3', 9));
+  await same('start', { rebuilt: true });
+  const now = fs.readFileSync(f, 'utf8');
+  const at = now.indexOf('"output_tokens":5');
+  fs.writeFileSync(f, now.slice(0, at) + '"output_tokens":4' + now.slice(at + '"output_tokens":5'.length), 'utf8');
+  const got = await usage.scanDayCursor(DAY);
+  assert.equal(got.days[DAY].m.output_tokens, 23, 'the cursor keeps the old count (writers append; this is the plan\'s weakest premise)');
+  assert.equal((await full()).days[DAY].m.output_tokens, 22, 'CONTROL: a full read sees the rewrite');
+});
+
+test('#5759 round 1: a file that becomes unreadable after it was read is dropped and counted unreadable, as a full read does', async (t) => {
+  reset();
+  write('p/a.jsonl', cwdLine('/w/a') + row('a1', 5));
+  const b = write('p/b.jsonl', cwdLine('/w/b') + row('b1', 7));
+  await same('start', { rebuilt: true });
+  fs.chmodSync(b, 0o000);
+  t.after(() => { try { fs.chmodSync(b, 0o644); } catch { /* removed */ } });
+  const got = await same('b cannot be opened now, its size unchanged', { rebuilt: true });
+  assert.equal(got.unreadable, 1);
+  assert.equal(got.folders[DAY]['/w/b'], undefined);
+  const e = write('p/e.jsonl', '');
+  fs.chmodSync(e, 0o000);
+  t.after(() => { try { fs.chmodSync(e, 0o644); } catch { /* removed */ } });
+  const two = await same('an empty new file that cannot be opened');
+  assert.equal(two.unreadable, 2);
+});
+
+test('#5759 round 1: a skipped parent that becomes unreadable leaves its subagent an orphan, as a full read does', async (t) => {
+  reset();
+  const old = Date.parse(DAY + 'T00:00:00Z') - 3 * H;
+  const parent = write('p/old.jsonl', cwdLine('/w/agent'), old);
+  write('p/old/subagents/y.jsonl', cwdLine('/w/wt') + row('y1', 6));
+  const before = await same('start', { rebuilt: true });
+  assert.equal(before.folders[DAY]['/w/agent'].output_tokens, 6);
+  fs.chmodSync(parent, 0o000);
+  fs.utimesSync(parent, new Date(old), new Date(old));
+  t.after(() => { try { fs.chmodSync(parent, 0o644); } catch { /* removed */ } });
+  const after = await same('the parent cannot be head-read now', { rebuilt: true });
+  assert.equal(after.folders[DAY]['/w/wt'].output_tokens, 6, 'its own first cwd, as an orphan');
+});
+
+test('#5759 round 1: a new file that sorts earlier puts its keys first, as a full read orders them', async () => {
+  reset();
+  write('p/k.jsonl', cwdLine('/w/k') + row('k1', 2, { model: 'zeta' }));
+  await same('start', { rebuilt: true });
+  write('p/a.jsonl', cwdLine('/w/a') + row('a1', 3, { model: 'alpha' }));
+  const got = await same('an earlier-sorting file read incrementally', { rebuilt: false });
+  assert.deepEqual(Object.keys(got.days[DAY]), ['alpha', 'zeta']);
+  assert.deepEqual(Object.keys(got.folders[DAY]), ['/w/a', '/w/k']);
+});
+
+test('#5759 round 1: with the mtime put back, the size and the inode still catch a shrink and a replacement', async () => {
+  reset();
+  // A whole-second mtime, so putting it back is exact (a Date drops the sub-millisecond part a real mtime has).
+  const whole = Math.floor(Date.now() / 1000) * 1000 - 60000;
+  const f = write('p/a.jsonl', cwdLine('/w/a') + row('a1', 5) + row('a2', 7), whole);
+  await same('start', { rebuilt: true });
+  const m1 = new Date(whole);
+  fs.truncateSync(f, Buffer.byteLength(cwdLine('/w/a') + row('a1', 5)));
+  fs.utimesSync(f, m1, m1);   // the seam is never read back when neither the size grew nor the mtime moved
+  await same('shrunk, mtime restored: the size check', { rebuilt: true });
+  const tailRow = row('t1', 1);
+  const g = write('p/b.jsonl', cwdLine('/w/b') + row('b1', 30) + tailRow, whole);
+  await same('b read', { rebuilt: false });
+  const m2 = new Date(whole);
+  const other = P('p/b.other');
+  fs.writeFileSync(other, cwdLine('/w/z') + row('b1', 20) + tailRow, 'utf8');   // same size, same last bytes
+  assert.equal(fs.statSync(other).size, fs.statSync(g).size, 'precondition: the same size');
+  fs.utimesSync(other, m2, m2);
+  fs.renameSync(other, g);
+  await same('replaced by another file, same size, seam and mtime: the inode check', { rebuilt: true });
+});
+
 test('#5759: a seeded random run of appends, new files, duplicates, cwds and half lines always equals a full read', async () => {
   reset();
   let seed = 5759;
@@ -205,5 +301,5 @@ test('#5759: dailyUsageByModel reads today through the cursor when today is the 
   assert.equal(usage.lastDayCursorRun.rebuilt, true, 'the first open reads the day');
   const two = await usage.dailyUsageByModel(1);
   assert.deepEqual(two.byDay[today], one.byDay[today]);
-  assert.deepEqual([usage.lastDayCursorRun.rebuilt, usage.lastDayCursorRun.bytesRead], [false, 0], 'the second open reads nothing new');
+  assert.deepEqual([usage.lastDayCursorRun.rebuilt, usage.lastDayCursorRun.bytesConsumed], [false, 0], 'the second open reads nothing new');
 });
