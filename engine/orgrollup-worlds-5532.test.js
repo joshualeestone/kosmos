@@ -469,6 +469,28 @@ test('#5532 widening (board review 14): past the run\'s deadline no other Kosmos
   assert.deepEqual(reads, ['beta'], 'CONTROL: before the deadline it is read');
 });
 
+test('#5532 widening (board review 15): the fifteen are counted in sends, so a skipped Kosmos takes no slot', async () => {
+  const max = r.OTHERS_MAX;
+  // Two enrolled siblings first, then max + 2 free ones: max of the free ones go, and the list is asked for in full.
+  const ids = ['e1', 'e2'].concat(Array.from({ length: max + 2 }, (_, i) => 'f' + i));
+  const hex = (k) => require('crypto').createHash('md5').update(k).digest('hex');
+  const sent = [];
+  let asked = null;
+  const c = {
+    o: { otherWorlds: (root, o) => { asked = o; return ids.map((id) => ({ id, env: { K: id } })); },
+      gatherIn: async (env) => (env.K.startsWith('e') ? { enrolled: true }
+        : { world: hex(env.K), enrolled: false, gathered: JSON.parse(JSON.stringify(inv(env.K))) }) },
+    oe: { mayReport: () => true, readEnrollment: () => ({ world: 'a'.repeat(32), consentHash: 'h' }) },
+    eo: {}, rec: { world: 'a'.repeat(32), consentHash: 'h' }, accepted: { everyKosmosConsented: true, usageConsented: false },
+    pf: { fields: {} }, root: '/nowhere', now: T0, reason: 'daily', prev: {},
+    remote: { macRequest: async (m, route, body) => { sent.push(body.world); return { ok: true, data: { ok: true } }; } },
+  };
+  await r.sendOthers(c);
+  assert.deepEqual(asked, { all: true }, 'the list was cut before anything was known about it');
+  assert.equal(sent.length, max, 'the enrolled siblings took slots, or the cap was not kept');
+  assert.equal(sent[0], hex('f0'));
+});
+
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
   const root = world(t);
   const c = coordinator();

@@ -493,7 +493,8 @@ function elsewhereRunner(deps) {
       }
       return 'spawned';
     },
-    stop() { try { if (child) child.kill(); } catch { /* gone */ } },
+    // Free again at once (board review 15): a later tick does not wait for the killed child's callback.
+    stop() { try { if (child) child.kill(); } catch { /* gone */ } child = null; running = false; },
   };
 }
 
@@ -536,12 +537,22 @@ async function sendOthers(c) {
   if (!c.accepted || c.accepted.everyKosmosConsented !== true) return next;
   let list = [];
   const seen = new Set();
-  try { list = (c.o.otherWorlds || otherWorlds)(c.root) || []; } catch { return prev; }
+  /* Every other Kosmos, not the first fifteen in registry order (board review 15): one enrolled itself, or unreadable,
+     must not take a slot, so the fifteen are counted in SENDS below. */
+  try { list = (c.o.otherWorlds || otherWorlds)(c.root, { all: true }) || []; } catch { return prev; }
+  let tried = 0;
   let complete = true;   // every Kosmos read, and no stop: only then may the holds forget an id (board review 6)
   for (const w of list) {
     if (!c.oe.mayReport(c.eo)) { complete = false; break; }   // left meanwhile: nothing more goes
     /* Inside the run lock's bound (board review 14): an in-process tick has no other bound, and a run past it could
-       have its live lock taken over. Kosmoses not reached are resent by a later send (their signatures not kept). */
+       have its live lock taken over. Checked before each read; each send after it is bounded by macRequest's own 20 s
+       (remote.js MAC_REQUEST_TIMEOUT_MS). Kosmoses not reached are resent by a later send. */
+    // The company takes OTHERS_MAX besides the enrolled Kosmos: past that, said once, and the rest wait.
+    if (tried >= OTHERS_MAX) {
+      console.error('orgrollup: this computer has more Kosmoses than the company takes; the rest are not sent');
+      complete = false;
+      break;
+    }
     if (Number.isFinite(c.deadline) && Date.now() > c.deadline) {
       console.error('orgrollup: the other Kosmoses\' rollups stopped at the run\'s time bound; the rest go next time');
       complete = false;
@@ -553,7 +564,8 @@ async function sendOthers(c) {
     if (got && got.enrolled === true) continue;
     const idOk = !!got && require('./orgenroll').WORLD_ID.test(got.world);
     if (!idOk) complete = false;   // a malformed id is a failed read (board review 7)
-    // A read that failed drops its signature, so the next change send sends it again (the safe direction). Two
+    // A read that failed drops its signature, so the next change send sends it again (the safe direction), except
+    // after a cap refusal later in the pass, which keeps the last signature that landed (board review 15). Two
     // entries that resolve to one id are one Kosmos: it goes once (board review 1).
     if (!idOk || got.world === c.rec.world || seen.has(got.world)) continue;
     seen.add(got.world);
@@ -595,6 +607,7 @@ async function sendOthers(c) {
     const now2 = c.oe.mayReport(c.eo) ? c.oe.readEnrollment(c.eo) : null;
     if (!now2 || now2.world !== c.rec.world || now2.consentHash !== c.rec.consentHash) { complete = false; break; }
     let r;
+    tried += 1;
     try { r = await c.remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
     if (r && r.ok) { if (reason === 'daily') missed.delete(got.world); if (!g.partial) next[got.world] = sig; continue; }
     if (reason === 'daily') missed.add(got.world);
