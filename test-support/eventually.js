@@ -14,13 +14,24 @@
 // look true -- a condition that never holds still times out at any scale, so a real
 // hang is still caught. At scale 1 (CI, an unloaded box, or the variable unset) every
 // budget is byte-identical to the loops this replaces. The one thing a wall-clock
-// budget must never do is get SHORTER, so the scale is floored at 1 here regardless
-// of what the environment says; the 4x cap lives in the runner that sets the value.
+// budget must never do is get SHORTER, so the scale is floored here regardless of what
+// the environment says, and it is capped too (past 4x a slow test is a hang, not
+// contention, and an unbounded value makes a hung wait take minutes).
+
+// The scale bounds, defined ONCE here so the clamp has a single derivation in JS. The
+// runner's shell lib (tools/lib/test-time-scale.sh) mirrors the same [1, 4] for the
+// value it computes; this JS clamp is the guard for the path that BYPASSES the runner
+// (a direct `node --test` with KOSMOS_TEST_TIME_SCALE forced), where no runner has
+// already clamped it. A stray KOSMOS_TEST_TIME_SCALE=77 therefore scales by 4, not 77.
+const SCALE_FLOOR = 1;
+const SCALE_CAP = 4;
 
 // Read ONCE at module load (the suite's scale is fixed for the whole run; #2749's
-// "read the moving load once" lesson). A value <= 1, absent, or non-numeric means 1.
+// "read the moving load once" lesson). A value <= FLOOR, absent, or non-numeric means
+// FLOOR; a value above CAP is capped to CAP.
 const RAW = Number(process.env.KOSMOS_TEST_TIME_SCALE);
-const SCALE = Number.isFinite(RAW) && RAW > 1 ? RAW : 1;
+const SCALE =
+  Number.isFinite(RAW) && RAW > SCALE_FLOOR ? Math.min(RAW, SCALE_CAP) : SCALE_FLOOR;
 
 // Scale a wall-clock LIVENESS budget in ms. Math.ceil so a scaled budget is never a
 // fraction of a millisecond short of the literal (and scaleBudget(n) === n at scale 1).
@@ -56,4 +67,8 @@ async function eventually(probe, pred, opts = {}) {
   }
 }
 
-module.exports = { eventually, scaleBudget, SCALE };
+// SCALE_FLOOR / SCALE_CAP are exported so tools/test-time-scale-5727.sh can assert they
+// AGREE with the shell lib's clamp ends: the bounds have two derivations (here and in
+// tools/lib/test-time-scale.sh), and a cap changed in one file but not the other is the
+// one real drift hazard, so a test pins them together.
+module.exports = { eventually, scaleBudget, SCALE, SCALE_FLOOR, SCALE_CAP };
