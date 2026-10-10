@@ -184,3 +184,19 @@ test('#5643 retry review 1: the same run id from the same runner is the same run
   const junk = tasks.recordRun(id, n, 'mona', 'x', t0 + 400 * 1000, { runId: 'not-hex!' });
   assert.notEqual(junk.duplicate, true);
 });
+
+test('#5643 retry review 3: an id the minute absorbed is remembered; ids survive a later run; a rule change forgets them', () => {
+  const { id, n } = freshRepeating();
+  const t0 = Date.UTC(2026, 9, 9, 13, 0, 0);
+  tasks.recordRun(id, n, 'leo', 'all clear', t0, { runId: '1111111111111111' });
+  // Command B inside the minute: absorbed by time, and its id is kept.
+  assert.equal(tasks.recordRun(id, n, 'leo', 'all clear', t0 + 50 * 1000, { runId: '2222222222222222' }).duplicate, true);
+  assert.equal(tasks.recordRun(id, n, 'leo', 'all clear', t0 + 70 * 1000, { runId: '2222222222222222' }).duplicate, true, 'a late retry of an absorbed command was recorded');
+  // A later real run does not let an older command's late attempt through.
+  assert.notEqual(tasks.recordRun(id, n, 'leo', 'all clear', t0 + 200 * 1000, { runId: '3333333333333333' }).duplicate, true);
+  assert.equal(tasks.recordRun(id, n, 'leo', 'all clear', t0 + 400 * 1000, { runId: '1111111111111111' }).duplicate, true, 'an old command\'s late attempt was recorded after a newer run');
+  // A rule change starts afresh: the ids go with the streak.
+  tasks.setRepeat(id, n, { every: 'day', at: '09:00' });
+  assert.equal(stored(id, n).recentRunIds, undefined, 'a rule change kept the run ids');
+  assert.notEqual(tasks.recordRun(id, n, 'leo', 'all clear', t0 + 900 * 1000, { runId: '1111111111111111' }).duplicate, true, 'CONTROL: after a rule change the id is a new run');
+});
