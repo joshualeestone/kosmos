@@ -6,7 +6,8 @@
  *
  * WHICH REFUSALS COUNT. Only rules the company placed (decided on the card, Pete agreed): the token-only guard's deny
  * rules and its sandbox. Only token-only agents (engine/sendertoken.js tokenOnlyList) WHOSE GUARD IS IN FORCE (their
- * settings hold the guard's token rules; review 16) run under them, so only their transcripts are read: a person's own deny rules on any OTHER agent, and the auto-mode classifier, are never reported.
+ * settings hold the guard's token rules; review 16) run under them, so only their transcripts are read: a person's
+ * own deny rules on any OTHER agent, and the auto-mode classifier, are never reported.
  * ⚠️ On a token-only agent the guard's rules share one deny list with the person's own (setup-assistant keeps what was
  * there), and Claude Code's refusal text is the same for both, so such an agent's refusal by the PERSON's own rule is
  * reported as the guard's (review 6; a stated premise, beside the sandbox text match). A tool whose own output starts
@@ -219,7 +220,7 @@ function targetClass(tool, input, ctx) {
           }
           else if (!notTree && !(prog === 'find' && cur.sawOpt)) cur.words.push(v);
         }
-        if (paths.length >= 64) { incomplete = true; return; }   // the rest is not read word by word (review 42)
+        if (paths.length >= 64) { incomplete = true; return; }   // the exact-name search below covers the whole command (review 42)
       }
     };
     look(shellWords(input.command.slice(0, 4096)), 0);
@@ -555,7 +556,7 @@ function scanText(text, calls, ctx) {
       const sessionRef = ref(ctx.session);
       const toolUseRef = ref(b.tool_use_id);
       if (!agent || !sessionRef || !toolUseRef) continue;
-      const target = (rule === 'sandbox' ? call.pathTarget : call.target) || targetClass(tool, {}, ctx);
+      const target = (rule === 'sandbox' ? call.pathTarget : call.target) || targetClass(tool, {}, { ...ctx, agentDir: null });
       /* An "Operation not permitted" is the company's sandbox only where that sandbox denies something: the board's
          files (its denyRead), and the agent's and the account's config (its denyWrite), and another agent's folder.
          Anywhere else it is macOS privacy control (TCC: Desktop, Documents, Full Disk Access) or an unrelated EPERM, not
@@ -789,6 +790,10 @@ async function tickOnce(opts) {
        to these events: the accepted words must name them, or nothing is read. */
     const words = oe.acceptedConsent(eo);
     if (!words || !words.reports.some((l) => l.toLowerCase().includes(EVENTS_CONSENT_PHRASE))) {
+      /* Words read and without the line stop reporting as a Leave does, so words that name the events again start
+         clean (challenge loop after the rebase: A, then B without the line, then A again sent B's refusals). Words that
+         could not be read mark nothing. */
+      if (words) { try { markWithdrawn(o.root); } catch { /* the next tick tries again */ } }
       return { sent: 0, because: 'the words accepted here do not name these events; nothing is read or sent' };
     }
     const rec = oe.readEnrollment(eo);
