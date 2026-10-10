@@ -30,8 +30,12 @@ test('#5080: an unreadable choice is never shown as a choice, and cannot be save
   assert.match(code, /async function agentLanguageChange\(\) \{\s*const sel = document\.getElementById\('agent-language'\);\s*if \(sel\.value === '__unknown'\) return;/);
 });
 
-test('#5080: Automatic names the computer\'s language only when the board is sure of it', () => {
-  assert.match(code, /a && a\.sure && a\.name \? 'Automatic: ' \+ a\.name \+ ', from this computer' : 'Automatic: this computer\\u2019s language'/);
+test('#5080: Automatic names the computer\'s language only when the board is sure of it; otherwise it says English', () => {
+  assert.match(code, /const autoSure = !!\(a && a\.sure && a\.name\);\s*opts\.push\(\{ value: 'auto', text: autoSure \? 'Automatic: ' \+ a\.name \+ ', from this computer' : 'Automatic: English for now' \}\);/);
+  // Mona Lisa's review: a not-sure option never promises the computer's language (no block is written, so it is English).
+  assert.doesNotMatch(code, /'Automatic: this computer/, 'an Automatic option promises the computer\'s language');
+  assert.match(code, /id="agent-language-auto-note"[^>]*hidden>Kosmos could not tell this computer’s language, so your agents write in English\. Pick a language above to change it\.<\/p>/);
+  assert.match(code, /document\.getElementById\('agent-language-auto-note'\)\.hidden = unread \|\| sel\.value !== 'auto' \|\| autoSure;/);
 });
 
 test('#5080: no em dash and no "this Mac" in the new words', () => {

@@ -18347,6 +18347,9 @@ window.kosmosMeasureScrollbarWidth();
         <select id="agent-language" aria-describedby="agent-language-hint" hidden></select>
       </div>
       <p class="dhint" id="agent-language-hint" style="margin:4px 0 0;">Your agents write to you and in your project rooms in this language. Kosmos+ community posts stay in English.</p>
+      <!-- Mona Lisa's review: Automatic with no sure read writes no block, so agents write English; say that, never
+           promise "this computer's language" the board could not read. -->
+      <p class="dhint" id="agent-language-auto-note" style="margin:4px 0 0;" hidden>Kosmos could not tell this computer’s language, so your agents write in English. Pick a language above to change it.</p>
       <p class="dhint" id="agent-language-msg" role="status" style="margin:4px 0 0;"></p>
     </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
@@ -32807,7 +32810,8 @@ function agentLanguagePaint(r, keepMsg) {
   const a = r && r.automatic;
   const opts = [];
   if (unread) opts.push({ value: '__unknown', text: 'Could not be read just now', disabled: true });
-  opts.push({ value: 'auto', text: a && a.sure && a.name ? 'Automatic: ' + a.name + ', from this computer' : 'Automatic: this computer\u2019s language' });
+  const autoSure = !!(a && a.sure && a.name);
+  opts.push({ value: 'auto', text: autoSure ? 'Automatic: ' + a.name + ', from this computer' : 'Automatic: English for now' });
   for (const o of list) opts.push({ value: o.tag, text: String(o.name || o.tag) });
   sel.textContent = '';
   for (const o of opts) {
@@ -32818,6 +32822,7 @@ function agentLanguagePaint(r, keepMsg) {
   }
   sel.value = unread ? '__unknown' : (r.choice || 'auto');
   sel.hidden = false;
+  document.getElementById('agent-language-auto-note').hidden = unread || sel.value !== 'auto' || autoSure;
   if (keepMsg) return;
   document.getElementById('agent-language-msg').textContent = !unread ? ''
     : 'We could not read which language you chose just now. Pick one to set it again; until then your agents keep the language they have.';
