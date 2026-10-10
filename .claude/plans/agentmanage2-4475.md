@@ -27,6 +27,9 @@ was reviewed over 21 rounds on #5123 (approved 10-03).
 - Iteration 1 (re-application review): the launch hand-off's Read rules take main's launch-folder route (#5516
   review 3), so an app folder with a pattern character ("Kosmos (1)") names itself in launchUnsafe and the rest of
   the guard is written, instead of refusing the whole guard. Test with a control; mutation-checked.
+- Iteration 3: since #5333 a stopped agent's token file is an empty list (retire keeps it), which keyHoldsOthers read
+  as 'unknown', so a creator was refused removing any member whose run had ended. An empty list now answers false
+  (it holds nobody's sign-in); a file with no readable token otherwise still answers 'unknown'. Route test plus control.
 - Accepted, unchanged from #5123: one torn line in ended-agents.jsonl makes endedSince answer null, so every
   token-only removal is refused until the file is mended (the refusing direction). Bounding and mending that file is
   #5208.
