@@ -124,7 +124,7 @@ test('review 3: a duplicate run is said as a duplicate first, even when the boar
   const home = makeHome();
   await withStub(async (port) => {
     const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'again']);
-    assert.match(r.out, /already recorded a moment ago/, r.out);
+    assert.match(r.out, /already recorded, so it was not recorded twice/, r.out);
   });
-  assert.match((await win(['task', 'ran', 'p1', '3', 'again'])).out, /already recorded a moment ago/);
+  assert.match((await win(['task', 'ran', 'p1', '3', 'again'])).out, /already recorded, so it was not recorded twice/);
 });
