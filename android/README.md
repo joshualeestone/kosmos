@@ -28,7 +28,7 @@ cannot (that needs a separate native shell, deferred until Xcode exists).
 ```
 android/
 ├── settings.gradle, build.gradle, gradle.properties   Gradle project
-├── gradlew, gradlew.bat, gradle/wrapper/              Gradle 8.9 wrapper (real jar)
+├── gradlew, gradlew.bat, gradle/wrapper/              Gradle 8.13 wrapper (real jar)
 ├── gradle/gradle-daemon-jvm.properties                pins the daemon to JDK 21
 ├── app/
 │   ├── build.gradle                                   AGP 8.13.0, compile/target SDK 36
@@ -126,7 +126,7 @@ launched under the default JDK 26 builds green, because the daemon runs on 21.
 line in `gradle.properties` is the single machine-specific piece: it points at
 this box's keg-only JDK 21 (`brew install openjdk@21`, which does not disturb
 the default 26). The `toolchainVersion=21` criteria are machine-independent, but
-Gradle 8.9's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
+Gradle 8.13's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
 *present* on whatever machine runs the build:
 
 - **Another dev machine:** repoint or remove the `installations.paths` line and
