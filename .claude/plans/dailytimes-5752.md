@@ -1,0 +1,87 @@
+# dailytimes-5752: a daily repeat can run at several times a day (slice 1 of #5752)
+
+Card: joshualeestone/kosmos#5752 (decision comment 2026-10-10, night shift). Slice 2 (the non-member refusal names
+its fix) and slice 3 (a board notice with Add as member) are separate.
+
+## Change
+- engine/taskrepeat.js: a daily rule's `at` is one time (a string, exactly as today) or two or more (a sorted list
+  with no repeats, at most 24). `normalise` stores one time as a string, so every existing rule and reader is
+  unchanged. A weekly rule still takes one time.
+  - `nextAfter` tries every time of each day.
+  - `describe` says "every day at 9am and 9pm" ("9am, 1pm and 9pm" for three).
+  - `fromWords` reads `--at 09:00,21:00` (commas, spaces allowed).
+  - The early-run and miss graces use the SHORTEST gap between the day's times (wrapping past midnight), so two
+    times 30 minutes apart do not get a 10-minute grace. The latest-slot walk keeps a one-day period, so a
+    lopsided pair (09:00 and 09:30) is never skipped.
+- web/index.html (the task page's Repeats control): a list rule keeps its list. The time box shows the first time
+  and the line below says every time; the OTHER times are kept beside the box (`dataset.others`), and the choice is the
+  box's time plus them, sorted, a repeat said once. After a Save the others are the saved times other than the box's;
+  when an agent changes the rule under an unsaved edit, the edit stands and the others follow the new rule. Choosing
+  another frequency sends the box's one time; the others are still kept, so switching back to Every day before
+  saving brings them back (round 6 NIT, left as is). Save stays off while nothing changed.
+- install/kosmos and tools/windows/kosmos-cli.js: usage says `--at HH:MM[,HH:MM...]`; both already pass `--at`
+  through as text, and the board checks it.
+
+## Tests
+- engine/taskrepeat-dailytimes-5752.test.js: shapes accepted and refused; nextAfter across both times and past midnight; describe;
+  fromWords; graces from the shortest gap; missedRuns and runIsLate on a twice-daily rule; a lopsided pair's
+  latest slot.
+- server.task-repeat-4787.test.js: the route stores `--at 21:00, 09:00` sorted as a list, says it in words, records a
+  run on it, and refuses a bad time in the list while keeping the stored rule. (On-time and late runs at each time are
+  covered by the engine tests, not this one.)
+- web.task-repeat-4787.test.js: the Repeats control's choice, Save, and the page's own paint loop (tkPaintRepeat and
+  tkRepeatDirty with a stub page) across a save, the 5-second repaint and an agent's change.
+
+## Weakest premise
+That the screen editor is the only reader that turns a rule into one time. Checked: outside taskrepeat.js the rule
+is read by tasks.setRepeat (JSON compare of the normalised rule), the route (fromWords), and web/index.html
+(tkRepeatChoice / tkRepeatStoredChoice). Nothing else reads `repeat.at`.
+
+## Not changed on purpose
+- The agent rules (engine/defaults.js) still show only `daily --at 09:00`. Changing them bumps DOCTRINE_VERSION, which
+  each version backs with measured agent runs against a control, and offers the new rules to every agent. The CLI help
+  (`kosmos task repeat`) carries the new form now; the rules line is a follow-up on #5752.
+
+## Not covered
+- An interval cadence ("every 6 hours from 08:00"). Different shape; not asked for.
+- The screen cannot ADD a time or remove one (except by moving the first onto another); that is the agent or the CLI. A design pass for a multi-time picker
+  would be its own card.
+
+## Review round 1 fixes
+- The time box moves the first of several times and keeps the others (it replaced the whole list, silently).
+- The Windows help line carries the several-times form (a test pins both CLIs' line).
+- `gapOf` guards a rule that does not check out, so a hand-edited stored list cannot throw in `fieldsOf` (which runs for
+  every task in the projects list).
+- `--at` takes spaces between times; a weekly rule given several gets the weekly sentence.
+
+## Review round 2 fixes
+- After a Save, the remembered list is the one saved (`tkRepeatSaved`), so the next edit cannot bring back a time the
+  person just removed.
+- The file header documents the list shape.
+- Left as is (NITs): a 24-time rule reads as a long sentence; the latest-slot walk does about 50 `nextAfter` calls for a
+  24-time rule; the early-run grace (gap/30) and the miss grace (gap/4) differ, as they did before, now sized by gap.
+
+## Review round 3 fixes
+- The screen keeps the OTHER times, not the list with the box as its first entry. Moving the box's time past another
+  one and saving left Save lit (a second click dropped a time) and froze the control against later agent changes.
+- An agent's change under an unsaved edit updates the others, so Save never sends a time on no screen.
+- A test drives the page's own paint loop with a stub page.
+- Left as is (NIT): `--at ' 09:00 '` (one time with spaces) is still refused, as today; a list is trimmed.
+
+## Review round 4 fixes
+- Save records the box's time when it is pressed. If the box shows something else when the answer lands (the person
+  left the task and came back, so the controls were repainted from the old rule, or typed during the save), the
+  controls show what was saved; an edit typed in that moment is visibly replaced. Before, the others were worked out
+  from the box at answer time, which could leave Save lit with a third time nobody chose.
+- `tkRepeatShowChoice` sets the controls to a choice, shared by the repaint and that path.
+- Left as is (NITs): the 5-second poll can light Save while a save is in flight (true before this change); two daily
+  times 15 to 20 minutes apart get a 4 to 5 minute miss grace, so a run reported that early is ambiguous between them.
+
+## Review round 5 fixes
+- The answer-lands check also compares the whole choice with what was sent, so a repaint that changed only the
+  frequency or the day (twice daily changed to weekly, box unchanged) shows what was saved rather than daily 09:00 alone.
+- The CLI usage reads `--at HH:MM[,HH:MM...]` (it read as "at most two").
+
+## Review round 6 (Sonnet)
+No BLOCKER, WARNING or CONVENTION. Two NITs: the kept others return when switching back to Every day (now said above),
+and the refusal wording differs between `--at "09:00 "` and `--at "09:00 ,"` (both refused).

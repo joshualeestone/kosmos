@@ -106,7 +106,7 @@ const USAGE = {
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs',
-    '      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
+    '      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
     '      --unchanged                                              it found nothing new (the task\'s page rolls such runs up)',
@@ -1042,7 +1042,7 @@ async function taskDoneWhen(ctx, args) {
 
 /* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
-const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon] [--reviewer <agent|none>]   (or --clear)';
+const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
 async function taskRepeat(ctx, args) {
   const [project, num] = args;
   if (!project || !num || args.length < 3) { ctx.err(REPEAT_USAGE); return 2; }

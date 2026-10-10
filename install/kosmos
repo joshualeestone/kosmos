@@ -4401,7 +4401,7 @@ cmd_task() {
       say "  kosmos task unhold <project-id> <task-number>                 take it off hold"
       say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs"
       say "  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed"
-      say "      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
+      say "      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
       say "  kosmos task ran <project-id> <task-number> [\"what this run found\"]  record that a repeating task's job just ran"
       say "      --unchanged                                              it found nothing new (the task's page rolls such runs up)"
       say "  (project ids are in your instructions' Your projects section.)"
@@ -4526,7 +4526,7 @@ cmd_task() {
     repeat)
       # kosmos#4787: <project> <task-number> <hourly|daily|weekly> [--at HH:MM|:MM] [--on <day>], or --clear. Checked before
       # the board, as built is; the rule itself is checked whole by the board (taskrepeat.repeatProblem).
-      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon] [--reviewer <agent|none>]   (or --clear)"
+      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "$_rusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _r _rwant=""

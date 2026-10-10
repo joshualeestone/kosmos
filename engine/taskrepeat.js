@@ -7,6 +7,8 @@
  * The rule, in this computer's local time (the board and the person are on it):
  *   { every: 'hour', minute: 0-59 }                  every hour at :MM
  *   { every: 'day',  at: 'HH:MM' }                   every day at HH:MM
+ *   { every: 'day',  at: ['HH:MM', ...] }            kosmos#5752: every day at each time (2 to 24, sorted; one time is
+ *                                                    stored as the string above, so older rules read as they always did)
  *   { every: 'week', day: 0-6 (Sunday 0), at: 'HH:MM' } every week on that day at HH:MM
  * Kosmos does not START the job (the person's own scheduler or the agent's loop does); the agent reports each run
  * (`kosmos task ran`), and the next run is worked out from the rule, never stored, so a changed rule never leaves a
@@ -17,6 +19,7 @@ const EVERY = ['hour', 'day', 'week'];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const NOTE_MAX = 500;   // a run's note: one line about what this run found, not the result itself
+const TIMES_MAX = 24;   // kosmos#5752: a daily task's times of day; more than hourly is an hourly task
 
 /* The rule as given (CLI or screen), checked whole: a sentence for what is wrong, or null. */
 function repeatProblem(r) {
@@ -28,7 +31,15 @@ function repeatProblem(r) {
     if (r.at !== undefined || r.day !== undefined) return 'an hourly task takes only the minute past the hour';
     return null;
   }
-  if (typeof r.at !== 'string' || !AT_RE.test(r.at)) return 'say the time as HH:MM on a 24-hour clock, for example 09:00';
+  /* kosmos#5752: a daily task can run at several times a day, given as a list. A weekly task takes one time. */
+  if (r.every === 'day' && Array.isArray(r.at)) {
+    if (r.at.length === 0) return 'say the time as HH:MM on a 24-hour clock, for example 09:00';
+    if (r.at.length > TIMES_MAX) return 'a daily task can run at most ' + TIMES_MAX + ' times a day';
+    if (!r.at.every((a) => typeof a === 'string' && AT_RE.test(a))) return 'say each time as HH:MM on a 24-hour clock, for example 09:00,21:00';
+    if (new Set(r.at).size !== r.at.length) return 'say each time of day once';
+  } else if (Array.isArray(r.at)) {
+    return 'a weekly task runs at one time on its day';
+  } else if (typeof r.at !== 'string' || !AT_RE.test(r.at)) return 'say the time as HH:MM on a 24-hour clock, for example 09:00';
   if (r.every === 'day') {
     if (r.day !== undefined || r.minute !== undefined) return 'a daily task takes only the time';
     return null;
@@ -42,11 +53,19 @@ function repeatProblem(r) {
 function normalise(r) {
   if (r === null || r === undefined) return null;
   if (r.every === 'hour') return { every: 'hour', minute: r.minute === undefined ? 0 : r.minute };
-  if (r.every === 'day') return { every: 'day', at: r.at };
+  if (r.every === 'day') {
+    /* kosmos#5752: one time stays a string, so every rule stored before lists existed reads exactly as it did; two or
+       more are kept sorted, so the same times in another order are the same rule (setRepeat compares them). */
+    if (!Array.isArray(r.at)) return { every: 'day', at: r.at };
+    const times = [...r.at].sort();
+    return { every: 'day', at: times.length === 1 ? times[0] : times };
+  }
   return { every: 'week', day: r.day, at: r.at };
 }
 
 function hm(at) { const m = AT_RE.exec(at); return [Number(m[1]), Number(m[2])]; }
+/* kosmos#5752: the rule's times of day, as a list (one for a weekly or single-time daily rule). */
+function timesOf(r) { return Array.isArray(r.at) ? r.at : [r.at]; }
 
 /* The first scheduled time strictly after `ms`, in local time (a Date number), or null for no rule. A daylight-saving
    jump is taken as the clock gives it: a 02:30 rule on the night 02:00 is skipped lands at 03:30, as local time does. */
@@ -63,13 +82,19 @@ function nextAfter(rule, ms) {
     }
     return null;
   }
-  const [h, m] = hm(r.at);
+  const hms = timesOf(r).map(hm);
   /* #4787 review 1: each candidate day is built ONCE from (year, month, day + n, h, m). Moving a built Date by setDate
      kept a spring-forward shift (02:30 that night became 03:30) on every later day. */
+  /* kosmos#5752: the earliest candidate after `ms` across the day's times, not the first in list order: a DST jump can
+     move one time past a later one (02:30 lands at 03:30, after a 03:00 slot). */
   for (let n = 0; n <= 8; n += 1) {
-    const t = new Date(y, mo, d + n, h, m, 0, 0);
-    if (r.every === 'week' && t.getDay() !== r.day) continue;
-    if (t.getTime() > ms) return t.getTime();
+    let best = null;
+    for (const [h, m] of hms) {
+      const t = new Date(y, mo, d + n, h, m, 0, 0);
+      if (r.every === 'week' && t.getDay() !== r.day) continue;
+      if (t.getTime() > ms && (best === null || t.getTime() < best)) best = t.getTime();
+    }
+    if (best !== null) return best;
   }
   return null;
 }
@@ -85,8 +110,9 @@ function describe(rule) {
   const r = normalise(rule);
   if (!r || repeatProblem(r)) return '';
   if (r.every === 'hour') return 'every hour' + (r.minute ? ' at :' + String(r.minute).padStart(2, '0') : '');
-  const [h, m] = hm(r.at);
-  return (r.every === 'day' ? 'every day' : 'every ' + DAY_NAMES[r.day]) + ' at ' + clock(h, m);
+  const said = timesOf(r).map((a) => clock(...hm(a)));
+  const list = said.length === 1 ? said[0] : said.slice(0, -1).join(', ') + ' and ' + said[said.length - 1];
+  return (r.every === 'day' ? 'every day' : 'every ' + DAY_NAMES[r.day]) + ' at ' + list;
 }
 
 /* A run's note, checked: trimmed, one line, at most NOTE_MAX characters. */
@@ -97,6 +123,13 @@ function noteProblem(note) {
   return null;
 }
 
+/* kosmos#5752: --at as given: one time stays as it is; times split on commas or spaces become a list (a trailing comma
+   leaves an empty entry, which is refused rather than dropped). */
+function timesWords(at) {
+  if (typeof at !== 'string') return at;
+  const s = at.trim();
+  return /[,\s]/.test(s) ? s.split(/\s*,\s*|\s+/) : at;
+}
 /* CLI words to a rule: ('day', { at: '09:00' }), ('week', { on: 'mon', at: '09:30' }), ('hour', { at: ':15' }). */
 function fromWords(every, opts = {}) {
   const e = String(every || '').toLowerCase().replace(/ly$/, '').replace(/^dai$/, 'day');   // hourly/daily/weekly too
@@ -104,11 +137,14 @@ function fromWords(every, opts = {}) {
     const at = opts.at === undefined ? undefined : String(opts.at).replace(/^:/, '');
     return { every: 'hour', ...(at === undefined ? {} : { minute: /^\d{1,2}$/.test(at) ? Number(at) : NaN }) };
   }
-  if (e === 'day') return { every: 'day', at: opts.at };
+  /* kosmos#5752: --at 09:00,21:00 (or "09:00 21:00") is two times a day. One time stays a string. A weekly task given
+     several is passed on as a list too, so it is refused with the weekly sentence rather than the bad-time one. */
+  const at = timesWords(opts.at);
+  if (e === 'day') return { every: 'day', at };
   if (e === 'week') {
     const on = String(opts.on || '').toLowerCase().slice(0, 3);
     const day = DAY_NAMES.findIndex((n) => n.toLowerCase().startsWith(on) && on.length === 3);
-    return { every: 'week', day: day === -1 ? undefined : day, at: opts.at };
+    return { every: 'week', day: day === -1 ? undefined : day, at };
   }
   return { every: e };
 }
@@ -138,9 +174,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
    with no run yet, after it was made) has passed. A task that does not repeat is never waiting. */
 const RUN_GRACE_MS = 10 * 60 * 1000;
 function graceFor(rule) {
-  const r = normalise(rule);
-  const period = !r ? 0 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
-  return Math.min(RUN_GRACE_MS, Math.floor(period / 30));
+  return Math.min(RUN_GRACE_MS, Math.floor(gapOf(rule) / 30));
 }
 /* The scheduled slot this task is due for next: the first slot after its last run (or after the rule was set), or null
    when there is no time to measure from (no rule, no stamp, or a run stamped in the future). Shared by
@@ -180,12 +214,24 @@ function waitingForNextRun(t, now = Date.now()) {
 const MISS_GRACE_MS = 15 * 60 * 1000;
 const MISSED_CAP = 99;
 function missGraceFor(rule) {
-  const r = normalise(rule);
-  return Math.min(MISS_GRACE_MS, Math.floor(periodOf(r) / 4));
+  return Math.min(MISS_GRACE_MS, Math.floor(gapOf(rule) / 4));
 }
 function periodOf(rule) {
   const r = normalise(rule);
   return !r ? 0 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
+}
+/* kosmos#5752: the shortest time between two slots, which sizes the graces: the period for one time a day, otherwise
+   the smallest gap between the day's times, counting the wrap past midnight. The latest-slot walk keeps periodOf, so a
+   lopsided pair (09:00 and 09:30) is never walked past. */
+function gapOf(rule) {
+  const r = normalise(rule);
+  /* round 1: a rule that does not check out (a hand-edited stored list) is sized as its period, never read: hm() throws
+     on a bad time, and fieldsOf runs for every task in the projects list. nextAfter and describe guard the same way. */
+  if (!r || repeatProblem(r) || r.every !== 'day' || !Array.isArray(r.at)) return periodOf(r);
+  const mins = r.at.map((a) => { const [h, m] = hm(a); return h * 60 + m; });
+  let gap = 1440;
+  for (let i = 0; i < mins.length; i += 1) gap = Math.min(gap, ((mins[(i + 1) % mins.length] - mins[i]) + 1440) % 1440 || 1440);
+  return gap * 60000;
 }
 /* The latest scheduled slot at or before `ms`, never earlier than `from` (a slot that is itself due counts), or null.
    Walks forward from two periods back, so it takes a few steps whatever the gap (review 1: reading it off a capped
