@@ -97,6 +97,8 @@ test('#5743 CONTROLS: an idle agent and a permission prompt are typed into as be
     const v = await chat.deliverAutomaticAsync('casey', 'A task line for Casey.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
     assert.ok(calls.typed().length > 0, 'nothing was typed to an idle agent');
+    // An ordinary delivery pays no extra screen read: only a card the snapshot already calls needs_you is looked at.
+    assert.equal(calls.filter((c) => c[0] === 'capture-pane').length, 0, 'an idle agent\'s screen was read before typing');
   });
   await onScreen(PERMISSION, 'needs_you', async (board, calls) => {
     const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
