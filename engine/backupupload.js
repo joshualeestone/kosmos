@@ -225,7 +225,7 @@ function checkOne(u, label, bytes, bind, expiresAtMs, allowHttp) {
    { ok: false, because }. Every upload must bind exactly the bytes we asked to write. `seenKeys` (optional) holds
    every key granted earlier in this run: a grant repeating one is refused, since the 412-on-retry rule rests on keys
    being unique across the run, not only within one grant. */
-function parseGrant(data, objects, seenKeys, runBucket) {
+function parseGrant(data, objects, seenKeys, runBucket, epoch) {
   const allowHttp = httpForTests;
   if (!data || typeof data !== 'object') return { ok: false, because: 'the grant answer is not an object' };
   const expiresAtMs = expiryMs(data.expires_at);
@@ -256,6 +256,8 @@ function parseGrant(data, objects, seenKeys, runBucket) {
   if (runBucket) {
     if (runBucket.prefix && runBucket.prefix !== bucketPrefix) return { ok: false, because: `the grant names another bucket (${bucketPrefix}) than this run's first (${runBucket.prefix})` };
   }
+  const ep = epochProblem(data, uploads.map((u) => u.key), epoch, 'the grant');
+  if (ep) return { ok: false, because: ep };
   return { ok: true, expiresAtMs, lifetimeMs: minExpiresS * 1000, uploads, bucketPrefix };
 }
 
@@ -331,7 +333,8 @@ function clockSkew(nowMs, expiresAtMs) {
   return null;
 }
 
-/* Upload sealed chunk objects ([{ name, object }]). deps: { macRequest, fetch?, now?, sleep? }.
+/* Upload sealed chunk objects ([{ name, object }]). deps: { macRequest, fetch?, now?, sleep? }. opts.epoch: the member
+   key epoch the chunks were sealed under (a context id, '1'); a grant naming another epoch is refused (#5744).
    Resolves { ok: true, keys, lockedUntil, bucket }: keys a Map from each chunk's name to the key it is stored under,
    lockedUntil a Map from each name to its lock's end (ms), bucket the bucket path they are all under. Or
    { ok: false, because, code?, retryLater?, grantSpent?, keys, lockedUntil, bucket } with the chunks stored so far,
@@ -365,6 +368,8 @@ async function uploadInner(deps, objects, opts, keys, run) {
   // A test seam; a value that is not a positive number falls back to the size-based timeout.
   const timeoutFor = (size) => (Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(size, conc));
   if (!Array.isArray(objects)) return { ok: false, because: 'no chunks', keys };
+  const epoch = sealedEpoch(o);
+  if (epoch === undefined) return { ok: false, because: `the key epoch given (${JSON.stringify(o.epoch)}) is not an epoch`, keys };
   for (const c of objects) {
     if (!c || typeof c.name !== 'string' || !Buffer.isBuffer(c.object)) return { ok: false, because: 'a chunk is not { name, object }', keys };
     if (c.object.length < MIN_OBJECT || c.object.length > MAX_OBJECT) return { ok: false, because: `a chunk is ${c.object.length} bytes, outside ${MIN_OBJECT} to ${MAX_OBJECT}`, keys };
@@ -389,7 +394,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // clock, so the deadline below never runs past the real expiry because the answer was slow.
     const asked = now();
     run.asked = true;
-    const g = await askGrant(deps.macRequest, pending, run.seenKeys, run.bucket);
+    const g = await askGrant(deps.macRequest, pending, run.seenKeys, run.bucket, epoch);
     if (g.ok || (g.out && g.out.grantSpent)) run.granted = true;
     if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
     for (const u of g.uploads) run.seenKeys.add(u.key);
@@ -497,13 +502,13 @@ async function askSigned(macRequest, route, makeBody, parse) {
   }
   return { ok: false, out: { because: 'the grant request was refused as replayed twice', code: 'replayed' } };
 }
-const askGrant = (macRequest, batch, seenKeys, runBucket) =>
-  askSigned(macRequest, GRANT_ROUTE, () => grantBody(batch), (d) => parseGrant(d, batch, seenKeys, runBucket));
+const askGrant = (macRequest, batch, seenKeys, runBucket, epoch) =>
+  askSigned(macRequest, GRANT_ROUTE, () => grantBody(batch), (d) => parseGrant(d, batch, seenKeys, runBucket, epoch));
 
 /* Check a manifest grant answer against the manifest's bytes: the same per-upload checks as a chunk's, bound by
    x-amz-checksum-sha256, and under `runPrefix`, the chunks' bucket path. { ok: true, expiresAtMs, lifetimeMs, upload }
    or { ok: false, because }. */
-function parseManifestGrant(data, bytes, runPrefix) {
+function parseManifestGrant(data, bytes, runPrefix, epoch) {
   if (!data || typeof data !== 'object') return { ok: false, because: 'the manifest grant answer is not an object' };
   const expiresAtMs = expiryMs(data.expires_at);
   if (!Number.isFinite(expiresAtMs)) return { ok: false, because: 'the manifest grant answer has no readable expires_at' };
@@ -512,7 +517,28 @@ function parseManifestGrant(data, bytes, runPrefix) {
   if (!c.ok) return c;
   // otherBucket: the caller's chunks are in a bucket the coordinator no longer grants to (a walker's index is stale).
   if (c.prefix !== runPrefix) return { ok: false, otherBucket: true, because: `the manifest grant names another bucket (${c.prefix}) than its chunks' (${runPrefix})` };
+  const ep = epochProblem(data, [c.upload.key], epoch, 'the manifest grant');
+  if (ep) return { ok: false, because: ep };
   return { ok: true, expiresAtMs, lifetimeMs: c.expiresS * 1000, upload: Object.assign(c.upload, { retainMs: c.retainMs }) };
+}
+
+/* #5744: the coordinator files every object under the member's CURRENT key epoch (<org>/<account>/<epoch>/...), chosen
+   per request, and a member who lost their key moves to the next one. Bytes sealed under one epoch's member key and
+   filed under another's would be opened by a reviewer with the wrong key, so when the caller names the epoch it sealed
+   under (opts.epoch), a grant whose answer or key names another is refused before anything is sent. */
+const EPOCH_ID = /^[1-9][0-9]{0,15}$/;
+/* The caller's opts.epoch as a context id ('1'), null when it gives none, or undefined when it gives one we cannot use. */
+function sealedEpoch(o) {
+  if (o.epoch === undefined || o.epoch === null) return null;
+  const e = String(o.epoch);
+  return EPOCH_ID.test(e) ? e : undefined;
+}
+function epochProblem(data, keys, epoch, label) {
+  if (epoch === null || epoch === undefined) return null;
+  if (!Number.isInteger(data.epoch) || String(data.epoch) !== epoch) return `${label} names key epoch ${JSON.stringify(data.epoch)}, not ${epoch}, the epoch these bytes were sealed under; nothing was sent`;
+  const off = keys.find((k) => String(k).split('/')[2] !== epoch);
+  if (off !== undefined) return `${label}'s key ${off} is not under key epoch ${epoch}, the epoch these bytes were sealed under; nothing was sent`;
+  return null;
 }
 
 /* A key's <org>/<account> (its first two segments), or null when it has fewer than three non-empty leading ones. */
@@ -531,7 +557,8 @@ function ownerOf(key) {
               manifest stored). The lock check refuses before the grant when THIS MAC'S clock already shows it,
               which errs toward refusing when that clock runs fast; else as the grant arrives, its allowance spent,
               before any byte is sent.
-   Plus putTimeoutMs, as uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed
+   Plus epoch, as uploadChunks (the manifest's own key must be under it; the chunks it names may be under an earlier
+   one), and putTimeoutMs, as uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed
    PUT of a 64 MiB manifest holds the call about 70 minutes before it ends retryLater. The bytes are copied on entry,
    so a caller reusing its buffer meanwhile cannot change what is sent. Resolves { ok: true, key, sha256,
    lockedUntilMs } or { ok: false, because, code?, retryLater?, unsure?, outlastsChunks?, grantSpent? }, unsure being
@@ -572,6 +599,8 @@ async function uploadManifestInner(deps, bytes, o, st) {
   bytes = Buffer.from(bytes);
   if (bytes.length < MIN_OBJECT || bytes.length > MAX_MANIFEST) return { ok: false, grantSpent: false, because: `the manifest is ${bytes.length} bytes, outside ${MIN_OBJECT} to ${MAX_MANIFEST}` };
   if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, grantSpent: false, because: "no bucket for the manifest (its chunks' bucket path)" };
+  const epoch = sealedEpoch(o);
+  if (epoch === undefined) return { ok: false, grantSpent: false, because: `the key epoch given (${JSON.stringify(o.epoch)}) is not an epoch` };
   // The shape uploadChunks returns, host/ or host/bucket/ with the host in lower case (a URL's host always is) and no
   // port (checkOne refuses one on S3; only the test seam's local bucket has one), checked before any grant: anything
   // else would be refused only after a grant had been spent on it.
@@ -617,7 +646,7 @@ async function uploadManifestInner(deps, bytes, o, st) {
     st.asked = true;
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
       () => ({ sha256, size: bytes.length, nonce: crypto.randomBytes(16).toString('hex') }),
-      (d) => parseManifestGrant(d, bytes, o.bucket));
+      (d) => parseManifestGrant(d, bytes, o.bucket, epoch));
     const earlier = st.granted;   // a grant answered before THIS request (read before this one's answer is counted)
     if (g.out && g.out.grantSpent) st.granted = true;
     // A re-grant request that fails still follows a grant that answered: that one's allowance is spent.
