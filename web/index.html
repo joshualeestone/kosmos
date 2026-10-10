@@ -37666,7 +37666,9 @@ function paintTalkThread(body, name) {
       /* Review 28: back onto the same choice only for the SAME question; a redraw that changed the question sends focus
          to the message box, so a keyboard user's next Enter never answers a question they have not read. */
       const same = DM_CHOICES && String(DM_CHOICES.gen) === focusGen;
-      const cb = same ? thread.querySelector('.dmchoice[data-n="' + CSS.escape(choiceFocus) + '"]') : document.getElementById('d-say');
+      const choice = same ? thread.querySelector('.dmchoice[data-n="' + CSS.escape(choiceFocus) + '"]') : null;
+      // A choice drawn disabled (the answered lock, a press in the air) cannot take focus: the message box does.
+      const cb = choice && !choice.disabled ? choice : document.getElementById('d-say');
       if (cb) cb.focus({ preventScroll: true });
     }
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
