@@ -159,12 +159,20 @@ test('#5516 part 2 (review 1): off darwin the file-tool rules are written all th
   }
 });
 
-test('#5516 part 2 (review 2): with many account homes the guard stays whole (inside the sandbox size ceiling)', () => {
-  const home = path.join(path.dirname(HOME), 'home-many');   // its own home (review 3), so no later test sees these
+test('#5516 part 2 (review 2): with many account homes the guard stays whole (inside the sandbox size ceiling)', (t) => {
+  /* A short, link-free root shaped like a real install (a home, ~/work/workers/<agent>): the size counts every folder
+     above the agent, so under the test temp folder (deep, and a link on macOS, so every level counts twice) the count
+     depends on the machine (Mortals' passed the ceiling by 0.7%). Measured in this layout: 61 homes stay under it.
+     Outside tmpscope, so removed here. */
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'k5516-')));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const home = path.join(base, 'Users', 'someone');   // its own home (review 3), so no later test sees these
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   for (let i = 0; i < 12; i++) fs.mkdirSync(path.join(home, '.claude-acct' + i), { recursive: true });
-  const dir = agentDir('pilot-cfg-many');
-  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-many', { ...DEPS, home });
+  const workers = path.join(home, 'work', 'workers');
+  const dir = path.join(workers, 'pilot-cfg-many');
+  fs.mkdirSync(dir, { recursive: true });
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-many', { ...DEPS, home, workersRoot: workers });
   assert.equal(g.ok, true, 'thirteen config homes tripped the guard: ' + JSON.stringify(g));
   // Review 5: the guard says ok WITH a warning past the profile ceiling; no warning is what this test is for.
   assert.equal(g.warning, undefined, 'thirteen config homes passed the sandbox size ceiling: ' + g.warning);

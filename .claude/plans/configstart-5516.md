@@ -59,6 +59,8 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 
 - Review 23 (Opus): nothing above NIT; converged. NITs recorded: (1) evidence for the refusal's own revisit clause: synced folders named with parentheses (an older sync client's "(Personal)" folders) are a real shape for linked instruction files and skills, so creation refusing on them will happen on some machines; the refusal says how to fix it (review 15), and if it is reported, warning instead of refusing is the next step. (2) The agent's own config home is read from its job by its name only, so an agent of another named Kosmos may not have an own config home outside ~/.claude* added (stated under Gaps).
 
+- Full suite on Mortals (after review 23): 18120 pass, 1 fail, the many-homes size test, 0.7% past the raw ceiling. Not the change growing: the test built its home under the test temp folder, deep and (on macOS) a link, so every folder above the agent counted twice, and the total depended on the machine's temp path (green on Agent1s). The test now builds a real-install shape (a home, work/workers/<agent>) under the real /tmp. Measured in that shape: 61 homes stay under the ceiling, and the same probe with a 20-level agent folder warns at 10 (a control that the probe can warn). The test is red with the ceiling lowered.
+
 
 ## Gaps, stated (the rest of the card)
 - An agent of another named Kosmos has its job read without its Kosmos named, so an own config home outside ~/.claude* may not be found for it, as for the account settings file today (review 23).
