@@ -16336,7 +16336,7 @@ const server = http.createServer(async (req, res) => {
             recordedBecause: delivery.heldBy === 'cap'   // defensive: this route's automatic hello sends with { cap: false }
               ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
               : delivery.heldBy === 'menu'   // #5743
-                ? 'held: nothing was typed while it shows a question on its screen, so nothing was kept'
+                ? 'held: nothing was typed while it waits for an answer on its screen, so nothing was kept'
                 : 'held: nothing was typed while the shared quota is out, so nothing was kept' });
           return;
         }

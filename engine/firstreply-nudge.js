@@ -172,7 +172,7 @@ function sweepOnce(o) {
       try { const r = o.deliver(session, NUDGE_TEXT, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && r.heldBy; }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
       /* #4588 PR B: held on the shared Google quota, nothing typed: no try is spent, so the nudge still comes after the reset. */
-      if (held) { results.push({ session, name: display, act: heldBy === 'menu' ? 'menu-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it shows a question on its screen' : '; held on the shared Google quota') }); continue; }
+      if (held) { results.push({ session, name: display, act: heldBy === 'menu' ? 'menu-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : '; held on the shared Google quota') }); continue; }
       const D = o.DELIVERY || {};
       const delivered = D.PLACED != null && state === D.PLACED;
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);

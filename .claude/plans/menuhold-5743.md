@@ -64,6 +64,12 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
 - No choice buttons exist on main (#3419 removed them), and #5406 slice C serves them only for the single-select
   question menu, so a permission prompt never shows buttons that this floor would then refuse.
 
+- The recommender reads the screen for its hold check and again when it sends: a prompt drawn between the two reads
+  is refused (COULD_NOT, held dropped by its send) and spends one of the convening's attempts. Narrow; not changed here
+  because it would change the recommender's attempt counting.
+- Held lines and logs say "waits for an answer on its screen" for both screens; the refusal sentence itself names which
+  (a question, or a permission request).
+
 ## Weakest premise
 
 The snapshot reads needs_you while the menu is up. Not caught, recorded rather than fixed here (each needs the board's

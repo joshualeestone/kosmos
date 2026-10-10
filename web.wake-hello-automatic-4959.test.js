@@ -59,7 +59,7 @@ test('#4588 ask 3: a hello held by the Gemini cap says the limit, never that the
 test('#5743: a hello held because the agent shows a question says that, never that the quota is out', async () => {
   let said = null;
   await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'menu' }), { bob: 6 })('bob', 6, (t) => { said = t; }, 'SAID', 'MANUAL');
-  assert.equal(said, 'MANUAL It is showing a question on its screen, so Kosmos sent nothing; answer it in its window first.');
+  assert.equal(said, 'MANUAL It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.');
   assert.doesNotMatch(said, /quota/i);
 });
 test('#4959: deliverPickup passes a held 409 verdict through, and still returns null for any other refusal', async () => {
