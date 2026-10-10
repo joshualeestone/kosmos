@@ -427,7 +427,7 @@ test('#5406 slice C review 19: on the live single-select menu, a press drawn for
   });
 });
 
-test('#5406 slice C review 19: a typed message to an agent whose question is being answered is refused busy, nothing typed', async () => {
+test('#5406 slice C review 19: at the delivery layer, a line to an agent whose question is being answered is refused busy, nothing typed', async () => {
   await withMenu(async (calls) => {
     const roster = require('./engine/status').snapshot().agents;
     const press = chat.answerQuestionMenu('casey', 1, roster, { label: 'Apple' });   // holds the slot through its settle
@@ -482,4 +482,24 @@ test('#5406 slice C review 22: on the live menu, a new question whose identity C
     assert.match(r.json.error, /moved between drawing that button and sending it/, 'refused, but not by the identity check');
     assert.deepEqual(keys, []);
   } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5406 slice C review 26: through the route, a typed message while a press settles says it was not typed, and nothing is pasted or escaped', async () => {
+  await withMenu(async (calls) => {
+    // Claude has not redrawn yet: the menu is still on screen while the key settles (armPane would clear it at once).
+    chat.setRunner((args) => {
+      calls.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: MENU, err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    const roster = require('./engine/status').snapshot().agents;
+    const press = chat.answerQuestionMenu('casey', 1, roster, { label: 'Apple' });   // holds the slot through its settle
+    const r = await post({ text: 'Actually, can you explain the options first?' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(String(r.json && r.json.error), /being handled right now, so this was not typed; send it again in a moment/);
+    assert.equal(calls.pasted(), '', 'a typed message was pasted while the key settled');
+    assert.deepEqual(calls.keys().filter((k) => k === 'Escape'), [], 'the menu was closed under a settling key');
+    await press;   // it settles with the menu still drawn (unconfirmed); the slot is released either way
+  });
 });

@@ -2679,11 +2679,9 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
    * and the POST passed every existing guard, and `1` approved a file the
    * person never chose.
    *
-   * #3419: the page's answer-menu (and its `talkKey`/answered-hold that once held
-   * this discriminating half, the `above`) is gone with the needs_you prompt, so the
-   * page no longer sends `chose`/`asked` at all. The server-side handling this guards
-   * degrades gracefully when they are absent (`body.chose`/`body.asked` default null);
-   * `chat.questionAbove` remains the engine's twin of the rule.
+   * #3419 removed the page's old answer box; #5406 slice C draws choice buttons in the question's bubble again, and
+   * they send `chose` and `asked` (from `chat.questionAbove`, served by the GET). A press that names its question is
+   * answered by key or refused; at this Yes/No prompt (not the single-select menu) it is refused.
    */
   const bPrompt = 'Edit file src/b.js?\n❯ 1. Yes\n  2. No\n';
   await withAgent(fleet.agent('zeta', { state: 'needs_you' }),

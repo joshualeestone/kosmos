@@ -16174,7 +16174,7 @@ const server = http.createServer(async (req, res) => {
               && idNow !== chat.cleanMessage(body.asked).slice(0, 2000);
             const notThis = new Error(moved
               ? 'its screen moved between drawing that button and sending it, so we did not send the answer. '
-                + 'What is on this page now is current: press again if it is still the one you want.'
+                + 'What is on this page now is current.'
               : 'that question cannot be answered with a button, so we did not send anything. Answer it in its window.');
             notThis.status = 409;
             throw notThis;
