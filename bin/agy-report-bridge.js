@@ -280,7 +280,7 @@ function flushed() {
 /* #5576: before any socket opens, put the null device on whichever of fds 0 to 2 is free, lowest first, so it gets
    that number and no socket can. libuv aborts when it closes a handle whose fd is 0 to 2. Whoever freed the fd, this
    holds it, if it closed it before this runs. Returns the fds it filled; never throws. On Windows the fds are the C
-   runtime's and sockets never use them, so this changes nothing there. */
+   runtime's and sockets never use them, so it is harmless there (it may open NUL on a free one) and protects nothing. */
 function holdStdioFds(fsMod = require('node:fs'), devNull = require('node:os').devNull) {
   const filled = [];
   for (const fd of [0, 1, 2]) {
@@ -329,7 +329,10 @@ async function main() {
     headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
   } catch { /* a missed world header must never become a failed turn */ }
 
-  holdStdioFds();   // #5576: the request's socket must never be numbered 0 to 2
+  /* #5576: the request's socket must never be numbered 0 to 2. One turn of the loop first, so a close of fd 0 left
+     pending by the stdin handling (a handle close lands a phase later) is done before the guard looks (review 2). */
+  await new Promise((resolve) => setImmediate(resolve));
+  holdStdioFds();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   await fetch(`http://127.0.0.1:${port}/api/report`, {

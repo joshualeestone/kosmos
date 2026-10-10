@@ -82,11 +82,10 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
 /* uv_thread_create and pthread_create are the arms that catch Node's own startup abort; `Check failed:` is V8's fatal
    line (Node's own CHECKs print "Assertion ... failed" instead). Never a bare EAGAIN (review 5). A hang is never
    retried, even with a spawn error beside it (review 7). */
-/* libuv's own `uv__close` assertion (fd > STDERR_FILENO) is in this set too: seen on CI 2026-10-08 as a 70 ms SIGABRT of
-   this child at load 25 on 3 cores, never reproduced locally in 1,200 runs, and process.stdin.destroy() measured NOT to
-   close fd 0 (review 9). The cause is unknown and tracked on #5576; it is retried as Node's runtime aborting,
-   and every try still names it in the message. 🛑 TEMPORARY: remove the uv__close arm when #5576 finds the cause. */
-const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:|fd > STDERR_FILENO/;   // the last: libuv's assertion text, in macOS's and glibc's formats alike
+/* libuv's own `uv__close` assertion (fd > STDERR_FILENO) is NOT in this set any more (#5576): its mechanism was found
+   (the report's socket took a freed fd 0) and the bridge now holds fds 0 to 2 before the report, so a recurrence is a
+   real failure and must be red, not retried. */
+const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
 const endedByRunner = (r) => r.signal !== 'timeout' && (RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
   || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || ''))))));
@@ -243,9 +242,10 @@ test('#5560: only a bridge child the runner ended is tried again; one that exite
   f = fake([{ code: null, signal: 'timeout', error: 'EAGAIN', out: '', err: '' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).signal, 'timeout', 'a hang with a spawn error beside it was retried into a pass');
   assert.equal(f.calls.length, 1);
-  // libuv's uv__close assertion (the CI abort of 2026-10-08) is Node's runtime aborting, so it IS retried.
+  // #5576: libuv's uv__close assertion is the bridge's own failure now (its fd 0 cause is fixed), so it is NOT retried.
   f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.\n' }, ok]);
-  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 0, 'the libuv uv__close abort was not retried');
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'the libuv uv__close abort was retried into a pass');
+  assert.equal(f.calls.length, 1);
   // A SIGABRT whose stderr merely mentions EAGAIN is the bridge's, not Node's startup (review 5).
   f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'bridge: write failed EAGAIN' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a bridge abort mentioning EAGAIN was retried into a pass');
@@ -275,8 +275,10 @@ test('#5560 review 11: every member of the retry sets is pinned, both ways', asy
   for (const e of ['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']) assert.equal(await tried({ ...base, code: -1, error: e }), true, e + ' was not retried');
   for (const e of ['ENOENT', 'EACCES']) assert.equal(await tried({ ...base, code: -2, error: e }), false, e + ' was retried');
   for (const sig of ['SIGKILL', 'SIGTERM']) assert.equal(await tried({ ...base, signal: sig }), true, sig + ' was not retried');
-  for (const line of ['uv_thread_create failed', 'pthread_create: Resource temporarily unavailable', '# Check failed: x', 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.',
-    "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried: ' + line);
+  for (const line of ['uv_thread_create failed', 'pthread_create: Resource temporarily unavailable', '# Check failed: x']) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried: ' + line);
+  // #5576: the uv__close abort, in both formats, is not retried any more.
+  for (const line of ['Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.',
+    "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), false, 'retried: ' + line);
   assert.equal(await tried({ ...base, signal: 'SIGABRT', err: 'bridge: something else' }), false, 'a bridge abort was retried');
 });
 
