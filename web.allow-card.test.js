@@ -179,10 +179,13 @@ test('#5786 a desktop browser is told its code is on the Kosmos+ page; a phone o
     assert.ok(got, name + ' is a browser on a computer but was not recognised');
     assert.equal(got[2], browser);
   }
-  for (const name of ['iPhone · Safari', 'iPad · Safari', 'Android phone · Chrome', 'Android tablet · Chrome', 'PizzaRama (Kosmos app)', 'Mac', 'Browser', 'Unknown device']) {
+  // The asking device chooses its own name (the coordinator only trims it), so a name with words of its own after the
+  // browser must not reach the sentence: only deviceNameFor's browsers do.
+  for (const name of ['iPhone · Safari', 'iPad · Safari', 'Android phone · Chrome', 'Android tablet · Chrome', 'PizzaRama (Kosmos app)', 'Mac', 'Browser', 'Unknown device',
+    'Mac · Safari, or on any screen, even if it differs', 'Mac · Brave', 'Windows PC · ']) {
     assert.equal(re.exec(name), null, name + ' was read as a browser on a computer');
   }
-  assert.match(JS, /'Allow only if this code is showing in ' \+ askEsc\(deskBrowser\[2\]\) \+ ' on the Kosmos\+ page \(login\.kosmosplus\.com\)\.'/);
+  assert.match(JS, /'Allow only if this code is showing in ' \+ askEsc\(deskBrowser\[2\]\) \+ ' on the Kosmos\+ page at login\.kosmosplus\.com, once you are signed in there; reload it if the code is not there yet\.'/);
   // The browser name is escaped where it is put into the card.
   assert.doesNotMatch(JS, /showing in ' \+ deskBrowser\[2\]/);
 });

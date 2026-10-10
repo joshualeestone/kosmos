@@ -47113,11 +47113,12 @@ function paintAsk() {
     const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
     /* kosmos#5786 (Josh 10-10: "there is no where for me to confirm this code"): a browser on a computer ("Mac · Safari")
        is usually the tab the person signed in or up in, so say where its code is: the signed-in Kosmos+ page shows it
-       (login.kosmosplus.com, signin.html's match line). The computer words are signin.html's deviceNameFor. A phone,
-       a tablet or an app keeps "the device in your hand". */
-    const deskBrowser = /^(Mac|Windows PC|Chromebook|Linux computer) \u00b7 (.+)$/.exec(String(d.name || ''));
+       (login.kosmosplus.com, signin.html's match line, on the signed-in home). The computer and browser words are
+       signin.html's deviceNameFor, and only those: the asking device chooses its own name, so free text never goes
+       into this sentence. A phone, a tablet, an app or any other name keeps "the device in your hand". */
+    const deskBrowser = /^(Mac|Windows PC|Chromebook|Linux computer) \u00b7 (Edge|Opera|Firefox|Samsung Internet|Chrome|Safari)$/.exec(String(d.name || ''));
     const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
-      : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ' on the Kosmos+ page (login.kosmosplus.com).'
+      : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ' on the Kosmos+ page at login.kosmosplus.com, once you are signed in there; reload it if the code is not there yet.'
         : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
        happening, so an earlier refusal is not repeated beside it (review 1). */
