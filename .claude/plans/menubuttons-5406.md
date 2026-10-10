@@ -34,7 +34,9 @@ no banner (Josh #3419).
 
 ## Where no buttons show (typing is the fallback, the safe direction)
 
-- Agents not run by Claude (the key-answer path is Claude's); a failed thread read (its sentence replaces the thread).
+- Agents not run by Claude (the key-answer path is Claude's); a failed thread read (its sentence replaces the thread);
+  an agent whose composer is closed (presence off), the old box's rule.
+- Pressable never while a press or a typed send to that agent is in the air (the typed send also waits for a press).
 - Any Claude screen that is not the single-select question menu (status.claudeQuestionMenu), such as a permission
   prompt: it reads as numbered options, but a press there would be pasted and its Enter would pick the highlighted
   option. The server also refuses (409) a press at such a screen, so a crafted one is never typed.

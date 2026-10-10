@@ -18,10 +18,10 @@ const REGION = SCRIPT.slice(SCRIPT.indexOf('let DM_CHOICES = null;'), SCRIPT.ind
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function load(env) {
-  const fn = new Function('esc', 'CURRENT', 'fetch', 'pjSentence', 'paintTalk', 'document', 'CSS', REGION
+  const fn = new Function('esc', 'CURRENT', 'fetch', 'pjSentence', 'paintTalk', 'document', 'CSS', 'TALK_SENDING', 'TALK_FLIGHT', REGION
     + '\nreturn { from: dmChoicesFrom, html: dmChoicesHtml, press: dmChoicePress, get: () => DM_CHOICES, answered: (k) => DM_CHOICE_ANSWERED.get(k) || null };');
   const doc = env.document || { activeElement: null, getElementById: () => null };
-  return fn(esc, env.CURRENT, env.fetch || (async () => ({ ok: true, json: async () => PLACED })), (s) => s, env.paintTalk || (async () => {}), doc, { escape: (x) => x });
+  return fn(esc, env.CURRENT, env.fetch || (async () => ({ ok: true, json: async () => PLACED })), (s) => s, env.paintTalk || (async () => {}), doc, { escape: (x) => x }, Boolean(env.typedFlight), env.typedFlight || null);
 }
 const PLACED = { delivery: { state: 'placed' } };
 const BODY = { asking: true, asked: 'Which fruit do you want?', options: [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana <b>' }] };
@@ -116,9 +116,9 @@ test('#5406 C: an outcome that may have sent the key says "could not confirm", n
   const CUR = realCard();
   const cases = [
     ['unconfirmed', async () => ({ ok: true, json: async () => ({ delivery: { state: 'unconfirmed', because: 'its question was still on its screen after the answer' } }) }),
-      'We could not confirm that went (pressing again may answer twice). its question was still on its screen after the answer'],
-    ['a 200 with no verdict', async () => ({ ok: true, json: async () => { throw new Error('not json'); } }), 'We could not confirm that went (pressing again may answer twice).'],
-    ['the request failed', async () => { throw new Error('board restarted'); }, 'We could not confirm that went (pressing again may answer twice).'],
+      'We could not confirm that it went (pressing again may answer twice). its question was still on its screen after the answer'],
+    ['a 200 with no verdict', async () => ({ ok: true, json: async () => { throw new Error('not json'); } }), 'We could not confirm that it went (pressing again may answer twice).'],
+    ['the request failed', async () => { throw new Error('board restarted'); }, 'We could not confirm that it went (pressing again may answer twice).'],
     ['could_not (nothing typed)', async () => ({ ok: true, json: async () => ({ delivery: { state: 'could_not', because: 'we could not reach it' } }) }), 'we could not reach it'],
   ];
   for (const [name, fetch, want] of cases) {
@@ -256,4 +256,27 @@ test('#5406 C: a success clears the refusal it follows from the conversation\'s 
   refuse = true; await m.press(mk()); line.textContent = 'Your message is in the box below.';
   refuse = false; m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName); await m.press(mk());
   assert.equal(line.textContent, 'Your message is in the box below.');
+});
+
+test('#5406 C: no buttons where the composer is closed (presence off), the same rule as the box', () => {
+  const CUR = realCard();
+  const m = load({ CURRENT: CUR });
+  m.from({ ...BODY, presence: 'off' }, CUR.sessionName);
+  assert.equal(m.html(Q), '', 'buttons were drawn for an agent nothing can be typed into');
+  m.from({ ...BODY, presence: 'on' }, CUR.sessionName);
+  assert.match(m.html(Q), /class="dmchoice"/, 'CONTROL: an agent that can be typed into gets its buttons');
+});
+
+test('#5406 C: while a typed send to this agent is in the air its buttons are off and a press sends nothing', async () => {
+  const CUR = realCard();
+  let fetched = 0;
+  const m = load({ CURRENT: CUR, typedFlight: CUR.sessionName, fetch: async () => { fetched += 1; return { ok: true, json: async () => PLACED }; } });
+  m.from(BODY, CUR.sessionName);
+  assert.equal((m.html(Q).match(/ disabled>/g) || []).length, 2, 'buttons were pressable during a typed send');
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  assert.equal(fetched, 0, 'a press went out while a typed send was in the air');
+  // CONTROL: a typed send to ANOTHER agent does not touch this one's buttons.
+  const other = load({ CURRENT: CUR, typedFlight: 'other-agent' });
+  other.from(BODY, CUR.sessionName);
+  assert.doesNotMatch(other.html(Q), / disabled>/);
 });

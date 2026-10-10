@@ -343,3 +343,13 @@ test('#5406 slice C: a press whose words were dropped and whose digit is not on 
     assert.equal(calls.pasted(), '');
   });
 });
+
+test('#5406 slice C: an automatic message cannot carry a question identity (it would be pasted into the menu)', async () => {
+  await withMenu(async (calls) => {
+    const r = await post({ text: '1', asked: 'Which fruit do you want?', automatic: true });
+    assert.equal(r.status >= 400, true, JSON.stringify(r.json));
+    assert.match(String(r.json && r.json.error), /plain text/);
+    assert.deepEqual(calls.keys(), []);
+    assert.equal(calls.pasted(), '', 'an automatic message naming a question was pasted into the menu');
+  });
+});

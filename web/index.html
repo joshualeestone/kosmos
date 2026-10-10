@@ -37392,7 +37392,8 @@ let DM_CHOICE_LAST_REFUSAL = '';   // the sentence a press put on #d-say-msg, cl
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
-  DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked)
+  /* No buttons where the composer is closed (presence off: the agent cannot be typed into), the same rule as the box. */
+  DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked && body.presence !== 'off')
     ? { session: sessionName, options: opts, asked: body.asked }
     : null;
   if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
@@ -37401,7 +37402,8 @@ function dmChoicesHtml(m) {
   if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
   /* Any press in the air for this agent draws its buttons off (a press on another question of the same agent would be
      ignored by dmChoicePress, so it must not look pressable). */
-  const flying = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);
+  const flying = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session)
+    || (typeof TALK_SENDING !== 'undefined' && TALK_SENDING && TALK_FLIGHT === DM_CHOICES.session);   // a typed send too
   const done = DM_CHOICE_ANSWERED.get(DM_CHOICES.session);
   /* Answered: the menu can stay up a few seconds after the key, and a second press then would answer twice. */
   const locked = Boolean(done && done.asked === DM_CHOICES.asked && Date.now() - done.at < DM_CHOICE_ANSWERED_MS);
@@ -37412,10 +37414,11 @@ function dmChoicesHtml(m) {
       + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
     + '<span class="dmchoices-msg" role="status" aria-live="polite">' + esc(note) + '</span></div>';
 }
-const UNSURE = 'We could not confirm that went (pressing again may answer twice).';
+const DM_CHOICE_UNSURE = 'We could not confirm that it went (pressing again may answer twice).';
 async function dmChoicePress(btn) {
   const c = DM_CHOICES;
   if (!c || !CURRENT || CURRENT.sessionName !== c.session || DM_CHOICE_INFLIGHT.has(c.session)) return;
+  if (typeof TALK_SENDING !== 'undefined' && TALK_SENDING && TALK_FLIGHT === c.session) return;   // a typed send is in the air
   const opt = c.options.find((o) => String(o.n) === btn.getAttribute('data-n'));
   if (!opt) return;
   const box = btn.closest('.dmchoices');
@@ -37439,17 +37442,17 @@ async function dmChoicePress(btn) {
     ok = res.ok && d.state === 'placed';
     if (!res.ok) note = pjSentence(out.error || 'that did not go; try again');
     else if (d.state === 'could_not') note = pjSentence(d.because || 'that did not go; try again');
-    else if (!ok) note = UNSURE + (d.because ? ' ' + pjSentence(d.because) : '');
+    else if (!ok) note = DM_CHOICE_UNSURE + (d.because ? ' ' + pjSentence(d.because) : '');
   } catch {
     /* The request may have reached the board before it failed (a restart mid-press), so this is not "did not go". */
-    note = UNSURE;
+    note = DM_CHOICE_UNSURE;
   } finally {
     DM_CHOICE_INFLIGHT.delete(session);
   }
   if (ok) note = 'Sent.';
   /* Placed, or may have been sent (could not confirm): the same short lock, so a quick second press cannot answer twice
      while the page's poll is still catching up. Only a refusal or could_not (nothing typed) gives the buttons back now. */
-  const mayHaveSent = ok || note.startsWith(UNSURE);
+  const mayHaveSent = ok || note.startsWith(DM_CHOICE_UNSURE);
   if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok });
   if (msg) msg.textContent = ok ? note : '';
   if (!mayHaveSent && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
@@ -38076,28 +38079,11 @@ async function paintTalk(sessionName, agentName) {
       // steal is recovered, so deliberately-placed focus is never disturbed.
     }
   }
-  /**
-   * ⚠️ THE BUTTONS DIE WITH THE COMPOSER (Mona Lisa, state 6). A live option
-   * above a closed box promises a route that is shut, which is the same lie as
-   * a composer that swallows text: it looks like an answer and it is nowhere.
-   * So they are offered only when the menu is certain AND the agent can
-   * actually be typed into.
-   */
-  /**
-   * ⚠️ AND NOT WHILE THIS PERSON'S OWN ANSWER IS IN THE AIR. `asking` comes
-   * from a pane capture, and the pane has not necessarily redrawn in the beat
-   * between the send landing and this repaint — so the server can honestly
-   * still say "asking" about a question that has just been answered. Offering
-   * the buttons again there invites the second press that answers a numbered
-   * prompt twice.
-   */
-  /* #3419 (Josh, 0.6.89): NO answer-menu buttons. A needs_you question is an
-     ordinary thread bubble now (engine withQuestionRow, #3455) that the person
-     answers in the normal composer or ignores -- "no prompt box". The engine's
-     injected question row carries only text (no options), so the boxed option
-     buttons, their focus-preserving rebuild, and the answer-hold that guarded a
-     double-press are all gone with the menu. The #d-qopts / #d-qout elements are
-     removed from the markup; nothing renders an option here. */
+  /* #3419 (Josh, 0.6.89): no answer box here. A needs_you question is an ordinary thread bubble (engine
+     withQuestionRow, #3455); the #d-qopts / #d-qout elements are gone from the markup. #5406 slice C puts a menu's
+     choices back INSIDE that bubble (dmChoicesHtml), and the old box's two rules travel with them there: no buttons
+     where the composer is closed (presence off), and none pressable while this person's own answer or typed send to
+     this agent is in the air, or for a few seconds after an answer while the pane catches up. */
 
   /* --- the thread --- */
   const rows = Array.isArray(body.messages) ? body.messages : [];
@@ -38315,6 +38301,13 @@ async function sendTalk(text, attachment) {
     return;
   }
   if (!CURRENT) return;
+  /* #5406: one thing in the air per agent. A typed send arriving while a choice's key is settling could close the menu
+     or land on whatever the screen is then. */
+  if (DM_CHOICE_INFLIGHT.has(CURRENT.sessionName)) {
+    const m0 = document.getElementById('d-say-msg');
+    if (m0) m0.textContent = 'Still sending your choice. Try again in a moment.';
+    return;
+  }
   // The agent this send TOOK OFF from. Everything afterwards is about this
   // name, never about whichever agent happens to be open when the verdict
   // lands.
