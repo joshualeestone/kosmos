@@ -21138,15 +21138,31 @@ function companyPolicySync() {
     ten minutes; engine/orgrollup.js decides). */
 const ORG_ROLLUP_TICK_MS = 5 * 60 * 1000;
 let ORG_ROLLUP_RUNNING = false;
+/* The enrolled Kosmos's tick child, when this board serves another Kosmos (kosmos#5532 widening). Stopped when this board
+   leaves through process.exit (board review 5). A board stopped by a signal (kosmos stop sends SIGTERM) cannot stop it
+   (board review 7): the child bounds itself (engine/orgrollup-child.js), and the rollup's own run lock (org-rollup.lock in that
+   Kosmos's root, engine/orgrollup.js takeRunLock) keeps the next board's tick from running beside it. */
+const ORG_ROLLUP_ELSEWHERE = require('./engine/orgrollup').elsewhereRunner();
+process.on('exit', () => ORG_ROLLUP_ELSEWHERE.stop());
 function orgRollupTick() {
-  if (ORG_ROLLUP_RUNNING) return;   // one at a time: a slow read must not start a second send
+  if (ORG_ROLLUP_RUNNING || ORG_ROLLUP_ELSEWHERE.running) return;   // one at a time: a slow read must not start a second send
   // Rollup review 28: a send to the company is a real side effect, so it waits for live execution like the board's other
   // background sweeps; a test or a board that never turned it on sends nothing, enrolled fixture or not.
   if (!liveExecution.liveExecutionAllowed()) return;
   try {
-    if (!require('./engine/orgenroll').isEnrolledHere()) return;   // not the work Kosmos: nothing is read or sent
-    ORG_ROLLUP_RUNNING = true;
-    require('./engine/orgrollup').tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
+    const oe = require('./engine/orgenroll');
+    const rollup = require('./engine/orgrollup');
+    if (oe.isEnrolledHere()) {
+      ORG_ROLLUP_RUNNING = true;
+      rollup.tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
+      return;
+    }
+    /* kosmos#5532 widening: this board serves another Kosmos, and the enrolled one (if any on this computer) still
+       reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
+       timing, print and key are its own. One board runs per computer, so one such child at a time (ORG_ROLLUP_ELSEWHERE.running,
+       held until it ends, at most TICK_CHILD_TIMEOUT_MS); the enrolled Kosmos's own state paces its sends. */
+    // The search, its throttle and the child's bookkeeping: rollup.elsewhereRunner (tested there, board review 11).
+    ORG_ROLLUP_ELSEWHERE.tick(require('./engine/store').ROOT);
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own

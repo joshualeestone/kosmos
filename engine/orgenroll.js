@@ -4,8 +4,12 @@
  * the consent stated before anything binds. The coordinator side is #5530 (E0.1); its routes and shapes are contract
  * v1.3, agreed 2026-10-07 with the coordinator's owner (orgs-5530.md on kosmos-relay).
  *
- * 🔑 THE UNIT IS THE WORK KOSMOS, NOT THE PERSON (#5529 decision 1). Only the enrolled world ever reports or backs up;
- * the person's other Kosmoses on this computer never do. That holds three ways:
+ * 🔑 THE UNIT IS THE WORK KOSMOS, NOT THE PERSON (#5529 decision 1). Only the enrolled world enrolls, refreshes, backs
+ * up and holds the keys. Since the kosmos#5532 widening (Josh, #admin 2026-10-09 08:43: everything on a work computer
+ * is company property), the enrolled world's rollup also carries the OTHER Kosmoses on this computer, each under its
+ * own opaque id, and ONLY while the accepted words name every Kosmos on this computer (NAMES_EVERY_KOSMOS below), and
+ * never one that is itself enrolled (it may be another company's: engine/orgrollup.js sendOthers). The rest holds
+ * three ways:
  *   - each world keeps its own data root (engine/worlds.js), so its id file and enrollment record live inside it and
  *     no other world can read or write them;
  *   - the world is named to the coordinator only by an OPAQUE id minted here (random, never the world's name, which
@@ -61,9 +65,17 @@ function remoteFor(opts) {
 
 /* This world's opaque id: read, or minted once and kept in this world's own data root. Written whole (temp, then
    rename) with owner-only permission. Null when the root cannot be written (then nothing is sent). */
-function worldId(opts) {
+function worldId(opts) { return mintedId(opts, WORLD_ID_FILE); }
+/* kosmos#5532 widening (board review 7): the id this Kosmos is reported under when it is ANOTHER Kosmos in the
+   enrolled one's rollup. Separate from worldId on purpose: if this Kosmos later enrolls itself, with this company or
+   another, the id it enrolls under was never sent anywhere, so a company cannot match its enrollment to its sibling
+   reports. It is one id per Kosmos, not per company (board review 13): two Kosmoses enrolled to two companies on one
+   computer report a third under the same sibling id, which tells them no more than the computer print they share. */
+const SIBLING_ID_FILE = 'org-sibling-id';
+function siblingId(opts) { return mintedId(opts, SIBLING_ID_FILE); }
+function mintedId(opts, name) {
   const root = storeRoot(opts);
-  const file = path.join(root, WORLD_ID_FILE);
+  const file = path.join(root, name);
   try {
     const have = fs.readFileSync(file, 'utf8').trim();
     if (WORLD_ID.test(have)) return have;
@@ -74,6 +86,17 @@ function worldId(opts) {
     writeWhole(file, id + '\n');
     return id;
   } catch { return null; }
+}
+
+/* kosmos#5532 widening (board review 9): whether this world may belong to a company, on the evidence of its files, not
+   their contents: an enrollment record, a join whose outcome is unknown, or a leave not yet confirmed. A file that
+   exists but cannot be read or parsed counts (readEnrollment would answer null for it, which reads as free). Only no
+   such file at all is "not enrolled". */
+function holdsEnrollment(opts) {
+  for (const f of [ENROLLMENT_FILE, JOIN_UNKNOWN_FILE, LEAVE_PENDING_FILE]) {
+    try { fs.statSync(path.join(storeRoot(opts), f)); return true; } catch (e) { if (!e || e.code !== 'ENOENT') return true; }
+  }
+  return false;
 }
 
 /* The company this world is enrolled to, as last confirmed by the coordinator, or null. */
@@ -238,6 +261,13 @@ const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
    the update line mentions the policy too, and promises no version): the coordinator's CONSENT_NAMES_POLICY is pinned
    to the same phrase. Read from the words each time, so words accepted before this existed answer for themselves. */
 const NAMES_POLICY = /\bversion of your company's policy\b/i;
+/* #5532 widening: whether the accepted words name reports from every Kosmos on this computer, so the other Kosmoses
+   here may send theirs. The coordinator's CONSENT_NAMES_EVERY_KOSMOS is pinned to the same phrase and refuses another
+   Kosmos's report until its words name it. Read from the words each time, as NAMES_POLICY is. */
+// A match on the PHRASE, not on what the sentence means (board review 11): a line that negated it would still match.
+// Safe because the coordinator serves the words and pins the same phrase (CONSENT_NAMES_EVERY_KOSMOS), as NAMES_POLICY.
+// It is the board's only check that the person agreed to the other Kosmoses being sent (board review 14).
+const NAMES_EVERY_KOSMOS = /\bevery kosmos on this computer\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -267,7 +297,8 @@ function acceptedConsent(opts) {
   const j = readConsents(opts).byHash[rec.consentHash];
   if (!j || !Array.isArray(j.reports)) return null;
   const reports = j.reports.filter((l) => typeof l === 'string' && l);
-  return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)) };
+  return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)),
+    everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)) };
 }
 /* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
    the words on record here are no longer accepted words, so this Kosmos stops reporting until the person accepts the
@@ -920,5 +951,5 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
 };
