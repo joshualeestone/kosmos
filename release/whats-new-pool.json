@@ -198,14 +198,6 @@
       "rank": 4.5,
       "since": "0.7.38",
       "status": "pending"
-    },
-    {
-      "title": "A daily task can repeat at several times",
-      "line": "A daily task can now run at several times a day, for example at 9am and 9pm.",
-      "icon": "list",
-      "rank": 9.5,
-      "since": "0.7.38",
-      "status": "held"
     }
   ]
 }
