@@ -16059,7 +16059,7 @@ const server = http.createServer(async (req, res) => {
         if (body.asked !== undefined && body.asked !== null && typeof body.asked !== 'string') {
           throw new Error('a question identity is text');   // #5406 slice C: never ignored, or the checks below would be skipped
         }
-        if (automatic && (body.chose !== undefined || body.asked !== undefined || (body.reply_to !== undefined && body.reply_to !== null)
+        if (automatic && (body.chose !== undefined || (body.asked !== undefined && body.asked !== null) || (body.reply_to !== undefined && body.reply_to !== null)
           || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
           throw new Error('an automatic message is plain text');
         }
@@ -16170,6 +16170,11 @@ const server = http.createServer(async (req, res) => {
              small, and the whole point of this pair is that the record does not
              drift from the screen. */
           if (chose) chose = chat.cleanMessage(chose);
+          if (menu && askedGiven && !chose) {   // #5406 slice C: words that failed their check are not "a changed question"
+            const unchecked = new Error('we could not check that choice\'s words, so we did not send it. Press it again.');
+            unchecked.status = 409;
+            throw unchecked;
+          }
           if (menu && (!row || chat.cleanMessage(row.label) !== chose)) {
             const moved = new Error('that question changed on its screen before this was sent, '
               + 'so we did not answer it. Its current question is on this page.');

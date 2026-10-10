@@ -289,6 +289,7 @@ test('#5406 slice C: a press whose words fail the bounds is still checked by its
   await withMenu(async (calls) => {
     const r = await post({ text: '1', chose: bad, asked: 'Which fruit do you want?' });
     assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /could not check that choice's words/, 'refused with a sentence that is not true here');
     assert.deepEqual(calls.keys(), []);
     assert.equal(calls.pasted(), '');
   });
