@@ -23,6 +23,7 @@ test('#5804: nothing to say for the same model, an alias, a reply from before th
   assert.equal(settingModelName('a', deps({ session: () => ({ found: true, model: 'gemini-2.5-flash', modelAt: START + 1500 }) })), null, 'same model');
   assert.equal(settingModelName('a', deps({ planned: () => ({ id: 'auto', isDefault: false }) })), null, 'auto picks by design');
   assert.equal(settingModelName('a', deps({ planned: () => ({ id: 'flash', isDefault: false }) })), null, 'an alias');
+  assert.equal(settingModelName('a', deps({ planned: () => ({ id: 'auto-gemini-2.5', isDefault: false }) })), null, 'an auto-routing alias with a version');
   assert.equal(settingModelName('a', deps({ session: () => ({ found: true, model: 'gemini-3.5-flash', modelAt: START - 1 }) })), null,
     'a reply from before a model change and restart is not this run');
   assert.equal(settingModelName('a', deps({ startedAt: () => null })), null, 'run start unknown');
