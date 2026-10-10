@@ -1389,7 +1389,8 @@ function codexScreenRefusal(card, sessionName, roster) {
 /* #5743: a Claude agent showing its question menu (any form, status.claudeQuestionMenuUp) is not typed at: the menu
    ignores a paste and the Enter after it takes the HIGHLIGHTED answer (measured on 2.1.29x, #5406), so the agent gets a
    default nobody chose and nothing says so. Read fresh, when the snapshot says needs_you or working (see
-   claudeMenuRefusal); an idle card pays no capture. Decided: a read that fails is not a refusal.
+   claudeMenuRefusal); an idle card pays no capture. Decided: a read that fails is not a refusal, except for a card
+   whose own report says it is asking permission (see claudeMenuRefusal).
    needs_you also covers permission prompts and every other question, and the direct-message route reaches here right
    after closing the menu, so failing closed would refuse ordinary replies whenever one capture fails; the trust-dialog
    floor above still covers the dialog that ends a session. */
@@ -1501,7 +1502,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      here with the menu up and are refused. Automatic senders are held before this (menuHeldVerdict); this second read
      is deliberate, a last look right before the keystrokes. */
   {
-    const menu = claudeMenuRefusal(allowed.card, sessionName, roster);
+    let menu = null;
+    try { menu = claudeMenuRefusal(allowed.card, sessionName, roster); } catch { menu = null; }   // deliver never throws
     if (menu) return { state: DELIVERY.COULD_NOT, because: menu, at, paneState: null, paneNote: null };
   }
 
