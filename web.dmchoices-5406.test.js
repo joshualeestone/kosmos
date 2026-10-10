@@ -345,6 +345,18 @@ test('#5406 C review 28: after a refusal, focus returns to a choice only if the 
   assert.deepEqual(focused, ['say'], 'focus was put on a different question\'s button');
 });
 
+test('#5406 C review 30: after a refusal where only the CHOICES changed (same question words), focus goes to the message box', async () => {
+  const CUR = realCard();
+  const focused = []; const body = {};
+  const thread = { querySelector: (sel) => (sel.includes('data-n="1"') ? { focus: () => focused.push('choice') } : null) };
+  const doc = { activeElement: body, body, getElementById: (id) => (id === 'd-dmthread' ? thread : id === 'd-say' ? { focus: () => focused.push('say') } : null) };
+  const m = load({ CURRENT: CUR, document: doc, fetch: async () => ({ ok: false, json: async () => ({ error: 'that question changed' }) }),
+    paintTalk: async () => { m.from({ ...BODY, options: [{ n: 1, label: 'Pear' }, { n: 2, label: 'Plum' }] }, CUR.sessionName); } });
+  m.from(BODY, CUR.sessionName);
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  assert.deepEqual(focused, ['say'], 'focus was put on a choice the person has not read');
+});
+
 test('#5406 C review 28: a question that changes gets a new button generation; the same question keeps it', () => {
   const CUR = realCard();
   const m = load({ CURRENT: CUR });

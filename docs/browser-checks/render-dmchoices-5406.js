@@ -92,6 +92,20 @@ async function run() {
             return { replaced: !document.body.contains(before), n: a && a.classList.contains('dmchoice') ? a.getAttribute('data-n') : null };
           });
           check(`[${theme}] choices: a rewrite puts focus back on the same choice`, refocused.replaced && refocused.n === '3', JSON.stringify(refocused));
+          // Review 30: a rewrite that brings a DIFFERENT question never leaves focus on one of its buttons.
+          await page.locator('#d-dmthread .dmchoice[data-n="3"]').focus();
+          const moved = await page.evaluate(async () => {
+            const keep = window.__fx;
+            window.__fx = { ...keep, asked: 'Which colour do you want?',
+              messages: [...keep.messages, { from: 'april', text: 'New question coming.', at: new Date(Date.now() + 2000).toISOString() }] };
+            await paintTalk('april', 'April');
+            const a = document.activeElement;
+            const out = { onChoice: !!(a && a.classList && a.classList.contains('dmchoice')), id: a && a.id };
+            window.__fx = keep;
+            await paintTalk('april', 'April');
+            return out;
+          });
+          check(`[${theme}] choices: a rewrite with a different question sends focus to the message box`, !moved.onChoice && moved.id === 'd-say', JSON.stringify(moved));
           await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
           await page.waitForTimeout(150);
           const posted = await page.evaluate(() => window.__posted);
