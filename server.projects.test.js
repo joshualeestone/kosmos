@@ -2669,7 +2669,7 @@ test('a button whose digit the visible menu does not offer is refused, not sent'
   });
 });
 
-test('a menu that redrew into a DIFFERENT question with the SAME labels is refused', async () => {
+test('a menu that redrew into a DIFFERENT question with the SAME labels is refused (at this Yes/No prompt, as a moved screen; the live-menu identity check is server.question-menu-5406.test.js\'s)', async () => {
   reset();
   /**
    * ⚠️ THE CASE THE LABEL CHECK CANNOT SEE, and it is this product's most
@@ -2716,7 +2716,7 @@ test('a press that names its question (asked) at a permission-style prompt is re
     });
 });
 
-test('a pane that ACCUMULATED a new question above the same menu is refused', async () => {
+test('a pane that ACCUMULATED a new question above the same menu is refused (at this Yes/No prompt, as a moved screen; equality on the live menu is server.question-menu-5406.test.js\'s)', async () => {
   reset();
   /**
    * ⚠️ THE CASE CONTAINMENT LET THROUGH, and neither existing test covered it.

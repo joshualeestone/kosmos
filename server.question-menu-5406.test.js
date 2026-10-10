@@ -410,7 +410,7 @@ test('#5406 slice C review 18: one key answer per agent at a time, so a press fr
     const first = chat.answerQuestionMenu('casey', 1, roster, { question: undefined, label: 'Apple' });   // holds the slot through its settle
     const second = await chat.answerQuestionMenu('casey', 2, roster, { label: 'Banana' });
     assert.equal(second.ok, false, JSON.stringify(second));
-    assert.match(second.because, /already being sent to its question/);
+    assert.match(second.because, /being handled right now/);
     const one = await first;
     assert.equal(one.ok, true, JSON.stringify(one));
     assert.deepEqual(calls.keys(), ['1'], 'two keys reached the menu');
