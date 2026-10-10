@@ -1,8 +1,9 @@
-// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-si-done plus-flow
+// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-flow plus-chip
 // (#2518) the tokens this check asserts: where Kosmos+ device requests render on the Plus screen right after sign-in.
 /* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "these should have rendered in the same
- * spot as the login and not above everything". Right after sign-in the Plus screen shows the sign-in wizard's "You're
- * signed in to Kosmos+" step (#plus-state2, #plus-si-done), not the connected panel (#plus-flow). The request cards
+ * spot as the login and not above everything". Right after sign-in the Plus screen showed the sign-in wizard's "You're
+ * signed in to Kosmos+" step, not the connected panel (#plus-flow). #5787 (2026-10-10) removed that step: a sign-in now
+ * lands on the connected panel, whose connect block (#plus-chip) is tall, so the requests must still sit above it. The request cards
  * went into the TOP card then, a full-width band above the sidebars, because they moved into the Plus section only
  * while #plus-flow showed.
  *
@@ -58,11 +59,11 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.evaluate(() => { const b = document.querySelector('#s-nav button[data-go="plus"]'); if (b) b.click(); });
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
 
-      /* The state right after a sign-in: the wizard on its done step, the connected panel not yet shown. */
+      /* The state right after a sign-in (#5787): the connected panel with its connect block, the wizard gone. */
       const where = await page.evaluate(async () => {
-        document.getElementById('plus-state2').hidden = false;
-        document.getElementById('plus-flow').hidden = true;
-        plusSiShow('plus-si-done');
+        document.getElementById('plus-state2').hidden = true;
+        document.getElementById('plus-flow').hidden = false;
+        document.getElementById('plus-chip').hidden = false;
         if (typeof pollAsk === 'function') await pollAsk();
         paintAsk();
         /* Measured from the top of the page. The app header is sticky, so a page scrolled down (at 390 the wizard's
@@ -74,7 +75,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
         const asks = document.getElementById('plus-asks'), sec = document.getElementById('s-sec-plus'), head = document.querySelector('.apphead');
         const a = asks.getBoundingClientRect(), s = sec.getBoundingClientRect();
         return {
-          signedInShown: vis('plus-si-done'), flowShown: vis('plus-flow'),
+          wizardShown: vis('plus-state2'), flowShown: vis('plus-flow'), connectShown: vis('plus-chip'),
           inSection: vis('plus-asks') && sec.contains(asks), topCard: vis('askcard'),
           rows: document.querySelectorAll('#plus-ask-rows .askreq').length,
           withinSection: a.left >= s.left - 1 && a.right <= s.right + 1,
@@ -86,11 +87,11 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
             const r = b.getBoundingClientRect(), y = r.top + r.height / 2; return y > 0 && y < innerHeight ? true : Math.round(y); })(),
         };
       });
-      chk(where.signedInShown && !where.flowShown, '[' + W + '] precondition: the Plus screen shows "You\'re signed in" and not the connected panel', JSON.stringify(where));
+      chk(!where.wizardShown && where.flowShown && where.connectShown, '[' + W + '] precondition (#5787): the Plus screen shows the connected panel and its connect block, as a sign-in now ends', JSON.stringify(where));
       chk(where.inSection && where.rows === 2, '[' + W + '] #4610 right after sign-in both requests render in the Kosmos Plus section', JSON.stringify(where));
       chk(!where.topCard, '[' + W + '] #4610 and not in the top card, the band that spread above everything', JSON.stringify(where));
       chk(where.withinSection && where.belowHeader, '[' + W + '] #4610 they sit inside the settings column, below the header, not across the window', JSON.stringify(where));
-      chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the sign-in wizard', JSON.stringify(where));
+      chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the connect block (#5787)', JSON.stringify(where));
       /* State 1 (not enrolled, the marketing pane) is the tall one: placed after it, the first Allow sat at y=985 at
          1400 wide, which the done step above is too short to show. */
       const s1 = await page.evaluate(async () => {

@@ -11389,7 +11389,34 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-pill[data-state="connecting"] { background: rgba(126,160,240,.14); color: #9cc0ff; }
 #s-sec-plus .plus-pill[data-state="down"] { background: rgba(232,112,94,.14); color: #f0a397; }
 /* #4640: data-state="waiting" has no rule on purpose: it stays the plain grey pill (render-plus-panel-3829 pins it to the off colour). */
-#s-sec-plus .plus-chip { display: flex; align-items: center; gap: 8px; margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 6px 6px 6px 12px; container-type: inline-size; }
+#s-sec-plus .plus-chip { margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 18px 12px 16px; }
+/* #5787: the one-line sentence and Copy keep #4744's rules on their own line inside the connect block. */
+#s-sec-plus .plus-chip-line { display: flex; align-items: center; gap: 8px; container-type: inline-size; }
+#s-sec-plus .plus-cx-art { display: block; width: 190px; max-width: 60%; height: auto; color: #B8C2DA; margin: 0 0 14px; }
+#s-sec-plus .plus-cx-row { display: flex; gap: 18px; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.10); }
+#s-sec-plus .plus-qr { margin: 0; flex: 0 0 auto; text-align: center; }
+#s-sec-plus .plus-qr-box { display: block; width: 128px; height: 128px; padding: 9px; background: #fff; border-radius: 12px; box-sizing: border-box; }
+#s-sec-plus .plus-qr-box svg { display: block; width: 100%; height: 100%; }
+#s-sec-plus .plus-qr figcaption { margin-top: 6px; font: 600 .8125rem var(--font-ui); color: #E6EBF7; }
+#s-sec-plus .plus-apps { flex: 1 1 auto; min-width: 0; }
+#s-sec-plus .plus-apps-say { margin: 0 0 10px; font-size: .8125rem; line-height: 1.45; color: #B8C2DA; }
+#s-sec-plus .plus-stores { display: flex; flex-direction: column; gap: 8px; }
+/* Greyed until the store lists the app. The ribbon's words fit inside the button and clear the store's name (measured
+   by render-plus-panel-3829 at 1280 and 390). */
+#s-sec-plus .plus-store { position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; height: 60px; padding: 0 92px 0 14px;
+  border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(255,255,255,.04); color: #8E98B3; font: 600 .9rem var(--font-ui); text-decoration: none; }
+#s-sec-plus .plus-store small { display: block; font-weight: 500; font-size: .72rem; line-height: 1.1; }
+#s-sec-plus .plus-store-name { line-height: 1.15; }
+#s-sec-plus .plus-sash { position: absolute; top: 15px; right: -38px; width: 140px; text-align: center; transform: rotate(38deg); background: #E6EBF7; color: #18223f;
+  font: normal 700 .6rem/1 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; padding: 5px 0; }
+#s-sec-plus a.plus-store { color: #E6EBF7; border-color: rgba(255,255,255,.25); }
+#s-sec-plus a.plus-store .plus-sash { display: none; }
+@media (max-width: 480px) {
+  #s-sec-plus .plus-cx-row { flex-direction: column; align-items: stretch; }
+  #s-sec-plus .plus-qr { display: flex; align-items: center; gap: 12px; text-align: left; }
+  #s-sec-plus .plus-qr-box { width: 112px; height: 112px; }
+  #s-sec-plus .plus-qr figcaption { margin: 0; }
+}
 #s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 6px 12px; font-size: .9rem; }
 #s-sec-plus .devrow .btn { border: 1px solid rgba(255,255,255,.25); }   /* #3829: Remove visible on navy */
 /* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
@@ -18892,16 +18919,10 @@ window.kosmosMeasureScrollbarWidth();
            no longer work): a sign-in the coordinator has ended gets this panel instead, with its own
            Start over; the step and its Verify are hidden (plusSiFail). -->
       <!-- #3796 addendum 9 (Josh's ruling, 16:46): an account that already has an address skips the address
-           step entirely. The wizard registers this computer to that address itself and lands HERE: the
-           address read-only (with Copy) and how to connect from other devices (the #3794 tiles' shape).
-           Done hands over to the connected flow. -->
-      <!-- #3796 addendum 10 (Josh's ruling, 17:28): the landing is the heading and ONE line. No address,
-           no Copy, no tiles: another device signs in at the website, and this computer then asks to allow
-           it (the approval lives in Settings > Kosmos+). -->
-      <div id="plus-si-done" hidden>
-        <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
-        <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
-      </div>
+           step entirely; the wizard registers this computer to that address itself. #5787 (Josh, 2026-10-10 14:15,
+           "we just combine these pages so you just land here after logging in"): there is no "You're signed in /
+           Done" landing any more (#3796 addendum 10's card). Every sign-in ends on the connected pane, whose connect
+           block (#plus-chip) says where other devices reach this computer. -->
 
       <div id="plus-si-expired" hidden>
         <p class="plus-si-lead" id="plus-si-expired-words" role="status" aria-live="polite">That sign-in timed out. Start over and we'll send a new code.</p>
@@ -18934,10 +18955,39 @@ window.kosmosMeasureScrollbarWidth();
            his words ("Access this computer from other devices at <bold>login.kosmosplus.com</bold>"), with Copy so the
            address can be sent to another device, all on one line. It replaced #4080's "Sign in at login.kosmosplus.com."
            with Open. -->
-      <div class="plus-chip" id="plus-chip" hidden>
-        <span class="plus-chip-say" id="plus-chip-say">Access this computer from other devices at <b>login.kosmosplus.com</b></span>
-        <button class="btn" type="button" id="plus-copy" aria-label="Copy the address">Copy</button>
-        <span class="vh" id="plus-copy-status" aria-live="polite"></span>
+      <!-- #5787 (Josh, 2026-10-10 14:07 and 14:15): the box became the connect block, the first thing on the pane after
+           sign-in and on every visit: line art of a desktop, a laptop and a phone; his #4744 sentence with Copy, still
+           on one line; a "Scan to connect" code; and the App Store and Google Play buttons, greyed with "Coming soon"
+           until each store lists the app (PLUS_STORE_LINKS). The code holds only the login.kosmosplus.com address, the
+           public address, so a photo of this screen gives nothing away. It is drawn here, not fetched: generated once
+           with the qrcode package (version 3, error correction M, no quiet zone; the white box below is the margin).
+           Regenerate it only if the address changes. -->
+      <div class="plus-chip plus-connect" id="plus-chip" hidden>
+        <svg class="plus-cx-art" viewBox="0 0 300 120" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="8" y="10" width="118" height="78" rx="6"/><rect x="16" y="18" width="102" height="62" rx="2" stroke-opacity=".45"/>
+          <path d="M58 88 L54 108 M76 88 L80 108 M44 110 H90"/>
+          <rect x="150" y="34" width="92" height="60" rx="5"/><rect x="157" y="41" width="78" height="46" rx="2" stroke-opacity=".45"/>
+          <path d="M138 98 H254 a4 4 0 0 1 -4 6 H142 a4 4 0 0 1 -4 -6 Z"/>
+          <rect x="262" y="50" width="32" height="60" rx="6"/><path d="M273 56 H283" stroke-opacity=".45"/><rect x="266" y="62" width="24" height="40" rx="1.5" stroke-opacity=".45"/>
+        </svg>
+        <div class="plus-chip-line">
+          <span class="plus-chip-say" id="plus-chip-say">Access this computer from other devices at <b>login.kosmosplus.com</b></span>
+          <button class="btn" type="button" id="plus-copy" aria-label="Copy the address">Copy</button>
+          <span class="vh" id="plus-copy-status" aria-live="polite"></span>
+        </div>
+        <div class="plus-cx-row">
+          <figure class="plus-qr" id="plus-qr">
+            <span class="plus-qr-box"><svg viewBox="0 0 29 29" shape-rendering="crispEdges" role="img" aria-label="Code that opens login.kosmosplus.com on a phone"><path stroke="#000000" d="M0 0.5h7m3 0h1m2 0h3m3 0h2m1 0h7M0 1.5h1m5 0h1m3 0h1m2 0h4m5 0h1m5 0h1M0 2.5h1m1 0h3m1 0h1m1 0h3m1 0h2m1 0h1m4 0h1m1 0h1m1 0h3m1 0h1M0 3.5h1m1 0h3m1 0h1m1 0h2m2 0h1m1 0h2m1 0h1m1 0h1m2 0h1m1 0h3m1 0h1M0 4.5h1m1 0h3m1 0h1m1 0h2m5 0h2m2 0h2m1 0h1m1 0h3m1 0h1M0 5.5h1m5 0h1m1 0h2m1 0h1m5 0h2m3 0h1m5 0h1M0 6.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M8 7.5h1m2 0h2m1 0h1m1 0h1M0 8.5h1m1 0h5m2 0h1m1 0h1m4 0h3m1 0h1m1 0h5M7 9.5h2m2 0h1m1 0h3m1 0h8m3 0h1M0 10.5h1m3 0h1m1 0h1m1 0h10m2 0h1m1 0h3M0 11.5h4m3 0h1m2 0h4m1 0h1m2 0h2m1 0h2m2 0h1m1 0h1M2 12.5h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h1m2 0h2m3 0h2M0 13.5h1m1 0h1m5 0h1m6 0h2m1 0h7m3 0h1M0 14.5h3m1 0h4m3 0h1m5 0h2m1 0h1m1 0h2m1 0h2M0 15.5h1m8 0h4m1 0h1m1 0h1m2 0h6m2 0h1M2 16.5h1m1 0h6m6 0h2m1 0h1m5 0h2M0 17.5h2m3 0h1m1 0h1m1 0h1m2 0h4m1 0h8m1 0h1m1 0h1M0 18.5h1m2 0h5m3 0h1m1 0h5m2 0h4m2 0h1M0 19.5h1m2 0h1m3 0h1m1 0h1m2 0h2m1 0h1m4 0h1m1 0h2m3 0h1M0 20.5h1m1 0h1m3 0h1m1 0h2m2 0h1m1 0h2m1 0h1m1 0h6m1 0h3M8 21.5h1m2 0h1m3 0h4m1 0h1m3 0h5M0 22.5h7m4 0h2m6 0h2m1 0h1m1 0h3M0 23.5h1m5 0h1m1 0h1m1 0h3m1 0h1m1 0h1m2 0h2m3 0h1m2 0h1M0 24.5h1m1 0h3m1 0h1m1 0h4m4 0h1m1 0h1m1 0h5m1 0h1m1 0h1M0 25.5h1m1 0h3m1 0h1m1 0h1m1 0h1m2 0h3m1 0h4m4 0h2M0 26.5h1m1 0h3m1 0h1m1 0h1m1 0h2m1 0h5m3 0h7M0 27.5h1m5 0h1m3 0h1m1 0h1m2 0h1m1 0h4m1 0h1m1 0h2m1 0h1M0 28.5h7m1 0h1m4 0h1m1 0h1m3 0h1m2 0h2m2 0h1"/></svg></span>
+            <figcaption>Scan to connect</figcaption>
+          </figure>
+          <div class="plus-apps">
+            <p class="plus-apps-say">The Kosmos apps for phones are on their way. Until then, the address above works in any phone's browser.</p>
+            <div class="plus-stores">
+              <span class="plus-store" id="plus-store-ios" data-store="ios" aria-disabled="true"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="currentColor"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8C7 7.4 5.6 8.3 4.8 9.7c-1.6 2.8-.4 6.9 1.2 9.2.8 1.1 1.7 2.3 2.8 2.3 1.1 0 1.6-.7 3-.7s1.8.7 3 .7 2-1.1 2.7-2.2c.9-1.3 1.2-2.5 1.2-2.6 0 0-2.3-.9-2.3-3.8zM14.2 5.8c.6-.8 1-1.8.9-2.8-.9 0-2 .6-2.6 1.4-.6.7-1.1 1.7-.9 2.7 1 .1 2-.5 2.6-1.3z"/></svg><span class="plus-store-name"><small>Download on the</small>App Store</span><i class="plus-sash">Coming soon</i></span>
+              <span class="plus-store" id="plus-store-android" data-store="android" aria-disabled="true"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 3.5v17l14-8.5z"/></svg><span class="plus-store-name"><small>Get it on</small>Google Play</span><i class="plus-sash">Coming soon</i></span>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="setrow">
         <div>
@@ -47336,9 +47386,6 @@ let PLUS_EPOCH = 0;
 /* #3478: true while the in-app sign-in wizard (state 2) is open, so paintPlus's 5s
    repaint shows the wizard in place of the marketing state instead of clobbering it. */
 let PLUS_SIGNIN_ACTIVE = false;
-/* #3796 addendum 9: while the signed-in landing is up, the wizard keeps the pane (paintPlus would
-   otherwise hand straight to the connected flow the moment this computer reads enrolled). Done clears it. */
-let PLUS_SI_LANDED = false;
 /* Review: set while the automatic register is in flight. The engine writes the state dir before it
    answers, so a repaint in that window would read enrolled and flash the connected flow first. */
 let PLUS_SI_REGISTERING = false;
@@ -47560,6 +47607,23 @@ function plusChipFit() {
   // The class change is deferred a frame so it does not resize the observed box inside its own callback.
   if (chip && typeof ResizeObserver === 'function') new ResizeObserver(() => requestAnimationFrame(plusChipFit)).observe(chip); }
 { const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
+/* #5787: the phone apps' store pages. Empty until the app is live in that store (Android: Play internal testing today,
+   #4090; iOS: waiting on Apple, #3643). A set link turns that button from the greyed "Coming soon" into a real link
+   that opens the store; nothing else changes. */
+const PLUS_STORE_LINKS = { ios: '', android: '' };
+function plusStoresPaint(links) {
+  for (const key of ['ios', 'android']) {
+    const el = document.getElementById('plus-store-' + key);
+    const url = links && typeof links[key] === 'string' && /^https:\/\//.test(links[key]) ? links[key] : '';
+    if (!el || !url || el.tagName === 'A') continue;
+    const a = document.createElement('a');
+    a.className = el.className; a.id = el.id; a.dataset.store = key;
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    while (el.firstChild) a.appendChild(el.firstChild);
+    el.replaceWith(a);
+  }
+}
+plusStoresPaint(PLUS_STORE_LINKS);
 
 async function paintPlus() {
   /* #4744: a Copy failure's note belongs to the box. Whatever this paint does next (including an early return),
@@ -47642,7 +47706,7 @@ async function paintPlus() {
     }
     return;
   }
-  if ((typeof PLUS_SI_LANDED !== 'undefined' && PLUS_SI_LANDED) || (typeof PLUS_SI_REGISTERING !== 'undefined' && PLUS_SI_REGISTERING)) {
+  if (typeof PLUS_SI_REGISTERING !== 'undefined' && PLUS_SI_REGISTERING) {
     state1.hidden = true; state2.hidden = false; flow.hidden = true;
     return;
   }
@@ -48276,13 +48340,12 @@ document.getElementById('plus-forget-yes').addEventListener('click', async () =>
    input. Stages: signin-start -> code_sent; signin-verify -> session | second |
    enrol_second_factor; signin-second -> session; signin-enrol -> enrolment_started;
    signin-confirm-enrol -> session; signin-register -> registered (with the address). */
-const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-company', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-expired', 'plus-si-done'];
+const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-company', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-expired'];
 /* #3796 addendum 4: what the way out is called, and so what it does, on each step. */
 function plusSiWayOut(step) {
   if (step === 'plus-si-email') return 'Cancel';
   if (step === 'plus-si-register') return 'Sign out';
   if (step === 'plus-si-expired') return '';   // the panel has its own Start over
-  if (step === 'plus-si-done') return '';      // signed in and connected: Done is the way on
   return 'Start over';
 }
 function plusSiShow(step) {
@@ -48291,7 +48354,7 @@ function plusSiShow(step) {
     if (el) el.hidden = (id !== step);
   }
   const title = document.getElementById('plus-si-title');
-  if (title) title.textContent = step === 'plus-si-done' ? "You're signed in to Kosmos+" : 'Sign in to activate Kosmos+';
+  if (title) title.textContent = 'Sign in to activate Kosmos+';
   { const sp = document.getElementById('plus-si-spin'); if (sp) sp.hidden = true; }   // #4608: a step change ends any wait
   const out = document.getElementById('plus-si-cancel');
   if (out) {
@@ -48462,7 +48525,6 @@ function plusSiClear() {
   }
   const phoneField = document.getElementById('plus-si-phone-field'); if (phoneField) phoneField.hidden = true;
   if (document.getElementById('plus-si-register-go')) plusSiRegisterMode('');   // addendum 8: no owned name carried over
-  if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
   /* kosmos#4756: the bought-address list belongs to the sign-in that read it. */
@@ -49236,13 +49298,7 @@ async function plusSiDoRegister(name, owned) {
     return;
   }
   if (!r.ok) { plusSiFail(r.because); return; }
-  if (owned) {
-    /* The landing, not the connected flow: PLUS_SI_LANDED keeps paintPlus from taking the pane. */
-    PLUS_SI_LANDED = true;
-    plusSiShow('plus-si-done');
-    document.getElementById('plus-si-done-go').focus();
-    return;
-  }
+  /* #5787: an owned address ends like a typed one, on the connected pane (there is no landing card any more). */
   /* Do NOT clear PLUS_SIGNIN_ACTIVE here. The engine writes the state dir synchronously
      before answering, so the paintPlus() below almost always reads enrolled, and its
      enrolled branch both shows the connected flow AND clears the flag. Clearing it here
@@ -49486,11 +49542,6 @@ document.getElementById('plus-signin-company').addEventListener('click', (e) => 
 document.getElementById('plus-si-company-go').addEventListener('click', (e) => plusCompanyFinish(e.currentTarget));
 document.getElementById('plus-si-company-resend').addEventListener('click', () => plusCompanyText());
 // No read at load: showing the email step reads the profile (plusSiShow), which is when the button can matter.
-document.getElementById('plus-si-done-go').addEventListener('click', () => {
-  PLUS_SI_LANDED = false;
-  PLUS_SIGNIN_ACTIVE = false;
-  paintPlus();
-});
 /* Josh, 2026-09-29 (his live test on Windows: typed his email, pressed Enter, nothing happened): Enter in
    any box of this sign-in presses that step's own button, exactly as a click would. None of these boxes is
    in a <form>, so the browser does nothing on Enter by itself. A click, not a call to the handler, so the

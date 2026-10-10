@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-si-bought plus-si-bought-list plus-si-bought-none plus-si-bought-none-hint plus-si-bought-buy plus-si-bought-recheck plus-si-register plus-si-name-field plus-si-owned plus-si-done
+// Browser-check-surface: plus-si-bought plus-si-bought-list plus-si-bought-none plus-si-bought-none-hint plus-si-bought-buy plus-si-bought-recheck plus-si-register plus-si-name-field plus-si-owned
 'use strict';
 /**
  * kosmos#4756 (the website + app half of #4754; Josh 2026-09-30, ruling "A": a new computer is a purchase).
@@ -233,12 +233,12 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(await visible(page, '#plus-si-spin'), `[${key}] with the ring loader`);
         await page.waitForTimeout(sc.delay);
       }
-      await page.waitForFunction(() => { const r = document.getElementById('plus-si-register'); const d = document.getElementById('plus-si-done'); return (r && !r.hidden) || (d && !d.hidden); }, null, { timeout: 8000 }).catch(() => {});
+      await page.waitForFunction(() => { const r = document.getElementById('plus-si-register'); return (r && !r.hidden) || /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent); }, null, { timeout: 8000 }).catch(() => {});
       await page.waitForTimeout(600);
       chk(asked >= 1, `[${key}] the session step asked for the account's addresses`);
 
       if (sc.auto) {
-        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});   // #5787: no landing card; the sign-in goes on to connect
         chk(regs.length === 1 && regs[0] === sc.auto, `[${key}] registers to ${sc.auto} by itself, as before`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] no bought-address chooser`);
       } else if (key === 'pick') {
@@ -250,9 +250,9 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(regs.length === 0, `[${key}] nothing registered before a pick`, JSON.stringify(regs));
         await page.screenshot({ path: path.join(OUT, 'plus-bought-pick-light.png') });
         await page.click('#plus-si-bought-list button[data-bought="spare"]');
-        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});   // #5787: no landing card; the sign-in goes on to connect
         chk(regs.length === 1 && regs[0] === 'spare', `[${key}] the pick registers exactly that address`, JSON.stringify(regs));
-        chk(await visible(page, '#plus-si-done'), `[${key}] and lands on the signed-in landing`);
+        chk(/Signed in\. Connecting this computer to Kosmos\+\./.test(await page.textContent('#plus-signin-msg')) && (await page.$('#plus-si-done')) === null, `[${key}] and goes on to connect, with no landing card (#5787)`, await page.textContent('#plus-signin-msg'));
       } else if (key === 'none') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] with none free it says so`);
         chk(/waiting for its payment/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] a pending purchase is named as waiting for its payment`);
@@ -278,7 +278,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] not a list that can no longer work`);
       } else if (key === 'recheck-now-free') {
         await page.click('#plus-si-bought-recheck');
-        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});   // #5787: no landing card; the sign-in goes on to connect
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] registers to the account's own address, as before`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list hidden`);
       } else if (key === 'pick-refused-reread-fails') {
@@ -293,7 +293,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(regs.length === 1, `[${key}] nothing else was registered`, JSON.stringify(regs));
       } else if (key === 'recheck-switched-off' || key === 'recheck-unsupported') {
         await page.click('#plus-si-bought-recheck');
-        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});   // #5787: no landing card; the sign-in goes on to connect
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] takes the step as before (registers to the account's address)`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list gone`);
       } else if (key === 'unread-then-refused') {
@@ -359,14 +359,14 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk((await page.textContent('#plus-si-register-go')).trim() === 'Try again', `[${key}] Try again is offered`);
         chk(/could not connect as/.test(await page.textContent('#plus-si-owned')) && /spare/.test(await page.textContent('#plus-si-owned')), `[${key}] on the same address`, await page.textContent('#plus-si-owned'));
         await page.click('#plus-si-register-go');
-        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});   // #5787: no landing card; the sign-in goes on to connect
         chk(JSON.stringify(regs) === JSON.stringify(['spare', 'spare']), `[${key}] and it succeeds on the retry`, JSON.stringify(regs));
       } else if (key === 'no-address' || key === 'app-free-beside-bought') {
         chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step: the first address comes with the subscription`);
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] no bought-address chooser and no way to buy one`);
         chk(regs.length === 0, `[${key}] nothing registered by itself`, JSON.stringify(regs));
         await typeName(page, key);
-        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});   // #5787: no landing card; the sign-in goes on to connect
         chk(JSON.stringify(regs) === JSON.stringify(['mymac']), `[${key}] the typed name registers`, JSON.stringify(regs));
       } else if (key === 'app-slot-used') {
         chk(!(await visible(page, '#plus-si-name-field')), `[${key}] no name field: the free first address is in use`);
