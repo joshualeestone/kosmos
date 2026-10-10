@@ -1227,6 +1227,17 @@ function writeLaunchRecord(file, rec) {
  *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
+/* #5516 part 2: the names Claude Code 2.1.296 gives its global config file, `.claude${suffix}.json` (the suffix comes
+   from its OAuth environment; production's is empty). Read from the installed binary, so a new suffix in a later
+   version is a gap until added here. */
+const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
+/* Every folder above `dir`, nearest first, up to the root (its .mcp.json is read at start too). */
+function ancestorsOf(dir) {
+  const out = [];
+  let d = path.resolve(dir);
+  for (;;) { out.push(d); const up = path.dirname(d); if (up === d) break; d = up; }
+  return out;
+}
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -1247,12 +1258,27 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      code an enabled plugin runs at start). Denied in both layers. Measured on Claude Code 2.1.296: with both layers
      denying .claude.json, Claude Code still writes its own state there (its own process is in neither layer), so the
      deny takes nothing from Claude Code; the person's own servers stay as they are. Kosmos writes none of these for a
-     Claude agent. */
-  const configStartFiles = [...new Set([path.join(home, '.claude.json'), ...concreteHomes.map((h) => path.join(h, '.claude.json')), path.join(dir, '.mcp.json')])];
-  const pluginDirs = concreteHomes.map((h) => path.join(h, 'plugins'));
+     Claude agent. The FILE-TOOL layer is the load-bearing one (review 1): the shell's default writable set is the agent
+     folder and temp, so the sandbox entries outside them are defence in depth, and Claude Code protects some of these
+     names itself. The agent's tools under bypass permissions are refused only by these Edit rules: do not drop them as
+     "covered by the sandbox". */
+  const configStartFiles = [...new Set([
+    // The global config by every name Claude Code 2.1.296 gives it (CLAUDE_GLOBAL_CONFIG_SUFFIXES), beside the home and
+    // in each config home, and the legacy .config.json it reads INSTEAD when one exists (review 1: a BLOCKER).
+    ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.flatMap((sfx) => [path.join(home, `.claude${sfx}.json`), ...concreteHomes.map((h) => path.join(h, `.claude${sfx}.json`))]),
+    ...concreteHomes.map((h) => path.join(h, '.config.json')),
+    // Project-scope servers: the agent folder's .mcp.json and every ancestor's (review 1: Claude Code reads .mcp.json
+    // from each folder up to the root).
+    ...ancestorsOf(dir).map((d) => path.join(d, '.mcp.json')),
+  ])];
+  /* Each config home's plugins folder, and its skills folder (review 1: a skills subfolder can be adopted as a plugin,
+     with servers of its own). Kosmos's own skills writes are the board's process, in neither layer; an agent's own
+     skills are in its folder's .claude, already denied. */
+  const pluginDirs = concreteHomes.flatMap((h) => [path.join(h, 'plugins'), path.join(h, 'skills')]);
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
-    ...configStartFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', '.claude.json') }];
+    ...configStartFiles.map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
+    { f: path.join(home, '.claude-*', '.config.json') }];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
   // registry's own path there; its temp and lock names by the permission-layer .* glob only).
@@ -1307,6 +1333,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`), `Edit(${ruleAbs(path.join(home, '.claude-*', 'plugins'))}/**)`,   // #5516 part 2
+    `Edit(${ruleAbs(path.join(home, '.claude-*', 'skills'))}/**)`,
   ];
   /* #5516 (review 3): the launch folders' file-tool rules are kept OUT of the filter below. A launch folder whose path
      has a rule-pattern character (an installed "App (Beta)") must not stop the WHOLE guard from being written: its rule

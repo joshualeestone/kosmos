@@ -10,6 +10,8 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 ## Decided
 - **Deny, not clean.** The earlier idea was to strip entries from these files at each board start. These files are shared by the person and every agent on the account, so cleaning would delete the person's own entries. Measured instead: Claude Code still writes its own state to these files with both layers denying them, because its own process is in neither layer. So the deny takes nothing from Claude Code and nothing from the person.
 - Kosmos writes none of these for a Claude agent (searched), so nothing Kosmos does is refused.
+- Review 1 widened the class, each member read from the installed Claude Code: the global config by every name it is given (an environment suffix), the legacy file it reads instead when present, the project server file in the agent folder and every folder above it, and each config home's skills folder (a skills subfolder can be adopted as a plugin). The test pins each member.
+- The file-tool layer carries the weight: the shell's own writable set already excludes most of these. The sandbox entries are defence in depth.
 
 ## Gaps, stated (the rest of the card)
 - The scripts a hook, the status line or a server's command points at, wherever they sit: not covered here (they can live anywhere; a next part).
