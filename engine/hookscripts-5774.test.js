@@ -602,3 +602,37 @@ test('#5774 review 9: processWrapper and helper paths, $\'...\' quoting, perl -p
     fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
   }
 });
+
+test('#5774 review 10: input to a program that only reads it, a here-string given to a shell, a message that ends like a script', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(paths('jq .name < package.json').paths, [], 'jq reads it: the agent keeps its state file');
+  assert.deepEqual(paths('bash < in.sh').runPaths, ['/A/in.sh'], 'control: a shell runs its input');
+  assert.deepEqual(paths('sh <<< "bash $HOME/x.sh"').runPaths, ['/H/x.sh'], 'a here-string given to a shell is its script');
+  assert.equal(paths('bash <<< "$CMD"').unsafe.length, 1);
+  assert.deepEqual(paths('cat <<< "x.sh"').paths, [], 'control: given to cat it is text');
+  assert.deepEqual(paths('echo "see README.md and a.ts"').paths, [], 'a sentence is not a script path');
+});
+
+test('#5774 review 10: a config file caught mid-write is read once more before it is named', () => {
+  const dir = agentDir('pilot-r10');
+  const srv = path.join(SANDBOX, 'scripts', 'midwrite.js');
+  touch(srv);
+  const file = path.join(HOME, '.claude.json');
+  writeJson(file, { mcpServers: { s: { command: 'node', args: [srv] } } });
+  const real = fs.readFileSync;
+  let first = true;
+  fs.readFileSync = function (p, ...rest) {
+    if (first && path.resolve(String(p)) === file) { first = false; return '{ "mcpServers": '; }
+    return real.call(this, p, ...rest);
+  };
+  try {
+    const r = sc.startCommandScripts(dir, { homes: [path.join(HOME, '.claude')], home: HOME, platform: 'darwin', managedDir: null, managedPrefsDir: null });
+    assert.equal(first, false, 'precondition: the half-written read happened');
+    assert.deepEqual(r.unsafe, [], 'the second read is whole, so nothing is named');
+    assert.ok(r.files.includes(srv));
+  } finally {
+    fs.readFileSync = real;
+    fs.rmSync(file, { force: true });
+  }
+});

@@ -114,7 +114,8 @@ function readJsonFile(file) {
   }
   text = text.replace(/^\uFEFF/, '');
   if (!text.trim()) return { json: {} };   // review 4: an empty file holds nothing (Claude Code reads it as no settings)
-  try { return { json: JSON.parse(text) }; } catch { return { error: 'not valid JSON' }; }
+  try { return { json: JSON.parse(text) }; } catch { /* once more: a file caught mid-write by its writer (review 10) */ }
+  try { return { json: JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')) }; } catch { return { error: 'not valid JSON' }; }
 }
 
 /* A property list as JSON (plutil), in the same shape as readJsonFile. */
@@ -357,6 +358,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     for (const s of w.subs || []) more(s);   // the command inside $(...) or backticks runs too
     if (w.written) continue;     // a redirection's target is written, not run
     if (w.heredoc) {   // a delimiter is no file; a here-document given to a shell IS its script (review 6)
+      if (w.heredocMode === 'string' && !w.dynamic && /^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) more(w.text);   // bash <<< "cmd" (review 10)
+      else if (w.heredocMode === 'string' && w.dynamic && /^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) unsafe.push('a here-string given to a shell, made when the command runs');
       if (typeof w.body === 'string' && /^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) more(w.body);
       else if (typeof w.body === 'string' && INTERPRETER.test(prog)) for (const m of w.body.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
       continue;
@@ -434,7 +437,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     const codeSlot = (inScriptSlot && !slotTaken) || flagScript;
     if (inScriptSlot) slotTaken = true;
     // A script extension counts anywhere, except on a pattern (case *.py), find -name '*.py': review 7).
-    const runs = isHead || inScriptSlot || w.input || flagValue || inline || flagScript || (!w.dynamic && !w.globbed && !/[*?]/.test(text) && SCRIPT_EXT.test(text));   // where something RUNS
+    // Review 10: input is what runs only for a shell or interpreter (bash < x.sh); jq . < state.json reads a file.
+    const runs = isHead || inScriptSlot || (w.input && INTERPRETER.test(prog)) || flagValue || inline || flagScript || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && SCRIPT_EXT.test(text));   // where something RUNS
     if (w.dynamic) {
       // A flag's unknown value names a path only when it has a slash (--header="$H" names nothing).
       if (runs && (!flagValue || text.includes('/'))) unsafe.push(`a ${isHead ? 'program' : 'path'} made when the command runs${text.includes('/') ? ', ending ' + text.slice(text.lastIndexOf('/')) : ''}`);
