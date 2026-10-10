@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: dailytimes-5752
-diff_hash: 5c1511983b6ed421faaef88f064d319325cc5dae759d27b5fd67ae05a8ee2164
+diff_hash: b6b7175ef5ff5e27b3455616b2f80b519076e6e1b473396747921104d3e423d8
 validation: scoped (on this Mac at b28b8ac3 through the heavy queue: 355 test files, every web.* page test plus the repeat, task, CLI and agent-rules files, 2758 tests, 0 failed; the two gated browser checks on the Repeats control's surface, render-runrollup-5643 and render-onhold-4771, all checks passed; 30+ mutants each caught; the full suite was not run locally, CI runs it)
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-10T07:17:08Z
@@ -66,6 +66,10 @@ converged: true
 | 8 | 5 | WARNING | web/index.html | SELF | frequency-only repaint not caught | FIXED | 92f8ce30 |
 
 ### Validation actually run
+- Re-hashed after merging main (f22f0de85, 56 commits, including web/index.html): a clean merge, and this branch's 561
+  added and removed lines are byte-identical before and after it. CI's first run was green in node (18314 tests, 0
+  failed) and red only on the browser-check surface gate for render-onhold-4771, which was run locally and passed; the
+  per-check trailer is added.
 - Heavy-queue run at b28b8ac3 (clean tree): 355 test files, 2758 tests, 0 failed.
 - render-runrollup-5643 and render-onhold-4771 (the gated checks naming tkPaintRepeat): all checks passed, with NODE_PATH at the shared Playwright runtime. The first attempt died at "Cannot find module 'playwright'" (no node_modules in a worktree), not on the page.
 - Mutants across the engine (7), the screen (4, 4, 4, 3, 1) and the round-1 engine fixes (5), each caught by its own test; one equivalent mutant noted.
