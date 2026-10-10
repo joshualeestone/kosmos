@@ -304,6 +304,22 @@ test('#4475: the supervisor\'s launch hand-off folders are Read-denied (beside t
   }
 });
 
+test('#4475: an app folder with a pattern character ("Kosmos (1)") never stops the whole guard; its hand-off stays sandbox-denied', () => {
+  const dir = agentDir('pilot-paren');
+  const app = path.join(SANDBOX, 'Kosmos (1)');
+  const r = setup.guardTokenOnlyFolder(dir, 'pilot-paren', { ...DEPS, appRoot: app });
+  // Not the whole-guard refusal: the rest is written, and the app folder is named as the part left out.
+  assert.ok(!/cannot be written whole/.test(String(r.because || '')), 'the whole guard was refused: ' + r.because);
+  assert.match(String(r.pathReason || ''), /Kosmos \(1\)/, 'the uncarriable app folder is not named: ' + JSON.stringify(r));
+  const s = readSettings(dir);
+  const appSecrets = path.join(app, 'launch-secrets');
+  assert.ok(s.sandbox.filesystem.denyRead.includes(realOrLeaf(appSecrets)), 'the app folder hand-off is not in sandbox denyRead');
+  assert.ok(!s.permissions.deny.some((x) => x.includes('Kosmos (1)')), 'a rule with a pattern character was written');
+  // CONTROL: the data root's hand-off rule, which has no pattern character, is still written.
+  const dataSecrets = path.join(path.dirname(store.ROOT), 'launch-secrets');
+  assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(dataSecrets)}/**)`), 'the data root hand-off rule is missing');
+});
+
 test('realOrLeaf: resolves an existing leaf (incl a symlink), a symlinked parent of an absent leaf, and an all-missing path', () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'realorleaf-'));
   // existing symlink leaf -> target: resolves to the target

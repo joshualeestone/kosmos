@@ -1458,8 +1458,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     `Edit(${ruleAbs(guardRecord)}/**)`,
     ...worldRules,
     // #4475: another agent's token waiting in the launch hand-off, and the records the board trusts about who made and
-    // who ended which agent (the sender-token folders themselves are tokenDirs, above).
-    ...launchSecretDirs.map((p) => `Read(${ruleAbs(p)}/**)`),
+    // who ended which agent (the sender-token folders themselves are tokenDirs, above). The launch hand-off's Read
+    // rules are added after the filter below, as the launch folders' are.
     ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
@@ -1496,6 +1496,16 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (ruleHasPatternChar(r)) launchUnsafe.push(`${f} (its path has a character the permission rules cannot carry)`);
     else launchRules.push(r);
   }
+  /* #4475: the launch hand-off folders' Read rules take the same route. One of them is under the app folder, and an
+     app folder with a pattern character ("Kosmos (1)") must not stop the whole guard: its rule is left out and named in
+     launchUnsafe, while the sandbox's denyRead still carries the concrete path. Kept out of launchRules, whose record
+     a launch prunes. */
+  const secretRules = [];
+  for (const d of launchSecretDirs) {
+    const r = `Read(${ruleAbs(d)}/**)`;
+    if (ruleHasPatternChar(r)) launchUnsafe.push(`${d} (its path has a character the permission rules cannot carry)`);
+    else secretRules.push(r);
+  }
   /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
      misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
      sandbox layer still carries the concrete path. The globs this function adds itself are taken out before testing. */
@@ -1506,7 +1516,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     tokenRuleDropped = true;   // reviews 16 and 17: ANY dropped rule leaves part of the guard out (a token read, or its own self-protection)
     return false;
   });
-  safeDeny.push(...launchRules);
+  safeDeny.push(...launchRules, ...secretRules);
   /* #5663: the record of the launch rules this guard wrote at launches, so a launch can prune the ones whose paths are
      gone (deny lists only grew before: every upgrade added versioned paths for good). It sits in the agent's .claude
      folder, which the sandbox denies WRITES to, and the file tools are denied it here, so the agent cannot rewrite
