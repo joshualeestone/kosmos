@@ -17212,8 +17212,11 @@ const server = http.createServer(async (req, res) => {
   const withShared = (list) => (list || []).map((p) => {
     let link = null;
     try { link = p && p.id ? federation.linkFor(p.id) : null; } catch { link = null; }
-    if (!link || link.role !== 'member') return p;
-    return { ...p, shared: {
+    // #4649 pilot walk: every shared room says so (own-computer joins too), separately from `shared`, which is a
+    // member's view of another account's project and would misdescribe one's own.
+    const room = federation.sharedRoomOf(link) ? { sharedRoom: true } : {};
+    if (!link || link.role !== 'member') return Object.keys(room).length ? { ...p, ...room } : p;
+    return { ...p, ...room, shared: {
       owner: typeof link.owner_handle === 'string' && link.owner_handle ? link.owner_handle : null,
       description: typeof link.project_desc === 'string' && link.project_desc.trim() ? link.project_desc : null,
     } };
@@ -18726,7 +18729,7 @@ const server = http.createServer(async (req, res) => {
         // without it could never connect, and its owner seat would retry for nothing.
         let plus = false;
         try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
-        if (!plus) { sendJson(res, 403, { reason: 'not-plus', error: 'Adding your other computers needs Kosmos Plus on this computer. Turn it on in Settings, under Kosmos+, then try again.' }); return; }
+        if (!plus) { sendJson(res, 403, { reason: 'not-plus', error: 'Adding your other computers needs Kosmos Plus on this computer. Sign in to Kosmos+ in Settings, under Kosmos+, then try again.' }); return; }
         let proj = null;
         try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
         if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }

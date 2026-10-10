@@ -372,7 +372,7 @@ async function verify(remote, body) {
     let plus = false;
     try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
     if (!plus) {
-      return { status: 403, body: { reason: 'not-plus', error: 'Joining your other computer\'s project needs Kosmos Plus on this computer. Turn it on in Settings, under Kosmos+, then paste the code again.' } };
+      return { status: 403, body: { reason: 'not-plus', error: 'Joining your other computer\'s project needs Kosmos Plus on this computer. Sign in to Kosmos+ in Settings, under Kosmos+, then paste the code again.' } };
     }
     let here;
     try { here = ownRefHere(own.ref); } catch { return { status: 500, body: { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' } }; }
@@ -450,7 +450,16 @@ function forgetSnapshot(edgeId) {
   verified.delete(edgeId);
 }
 
+/* #4649 pilot walk: is this project's room shared across computers? A join from this account's other computer
+   ('self'), a join from another account ('member'), or an owner who made an own code (selfShared). The room's empty
+   line reads it: posting works there even with no agents on this computer. Pure, from the link alone. */
+function sharedRoomOf(link) {
+  if (!link || typeof link !== 'object') return false;
+  return link.role === 'self' || link.role === 'member' || (link.role === 'owner' && link.selfShared === true);
+}
+
 module.exports = {
+  sharedRoomOf,
   ownCode, ownCodeRefusal, ownRefHere, parseOwnCode, ownFromOf, OWN_PREFIX,
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,

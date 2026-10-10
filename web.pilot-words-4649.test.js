@@ -17,7 +17,7 @@ const SERVER = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 const FED = fs.readFileSync(path.join(__dirname, 'engine', 'federation.js'), 'utf8');
 
 test('#4649: every "needs Kosmos Plus" message says where to turn it on', () => {
-  const where = /needs Kosmos Plus on this computer\. Turn it on in Settings, under Kosmos\+, then /;
+  const where = /needs Kosmos Plus on this computer\. Sign in to Kosmos\+ in Settings, under Kosmos\+, then /;
   assert.match(SERVER, where, 'the own-code route');
   assert.match(FED, where, 'the join refusal');
   assert.match(PAGE, where, "the page's own copy of the join refusal");
@@ -33,7 +33,19 @@ test('#4649: a joined project with no agents here says posting works, never "add
   const i = PAGE.indexOf("Put an agent on this project and the room opens.");
   assert.notEqual(i, -1, 'CONTROL: the own-project empty line is still there for a project with no agents anywhere');
   const block = PAGE.slice(PAGE.lastIndexOf('const empty = body.ok === false', i), i + 80);
-  assert.match(block, /p\.shared && typeof p\.shared === 'object'/, 'the shared branch is decided on p.shared');
-  assert.match(block, /Nothing here yet\. Post below and the agents on the computer that shared this project receive it\./);
-  assert.ok(block.indexOf('Post below and the agents on the computer') < block.indexOf('Put an agent on this project'), 'the shared case is tested first');
+  assert.match(block, /p\.sharedRoom === true/, 'the shared branch is decided on sharedRoom');
+  assert.match(block, /Nothing here yet\. Post below and it shows in this room on the other computer too, where its agents read it\./);
+  assert.ok(block.indexOf('Post below and it shows in this room') < block.indexOf('Put an agent on this project'), 'the shared case is tested first');
+});
+
+test('#4649 review: sharedRoom is true for EVERY shared room, the own-computer join (the pilot case) first', () => {
+  const { sharedRoomOf } = require('./engine/federation');
+  assert.equal(sharedRoomOf({ role: 'self', ref: 'r' }), true, 'joined from this account\'s other computer (the pilot)');
+  assert.equal(sharedRoomOf({ role: 'member', ref: 'r' }), true, 'joined from another account');
+  assert.equal(sharedRoomOf({ role: 'owner', ref: 'r', selfShared: true }), true, 'the owner made an own code');
+  assert.equal(sharedRoomOf({ role: 'owner', ref: 'r' }), false, 'CONTROL: an owner who shared nothing');
+  assert.equal(sharedRoomOf(null), false, 'CONTROL: no link');
+  // The projects route carries it from the helper, for any link, and keeps `shared` for members only.
+  assert.match(SERVER, /const room = federation\.sharedRoomOf\(link\) \? \{ sharedRoom: true \} : \{\};/);
+  assert.match(SERVER, /if \(!link \|\| link\.role !== 'member'\) return Object\.keys\(room\)\.length \? \{ \.\.\.p, \.\.\.room \} : p;/);
 });
