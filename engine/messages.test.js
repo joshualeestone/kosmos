@@ -1759,9 +1759,14 @@ test('kosmos#5752 slice 3: a stranger\'s refused post offers the add only when i
     assert.notEqual(byPane[0].addable, true, 'a pane claim: no add offered (it may not be mara asking)');
     fs.rmSync(messages.LOG, { force: true });
     const card = board.agents.find((c) => c.sessionName === 'mara');
+    // A resolved sender NOT marked as token-named (the outbox drain's, which may be a pane claim): no add.
     messages.sendPost({ sender: { ok: true, card }, project: 'other-room', text: 'let me in' }, board.agents, ['leo']);
+    const kept = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara');
+    assert.equal(kept.length === 1 && kept[0].addable !== true, true, 'a kept post replayed later: no add offered');
+    fs.rmSync(messages.LOG, { force: true });
+    messages.sendPost({ sender: { ok: true, card }, senderByToken: true, project: 'other-room', text: 'let me in' }, board.agents, ['leo']);
     const byToken = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara');
-    assert.equal(byToken.length === 1 && byToken[0].addable, true, 'named by its token: the add is offered');
+    assert.equal(byToken.length === 1 && byToken[0].addable, true, 'named by its token (the live route): the add is offered');
   });
 });
 

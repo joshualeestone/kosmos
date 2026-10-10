@@ -1604,7 +1604,7 @@ function ambiguousNote(ambiguous, mentioned, shown) {
   return out.join(' ');
 }
 
-function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
+function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1700,9 +1700,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     /* kosmos#5752: the fix only where adding would help. An agent still on the record but removed from Kosmos is
        filtered out above; adding it again changes nothing, so it gets the sentence without the fix. */
     // kosmos#5752 slice 3: a stranger's refusal is `addable`: the room row offers the person the add.
-    /* Addable only for a sender its token named: a pane claim is advisory, and an Add button on it would let one
-       process put words in another agent's mouth ("mara tried to post here", review 1). */
-    return refuse('you are not on that project, so this room is not yours to post into', onRecord ? '' : NOT_ON_PROJECT_FIX, { addable: !onRecord && !!resolvedSender });
+    /* Addable only for a sender its token named (`senderByToken`, set by the live post route alone): a pane claim is
+       advisory, and an Add button on it would let one process put words in another agent's mouth (review 1). A kept
+       post replayed by the outbox carries a sender that may be a pane claim, so it is never addable (review 2). */
+    return refuse('you are not on that project, so this room is not yours to post into', onRecord ? '' : NOT_ON_PROJECT_FIX, { addable: !onRecord && senderByToken === true });
   }
   const recipients = operator === true ? members.slice() : members.filter((m) => m !== from);
   /**

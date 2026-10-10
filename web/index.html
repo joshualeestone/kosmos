@@ -64867,14 +64867,17 @@ async function rxnToggle(forProject, box, emoji) {
 async function pjRefusedAddClick(e) {
   const btn = e.target && e.target.closest ? e.target.closest('[data-add-member]') : null;
   if (!btn || !PJ_CURRENT) return;
+  const project = PJ_CURRENT;   // review 2: pinned, as pjNoticeRetryClick does; the person may move on while it runs
   const who = btn.getAttribute('data-add-member');
   const msg = btn.nextElementSibling && btn.nextElementSibling.classList.contains('pj-refused-msg') ? btn.nextElementSibling : { textContent: '' };
   btn.disabled = true;
   if (!(await addMemberToProject(who, msg))) { btn.disabled = false; return; }
   await pjReload();
+  if (PJ_CURRENT !== project) return;   // added to the project it was pressed in; nothing said or focused elsewhere
   const box = document.getElementById('pj-room');
   if (box) { box.__lastRoom = undefined; if (box.__lastBody) paintRoom(box.__lastBody); }
-  pjRoomAnnounce('Added ' + (pjNameOf(pjById(PJ_CURRENT), who) || who) + ' to this project.');
+  const p = pjById(project);
+  pjRoomAnnounce('Added ' + ((p && pjNameOf(p, who)) || who) + ' to this project.');
   const composer = document.getElementById('pj-post');
   if (composer) composer.focus();
 }
@@ -67342,12 +67345,13 @@ function pjFoldRoomRows(rows) {
   let i = 0;
   while (i < rows.length) {
     const m = rows[i];
-    /* kosmos#5752 slice 3: an `addable` refusal keeps its own row, since it carries that one agent's add button. */
-    if (m && m.kind === 'refused' && m.addable !== true) {
+    /* kosmos#5752 slice 3: an `addable` refusal keeps its own row (its own add button), and so does one that says what
+       the agent tried (`doing`): the folded band would say "tried to post here" and lose it (review 2). */
+    if (m && m.kind === 'refused' && m.addable !== true && !m.doing) {
       const because = m.because || '';
       const froms = [];
       let j = i;
-      while (j < rows.length && rows[j] && rows[j].kind === 'refused' && rows[j].addable !== true
+      while (j < rows.length && rows[j] && rows[j].kind === 'refused' && rows[j].addable !== true && !rows[j].doing
              && (rows[j].because || '') === because) {
         if (!froms.includes(rows[j].from)) froms.push(rows[j].from);
         j++;

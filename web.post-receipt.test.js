@@ -482,6 +482,10 @@ test('#5752 slice 3: an addable refusal keeps its own row (its own button); othe
   assert.deepEqual(api.pjFoldRoomRows(addable).map((m) => m.kind), ['refused', 'refused']);
   const plain = [{ kind: 'refused', from: 'zed', because: 'held', at }, { kind: 'refused', from: 'ann', because: 'held', at }];
   assert.deepEqual(api.pjFoldRoomRows(plain).map((m) => m.kind), ['refused-group'], 'CONTROL: the fold still works');
+  // Review 2: rows saying what was tried (a pane-claimed task write, no add) keep their own rows too, or the band would
+  // say "tried to post here" for both.
+  const tried = [{ kind: 'refused', from: 'zed', because, doing: 'add a task', at }, { kind: 'refused', from: 'ann', because, doing: 'add a task', at }];
+  assert.deepEqual(api.pjFoldRoomRows(tried).map((m) => m.kind), ['refused', 'refused']);
 });
 
 test('#5752 slice 3: pressing Add adds that agent, repaints the room from what it last read, says so, and focuses the composer', async () => {
@@ -494,12 +498,15 @@ test('#5752 slice 3: pressing Add adds that agent, repaints the room from what i
     const box = { __lastRoom: 'cached', __lastBody: { rows: [] } };
     const composer = { focus: () => calls.push('focus') };
     const document = { getElementById: (id) => (id === 'pj-room' ? box : id === 'pj-post' ? composer : null) };
-    const f = new Function('document', 'PJ_CURRENT', 'addMemberToProject', 'pjReload', 'paintRoom', 'pjRoomAnnounce', 'pjNameOf', 'pjById',
-      page.liftAll(SRC, ['pjRefusedAddClick']) + '\nreturn pjRefusedAddClick;')(document, 'p1',
-      async (who) => { calls.push('add ' + who); return added; }, async () => { calls.push('reload'); },
+    // PJ_CURRENT is a variable the stubs can move (the person leaving the project while the add runs).
+    const made = new Function('document', 'addMemberToProject', 'pjReload', 'paintRoom', 'pjRoomAnnounce', 'pjNameOf', 'pjById',
+      'let PJ_CURRENT = "p1";\n' + page.liftAll(SRC, ['pjRefusedAddClick']) + '\nreturn { f: pjRefusedAddClick, leave: (v) => { PJ_CURRENT = v; } };');
+    let api5;
+    api5 = made(document,
+      async (who) => { calls.push('add ' + who); if (added === 'leave') api5.leave(null); return !!added; }, async () => { calls.push('reload'); },
       (body) => calls.push('paint ' + (box.__lastRoom === undefined ? 'fresh' : 'cached')), (t) => calls.push('say ' + t),
       () => 'Zed', () => ({ id: 'p1' }));
-    await f({ target: { closest: () => btn } });
+    await api5.f({ target: { closest: () => btn } });
     return { calls, btn };
   };
   const ok = await run(true);
@@ -508,6 +515,8 @@ test('#5752 slice 3: pressing Add adds that agent, repaints the room from what i
   const no = await run(false);
   assert.deepEqual(no.calls, ['add zed'], 'a refused add: nothing repainted, the row says why');
   assert.equal(no.btn.disabled, false, 'and the button can be pressed again');
+  const left = await run('leave');
+  assert.deepEqual(left.calls, ['add zed', 'reload'], 'review 2: the person left the project during the add: nothing repainted, said or focused there');
   const src = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(src, /document\.getElementById\('pj-room'\)\.addEventListener\('click', pjRefusedAddClick\);/, 'wired to the room');
 });

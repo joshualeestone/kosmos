@@ -352,3 +352,33 @@ test('#5752 slice 3: a non-member\'s refused task writes are room rows saying wh
   const again = await (await fetch(base + `/api/project/${encodeURIComponent(projectId)}/room`, { headers: screen })).json();
   assert.equal((again.rows || again.messages || again).filter((m) => m && m.kind === 'refused' && m.from === 'mona').length, 0);
 });
+
+test('#5752 slice 3 review 2: every refused task write logs its own row (a fresh agent per verb, so the one-row rule hides none)', async () => {
+  const names = ['z1', 'z2', 'z3', 'z4', 'z5', 'z6', 'z7', 'z8', 'z9'];
+  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('fixture', { state: 'idle' }),
+    ...names.map((n) => fleet.agent(n, { state: 'idle' }))]).agents;
+  const own = projects.create({ name: 'Epsilon' });
+  projects.addAgent(own.id, 'mona', roster);
+  const n = tasks.create(own.id, { sentence: 'Per-verb check', who: 'mona' }).number;
+  const tok = (who) => ({ 'x-kosmos-agent-token': sendertoken.mint(who).token });
+  const base5 = `/api/project/${own.id}`;
+  const calls = [
+    ['z1', `${base5}/tasks`, { sentence: 'not mine' }, 'add a task'],
+    ['z2', `${base5}/task/${n}/close`, {}, 'close a task'],
+    ['z3', `${base5}/task/${n}/reopen`, {}, 'reopen a task'],
+    ['z4', `${base5}/task/${n}/done-when`, { doneWhen: 'it ran' }, 'change a task'],
+    ['z5', `${base5}/task/${n}/assign`, { who: 'mona' }, 'move a task'],
+    ['z6', `${base5}/task/${n}/repeat`, { every: 'hourly' }, 'set how often a task repeats'],
+    ['z7', `${base5}/task/${n}/built`, { note: '1 met.' }, 'mark a task built'],
+    ['z8', `${base5}/task/${n}/message`, { text: 'hello' }, 'write in a task'],
+    ['z9', `${base5}/role`, { role: 'checker' }, 'set its role'],
+  ];
+  for (const [who, path, body] of calls) await post(path, body, tok(who));
+  const rows = (await (await fetch(base + `/api/project/${encodeURIComponent(own.id)}/room`, { headers: screen })).json()).rows
+    .filter((m) => m && m.kind === 'refused');
+  for (const [who, , , doing] of calls) {
+    const r = rows.filter((m) => m.from === who);
+    assert.equal(r.length, 1, who + ' (' + doing + ') left no row: ' + JSON.stringify(rows.map((m) => [m.from, m.doing])));
+    assert.deepEqual([r[0].doing, r[0].addable], [doing, true], who);
+  }
+});

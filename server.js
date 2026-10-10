@@ -3424,7 +3424,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
+function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -3476,6 +3476,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
   const delivery = (asynchronousDelivery ? messages.sendPostAsync : messages.sendPost)({
     fromPane,
     sender,
+    senderByToken: senderByToken === true,   // kosmos#5752 slice 3: only then may a refusal offer the room's Add
     project: found.id,
     // The NAME for the envelope the agent reads, the id for everything a
     // machine keys on. Both, from the same record, so they cannot drift.
@@ -15509,9 +15510,11 @@ const server = http.createServer(async (req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
+        const tokenSender = senderFromAgentToken(req, body, roster);
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: senderFromAgentToken(req, body, roster),
+          sender: tokenSender,
+          senderByToken: !!(tokenSender && tokenSender.ok),   // the outbox drain never sets it: its sender may be a pane claim
           project: body.project,
           text: body.text,
           replyExpected: body.reply_expected,

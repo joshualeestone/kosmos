@@ -57,3 +57,17 @@ why it was stopped; the person decides. The add is the same call as the Members 
 - Room search matches what was tried.
 - Left as is (NIT): a deliberately removed agent's old row offers the add again.
 - 11 mutants, each caught.
+
+## Review round 2 fixes
+- The outbox drain replays a kept post with a sender that may be a pane claim, and it was addable. The live post
+  route alone marks `senderByToken` (only when the agent token resolved); the engine offers the add only then.
+- pjRefusedAddClick pins the project it was pressed in (as pjNoticeRetryClick does): a person who moved on while the
+  add ran gets nothing repainted, said or focused elsewhere, and no throw on a null project.
+- A refused row that says what was tried (`doing`) is not folded either, so a band never says "tried to post here"
+  for task writes.
+- Per-site coverage is back: a fresh agent per verb (add, close, reopen, done-when, assign, repeat, built, message,
+  role), each asserting its own row and `doing`.
+- Left as is (NITs): task sites never refuse a removed agent still on the record (they admit it), so there is no
+  removed-agent add to withhold there; a refused reaction is not logged as a room row.
+- Mutants: 9 caught; a fold that loops on a `doing` row is caught as a hang (no node test timeout can stop a
+  synchronous loop).
