@@ -269,9 +269,9 @@ async function plusSigningIn(page, owned) {
     } else {
       document.getElementById('plus-si-owned').hidden = true;
       const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = false;
-      const name = document.getElementById('plus-si-name'); if (name) name.value = 'sample';
+      const name = document.getElementById('plus-si-name');
+      if (name) { name.value = 'sample'; name.dispatchEvent(new Event('input', { bubbles: true })); }   // the count reads 6/32, as typed
       const go = document.getElementById('plus-si-register-go'); if (go) { go.hidden = false; go.disabled = true; }
-      plusSiMsg('Signing in...');
     }
     plusSiKStart(own);
   }, owned);

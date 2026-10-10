@@ -11460,6 +11460,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    the restart screen the loader comes from (.restart-back .restart-msg). Only then: the card's other steps, and a
    connect to a typed name (its name field stays on screen), keep the card's own left alignment (review 3). */
 #plus-state2.plus-si-busy #plus-si-k canvas { margin: 0 auto 16px; }
+/* Review 9: the note is a status region that is always there and empty until a connect; a screen reader announces a
+   change to its text, not its appearing. Empty, it takes no room. */
+#plus-state2 #plus-si-k-note:empty { margin: 0; }
 #plus-state2.plus-si-busy #plus-si-title, #plus-state2.plus-si-busy #plus-si-owned, #plus-state2.plus-si-busy #plus-si-k-note { text-align: center; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
@@ -18866,7 +18869,7 @@ window.kosmosMeasureScrollbarWidth();
              spinner, .spin-sweep) shows beside the words, and the heading says "Signing in...". -->
         <p class="plus-si-lead" id="plus-si-owned" hidden tabindex="-1" role="status" aria-live="polite"><span class="spin spin-sweep" id="plus-si-spin" style="--sz:18px" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> <span id="plus-si-owned-lead">Connecting this computer as</span> <b id="plus-si-owned-addr"></b><span id="plus-si-owned-tail">...</span></p>
         <!-- #5785 (Mona Lisa's review): measured on the coordinator, a connect is about 33 s (a fixed 24 s DNS settle). -->
-        <p class="plus-si-lead" id="plus-si-k-note" role="status" hidden>This takes about half a minute.</p>
+        <p class="plus-si-lead" id="plus-si-k-note" role="status"></p>
         <div class="field" id="plus-si-name-field">
           <label class="flabel" for="plus-si-name">Choose your Kosmos+ address</label>
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
@@ -48300,18 +48303,20 @@ function plusSiWayOut(step) {
 }
 /* #5785: the branded K loader (#2692) while a register runs. Mounted fresh each time and removed by emptying the holder:
    startKLoader ends its frame loop once its canvas has left the page, so hiding it would leave it drawing. */
+/* Mona Lisa's review: measured on the coordinator, a connect is about 33 s (a fixed 24 s DNS settle). */
+const PLUS_SI_K_NOTE = 'This takes about half a minute.';
 function plusSiKStart(centred) {
   const holder = document.getElementById('plus-si-k');
   if (!holder) return;
   holder.innerHTML = '<canvas width="176" height="206" aria-hidden="true"></canvas>';
   if (typeof startKLoader === 'function') startKLoader(holder.firstElementChild);
   const card = document.getElementById('plus-state2'); if (card) card.classList.toggle('plus-si-busy', !!centred);
-  const note = document.getElementById('plus-si-k-note'); if (note) note.hidden = false;
+  const note = document.getElementById('plus-si-k-note'); if (note) note.textContent = PLUS_SI_K_NOTE;
 }
 function plusSiKStop() {
   const holder = document.getElementById('plus-si-k'); if (holder) holder.textContent = '';
   const card = document.getElementById('plus-state2'); if (card) card.classList.remove('plus-si-busy');
-  const note = document.getElementById('plus-si-k-note'); if (note) note.hidden = true;
+  const note = document.getElementById('plus-si-k-note'); if (note) note.textContent = '';
 }
 function plusSiShow(step) {
   for (const id of PLUS_SI_STEPS) {
@@ -49201,7 +49206,8 @@ async function plusSiDoRegister(name, owned) {
     const left = kHoldMs - (Date.now() - kStart);
     return left > 0 ? new Promise((res) => setTimeout(res, left)) : Promise.resolve();
   };
-  if (!owned) plusSiMsg('Signing in...');
+  /* Mona Lisa's review: no second "Signing in..." under the button for a typed name; the heading, the loader and the
+     announced note say it. */
   const siRestore = () => {
     if (siSpin) siSpin.hidden = true;
     plusSiKStop();
@@ -49226,7 +49232,7 @@ async function plusSiDoRegister(name, owned) {
   try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
   /* Review 4/6: the flag is cleared by the register that owns it: an answer for a sign-in that was left (stale, or
      the epoch moved) leaves it to plusSiClear, which already cleared it, and so never clears a newer register's. */
-  catch (e) { if (kEpoch === PLUS_SI_EPOCH) PLUS_SI_REGISTERING = false; siRestore(); if (!owned) plusSiMsg(''); throw e; }
+  catch (e) { if (kEpoch === PLUS_SI_EPOCH) { PLUS_SI_REGISTERING = false; siRestore(); if (!owned) plusSiMsg(''); } throw e; }
   if (r.stale) return;
   /* Review 2: only a connect that worked holds (the flash is a success's); a refusal or error shows at once. Through
      the hold the register still counts as running (the flag set at its start), so the status tick does not paint the

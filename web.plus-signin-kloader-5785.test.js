@@ -44,7 +44,7 @@ test('#5785: a register plays it instead of the small spinner, holds one whole l
   // counts as running until the hold ends (the status tick must not paint the connected view early).
   assert.match(reg, /const kEpoch = PLUS_SI_EPOCH;/);
   // Review 2: an error or refusal is not held; a success is, as a running register, for both kinds.
-  assert.match(reg, /catch \(e\) \{ if \(kEpoch === PLUS_SI_EPOCH\) PLUS_SI_REGISTERING = false; siRestore\(\); if \(!owned\) plusSiMsg\(''\); throw e; \}/);
+  assert.match(reg, /catch \(e\) \{ if \(kEpoch === PLUS_SI_EPOCH\) \{ PLUS_SI_REGISTERING = false; siRestore\(\); if \(!owned\) plusSiMsg\(''\); \} throw e; \}/);
   assert.match(reg, /if \(r\.stale\) return;\s*if \(r\.ok\) \{\s*await kHold\(\);\s*if \(kEpoch !== PLUS_SI_EPOCH\) return;\s*\}\s*PLUS_SI_REGISTERING = false;/);
   assert.equal((reg.match(/await kHold\(\)/g) || []).length, 1, 'a second hold is back (a refusal or an error would wait out the loop)');
 });
@@ -70,13 +70,17 @@ test('#5785 review 1: the browser checks that drive a register skip the hold (th
 
 test('#5785 Mona\'s review: centred while it connects, with the wait said, and both put back when it ends', () => {
   assert.match(code, /#plus-state2\.plus-si-busy #plus-si-title, #plus-state2\.plus-si-busy #plus-si-owned, #plus-state2\.plus-si-busy #plus-si-k-note \{ text-align: center; \}/);
-  // Review 8: announced (the canvas is aria-hidden, so this line is how a screen reader hears the wait).
-  assert.match(code, /<p class="plus-si-lead" id="plus-si-k-note" role="status" hidden>This takes about half a minute\.<\/p>/);
-  assert.match(fnBody('plusSiKStart'), /card\.classList\.toggle\('plus-si-busy', !!centred\)[\s\S]*note\.hidden = false/);
+  // Review 8/9: a status region present and empty; its text is set when the loader starts (a text change is what a
+  // screen reader announces) and cleared when it stops.
+  assert.match(code, /<p class="plus-si-lead" id="plus-si-k-note" role="status"><\/p>/);
+  assert.match(code, /const PLUS_SI_K_NOTE = 'This takes about half a minute\.';/);
+  assert.match(fnBody('plusSiKStart'), /card\.classList\.toggle\('plus-si-busy', !!centred\)[\s\S]*note\.textContent = PLUS_SI_K_NOTE/);
   // Review 3: centred only for the automatic connect; a typed name keeps the card's left alignment.
   assert.match(code, /plusSiKStart\(owned\);/);
   assert.match(code, /#plus-si-k canvas \{[^}]*margin: 0 0 16px;[^}]*\}\s*#plus-state2\.plus-si-busy #plus-si-k canvas \{ margin: 0 auto 16px; \}/);
-  assert.match(fnBody('plusSiKStop'), /card\.classList\.remove\('plus-si-busy'\)[\s\S]*note\.hidden = true/);
+  assert.match(fnBody('plusSiKStop'), /card\.classList\.remove\('plus-si-busy'\)[\s\S]*note\.textContent = ''/);
+  // Mona Lisa's review: one "Signing in..." (the heading), not a second under a typed name's button.
+  assert.doesNotMatch(fnBody('plusSiDoRegister'), /plusSiMsg\('Signing in\.\.\.'\)/);
 });
 
 test('#5785 review 7: the #4608 sign-in check asserts the big loader during a connect, and that it goes after', () => {
@@ -96,9 +100,8 @@ test('#5785 review 8: every sign-in epoch bump reachable during a register clear
   const bumps = [...code.matchAll(/PLUS_SI_EPOCH \+= 1;/g)].map((m) => m.index);
   assert.ok(bumps.length >= 3, 'CONTROL: the epoch bumps were found');
   for (const at of bumps) {
-    const fnAt = Math.max(code.lastIndexOf('\nfunction ', at), code.lastIndexOf('\nasync function ', at));
-    const fnName = (/function (\w+)\(/.exec(code.slice(fnAt, fnAt + 80)) || [])[1];
-    if (fnName === 'plusSiRequestCode') continue;   // the resend, on the code step only
-    assert.match(code.slice(at, at + 400), /plusSiClear\(\);/, 'an epoch bump in ' + fnName + ' does not clear the register');
+    // Review 9: the one exception is skipped by its own code (the resend arm), not by guessing the enclosing function.
+    if (/if \(resend\) \{\s*$/.test(code.slice(Math.max(0, at - 40), at))) continue;
+    assert.match(code.slice(at, at + 400), /plusSiClear\(\);/, 'an epoch bump at ' + at + ' does not clear the register');
   }
 });
