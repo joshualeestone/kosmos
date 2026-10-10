@@ -29,6 +29,7 @@ no banner (Josh #3419).
 
 ## Where no buttons show (typing is the fallback, the safe direction)
 
+- Agents not run by Claude (the key-answer path is Claude's); a failed thread read (its sentence replaces the thread).
 - The setup guide's thread; a question the agent reported rather than one on its screen; a question row the engine did
   not add (withQuestionRow skips it when the last stored message already says the same text).
 

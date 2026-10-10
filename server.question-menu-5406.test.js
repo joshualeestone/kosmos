@@ -245,3 +245,19 @@ test('#5406 slice C: the folder-trust dialog (as observed, 2.1.29x) draws no but
     assert.equal(back.asked, null);
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5406 slice C: buttons are for Claude agents only (the key-answer path is Claude\'s), so another runner gets no asked', async () => {
+  const LIST = MENU;   // the same screen; only the runner differs
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'gemini', command: 'claude', screen: LIST })]);
+  try {
+    chat.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: LIST, err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+    assert.ok(Array.isArray(back.options) && back.options.length === 3, 'premise: a numbered list read as options: ' + JSON.stringify(back.options));
+    assert.equal(back.asked, null, 'a non-Claude agent was offered answer buttons');
+  } finally { chat.resetForTests(); board.restore(); }
+});
