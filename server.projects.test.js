@@ -2710,6 +2710,9 @@ test('the same question still on screen passes the identity check, so the check 
       const chatEngine = require('./engine/chat');
       const asked = chatEngine.questionAbove(chatEngine.questionIn(aPrompt).text);
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
+      /* ORDER IS LOAD-BEARING: this reads which refusal came back, so it discriminates only while the identity check
+         runs before the permission-prompt refusal. The positive control (a matching press goes out as the key) is in
+         server.question-menu-5406.test.js. */
       assert.doesNotMatch(String(json(res).error), /moved between drawing that button|changed on its screen/, 'the identity check refused the question that is on screen');
       assert.match(String(json(res).error), /cannot be answered with a button/, 'a press at a permission prompt was not refused as one');
       assert.equal(calls.sends().length, 0, 'a press was typed into a permission prompt');

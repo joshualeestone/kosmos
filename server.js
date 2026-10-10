@@ -16058,6 +16058,9 @@ const server = http.createServer(async (req, res) => {
           throw new Error('automatic is true or left out');
         }
         const automatic = body.automatic === true;
+        if (body.asked !== undefined && body.asked !== null && typeof body.asked !== 'string') {
+          throw new Error('a question identity is text');   // #5406 slice C: never ignored, or the checks below would be skipped
+        }
         if (automatic && (body.chose !== undefined || body.asked !== undefined || (body.reply_to !== undefined && body.reply_to !== null)
           || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
           throw new Error('an automatic message is plain text');

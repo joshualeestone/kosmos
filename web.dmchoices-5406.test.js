@@ -280,3 +280,18 @@ test('#5406 C: while a typed send to this agent is in the air its buttons are of
   other.from(BODY, CUR.sessionName);
   assert.doesNotMatch(other.html(Q), / disabled>/);
 });
+
+test('#5406 C: a 5xx after a press may have followed the key, so it reads as could-not-confirm and locks briefly', async () => {
+  const CUR = realCard();
+  const line = { textContent: '' };
+  const m = load({ CURRENT: CUR, document: { activeElement: null, getElementById: (id) => (id === 'd-say-msg' ? line : null) },
+    fetch: async () => ({ ok: false, status: 502, json: async () => ({ error: 'bad gateway' }) }) });
+  m.from(BODY, CUR.sessionName);
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  assert.match(line.textContent, /could not confirm that it went/);
+  assert.match(m.html(Q), / disabled>/);
+  // A typed send in the air turns the buttons off but does not say "Sending…" under the choices.
+  const typed = load({ CURRENT: CUR, typedFlight: CUR.sessionName });
+  typed.from(BODY, CUR.sessionName);
+  assert.doesNotMatch(typed.html(Q), /Sending…/, 'a typed send read as the choice being sent');
+});
