@@ -105,6 +105,7 @@ const ALLOW = [
   { file: 'runners.js', snippet: ".split(';').map((e) => e.trim())", count: 1, why: 'PATHEXT is a Windows executable-extension list (.COM;.EXE;..), always ;-separated on Windows regardless of the host OS -- NOT path.delimiter (which is : on POSIX); this reasons about win32 executable resolution (#2183)' },
   { file: 'runners.js', snippet: ".split(';').map((e) => e.trim().toUpperCase())", count: 1, why: 'the SAME PATHEXT list in hasExecutableExt (#2270): membership test for a path\'s extension, uppercased for the case-insensitive match Windows does. Always ;-separated on Windows, NOT path.delimiter -- same reasoning as the pathextCandidates entry above' },
   { file: 'restoresink.js', snippet: "line.split(':')", count: 1, why: 'an /etc/group line (name:password:gid:members); : is that file\'s field separator, not a path. In isPrivateGroup, reached only on the non-win32 branch (#5536)' },
+  { file: 'startcommands.js', snippet: "value.split(':')", count: 1, why: 'a PATH= assignment inside a POSIX shell command line a hook or server runs: : is that shell syntax\'s own separator (Git Bash on Windows too), not the host path.delimiter (#5774)' },
   { file: 'backupupload.js', snippet: ".split(';')", count: 1, why: 'AWS SigV4 X-Amz-SignedHeaders, a ;-joined list of header names fixed by the protocol on every platform, not a path list (#5535)' },
 ];
 
