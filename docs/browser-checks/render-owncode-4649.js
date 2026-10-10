@@ -103,7 +103,11 @@ function chk(ok, label, extra) {
           const link = federation.linkFor(a.id);
           chk(parsed && link && parsed.ref === link.ref && parsed.name === a.name && parsed.from === 'study', `${E} the code names THIS project's room and the computer that made it`, JSON.stringify({ parsed, link }));
           chk(link && link.role === 'owner' && link.selfShared === true, `${E} the project is marked shared with the person's other computers`, JSON.stringify(link));
-          chk(got.row && /Join a project/.test(got.msg), `${E} the code and how to use it are shown`, got.msg);
+          // #4649 joinwords review: the WHOLE instruction, so a message naming a control that does not exist (the old
+          // "open Projects, Join a project" with no such button) cannot pass; and each named label must be on the page.
+          chk(got.row && got.msg === 'On your other computer, open Projects, press + Add Project, choose Join a project, and paste this code.', `${E} the code and how to use it are shown`, got.msg);
+          const labels = await page.evaluate(() => ({ add: /\+\s*Add Project/.test((document.getElementById('pj-new') || {}).textContent || ''), join: ((document.querySelector('label.pj-mode-opt:has(#pj-mode-join)') || {}).textContent || '').trim() }));
+          chk(labels.add && labels.join === 'Join a project', `${E} the instruction's two labels are the page's own (+ Add Project, Join a project)`, JSON.stringify(labels));
           await open(b.id);
           const other = await page.evaluate(() => ({ code: document.getElementById('pjs-own-code').value, row: !document.getElementById('pjs-own-row').hidden }));
           chk(other.code === '' && !other.row, `${E} another project's settings do not show the first one's code`, JSON.stringify(other));
