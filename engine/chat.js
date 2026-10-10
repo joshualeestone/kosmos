@@ -1163,7 +1163,7 @@ function questionMenuKeysAllowed(sessionName, roster) {
   /* #5406 slice C review 18: one key answer per pane at a time. The page's own lock covers one tab; two surfaces on the
      same agent could each read the menu before it redraws and both send a digit, the second landing on whatever is
      on screen then. Held from before the first read to after the settle read. */
-  if (QMENU_BUSY.has(paneTarget(allowed.card))) return { ok: false, because: 'it is already being answered from another window; look at this page again in a moment' };
+  if (QMENU_BUSY.has(paneTarget(allowed.card))) return { ok: false, because: 'a key is already being sent to its question; look at this page again in a moment' };
   return allowed;
 }
 const QMENU_BUSY = new Set();   // pane targets with a key answer or a close in progress
@@ -1465,6 +1465,12 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) {
     return { state: DELIVERY.COULD_NOT, because: allowed.because, at, paneState: null, paneNote: null };
+  }
+  /* #5406 slice C review 19: a key answer to its question is settling (QMENU_BUSY); a line pasted now would land on
+     whatever the screen shows mid-redraw. Nothing typed; busy, like a pane another message is being placed in. */
+  if (allowed.card && QMENU_BUSY.has(paneTarget(allowed.card))) {
+    return { state: DELIVERY.COULD_NOT, because: 'its question is being answered right now, so this was not typed; send it again in a moment',
+      at, paneState: null, paneNote: null, busy: true };
   }
   /**
    * #1629 point 3: NEVER TYPE AT AN AGENT STOPPED ON CLAUDE CODE'S TRUST

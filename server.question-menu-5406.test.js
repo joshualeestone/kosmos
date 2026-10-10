@@ -410,9 +410,31 @@ test('#5406 slice C review 18: one key answer per agent at a time, so a press fr
     const first = chat.answerQuestionMenu('casey', 1, roster, { question: undefined, label: 'Apple' });   // holds the slot through its settle
     const second = await chat.answerQuestionMenu('casey', 2, roster, { label: 'Banana' });
     assert.equal(second.ok, false, JSON.stringify(second));
-    assert.match(second.because, /already being answered/);
+    assert.match(second.because, /already being sent to its question/);
     const one = await first;
     assert.equal(one.ok, true, JSON.stringify(one));
     assert.deepEqual(calls.keys(), ['1'], 'two keys reached the menu');
+  });
+});
+
+test('#5406 slice C review 19: on the live single-select menu, a press drawn for a DIFFERENT question is refused by the identity check, nothing sent', async () => {
+  await withMenu(async (calls) => {
+    const r = await post({ text: '1', chose: 'Apple', asked: 'Which vegetable do you want?' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /moved between drawing that button and sending it/, 'refused, but not by the identity check');
+    assert.deepEqual(calls.keys(), []);
+    assert.equal(calls.pasted(), '');
+  });
+});
+
+test('#5406 slice C review 19: a typed message to an agent whose question is being answered waits (busy), nothing typed', async () => {
+  await withMenu(async (calls) => {
+    const roster = require('./engine/status').snapshot().agents;
+    const press = chat.answerQuestionMenu('casey', 1, roster, { label: 'Apple' });   // holds the slot through its settle
+    const v = chat.deliver('casey', 'A room post for Casey.', roster);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
+    assert.equal(v.busy, true);
+    assert.equal(calls.pasted(), '', 'a line was pasted while the answer settled');
+    assert.equal((await press).ok, true);
   });
 });
