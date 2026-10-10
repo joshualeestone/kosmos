@@ -2459,11 +2459,10 @@ function claudeQuestionMenuUp(text) {
 /* #5754: is Claude Code's PERMISSION prompt on screen ("Do you want to proceed?", "Do you want to create x?", with
    "1. Yes" first)? Measured on 2.1.296: a pasted line is ignored there and the Enter after it takes the highlighted
    option, usually Yes, so a typed message approves a command or an edit nobody chose. Its footer ends "Esc to cancel"
-   ("Esc to cancel · Tab to amend" on 2.1.296; older builds drew the select footer). Three things together, all near
-   the bottom: that footer within the last three non-blank lines, an option row "1. Yes" within 10 rows above it, and
-   a "Do you want to ..." question within 14. The folder-trust dialog (no "1. Yes") is not this; it has its own floor. */
+   ("Esc to cancel · Tab to amend" on 2.1.296; older builds drew the select footer). Two things together, at the
+   bottom: that footer within the last three non-blank lines, and a "Do you want to ..." question within 14 rows above
+   it. The folder-trust dialog ("Quick safety check") is not this; it has its own floor. */
 const CLAUDE_PERMISSION_FOOTER = /Esc to cancel(?:\s*·.*)?\s*$/;
-const CLAUDE_PERMISSION_YES = /^\s*(?:[❯›]\s*)?1\.\s+Yes\b/;
 const CLAUDE_PERMISSION_QUESTION = /^\s*Do you want to\b/;
 function claudePermissionPromptUp(text) {
   const lines = String(text == null ? '' : text).split('\n');
@@ -2472,9 +2471,6 @@ function claudePermissionPromptUp(text) {
     if (!lines[i].trim()) continue;
     seen += 1;
     if (!CLAUDE_PERMISSION_FOOTER.test(lines[i])) continue;
-    let yes = false;
-    for (let j = i - 1; j >= Math.max(0, i - 10); j -= 1) if (CLAUDE_PERMISSION_YES.test(lines[j])) { yes = true; break; }
-    if (!yes) return false;
     for (let j = i - 1; j >= Math.max(0, i - 14); j -= 1) if (CLAUDE_PERMISSION_QUESTION.test(lines[j])) return true;
     return false;
   }

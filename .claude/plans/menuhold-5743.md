@@ -55,8 +55,8 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
 
 - #5754 (priority, Splinter 2026-10-09 23:51) rides this branch: Claude's PERMISSION prompt gets the same floor.
   Measured on 2.1.296 through the 0.7.35 delivery code into a real prompt: both delivery paths reported placed while the
-  prompt approved Yes and the command ran. status.claudePermissionPromptUp (an "Esc to cancel" footer at the bottom, a
-  "1. Yes" row and a "Do you want to" question just above it; both real captures plus the older select footer) feeds
+  prompt approved Yes and the command ran. status.claudePermissionPromptUp (an "Esc to cancel" footer at the bottom and a
+  "Do you want to" question just above it; both real captures plus the older select footer) feeds
   the same refusal and hold, with its own sentence (answer it in the window; the DM route cannot answer it).
 
 ## Weakest premise
