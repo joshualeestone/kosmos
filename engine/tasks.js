@@ -1209,7 +1209,12 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     const prev = Date.parse(t.lastRunAt || '');
     const sameRunner = (t.lastRunByPerson === true) === isPerson && (isPerson || (t.lastRunBy || null) === runner);
     if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) { duplicate = true; changed = t; return p; }
+    /* kosmos#5643 retry review 1: the same attempt id from the same runner is the same run however late it lands (a
+       board that stalls past the minute above on a retried command). The CLIs send one id per command, on every attempt. */
+    const runId = typeof opts.runId === 'string' && /^[0-9a-f]{8,64}$/.test(opts.runId) ? opts.runId : null;
+    if (runId && sameRunner && t.lastRunId === runId) { duplicate = true; changed = t; return p; }
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
+    if (runId) changed.lastRunId = runId; else delete changed.lastRunId;
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
     /* kosmos#5643: an UNCHANGED run found nothing new: said with --unchanged (opts.unchanged), or a note that is the same
        text as the run before it (whitespace aside), which is how an agent that repeats "all clear" says it. A run with no

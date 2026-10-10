@@ -19645,7 +19645,8 @@ const server = http.createServer(async (req, res) => {
         if (taskRepeat[3] === 'ran') {
           // kosmos#5643: `unchanged: true` records a run that found nothing new (it rolls up on the task's page).
           if (body.unchanged !== undefined && typeof body.unchanged !== 'boolean') throw new Error('unchanged is true or false');
-          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen, unchanged: body.unchanged === true });
+          // kosmos#5643 retry review 1: run_id, one per command and sent on every attempt, so a retry is the same run.
+          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen, unchanged: body.unchanged === true, runId: typeof body.run_id === 'string' ? body.run_id : null });
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });

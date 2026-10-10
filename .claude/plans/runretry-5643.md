@@ -15,3 +15,9 @@ within RUN_DEDUP_MS (60 s) is the same run, so retrying inside it cannot double-
 Decided (card comment): no combined record-and-deliver command (recording is the delivery to the task's history; the
 person-facing post is the agent's own), no on-disk resend queue (a run reported late reads as missed). Already done:
 scheduler-owned tasks (#5456, released). Deferred: structured comparison fields (one install, one kind of check).
+
+## Review 1
+- A board that stalls past the minute could take a retry as a second run: each command now sends one run_id (16 hex) on
+  every attempt, and recordRun takes the same id from the same runner as the same run however late it lands.
+- A board that went away after a cut reply is never said to be running; "may have been recorded" exits 3 on both CLIs.
+- Retry wording, the pause setting (digits only, 2x then 8x, as Windows), notConnected not counted as maybe-landed.

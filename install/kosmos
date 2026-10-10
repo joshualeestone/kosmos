@@ -4848,15 +4848,18 @@ cmd_task() {
         [ -z "$reviewer" ] || data="$data\"reviewer\":\"$(_jesc "$reviewer")\","
         data="$data\"clear\":$clear,\"from_pane\":\"$esc_pane\"}"
       else
-        data="{\"note\":\"$(_jesc "$note")\",\"unchanged\":$unchanged,\"from_pane\":\"$esc_pane\"}"
+        # kosmos#5643: one id for this command, sent on every attempt, so the board takes a retry as the same run.
+        local _runid; _runid=$(LC_ALL=C od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+        data="{\"note\":\"$(_jesc "$note")\",\"unchanged\":$unchanged,\"run_id\":\"${_runid}\",\"from_pane\":\"$esc_pane\"}"
       fi
       local rc=0 body _code _try=0 _maybe=0 _pause
       # kosmos#5643: a run the board did not take is asked again, twice, before the agent hears it failed. A run whose
       # check succeeded was lost when one busy moment (a timeout, a restart, a 503 while the board could not check who
       # is running) ended the only attempt. Safe to repeat: the board takes a repeat from the same agent inside a
-      # minute as the same run (engine/tasks.js RUN_DEDUP_MS), and all three attempts fit inside one (15 s each, at
-      # most 2 s and 8 s apart). A rule (repeat) is asked once, as before.
-      _pause=$(( ${KOSMOS_RETRY_PAUSE_MS:-2000} / 1000 ))
+      # minute as the same run (engine/tasks.js RUN_DEDUP_MS), and each command sends one run_id on every attempt, which
+      # the board takes as the same run however late it lands. A rule (repeat) is asked once, as before.
+      # The pause: KOSMOS_RETRY_PAUSE_MS (digits only, as the Windows CLI reads it; 1000 by default), 2x then 8x.
+      _pause=1000; case "${KOSMOS_RETRY_PAUSE_MS:-}" in ''|*[!0-9]*) ;; *) _pause=$((10#${KOSMOS_RETRY_PAUSE_MS})) ;; esac
       while :; do
         rc=0
         body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w '\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
@@ -4866,13 +4869,19 @@ cmd_task() {
         [ "$sub" = ran ] && [ "$_try" -lt 2 ] || break
         if [ "$rc" -eq 0 ] && [ "$_code" != 503 ]; then break; fi
         case "$rc" in 0|7|18|28|52|56) ;; *) break ;; esac
-        printf '%sKosmos did not take that run; asking again (a repeat inside a minute is the same run)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
-        sleep $(( _try == 0 ? _pause : _pause * 4 )); _try=$((_try + 1))
+        printf '%sKosmos did not answer or was busy; asking again (it takes the same run only once)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
+        sleep "$(awk -v ms="$_pause" -v k="$(( _try == 0 ? 2 : 8 ))" 'BEGIN { printf "%.3f", ms * k / 1000 }')"; _try=$((_try + 1))
       done
       if [ "$rc" -ne 0 ]; then
         # A timeout on any attempt may have recorded it, so that says check first; otherwise it was not recorded.
         if [ "$sub" = ran ] && [ "$_maybe" -eq 0 ]; then say "We could not reach Kosmos to record that run, so it was not recorded. Run the same command again once Kosmos is running at $URL."; exit 1; fi
-        if [ "$sub" = ran ]; then say_unreached "record that run" 28 write; exit 1; fi
+        # Review 1: an earlier attempt may have landed. A last attempt that timed out means it is busy; one refused means
+        # it stopped answering, so it is never told it is running. Exit 3, the "maybe" the Windows CLI and msg use.
+        case "$rc" in
+          18|28|52|56) say_unreached "record that run" 28 write ;;
+          *) say "Kosmos stopped answering while we recorded that run, so it may have been recorded before it did. Once it is running at $URL, check with: kosmos task list ${project:-<project>}, before recording it again." ;;
+        esac
+        [ "$sub" = ran ] && exit 3
         say_unreached "change that task" "$rc" write; exit 1
       fi
       case "$body" in
@@ -4894,7 +4903,7 @@ cmd_task() {
             say "Kosmos could not record that run: ${because:-it was busy}. It was not recorded; run the same command again in a minute."; exit 1
           fi
           # An earlier attempt that timed out may have recorded it, so a later busy answer says check first.
-          if [ "$sub" = ran ] && [ "$_code" = 503 ]; then say_unreached "record that run" 28 write; exit 1; fi
+          if [ "$sub" = ran ] && [ "$_code" = 503 ]; then say "Kosmos was slow to answer and then busy, so that run may have been recorded. Check with: kosmos task list ${project:-<project>}, before recording it again."; exit 3; fi
           say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when changing that task."; exit 1 ;;
       esac

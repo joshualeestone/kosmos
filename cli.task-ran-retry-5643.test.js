@@ -33,16 +33,21 @@ function makeHome() {
 }
 const OK = { task: { number: 3 } };
 const BUSY = { error: 'we could not check which agents are running, so the task was not changed' };
-/* A stub board answering POSTs from a script of statuses, in order (the last repeats). */
+/* A stub board answering POSTs from a script, in order (the last repeats): a status, 'cut' (the socket is destroyed with
+   no answer, as a board that died mid-request), 'cutclose' (cut, then the board stops listening), or 'dup' (200, the
+   board's duplicate answer). Records each POST's body. */
 function withStub(script, fn) {
-  const seen = [];
+  const seen = []; const bodies = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST') {
-      req.on('data', () => {}); req.on('end', () => {
-        const status = script[Math.min(seen.length, script.length - 1)];
-        seen.push(req.url);
+      let raw = '';
+      req.on('data', (c) => { raw += c; }); req.on('end', () => {
+        const step = script[Math.min(seen.length, script.length - 1)];
+        seen.push(req.url); try { bodies.push(JSON.parse(raw)); } catch { bodies.push(null); }
+        if (step === 'cut' || step === 'cutclose') { req.socket.destroy(); if (step === 'cutclose') server.close(); return; }
+        const status = step === 'dup' ? 200 : step;
         res.writeHead(status, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(status === 200 ? OK : BUSY));
+        res.end(JSON.stringify(step === 'dup' ? { ...OK, duplicate: true } : status === 200 ? OK : BUSY));
       });
       return;
     }
@@ -51,8 +56,8 @@ function withStub(script, fn) {
   });
   return new Promise((resolve, reject) => server.listen(0, '127.0.0.1', async () => {
     let failure = null;
-    try { await fn(server.address().port, seen); } catch (e) { failure = e; }
-    server.close(() => (failure ? reject(failure) : resolve()));
+    try { await fn(server.address().port, seen, bodies); } catch (e) { failure = e; }
+    if (server.listening) server.close(() => (failure ? reject(failure) : resolve())); else (failure ? reject(failure) : resolve());
   }));
 }
 function sh(port, home, args) {
@@ -106,19 +111,20 @@ test('#5643 Mac: with no board at all the command still says Kosmos is not runni
 });
 
 async function win(argv, answers) {
-  const calls = []; const out = []; const err = [];
+  const calls = []; const out = []; const err = []; const ids = [];
   const code = await wincli.main(argv, {
     env: { KOSMOS_AGENT_TOKEN: TOKEN, KOSMOS_RETRY_PAUSE_MS: '0' },
     hook: { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => 'cd'.repeat(32), agentToken: realHook.agentToken },
     out: (s) => out.push(s), err: (s) => err.push(s),
-    fetch: async (url) => {
+    fetch: async (url, init) => {
       const a = answers[Math.min(calls.length, answers.length - 1)];
-      calls.push(url);
+      calls.push(url); ids.push(init && init.body ? JSON.parse(init.body).run_id : undefined);
       if (a === 'timeout') { const e = new Error('timed out'); e.name = 'TimeoutError'; throw e; }
+      if (a === 'reset' || a === 'refused') { const e = new Error('fetch failed'); e.cause = { code: a === 'reset' ? 'ECONNRESET' : 'ECONNREFUSED' }; throw e; }
       return { status: a, text: async () => JSON.stringify(a === 200 ? OK : BUSY) };
     },
   });
-  return { code, calls: calls.filter((u) => /\/task\/3\/(ran|repeat)$/.test(u)).length, out: out.join('\n') + err.join('\n') };
+  return { code, ids, calls: calls.filter((u) => /\/task\/3\/(ran|repeat)$/.test(u)).length, out: out.join('\n') + err.join('\n') };
 }
 
 test('#5643 Windows: retried on a 503 and on a timeout; a timeout keeps "may have been recorded"; a rule is asked once', async () => {
@@ -137,4 +143,43 @@ test('#5643 Windows: retried on a 503 and on a timeout; a timeout keeps "may hav
   assert.equal(r.calls, 1, 'CONTROL: a rule change was retried');
   r = await win(['task', 'ran', 'proj', '3', 'x'], [400]);
   assert.equal(r.calls, 1, 'CONTROL: a 400 was retried');
+});
+
+test('#5643 retry review 1 Mac: one run id on every attempt; a cut then busy says it may have been recorded (exit 3)', async () => {
+  const home = makeHome();
+  await withStub(['cut', 503], async (port, seen, bodies) => {
+    const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
+    assert.equal(r.code, 3, r.out);
+    assert.equal(posts(seen), 3);
+    assert.match(r.out, /may have been recorded/);
+    assert.doesNotMatch(r.out, /It was not recorded/);
+    const ids = bodies.map((b) => b && b.run_id);
+    assert.ok(/^[0-9a-f]{16}$/.test(ids[0]), 'no run id: ' + ids[0]);
+    assert.deepEqual(ids, [ids[0], ids[0], ids[0]], 'the attempts carried different run ids');
+  });
+});
+
+test('#5643 retry review 1 Mac: a cut then a duplicate says it was already recorded; a cut then a board gone says it stopped answering', async () => {
+  const home = makeHome();
+  await withStub(['cut', 'dup'], async (port, seen) => {
+    const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /already recorded a moment ago/);
+  });
+  await withStub(['cutclose'], async (port) => {
+    const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
+    assert.equal(r.code, 3, r.out);
+    assert.match(r.out, /stopped answering/);
+    assert.doesNotMatch(r.out, /does not need a restart|is running but/, 'a board that went away was said to be running');
+  });
+});
+
+test('#5643 retry review 1 Windows: refused only says not recorded; a reset then refused says it stopped answering; one run id', async () => {
+  let r = await win(['task', 'ran', 'proj', '3', 'all clear'], ['refused']);
+  assert.deepEqual([r.code, r.calls], [1, 3], r.out);
+  assert.match(r.out, /so it was not recorded/);
+  r = await win(['task', 'ran', 'proj', '3', 'all clear'], ['reset', 'refused']);
+  assert.deepEqual([r.code, r.calls], [3, 3], r.out);
+  assert.match(r.out, /stopped answering/);
+  assert.ok(/^[0-9a-f]{16}$/.test(r.ids[0]) && r.ids.every((x) => x === r.ids[0]), 'the attempts carried different run ids: ' + r.ids);
 });
