@@ -530,14 +530,34 @@ test('#5791: a work Kosmos left with no terms on record asks for them again on i
   assert.equal(t3.sent, true, 'with the terms on record again, the rollup still did not go out: ' + JSON.stringify(t3));
 });
 
-test('#5791 CONTROL: terms on record that ask for no reports are an answer, not a gap: the company is not asked for them again', async (t) => {
+test('#5791 review 1: terms that ask for no reports are checked once a day; the same terms send nothing, new ones are taken on', async (t) => {
   const root = world(t);
+  const LINE = 'agent names, the AI provider and model each uses, and whether each is working, waiting or stopped';
+  // Valid terms that ask for no reports (a backed-up line; terms with nothing at all are no terms, engine/orgenroll.js cleanConsent).
+  let served = { consent: { reports: [], backsUp: ['agent folders'], readers: ['you'], never: [] }, consentHash: HASH };
   const c = coordinator();
+  const remote = { sent: c.sent, macRequest: async (m, route, body) => {
+    const a = await c.macRequest(m, route, body);
+    return route === oe.ROUTES.status ? { ok: true, data: Object.assign({}, a.data, served) } : a;
+  } };
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root, []);
-  const n = c.sent.length;
-  await r.tick({ root, remote: c, sources: sources(), now: Date.UTC(2026, 9, 7, 12) });
-  assert.deepEqual(c.sent.slice(n), [], 'a Kosmos whose terms ask for no reports asked the company again');
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  const asked = () => c.sent.filter((x) => x.route === oe.ROUTES.status).length;
+  const enrolls = () => c.sent.filter((x) => x.route === oe.ROUTES.enroll).length;
+  const e0 = enrolls();
+  await r.tick({ root, remote, sources: sources(), now: T0 });
+  assert.equal(asked(), 1, 'a Kosmos whose terms ask for no reports never asked whether they changed');
+  assert.equal(enrolls(), e0, 'the same terms were accepted again (an enroll every day for nothing)');
+  await r.tick({ root, remote, sources: sources(), now: T0 + r.RECHECK_NO_REPORTS_MS - 60e3 });
+  assert.equal(asked(), 1, 'asked again inside the day');
+  // The company now asks for reports, under new terms.
+  const H2 = 'cd'.repeat(32);
+  served = { consent: { reports: [LINE], backsUp: [], readers: ['you'], never: [] }, consentHash: H2 };
+  const t3 = await r.tick({ root, remote, sources: sources(), now: T0 + r.RECHECK_NO_REPORTS_MS + 60e3 });
+  assert.equal(asked(), 2, 'not asked again after the day');
+  assert.equal(oe.readEnrollment({ root }).consentHash, H2, 'the new terms were not taken on');
+  assert.equal(t3.sent, true, 'under terms that now ask for reports, no rollup went out: ' + JSON.stringify(t3));
 });
 
 test('#5532 rollup review 9: an agent whose provider is known only while it runs is still not a change on start or stop', async (t) => {

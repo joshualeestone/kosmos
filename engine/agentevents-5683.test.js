@@ -320,6 +320,14 @@ test('#5791: the company changing its words makes the board take the new ones on
   assert.ok(reEnroll && !('code' in reEnroll.body) && reEnroll.body.consentHash === H2, 'no codeless re-acceptance under the served hash: ' + JSON.stringify(reEnroll));
   assert.equal(oe.readEnrollment({ root: s.root }).consentHash, H2, 'the new words are not on record');
   assert.equal(oe.mayReport({ root: s.root }), true, 'the board is still not reporting');
+  // Review 1: events resume under the new words at the next tick, with no failure wait left over from the refusal.
+  refuse = false;
+  await ae.tick({ platform: 'darwin', root: s.root, remote: served, sources: s.sources(), now: Date.now() });   // a new consent state starts clean
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('h2', 'Bash', { command: 'x' }), result('h2', DENIED('x'), true));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: served, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => (x.body.events || []).map((e) => e.toolUseRef));
+  assert.ok(refs.includes('h2'), 'an event after the board took on the new words was never sent: ' + JSON.stringify(refs));
 });
 
 test('#5683 r1: an enrollment with no readable start time sends nothing', async (t) => {

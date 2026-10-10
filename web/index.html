@@ -47742,7 +47742,8 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
-    if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
+    // #5791 review 1: a note the person closed with Cancel is not written back by the next read.
+    if (j && j.enrolled !== true && j.stoppedFor && j.stoppedFor !== PLUS_ORG.dismissed) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
     const reports = j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company asks it to report nothing.' : '. It reports to your company once Kosmos has your company\'s current terms.';
@@ -47760,7 +47761,8 @@ function plusOrgPaint() {
      🛑 Every writer of #plus-org-msg relies on this: a NEW message for a computer with no company would reveal the
      block (review 2). Write one only for something this person did here or a company note about this Kosmos. */
   const msgOn = (document.getElementById('plus-org-msg').textContent || '') !== '';
-  const full = !!here || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
+  // A company note the person closed with Cancel no longer holds the block open (#5791 review 1).
+  const full = !!here || PLUS_ORG.open === true || msgOn || (!!st.stoppedFor && st.stoppedFor !== PLUS_ORG.dismissed) || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
   // #5791: the "Your company" title only over the joined view; the code entry has its X Cancel instead.
   document.getElementById('plus-org-title').hidden = !here;
@@ -47809,6 +47811,8 @@ async function plusOrgConnect() {
 }
 function plusOrgCancel() {
   PLUS_ORG.open = false;
+  // The company note it closes stays closed (#5791 review 1): Cancel must close the pane, whatever opened it.
+  PLUS_ORG.dismissed = (PLUS_ORG.state && PLUS_ORG.state.stoppedFor) || PLUS_ORG.dismissed || null;
   document.getElementById('plus-org-code').value = '';
   document.getElementById('plus-org-msg').textContent = '';
   plusOrgPaint();

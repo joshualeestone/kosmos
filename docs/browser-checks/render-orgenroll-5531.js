@@ -19,7 +19,7 @@
  *   O5  Leave asks first; Leave then posts /api/org/leave and the code field returns.
  *   O6  no page errors.
  *   O7  a member moving here joins with no code.
- *   O8  a Kosmos the company stopped naming says so (stoppedFor from /api/org), as text.
+ *   O8  a Kosmos the company stopped naming says so (stoppedFor from /api/org), as text; Cancel closes it for good.
  *   O9  a leave that ends only on this computer (localOnly) says the membership goes on, never "You left".
  *   O11 a leave refused before anything was done keeps the joined view and says why, never "stopped reporting".
  *   O12 a retried leave the company refused as the last admin says so, as text, with the joined view back; an undo says
@@ -253,7 +253,15 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
     const o8 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, italics: document.querySelectorAll('#plus-org-msg i').length, out: !document.getElementById('plus-org-out').hidden }));
     chk(o8.msg === 'This Kosmos is no longer the work Kosmos for Acme <i>Co</i>, so it has stopped reporting.' && o8.italics === 0 && o8.out,
       'O8 a Kosmos the company stopped naming says so, as text, with the code field back', JSON.stringify(o8));
+    // O8b (#5791 review 1): Cancel closes the pane a company note opened, and the next read does not open it again.
+    await page.click('#plus-org-cancel');
+    await page.evaluate(() => { PLUS_ORG.at = 0; plusOrgMaybe(); });
+    await page.waitForFunction(() => (window.__org || []).filter((x) => x.path === '/api/org' && x.method === 'GET').length > 0, null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const o8b = { out: await shown(page, 'plus-org-out'), opener: await shown(page, 'plus-org-open'), msg: await text(page, 'plus-org-msg') };
+    chk(!o8b.out && o8b.opener && o8b.msg === '', 'O8 Cancel closes a pane a company note opened, and the next read leaves it closed', JSON.stringify(o8b));
     await page.evaluate(() => { window.__stopped = null; });
+    await page.click('#plus-org-open');
 
     // O14: an enroll that did not join says why under the field, which stays, and the joined view does not show.
     for (const ans of [{ ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes; if joining went through, this screen will show it.' },

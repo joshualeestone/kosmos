@@ -300,18 +300,23 @@ function acceptedConsent(opts) {
   return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)),
     everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)) };
 }
-/* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
-   the words on record here are no longer accepted words, so this Kosmos stops reporting until the person accepts the
-   new ones (the joined view then says it sends nothing). The membership is untouched. */
-/* #5791 (Josh 10-10: the company decided; no member consent step): when the company's words change and a report is
-   refused for it, the board takes the company's current words and re-accepts them itself, with no screen: the same
-   codeless enroll a person's Accept used to send (review: true), under the hash the company serves now. Best effort:
-   a refusal leaves reporting stopped, and the next refused report tries again. */
+/* #5791 (Josh 10-10: the company decided; no member consent step): the board takes the company's current words and
+   re-accepts them itself, with no screen: the same codeless enroll a person's Accept used to send (review: true),
+   under the hash the company serves now. Called after a report is refused because the words changed, and by the
+   rollup's own retry (engine/orgrollup.js tick) for a Kosmos with no words on record, or whose words ask for no
+   reports and so never send anything the company could refuse (review 1). Words the company still serves under the
+   hash already on record here are left as they are ({ ok: true, same: true }, nothing sent). Best effort: a refusal
+   leaves things as they were, and the next try is the rollup's. */
 async function reacceptWords(opts) {
   const r = await reviewHere(opts);
   if (!r.ok) return { ok: false, because: r.because };
+  const rec = readEnrollment(opts);
+  if (rec && rec.consentHash && rec.consentHash === r.served && acceptedConsent(opts)) return { ok: true, same: true };
   return enroll(null, true, Object.assign({}, opts, { consentHash: r.served, consent: r.consent, orgId: r.org && r.org.id, computerSalt: r.salt || null, review: true }));
 }
+/* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
+   the words on record here are no longer accepted words, so nothing is sent under them. The membership is untouched,
+   and the caller then re-accepts the company's current words (reacceptWords, #5791). */
 function consentWithdrawn(opts, hash) {
   return oneAtATime(async () => {
     const rec = readEnrollment(opts);
@@ -555,7 +560,7 @@ async function enrollNow(code, accepted, opts) {
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
     if (review) return { ok: false, because: 'Your company did not confirm this Kosmos, so nothing changed. Press Accept again in a minute.' };
-    if (move) return { ok: false, because: NOCONFIRM + ' Press Join again in a minute.' };
+    if (move) return { ok: false, because: NOCONFIRM + ' Press Connect Account again in a minute.' };
     return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint }));
   }
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
@@ -581,7 +586,7 @@ async function enrollNow(code, accepted, opts) {
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
       if (review) return { ok: false, because: NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder; Kosmos then tries again on its own.' };
-      if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Join again.' };
+      if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.' };
       return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint }));
     }
   }
@@ -959,7 +964,6 @@ function applyPolicy(token, opts, orgId) {
 }
 
 module.exports = {
-  reacceptWords,
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };

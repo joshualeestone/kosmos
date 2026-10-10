@@ -347,6 +347,8 @@ const CHANGE_MIN_MS = 10 * 60 * 1000;
 const RETRY_AFTER_FAIL_MS = 60 * 60 * 1000;
 /* #5791: how often a work Kosmos with no company terms on record asks for them again (tick, above). */
 const RETAKE_EVERY_MS = 15 * 60 * 1000;
+/* #5791 review 1: how often a work Kosmos whose company's terms ask for no reports checks whether they changed. */
+const RECHECK_NO_REPORTS_MS = 24 * 60 * 60 * 1000;
 const STATE_FILE = 'org-rollup-state.json';
 
 function readState(root) {
@@ -642,18 +644,24 @@ async function tick(opts) {
   const o = opts || {};
   const oe = require('./orgenroll');
   const eo = { root: o.root, remote: o.remote };
-  /* #5791: the work Kosmos with no company terms on record here (a re-accept after a terms change that could not reach
-     the company, or a record from before terms were kept) takes them on again by itself, at most once per
-     RETAKE_EVERY_MS. With no screen to do it any more, nothing else ever would, and it would send nothing for good.
-     Terms on record that ask for no reports are a real answer, not a gap, so they are left alone. */
-  if (oe.isEnrolledHere(eo) && (!oe.mayReport(eo) || !oe.acceptedConsent(eo))) {
+  /* #5791: with no screen any more, the board keeps its company's terms current by itself (reacceptWords):
+     - no terms on record here (a re-accept after a change that could not reach the company, or a record from before
+       terms were kept): at most once per RETAKE_EVERY_MS, since it sends nothing at all until then;
+     - terms that ask for no reports (review 1): such a Kosmos never sends, so the company never refuses a report
+       for changed terms and it would never learn of new ones. Checked once per RECHECK_NO_REPORTS_MS; terms still
+       the same are left as they are (nothing is sent). */
+  const termsGone = oe.isEnrolledHere(eo) && (!oe.mayReport(eo) || !oe.acceptedConsent(eo));
+  const quietTerms = !termsGone && oe.isEnrolledHere(eo) && oe.acceptedConsent(eo).reports.length === 0;
+  if (termsGone || quietTerms) {
     const rroot = o.root || require('./store').ROOT;
     const rnow = o.now || Date.now();
     const rst = readState(rroot);
     const last = Number.isFinite(rst.retakeAt) && rst.retakeAt >= 0 && rst.retakeAt <= rnow ? rst.retakeAt : 0;
-    if (rnow - last < RETAKE_EVERY_MS) return { sent: false, because: 'no company terms on record here; taking them on again later' };
+    if (rnow - last < (termsGone ? RETAKE_EVERY_MS : RECHECK_NO_REPORTS_MS)) {
+      return { sent: false, because: termsGone ? 'no company terms on record here; taking them on again later' : 'the company\'s terms ask for no reports' };
+    }
     // Stamped before the try, so a company that never answers is asked once per window, not on every tick.
-    if (!writeState(rroot, Object.assign({}, rst, { retakeAt: rnow }))) return { sent: false, because: 'no company terms on record here, and the rollup state could not be saved' };
+    if (!writeState(rroot, Object.assign({}, rst, { retakeAt: rnow }))) return { sent: false, because: 'the company\'s terms could not be checked: the rollup state could not be saved' };
     let a = null;
     try { a = await oe.reacceptWords(eo); } catch (e) { a = { ok: false, because: (e && e.message) || String(e) }; }
     if (!a || !a.ok) return { sent: false, because: 'the company\'s terms could not be taken on yet: ' + ((a && a.because) || 'no answer') };
@@ -914,7 +922,7 @@ function waitingForPrint(root) {
 
 module.exports = {
   waitingForPrint, KNOWN_RUNNERS, KNOWN_PROVIDERS,
-  DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, RETAKE_EVERY_MS, STATE_FILE, signature, tick,
+  DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, RETAKE_EVERY_MS, RECHECK_NO_REPORTS_MS, STATE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
   STATUS, statusWord, providerOfModel, build, gather, defaultSources, otherWorlds, gatherIn, sendOthers, OTHERS_MAX,
   TICK_CHILD_TIMEOUT_MS, GATHER_TIMEOUT_MS, RUN_LOCK_FILE, elsewhereRunner, enrolledElsewhere, spawnEnrolledTick,
