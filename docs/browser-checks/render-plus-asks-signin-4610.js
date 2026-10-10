@@ -1,5 +1,6 @@
 // Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-si-done plus-flow
-// (#2518) the tokens this check asserts: where Kosmos+ device requests render on the Plus screen right after sign-in.
+// (#2518) the tokens this check asserts: where Kosmos+ device requests render on the Plus screen right after sign-in,
+// and (kosmos#5786) what each request card says about where its code is.
 /* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "these should have rendered in the same
  * spot as the login and not above everything". Right after sign-in the Plus screen shows the sign-in wizard's "You're
  * signed in to Kosmos+" step (#plus-state2, #plus-si-done), not the connected panel (#plus-flow). The request cards
@@ -77,6 +78,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
           signedInShown: vis('plus-si-done'), flowShown: vis('plus-flow'),
           inSection: vis('plus-asks') && sec.contains(asks), topCard: vis('askcard'),
           rows: document.querySelectorAll('#plus-ask-rows .askreq').length,
+          texts: [...document.querySelectorAll('#plus-ask-rows .askreq')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
           withinSection: a.left >= s.left - 1 && a.right <= s.right + 1,
           belowHeader: a.top >= Math.round(head.getBoundingClientRect().bottom),
           asksTop: Math.round(a.top), headBottom: Math.round(head.getBoundingClientRect().bottom), scrollY: Math.round(scrollY),
@@ -90,6 +92,11 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       chk(where.inSection && where.rows === 2, '[' + W + '] #4610 right after sign-in both requests render in the Kosmos Plus section', JSON.stringify(where));
       chk(!where.topCard, '[' + W + '] #4610 and not in the top card, the band that spread above everything', JSON.stringify(where));
       chk(where.withinSection && where.belowHeader, '[' + W + '] #4610 they sit inside the settings column, below the header, not across the window', JSON.stringify(where));
+      /* kosmos#5786 (Josh 10-10, a new customer with Mac · Safari VR-D6 and nowhere to check it): a browser on a computer
+         is told its code is on the Kosmos+ page; the phone row, the CONTROL, keeps "the device in your hand". */
+      const safariRow = (where.texts || []).find((t) => /VR-D6/.test(t)) || '', phoneRow = (where.texts || []).find((t) => /W6-M4/.test(t)) || '';
+      chk(/Allow only if this code is showing in Safari on the Kosmos\+ page \(login\.kosmosplus\.com\)\./.test(safariRow), '[' + W + '] #5786 the Mac \u00b7 Safari card says its code is in Safari on the Kosmos+ page', safariRow);
+      chk(/Allow only if this code is showing on the device in your hand\./.test(phoneRow) && !/Kosmos\+ page/.test(phoneRow), '[' + W + '] #5786 CONTROL: the iPhone card keeps "the device in your hand"', phoneRow);
       chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the sign-in wizard', JSON.stringify(where));
       /* State 1 (not enrolled, the marketing pane) is the tall one: placed after it, the first Allow sat at y=985 at
          1400 wide, which the done step above is too short to show. */

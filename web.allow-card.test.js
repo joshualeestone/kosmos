@@ -164,3 +164,25 @@ test('#4824: what a Remove said stays through every repaint until the next Remov
   assert.match(JS, /if \(act === 'keep'\) \{ ASK\.confirm = null; ASK\.said = '';/);
   assert.match(JS.slice(JS.indexOf("if (act === 'removeyes')")), /ASK\.said = removedWords\(/);
 });
+
+/* kosmos#5786 (Josh 10-10, a new customer: "there is no where for me to confirm this code"): a browser on a computer
+   is usually the tab the person signed in or up in, so the card says where its code is (the signed-in Kosmos+ page).
+   The names are the sign-in page's own (coordinator signin.html deviceNameFor: "Mac", "Windows PC", "Chromebook",
+   "Linux computer", then " · " and the browser). A phone, a tablet, an app or a nameless browser keeps "the device in
+   your hand". */
+test('#5786 a desktop browser is told its code is on the Kosmos+ page; a phone or app keeps the device in your hand', () => {
+  const m = JS.match(/const deskBrowser = (\/.+\/)\.exec\(/);
+  assert.ok(m, 'the desktop-browser pattern moved; re-anchor');
+  const re = eval(m[1]);   // the page's own literal, so the test measures what ships
+  for (const [name, browser] of [['Mac · Safari', 'Safari'], ['Windows PC · Edge', 'Edge'], ['Chromebook · Chrome', 'Chrome'], ['Linux computer · Firefox', 'Firefox']]) {
+    const got = re.exec(name);
+    assert.ok(got, name + ' is a browser on a computer but was not recognised');
+    assert.equal(got[2], browser);
+  }
+  for (const name of ['iPhone · Safari', 'iPad · Safari', 'Android phone · Chrome', 'Android tablet · Chrome', 'PizzaRama (Kosmos app)', 'Mac', 'Browser', 'Unknown device']) {
+    assert.equal(re.exec(name), null, name + ' was read as a browser on a computer');
+  }
+  assert.match(JS, /'Allow only if this code is showing in ' \+ askEsc\(deskBrowser\[2\]\) \+ ' on the Kosmos\+ page \(login\.kosmosplus\.com\)\.'/);
+  // The browser name is escaped where it is put into the card.
+  assert.doesNotMatch(JS, /showing in ' \+ deskBrowser\[2\]/);
+});
