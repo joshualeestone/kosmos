@@ -47112,14 +47112,15 @@ function paintAsk() {
     /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
     const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
     /* kosmos#5786 (Josh 10-10: "there is no where for me to confirm this code"): a browser on a computer ("Mac · Safari")
-       is usually the tab the person just signed in with, so say where its code is: on that page. Two pages ask and name
+       is usually the tab the person just signed in with, so say where its code is: in that tab. Two pages ask and name
        themselves alike (relay signin.html's deviceNameFor on login.kosmosplus.com, and the tunnel gate.html's deviceName
-       on the person's own Kosmos address), and each shows its own code, so the sentence names no host. Only their computer
+       on the person's own Kosmos address, where signin.html can also send the same tab), and the code shows in that tab,
+       so the sentence names the tab, not a host. Only their computer
        and browser words match: the asking device names itself, so free text never goes into this sentence. Anything else
        keeps "the device in your hand". */
     const deskBrowser = /^(Mac|Windows PC|Chromebook|Linux computer) \u00b7 (Edge|Opera|Firefox|Samsung Internet|Chrome|Safari)$/.exec(String(d.name || ''));
     const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
-      : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ', on the page where you signed in.'
+      : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ', in the tab where you signed in.'
         : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
        happening, so an earlier refusal is not repeated beside it (review 1). */
