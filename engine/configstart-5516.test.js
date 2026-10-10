@@ -309,7 +309,7 @@ test('#5516 part 2 (review 11): a board start that finds a config gap beside a P
   // CONTROL: the PATH reason alone still leaves the launch's line (it is what the running agent has).
   seed();
   const r2 = quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, panePath: 'relative/bin', boardStart: true }));
-  assert.ok(r2.ok === false && r2.launchPathOnly === true, 'CONTROL: the PATH reason alone: ' + JSON.stringify(r2));
+  assert.ok(r2.ok === false && typeof r2.pathReason === 'string' && r2.otherReason === null, 'CONTROL: the PATH reason alone: ' + JSON.stringify(r2));
   assert.equal(setup.readGuardState()[name].at, 't-launch', 'a PATH-only board start replaced the launch line');
 });
 
@@ -335,4 +335,41 @@ test('#5516 part 2 (review 11): an own config home the rules cannot carry is nam
   assert.equal(g.ok, false, 'an uncarriable own home read as a whole guard');
   assert.match(String(g.because), /Cfg \(Beta\) \(the agent's own config home/, 'the own home is not named: ' + g.because);
   assert.ok(fs.existsSync(path.join(dir, '.claude', 'settings.json')) && readSettings(dir).permissions.deny.length > 20, 'the rest of the guard was not written');
+});
+
+test('#5516 part 2 (review 13): a board start replaces only the non-PATH part of a launch line, and clears it once fixed', () => {
+  const name = 'pilot-cfg-merge';
+  const dir = agentDir(name);
+  const home3 = path.join(SANDBOX, 'home-r13');
+  const odd = path.join(SANDBOX, 'Box (P)', 'skills');
+  fs.mkdirSync(odd, { recursive: true });
+  fs.mkdirSync(path.join(home3, '.claude'), { recursive: true });
+  const link = path.join(home3, '.claude', 'skills');
+  fs.symlinkSync(odd, link);
+  const stateDir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(stateDir, { recursive: true });
+  const file = path.join(stateDir, name + '.json');
+  const quiet = (fn) => { const w = process.stderr.write; process.stderr.write = () => true; try { return fn(); } finally { process.stderr.write = w; } };
+  const launchPath = 'the PATH this agent starts with has an entry Kosmos could not cover (/launch-only/bin)';
+  // 1. The launch found a PATH gap; a board start (with its own, different PATH gap) finds a config gap.
+  fs.writeFileSync(file, JSON.stringify({ ok: false, because: launchPath + '; the rest of the guard is in place', pathReason: launchPath, at: 't-launch' }));
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, panePath: 'relative/bin', boardStart: true }));
+  let line = setup.readGuardState()[name];
+  assert.ok(line.ok === false && line.at !== 't-launch', 'the config gap was not recorded: ' + JSON.stringify(line));
+  assert.ok(line.because.includes('/launch-only/bin'), 'the launch PATH gap was dropped: ' + line.because);
+  assert.ok(!line.because.includes('relative/bin'), 'the board PATH was shown as the agent own: ' + line.because);
+  assert.ok(/could not be covered \(.*Box \(P\)/.test(line.because), 'the config gap is not named: ' + line.because);
+  // 2. The person fixes the link: the next board start clears the config part and keeps the launch's PATH part.
+  fs.unlinkSync(link);
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, boardStart: true }));
+  line = setup.readGuardState()[name];
+  assert.ok(line.ok === false && line.because.includes('/launch-only/bin') && !/could not be covered \(/.test(line.because) && !line.otherReason, 'the fixed config gap stayed, or the PATH part went: ' + JSON.stringify(line));
+  // 3. With no PATH part from the launch, a fixed gap reads ok again.
+  fs.writeFileSync(file, JSON.stringify({ ok: false, because: 'x; the rest of the guard is in place', otherReason: 'x', at: 't-launch' }));
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, boardStart: true }));
+  assert.equal(setup.readGuardState()[name].ok, true, 'a fixed config gap with no PATH part did not read ok');
+  // CONTROL: nothing changed in the non-PATH part, so the launch line is left as it is.
+  fs.writeFileSync(file, JSON.stringify({ ok: false, because: launchPath + '; the rest of the guard is in place', pathReason: launchPath, at: 't-launch' }));
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, panePath: 'relative/bin', boardStart: true }));
+  assert.equal(setup.readGuardState()[name].at, 't-launch', 'a board start with only its own PATH gap rewrote the launch line');
 });

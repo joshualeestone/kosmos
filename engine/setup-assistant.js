@@ -1359,7 +1359,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      are not agents, and denying them would refuse ordinary work there. */
   const siblingBase = path.dirname(path.resolve(dir));
   let workersRoot = null;
-  try { workersRoot = path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir()); } catch { workersRoot = null; }
+  // Review 13: a lookup that fails is named, never a silent loss of the sibling rules.
+  try { workersRoot = path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir()); } catch (e) { workersRoot = null; configUnsafe.push(`the agents' folder (it could not be worked out: ${(e && e.message) || e}), so sibling agents are not covered`); }
   const sameDir = (a, b) => { if (!a || !b) return false; if (a === b) return true; try { return fs.realpathSync.native(a) === fs.realpathSync.native(b); } catch { return false; } };
   const siblingRules = !sameDir(siblingBase, workersRoot) ? [] : ruleHasPatternChar(`Edit(${ruleAbs(siblingBase)}/**)`) ? (configUnsafe.push(`${siblingBase} (the agents' folder, whose path the permission rules cannot carry)`), []) : [
     ...PROJECT_START_FILES.map((f) => `Edit(${ruleAbs(path.join(siblingBase, '*', f))})`),
@@ -1539,7 +1540,9 @@ function recordGuardState(agentName, r, deps = {}) {
     const dir = guardStateDir(deps);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = guardStateFileFor(agentName, deps);
-    const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
+    // #5516 part 2 review 13: the PATH part and the other part kept apart, so a board start can replace only its own.
+    const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && typeof r.pathReason === 'string' ? { pathReason: r.pathReason } : {}),
+      ...(r && typeof r.otherReason === 'string' ? { otherReason: r.otherReason } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
     /* #5434 slice 25: written through a descriptor and FLUSHED before either publish below (the exclusive hard link or
        the rename), so a crash cannot leave the guard-state line at full length but zero-filled (#5431); the folder is
@@ -1647,8 +1650,25 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
   /* Review 9: but a board start that finds the guard itself not whole for a reason that is not about the PATH (the file
      could not be written, a rule could not be carried) records it over a readable line: the board start rewrote the
      agent's settings file just now, and keeping an older "ok" would read as guarded. */
-  const boardFoundBroken = !!deps.boardStart && r && r.ok === false && !r.launchPathOnly;   // review 11: a flag, not the message's prefix
-  recordGuardState(agentName, r, { ...deps, exclusive: !!deps.boardStart && !boardFoundBroken });
+  /* #5516 part 2 review 13: over a readable line, a board start replaces only what it is the authority on (everything
+     but the PATH), and keeps the PATH part the launch recorded; it writes only when that part changed, so a config gap
+     appears, and goes once fixed, without the board's own PATH ever being shown as the agent's. A line written before
+     these parts were kept has no PATH part to keep (the next launch rewrites it). */
+  if (deps.boardStart) {
+    let old = null;
+    try { old = guardLineOf(fs.readFileSync(guardStateFileFor(agentName, deps), 'utf8')); } catch { old = null; }
+    if (!old) { recordGuardState(agentName, r, { ...deps, exclusive: true }); return r; }
+    const nowOther = r && !r.ok ? (Object.prototype.hasOwnProperty.call(r, 'pathReason') ? r.otherReason || null : String(r.because || '') || null) : null;
+    if ((old.otherReason || null) === nowOther) return r;
+    const pathReason = typeof old.pathReason === 'string' ? old.pathReason : null;
+    const parts = [pathReason, nowOther].filter(Boolean);
+    const merged = parts.length
+      ? { ok: false, because: parts.join('; and ') + (nowOther === null || Object.prototype.hasOwnProperty.call(r, 'pathReason') ? '; the rest of the guard is in place' : ''), ...(pathReason ? { pathReason } : {}), ...(nowOther ? { otherReason: nowOther } : {}), ...(r && r.warning ? { warning: r.warning } : {}) }
+      : (r && r.warning ? { ok: true, warning: r.warning } : { ok: true });
+    recordGuardState(agentName, merged, deps);
+    return r;
+  }
+  recordGuardState(agentName, r, deps);
   return r;
 }
 function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
@@ -1807,8 +1827,11 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (rules.configUnsafe && rules.configUnsafe.length) notWhole.push('a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')');   // review 10: a link reached twice is named once
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
-    const launchPathOnly = !!(rules.launchUnsafe && rules.launchUnsafe.length) && notWhole.length === 1;   // review 12: says the intent
-    if (notWhole.length) return { ok: false, because: notWhole.join('; and ') + '; the rest of the guard is in place', ...(launchPathOnly ? { launchPathOnly: true } : {}), ...(warning ? { warning } : {}) };
+    /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace
+       the part it measured and keep the launch's PATH part (guardTokenOnlyFolder). */
+    const pathReason = rules.launchUnsafe && rules.launchUnsafe.length ? notWhole[0] : null;
+    const otherReason = rules.configUnsafe && rules.configUnsafe.length ? notWhole[notWhole.length - 1] : null;
+    if (notWhole.length) return { ok: false, because: notWhole.join('; and ') + '; the rest of the guard is in place', pathReason, otherReason, ...(warning ? { warning } : {}) };
     return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };

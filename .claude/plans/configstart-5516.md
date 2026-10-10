@@ -37,6 +37,8 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 
 - Review 12 (Sonnet): one WARNING, decided. The folders above a connected agent's recorded folder (a repo, when the agent works in a subfolder of it) are denied as for any agent, while review 11 dropped siblings for such an agent. The difference is deliberate: Claude Code reads the folders above at the agent's OWN next start, so a hooks file or server file planted there runs outside its sandbox, while a neighbouring repo is never read by it. The cost is stated below. NIT taken: the PATH-only flag is computed from the PATH reason itself.
 
+- Review 13 (Opus): one WARNING, real, fixed; got wrong at review 11. My review-11 fix let a board start write its WHOLE reading over the launch's line, so the page could show the board's own PATH as the agent's, drop the launch's real PATH gap, and keep a fixed config gap until the next launch. Now each line keeps its PATH part and its other part apart, and a board start replaces only the part it is the authority on (everything but the PATH), keeps the launch's PATH part, and writes only when its part changed (so a fixed gap clears). A line written before these parts were kept has no PATH part to keep; the next launch rewrites it. Tested for all three cases with a control, and each of three mutations red. NIT taken: a failed lookup of the agents' folder is named, not a silent loss of the sibling rules.
+
 
 ## Gaps, stated (the rest of the card)
 - A plugin folder Claude Code is pointed at by its plugin cache or seed environment variables, outside every config home: not covered (same shape as the CLAUDE_CONFIG_DIR gap).
