@@ -20960,15 +20960,11 @@ function modelLine(a) {
   /* #3566: a Gemini or Grok agent's model is its own vendor's, never a Claude one, so it
      gets no "Claude " prefix (#4416: the engine reads the id into words, "Gemini 3.8
      Flash"), or the provider when none is known. */
-  /* #5804: a running Gemini agent whose reply came from a model other than the one chosen (the CLI's own fallback) says
-     so, so a person paying for one model is not shown another without a word. */
-  if (a.runner === 'gemini' && name && !notRunning) {
-    // "<model that answered> (you chose <chosen>)" when the two differ (case and spacing aside); kept inside modelLine
-    // so every caller and test that lifts modelLine from the page gets it.
-    const norm = (s) => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();
-    const chosen = a.chosenModelName;
-    return chosen && norm(chosen) && norm(chosen) !== norm(name) ? name + ' (you chose ' + chosen + ')' : name;
-  }
+  /* #5804: a running Gemini agent whose reply came from a model other than the one Kosmos started it on (the CLI's own
+     fallback) says so, so a person paying for one model is not shown another without a word. */
+  /* The board decides (engine/geminimodelswitch.js) and sends startedModelName only when the reply came from another
+     model in this run; kept inside modelLine so every caller and test that lifts it from the page gets it. */
+  if (a.runner === 'gemini' && name && !notRunning && a.startedModelName) return name + ' (started on ' + a.startedModelName + ')';
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';

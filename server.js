@@ -5406,17 +5406,11 @@ const server = http.createServer(async (req, res) => {
         const planned = create.plannedModelOf(a.sessionName);
         return planned ? modelDisplayName(planned.id) + (planned.isDefault ? ' (default)' : '') : null;
       };
-      /* #5804: the model the person CHOSE for a running Gemini agent, so the card can say when the model that answered
-         is a different one (the Gemini CLI falls back to another model on a failure, some silently). Only when the job
-         names a model of its own: the launcher's default is not a choice. One launch-file read per running Gemini agent
-         per poll, the cost plannedModelId already pays for codex agents. */
-      const chosenGeminiModel = (a) => {
-        if (!a.isNamedOurs || a.runner !== 'gemini' || !a.modelName || a.state === STATE.STOPPED) return null;
-        try {
-          const planned = create.plannedModelOf(a.sessionName);
-          return planned && !planned.isDefault ? modelDisplayName(planned.id) : null;
-        } catch { return null; }
-      };
+      /* #5804: for a running Gemini agent of ours, the model Kosmos started it on when its newest reply (since this run
+         began) came from a different one (engine/geminimodelswitch.js decides; null otherwise). */
+      const startedGeminiModel = (a) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
+        ? require('./engine/geminimodelswitch').startedModelName(a.sessionName)
+        : null;
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
          the same question is waste the five-second poll would pay forever. */
@@ -5538,7 +5532,7 @@ const server = http.createServer(async (req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
-        chosenModelName: chosenGeminiModel(a),   // #5804
+        startedModelName: startedGeminiModel(a),   // #5804
         /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
            plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
            plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).
