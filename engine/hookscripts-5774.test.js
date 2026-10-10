@@ -1,0 +1,193 @@
+'use strict';
+require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+
+/*
+ * #5774 part 1: the token-only guard denies the scripts that Claude Code's start-time commands run outside the sandbox
+ * (hooks, the status line, auth helpers, servers' program files, installed plugins' folders), wherever they sit. The
+ * config itself is #5516 part 2. These tests assert the CONFIG WRITTEN, as the #4491 and #5516 tests do.
+ */
+
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'hookscripts-5774-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');
+process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true });
+fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
+
+const setup = require('./setup-assistant');
+const store = require('./store');
+const sc = require('./startcommands');
+
+fs.mkdirSync(store.ROOT, { recursive: true });
+const HOME = process.env.AGENT_WORKFORCE_HOME;
+const MANAGED = path.join(SANDBOX, 'managed');
+// The launch-PATH part is pinned empty, as in configstart-5516.test.js, so this host's PATH is not read.
+const LAUNCH_PIN = { panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [] };
+const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: HOME, runner: 'claude', runnerOf: () => 'claude', workersRoot: path.join(SANDBOX, 'workers'), managedDir: MANAGED, ...LAUNCH_PIN };
+
+function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
+function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
+function writeJson(file, j) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(j, null, 2)); }
+function touch(file) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, '#!/bin/sh\n'); }
+/* Whether ANY Edit rule in a deny list covers path p, by Claude Code's rule shape (copied from configstart-5516.test.js,
+   review 9 there: a control that looks for one literal rule cannot see a glob that denies the same path). */
+function editDeniedBy(deny, p) {
+  const abs = path.resolve(p);
+  return deny.filter((r) => {
+    const m = /^Edit\((.*)\)$/.exec(r);
+    if (!m) return false;
+    const pat = m[1].replace(/^\/\//, '/');
+    const re = '^' + pat.split(/(\*\*|\*)/).map((t) => (t === '**' ? '.*' : t === '*' ? '[^/]*' : t.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))).join('') + '(/.*)?$';
+    return new RegExp(re).test(abs);
+  });
+}
+function realOrLeaf(p) {
+  const abs = path.resolve(p); let dir = path.dirname(abs); const tail = [path.basename(abs)];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* climb */ }
+    const parent = path.dirname(dir); if (parent === dir) return abs;
+    tail.unshift(path.basename(dir)); dir = parent;
+  }
+}
+/* Whether the sandbox's denyWrite covers p (a listed path, or a folder above it). */
+function sandboxDenies(dw, p) { const r = realOrLeaf(p); return dw.some((d) => r === d || r.startsWith(d + path.sep)); }
+
+fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
+fs.mkdirSync(path.join(HOME, '.claude-acct'), { recursive: true });
+
+test('#5774: every start-time command tier has its script denied in both layers, wherever the script sits', () => {
+  const dir = agentDir('pilot-cmds');
+  const S = (n) => path.join(SANDBOX, 'scripts', n);
+  for (const n of ['hook.sh', 'status.sh', 'key.sh', 'server.js', 'mine.js', 'above.js', 'managed.sh', 'managedd.sh', 'mmcp.js', 'remote.sh', 'local.sh', 'plugin-out.sh', 'inline.py']) touch(S(n));
+  touch(path.join(dir, 'tools', 'proj.sh'));
+  touch(path.join(HOME, 'bin', 'tilde.sh'));
+  // User tier, both config homes; a status line; an auth helper; a hook given inline to bash -c.
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: `bash "${S('hook.sh')}"` }, { type: 'command', command: `bash -c "python3 ${S('inline.py')}"` }] }] }, apiKeyHelper: S('key.sh') });
+  writeJson(path.join(HOME, '.claude-acct', 'settings.json'), { statusLine: { type: 'command', command: `bash ${S('status.sh')}` }, hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bash ~/bin/tilde.sh' }] }] } });
+  writeJson(path.join(HOME, '.claude-acct', 'settings.local.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: S('local.sh') }] }] } });
+  writeJson(path.join(HOME, '.claude-acct', 'remote-settings.json'), { otelHeadersHelper: S('remote.sh') });
+  // Project tier: the agent folder's own settings (a relative script, by its variable) and a folder above it.
+  writeJson(path.join(dir, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: '"$CLAUDE_PROJECT_DIR"/tools/proj.sh' }] }] } });
+  writeJson(path.join(SANDBOX, '.mcp.json'), { mcpServers: { above: { command: 'node', args: [S('above.js')] } } });
+  // Servers: the global config's own, and its entry for this agent folder.
+  writeJson(path.join(HOME, '.claude.json'), { mcpServers: { s: { command: 'node', args: [S('server.js')] } }, projects: { [dir]: { mcpServers: { m: { command: 'node', args: [S('mine.js')] } } } } });
+  // Managed tier, and its drop-in folder.
+  writeJson(path.join(MANAGED, 'managed-settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: S('managed.sh') }] }] } });
+  writeJson(path.join(MANAGED, 'managed-settings.d', '10-x.json'), { proxyAuthHelper: S('managedd.sh') });
+  writeJson(path.join(MANAGED, 'managed-mcp.json'), { mcpServers: { mm: { command: 'node', args: [S('mmcp.js')] } } });
+  // An installed plugin whose folder sits outside every config home, with a hook naming a script outside it too.
+  const plug = path.join(SANDBOX, 'my-plugins', 'p1');
+  writeJson(path.join(plug, 'hooks', 'hooks.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `\${CLAUDE_PLUGIN_ROOT}/run.sh && ${S('plugin-out.sh')}` }] }] } });
+  writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'p1@local': [{ scope: 'user', installPath: plug }] } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-cmds', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.equal(g.warning, undefined);
+    const s = readSettings(dir);
+    const deny = s.permissions.deny;
+    const dw = s.sandbox.filesystem.denyWrite;
+    const want = [S('hook.sh'), S('inline.py'), S('key.sh'), S('status.sh'), path.join(HOME, 'bin', 'tilde.sh'), S('local.sh'), S('remote.sh'), path.join(dir, 'tools', 'proj.sh'), S('above.js'), S('server.js'), S('mine.js'), S('managed.sh'), S('managedd.sh'), S('mmcp.js'), S('plugin-out.sh'), path.join(plug, 'run.sh')];
+    for (const p of want) {
+      assert.ok(editDeniedBy(deny, p).length > 0, `file tools must be denied ${p}`);
+      assert.ok(sandboxDenies(dw, p), `the sandbox must deny writes to ${p}`);
+    }
+    // The plugin's folder is denied whole (its own code runs), so its run.sh needs no rule of its own.
+    assert.ok(deny.includes(`Edit(//${plug.replace(/^\/+/, '')}/**)`), 'an installed plugin outside the config homes is denied whole');
+  } finally {
+    for (const f of [path.join(HOME, '.claude', 'settings.json'), path.join(HOME, '.claude-acct', 'settings.json'), path.join(HOME, '.claude-acct', 'settings.local.json'), path.join(HOME, '.claude-acct', 'remote-settings.json'), path.join(SANDBOX, '.mcp.json'), path.join(HOME, '.claude.json'), path.join(HOME, '.claude', 'plugins', 'installed_plugins.json')]) fs.rmSync(f, { force: true });
+    fs.rmSync(MANAGED, { recursive: true, force: true });
+  }
+});
+
+test('#5774: controls: what a command writes, another folder\'s servers, a URL and the agent\'s own files stay open', () => {
+  const dir = agentDir('pilot-ctl');
+  const other = path.join(SANDBOX, 'elsewhere');
+  touch(path.join(SANDBOX, 'scripts', 'other.js'));
+  touch(path.join(SANDBOX, 'scripts', 'ok.sh'));
+  fs.writeFileSync(path.join(dir, 'notes.md'), 'mine\n');
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${path.join(SANDBOX, 'scripts', 'ok.sh')} >> "$CLAUDE_PROJECT_DIR/notes.md" 2>&1; curl -s https://example.invalid/a/b` }] }] } });
+  writeJson(path.join(HOME, '.claude.json'), { projects: { [other]: { mcpServers: { o: { command: 'node', args: [path.join(SANDBOX, 'scripts', 'other.js')] } } } } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-ctl', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(dir);
+    const deny = s.permissions.deny;
+    const dw = s.sandbox.filesystem.denyWrite;
+    // The control that it CAN deny, in this same run: the script the same hook runs.
+    assert.ok(editDeniedBy(deny, path.join(SANDBOX, 'scripts', 'ok.sh')).length > 0, 'the hook\'s script is denied');
+    assert.deepEqual(editDeniedBy(deny, path.join(dir, 'notes.md')), [], 'a redirection target is written by the hook, not run: the agent keeps its own file');
+    assert.ok(!sandboxDenies(dw, path.join(dir, 'notes.md')), 'nor in the sandbox');
+    assert.deepEqual(editDeniedBy(deny, path.join(SANDBOX, 'scripts', 'other.js')), [], 'a server registered for another folder does not start for this agent');
+    assert.ok(!deny.some((r) => r.includes('example.invalid')), 'a URL is not a file');
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+  }
+});
+
+test('#5774: a script path built when the command runs cannot be read, so the guard says it is not whole and names it', () => {
+  const dir = agentDir('pilot-dyn');
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bash "$(dirname "$0")/later.sh"' }] }] } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-dyn', DEPS);
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /later\.sh/);
+    assert.match(String(g.because), /cannot read/);
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
+  // Control: the same hook with a known variable is read, and the guard is whole.
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bash "$HOME/later.sh"' }] }] } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-dyn', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(HOME, 'later.sh')).length > 0);
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
+});
+
+test('#5774: a linked script has its target denied too; an uncarriable path is named only when it exists', () => {
+  const dir = agentDir('pilot-link');
+  const real = path.join(SANDBOX, 'real-scripts', 'target.sh');
+  touch(real);
+  const link = path.join(SANDBOX, 'scripts', 'linked.sh');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(real, link);
+  const odd = path.join(SANDBOX, 'odd (dir)', 'x.sh');
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${link}; sed 's/(a)/b/' f; bash "${odd}"` }] }] } });
+  try {
+    // The odd path does not exist: it is skipped, so the guard is whole (a sed expression looks the same).
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-link', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(dir).permissions.deny;
+    assert.ok(editDeniedBy(deny, link).length > 0, 'the link by its own name');
+    assert.ok(editDeniedBy(deny, fs.realpathSync.native(real)).length > 0, 'and the file it points at, by its real path');
+    // Once it exists, it is a script the rules cannot carry: named, not whole.
+    touch(odd);
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-link', DEPS);
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /odd \(dir\)/);
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
+});
+
+test('#5774: the command splitter: quotes, variables, substitutions, redirections and the program word', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(paths('bash ~/.x/s.sh').paths, ['/H/.x/s.sh']);
+  assert.deepEqual(paths('"${HOME}/a b.sh" --flag').paths, ['/H/a b.sh']);
+  assert.deepEqual(paths("echo '$HOME/not' | /bin/t.sh").paths, ['/A/$HOME/not', '/bin/t.sh']);   // single quotes keep $ literal
+  assert.deepEqual(paths('node --require=/r.js main.js').paths, ['/r.js']);   // main.js is not a file in /A here
+  assert.deepEqual(paths('FOO=1 ./run.sh').paths, ['/A/run.sh']);
+  assert.deepEqual(paths('bash /a.sh > /out.log 2>/dev/null').paths, ['/a.sh']);
+  assert.deepEqual(paths('bash < /in.sh').paths, ['/in.sh']);   // input to a shell IS what it runs
+  assert.deepEqual(paths('jq . | grep x').paths, []);   // bare programs are PATH's (#5516 part 1)
+  assert.deepEqual(paths('$(dirname $0)/x.sh').unsafe.length, 1);
+  assert.deepEqual(paths('`pwd`/x.sh').unsafe.length, 1);
+  assert.deepEqual(paths('echo $1 $UNKNOWN').unsafe, []);   // a variable with no slash names no path
+  // A server's args are literal words, no shell: a space stays inside one argument.
+  const cmds = sc.commandsIn({ mcpServers: { a: { command: '/srv/a', args: ['--x', '/srv/b c.js'] } }, apiKeyHelper: '/k.sh', foo: { command: 'x' } });
+  assert.equal(cmds.length, 3);
+});

@@ -50,6 +50,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const accounts = require('./accounts');
 const create = require('./create');
+const startcommands = require('./startcommands');
 
 const SETUP_ROLE_KEY = 'setup';
 /* #4350: how the auto-created guide's birth is recognised (create.isAutoGuideBirth), so it is
@@ -1363,6 +1364,33 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      skills are in its folder's .claude, denied to its tools by the settingsDir entries below. */
   // Review 2: agents and commands too (their definitions can carry hooks and servers of their own).
   const pluginDirs = [...new Set(concreteHomes.flatMap((h) => [...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => path.join(h, d))).flatMap((d) => withTarget(d, configUnsafe)))];
+  /* #5774 part 1: the scripts the commands in that config RUN, outside the sandbox (a hook's or the status line's script,
+     an auth helper, a server's program file), wherever they sit, and each installed plugin's folder wherever it sits:
+     the config is denied above, but a script it names elsewhere could still be rewritten. Both layers, links followed,
+     as configStartFiles. A script inside a folder already denied whole is left to that rule (profile size). A path the
+     rules cannot carry is named when it exists (the guard is then not whole); one that does not exist is skipped, since
+     a word that merely looks like a path (a sed expression) is far likelier than a missing script with such a name.
+     A command whose script path is built when it runs cannot be read and is named. See engine/startcommands.js. */
+  const wholeDenied = [...pluginDirs, ...ancestorDirs, ...CONFIG_HOME_CODE_DIRS.map((d) => path.join(settingsDir, d))];
+  const underDenied = (p) => wholeDenied.some((d) => p === d || p.startsWith(d + path.sep));
+  const startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir });
+  configUnsafe.push(...startCmds.unsafe);
+  for (const d of startCmds.pluginDirs) {
+    if (underDenied(d)) continue;
+    if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (an installed plugin's folder, whose path the permission rules cannot carry)`); continue; }
+    pluginDirs.push(...withTarget(d, configUnsafe));
+  }
+  const commandScripts = [];
+  for (const f of startCmds.files) {
+    if (underDenied(f)) continue;
+    if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) {
+      let there = false;
+      try { fs.lstatSync(f); there = true; } catch { there = false; }
+      if (there) configUnsafe.push(`${f} (a script a start-time command runs, whose path the permission rules cannot carry)`);
+      continue;
+    }
+    commandScripts.push(...withTarget(f, configUnsafe));
+  }
   /* Review 8: SIBLING agents' folders (the agent folder's own parent, every other agent in it): the same server,
      instruction and .claude members, which Claude Code reads when that agent starts. One mid-path glob per member (the
      #4752 rule shape, measured), to the file tools; on macOS, by default, the shell cannot write there. Each glob also
@@ -1384,7 +1412,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   ];
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
-    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
+    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
     { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorFiles)].map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
@@ -1492,7 +1520,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
   else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, commandScripts: [...new Set(commandScripts)], pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
@@ -1795,7 +1823,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.commandScripts || []).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
