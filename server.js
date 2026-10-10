@@ -8798,7 +8798,8 @@ const server = http.createServer(async (req, res) => {
           const told = personlanguage.syncEveryone(safeRoster());
           instructionRereadOweEach(told, 'language');
           changed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed).length;
-          couldNot = told.filter((t) => t && t.state !== projects.TOLD.TOLD).length;
+          // The roster itself could not be read: one entry with no agent, so no count of agents is known.
+          couldNot = told.some((t) => t && t.agent === null) ? -1 : told.filter((t) => t && t.state !== projects.TOLD.TOLD).length;
         } catch { couldNot = -1; }   // saved; the next board start brings the agents in line
         sendJson(res, 200, { ...agentLanguageBody(), changed, couldNot });
       })

@@ -78,6 +78,14 @@ test('#5080: PUT saves and changes running agents at once; English takes the blo
     assert.equal(r.body.changed, 1);
     assert.equal(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), original, 'English did not take the block out');
     assert.equal((await (await fetch(base + '/api/agent-language')).json()).choice, 'en');
+    // Review 1: back to Automatic on a computer the board cannot read (this one, Linux in the seam) also takes out the
+    // block an earlier choice wrote, since the page then says English.
+    await put({ choice: 'es-419' });
+    assert.match(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /chosen in Kosmos Settings/, 'CONTROL: the choice wrote it');
+    r = await put({ choice: 'auto' });
+    assert.equal(r.body.changed, 1);
+    assert.equal(r.body.automatic.sure, false);
+    assert.equal(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), original, 'Automatic left the old choice in place');
   } finally { board.restore(); fs.rmSync(pl.CHOICE_FILE, { force: true }); }
 });
 
@@ -101,4 +109,12 @@ test('#5080: an unreadable choice says so (choice null, ok false), never shows a
     assert.equal(r.ok, false);
     assert.equal(r.choice, null);
   } finally { fs.rmSync(pl.CHOICE_FILE, { force: true }); }
+});
+
+test('#5080 review 1: an unreadable roster reports no agent count (the page then says "next time Kosmos starts")', () => {
+  // syncEveryone answers an unreadable roster with ONE entry whose agent is null; counting it would read "1 agent".
+  // A source check: the roster cannot be made unreadable through the route without breaking the board itself.
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(src, /couldNot = told\.some\(\(t\) => t && t\.agent === null\) \? -1 : told\.filter\(\(t\) => t && t\.state !== projects\.TOLD\.TOLD\)\.length;/);
+  assert.deepEqual(pl.syncEveryone(null).map((t) => t.agent), [null], 'CONTROL: the shape the route keys on');
 });

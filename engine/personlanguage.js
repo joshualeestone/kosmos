@@ -12,12 +12,14 @@
  * Kosmos instructions stay in English.
  *
  * The language comes from this computer's setting: on a Mac the first preferred language (`defaults read -g
- * AppleLanguages`), or the AGENT_WORKFORCE_PERSON_LOCALE override (the test runners set it to en). The person's choice
- * in Settings (#5080, agent-language.json) comes before the Mac's setting, on every platform. A sure read (either of those) is kept for the process, the override included; a failed one is retried
- * after FALLBACK_MS (5 minutes). Only those two act. Node's Intl locale is the only other source, and it is ICU's user locale (the
- * REGION setting on Windows, LANG on Linux), not the display language, so it neither adds nor removes a block: off a
- * Mac, and on a Mac whose read failed, an agent's file is left exactly as it is. A sure English read writes no block
- * and removes one an agent already has.
+ * AppleLanguages`), the person's choice in Settings (#5080, agent-language.json, which comes before the Mac's setting
+ * on every platform), or the AGENT_WORKFORCE_PERSON_LOCALE override (the test runners set it to en). A sure read (any of
+ * those three) is kept for the process until the choice changes; a failed one is retried after FALLBACK_MS (5 minutes).
+ * Only those three act. Node's Intl locale is the only other source, and it is ICU's user locale (the REGION setting on
+ * Windows, LANG on Linux), not the display language, so it neither adds a block nor removes one the computer's setting
+ * wrote: off a Mac, and on a Mac whose read failed, such a file is left exactly as it is. A sure English read writes no
+ * block and removes one an agent already has. The one exception (#5080): with Automatic chosen and no sure read, a block
+ * that names Settings as its source is out of date, and is removed.
  *
  * Where it sits: appended at the end when it is missing, then replaced where it is; never moved. Measured: end and top
  * of the file 2/2 each (April), and at 64% of a 7,670-word file 2/2 (10-02), so no position depends on where it sits.
@@ -33,6 +35,9 @@ const store = require('./store');
 const START = projects.LANGUAGE_START;
 const END = projects.LANGUAGE_END;
 const WROTE_WHY = 'the person\'s language, from this computer\'s language setting (#5050)';
+const WROTE_WHY_SETTINGS = 'the language the person chose in Settings (#5080)';
+/* The words that mark a block written from the person's choice (blockBody's bracketed source for 'settings'). */
+const SETTINGS_SOURCE = 'chosen in Kosmos Settings';
 
 /* #5080: the person's choice in Settings ("The language your agents write to you in"). Its own file through the one
    data-root derivation, so a test data root isolates it. No file is Automatic (the computer's setting, as before). */
@@ -69,7 +74,7 @@ function setChoice(choice) {
   } catch {
     return { ok: false, because: 'we could not save that setting' };
   }
-  cached = undefined; fallbackAt = 0;
+  cached = undefined; fallbackAt = 0;   // the next read uses the new choice (Automatic's own read is unaffected)
   return { ok: true };
 }
 
@@ -124,10 +129,19 @@ function read(o) {
   }
   let tag = null;
   try { tag = normalise(opts.intl !== undefined ? opts.intl : Intl.DateTimeFormat().resolvedOptions().locale); } catch { tag = null; }
-  return { tag, sure: false, from: 'computer' };
+  // `auto`: Automatic was read from the file, so a block that names Settings as its source is known to be stale.
+  return { tag, sure: false, from: 'computer', auto: true };
 }
-/** #5080: what Automatic reads on this computer now, whatever the stored choice (the picker shows it beside Automatic). */
-function automatic() { return read({ ...(source || {}), choice: { choice: AUTO, ok: true } }); }
+/* #5080: what Automatic reads on this computer, whatever the stored choice (the picker shows it beside Automatic). Kept
+   the way read() keeps its answer, so opening Settings does not ask a hanging `defaults` each time (review 4). */
+let autoCached;
+let autoAt = 0;
+function automatic() {
+  if (autoCached !== undefined && (autoCached.sure || Date.now() - autoAt < FALLBACK_MS)) return autoCached;
+  const got = read({ ...(source || {}), choice: { choice: AUTO, ok: true } });
+  autoCached = got; autoAt = got.sure ? 0 : Date.now();
+  return got;
+}
 /** The person's locale (the tag alone). */
 function detect(o) { return read(o).tag; }
 
@@ -216,9 +230,9 @@ function tellAgent(sessionName, roster, opts) {
           : 'we could not find an agent with exactly this name on this computer',
       };
     }
-    const got = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? { tag: opts.tag, sure: opts.sure !== false, from: opts.from } : read();
+    const got = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? { tag: opts.tag, sure: opts.sure !== false, from: opts.from, auto: opts.auto } : read();
     // Nothing to do (a read that is not sure changes nothing): told, without touching the file (review 4: no boot noise).
-    if (!got.sure) return { state: projects.TOLD.TOLD, because: null, changed: false };
+    if (!got.sure && !got.auto) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const current = instructions.read(sessionName);
     // Nothing at the instructions path (no file, or no folder at all, as for an agent with no worker folder): this module
     // never creates one, so there is nothing to change and nothing to report, in any language (review 14). Something
@@ -232,9 +246,17 @@ function tellAgent(sessionName, roster, opts) {
         because: `its instructions contain ${found.pairs} Kosmos language blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    const next = applyTo(current.text || '', got.tag, got.from);
+    let next;
+    if (got.sure) next = applyTo(current.text || '', got.tag, got.from);
+    else {
+      // #5080: Automatic with no sure read. Only a block from an earlier choice in Settings comes out; one the computer's
+      // own setting wrote stays, as before the picker.
+      const text = current.text || '';
+      const block = found && !found.ambiguous ? text.slice(found.start, found.end) : '';
+      next = block.includes(SETTINGS_SOURCE) ? applyTo(text, null) : text;
+    }
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
-    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
+    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: got.from === 'settings' ? WROTE_WHY_SETTINGS : WROTE_WHY });
     // kosmos#5304: changed owes the running agent a re-read; a removal (English again) owes none (instructionreread.oweEach).
     return { state: projects.TOLD.TOLD, because: null, changed: true, removed: !projects.findBlock(next, START, END) };
   } catch (err) {
@@ -253,13 +275,13 @@ function syncEveryone(roster, opts) {
   if (!Array.isArray(roster)) {
     return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running' }];
   }
-  const got = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? { tag: opts.tag, sure: opts.sure !== false, from: opts.from } : read();
+  const got = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? { tag: opts.tag, sure: opts.sure !== false, from: opts.from, auto: opts.auto } : read();
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
-    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, roster, { tag: got.tag, sure: got.sure, from: got.from }) });
+    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, roster, { tag: got.tag, sure: got.sure, from: got.from, auto: got.auto }) });
   }
   return told;
 }
 
-module.exports = { _resetForTests: (src) => { cached = undefined; fallbackAt = 0; source = src || null; }, _ageFallbackForTests: () => { fallbackAt -= FALLBACK_MS; }, START, END, CHOICE_FILE, CHOICES, AUTO, readChoice, setChoice, automatic, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
+module.exports = { _resetForTests: (src) => { cached = undefined; fallbackAt = 0; autoCached = undefined; autoAt = 0; source = src || null; }, _ageFallbackForTests: () => { fallbackAt -= FALLBACK_MS; autoAt -= FALLBACK_MS; }, START, END, SETTINGS_SOURCE, CHOICE_FILE, CHOICES, AUTO, readChoice, setChoice, automatic, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
