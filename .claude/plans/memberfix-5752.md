@@ -56,3 +56,9 @@ The Kosmos+ remote view serves the same page. Not checked on a phone.
 - Left as is (NITs): an agent removed from Kosmos that is NOT on the project's record (its token revoke failed, #2323)
   still gets the fix, which would not help; a post the outbox replays later says "run the same command again" about a
   command run some time before (re-running after being added does the right thing).
+
+## Review round 4 (Sonnet)
+No BLOCKER, WARNING or CONVENTION. The reviewer traced every person-facing surface (room rows, operator posts, the
+post route's answer, outbox replay, role, task routes, notices, digests, phone) and found none showing the fix. Two
+NITs left as is: close/act and move have no per-site arm (they share the add arm's helper), and `onRecord` compares
+exact spellings where the removed filter cleans names (the sender and the members come from the same roster).
