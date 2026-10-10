@@ -1,0 +1,79 @@
+'use strict';
+require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+
+/*
+ * #5516 part 2: the token-only guard denies, in both layers, what Claude Code's own config names to start outside the
+ * sandbox at the agent's next start: each config home's .claude.json (and the first account's ~/.claude.json), the
+ * agent folder's .mcp.json, and each config home's plugins folder. These tests assert the CONFIG WRITTEN, as the #4491
+ * tests do; that Claude Code still writes its own state with these denies in place was measured by hand (the plan).
+ */
+
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'configstart-5516-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');
+process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true });
+fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
+
+const setup = require('./setup-assistant');
+const store = require('./store');
+const sendertoken = require('./sendertoken');
+const TOKEN_FILE = require('./boardauth').TOKEN_FILE;
+
+// store.ROOT is AGENT_WORKFORCE_DATA + '/Kosmos'; that is where board.token and the token-only list live,
+// and what guardTokenOnlyFolder defaults dataRoot to in production (called with no deps).
+fs.mkdirSync(store.ROOT, { recursive: true });
+// runner/runnerOf: the guard is a Claude Code settings file, so it now refuses an unnamed or non-Claude runner
+// (#4491 review WARNING 1); these tests name Claude unless they test that refusal.
+/* #5516 review 21: the launch-PATH part of the guard is pinned empty here, so these tests do not read this host's real
+   PATH, fixed folders or install (engine/launchpath-5516.test.js tests that part). */
+const LAUNCH_PIN = { panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [] };
+const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ...LAUNCH_PIN };
+/* An agent's folder, made as creation makes it: the board-start refresh guards only agents that have one (review 11). */
+function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
+function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
+function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
+function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
+function realOrLeaf(p) {
+  const abs = path.resolve(p); let dir = path.dirname(abs); const tail = [path.basename(abs)];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* climb */ }
+    const parent = path.dirname(dir); if (parent === dir) return abs;
+    tail.unshift(path.basename(dir)); dir = parent;
+  }
+}
+const HOME = process.env.AGENT_WORKFORCE_HOME;
+// Two config homes, as an install with a second account has: ~/.claude and ~/.claude-acct.
+fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
+fs.mkdirSync(path.join(HOME, '.claude-acct'), { recursive: true });
+
+test('#5516 part 2: both layers deny each config home .claude.json, the agent .mcp.json and each plugins folder', () => {
+  const dir = agentDir('pilot-cfg');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg', DEPS);
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const s = readSettings(dir);
+  const deny = s.permissions.deny;
+  const dw = s.sandbox.filesystem.denyWrite;
+  const files = [path.join(HOME, '.claude.json'), path.join(HOME, '.claude', '.claude.json'), path.join(HOME, '.claude-acct', '.claude.json'), path.join(dir, '.mcp.json')];
+  for (const f of files) {
+    assert.ok(deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools');
+    assert.ok(dw.includes(realOrLeaf(f)), f + ' is not denied to the shell');
+  }
+  for (const d of [path.join(HOME, '.claude', 'plugins'), path.join(HOME, '.claude-acct', 'plugins')]) {
+    assert.ok(deny.includes(`Edit(${ruleAbs(d)}/**)`), d + ' is not denied to the file tools');
+    assert.ok(dw.includes(realOrLeaf(d)), d + ' is not denied to the shell');
+  }
+  // A config home made after the guard was written: the permission-layer globs.
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', '.claude.json'))})`), 'no glob for a later home .claude.json');
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude-*', 'plugins'))}/**)`), 'no glob for a later home plugins folder');
+  // CONTROL: the config homes themselves are not denied whole (Claude Code keeps its runtime state there).
+  for (const h of [path.join(HOME, '.claude'), path.join(HOME, '.claude-acct')]) {
+    assert.ok(!dw.includes(realOr(h)), h + ' was denied whole to the shell');
+    assert.ok(!deny.includes(`Edit(${ruleAbs(h)}/**)`), h + ' was denied whole to the file tools');
+  }
+});
