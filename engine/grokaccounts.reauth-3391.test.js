@@ -17,6 +17,7 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-grok-reauth-3391-'
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 delete process.env.AGENT_WORKFORCE_GROK_HOME;
 const grok = require('./grokaccounts');
+const { eventually } = require('../test-support/eventually');
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const FAKE = nodePath.join(SANDBOX, 'fake-grok.sh');
@@ -44,17 +45,11 @@ const auth = (d) => fs.readFileSync(nodePath.join(d, 'auth.json'), 'utf8');
 /* Every grok dir in the home: a staging slot left behind, or a second account, shows here. */
 const grokDirs = () => fs.readdirSync(SANDBOX).filter((n) => n === '.grok' || n.startsWith('.grok-')).sort();
 
+// #5727: delegate to the shared load-aware poll helper. At scale 1 this is
+// byte-identical to the former hand-rolled loop (25ms step, resolves the first
+// truthy pred() value, fails at ms); under load the deadline scales with the box.
 function waitFor(pred, ms = 15000) {
-  const until = Date.now() + ms;
-  return new Promise((resolve, reject) => {
-    const tick = () => {
-      let v; try { v = pred(); } catch (e) { reject(e); return; }
-      if (v) { resolve(v); return; }
-      if (Date.now() > until) { reject(new Error('timed out waiting')); return; }
-      setTimeout(tick, 25);
-    };
-    tick();
-  });
+  return eventually(pred, (v) => v, { timeoutMs: ms, stepMs: 25 });
 }
 const settled = (id) => waitFor(() => { const s = grok.grokLoginStatus(id); return s.state === 'connected' || s.state === 'error' || s.state === 'cancelled' ? s : null; });
 function withMode(mode, email, fn) {
