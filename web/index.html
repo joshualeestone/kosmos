@@ -18337,6 +18337,18 @@ window.kosmosMeasureScrollbarWidth();
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
     </section>
+    <!-- #5080: the language agents write to the person in (engine/personlanguage.js). Automatic is the computer's
+         setting, as before; English is the opt-out. The industry select's could-not-read treatment: an unknown
+         position is never shown as a choice, and the select stays usable so the person can set it again. -->
+    <section class="dbox">
+      <h3 class="dlab">Language</h3>
+      <div class="frow" id="agent-language-row">
+        <label class="dhint" for="agent-language">The language your agents write to you in</label>
+        <select id="agent-language" aria-describedby="agent-language-hint" hidden></select>
+      </div>
+      <p class="dhint" id="agent-language-hint" style="margin:4px 0 0;">Your agents write to you and in your project rooms in this language. Kosmos+ community posts stay in English.</p>
+      <p class="dhint" id="agent-language-msg" role="status" style="margin:4px 0 0;"></p>
+    </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
          on a project gets help: Kosmos asks up to two members in the room for one reply each,
          and the stuck agent decides, writes down why, and carries it out, within the guards.
@@ -32783,6 +32795,84 @@ async function industryChange() {
 }
 document.getElementById('community-industry').addEventListener('change', industryChange);
 
+/* #5080: "The language your agents write to you in" (GET/PUT /api/agent-language). Automatic names what this computer
+   reads now when it is sure of it. An unreadable choice shows "Could not be read just now" (disabled), never a choice. */
+let AGENT_LANG_EPOCH = 0;
+let AGENT_LANG_SAVING = false;
+function agentLanguagePaint(r, keepMsg) {
+  const sel = document.getElementById('agent-language');
+  const unread = !r || r.ok !== true || !Array.isArray(r.options);
+  if (r && Array.isArray(r.options)) sel.__options = r.options;
+  const list = sel.__options || [];
+  const a = r && r.automatic;
+  const opts = [];
+  if (unread) opts.push({ value: '__unknown', text: 'Could not be read just now', disabled: true });
+  opts.push({ value: 'auto', text: a && a.sure && a.name ? 'Automatic: ' + a.name + ', from this computer' : 'Automatic: this computer\u2019s language' });
+  for (const o of list) opts.push({ value: o.tag, text: String(o.name || o.tag) });
+  sel.textContent = '';
+  for (const o of opts) {
+    const el = document.createElement('option');
+    el.value = o.value; el.textContent = o.text;
+    if (o.disabled) el.disabled = true;
+    sel.appendChild(el);
+  }
+  sel.value = unread ? '__unknown' : (r.choice || 'auto');
+  sel.hidden = false;
+  if (keepMsg) return;
+  document.getElementById('agent-language-msg').textContent = !unread ? ''
+    : 'We could not read which language you chose just now. Pick one to set it again; until then your agents keep the language they have.';
+}
+async function refreshAgentLanguage(keepMsg, quietIfShown) {
+  const mine = ++AGENT_LANG_EPOCH;
+  const quiet = quietIfShown && !document.getElementById('agent-language').hidden;
+  try {
+    const res = await fetch('/api/agent-language', { cache: 'no-store' });
+    if (!res.ok) { if (mine === AGENT_LANG_EPOCH && !quiet) agentLanguagePaint(null, keepMsg === true); return; }
+    const r = await res.json();
+    if (mine === AGENT_LANG_EPOCH) agentLanguagePaint(r, keepMsg === true);
+  } catch {
+    if (mine === AGENT_LANG_EPOCH && !quiet) agentLanguagePaint(null, keepMsg === true);
+  }
+}
+/* As the industry select: a change while a save is out is kept, and the last one is saved when that save ends. */
+let AGENT_LANG_PENDING = null;
+async function agentLanguageChange() {
+  const sel = document.getElementById('agent-language');
+  if (sel.value === '__unknown') return;
+  if (AGENT_LANG_SAVING) { AGENT_LANG_PENDING = sel.value; return; }
+  AGENT_LANG_SAVING = true;
+  const mine = ++AGENT_LANG_EPOCH;
+  const msg = document.getElementById('agent-language-msg');
+  try {
+    const res = await fetch('/api/agent-language', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ choice: sel.value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== AGENT_LANG_EPOCH) return;
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; refreshAgentLanguage(true); return; }
+    agentLanguagePaint(body);
+    const n = Number(body.couldNot) || 0;
+    msg.textContent = body.ok !== true ? 'Saved, but we could not read it back just now.'
+      : n < 0 ? 'Saved. Your agents pick it up the next time Kosmos starts.'
+        : n ? 'Saved. ' + n + (n === 1 ? ' agent' : ' agents') + ' could not be changed just now and keep the language they have until Kosmos next starts.'
+        : 'Saved. Your agents switch to it once they finish what they are doing.';
+  } catch {
+    msg.textContent = 'We could not save that setting.';
+    refreshAgentLanguage(true);
+  } finally {
+    AGENT_LANG_SAVING = false;
+    if (AGENT_LANG_PENDING !== null) {
+      const next = AGENT_LANG_PENDING;
+      AGENT_LANG_PENDING = null;
+      sel.value = next;
+      agentLanguageChange();
+    }
+  }
+}
+document.getElementById('agent-language').addEventListener('change', agentLanguageChange);
+
 /* #4820 (Josh, 2026-09-30): no one-time Community notice. An existing install simply has sharing on, with
    the switch in Settings; a new install gets the same switch in first run, beside the diagnostics one
    (#fr-s6-community). The #4288 part B notice that stood here is gone, markup, keys and all. */
@@ -33477,6 +33567,7 @@ refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 40
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
 refreshUndoSetting(); // #5153 slice 4: the undo switch
 refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
+refreshAgentLanguage(); // #5080: the language agents write to the person in
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
 refreshYou();
@@ -39932,6 +40023,7 @@ function settingsGo(section, opts) {
   /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
      repaints the industry row too, so an earlier save message there is cleared. */
   if (section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING) refreshIndustry(false, true);
+  if (section === 'automation' && typeof refreshAgentLanguage === 'function' && !AGENT_LANG_SAVING) refreshAgentLanguage(false, true);
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */

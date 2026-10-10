@@ -8764,6 +8764,47 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* #5080: "The language your agents write to you in", Settings > Automation (engine/personlanguage.js).
+     GET: the choice (`auto` or a tag on the list), the list, and what Automatic reads on this computer now.
+     PUT { choice }: the person's, so an agent's token is refused. Saved, then every agent's language block is brought
+     in line at once, the boot sweep's own call, so running agents change now rather than at the next board start. */
+  const agentLanguageBody = () => {
+    const c = personlanguage.readChoice();
+    const auto = personlanguage.automatic();
+    return {
+      choice: c.ok ? c.choice : null,
+      ok: c.ok,
+      options: personlanguage.CHOICES,
+      automatic: { tag: auto.tag, name: auto.tag ? personlanguage.languageName(auto.tag) : null, sure: auto.sure },
+    };
+  };
+  if (pathname === '/api/agent-language' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, agentLanguageBody()); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/agent-language' && req.method === 'PUT') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this setting is the person\'s, not an agent\'s' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const saved = personlanguage.setChoice(body && body.choice);
+        if (!saved.ok) { sendJson(res, saved.because === 'we could not save that setting' ? 500 : 400, { error: saved.because }); return; }
+        let changed = 0;
+        let couldNot = 0;
+        try {
+          const told = personlanguage.syncEveryone(safeRoster());
+          instructionRereadOweEach(told, 'language');
+          changed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed).length;
+          couldNot = told.filter((t) => t && t.state !== projects.TOLD.TOLD).length;
+        } catch { couldNot = -1; }   // saved; the next board start brings the agents in line
+        sendJson(res, 200, { ...agentLanguageBody(), changed, couldNot });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   /* #5153 slice 4: undo a closed task's file changes (engine/undo.js; off by default, Josh can override).
      - GET/PUT /api/undo-setting { on }: the switch. The person's: an agent's token is refused on PUT.
      - POST /api/undo/keep { path, cwd, session }: the report hook's call just before a Claude agent edits a file. The
