@@ -1,5 +1,7 @@
 # Windows build log: the zip's real size, the unpacked total labelled
 
+**Posture:** production
+
 **Branch:** `win-build-zip-size` · **Source:** Homer's 2026-10-10 Kosmos feedback, triaged to the
 Windows lane by Splinter.
 
