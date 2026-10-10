@@ -261,3 +261,19 @@ test('#5406 slice C: buttons are for Claude agents only (the key-answer path is 
     assert.equal(back.asked, null, 'a non-Claude agent was offered answer buttons');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5406 slice C: a button press for a question that is no longer on screen is refused, never typed as a prompt', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
+  try {
+    const calls = armPane();
+    const r = await post({ text: '1', chose: 'Apple', asked: 'Which fruit do you want?' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /no longer on its screen/);
+    assert.deepEqual(calls.keys(), [], 'a key was sent');
+    assert.equal(calls.pasted(), '', 'the digit was typed as a prompt');
+    // CONTROL: a typed "1" (no button, so no asked) to an idle agent is an ordinary message, as before.
+    const typed = await post({ text: '1' });
+    assert.equal(typed.status, 200, JSON.stringify(typed.json));
+    assert.match(calls.pasted(), /\] 1$/, 'the typed reply did not go as an ordinary message');
+  } finally { chat.resetForTests(); board.restore(); }
+});

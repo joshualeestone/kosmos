@@ -16,7 +16,9 @@ no banner (Josh #3419).
 - web/index.html: DM_CHOICES (set by dmChoicesFrom after the thread fetch), dmChoicesHtml (inside dmRow, guarded for
   the lifted dmRow tests), dmChoicePress (POST {text:n, chose:label, asked}), one document click listener scoped to
   #d-dmthread. DM_CHOICES is set only after paintTalk's two staleness checks, so an older read never replaces a newer
-  one's. A refusal repaints and keeps its reason (DM_CHOICE_NOTE) in the redrawn bubble. The setup guide's thread gets
+  one's. A refusal repaints; its reason shows in the redrawn bubble when the question is the same, and always on the
+  conversation's own line (#d-say-msg), because a changed or vanished question draws another bubble or none. The server
+  refuses (409) a button press whose question is no longer on screen, so a stale press is never typed as a prompt. The setup guide's thread gets
   no `asked` (everything served there is masked, #3769), so it draws no buttons; typing still works there. CSS reuses the old answer-button
   tokens (AA both themes); labels wrap; no primary button (emphasis would recommend an answer).
 - Tests: server.question-menu-5406.test.js (GET serves options + asked, and a press with it goes through);

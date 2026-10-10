@@ -161,3 +161,50 @@ test('#5406 C: a press on one agent does not block a press on another', async ()
   assert.equal(sent.length, 2, 'a press on another agent was dropped while the first was in flight');
   release(); await first;
 });
+
+test('#5406 C: a refusal is also said on the conversation\'s line (the repaint may draw another question, or none)', async () => {
+  const CUR = realCard();
+  const line = { textContent: '' };
+  const doc = { activeElement: null, getElementById: (id) => (id === 'd-say-msg' ? line : null) };
+  const m = load({ CURRENT: CUR, document: doc, fetch: async () => ({ ok: false, json: async () => ({ error: 'its question is no longer on its screen' }) }) });
+  m.from(BODY, CUR.sessionName);
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  assert.equal(line.textContent, 'its question is no longer on its screen', 'a refusal was said only inside a bubble the repaint may drop');
+  // CONTROL: a placed answer leaves the line alone.
+  line.textContent = '';
+  const ok = load({ CURRENT: CUR, document: doc });
+  ok.from(BODY, CUR.sessionName);
+  await ok.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  assert.equal(line.textContent, '');
+});
+
+test('#5406 C: an answer that returns after the person switched agents neither repaints nor moves focus', async () => {
+  const CUR = realCard();
+  const cur = { ...CUR };
+  let painted = 0; const focused = [];
+  const body = {};
+  const doc = { activeElement: body, body, getElementById: (id) => (id === 'd-say' ? { focus: () => focused.push('say') } : null) };
+  const m = load({ CURRENT: cur, document: doc, paintTalk: async () => { painted += 1; },
+    fetch: async () => { cur.sessionName = 'other-agent'; return { ok: true, json: async () => PLACED }; } });
+  m.from(BODY, CUR.sessionName);
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  assert.equal(painted, 0, 'the other agent\'s conversation was repainted for this answer');
+  assert.deepEqual(focused, [], 'focus moved into the other agent\'s conversation');
+});
+
+test('#5406 C: in-flight is per agent, so one agent\'s finished press does not unlock another\'s', async () => {
+  const CUR = realCard();
+  const cur = { ...CUR };
+  const releases = [];
+  const m = load({ CURRENT: cur, fetch: async () => { await new Promise((r) => releases.push(r)); return { ok: true, json: async () => PLACED }; } });
+  const mk = () => ({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  m.from(BODY, cur.sessionName);
+  const a = m.press(mk());
+  cur.sessionName = 'other-agent';
+  m.from(BODY, 'other-agent');
+  const b = m.press(mk());
+  await new Promise((r) => setImmediate(r));
+  releases[0](); await a;   // A's press finishes while B's is still in the air
+  assert.match(m.html(Q), / disabled>/, 'B\'s buttons were unlocked by A\'s press finishing');
+  releases[1](); await b;
+});
