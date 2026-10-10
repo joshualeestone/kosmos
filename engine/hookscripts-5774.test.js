@@ -213,7 +213,7 @@ test('#5774 review 1: a folder a command names is never denied (cd into the agen
   fs.writeFileSync(path.join(dir, 'notes.md'), 'mine\n');
   fs.mkdirSync(path.join(HOME, 'work'), { recursive: true });
   touch(path.join(SANDBOX, 'scripts', 'lint.sh'));
-  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cd "$CLAUDE_PROJECT_DIR" && npm run lint; rg TODO ~/work; find / -name foo; cd ~; bash ${path.join(SANDBOX, 'scripts', 'lint.sh')}` }] }] } });
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cd "$CLAUDE_PROJECT_DIR" && ls; rg TODO ~/work; find / -name foo; cd ~; bash ${path.join(SANDBOX, 'scripts', 'lint.sh')}` }] }] } });
   try {
     const g = setup.guardTokenOnlyFolder(dir, 'pilot-cd', DEPS);
     assert.equal(g.ok, true, JSON.stringify(g));
@@ -459,7 +459,7 @@ test('#5774 review 5: a quoted value before the program, an interpreter\'s value
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths('FOO="bar" bash scripts/h.sh').runPaths, ['/A/scripts/h.sh'], 'NAME="value" is an assignment; bash is the program');
   assert.deepEqual(paths("DEBUG='1' python3 run.py").runPaths, ['/A/run.py']);
-  assert.deepEqual(paths('"FOO"=bar ./x.sh').runPaths, [], 'control: a quoted name is no assignment, so ./x.sh is its argument');
+  assert.deepEqual(paths('"FOO"=bar ./x.txt').runPaths, [], 'control: a quoted name is no assignment, so ./x.txt is its argument');
   assert.ok(paths('bash -euo pipefail scripts/h.sh').runPaths.includes('/A/scripts/h.sh'), 'a flag value does not take the script slot');
   assert.ok(paths('ruby -I lib hook.rb').runPaths.includes('/A/hook.rb'));
   assert.deepEqual(paths('bash -ce "python3 /x.py"').runPaths, ['/x.py']);
@@ -486,4 +486,39 @@ test('#5774 review 5: a hook with a quoted assignment in front has its script de
     fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
     fs.rmSync(path.join(HOME, '.claude-staging-oauth.json'), { force: true });
   }
+});
+
+test('#5774 review 6: comments, here-documents, an unclosed quote, PATH=, unlisted wrappers and code the agent folder supplies', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  assert.deepEqual(paths("# don't run twice\nbash /h/x.sh").runPaths, ['/h/x.sh'], 'an apostrophe in a comment opens no quote');
+  assert.deepEqual(paths("echo hi # it's done\nbash /h/x.sh").runPaths, ['/h/x.sh']);
+  assert.deepEqual(paths('bash /h/x.sh # $UNK /h/c.sh').unsafe, [], 'a comment names nothing');
+  assert.deepEqual(paths("cat <<EOF\ndon't\nEOF\nbash /h/x.sh").runPaths, ['/h/x.sh'], 'a here-document body is no command');
+  assert.deepEqual(paths('bash <<EOF\n./run.sh\nEOF').runPaths, ['/A/run.sh'], 'but given to a shell it is its script');
+  assert.equal(paths('echo "unterminated\nbash /h/x.sh').unsafe.length, 1, 'an unclosed quote: where the command ends is unknown');
+  assert.ok(paths('PATH="$HOME/.bun/bin:$PATH" bun run x.ts').runPaths.includes('/H/.bun/bin/bun'), 'the program is found in the folder PATH= put first');
+  assert.deepEqual(paths('export PATH=tools:$PATH; lint').runPaths, ['/A/tools/lint']);
+  assert.equal(paths('PATH="$UNK:$PATH" lint').unsafe.length, 1);
+  for (const c of ['setsid bash x.sh', 'flock /tmp/l bash x.sh', 'script -q -c "bash x.sh" /dev/null', 'some-runner x.sh']) assert.deepEqual(paths(c).runPaths, ['/A/x.sh'], c);
+  assert.equal(paths('npm run lint').unsafe.length, 1, 'npm in the agent folder runs the agent\'s package.json');
+  assert.equal(paths('python3 -m pytest').unsafe.length, 1);
+  assert.deepEqual(paths('cd /opt/p && npm test').unsafe, [], 'control: run in another folder, it is not the agent\'s code');
+  assert.deepEqual(paths('echo $PATH').paths, []);
+});
+
+test('#5774 review 6: a commented multi-line hook still has its script denied; npm in the agent folder says not whole', () => {
+  const dir = agentDir('pilot-r6');
+  const hook = path.join(SANDBOX, 'scripts', 'r6.sh');
+  touch(hook);
+  try {
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `# don't run this twice\nbash ${hook}` }] }] } });
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-r6', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, hook).length > 0);
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'npm run lint' }] }] } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r6', DEPS);
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /npm run in the agent folder/);
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });

@@ -47,6 +47,8 @@ const path = require('path');
    from its OAuth environment; production's is empty). Read from the installed binary, so a new suffix in a later
    version is a gap until added here. One list, used here and by the guard (engine/setup-assistant.js). */
 const CLAUDE_GLOBAL_CONFIG_SUFFIXES = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
+/* What $PATH reads as here: a marker, so `PATH="$HOME/bin:$PATH"` is read as one known folder and the rest. */
+const PATH_MARK = '\u0000PATH';
 const HELPER_KEYS = new Set(['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'otelHeadersHelper', 'proxyAuthHelper', 'headersHelper']);
 /* The keys whose entries are servers, started directly rather than through a shell. */
 const SERVER_KEYS = new Set(['mcpServers', 'lspServers', 'managedMcpServers']);
@@ -56,9 +58,15 @@ const INTERPRETER = /^(?:(?:ba|z|da|k|fi|c|tc)?sh|source|\.|node|nodejs|deno|bun
 /* Runners whose script comes after a subcommand (deno run x.ts). */
 const RUNNER_SUB = { deno: /^run$/, bun: /^(?:run|x)$/, uv: /^run$/, go: /^run$/ };
 /* Words before the real program: it is the next word that is not a flag, a NAME=value or (for timeout) a duration. */
-const WRAPPER = /^(?:env|exec|nohup|time|sudo|doas|g?timeout|nice|ionice|command|builtin|xargs|stdbuf|caffeinate|npx|pnpx|bunx|uvx|watch|parallel|if|then|elif|else|while|until|do|!|\{)$/;
+const WRAPPER = /^(?:env|exec|nohup|time|sudo|doas|g?timeout|nice|ionice|command|builtin|xargs|stdbuf|caffeinate|npx|pnpx|bunx|uvx|watch|parallel|setsid|chronic|flock|script|export|if|then|elif|else|while|until|do|!|\{)$/;
+/* Review 6: a word with a script's file extension is code wherever it sits in the command, so an unlisted wrapper
+   (some-runner hook.sh) cannot hide it. */
+const SCRIPT_EXT = /\.(?:sh|bash|zsh|command|js|mjs|cjs|ts|mts|cts|py|rb|pl|php|lua|ps1|jar|awk|scpt|applescript)$/i;
+/* Review 6: programs that run code the folder they run in supplies (package.json scripts and node_modules, a Makefile,
+   build scripts, test configs, git hooks). Run in the agent folder, that code is the agent's, so Kosmos names it. */
+const FOLDER_RUNNER = /^(?:npm|pnpm|yarn|npx|pnpx|bunx|make|gmake|just|rake|cargo|mvn|gradle|git|pytest|tox|jest|vitest)$/;
 /* A wrapper's flags that take the next word as their value (sudo -u bob bash x.sh). */
-const WRAPPER_VALUE_FLAGS = { sudo: /^-[ughpCDrtU]$/, doas: /^-[uC]$/, env: /^-[uCP]$/, timeout: /^-[sk]$/, gtimeout: /^-[sk]$/, nice: /^-n$/, ionice: /^-[cnp]$/, xargs: /^-[InPLdEs]$/, watch: /^-n$/, parallel: /^-[jS]$/ };
+const WRAPPER_VALUE_FLAGS = { sudo: /^-[ughpCDrtU]$/, doas: /^-[uC]$/, env: /^-[uCP]$/, timeout: /^-[sk]$/, gtimeout: /^-[sk]$/, nice: /^-n$/, ionice: /^-[cnp]$/, xargs: /^-[InPLdEs]$/, watch: /^-n$/, parallel: /^-[jS]$/, flock: /^-[wE]$/ };
 /* A program's own flags that take the next word as a value, so it is not the script (review 4). */
 const VALUE_FLAGS = {
   uv: /^(?:--with|--with-requirements|--python|-p|--from|--project|--directory|--env-file|--extra|--group|--index|--package)$/,
@@ -124,10 +132,12 @@ function shellWords(cmd, vars = {}) {
   let written = false;
   let input = false;
   let heredoc = false;
+  let heredocMode = null;   // 'body' (<<), 'dash' (<<-) or 'string' (<<<)
+  const bodies = [];        // here-document delimiters waiting for their body, which starts at the next newline
   const start = () => {
     if (cur) return;
-    cur = { text: '', dynamic: false, quoted: false, globbed: false, assignable: false, head, written, input, heredoc, assign: false, subs: [] };
-    written = false; input = false; heredoc = false;
+    cur = { text: '', dynamic: false, quoted: false, globbed: false, assignable: false, head, written, input, heredoc, heredocMode, assign: false, subs: [] };
+    written = false; input = false; heredoc = false; heredocMode = null;
   };
   const end = () => {
     if (!cur) return;
@@ -135,6 +145,7 @@ function shellWords(cmd, vars = {}) {
     const assign = cur.head && cur.assignable;
     if (assign) { cur.head = false; cur.assign = true; }
     words.push(cur);
+    if (cur.heredoc && cur.heredocMode !== 'string') bodies.push(cur);
     if (!assign && !cur.written && !cur.input && !cur.heredoc) head = false;
     cur = null;
   };
@@ -203,6 +214,7 @@ function shellWords(cmd, vars = {}) {
       if (c === '>') { written = true; input = false; }
       else if (c === '<' && nextC === '<') {   // <<EOF, <<-EOF, <<<word: the next word is not a file
         i += 2;
+        heredocMode = cmd[i] === '<' ? 'string' : cmd[i] === '-' ? 'dash' : 'body';
         if (cmd[i] === '<' || cmd[i] === '-') i++;
         heredoc = true;
         continue;
@@ -211,7 +223,31 @@ function shellWords(cmd, vars = {}) {
       else if (c === '&' && nextC === '>') { /* &> and &>>: the redirection follows */ }
       else if (c === '|' && prevC === '>') written = true;   // >| writes, ignoring noclobber
       else { written = false; input = false; head = true; }
+      if (c === '\n' && bodies.length) {
+        // Review 6: a here-document's body runs to its delimiter line; it is the delimiter word's body, not commands.
+        let j = i + 1;
+        for (const w of bodies) {
+          const lines = [];
+          while (j < cmd.length) {
+            let nl = cmd.indexOf('\n', j);
+            if (nl < 0) nl = cmd.length;
+            const line = cmd.slice(j, nl);
+            j = nl + 1;
+            if ((w.heredocMode === 'dash' ? line.replace(/^\t+/, '') : line) === w.text) break;
+            lines.push(line);
+          }
+          w.body = lines.join('\n');
+        }
+        bodies.length = 0;
+        i = j;
+        continue;
+      }
       i++; continue;
+    }
+    if (c === '#' && !cur) {   // review 6: a comment runs to the end of the line (an apostrophe in it opens no quote)
+      const nl = cmd.indexOf('\n', i);
+      i = nl < 0 ? cmd.length : nl;
+      continue;
     }
     start();
     if (c === '$') { i = dollar(i); continue; }
@@ -222,6 +258,7 @@ function shellWords(cmd, vars = {}) {
     cur.text += c; i++;
   }
   end();
+  if (quote) words.unterminated = true;   // review 6: where the command ends is unknown
   return words;
 }
 
@@ -242,6 +279,8 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
      makes a relative script unknowable. */
   const cwds = cwdsIn ? [...cwdsIn] : [cwd];
   let cwdUnknown = false;
+  let lastCwd = cwds[cwds.length - 1];   // where the line most recently cd'd to
+  const pathDirs = [];   // review 6: folders a PATH= assignment put in front, where a bare program is then found
   const more = (line) => {
     if (depth >= 3) return;
     const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds);
@@ -250,6 +289,18 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
   let cwdReal = cwd;
   try { cwdReal = fs.realpathSync.native(cwd); } catch { /* as given */ }
   const inAgentFolder = (p) => [cwd, cwdReal].some((d) => p === d || p.startsWith(d + path.sep));
+  if (words.unterminated) unsafe.push('a quote that is never closed, so where the command ends is unknown');
+  const assignment = (w, t) => {
+    const name = t.slice(0, t.indexOf('='));
+    const value = t.slice(t.indexOf('=') + 1);
+    if (name !== 'PATH') { more(value); return; }
+    if (w.dynamic) { unsafe.push('a PATH made when the command runs'); return; }
+    for (const c of value.split(':')) {
+      if (!c || c === PATH_MARK) continue;
+      for (const d of cwds) { const r = path.resolve(d, c); if (!pathDirs.includes(r)) pathDirs.push(r); }
+    }
+  };
+  const folderRunner = (name) => { if (inAgentFolder(lastCwd)) unsafe.push(`${name} run in the agent folder (it runs code that folder supplies: its package.json, Makefile, build or test config)`); };
   let prog = '';
   let scriptSlot = false;   // the next plain word is the script the program (an interpreter) runs
   let runnerSub = null;     // deno run x.ts: the subcommand that keeps the script slot open
@@ -267,14 +318,19 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     const before = prev;
     prev = w.dynamic ? '' : w.text;
     for (const s of w.subs || []) more(s);   // the command inside $(...) or backticks runs too
-    if (w.written || w.heredoc) continue;     // a redirection's target is written, not run; a delimiter is no file
-    if (w.assign) { more(w.text.slice(w.text.indexOf('=') + 1)); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=...
+    if (w.written) continue;     // a redirection's target is written, not run
+    if (w.heredoc) {   // a delimiter is no file; a here-document given to a shell IS its script (review 6)
+      if (typeof w.body === 'string' && /^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) more(w.body);
+      else if (typeof w.body === 'string' && INTERPRETER.test(prog)) for (const m of w.body.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
+      continue;
+    }
+    if (w.assign) { assignment(w, w.text); continue; }   // BASH_ENV=/x.sh, NODE_OPTIONS=..., PATH=...
     if (w.head) { pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
-      if (w.head) { if (vars.HOME) cwds.push(vars.HOME); }   // a bare cd goes home
-      else if (w.dynamic || w.text === '-') { cwdUnknown = true; continue; }
-      else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } continue; }
+      if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; } }   // a bare cd goes home
+      else if (w.dynamic || w.text === '-') { cwdUnknown = true; lastCwd = '/\0unknown'; continue; }
+      else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } lastCwd = path.resolve(lastCwd, w.text); continue; }
       else { cdNext = true; continue; }   // cd -P dir
     }
     let isHead = w.head;
@@ -284,7 +340,9 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
       if (!w.dynamic && wrapper === 'env' && /^(?:-S|--split-string)$/.test(w.text)) { splitNext = true; continue; }
       if (!w.dynamic && wrapper === 'env' && w.text.startsWith('--split-string=')) { pendingHead = false; more(w.text.slice(w.text.indexOf('=') + 1)); continue; }
       if (!w.dynamic && w.text.startsWith('-')) { valueNext = !!(WRAPPER_VALUE_FLAGS[wrapper] && WRAPPER_VALUE_FLAGS[wrapper].test(w.text)); continue; }   // a wrapper's own flag
-      if (!w.dynamic && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.text)) { more(w.text.slice(w.text.indexOf('=') + 1)); continue; }   // env X=/y
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w.text)) { assignment(w, w.text); continue; }   // env X=/y, export PATH=...
+      if (wrapper === 'flock' && !w.dynamic && durationNext) { durationNext = false; continue; }   // flock's lock file
+      if (wrapper === 'script' && !w.dynamic && before === '-c') { pendingHead = false; more(w.text); continue; }
       if (durationNext && /^[0-9.]+[smhd]?$/.test(w.text)) { durationNext = false; continue; }
       pendingHead = false; isHead = true;
     }
@@ -292,7 +350,10 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     if (isHead) {
       prog = w.dynamic ? '' : path.basename(w.text);
       if (!w.dynamic && (prog === 'cd' || prog === 'pushd')) { cdNext = true; continue; }
-      if (!w.dynamic && WRAPPER.test(prog)) { pendingHead = true; durationNext = /timeout$/.test(prog); wrapper = prog; valueNext = false; continue; }
+      if (!w.dynamic && WRAPPER.test(prog)) { if (FOLDER_RUNNER.test(prog)) folderRunner(prog); pendingHead = true; durationNext = /timeout$|^flock$/.test(prog); wrapper = prog; valueNext = false; continue; }
+      if (!w.dynamic && FOLDER_RUNNER.test(prog)) folderRunner(prog);
+      // A bare program after PATH=dir: found in that folder first.
+      if (!w.dynamic && !w.text.includes('/')) for (const d of pathDirs) { const p = path.join(d, w.text); paths.push(p); runPaths.push(p); }
       scriptSlot = INTERPRETER.test(prog);
       runnerSub = RUNNER_SUB[prog] || null;
     }
@@ -304,7 +365,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     const isFlag = !isHead && !w.input && text.startsWith('-');
     const flagScript = flagScriptNext && !isHead && !isFlag;
     flagScriptNext = !isHead && !w.dynamic && !!(SCRIPT_FLAG[prog] && SCRIPT_FLAG[prog].test(text));
-    if (isFlag && !w.dynamic && !flagScriptNext && VALUE_FLAGS[prog] && VALUE_FLAGS[prog].test(text)) { skipNext = true; if (MODULE_FLAG.test(prog + ' ' + text)) scriptSlot = false; continue; }
+    if (isFlag && !w.dynamic && !flagScriptNext && VALUE_FLAGS[prog] && VALUE_FLAGS[prog].test(text)) { skipNext = true; if (MODULE_FLAG.test(prog + ' ' + text)) { scriptSlot = false; folderRunner(`${prog} -m`); } continue; }
     // A flag that carries a path (--require=/x.js): the part after the first '=', when it looks like a path (review 4:
     // --max-old-space-size=4096 names no file).
     const flagValue = isFlag && text.includes('=');
@@ -321,14 +382,14 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     /* Review 5: every plain word after an interpreter counts, not only the first: a flag that takes a value
        (bash -o pipefail x.sh, ruby -I lib x.rb) would otherwise take the slot and leave the real script as an argument.
        A list of such flags is always partial; counting them all costs a data argument of the hook being denied too. */
-    const runs = isHead || inScriptSlot || w.input || flagValue || inline || flagScript;   // where something RUNS
+    const runs = isHead || inScriptSlot || w.input || flagValue || inline || flagScript || (!w.dynamic && SCRIPT_EXT.test(text));   // where something RUNS
     if (w.dynamic) {
       // A flag's unknown value names a path only when it has a slash (--header="$H" names nothing).
       if (runs && (!flagValue || text.includes('/'))) unsafe.push(`a ${isHead ? 'program' : 'path'} made when the command runs${text.includes('/') ? ', ending ' + text.slice(text.lastIndexOf('/')) : ''}`);
       continue;
     }
     if (inline) { scriptSlot = false; more(text); for (const m of text.matchAll(INNER_ABS)) paths.push(path.normalize(m[1])); continue; }
-    if (!text || text === '{}' || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text)) continue;   // a URL, or find's {} placeholder, is not a file
+    if (!text || text === '{}' || text.includes(PATH_MARK) || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text)) continue;   // a URL, find's {} placeholder or $PATH is not a file
     // A pattern counts where it names a path or a script; `[` and `[[` as the program are the test command (review 3).
     if (w.globbed && runs && (text.includes('/') || !isHead)) { unsafe.push(`a pattern where a script is named (${text}), which Kosmos does not expand`); continue; }
     let ps = [];
@@ -509,7 +570,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   for (const [k, vs] of envValues) if (vs.size === 1 && !vs.has('\0not a string')) settingsEnv[k] = [...vs][0];
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
   // PWD: hooks run in the agent folder (review 5).
-  const baseVars = { ...settingsEnv, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, PWD: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
+  const baseVars = { ...settingsEnv, PATH: PATH_MARK, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, PWD: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
       const r = pathsOfWords(wordsOf(c, vars), agentDir, vars);
