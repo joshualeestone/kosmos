@@ -15963,6 +15963,15 @@ const server = http.createServer(async (req, res) => {
         return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
       })
       : maskedMessages;
+    /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
+    const cqNow = view && view.text ? require('./engine/status').claudeQuestionMenu(view.text) : null;
+    const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
+      && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
+      && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
+      && Boolean(cqNow)
+      // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
+      && cqNow.options.length === options.length
+      && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
     sendJson(res, 200, {
       messages: withPreviews(reactedMessages),
       olderCount,
@@ -15999,9 +16008,7 @@ const server = http.createServer(async (req, res) => {
          page draws no buttons where the composer is closed, and the POST refuses what a key cannot reach).
          And only for the single-select question menu that path answers (status.claudeQuestionMenu): a permission prompt
          also reads as numbered options, but a press there would be pasted, and its Enter picks the highlighted option. */
-      asked: !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude' && Array.isArray(options)
-        && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry: no buttons
-        && Boolean(view && view.text && require('./engine/status').claudeQuestionMenu(view.text)) && question && typeof question.text === 'string' ? chat.questionAbove(question.text) : null,
+      asked: pressable ? chat.questionAbove(question.text) : null,
     });
     return;
   }

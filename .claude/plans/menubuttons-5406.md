@@ -39,6 +39,8 @@ no banner (Josh #3419).
 - Agents not run by Claude (the key-answer path is Claude's); a failed thread read (its sentence replaces the thread);
   an agent whose composer is closed (presence off), the old box's rule.
 - A menu with a label a press could never carry (over the length limit): typing still works.
+- A screen where the two menu readers (optionsIn, claudeQuestionMenu) disagree on the options: no buttons (review 21),
+  so a drawn button is always one the key path accepts.
 - Defensive, not reached by any fixture: in the key path the pressed number must be on the menu the key goes to, with
   the same words (the two menu readers would have to disagree); otherwise 409.
 - Pressable never while a press or a typed send to that agent is in the air; a typed send while a press is in the air

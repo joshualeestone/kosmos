@@ -37397,7 +37397,7 @@ function dmChoiceBlocksSend(session) {
   const m0 = document.getElementById('d-say-msg');
   if (m0) m0.textContent = DM_CHOICE_WAIT_LINE;
   return true;
-}   // the sentence a press put on #d-say-msg, cleared by the next success only if still there
+}
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
@@ -37439,6 +37439,7 @@ async function dmChoicePress(btn) {
   DM_CHOICE_ANSWERED.delete(session);
   DM_CHOICE_INFLIGHT.set(session, c.asked);
   let ok = false;
+  let unsure = false;   // the key may have gone (could not confirm)
   let note = '';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread', {
@@ -37451,20 +37452,21 @@ async function dmChoicePress(btn) {
     const d = (out && out.delivery) || {};
     ok = res.ok && d.state === 'placed';
     /* A 5xx may come after the key went (a crash or a proxy past the send), so it cannot be read as "did not go". */
-    if (res.status >= 500) note = DM_CHOICE_UNSURE;
+    if (res.status >= 500) { note = DM_CHOICE_UNSURE; unsure = true; }
     else if (!res.ok) note = pjSentence(out.error || 'that did not go; try again');
     else if (d.state === 'could_not') note = pjSentence(d.because || 'that did not go; try again');
-    else if (!ok) note = DM_CHOICE_UNSURE + (d.because ? ' ' + pjSentence(d.because) : '');
+    else if (!ok) { note = DM_CHOICE_UNSURE + (d.because ? ' ' + pjSentence(d.because) : ''); unsure = true; }
   } catch {
     /* The request may have reached the board before it failed (a restart mid-press), so this is not "did not go". */
     note = DM_CHOICE_UNSURE;
+    unsure = true;
   } finally {
     DM_CHOICE_INFLIGHT.delete(session);
   }
   if (ok) note = 'Sent.';
   /* Placed, or may have been sent (could not confirm): the same short lock, so a quick second press cannot answer twice
      while the page's poll is still catching up. Only a refusal or could_not (nothing typed) gives the buttons back now. */
-  const mayHaveSent = ok || note.startsWith(DM_CHOICE_UNSURE);
+  const mayHaveSent = ok || unsure;
   if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok });
   if (msg) msg.textContent = ok ? note : '';
   if (!mayHaveSent && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
