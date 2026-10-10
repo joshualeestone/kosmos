@@ -75,3 +75,8 @@ is read by tasks.setRepeat (JSON compare of the normalised rule), the route (fro
 - `tkRepeatShowChoice` sets the controls to a choice, shared by the repaint and that path.
 - Left as is (NITs): the 5-second poll can light Save while a save is in flight (true before this change); two daily
   times 15 to 20 minutes apart get a 4 to 5 minute miss grace, so a run reported that early is ambiguous between them.
+
+## Review round 5 fixes
+- The answer-lands check also compares the whole choice with what was sent, so a repaint that changed only the
+  frequency or the day (twice daily changed to weekly, box unchanged) shows what was saved rather than daily 09:00 alone.
+- The CLI usage reads `--at HH:MM[,HH:MM...]` (it read as "at most two").

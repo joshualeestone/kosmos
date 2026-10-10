@@ -330,6 +330,32 @@ test('#5752 round 4: the box changed between pressing Save and the answer: the c
   f.tkPaintRepeat(p, task(3, ['11:00', '21:00']));
   assert.equal(box.value, '11:00');
   assert.equal(save.disabled, true);
+  // 3 (round 5): away and back with only the FREQUENCY repainted: twice daily changed to weekly; the box still 09:00.
+  f.tkPaintRepeat(p, task(5, ['09:00', '21:00']));
+  els['tk-repeat-every'].value = 'week';
+  const sent4 = f.tkRepeatChoice();
+  const at4 = box.value;
+  assert.deepEqual(sent4, { every: 'week', on: 'mon', at: '09:00' });
+  f.tkPaintRepeat(p, task(4, '12:00'));
+  f.tkPaintRepeat(p, task(5, ['09:00', '21:00']));
+  assert.equal(els['tk-repeat-every'].value, 'day', 'precondition: repainted as daily');
+  assert.equal(box.value, at4, 'precondition: the box did not change');
+  f.tkRepeatSaved(sent4, at4);
+  f.tkPaintRepeat(p, { number: 5, repeat: { every: 'week', day: 1, at: '09:00' } });
+  assert.equal(els['tk-repeat-every'].value, 'week', 'the controls show the weekly rule that was saved');
+  assert.deepEqual(f.tkRepeatChoice(), sent4, 'never daily 09:00 alone (round 5: 21:00 lost)');
+  assert.equal(save.disabled, true);
+  // 4 (round 5): only the DAY repainted: weekly Monday changed to Wednesday.
+  f.tkPaintRepeat(p, { number: 6, repeat: { every: 'week', day: 1, at: '09:00' } });
+  els['tk-repeat-day'].value = 'wed';
+  const sent5 = f.tkRepeatChoice();
+  f.tkPaintRepeat(p, task(4, '12:00'));
+  f.tkPaintRepeat(p, { number: 6, repeat: { every: 'week', day: 1, at: '09:00' } });
+  f.tkRepeatSaved(sent5, box.value);
+  f.tkPaintRepeat(p, { number: 6, repeat: { every: 'week', day: 3, at: '09:00' } });
+  assert.equal(els['tk-repeat-day'].value, 'wed');
+  assert.equal(save.disabled, true);
+  f.tkPaintRepeat(p, task(3, ['11:00', '21:00']));   // back on task 3 as the earlier arms left it
   // CONTROL: nothing moved during the save: the box is left as the person put it.
   box.value = '22:00';
   const sent3 = f.tkRepeatChoice();

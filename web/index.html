@@ -61812,12 +61812,17 @@ function tkRepeatKeepOthers(list, box) {
    other than the box's (kosmos#5752 round 2: the others from before the save brought back a time the person had just
    removed; round 3: the box is left showing what the person put in it, whichever place it sorts to). `boxAtSend` is the
    box's time when Save was pressed. Round 4: if the box shows something else by the time the answer lands (the person
-   left the task and came back, so it was repainted from the old rule, or typed during the save), the controls show
+   left the task and came back, so it was repainted from the old rule, or typed during the save), or the controls no
+   longer make the choice that was sent (round 5: a repaint can change only the frequency or the day), they show
    what was saved, since what they show no longer matches it; an edit typed in that moment is visibly replaced. */
 function tkRepeatSaved(sent, boxAtSend) {
   const every = document.getElementById('tk-repeat-every');
   every.dataset.stored = JSON.stringify(sent);
-  if (document.getElementById('tk-repeat-at').value !== boxAtSend) { tkRepeatShowChoice(sent); return; }
+  /* Round 5: the frequency or the day can be repainted with the box unchanged, so the whole choice is compared too. */
+  if (document.getElementById('tk-repeat-at').value !== boxAtSend || JSON.stringify(tkRepeatChoice()) !== every.dataset.stored) {
+    tkRepeatShowChoice(sent);
+    return;
+  }
   tkRepeatKeepOthers(sent && sent.every === 'day' ? sent.at : '', boxAtSend);
 }
 /* The controls set to a choice (a stored one, or one just saved). Review 1: a choice with no time or day of its own

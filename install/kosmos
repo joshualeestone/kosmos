@@ -4526,7 +4526,7 @@ cmd_task() {
     repeat)
       # kosmos#4787: <project> <task-number> <hourly|daily|weekly> [--at HH:MM|:MM] [--on <day>], or --clear. Checked before
       # the board, as built is; the rule itself is checked whole by the board (taskrepeat.repeatProblem).
-      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM]] [--on mon] [--reviewer <agent|none>]   (or --clear)"
+      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "$_rusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _r _rwant=""

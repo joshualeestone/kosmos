@@ -1042,7 +1042,7 @@ async function taskDoneWhen(ctx, args) {
 
 /* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
-const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
+const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
 async function taskRepeat(ctx, args) {
   const [project, num] = args;
   if (!project || !num || args.length < 3) { ctx.err(REPEAT_USAGE); return 2; }
