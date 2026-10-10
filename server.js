@@ -16162,10 +16162,18 @@ const server = http.createServer(async (req, res) => {
           /* #5406 slice C review 18: the press-kind refusals FIRST, so their sentence is the true one (a press for another
              runner, or at a screen that is not the single-select menu, would otherwise be told its question is gone or
              its words could not be checked). */
-          if (askedGiven && ((card && String(card.runner || 'claude') !== 'claude')
-            || (seen && seen.text && !require('./engine/status').claudeQuestionMenu(seen.text)))) {
-            const notThis = new Error('that question cannot be answered with a button, so we did not send anything. '
-              + 'Answer it in its window.');
+          const notMenu = askedGiven && seen && seen.text && !require('./engine/status').claudeQuestionMenu(seen.text);
+          if (askedGiven && ((card && String(card.runner || 'claude') !== 'claude') || notMenu)) {
+            /* Review 24: at a screen that is not the menu, say which is true. The same question on another kind of screen
+               cannot be answered with a button; a DIFFERENT (or no) question there means the screen moved on. */
+            const qNow = notMenu ? chat.questionIn(seen.text, card && card.runner) : null;
+            const idNow = qNow ? chat.cleanMessage(chat.questionAbove(qNow.text) || '').slice(0, 2000) : '';
+            const moved = notMenu && card && String(card.runner || 'claude') === 'claude'
+              && idNow !== chat.cleanMessage(body.asked).slice(0, 2000);
+            const notThis = new Error(moved
+              ? 'its screen moved between drawing that button and sending it, so we did not send the answer. '
+                + 'What is on this page now is current: press again if it is still the one you want.'
+              : 'that question cannot be answered with a button, so we did not send anything. Answer it in its window.');
             notThis.status = 409;
             throw notThis;
           }
@@ -16174,7 +16182,7 @@ const server = http.createServer(async (req, res) => {
              (chat.optionsIn refuses it), so a button press that lands on it was drawn for some other question and the pane
              redrew; option 1 there switches models and saves that choice in the agent's Claude settings. Refused like
              any changed question. A person typing the digit themselves (no `chose`) is their own answer and goes through. */
-          if ((chose || askedGiven) && asked && require('./engine/status').safeguardsMenuAt(asked.text)) {
+          if (chose && asked && require('./engine/status').safeguardsMenuAt(asked.text)) {   // a named press never gets here (not the menu: refused above)
             const moved = new Error('that question changed on its screen before this was sent, '
               + 'so we did not answer it. Its current question is on this page.');
             moved.status = 409;

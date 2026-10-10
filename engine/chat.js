@@ -1163,10 +1163,11 @@ function questionMenuKeysAllowed(sessionName, roster) {
   /* #5406 slice C review 18: one key answer per pane at a time. The page's own lock covers one tab; two surfaces on the
      same agent could each read the menu before it redraws and both send a digit, the second landing on whatever is
      on screen then. Held from before the first read to after the settle read. */
-  if (QMENU_BUSY.has(paneTarget(allowed.card))) return { ok: false, because: 'a key is already being sent to its question; look at this page again in a moment' };
+  if (QMENU_BUSY.has(paneTarget(allowed.card))) return { ok: false, because: QMENU_BUSY_SENTENCE };
   return allowed;
 }
 const QMENU_BUSY = new Set();   // pane targets with a key answer or a close in progress
+const QMENU_BUSY_SENTENCE = 'a key is already being sent to its question; look at this page again in a moment';
 /* Run `fn` holding the pane's key-answer slot (the check above refused if it was taken). */
 async function withQmenuSlot(allowed, fn) {
   const t = paneTarget(allowed.card);
@@ -1203,7 +1204,10 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
    { ok: true, closed } (closed: there was a menu and it went) or { ok: false, because }. No menu: { ok: true, closed: false }. */
 async function closeQuestionMenu(sessionName, roster, expect) {
   const allowed = questionMenuKeysAllowed(sessionName, roster);
-  if (!allowed.ok) return { ok: false, because: allowed.because };
+  if (!allowed.ok) {   // a typed message met a key answer settling: say it in a typed message's words (review 24)
+    return { ok: false, because: allowed.because === QMENU_BUSY_SENTENCE
+      ? 'its question is being answered right now, so this was not typed; send it again in a moment' : allowed.because };
+  }
   return withQmenuSlot(allowed, () => closeQuestionMenuHeld(sessionName, roster, expect, allowed));
 }
 async function closeQuestionMenuHeld(sessionName, roster, expect, allowed) {
