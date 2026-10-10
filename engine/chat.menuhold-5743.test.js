@@ -157,8 +157,16 @@ test('#5743 decided: a screen read that FAILS is not a refusal (needs_you covers
     });
     chat.setDryRun(false); chat.setPauser(() => {});
     const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
-    assert.doesNotMatch(String(v.because), /showing a question on its screen/, 'a failed read was taken as the menu');
+    assert.doesNotMatch(String(v.because), /on its screen/, 'a failed read was taken as one of the screens');
     assert.ok(calls.some((c) => c[0] === 'capture-pane'), 'premise: the screen was asked for');
+    assert.ok(calls.some((c) => c[0] === 'paste-buffer'), 'a failed read refused an ordinary reply (the decision is fail open)');
+    // EXCEPT: the card itself reports it is asking permission (its PermissionRequest self-report). Then nothing typed.
+    calls.length = 0;
+    const asking = board.agents.map((c) => ({ ...c, because: 'asking permission to use Bash: rm -rf build' }));
+    const p = await chat.deliverAsync('casey', 'A room post for Casey.', asking);
+    assert.equal(p.state, chat.DELIVERY.COULD_NOT, JSON.stringify(p));
+    assert.match(p.because, /asking for permission/);
+    assert.ok(!calls.some((c) => c[0] === 'paste-buffer' || c[0] === 'send-keys'), 'typed into an agent reporting a permission request');
   } finally { chat.resetForTests(); board.restore(); }
 });
 
@@ -195,6 +203,7 @@ test('#5754 a question menu that begins "Do you want to" gets the menu sentence 
   await onScreen(DWT, 'needs_you', async (board, calls) => {
     const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
     assert.match(v.because, /showing a question on its screen/);
+    assert.match(v.because, /by its number in its direct messages/, 'the single-select form on a needs_you card is answerable there');
     assert.doesNotMatch(v.because, /asking for permission/);
     assert.deepEqual(calls.typed(), []);
   });
@@ -272,6 +281,17 @@ test('#5754 review 13: a shape-only match (other wording, or a picker) is refuse
     assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
     assert.match(v.because, /waiting for an answer on its screen/);
     assert.doesNotMatch(v.because, /permission/, 'a picker was described as a permission request');
+    assert.deepEqual(calls.typed(), []);
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5754 review 14: a WORKING card on the single-select menu is not pointed at the direct messages (that route answers needs_you cards only)', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'working' })]);
+  try {
+    const calls = arm(MENU);
+    const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents.map((c) => ({ ...c })));
+    assert.match(v.because, /showing a question on its screen/);
+    assert.doesNotMatch(v.because, /direct messages/);
     assert.deepEqual(calls.typed(), []);
   } finally { chat.resetForTests(); board.restore(); }
 });

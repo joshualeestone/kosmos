@@ -28,7 +28,8 @@ closes the menu first, then delivers).
   recommender convening's stuck agent); an idle agent pays nothing. A stalled tmux now slows every such delivery,
   as the Codex floor already does for Codex ones.
 
-- A failed screen read is not a refusal: needs_you covers every question (permission prompts too) and the DM route
+- A failed screen read is not a refusal, EXCEPT when the card's own PermissionRequest self-report says it is asking
+  permission (review 14): then the permission sentence, nothing typed. Otherwise: needs_you covers every question (permission prompts too) and the DM route
   reaches the floor right after closing the menu, so failing closed would refuse ordinary replies on one bad capture.
 - The floor reads the screen again right before typing even after menuHeldVerdict read it: a deliberate last look,
   paid by every working or needs_you Claude card with none of the screens up.
@@ -59,8 +60,8 @@ closes the menu first, then delivers).
 
 - #5754 (priority, Splinter 2026-10-09 23:51) rides this branch: Claude's PERMISSION prompt gets the same floor.
   Measured on 2.1.296 through the 0.7.35 delivery code into a real prompt: both delivery paths reported placed while the
-  prompt approved Yes and the command ran. status.claudePermissionPromptUp (an "Esc to cancel" footer at the bottom and a
-  "Do you want to" question just above it; both real captures plus the older select footer) feeds
+  prompt approved Yes and the command ran. status.claudePermissionPromptKind ('wording': an "Esc to cancel" footer at the bottom and a
+  "Do you want to" / "Would you like to" question just above it; 'shape': a highlighted numbered option there; both real captures plus the older select footer) feeds
   the same refusal and hold, with its own sentence (answer it in the window; the DM route cannot answer it).
 
 - The plan-approval prompt ("Would you like to proceed?") is matched by wording only; no real capture yet. Other
