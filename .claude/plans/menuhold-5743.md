@@ -35,6 +35,8 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
 - Under the room brake (AGENT_WORKFORCE_ROOM_HOLD_OFF=1) a colleague's post goes through plain deliver, so a member on
   its menu is refused, not held and kept (before this card it was typed into the menu).
 
+- A post held for a Claude member is told at its idle flush (its idle report after the question is answered and the
+  turn ends) or its next typed arrival; there is no timed release, unlike the quota hold.
 - A post held behind a question left up for more than two hours ages out like any held room post (HELD_TELL_MAX_MS);
   the sender was told it was held. Same policy as the #4624 idle hold; not changed here.
 - connlost-heal's nudge uses plain deliver and counts a try first; a connection-lost card is not expected to read

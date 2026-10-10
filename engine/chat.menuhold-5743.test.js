@@ -106,7 +106,6 @@ test('#5743 CONTROLS: an idle agent is typed into as before; a permission prompt
   });
   await onScreen(PERMISSION, 'needs_you', async (board, calls) => {
     const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
-    assert.doesNotMatch(String(v.because), /showing a question on its screen/, 'a permission prompt was refused as the question menu');
     assert.doesNotMatch(String(v.because), /showing a question on its screen/, 'this floor fired on a permission prompt');
   });
 });
