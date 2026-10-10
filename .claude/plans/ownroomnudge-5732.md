@@ -55,3 +55,16 @@ computer tells no agent on the agents Mac. For tomorrow, Splinter checks the roo
   then passes 7/7.
 - The 75 files that read server.js: the same 6 failures as on main's base (unrelated files), none new.
 - No full suite or challenge loop yet. Both are for after a yes, before a PR.
+
+## The permission-prompt and question-menu floor (Splinter 2026-10-10 06:27, from Angel's #5406 finding)
+- The blocker: a typed line plus Enter into a Claude pane on a permission prompt takes the highlighted Yes.
+- Rebased onto main b0fb6cc19, which carries #5760 (#5743 + #5754). The floor is in chat.deliverAutomatic itself
+  (menuHeldVerdict: the question menu, a permission prompt, the safeguards menu), and the nudge already sends only
+  through deliverAutomatic, so no second detector. A held verdict types nothing and does not spend the nudge's gap.
+- Shown both ways (engine/messages.ownroomnudge-5732.test.js, on chat.menuhold-5743's harness with the real screen
+  captures): on a permission prompt and on the question menu, nothing is typed and no nudge is counted; the same agent
+  idle a second later IS nudged (the gap was not spent); an idle agent is nudged as before (the control). Removing the
+  nudge's held check turns both held tests red.
+- Decided: a held nudge is not queued for later. The post stays in the room, and the next post (or the agent's own
+  next read) finds it. Weakest premise: one post while the agent sits on a prompt is noticed later rather than at once.
+- Still OFF by default (KOSMOS_OWN_ROOM_NUDGE=1) and unmerged: Josh's yes or no during the pilot.
