@@ -21150,7 +21150,8 @@ function orgRollupTick() {
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own
-    rules and sends them (engine/agentevents.js decides what counts). Same gates as the rollup. */
+    rules and sends them (engine/agentevents.js decides what counts). Same gates as the rollup. Slice 3: while the org's
+    policy and the member's words turn the manipulation check on, every known Claude Code agent's transcripts are read too. */
 let AGENT_EVENTS_RUNNING = false;
 const AGENT_EVENTS_SAID = new Set();
 function agentEventsTick() {
