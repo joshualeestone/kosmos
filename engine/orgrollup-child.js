@@ -3,7 +3,7 @@
  * kosmos#5532 widening (Josh, #admin 2026-10-09 08:43: everything on a work computer is company property): the rollup
  * of a Kosmos that is NOT the one this board serves. The board starts this file with that Kosmos's folders applied to
  * the environment as an agent of it gets them (worlds.applyAgentWorldEnv), so every reader below resolves that Kosmos's own store, exactly as its own
- * board would. `gather` sends nothing; `tick` is the enrolled Kosmos's own rollup tick. Each prints one line of JSON and
+ * board would. `gather` sends nothing (its one write is that Kosmos's own sibling id, below); `tick` is the enrolled Kosmos's own rollup tick. Each prints one line of JSON and
  * exits.
  *
  *   node engine/orgrollup-child.js gather   ->  {"ok":true,"world":"<opaque id>","gathered":{...}}

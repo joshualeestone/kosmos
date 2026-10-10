@@ -392,6 +392,27 @@ test('#5532 widening (board review 9): a run never removes a lock another run to
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).token, 'the other run', 'this run removed the lock another run held');
 });
 
+test('#5532 widening (board review 10): a half-written lock is a live one until its file is older than the bound', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const file = path.join(root, r.RUN_LOCK_FILE);
+  fs.writeFileSync(file, '');   // taken, not yet written
+  const busy = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, others({ beta: inv('Ada') })));
+  assert.equal(busy.sent, false, 'an empty lock read as free');
+  // A lock stamped seconds AFTER this run's tick began (another run took it while this one read) is live too.
+  fs.writeFileSync(file, JSON.stringify({ at: T0 + 5000, token: 'just now' }));
+  const later = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, others({ beta: inv('Ada') })));
+  assert.equal(later.sent, false, 'a lock taken after this tick began read as stale');
+  fs.writeFileSync(file, '');
+  // CONTROL: the same empty file, old: a run that died while taking it. Taken over.
+  const old = (Date.now() - r.TICK_CHILD_TIMEOUT_MS - 60 * 1000) / 1000;
+  fs.utimesSync(file, old, old);
+  const ok = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, others({ beta: inv('Ada') })));
+  assert.equal(ok.sent, true, JSON.stringify(ok));
+});
+
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
   const root = world(t);
   const c = coordinator();

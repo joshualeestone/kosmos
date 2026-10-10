@@ -578,6 +578,7 @@ async function sendOthers(c) {
  * opts: { root, remote, sources, now } (tests); the board passes nothing.
  */
 async function tick(opts) {
+  const startedReal = Date.now();
   const o = opts || {};
   const oe = require('./orgenroll');
   const eo = { root: o.root, remote: o.remote };
@@ -694,7 +695,8 @@ async function tick(opts) {
   /* One run of this Kosmos's rollup at a time, across processes (board reviews 7 and 8): a board stopped with SIGTERM
      cannot stop the tick child it started, and the next board would run the same tick beside it. An exclusively created
      lock file in this Kosmos's root, taken here (after the read that took minutes) and always released below. */
-  const lockToken = takeRunLock(root, now);
+  // Stamped with the time it is taken, not when this tick began (board review 10: the read can take minutes).
+  const lockToken = takeRunLock(root, now + (Date.now() - startedReal));
   if (!lockToken) return { sent: false, because: 'another rollup of this Kosmos is still running' };
   try {
     /* Another run may have sent between this run's read and its lock (board review 9: the lock stops overlap, not two
@@ -753,9 +755,17 @@ const RUN_LOCK_FILE = 'org-rollup.lock';
 function readRunLock(file) {
   try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return j && typeof j === 'object' ? j : {}; } catch (e) { return e && e.code === 'ENOENT' ? null : {}; }
 }
+/* Held: a lock taken within the bound. One that cannot be read or has no time (being written, or damaged) is held
+   until the FILE is older than the bound (board review 10): a half-written lock is a live one. */
+function lockIsLive(file, j, now) {
+  if (!j) return false;
+  // Either side of now (a lock is stamped when taken, which can be after another run's tick began), within the bound.
+  if (Number.isFinite(j.at)) return Math.abs(now - j.at) < TICK_CHILD_TIMEOUT_MS;
+  try { return Date.now() - fs.statSync(file).mtimeMs < TICK_CHILD_TIMEOUT_MS; } catch { return false; }
+}
 function runLockHeld(root, now) {
-  const j = readRunLock(path.join(root, RUN_LOCK_FILE));
-  return !!j && Number.isFinite(j.at) && j.at <= now && now - j.at < TICK_CHILD_TIMEOUT_MS;
+  const file = path.join(root, RUN_LOCK_FILE);
+  return lockIsLive(file, readRunLock(file), now);
 }
 function takeRunLock(root, now) {
   const file = path.join(root, RUN_LOCK_FILE);
@@ -768,7 +778,18 @@ function takeRunLock(root, now) {
     } catch (e) {
       if (!e || e.code !== 'EEXIST') return null;   // cannot be taken: never send unlocked
       if (runLockHeld(root, now)) return null;
-      try { fs.unlinkSync(file); } catch { /* another run took it over */ }
+      /* Taken over by moving it aside first (board review 10): a rename is atomic, so of two runs that both judged it
+         stale one moves it. What was moved is read again: if another run had replaced it with a live lock meanwhile,
+         it goes back (a link, which never overwrites) and this run stands down. */
+      const aside = file + '.' + token;
+      try { fs.renameSync(file, aside); } catch { continue; }
+      const moved = readRunLock(aside);
+      if (lockIsLive(aside, moved, now)) {
+        try { fs.linkSync(aside, file); } catch { /* a third run holds it now */ }
+        try { fs.unlinkSync(aside); } catch { /* gone */ }
+        return null;
+      }
+      try { fs.unlinkSync(aside); } catch { /* gone */ }
     }
   }
   return null;
