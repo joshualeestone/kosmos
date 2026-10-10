@@ -38,6 +38,8 @@ const WROTE_WHY = 'the person\'s language, from this computer\'s language settin
 const WROTE_WHY_SETTINGS = 'the language the person chose in Settings (#5080)';
 /* The words that mark a block written from the person's choice (blockBody's bracketed source for 'settings'). */
 const SETTINGS_SOURCE = 'chosen in Kosmos Settings';
+/* Review 6: the block's own sentence, not the phrase anywhere in it, marks a block a choice wrote. */
+const STALE_SETTINGS_LINE = new RegExp('^The person who runs this computer reads [^\\n]+ \\([A-Za-z0-9-]+, ' + SETTINGS_SOURCE + '\\)\\. Write to them', 'm');
 
 /* #5080: the person's choice in Settings ("The language your agents write to you in"). Its own file through the one
    data-root derivation, so a test data root isolates it. No file is Automatic (the computer's setting, as before). */
@@ -57,7 +59,9 @@ const AUTO = 'auto';
 function readChoice() {
   let raw;
   try { raw = fs.readFileSync(CHOICE_FILE, 'utf8'); }
-  catch (err) { return err && err.code === 'ENOENT' ? { choice: AUTO, ok: true } : { choice: null, ok: false }; }
+  // `none`: no choice was ever saved, so no block in any file can be one a choice wrote (review 6: the boot sweep then
+  // reads no files off a Mac, as before the picker).
+  catch (err) { return err && err.code === 'ENOENT' ? { choice: AUTO, ok: true, none: true } : { choice: null, ok: false }; }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { choice: null, ok: false }; }
   const c = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed.choice : undefined;
@@ -117,7 +121,9 @@ function read(o) {
     // Review 5: Automatic chosen again reuses what Automatic last read, so a save does not ask a hanging `defaults` anew.
     const autoFresh = picked.ok && picked.choice === AUTO && autoCached !== undefined
       && (autoCached.sure || Date.now() - autoAt < FALLBACK_MS);
-    const got = autoFresh ? autoCached : read({ ...(source || {}), choice: picked });
+    // The reused read takes its `auto` mark from the choice as it is now (a saved Automatic, or none ever saved).
+    const reuse = () => (autoCached.sure ? autoCached : (({ auto, ...rest }) => (picked.none ? rest : { ...rest, auto: true }))(autoCached));
+    const got = autoFresh ? reuse() : read({ ...(source || {}), choice: picked });
     cached = got; cachedChoice = key; fallbackAt = got.sure ? 0 : Date.now();
     // With Automatic chosen this IS what Automatic reads, so the Settings page does not ask `defaults` a second time.
     if (picked.ok && picked.choice === AUTO && !autoFresh) { autoCached = got; autoAt = fallbackAt; }
@@ -142,7 +148,7 @@ function read(o) {
   let tag = null;
   try { tag = normalise(opts.intl !== undefined ? opts.intl : Intl.DateTimeFormat().resolvedOptions().locale); } catch { tag = null; }
   // `auto`: Automatic was read from the file, so a block that names Settings as its source is known to be stale.
-  return { tag, sure: false, from: 'computer', auto: true };
+  return picked.none ? { tag, sure: false, from: 'computer' } : { tag, sure: false, from: 'computer', auto: true };
 }
 /* #5080: what Automatic reads on this computer, whatever the stored choice (the picker shows it beside Automatic). Kept
    the way read() keeps its answer, so opening Settings does not ask a hanging `defaults` each time (review 4). */
@@ -256,7 +262,7 @@ function tellAgent(sessionName, roster, opts) {
     if (!got.sure) {
       const text = current.exists ? (current.text || '') : '';
       const one = current.exists ? projects.findBlock(text, START, END) : null;
-      const stale = one && !one.ambiguous && text.slice(one.start, one.end).includes(', ' + SETTINGS_SOURCE + ')');
+      const stale = one && !one.ambiguous && STALE_SETTINGS_LINE.test(text.slice(one.start, one.end));
       if (!stale) return { state: projects.TOLD.TOLD, because: null, changed: false };
     }
     if (!current.exists) return { state: projects.TOLD.COULD_NOT, because: current.because || 'it keeps its instructions somewhere we cannot safely change' };
