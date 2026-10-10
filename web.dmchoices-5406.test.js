@@ -212,3 +212,22 @@ test('#5406 C: in-flight is per agent, so one agent\'s finished press does not u
   assert.match(m.html(Q), / disabled>/, 'B\'s buttons were unlocked by A\'s press finishing');
   releases[1](); await b;
 });
+
+test('#5406 C: a success clears the refusal it follows from the conversation\'s line, and only that one', async () => {
+  const CUR = realCard();
+  const line = { textContent: '' };
+  const doc = { activeElement: null, getElementById: (id) => (id === 'd-say-msg' ? line : null) };
+  let refuse = true;
+  const m = load({ CURRENT: CUR, document: doc, fetch: async () => (refuse ? { ok: false, json: async () => ({ error: 'its screen moved' }) } : { ok: true, json: async () => PLACED }) });
+  m.from(BODY, CUR.sessionName);
+  const mk = () => ({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  await m.press(mk());
+  assert.equal(line.textContent, 'its screen moved');
+  refuse = false;
+  await m.press(mk());
+  assert.equal(line.textContent, '', 'a refusal stayed under the composer after the answer went');
+  // CONTROL: a sentence something else put there is left alone.
+  refuse = true; await m.press(mk()); line.textContent = 'Your message is in the box below.';
+  refuse = false; m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName); await m.press(mk());
+  assert.equal(line.textContent, 'Your message is in the box below.');
+});
