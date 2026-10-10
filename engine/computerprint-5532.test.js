@@ -1,13 +1,17 @@
 'use strict';
 /**
- * kosmos#5532 (contract v1.5): the per-computer fingerprint. The parse runs on fixtures; one arm reads this computer's
- * real ioreg on macOS and checks only the SHAPE of the result, never printing or storing the id.
+ * kosmos#5532 (contract v1.5): the per-computer fingerprint. The parses run on fixtures; one arm reads this computer's
+ * real ioreg on macOS, one its real MachineGuid on Windows (run there by tools/windows-tests.js), and each compares
+ * prints as booleans, never printing or storing the id or the print.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const cp = require('./computerprint');
 
 const SAMPLE = '+-o Mac  <class IOPlatformExpertDevice, id 0x1, registered>\n    {\n      "IOPlatformSerialNumber" = "XXXX"\n      "IOPlatformUUID" = "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9"\n    }\n';
+/* What `reg query HKLM\SOFTWARE\Microsoft\Cryptography /v MachineGuid` prints on Windows 11 (CRLF, value made up). */
+const REG = '\r\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography\r\n    MachineGuid    REG_SZ    0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9\r\n\r\n';
+const GUID = '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9';
 const SALT = 'ab'.repeat(16);
 const ORG = 'org_acme_1';
 
@@ -40,16 +44,17 @@ test('#5532 v1.5: the print is HMAC-SHA256(salt, company:id); the raw id never a
   assert.equal('fingerprint' in cp, false, 'the bare print function is exported; callers must use printFor (review 11)');
 });
 
-test('#5532 v1.5: no hardware id, a failing ioreg, Windows and Linux all give null; ioreg is never run off a Mac', (t) => {
+test('#5532 v1.5: no hardware id, a failing ioreg, ioreg text on Windows and Linux all give null; nothing is read on Linux', (t) => {
   t.after(() => cp._testRunner());
   cp._testRunner(() => '', { platform: 'darwin' });
   assert.equal(cp._testFingerprint(SALT, ORG), null, 'a print with no hardware id');
   cp._testRunner(() => { throw new Error('ioreg missing'); }, { platform: 'darwin' });
   assert.equal(cp._testFingerprint(SALT, ORG), null);
+  cp._testRunner(() => SAMPLE, { platform: 'win32' });
+  assert.equal(cp._testFingerprint(SALT, ORG), null, 'ioreg text was read as a MachineGuid on Windows');
+  cp._testRunner(() => REG, { platform: 'darwin' });
+  assert.equal(cp._testFingerprint(SALT, ORG), null, 'reg query text was read as an IOPlatformUUID on a Mac');
   let reads = 0;
-  cp._testRunner(() => { reads += 1; return SAMPLE; }, { platform: 'win32' });
-  assert.equal(cp._testFingerprint(SALT, ORG), null, 'Windows answers null until its owner builds MachineGuid');
-  assert.equal(reads, 0, 'ioreg was run on Windows');
   cp._testRunner(() => { reads += 1; return SAMPLE; }, { platform: 'linux' });
   assert.equal(cp._testFingerprint(SALT, ORG), null);
   assert.equal(reads, 0, 'ioreg was run on Linux');
@@ -110,7 +115,7 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
     if (/_testRunner|_testClock|_testFingerprint/.test(text) && !/\.test\.js$/.test(f)) swaps.push(f);
   }
   assert.deepEqual(hits, [], 'another file reads (or names a way to read) the raw hardware id: ' + hits.join(', ')
-    + '. Only engine/computerprint.js may; add a reader there (the Windows MachineGuid arm belongs there too).');
+    + '. Only engine/computerprint.js may; add a reader there (the Windows MachineGuid arm lives there too).');
   assert.deepEqual(swaps, [], 'the test-only reader swap is called outside the tests: ' + swaps.join(', '));
 });
 
@@ -139,8 +144,11 @@ test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send
   assert.equal(/[0-9A-F]{8}-|[0-9a-f]{64}/.test(JSON.stringify(cp.printFor('bad', ORG))), false, 'an error carried an id or a print');
   cp._testRunner(() => { throw new Error('ioreg timed out'); }, { platform: 'darwin', now: 5 });
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'a failed read on the real computer must defer, not send print-less');
-  cp._testRunner(() => SAMPLE, { platform: 'win32' });
-  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' });
+  cp._testRunner(() => SAMPLE, { platform: 'linux' });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a platform with no reader would wait forever');
+  // #5557 review: on Windows a missing or non-GUID MachineGuid is a failed read, so it defers like a failed ioreg.
+  cp._testRunner(() => SAMPLE, { platform: 'win32', now: 5 });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'Windows sent print-less on one failed read');
   // Review 8: ioreg answers WITH its hardware block and no id (some VMs): a lasting 'none', not an endless wait.
   cp._testRunner(() => VM, { platform: 'darwin', now: 5 });
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'one block without an id (possibly a cut-off dump) was taken as lasting (review 12)');
@@ -205,7 +213,8 @@ test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until 
   /* The first caller adds itself here, in the same PR as a test that (1) its file never logs a printFor result, a print
      or a request body carrying one, and (2) it takes `company` from this board's own enrollment record, never from a
      coordinator's answer (see the header of engine/computerprint.js). The read is synchronous: wherever printFor runs, a
-     read that hangs blocks the whole board for up to five seconds, a timer or deferred task included (review 22). So
+     read that hangs blocks the whole board for up to five seconds (fifteen on Windows, reg.exe then PowerShell), a
+     timer or deferred task included (review 22). So
      the caller reads it at start, before the board listens, or accepts that block (at most once a minute while reads
      fail, once an hour after giving up), or makes the read asynchronous first. */
   // engine/orgenroll.js: its two guards are engine/orgenroll-print-5532.test.js (no logging; the record's company).
@@ -218,4 +227,131 @@ test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until 
   assert.equal(LOADS.test("require('./computerprint-5532.test.js')"), false, 'the loader guard catches the test file itself');
   const loaders = files.filter((f) => LOADS.test(fs.readFileSync(path.join(root, f), 'utf8')));
   assert.deepEqual(loaders.filter((f) => !ALLOWED.includes(f)), [], 'loads computerprint without being allowed: add it to ALLOWED only together with its no-logging and company-source tests');
+});
+
+/* ---- Windows: MachineGuid through reg.exe, then PowerShell (the #5557 review: the shared retry rule, no raw-id export) */
+
+test('#5532 Windows: the MachineGuid is read out of reg query text, upper-cased, and nothing else is', () => {
+  assert.equal(cp.parseRegQuery(REG), GUID);
+  assert.equal(cp.parseRegQuery(REG.replace(/\r\n/g, '\n')), GUID, 'LF-only output');
+  assert.equal(cp.parseRegQuery(REG.replace('REG_SZ', 'REG_BINARY')), null, 'only a REG_SZ counts');
+  assert.equal(cp.parseRegQuery(REG.replace('0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9', '{0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9}')), null, 'a braced GUID is not the shape');
+  assert.equal(cp.parseRegQuery(REG.replace('0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9', 'not-a-guid')), null);
+  assert.equal(cp.parseRegQuery('ERROR: The system was unable to find the specified registry key or value.'), null);
+  assert.equal(cp.parseRegQuery(''), null);
+  assert.equal(cp.parsePsValue('  0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9\r\n'), GUID);
+  assert.equal(cp.parsePsValue('{0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9}'), null);
+  assert.equal(cp.parsePsValue('0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9\r\n0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9'), null, 'two values are not one');
+  assert.equal(cp.parsePsValue('Get-ItemPropertyValue : Property MachineGuid does not exist'), null);
+  assert.equal(cp.parsePsValue(''), null);
+});
+
+test('#5532 Windows: the print is the same HMAC over the MachineGuid; no export reads or returns the raw id', (t) => {
+  withReader(t, () => REG, { platform: 'win32' });
+  const p = cp._testFingerprint(SALT, ORG);
+  assert.equal(p, require('node:crypto').createHmac('sha256', Buffer.from(SALT, 'hex')).update(ORG + ':' + GUID).digest('hex'));
+  assert.equal(p.includes('0A1B2C3D'), false);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'print', print: p });
+  for (const name of ['hardwareId', 'readRegistry', 'readPowerShell', 'readMachineGuid', 'readIoreg', 'realRun']) {
+    assert.equal(name in cp, false, name + ' is exported: it reads the hardware and hands back the raw id or text holding it');
+  }
+});
+
+test('#5532 Windows: PowerShell is the fallback when reg.exe gives no GUID, and only then', (t) => {
+  let psRuns = 0;
+  const ps = () => { psRuns += 1; return '0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9\r\n'; };
+  const blocked = () => { throw new Error('Registry editing has been disabled by your administrator'); };
+  const expected = require('node:crypto').createHmac('sha256', Buffer.from(SALT, 'hex')).update(ORG + ':' + GUID).digest('hex');
+  withReader(t, blocked, { platform: 'win32', fallback: ps });
+  assert.equal(cp._testFingerprint(SALT, ORG), expected, 'reg.exe refused and PowerShell was not asked');
+  assert.equal(psRuns, 1);
+  cp._testRunner(() => REG.replace('0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9', 'not-a-guid'), { platform: 'win32', fallback: ps });
+  assert.equal(cp._testFingerprint(SALT, ORG), expected, 'a non-GUID reg.exe answer did not fall back');
+  assert.equal(psRuns, 2);
+  cp._testRunner(() => REG, { platform: 'win32', fallback: ps });
+  assert.equal(cp._testFingerprint(SALT, ORG), expected);
+  assert.equal(psRuns, 2, 'PowerShell ran although reg.exe answered');
+  cp._testRunner(blocked, { platform: 'win32', fallback: () => { throw new Error('blocked too'); } });
+  assert.equal(cp._testFingerprint(SALT, ORG), null);
+  cp._testRunner(blocked, { platform: 'win32', fallback: () => 'Get-ItemPropertyValue : Property MachineGuid does not exist' });
+  assert.equal(cp._testFingerprint(SALT, ORG), null);
+});
+
+test('#5532 Windows: a failed read follows the shared rule: a minute, later for ten, then none, then a doubling wait', (t) => {
+  let regRuns = 0;
+  let psRuns = 0;
+  let healthy = false;
+  // A value present but not a GUID, from both reads: on Windows that is a failed read, never a lasting "no id here".
+  const reg = () => { regRuns += 1; return healthy ? REG : REG.replace('0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9', 'garbage'); };
+  const ps = () => { psRuns += 1; return healthy ? GUID : 'garbage'; };
+  withReader(t, reg, { platform: 'win32', fallback: ps, now: 0 });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' });
+  assert.ok(regRuns === 1 && psRuns === 1, 'one failed read should ask reg.exe, then PowerShell, once each');
+  cp._testClock(cp.RETRY_AFTER_FAIL_MS - 1);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' });
+  assert.equal(regRuns, 1, 'read again inside the minute: a hung reg.exe and PowerShell would block the board every call');
+  cp._testClock(cp.RETRY_AFTER_FAIL_MS);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'two non-GUID answers were taken as lasting (only a Mac block can be)');
+  assert.ok(regRuns === 2 && psRuns === 2, 'not retried after the minute');
+  cp._testClock(cp.GIVE_UP_AFTER_MS - 1);
+  assert.equal(cp.printFor(SALT, ORG).send, 'later', 'gave up before GIVE_UP_AFTER_MS');
+  cp._testClock(cp.GIVE_UP_AFTER_MS);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a PC whose reads always fail would defer enroll and leave forever');
+  const before = regRuns;
+  for (let m = 1; m <= 60; m += 1) { cp._testClock(cp.GIVE_UP_AFTER_MS + m * 60 * 1000); cp.printFor(SALT, ORG); }
+  assert.ok(regRuns - before <= 7, 'read ' + (regRuns - before) + ' times in the hour after giving up; expected a doubling wait');
+  assert.ok(regRuns - before >= 1, 'stopped trying for good; a reader that recovers would never be noticed');
+  // The reader comes back (a policy lifted): the next read after the wait gives a print, and it is kept.
+  healthy = true;
+  let printed = null;
+  for (let m = 61; m <= 61 + 120 && !printed; m += 1) {
+    cp._testClock(cp.GIVE_UP_AFTER_MS + m * 60 * 1000);
+    const a = cp.printFor(SALT, ORG);
+    if (a.send === 'print') printed = a.print;
+  }
+  assert.ok(printed, 'a reader that came back was not noticed within two hours');
+  const runs = regRuns;
+  cp.printFor(SALT, ORG);
+  assert.equal(regRuns, runs, 'a successful read was not kept');
+});
+
+test('#5532 Windows: System32\'s reg.exe by full path, against the 64-bit registry view; PowerShell through Sysnative from 32-bit', () => {
+  assert.deepEqual([...cp.REG_ARGS], ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64']);
+  assert.deepEqual([...cp.PS_ARGS], ['-NoProfile', '-NonInteractive', '-Command',
+    "Get-ItemPropertyValue -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid"]);
+  // Rewrites process-wide variables, restored in finally: safe because node:test runs this file's tests one at a time.
+  const saved = { root: process.env.SystemRoot, wow: process.env.PROCESSOR_ARCHITEW6432 };
+  const put = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
+  try {
+    put('SystemRoot', 'D:\\Win');
+    put('PROCESSOR_ARCHITEW6432', undefined);
+    assert.equal(cp.regExe(), 'D:\\Win\\System32\\reg.exe', 'reg.exe was not taken from System32');
+    assert.equal(cp.powershellExe('x64'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    assert.equal(cp.powershellExe('ia32'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', '32-bit Windows has no Sysnative');
+    put('PROCESSOR_ARCHITEW6432', 'AMD64');   // a 32-bit process on 64-bit Windows
+    assert.equal(cp.powershellExe('ia32'), 'D:\\Win\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe', 'a 32-bit node would run the 32-bit PowerShell and read WOW6432Node');
+    // A 64-bit process that inherited the variable, or an x64 one emulated on ARM64: Sysnative does not exist for it.
+    assert.equal(cp.powershellExe('x64'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', 'a 64-bit node would look for PowerShell in Sysnative and never find it');
+    put('PROCESSOR_ARCHITEW6432', 'ARM64');
+    assert.equal(cp.powershellExe('x64'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    assert.equal(cp.powershellExe('arm64'), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  } finally { put('SystemRoot', saved.root); put('PROCESSOR_ARCHITEW6432', saved.wow); }
+});
+
+test('#5532 Windows: this PC\'s real print exists, is stable, and PowerShell reads the same value (nothing about the id is printed)', { skip: process.platform !== 'win32' }, (t) => {
+  t.after(() => cp._testRunner());
+  // Every comparison is a boolean, so a failure can never print a value (the #5557 review).
+  const fs = require('node:fs');
+  assert.ok(fs.existsSync(cp.regExe()), 'the reg.exe path production runs does not exist on this PC');
+  assert.ok(fs.existsSync(cp.powershellExe()), 'the PowerShell path production runs does not exist on this PC');
+  cp._testRunner();   // production's reader: reg.exe, then PowerShell
+  const a = cp._testFingerprint(SALT, ORG);
+  assert.ok(typeof a === 'string' && /^[0-9a-f]{64}$/.test(a), 'no print on this PC (neither reg.exe nor PowerShell gave a MachineGuid)');
+  cp._testRunner();   // a fresh read, not the cache
+  const b = cp.printFor(SALT, ORG);
+  assert.ok(b.send === 'print' && b.print === a, 'the print changed between two fresh reads on one PC');
+  // Production's PowerShell read, for real, as on a PC whose policy blocks reg.exe: it must give the same print.
+  cp._testRunner(() => { throw new Error('Registry editing has been disabled by your administrator'); }, { platform: 'win32', fallback: 'real' });
+  const c = cp._testFingerprint(SALT, ORG);
+  assert.ok(c === a, 'the PowerShell fallback read a different value, or none');
 });
