@@ -3424,7 +3424,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
+function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -3476,6 +3476,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
   const delivery = (asynchronousDelivery ? messages.sendPostAsync : messages.sendPost)({
     fromPane,
     sender,
+    // kosmos#5752 slice 3: only a sender the token helper resolved may have a refusal offer the room's Add.
+    senderByToken: senderByToken === true && !!(sender && sender.ok),
     project: found.id,
     // The NAME for the envelope the agent reads, the id for everything a
     // machine keys on. Both, from the same record, so they cannot drift.
@@ -4522,7 +4524,8 @@ function processCaller(req, body, roster, viaScreen, notDone) {
       card = targetCard || (byPane && byPane.ok ? byPane.card : null);
     } catch { card = null; }
   }
-  return { card: card || null, byKey: panelessCaller(tokenSender) };
+  // byToken (kosmos#5752 slice 3): the caller was named by its agent token, not by a pane claim (advisory).
+  return { card: card || null, byKey: panelessCaller(tokenSender), byToken: !!(tokenSender && tokenSender.ok) };
 }
 /* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
@@ -4541,15 +4544,24 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    let a caller into a project that has members. */
 /* kosmos#5752 slice 2: a refusal for not being on the project names its fix (engine/messages.js says where). */
 const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
-function notOnProjectRefusal(who, id, verb, notDone) {
+/* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
+   having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
+/* `addable` (the room's Add button) only for a caller its token named: a pane claim is advisory, so a button on it
+   would let one process ask, in another agent's name, to be added (review 1). Without a token the row is still kept. */
+function logNotOnProject(name, id, because, doing, byToken) {
+  messages.logRoomRefusal({ from: name, project: id, because, doing, addable: byToken === true });
+}
+function notOnProjectRefusal(who, id, verb, notDone, doing) {
   if (!who || !who.card) return null;
   let stored;
   try { stored = projects.readAll().filter((x) => x && x.id === id); }
   catch { return [503, 'we could not read the projects, so ' + notDone]; }
   if (!stored.length) return null;
   const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
-  return stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
-    : [403, 'that agent is not on this project, so it cannot ' + verb + NOT_ON_PROJECT_FIX];
+  if (stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey))) return null;
+  const because = 'that agent is not on this project, so it cannot ' + verb;
+  if (doing) logNotOnProject(who.card.sessionName, id, because, doing, who.byToken === true);
+  return [403, because + NOT_ON_PROJECT_FIX];
 }
 /* #4887, shared with #4914's `task assign`: the agent a CLI's `who` names on project `id`. For an agent caller
    (`card`), `me` is that agent unless a member is named exactly what was typed; the page sends member names, so
@@ -15502,6 +15514,7 @@ const server = http.createServer(async (req, res) => {
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
           sender: senderFromAgentToken(req, body, roster),
+          senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
           project: body.project,
           text: body.text,
           replyExpected: body.reply_expected,
@@ -18337,7 +18350,9 @@ const server = http.createServer(async (req, res) => {
            an audience are matched by their frozen exact text. */
         .filter((m) => asText || !(m.kind === 'note' && (m.audience === messages.NOTE_AUDIENCE_AGENTS || projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE.includes(m.text))))
         .map((m) => (m.kind === 'refused'
-          ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
+          /* kosmos#5752 slice 3: what the agent tried, and whether adding it would end the refusal (the add button). */
+          ? Object.assign({ kind: 'refused', from: m.from, because: m.because || null, at: m.at },
+            typeof m.doing === 'string' && m.doing ? { doing: m.doing } : {}, m.addable === true ? { addable: true } : {})
           /* #3311: from outside this Kosmos; `external: true` is what the page
              and the text view key on, never the name. */
           : m.kind === 'external'
@@ -18407,7 +18422,7 @@ const server = http.createServer(async (req, res) => {
         const lines = tail.flatMap((m) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
-          if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
+          if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to ' + (m.doing || 'post') + ' here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
           if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
           /* #3311: a message from outside this Kosmos. Tagged so an agent reading
              the room knows it is someone else's words, to weigh, not an
@@ -19153,7 +19168,7 @@ const server = http.createServer(async (req, res) => {
            resolveSender), and an identified agent adds tasks only to a project it is on. Before, only a pane that
            was exactly a roster target was named, which the CLI's %N never is, so `by` was empty for a CLI caller. */
         const who = processCaller(req, body, roster, viaScreen, 'the task was not added');
-        const whoRefusal = who.refusal || notOnProjectRefusal(who, id, 'add tasks to it', 'the task was not added');
+        const whoRefusal = who.refusal || notOnProjectRefusal(who, id, 'add tasks to it', 'the task was not added', 'add a task');
         if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
         const paneCard = who.card;
         /* The runaway breaker (#327, #485, #3959): a task carries an assignee, so a
@@ -19334,7 +19349,7 @@ const server = http.createServer(async (req, res) => {
     if (presentedAgentToken(req, {})) {
       const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
       const who = processCaller(req, {}, safeRoster(), false, notDone);
-      const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone);
+      const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone, taskAct[3] + ' a task');
       if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
     }
     /* kosmos#4787 review 3: closing ends a recurring job's rule, so a process cannot close a task whose rule the person
@@ -19432,7 +19447,7 @@ const server = http.createServer(async (req, res) => {
       }
       const viaScreen = isViaScreen(req, body);
       const who = processCaller(req, body, safeRoster(), viaScreen, 'the task was not changed');
-      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed');
+      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed', 'change a task');
       if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
       try {
         const t = tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, { by: who.card ? who.card.sessionName : null, person: viaScreen });
@@ -19670,11 +19685,13 @@ const server = http.createServer(async (req, res) => {
       const viaScreen = isViaScreen(req, body);
       const roster = safeRoster();
       let name = null;
+      let roleByToken = false;   // kosmos#5752 slice 3
       if (viaScreen) {
         name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
         if (!name) { sendJson(res, 400, { error: 'say which member' }); return; }
       } else {
         const caller = processCaller(req, body, roster, false, 'the role was not set');
+        roleByToken = caller.byToken === true;
         if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
         name = (caller.card && caller.card.sessionName) || null;
         // A roster nobody could read names nobody: a 503, not "could not tell which agent you are".
@@ -19697,7 +19714,11 @@ const server = http.createServer(async (req, res) => {
         if (err && err.code === 'UNREADABLE') { sendJson(res, 503, { error: because }); return; }
         if (/no project by that name/.test(because)) { sendJson(res, 404, { error: because }); return; }
         // kosmos#5752: an agent setting its OWN role here is told how to be added; the person (the screen) is not.
-        if (/not on this project/.test(because)) { sendJson(res, viaScreen ? 400 : 403, { error: viaScreen ? because : because + NOT_ON_PROJECT_FIX }); return; }
+        if (/not on this project/.test(because)) {
+          if (!viaScreen) logNotOnProject(name, id, because, 'set its role', roleByToken);   // kosmos#5752 slice 3
+          sendJson(res, viaScreen ? 400 : 403, { error: viaScreen ? because : because + NOT_ON_PROJECT_FIX });
+          return;
+        }
         if (/^say the role in words$|^keep the role to /.test(because)) { sendJson(res, 400, { error: because }); return; }
         sendJson(res, 500, { error: 'Kosmos could not save that role just now' });
         return;
@@ -19753,6 +19774,8 @@ const server = http.createServer(async (req, res) => {
         try { proj = projects.readAll().find((x) => x && x.id === id) || null; }
         catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
+          logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot change its tasks',
+            taskRepeat[3] === 'ran' ? 'record a run of a task' : 'set how often a task repeats', !!(tokenSender && tokenSender.ok));
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -19835,6 +19858,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
+          logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot mark its tasks', 'mark a task built', !!(tokenSender && tokenSender.ok));
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -19935,6 +19959,7 @@ const server = http.createServer(async (req, res) => {
           }
           const stored = memberRecord;
           if (stored && !projectHasAgent(stored, senderCard.sessionName, byKey)) {
+            logNotOnProject(senderCard.sessionName, id, 'that agent is not on this project, so it cannot write in its tasks', 'write in a task', !!(tokenSender && tokenSender.ok));
             sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' + NOT_ON_PROJECT_FIX });
             return;
           }
@@ -20094,7 +20119,7 @@ const server = http.createServer(async (req, res) => {
       const roster = safeRoster();
       const viaScreen = isViaScreen(req, body);
       const caller = processCaller(req, body, roster, viaScreen, 'the task was not moved');
-      const callerRefusal = caller.refusal || notOnProjectRefusal(caller, id, 'move its tasks', 'the task was not moved');
+      const callerRefusal = caller.refusal || notOnProjectRefusal(caller, id, 'move its tasks', 'the task was not moved', 'move a task');
       if (callerRefusal) { sendJson(res, callerRefusal[0], { error: callerRefusal[1] }); return; }
       const asked = resolveWhoAsked(id, body.who, { viaScreen, card: caller.card, nobody: true });
       if (asked.refusal) { sendJson(res, asked.refusal[0], { error: asked.refusal[1] }); return; }

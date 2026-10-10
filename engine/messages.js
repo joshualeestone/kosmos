@@ -1604,7 +1604,7 @@ function ambiguousNote(ambiguous, mentioned, shown) {
   return out.join(' ');
 }
 
-function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
+function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1629,22 +1629,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   /* kosmos#5752 round 3: `toAgent` (the add-member fix) goes back to the agent only. The refused row the person sees in
      the room keeps the bare sentence: "ask the person to add this agent ... run the same command again" is advice for
      the agent, and read on the person's screen it talks about them in the third person. */
-  const refuse = (because, toAgent = '') => {
+  const refuse = (because, toAgent = '', opts = {}) => {
     /* Operator refusals are NOT logged: the composer answers the person
        directly, so the sentence has its surface -- the refused-row
        contract exists for refusals an AGENT meets invisibly. */
     if (operator === true) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };   // never a toAgent here
-    const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
-    try {
-      const now2 = Date.parse(at);
-      const already = readLog().some((m) => m && m.kind === 'refused'
-        && m.from === from && m.to === toLogged && m.because === because
-        && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
-      /* `project` rides the row (#315) so the room can claim its own refusals
-         and ONLY its own: `to` alone cannot tell a project from an agent that
-         happens to share the slug space. */
-      if (!already) appendLog({ kind: 'refused', from, to: toLogged, project: toLogged, because, at });
-    } catch { /* the record is best-effort; the verdict is not */ }
+    logRoomRefusal({ from, project, because, at, addable: opts.addable === true });
     return { state: chat.DELIVERY.COULD_NOT, because: because + toAgent, id: null, at, outcomes: null };
   };
 
@@ -1709,7 +1699,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   if (operator !== true && !members.includes(from)) {
     /* kosmos#5752: the fix only where adding would help. An agent still on the record but removed from Kosmos is
        filtered out above; adding it again changes nothing, so it gets the sentence without the fix. */
-    return refuse('you are not on that project, so this room is not yours to post into', onRecord ? '' : NOT_ON_PROJECT_FIX);
+    // kosmos#5752 slice 3: a stranger's refusal is `addable`: the room row offers the person the add.
+    /* Addable only for a sender its token named (`senderByToken`, set by the live post route alone): a pane claim is
+       advisory, and an Add button on it would let one process put words in another agent's mouth (review 1). A kept
+       post replayed by the outbox carries a sender that may be a pane claim, so it is never addable (review 2). */
+    return refuse('you are not on that project, so this room is not yours to post into', onRecord ? '' : NOT_ON_PROJECT_FIX, { addable: !onRecord && senderByToken === true });
   }
   const recipients = operator === true ? members.slice() : members.filter((m) => m !== from);
   /**
@@ -1990,12 +1984,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
         // per-agent refused dedup as well -- a re-offending agent after a
         // reopen leaves a fresh refused row instead of being swallowed by its
         // pre-reopen one. Unchanged on the common path (countFrom===windowFrom).
+        /* kosmos#5752 slice 3: only an earlier HOLD refusal counts here. Other refused rows (a task write by an agent
+           not yet on the project, then added) must not swallow its first hold refusal (#315). */
         const already = log.some((m) => m && m.kind === 'refused'
-          && m.from === from && m.project === projectId
+          && m.from === from && m.project === projectId && m.because === ROOM_HELD_REFUSAL
           && Date.parse(m.at) >= countFrom);
         if (!already) {
-          appendLog({ kind: 'refused', from, to: projectId, project: projectId,
-            because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
+          appendLog({ kind: 'refused', from, to: projectId, project: projectId, because: ROOM_HELD_REFUSAL, at });
         }
       } catch { /* the record is best-effort; the verdict is not */ }
       // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
@@ -2790,6 +2785,37 @@ function messageIdOf(value) {
   return hit ? 'm' + String(Number(hit[1])) : s;
 }
 
+/* kosmos#5752 slice 3: an agent refused something in a project, logged as a `refused` row of that project's room,
+   once per sender, project, reason and `doing` in the window (the room shows it: #315), and an `addable` one once per
+   sender and project. `doing` is in the key so a refused rule change does not hide a refused run sharing its sentence. `project` rides the row so the room
+   claims its own refusals and only its own: `to` alone cannot tell a project from an agent sharing the slug space.
+   `doing` says what the agent tried ("record a run of a task"; none for a room post). `addable` marks a refusal that
+   adding the agent to the project would end: the room offers the person the add on that row. Best effort: a failed
+   write loses the row, never the verdict. Shared by the room post's refusal and the board's task-write refusals. */
+const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so Kosmos was holding it for the person';
+function logRoomRefusal({ from, project, because, at, doing, addable }) {
+  if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
+  const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
+  const when = typeof at === 'string' && at ? at : new Date().toISOString();
+  try {
+    const now2 = Date.parse(when);
+    const did = typeof doing === 'string' && doing ? doing : undefined;
+    /* An `addable` refusal is ONE row per agent and project in the window, whatever it tried: it stands for "this
+       agent wants in", and one agent looping through task verbs would otherwise leave a row and a button each
+       (review 1). Any other refusal is one row per reason and `doing`. */
+    const already = readLog().some((m) => m && m.kind === 'refused' && m.from === from && m.to === toLogged
+      && (addable === true ? m.addable === true : (m.because === because && m.doing === did))
+      && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
+    if (!already) {
+      appendLog({ kind: 'refused', from, to: toLogged, project: toLogged, because, at: when,
+        ...(typeof doing === 'string' && doing ? { doing } : {}), ...(addable === true ? { addable: true } : {}) });
+    }
+  } catch { /* the record is best-effort; the verdict is not */ }
+}
+/* kosmos#5752 slice 2: a refusal for an agent acting on a project it is not on names its fix, so the agent can ask for it
+   in one step instead of passing its work to a member. The person adds members on the project's page, with the + beside
+   Members (its accessible name is "Add member"; the tab view shows only the +, round 1). Shared with server.js. */
+const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside Members on the project's page, then run the same command again";
 /* Toggle one reactor's reaction on a post. Discord's click semantics: if the
    reactor already has this emoji on this post it is REMOVED, otherwise ADDED.
    The post must exist in the named project (a reaction to nothing is refused,
@@ -2798,10 +2824,6 @@ function messageIdOf(value) {
    sessionNames, the caller's derivation, same as sendPost -- the operator is
    exempt, being in every room they own). Returns {ok, op, emoji, of} or
    {ok:false, because}. */
-/* kosmos#5752 slice 2: a refusal for an agent acting on a project it is not on names its fix, so the agent can ask for it
-   in one step instead of passing its work to a member. The person adds members on the project's page, with the + beside
-   Members (its accessible name is "Add member"; the tab view shows only the +, round 1). Shared with server.js. */
-const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside Members on the project's page, then run the same command again";
 function react({ project, of, emoji, from, operator, members }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
@@ -2979,6 +3001,7 @@ function projectOfPost(id) {
 
 module.exports = {
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
+  logRoomRefusal,       // kosmos#5752 slice 3
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.

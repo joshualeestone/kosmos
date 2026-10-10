@@ -6449,7 +6449,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   /* #5219, a project's room: a document row and Try again grow to 44. The header's small controls keep their 36px
      areas (#4663: at 44, render-room-msgbox-2806 measured 64 of the breadcrumb's px answering as Back, and View All
      answering as + New task on a tablet), and the composer's buttons stay with #4108, which owns that row. */
-  :is(#pj-one-view .pj-doc, .pnotice .qopt) { min-height: 44px; }
+  :is(#pj-one-view .pj-doc, .pnotice .qopt, .msg-valve .pj-refused-add) { min-height: 44px; }
   #pj-one-view .pj-doc { align-items: center; }   /* the taller row keeps its text in the middle (April, Renet: it sat 6px from the top) */
 }
 /* kosmos#5200: on a touch screen every control on the task page is a 44px target. Boxed controls grow to 44; the
@@ -7720,6 +7720,14 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    band is a plain block, so nothing does and the sentence ran straight into
    it ("…bring you in.2 minutes ago"). Pack value, measured (FROZEN-2026-08-18c). */
 .msg-valve .msg-t { margin-left: .5em; }
+/* kosmos#5752 slice 3: the add on a refused band, on its own line, dressed as the room notice's Try again (.pnotice .qopt). */
+.msg-valve .pj-refused-act { display: flex; align-items: center; gap: .6em; flex-wrap: wrap; margin-top: 6px; }
+.msg-valve .pj-refused-add { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-rule); border-radius: 8px; padding: .4em .9em; cursor: pointer; max-width: 100%; text-align: left; }
+.msg-valve .pj-refused-add:disabled { cursor: default; opacity: .6; }
+.msg-valve .pj-refused-add:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* The name in the label is the person's own and can be long, so it wraps (no nowrap, as Try again's fixed label has).
+   The status span is never display:none: a live region hidden until it gets text is often not announced. */
 /* ⚠️ A FILLED, PADDED TRAY rather than a bare flex row (Mona Lisa's triage,
    the one of thirty-two items that was a real gap). The pack gives the
    composer a ground of its own, and the difference it makes is not decoration:
@@ -65086,6 +65094,29 @@ async function rxnToggle(forProject, box, emoji) {
    toggles the SHARED picker for THIS post; a pill or a quick default toggles that
    reaction via the react route (the full-list picks live in `#rxn-picker` and are
    handled there). */
+/* kosmos#5752 slice 3: Add on a refused row adds that agent to the open project (the Members add's own call). On
+   success the projects are read again (so the row knows it is a member now), the room is repainted from what it last
+   read (pjReload alone does not repaint the room), which drops the button, the add is said aloud, and focus goes to
+   the room's composer rather than to a button that no longer exists. A refusal says why on the row and the button
+   can be pressed again. */
+async function pjRefusedAddClick(e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-add-member]') : null;
+  if (!btn || !PJ_CURRENT) return;
+  const project = PJ_CURRENT;   // review 2: pinned, as pjNoticeRetryClick does; the person may move on while it runs
+  const who = btn.getAttribute('data-add-member');
+  const msg = btn.nextElementSibling && btn.nextElementSibling.classList.contains('pj-refused-msg') ? btn.nextElementSibling : { textContent: '' };
+  btn.disabled = true;
+  if (!(await addMemberToProject(who, msg))) { btn.disabled = false; return; }
+  await pjReload();
+  if (PJ_CURRENT !== project) return;   // added to the project it was pressed in; nothing said or focused elsewhere
+  const box = document.getElementById('pj-room');
+  if (box) { box.__lastRoom = undefined; if (box.__lastBody) paintRoom(box.__lastBody); }
+  const p = pjById(project);
+  pjRoomAnnounce('Added ' + ((p && pjNameOf(p, who)) || who) + ' to this project.');
+  const composer = document.getElementById('pj-post');
+  if (composer) composer.focus();
+}
+document.getElementById('pj-room').addEventListener('click', pjRefusedAddClick);
 document.getElementById('pj-room').addEventListener('click', async (e) => {
   const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
   if (!box) return;
@@ -67549,11 +67580,15 @@ function pjFoldRoomRows(rows) {
   let i = 0;
   while (i < rows.length) {
     const m = rows[i];
-    if (m && m.kind === 'refused') {
+    /* kosmos#5752 slice 3: an `addable` refusal keeps its own row (its own add button), and so does one that says what
+       the agent tried (`doing`): the folded band would say "tried to post here" and lose it (review 2). */
+    if (m && m.kind === 'refused' && m.addable !== true && !m.doing) {
       const because = m.because || '';
-      const froms = [];
-      let j = i;
-      while (j < rows.length && rows[j] && rows[j].kind === 'refused'
+      /* Starts past the first row, which the check above already admitted, so every pass consumes at least one row:
+         the loop cannot spin whatever the two checks say (review 3). */
+      const froms = [m.from];
+      let j = i + 1;
+      while (j < rows.length && rows[j] && rows[j].kind === 'refused' && rows[j].addable !== true && !rows[j].doing
              && (rows[j].because || '') === because) {
         if (!froms.includes(rows[j].from)) froms.push(rows[j].from);
         j++;
@@ -67623,9 +67658,21 @@ function pjRoomRow(m, p, hideHeader) {
   }
   if (m.kind === 'refused') {
     const whenR = pjWhen(m.at) || '';
-    return '<div class="msg-valve">' + esc(pjNameOf(p, m.from) || m.from)
-      + ' tried to post here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
-      + (whenR ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
+    const nameR = pjNameOf(p, m.from) || m.from;
+    /* kosmos#5752 slice 3: what the agent tried (a room post when none is said), and, for a refusal that adding the agent
+       would end, the add itself while it is still not a member. It goes away once it is. */
+    const onIt = (p && Array.isArray(p.agents) ? p.agents : []).some((a) => a && (a.sessionName || a) === m.from);
+    // Only an agent this board still has (the Members picker's own source): a deleted one would be added as a ghost.
+    const live = (LAST || []).some((a) => a && a.sessionName === m.from);
+    /* The add sits on its own line under the sentence, at the size of the room notice's Try again (the design shots of
+       the first version showed a full-size button breaking the band's sentence and stranding its time). */
+    const add = m.addable === true && !onIt && live
+      ? '<div class="pj-refused-act"><button type="button" class="pj-refused-add" data-add-member="' + esc(m.from) + '">Add ' + esc(nameR)
+        + ' to this project</button><span class="pj-refused-msg" role="status"></span></div>'
+      : '';
+    return '<div class="msg-valve">' + esc(nameR)
+      + ' tried to ' + esc(m.doing || 'post') + ' here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
+      + (whenR ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + add + '</div>';
   }
   if (m.kind === 'refused-group') {
     /* #2700: a valve-stopped room refuses every agent that then tries to post,
@@ -67754,7 +67801,7 @@ function pjRoomFilterRows(rows, p, q) {
     const who = m.kind === 'valve' ? ''
       : (m.operator === true ? 'you' : (pjNameOf(p, m.from) || m.from || ''));
     const text = (m.kind === 'valve') ? (m.because || PJ_VALVE_FALLBACK)
-      : (m.kind === 'refused') ? (m.because || '') : (m.text || '');
+      : (m.kind === 'refused') ? ((m.doing ? m.doing + ' ' : '') + (m.because || '')) : (m.text || '');   // kosmos#5752: what it tried, too
     return String(who).toLowerCase().includes(needle)
       || String(text).toLowerCase().includes(needle);
   });
