@@ -162,7 +162,7 @@
       "status": "pending"
     },
     {
-      "title": "Kosmos never answers Claude prompts for you",
+      "title": "Kosmos holds messages while Claude asks you",
       "line": "While an agent shows a Claude permission prompt or question, Kosmos no longer types into it on its own, and asks you to answer it there.",
       "icon": "shield",
       "rank": 8.5,
