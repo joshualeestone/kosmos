@@ -1857,9 +1857,14 @@ function menuHeldVerdict(sessionName, roster) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
+/* #5743: true while this agent's screen shows Claude's question menu, for a sweep that decides BEFORE it types
+   anything (the recommender holds a whole convening on it, as it does on the quota). */
+function menuHeld(sessionName, roster) {
+  try { return menuHeldVerdict(sessionName, roster) !== null; } catch { return false; }
+}
 function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}) {
-  const menuHeld = menuHeldVerdict(sessionName, roster);
-  if (menuHeld) return menuHeld;
+  const menuHold = menuHeldVerdict(sessionName, roster);
+  if (menuHold) return menuHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
   // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
@@ -1873,8 +1878,8 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
 /* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
    delivered by sendPostAsync, the #4624 idle flush). */
 async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer, opts = {}) {
-  const menuHeld = menuHeldVerdict(sessionName, roster);
-  if (menuHeld) return menuHeld;
+  const menuHold = menuHeldVerdict(sessionName, roster);
+  if (menuHold) return menuHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
   // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
@@ -3644,7 +3649,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
