@@ -19,7 +19,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 function load(env) {
   const fn = new Function('esc', 'CURRENT', 'fetch', 'pjSentence', 'paintTalk', 'document', 'CSS', REGION
-    + '\nreturn { from: dmChoicesFrom, html: dmChoicesHtml, press: dmChoicePress, get: () => DM_CHOICES, note: () => DM_CHOICE_NOTE };');
+    + '\nreturn { from: dmChoicesFrom, html: dmChoicesHtml, press: dmChoicePress, get: () => DM_CHOICES, answered: (k) => DM_CHOICE_ANSWERED.get(k) || null };');
   const doc = env.document || { activeElement: null, getElementById: () => null };
   return fn(esc, env.CURRENT, env.fetch || (async () => ({ ok: true, json: async () => PLACED })), (s) => s, env.paintTalk || (async () => {}), doc, { escape: (x) => x });
 }
@@ -87,44 +87,62 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
   assert.equal((m.html(Q).match(/ disabled>/g) || []).length, 2, 'an answered question offered its buttons again');
   assert.match(m.html(Q), />Sent\.</);
   // The lock covers only the page's own stale poll: past DM_CHOICE_ANSWERED_MS the same question drawn again is pressable.
-  m.note().at -= 7000;
+  m.answered(CUR.sessionName).at -= 7000;
   assert.doesNotMatch(m.html(Q), / disabled>/, 'a question repeated word for word stayed locked');
-  m.note().at += 7000;
+  m.answered(CUR.sessionName).at += 7000;
   // CONTROL: a NEW question on the same agent is pressable.
   m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
   assert.doesNotMatch(m.html(Q), / disabled>/);
   assert.equal(msg.textContent, 'Sent.');
-  // A refusal (the menu moved) says why and gives the buttons back.
+  // Once this agent's menu is gone, the lock goes with it.
+  m.from({ ...BODY, asking: false }, CUR.sessionName);
+  assert.equal(m.answered(CUR.sessionName), null, 'a lock outlived the menu it was about');
+  // A refusal (the menu moved) gives the buttons back and repaints; its sentence goes on the conversation's line, once.
   let painted2 = 0;
-  const m2 = load({ CURRENT: CUR, paintTalk: () => { painted2 += 1; }, fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }) });
+  const line2 = { textContent: '' };
+  const m2 = load({ CURRENT: CUR, paintTalk: () => { painted2 += 1; }, document: { activeElement: null, getElementById: (id) => (id === 'd-say-msg' ? line2 : null) },
+    fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }) });
   m2.from(BODY, CUR.sessionName);
   const b2 = [{ disabled: false }]; const msg2 = { textContent: '' };
   await m2.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => b2, querySelector: () => msg2 }) });
-  assert.equal(msg2.textContent, 'its screen moved');
+  assert.equal(line2.textContent, 'its screen moved');
+  assert.equal(msg2.textContent, '', 'the refusal was said twice (bubble status and the alert line)');
   assert.equal(b2[0].disabled, false, 'the buttons stayed disabled after a refusal');
   assert.equal(painted2, 1, 'expected one repaint after a refusal (stale buttons would stay up)');
-  // The repaint keeps the reason: the redrawn bubble carries it.
-  assert.match(m2.html(Q), /role="status" aria-live="polite">its screen moved</, 'the repaint dropped why the press did not go');
-  // CONTROL: once the menu is gone the note goes with it.
-  m2.from({ ...BODY, asking: false }, CUR.sessionName);
-  assert.equal(m2.note(), null, 'a note outlived the menu it was about');
+  assert.doesNotMatch(m2.html(Q), / disabled>|Sent\./, 'a refused question was drawn as answered');
 });
 
-test('#5406 C: a 200 that did not place the key says so, and the note belongs to its question', async () => {
+test('#5406 C: an outcome that may have sent the key says "could not confirm", never "did not go"; could_not says why', async () => {
   const CUR = realCard();
-  const m = load({ CURRENT: CUR, fetch: async () => ({ ok: true, json: async () => ({ delivery: { state: 'unconfirmed', because: 'its question was still on its screen after the answer' } }) }) });
-  m.from(BODY, CUR.sessionName);
-  const b = [{ disabled: false }]; const msg = { textContent: '' };
-  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => b, querySelector: () => msg }) });
-  assert.equal(msg.textContent, 'We could not confirm that went (pressing again may answer twice). its question was still on its screen after the answer', 'an unconfirmed answer read as sent');
-  assert.doesNotMatch(m.html(Q), / disabled>/, 'an unconfirmed answer locked the buttons (retry must stay possible)');
-  assert.match(m.html(Q), /We could not confirm/);
-  // A NEW question on the same agent opens clean: the note was about the old one.
-  m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
-  assert.doesNotMatch(m.html(Q), /We could not confirm|Sent\./, 'an old outcome showed under a new question');
-  // CONTROL: back on the question it was about, the note shows.
-  m.from(BODY, CUR.sessionName);
-  assert.match(m.html(Q), /We could not confirm/);
+  const cases = [
+    ['unconfirmed', async () => ({ ok: true, json: async () => ({ delivery: { state: 'unconfirmed', because: 'its question was still on its screen after the answer' } }) }),
+      'We could not confirm that went (pressing again may answer twice). its question was still on its screen after the answer'],
+    ['a 200 with no verdict', async () => ({ ok: true, json: async () => { throw new Error('not json'); } }), 'We could not confirm that went (pressing again may answer twice).'],
+    ['the request failed', async () => { throw new Error('board restarted'); }, 'We could not confirm that went (pressing again may answer twice).'],
+    ['could_not (nothing typed)', async () => ({ ok: true, json: async () => ({ delivery: { state: 'could_not', because: 'we could not reach it' } }) }), 'we could not reach it'],
+  ];
+  for (const [name, fetch, want] of cases) {
+    const line = { textContent: '' };
+    const m = load({ CURRENT: CUR, fetch, document: { activeElement: null, getElementById: (id) => (id === 'd-say-msg' ? line : null) } });
+    m.from(BODY, CUR.sessionName);
+    await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+    assert.equal(line.textContent, want, name);
+    assert.doesNotMatch(m.html(Q), / disabled>/, name + ': retry must stay possible');
+  }
+});
+
+test('#5406 C: an answered lock is per agent, so visiting another agent with no menu does not drop it', async () => {
+  const CUR = realCard();
+  const cur = { ...CUR };
+  const m = load({ CURRENT: cur });
+  m.from(BODY, cur.sessionName);
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  cur.sessionName = 'other-agent';
+  m.from({ ...BODY, asking: false }, 'other-agent');   // the other agent has no menu
+  cur.sessionName = CUR.sessionName;
+  m.from(BODY, CUR.sessionName);                        // back within the lock, the stale screen still shows the question
+  assert.equal((m.html(Q).match(/ disabled>/g) || []).length, 2, 'the answered lock was dropped by another agent\'s paint');
+  assert.match(m.html(Q), />Sent\.</);
 });
 
 test('#5406 C: after a press, focus goes to the message box (answered) or back to the same choice (not), when it fell to the page', async () => {

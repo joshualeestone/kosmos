@@ -16202,7 +16202,7 @@ const server = http.createServer(async (req, res) => {
            * compare what is left, rather than to stop looking.
            */
           const bound = (v) => chat.cleanMessage(v).slice(0, 2000);
-          const askedAbove = askedGiven ? bound(body.asked) : null;   // one test for "a press named its question
+          const askedAbove = askedGiven ? bound(body.asked) : null;   // the one test for a press that named its question
           const nowAbove = asked ? chat.questionAbove(asked.text) : null;
           const nowClean = nowAbove ? bound(nowAbove) : null;
           /**
