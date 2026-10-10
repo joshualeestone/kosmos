@@ -37,6 +37,19 @@ const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT
 function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
 function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
+/* Review 9: whether ANY Edit rule in a deny list covers path p, by Claude Code's rule shape (`//` is the root, `*`
+   matches within one path segment, `**` any depth, and a rule covers what is under the path it names). A control
+   that looks for one literal rule cannot see a glob that denies the same path; this one can. */
+function editDeniedBy(deny, p) {
+  const abs = path.resolve(p);
+  return deny.filter((r) => {
+    const m = /^Edit\((.*)\)$/.exec(r);
+    if (!m) return false;
+    const pat = m[1].replace(/^\/\//, '/');
+    const re = '^' + pat.split(/(\*\*|\*)/).map((t) => (t === '**' ? '.*' : t === '*' ? '[^/]*' : t.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))).join('') + '(/.*)?$';
+    return new RegExp(re).test(abs);
+  });
+}
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
 function realOrLeaf(p) {
   const abs = path.resolve(p); let dir = path.dirname(abs); const tail = [path.basename(abs)];
@@ -47,6 +60,7 @@ function realOrLeaf(p) {
   }
 }
 const HOME = process.env.AGENT_WORKFORCE_HOME;
+function ancestorsAbove(dir) { const out = []; for (let d = path.dirname(path.resolve(dir)); ; d = path.dirname(d)) { out.push(d); if (path.dirname(d) === d) break; } return out; }
 // Two config homes, as an install with a second account has: ~/.claude and ~/.claude-acct.
 fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
 fs.mkdirSync(path.join(HOME, '.claude-acct'), { recursive: true });
@@ -65,7 +79,7 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
      ancestor. A member missing from the guard is a red here, not a silent gap. */
   const SFX = ['', '-staging-oauth', '-local-oauth', '-custom-oauth'];
   const CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins', 'local', 'jobs', 'daemon', 'mcp-skill-archives', 'ide'];
-  const CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json', 'loop.md', 'remote-settings.json'];
+  const CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'AGENTS.md', 'daemon.json', 'loop.md', 'remote-settings.json'];
   const homes = [path.join(HOME, '.claude'), path.join(HOME, '.claude-acct')];
   const ancestors = [];
   for (let d = path.resolve(dir); ; d = path.dirname(d)) { ancestors.push(d); if (path.dirname(d) === d) break; }
@@ -79,10 +93,19 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
   // Review 7: the agent's own files are never denied as an ancestor's, by its given OR its resolved path (the test runs
   // under the temp folder, whose path on macOS runs through a link, so the resolved chain is exercised here).
   const ownReal = fs.realpathSync.native(dir);
+  /* Review 9: asked of EVERY rule, not one literal string. The only rule allowed to cover the agent's own instruction
+     files is the sibling glob (which cannot except the agent's own folder; the safe direction), so a rule naming them
+     as an ancestor's, by either path, is a red here. */
+  const sibGlob = (f) => `Edit(${ruleAbs(path.join(path.dirname(path.resolve(dir)), '*', f))})`;
   for (const own of [path.resolve(dir), ownReal]) {
-    for (const f of ['CLAUDE.md', 'CLAUDE.local.md']) assert.ok(!deny.includes(`Edit(${ruleAbs(path.join(own, f))})`), 'the agent own ' + f + ' was denied as an ancestor file (' + own + ')');
+    for (const f of ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md']) {
+      const by = editDeniedBy(deny, path.join(own, f));
+      assert.ok(by.every((r) => r === sibGlob(f)), 'the agent own ' + f + ' was denied by more than the sibling glob (' + own + '): ' + by.join(', '));
+    }
   }
-  for (const f of ancestors.slice(1).flatMap((d) => ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json')].map((x) => path.join(d, x)))) {
+  // CONTROL, that the matcher can say yes: the agent's own CLAUDE.md IS covered by the sibling glob.
+  assert.deepStrictEqual(editDeniedBy(deny, path.join(dir, 'CLAUDE.md')), [sibGlob('CLAUDE.md')], 'CONTROL: the matcher did not see the sibling glob');
+  for (const f of ancestors.slice(1).flatMap((d) => ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json')].map((x) => path.join(d, x)))) {
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(f)})`), f + ' is not denied to the file tools');
     assert.ok(!s.sandbox.filesystem.denyWrite.includes(realOrLeaf(f)), f + ' went into the sandbox profile');
   }
@@ -193,20 +216,45 @@ test('#5516 part 2 (review 6): a config home that is a link has its absent membe
   }
 });
 
-test('#5516 part 2 (review 8): sibling agents are denied their members, and memory folders where they reach other agents', () => {
+test('#5516 part 2 (reviews 8 and 9): sibling agents are denied their members; memory only where no own folder matches', () => {
   const dir = agentDir('pilot-cfg-sib');
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-sib', DEPS);
   assert.equal(g.ok, true, JSON.stringify(g));
   const deny = readSettings(dir).permissions.deny;
-  const base = path.dirname(path.resolve(dir));
-  for (const f of ['.mcp.json', 'CLAUDE.md', path.join('.claude', 'settings.json'), path.join('.claude', 'CLAUDE.md')]) {
-    assert.ok(deny.includes(`Edit(${ruleAbs(path.join(base, '*', f))})`), 'a sibling agent ' + f + ' is open to the file tools');
+  const sib = path.join(path.dirname(path.resolve(dir)), 'some-other-agent');
+  // Each asked of every rule (review 9), a sibling that need not exist.
+  for (const f of ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', path.join('.claude', 'settings.json'), path.join('.claude', 'CLAUDE.md'), path.join('.claude', 'AGENTS.md'), path.join('.claude', 'skills', 'x', 'SKILL.md')]) {
+    assert.ok(editDeniedBy(deny, path.join(sib, f)).length, 'a sibling agent ' + f + ' is open to the file tools');
   }
-  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(base, '*', '.claude', 'skills'))}/**)`), 'a sibling agent skills folder is open');
-  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(base, '*', '.claude', 'agent-memory'))}/**)`), 'a sibling agent memory is open');
-  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(HOME, '.claude', 'agent-memory'))}/**)`), 'a config home agent memory is open');
-  // CONTROL: the agent's own memory stays writable to its own tools.
-  assert.ok(!deny.includes(`Edit(${ruleAbs(path.join(dir, '.claude', 'agent-memory'))}/**)`), 'the agent own memory was denied');
+  for (const h of [path.join(HOME, '.claude'), path.join(HOME, '.claude-acct'), path.join(HOME, '.claude-later')]) {
+    for (const m of ['agent-memory', 'agent-memory-local']) assert.ok(editDeniedBy(deny, path.join(h, m, 'a', 'MEMORY.md')).length, h + '/' + m + ' is open');
+  }
+  for (const a of ancestorsAbove(dir)) assert.ok(editDeniedBy(deny, path.join(a, '.claude', 'agent-memory', 'a', 'MEMORY.md')).length, a + ' memory is open');
+  // CONTROLS (review 9): the agent's own memory, plans and worktrees stay writable, by NO rule at all.
+  for (const f of [path.join('agent-memory', 'a', 'MEMORY.md'), path.join('agent-memory-local', 'a', 'MEMORY.md'), path.join('plans', 'p.md'), path.join('worktrees', 'w', 'f.js')]) {
+    for (const own of [path.resolve(dir), fs.realpathSync.native(dir)]) {
+      const by = editDeniedBy(deny, path.join(own, '.claude', f));
+      assert.deepStrictEqual(by, [], 'the agent own .claude/' + f + ' is denied by ' + by.join(', '));
+    }
+  }
+});
+
+test('#5516 part 2 (review 9): the agent own config home outside ~/.claude* is covered (as creation passes it)', () => {
+  // The launch and board-start path reads it from the job, as accountSettingsFile does; that read is not exercised here.
+  const own = path.join(SANDBOX, 'elsewhere', 'cfg-home');
+  fs.mkdirSync(own, { recursive: true });
+  const dir = agentDir('pilot-cfg-ownhome');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-ownhome', { ...DEPS, accountConfigDir: own });
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const s = readSettings(dir);
+  for (const f of ['settings.json', '.claude.json', 'CLAUDE.md', 'AGENTS.md', path.join('skills', 'x', 'SKILL.md'), path.join('agent-memory', 'a', 'MEMORY.md')]) {
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(own, f)).length, 'the agent own config home ' + f + ' is open');
+  }
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(path.join(own, 'skills'))), 'its skills folder is open to the shell');
+  // CONTROL: without it, nothing covers that home (so the asserts above can fail).
+  const dir2 = agentDir('pilot-cfg-nohome');
+  assert.equal(setup.guardTokenOnlyFolder(dir2, 'pilot-cfg-nohome', DEPS).ok, true);
+  assert.deepStrictEqual(editDeniedBy(readSettings(dir2).permissions.deny, path.join(own, 'settings.json')), [], 'CONTROL: a home not the agent own was covered');
 });
 
 test('#5516 part 2 (review 8): a folder above the agent that the rules cannot carry makes the guard refuse, saying why', () => {

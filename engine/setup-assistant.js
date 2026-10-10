@@ -1219,11 +1219,17 @@ const CONFIG_HOME_CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks
   // Review 5: a locally installed claude, and the scheduled jobs and daemon it runs. Review 7: cached skill archives
   // (instructions) and the IDE lock files (servers it connects to).
   'local', 'jobs', 'daemon', 'mcp-skill-archives', 'ide'];
-// Review 7: remote-settings.json is a settings tier read at start (it can carry hooks).
-const CONFIG_HOME_CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'daemon.json', 'loop.md', 'remote-settings.json'];
+// Review 7: remote-settings.json is a settings tier read at start (it can carry hooks). Review 9: AGENTS.md, which
+// 2.1.296's folder walk loads beside CLAUDE.md (its loader list is ["AGENTS.md", ".claude/AGENTS.md"]).
+const CONFIG_HOME_CODE_FILES = ['scheduled_tasks.json', 'launch.json', 'CLAUDE.md', 'AGENTS.md', 'daemon.json', 'loop.md', 'remote-settings.json'];
 /* Review 8: agent memory folders, read as instructions by the agents that keep them. Denied where they reach OTHER agents
-   (config homes, folders above, sibling agents' folders), not in the agent's own .claude, whose tools write its own. */
+   by a path no agent's own folder matches (config homes, folders above), never by a sibling glob (review 9: such a glob
+   matches the agent's own folder too, and its subagents write their memory there). */
 const OTHERS_MEMORY_DIRS = ['agent-memory', 'agent-memory-local'];
+/* The files at a project folder's top and in its .claude that Claude Code reads at start as servers, instructions or
+   settings, for the folders above the agent and its siblings (review 9: AGENTS.md at the top too). */
+const PROJECT_START_FILES = ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json'),
+  ...CONFIG_HOME_CODE_FILES.map((x) => path.join('.claude', x))];
 /* Every folder above `dir`, nearest first, up to the root (its .mcp.json is read at start too). */
 function ancestorsOf(dir) {
   // Both chains (review 3): the path as given and its resolved one, since Claude Code walks up from its own cwd.
@@ -1279,6 +1285,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
   // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
   const concreteHomes = accountConfigHomes(home);
+  /* Review 9: the agent's OWN config home, wherever it is (creation passes it; a launch or board start reads it from the
+     job), so a CLAUDE_CONFIG_DIR outside ~/.claude* is covered for the agent's own account. Other agents' homes there
+     stay a stated gap. One whose path the rules cannot carry has its rules dropped like any other's, and the guard
+     then says it is not whole. */
+  const ownHome = deps.accountConfigDir ? path.resolve(deps.accountConfigDir) : null;
+  if (ownHome && !concreteHomes.includes(ownHome)) concreteHomes.push(ownHome);
   const settingsFileDirs = [settingsDir, ...concreteHomes];
   const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
   /* #5516 part 2: what Claude Code's own config names to start, outside the sandbox, at the agent's next start, or
@@ -1322,7 +1334,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // Review 6: an ancestor whose path the rule syntax cannot carry is named, not left to the generic drop.
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a folder above the agent whose path the permission rules cannot carry)`); continue; }
     // Review 7: an ancestor's .claude settings files too (they can carry hooks; Claude Code protects them itself).
-    for (const f of ['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json'), ...CONFIG_HOME_CODE_FILES.map((x) => path.join('.claude', x))]) ancestorMcp.push(...withTarget(path.join(d, f), configUnsafe));
+    for (const f of PROJECT_START_FILES) ancestorMcp.push(...withTarget(path.join(d, f), configUnsafe));
     for (const x of [...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS]) ancestorDirs.push(...withTarget(path.join(d, '.claude', x), configUnsafe));
   }
   /* Each config home's plugins folder, and its skills folder (review 1: a skills subfolder can be adopted as a plugin,
@@ -1332,13 +1344,16 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const pluginDirs = [...new Set(concreteHomes.flatMap((h) => [...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => path.join(h, d))).flatMap((d) => withTarget(d, configUnsafe)))];
   /* Review 8: SIBLING agents' folders (the agent folder's own parent, every other agent in it): the same server,
      instruction and .claude members, which Claude Code reads when that agent starts. One mid-path glob per member (the
-     #4752 rule shape, measured), to the file tools; the shell cannot write there. It also matches the agent's own
-     CLAUDE.md, the safe direction (Kosmos writes it). */
+     #4752 rule shape, measured), to the file tools; on macOS, by default, the shell cannot write there. Each glob also
+     matches the agent's OWN folder (a rule cannot except one folder), so only members safe to deny there are listed:
+     its own CLAUDE.md, CLAUDE.local.md and AGENTS.md are denied by it, the safe direction (Kosmos writes the first, and
+     none is the agent's to rewrite). Review 9: NOT the memory folders, which the agent's subagents write in its own
+     .claude; a sibling's memory is a stated gap. Siblings are covered by the folder's given path only: a sibling that is
+     a link, or the agents' folder reached by another path, is a stated gap. */
   const siblingBase = path.dirname(path.resolve(dir));
   const siblingRules = ruleHasPatternChar(`Edit(${ruleAbs(siblingBase)}/**)`) ? (configUnsafe.push(`${siblingBase} (the agents' folder, whose path the permission rules cannot carry)`), []) : [
-    ...['.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md', path.join('.claude', 'settings.json'), path.join('.claude', 'settings.local.json'), ...CONFIG_HOME_CODE_FILES.map((x) => path.join('.claude', x))]
-      .map((f) => `Edit(${ruleAbs(path.join(siblingBase, '*', f))})`),
-    ...[...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((x) => `Edit(${ruleAbs(path.join(siblingBase, '*', '.claude', x))}/**)`),
+    ...PROJECT_START_FILES.map((f) => `Edit(${ruleAbs(path.join(siblingBase, '*', f))})`),
+    ...CONFIG_HOME_CODE_DIRS.map((x) => `Edit(${ruleAbs(path.join(siblingBase, '*', '.claude', x))}/**)`),
   ];
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
@@ -1400,7 +1415,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
     ...siblingRules,
-    ...CONFIG_HOME_CODE_DIRS.map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),
+    ...[...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),   // review 9: memory for a later home too
     ...CONFIG_HOME_CODE_FILES.map((f) => `Edit(${ruleAbs(path.join(home, '.claude-*', f))})`),
     /* Reviews 3 and 4: the code and instruction members of the agent's OWN .claude (its project agents, commands,
        skills, workflows and the rest), to the file tools, by the same list as a config home's; NOT the folder whole,
@@ -1657,7 +1672,10 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
         process.stderr.write(`#4491: ${file} could not be read as settings; kept a copy at ${keep} and wrote the guard\n`);
       }
     }
-    const rules = tokenOnlySettingsRules(dir, deps);
+    // Review 9: the agent's own config home as the account settings file is found (creation passes it; else its job).
+    let ownConfigDir = deps.accountConfigDir;
+    if (ownConfigDir === undefined) { try { const job = create.readJob(agentName); ownConfigDir = (job && job.configDir) || null; } catch { ownConfigDir = null; } }
+    const rules = tokenOnlySettingsRules(dir, { ...deps, accountConfigDir: ownConfigDir });
     /* Reviews 16 and 17: a rule that could not be written leaves part of the guard out (the board.token read, or the
        Edit rules that keep the agent from editing its own guard away), so the guard is NOT in place: say so (create then
        refuses; the refresh lists the agent as unguarded). Rename or move the folder whose path holds the character. */
