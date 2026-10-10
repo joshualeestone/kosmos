@@ -206,3 +206,22 @@ test('#5406 slice C: the thread GET serves the menu\'s options and its identity 
     assert.equal(r.status, 200, JSON.stringify(r.json));
   });
 });
+
+test('#5406 slice C: the setup guide\'s thread serves no asked (everything there is masked, #3769), so it draws no buttons', async () => {
+  const instructions = require('./engine/instructions');
+  const setupAssistant = require('./engine/setup-assistant');
+  await withMenu(async () => {
+    const dir = path.dirname(instructions.fileFor('casey'));
+    fs.mkdirSync(dir, { recursive: true });
+    const marker = path.join(dir, setupAssistant.GUIDE_MARKER);
+    fs.writeFileSync(marker, 'casey\n');
+    try {
+      const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+      assert.equal(back.asking, true, 'premise: the guide is asking');
+      assert.equal(back.asked, null, 'unmasked screen text left the guide\'s thread');
+    } finally { fs.rmSync(marker, { force: true }); }
+    // CONTROL: without the marker the same thread serves it.
+    const plain = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+    assert.equal(plain.asked, 'Which fruit do you want?');
+  });
+});
