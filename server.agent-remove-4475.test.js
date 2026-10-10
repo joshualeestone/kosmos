@@ -294,6 +294,16 @@ test('removing a name whose key also holds another name\'s token is refused (rev
   assert.match(r.text, /would also end another agent's sign-in/, 'the refusal named the wrong reason: ' + r.text.slice(0, 160));
 });
 
+test('a STOPPED member (its last run retired, the token file left as an empty list since #5333) is removable by its creator', async () => {
+  born('Stop Kid', 'pm-agent');
+  const run = sendertoken.mint('stop-kid');   // the token a launch leaves
+  assert.ok(run.ok, 'CONTROL: could not mint the member\'s run token');
+  assert.equal(sendertoken.retire('stop-kid', run.instance).ok, true, 'CONTROL: the run did not retire');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(sendertoken.DIR, 'stop-kid.json'), 'utf8')).tokens, [], 'CONTROL: retire did not leave an empty list');
+  const r = await remove('stop-kid', asAgent());
+  assert.ok(reachedEngine(r), 'a creator was refused removing its own stopped member: ' + r.text.slice(0, 160));
+});
+
 test('a target whose token file is there but unreadable is refused (it cannot be checked for another name)', async () => {
   born('Garbled Kid', 'pm-agent');
   assert.ok(reachedEngine(await remove('garbled-kid', asAgent())), 'CONTROL: no token file, and it did not pass');

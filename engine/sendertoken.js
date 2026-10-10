@@ -107,12 +107,14 @@ function holdsTokens(sessionName) {
 /* #4475: does this name's key hold a token that is not named exactly `sessionName`? revoke takes the whole key, so
    removing `sessionName` would end that one too. Answers 'other' (a named token of another spelling with the same key,
    "Dr.Kip" beside "drkip"), 'unknown' (a token with no name, as before #4792, or a file there that cannot be read: it
-   cannot be told whose it is), or false. */
+   cannot be told whose it is), or false (no file, an empty list, or only tokens named exactly sessionName). */
 function keyHoldsOthers(sessionName) {
   if (!holdsTokens(sessionName)) return false;
   let held;
   try { held = readTokens(sessionName); } catch { return 'unknown'; }
-  if (held.length === 0) return 'unknown';   // the file is there but readTokens could not read a token from it
+  // #5333: a stopped agent's file is an empty list (retire keeps it), which holds nobody else's sign-in; any other
+  // file with no token readable in it cannot be told whose it is.
+  if (held.length === 0) return heldEmptyList(sessionName) ? false : 'unknown';
   if (held.some((t) => typeof t.name === 'string' && t.name && t.name !== String(sessionName))) return 'other';
   if (held.some((t) => typeof t.name !== 'string' || !t.name)) return 'unknown';
   return false;
