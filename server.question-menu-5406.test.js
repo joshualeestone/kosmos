@@ -101,3 +101,48 @@ test('#5406: any other reply closes the menu with Escape first, then goes as a m
     assert.equal(calls.keys()[0], 'Escape', '"4" was sent as a key to "Type something."');
   });
 });
+
+test('#5406 review 1: the record keeps the choice\'s words and the digit; an answer the menu kept is unconfirmed', async () => {
+  await withMenu(async () => {
+    const r = await post({ text: '2' });
+    assert.equal(r.status, 200);
+    const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+    const row = back.messages[back.messages.length - 1];
+    assert.deepEqual([row.text, row.wire], ['Banana', '2'], JSON.stringify(row));
+  });
+  // A pane that stays on the menu after the key: not "placed".
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+  try {
+    chat.setRunner((args) => (args[0] === 'display-message'
+      ? { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' }
+      : { ran: true, spawnFailed: false, status: 0, out: args[0] === 'capture-pane' ? MENU : '', err: '' }));
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const r = await post({ text: '1' });
+    assert.equal(r.json.delivery.state, 'unconfirmed', JSON.stringify(r.json));
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5406 review 1: Escape that does not close the menu sends nothing; a permission prompt is untouched', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+  try {
+    const calls = [];
+    chat.setRunner((args) => { calls.push(args); return args[0] === 'display-message'
+      ? { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' }
+      : { ran: true, spawnFailed: false, status: 0, out: args[0] === 'capture-pane' ? MENU : '', err: '' }; });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const r = await post({ text: 'something else' });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.equal(calls.filter((a) => a[0] === 'set-buffer').length, 0, 'the message was pasted into a menu that stayed');
+  } finally { chat.resetForTests(); board.restore(); }
+  const PERM = 'Bash command\n\n  rm photo.jpg\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n\nEsc to cancel';
+  const b2 = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: PERM })]);
+  try {
+    const calls = [];
+    chat.setRunner((args) => { calls.push(args); return args[0] === 'display-message'
+      ? { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' }
+      : { ran: true, spawnFailed: false, status: 0, out: args[0] === 'capture-pane' ? PERM : '', err: '' }; });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    await post({ text: 'yes go ahead' });
+    assert.equal(calls.filter((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Escape').length, 0, 'Escape was sent to a permission prompt');
+  } finally { chat.resetForTests(); b2.restore(); }
+});

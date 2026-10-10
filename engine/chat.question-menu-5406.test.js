@@ -113,3 +113,21 @@ test('#5406 closeQuestionMenu: Escape only when the menu is up, and says when it
     assert.equal(r.ok, false, 'a menu that stayed was reported closed');
   });
 });
+
+test('#5406 review 1: a wrapped question is read whole, header kept; a permission screen with the footer is not this menu', () => {
+  const wrapped = MENU.replace('Which fruit do you want?', 'Which fruit do you want for the long weekend trip, given that\nwe leave early on Saturday morning?');
+  const m = status.claudeQuestionMenu(wrapped);
+  assert.ok(m, 'a wrapped question was refused');
+  assert.equal(m.question, 'Which fruit do you want for the long weekend trip, given that we leave early on Saturday morning?');
+  assert.equal(wrapped.split('\n')[m.at].trim(), '☐ Fruit', 'the header was lost');
+  const perm = 'Bash command\n\n  rm photo.jpg\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n\nEnter to select · ↑/↓ to navigate · Esc to cancel';
+  assert.equal(status.claudeQuestionMenu(perm), null, 'a permission prompt with the footer was taken for the question menu');
+});
+
+test('#5406 review 1: closeQuestionMenu closes only the question the person saw', async () => {
+  await withClaude(async (board) => {
+    const t = arm([MENU]);
+    const r = await chat.closeQuestionMenu('casey', board.agents, { question: 'Which colour?' });
+    assert.deepEqual([r.ok, t.keys()], [false, []], 'a different question was closed');
+  });
+});

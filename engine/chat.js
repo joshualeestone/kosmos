@@ -1176,13 +1176,18 @@ async function answerQuestionMenu(sessionName, n, roster, expect) {
 }
 /* Close the live question menu with Escape before a message goes (the person answered in their own words). Resolves
    { ok: true, closed } (closed: there was a menu and it went) or { ok: false, because }. No menu: { ok: true, closed: false }. */
-async function closeQuestionMenu(sessionName, roster) {
+async function closeQuestionMenu(sessionName, roster, expect) {
   const allowed = keysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
   const t = paneTarget(allowed.card);
   const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
   const before = look();
-  if (!before || !status.claudeQuestionMenu(before)) return { ok: true, closed: false };
+  const shown = before ? status.claudeQuestionMenu(before) : null;
+  if (!shown) return { ok: true, closed: false };
+  // Review round 1: only the question the person saw; a menu that redrew into another one is not closed for them.
+  if (expect && expect.question && expect.question !== shown.question) {
+    return { ok: false, because: 'its question changed on its screen, so this was not sent. What is on this page now is current' };
+  }
   const got = tmux(['send-keys', '-t', t, 'Escape']);
   if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not close its question to send this; look at its window' };
   await qmenuWait(QMENU_SETTLE_MS);
