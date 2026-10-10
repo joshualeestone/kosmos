@@ -2453,7 +2453,19 @@ function claudeQuestionMenuUp(text) {
     for (let j = i - 1; j >= Math.max(0, i - 6); j -= 1) if (CLAUDE_QMENU_FREE_ROW.test(lines[j])) return true;
     return false;
   }
-  return false;
+  return claudeQuestionReviewUp(lines);
+}
+
+/* #5749: the multi-select and multi-question forms' review tab ("Review your answers", "Ready to submit your answers?",
+   then "1. Submit answers" / "2. Cancel"), measured on 2.1.296. It draws NO footer, so the rule above never sees it,
+   and Enter there submits answers nobody chose. Bottom-anchored like the footer rule: the question and its Submit row
+   among the last four non-blank lines, so an old review tab in scrollback is not taken for a live one. */
+const CLAUDE_QMENU_REVIEW_Q = /^\s*Ready to submit your answers\?\s*$/;
+const CLAUDE_QMENU_REVIEW_SUBMIT = /^\s*(?:[❯›]\s*)?\d{1,2}\.\s+Submit answers\s*$/;
+function claudeQuestionReviewUp(lines) {
+  const last = [];
+  for (let i = lines.length - 1; i >= 0 && last.length < 4; i -= 1) if (lines[i].trim()) last.push(lines[i]);
+  return last.some((l) => CLAUDE_QMENU_REVIEW_Q.test(l)) && last.some((l) => CLAUDE_QMENU_REVIEW_SUBMIT.test(l));
 }
 
 /* #5754: is Claude Code's PERMISSION prompt on screen (it asks "Do you want to proceed?", "Do you want to create x?"
@@ -4777,6 +4789,12 @@ function classify(pane, paneText) {
   if (drawsOptionMenu(tail)) {
     const flagged = safeguardsMenu(tail);
     if (flagged) return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, ...flagged };
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
+  }
+  /* #5749: Claude Code's question menu with NO numbered highlighted row in the tail: the highlight on the multi-select
+     form's unnumbered Submit row, or a menu so tall that the highlighted row is above the last 25 rows. Its footer and
+     free-answer row (claudeQuestionMenuUp, bottom-anchored on the whole screen) still say it is asking. */
+  if (claudeQuestionMenuUp(paneText)) {
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   /* #2456: the PROSE half, position-gated to the BOTTOM of the screen. A prose
