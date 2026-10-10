@@ -25,7 +25,7 @@ closes the menu first, then delivers).
 - The fresh screen read happens when the roster snapshot says needs_you OR working (review 11: an agent reaches a
   permission prompt mid-turn, while its card still reads working). Cost: per delivery to a working or needs_you
   Claude agent, one synchronous capture (two for an automatic sender: menuHeldVerdict and the floor; three for a
-  recommender convening's stuck agent); an idle agent pays nothing. A stalled tmux now slows every such delivery,
+  recommender convening's stuck agent, and three for each working or needs_you peer it asks); an idle agent pays nothing. A stalled tmux now slows every such delivery,
   as the Codex floor already does for Codex ones.
 
 - A failed screen read is not a refusal, EXCEPT when the card's own PermissionRequest self-report says it is asking
@@ -91,6 +91,11 @@ closes the menu first, then delivers).
   until it is closed; held room posts age out after two hours like any held post. Accepted: it fails safe, and the
   person is at that window.
 - Not memoised: the automatic senders' second read is the deliberate last look before typing.
+
+- The recommender hook keeps the one-line shape the #4588 wiring pin asks for: if the quota check throws, the menu check
+  is not asked, the convening runs, its playbook is held by deliverAutomatic (nothing typed) and one attempt is spent.
+- The self-report exception reads the card's `because`/`stateEvidence`; it is tested with the hook's text injected,
+  not through a reconciled snapshot, so it holds only where that text reaches the card.
 
 ## Weakest premise
 
