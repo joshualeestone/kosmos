@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: aipolicyui-5534
-diff_hash: 4757e16d4a800855ad38884c1cfd68b1670b8ef8744e00388c7cd5d94c7b8604
+diff_hash: 3d48061614a974af0676100c28ced29a6289b19c82f083231b0cb1fa4ae7d48f
 validation: passed (rebased on origin/main after slice 3 (#5733) merged; web.policy-company-5534 (runs the shipped paintPolicy against a DOM stub, with control arms), the server.test.js slice 4 case, browser-checks-reason-grep and browser-checks-indexed, tools/test-browser-checks-workflow.sh, and the new headless browser check render-policy-company-5534 through tools/browser-checks.sh (company arm and control arm all PASS, screenshot taken))
 subdir_audit: passed
 timestamp: 2026-10-10T01:19:01Z
