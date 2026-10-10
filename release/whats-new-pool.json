@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.35",
+  "lastProd": "0.7.37",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -7,7 +7,8 @@
       "icon": "chat",
       "rank": 1,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Claude Haiku 5.5 is in the model picker",
@@ -15,7 +16,8 @@
       "icon": "spark",
       "rank": 2,
       "since": "0.7.31",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Tasks can say what done means",
@@ -23,7 +25,8 @@
       "icon": "tasks",
       "rank": 3,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Take an agent with you as one file",
@@ -31,7 +34,8 @@
       "icon": "swarm",
       "rank": 4,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Kosmos says when an agent is stuck",
@@ -151,7 +155,8 @@
       "icon": "list",
       "rank": 2.5,
       "since": "0.7.36",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.37"
     },
     {
       "title": "Long agent messages say what they are about",
@@ -173,8 +178,32 @@
       "title": "Reply to Claude questions by number",
       "line": "When a Claude agent asks you to pick one option, replying with its number reaches it as your answer, not the highlighted default.",
       "icon": "chat",
-      "rank": 7.5,
+      "rank": 8.6,
       "since": "0.7.37",
+      "status": "pending"
+    },
+    {
+      "title": "Answer Claude questions with a button",
+      "line": "When a Claude agent asks you to pick one option, its question in your conversation shows a button for each choice.",
+      "icon": "chat",
+      "rank": 4.5,
+      "since": "0.7.38",
+      "status": "pending"
+    },
+    {
+      "title": "A daily task can repeat at several times",
+      "line": "An agent can now set a repeating task to run at several times a day, for example at 9am and 9pm.",
+      "icon": "list",
+      "rank": 9.5,
+      "since": "0.7.38",
+      "status": "pending"
+    },
+    {
+      "title": "Token Usage opens faster",
+      "line": "Token Usage now reads only what was added to today's records since you last opened it, instead of all of today again.",
+      "icon": "spark",
+      "rank": 10.5,
+      "since": "0.7.38",
       "status": "pending"
     }
   ]
