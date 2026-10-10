@@ -1399,6 +1399,9 @@ const CLAUDE_MENU_SENTENCE = 'it is showing a question on its screen, and a mess
 const CLAUDE_MENU_DM_CLAUSE = ', or by its number in its direct messages';
 /* #5754: Claude's permission prompt. Measured on 2.1.296: the paste is ignored and the Enter approves the highlighted
    option (usually Yes), so a typed line would approve a command or an edit nobody chose. */
+/* #5743 review 10: the safeguards model-switch menu (#5051). Kosmos never presses it, and a typed line's Enter would. */
+const CLAUDE_SAFEGUARDS_SENTENCE = 'it is asking on its screen whether to switch models, and a message typed now would '
+  + 'pick that answer, so we did not type anything; answer it in its window first';
 const CLAUDE_PERMISSION_SENTENCE = 'it is asking for permission on its screen, and a message typed now would answer that '
   + '(usually Yes), so we did not type anything; answer it in its window first';
 function claudeMenuRefusal(card, sessionName, roster) {
@@ -1406,6 +1409,7 @@ function claudeMenuRefusal(card, sessionName, roster) {
   if (card.state !== status.STATE.NEEDS_YOU) return null;
   const view = viewport(sessionName, roster);
   if (!(view && typeof view.text === 'string')) return null;
+  if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
     return CLAUDE_MENU_SENTENCE + (status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
   }
@@ -1478,7 +1482,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     const codex = codexScreenRefusal(allowed.card, sessionName, roster);
     if (codex) return { state: DELIVERY.COULD_NOT, because: codex, at, paneState: null, paneNote: null };
   }
-  /* #5743: the floor under every sender, read fresh here, right before typing. The direct-message route closes or
+  /* #5743/#5754: the floor under every sender (question menu, permission prompt, safeguards menu), read fresh here, right before typing. The direct-message route closes or
      answers the single-select form first (#5406); the forms it does not handle (multi-select, multi-question) reach
      here with the menu up and are refused. Automatic senders are held before this (menuHeldVerdict); this second read
      is deliberate, a last look right before the keystrokes. */
@@ -1851,7 +1855,8 @@ function quotaHeldVerdict(sessionName, roster, opts = {}) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
-/* #5743: a timer's line for a Claude agent on its question menu is HELD, never typed and never closing the menu (that
+/* #5743/#5754: a timer's line for a Claude agent waiting on its screen (its question menu, a permission prompt, or the
+   safeguards menu; heldBy 'menu' covers all three) is HELD, never typed and never closing the menu (that
    would dismiss a question the person may not have seen). The #4588 hold shape, so every automatic sender already
    keeps it: a room keeps the post for the member's next idle flush once the question is answered and the turn ends,
    or else for its next typed arrival. */
@@ -1865,7 +1870,7 @@ function menuHeldVerdict(sessionName, roster) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
-/* #5743: true while this agent's screen shows Claude's question menu, for a sweep that decides BEFORE it types
+/* #5743/#5754: true while this agent's screen waits for an answer (question menu, permission prompt, safeguards menu), for a sweep that decides BEFORE it types
    anything (the recommender holds a whole convening on it, as it does on the quota). */
 function menuHeld(sessionName, roster) {
   try { return menuHeldVerdict(sessionName, roster) !== null; } catch { return false; }

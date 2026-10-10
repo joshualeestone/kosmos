@@ -197,3 +197,31 @@ test('#5754 a question menu that begins "Do you want to" gets the menu sentence 
     assert.deepEqual(calls.typed(), []);
   });
 });
+
+/* The safeguards model-switch menu (#5051), as engine/status.test.js draws it. */
+const SAFEGUARDS = ['│ which can sometimes flag non-cybersecurity work. Switch to Opus 4.8 and keep going whenever this happens?', '',
+  '─'.repeat(80), '❯ 1. Switch automatically', '     Continue on Opus 4.8 now, and switch without asking from now on',
+  '  2. Stay on Opus 5.5', '     Stop here without switching, and ask me each time a message is flagged',
+  '  3. Type something.', '  4. Chat about this', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n') + '\n';
+test('#5743 review 10: the safeguards model-switch menu is refused and held (its own sentence); one left in scrollback is not', async () => {
+  assert.equal(status.claudeSafeguardsMenuUp(SAFEGUARDS), true);
+  assert.equal(status.claudeQuestionMenuUp(SAFEGUARDS), false, 'premise: the question-menu detector leaves it out on purpose');
+  const IDLE_UNDER = '\n\n⏺ Done.\n\n' + '─'.repeat(40) + '\n❯ \n' + '─'.repeat(40) + '\n  bypass permissions on (shift+tab to cycle)\n';
+  assert.equal(status.claudeSafeguardsMenuUp(SAFEGUARDS + IDLE_UNDER), false, 'an answered safeguards menu in scrollback read as live');
+  await onScreen(SAFEGUARDS, 'needs_you', async (board, calls) => {
+    const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
+    assert.match(v.because, /whether to switch models/);
+    assert.equal((await chat.deliverAutomaticAsync('casey', 'A timer line.', board.agents)).held, true);
+    assert.deepEqual(calls.typed(), [], 'something was typed into the safeguards menu');
+  });
+});
+
+test('#5743 CONTROL: a needs_you Claude card whose screen shows none of the three is typed into (the detectors do not fire on every needs_you screen)', async () => {
+  const OTHER = 'Which environment should I deploy to?\n❯ 1. Staging\n  2. Production\n';   // needs_you by its marked option, no footer
+  await onScreen(OTHER, 'needs_you', async (board, calls) => {
+    const v = await chat.deliverAsync('casey', 'It is in the vault.', board.agents);
+    assert.doesNotMatch(String(v.because), /on its screen/, JSON.stringify(v));
+    assert.ok(calls.typed().length > 0, 'an ordinary needs_you screen was refused');
+  });
+});

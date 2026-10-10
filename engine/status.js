@@ -2480,6 +2480,23 @@ function claudePermissionPromptUp(text) {
   return false;
 }
 
+/* #5743 review 10: the safeguards model-switch menu (#5051) LIVE at the bottom of the screen. claudeQuestionMenuUp leaves
+   it out on purpose (it is never answered by a press); this lets the delivery floor still refuse to type into it, whose
+   Enter would switch models for a choice nobody made. Its footer within the last three non-blank lines, so a menu left
+   in scrollback is not this. */
+function claudeSafeguardsMenuUp(text) {
+  const t = String(text == null ? '' : text);
+  if (!safeguardsMenuAt(t)) return false;
+  const lines = t.split('\n');
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 3; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (CLAUDE_QMENU_FOOTER.test(lines[i])) return true;
+  }
+  return false;
+}
+
 function safeguardsMenu(tail) {
   const live = safeguardsMenuAt(tail);
   if (!live) return null;
@@ -9008,7 +9025,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptUp,
+  ASKING_GENERIC, safeguardsMenuAt, claudeQuestionMenu, claudeQuestionMenuUp, claudePermissionPromptUp, claudeSafeguardsMenuUp,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
