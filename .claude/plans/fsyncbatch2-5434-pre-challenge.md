@@ -21,7 +21,7 @@ Validation: full suite on THIS Mac's validation queue for this exact diff (hash 
 (node 18227 tests, 0 fail; shell part passed). Union related set (516 files): 9415, 0 fail.
 **Two Mortals runs of the same hash were red, read before deciding:** both times the only repeating failure was
 engine/connect.willinstall-1556 "a binary that RUNS means no install is needed" stopping at ~5007 ms, which is
- (connect.js:618) spawning the test's fake binary: no code this batch changes
+`run(bin, ['--version'], { timeout: 5000 })` (connect.js:618) spawning the test's fake binary: no code this batch changes
 is on that path. The other failures differed between the runs (launch and spawn tests at 15-38 s). Every failing file
 passes alone on this branch, and the same suite passes here. Both reds and a correction are on #5434.
 
