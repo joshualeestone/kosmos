@@ -461,3 +461,25 @@ test('#5406 slice C review 21: the cursor moving inside the single-select menu k
     assert.deepEqual(keys, ['1'], 'the press did not go as the key after the cursor moved');
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5406 slice C review 22: on the live menu, a new question whose identity CONTAINS the pressed one is refused (equality, not containment)', async () => {
+  const MORE = MENU.replace('Which fruit do you want?', 'Which fruit do you want? Pick the one for the second basket.');
+  const asked = chat.questionAbove(chat.questionIn(MENU, 'claude').text);
+  const nowIdent = chat.questionAbove(chat.questionIn(MORE, 'claude').text);
+  assert.ok(nowIdent.includes(asked) && nowIdent !== asked, 'premise: the new identity contains the pressed one');
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MORE })]);
+  try {
+    const keys = [];
+    chat.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: MORE, err: '' };
+      if (args[0] === 'send-keys') keys.push(args[args.length - 1]);
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false); chat.setPauser(() => {});
+    const r = await post({ text: '1', chose: 'Apple', asked });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /moved between drawing that button and sending it/, 'refused, but not by the identity check');
+    assert.deepEqual(keys, []);
+  } finally { chat.resetForTests(); board.restore(); }
+});
