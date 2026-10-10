@@ -49,7 +49,7 @@ async function same(why, { rebuilt, bytes } = {}) {
   const got = await usage.scanDayCursor(DAY);
   const want = await full();
   assert.deepEqual(got, want, why);
-  // Round 1: the keys come in a full read's order too (deepEqual does not compare order).
+  // The keys come in a full read's order too (deepEqual does not compare order).
   for (const k of ['days', 'folders']) assert.deepEqual(Object.keys(got[k][DAY] || {}), Object.keys(want[k][DAY] || {}), why + ': ' + k + ' key order');
   if (rebuilt !== undefined) assert.equal(usage.lastDayCursorRun.rebuilt, rebuilt, why + ': rebuilt');
   if (bytes !== undefined) assert.equal(usage.lastDayCursorRun.bytesConsumed, bytes, why + ': bytes read');
@@ -174,7 +174,7 @@ test('#5759: a file that shrank, was replaced or vanished makes the cursor rebui
   assert.equal(got.folders[DAY]['/w/b2'], undefined);
 });
 
-test('#5759 round 1: a file truncated and rewritten LONGER on the same inode is caught by its seam, never read from the middle', async () => {
+test('#5759: a file truncated and rewritten LONGER on the same inode is caught by its seam, never read from the middle', async () => {
   reset();
   const f = write('p/a.jsonl', cwdLine('/w/g') + row('g1', 5));
   await same('start', { rebuilt: true });
@@ -191,7 +191,7 @@ test('#5759 round 1: a file truncated and rewritten LONGER on the same inode is 
   await same('a same-size rewrite of the last row', { rebuilt: true });
 });
 
-test('#5759 round 1 (the stated bound): a same-size rewrite BEFORE the seam is not seen until the next rebuild', async () => {
+test('#5759 (the stated bound): a same-size rewrite BEFORE the seam is not seen until the next rebuild', async () => {
   reset();
   const f = write('p/a.jsonl', cwdLine('/w/g') + row('g1', 5) + row('g2', 9) + row('g3', 9));
   await same('start', { rebuilt: true });
@@ -203,7 +203,7 @@ test('#5759 round 1 (the stated bound): a same-size rewrite BEFORE the seam is n
   assert.equal((await full()).days[DAY].m.output_tokens, 22, 'CONTROL: a full read sees the rewrite');
 });
 
-test('#5759 round 1: a file that becomes unreadable after it was read is dropped and counted unreadable, as a full read does', async (t) => {
+test('#5759: a file that becomes unreadable after it was read is dropped and counted unreadable, as a full read does', async (t) => {
   reset();
   write('p/a.jsonl', cwdLine('/w/a') + row('a1', 5));
   const b = write('p/b.jsonl', cwdLine('/w/b') + row('b1', 7));
@@ -220,7 +220,7 @@ test('#5759 round 1: a file that becomes unreadable after it was read is dropped
   assert.equal(two.unreadable, 2);
 });
 
-test('#5759 round 1: a skipped parent that becomes unreadable leaves its subagent an orphan, as a full read does', async (t) => {
+test('#5759: a skipped parent that becomes unreadable leaves its subagent an orphan, as a full read does', async (t) => {
   reset();
   const old = Date.parse(DAY + 'T00:00:00Z') - 3 * H;
   const parent = write('p/old.jsonl', cwdLine('/w/agent'), old);
@@ -234,7 +234,7 @@ test('#5759 round 1: a skipped parent that becomes unreadable leaves its subagen
   assert.equal(after.folders[DAY]['/w/wt'].output_tokens, 6, 'its own first cwd, as an orphan');
 });
 
-test('#5759 round 1: a new file that sorts earlier puts its keys first, as a full read orders them', async () => {
+test('#5759: a new file that sorts earlier puts its keys first, as a full read orders them', async () => {
   reset();
   write('p/k.jsonl', cwdLine('/w/k') + row('k1', 2, { model: 'zeta' }));
   await same('start', { rebuilt: true });
@@ -244,7 +244,7 @@ test('#5759 round 1: a new file that sorts earlier puts its keys first, as a ful
   assert.deepEqual(Object.keys(got.folders[DAY]), ['/w/a', '/w/k']);
 });
 
-test('#5759 round 1: with the mtime put back, the size and the inode still catch a shrink and a replacement', async () => {
+test('#5759: with the mtime put back, the size and the inode still catch a shrink and a replacement', async () => {
   reset();
   // A whole-second mtime, so putting it back is exact (a Date drops the sub-millisecond part a real mtime has).
   const whole = Math.floor(Date.now() / 1000) * 1000 - 60000;
@@ -266,7 +266,7 @@ test('#5759 round 1: with the mtime put back, the size and the inode still catch
   await same('replaced by another file, same size, seam and mtime: the inode check', { rebuilt: true });
 });
 
-test('#5759 round 2: a transcript too big to decode is counted unreadable, never thrown out of the call', async (t) => {
+test('#5759: a transcript too big to decode is counted unreadable, never thrown out of the call', async (t) => {
   reset();
   const saved = { ...usage.CURSOR_LIMITS };
   t.after(() => Object.assign(usage.CURSOR_LIMITS, saved));
@@ -285,7 +285,7 @@ test('#5759 round 2: a transcript too big to decode is counted unreadable, never
   assert.equal((await usage.scanDayCursor(DAY)).unreadable, 1);
 });
 
-test('#5759 round 2: a known file that grows past the longest string is read again from the start', async (t) => {
+test('#5759: a known file that grows past the longest string is read again from the start', async (t) => {
   reset();
   const saved = { ...usage.CURSOR_LIMITS };
   t.after(() => Object.assign(usage.CURSOR_LIMITS, saved));
@@ -298,14 +298,23 @@ test('#5759 round 2: a known file that grows past the longest string is read aga
 
 test('#5759: a seeded random run of appends, new files, duplicates, cwds and half lines always equals a full read', async () => {
   reset();
+  // mulberry32 (32-bit integer arithmetic, Math.imul): a multiply-mod in doubles loses its low bits and gave only even
+  // ops here, so three of the cases below never ran. Seeded, so a failure replays.
   let seed = 5759;
-  const rnd = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const rnd = (n) => {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) % n;
+  };
+  const fired = new Set();
   const files = ['p/a.jsonl', 'p/k.jsonl', 'q/m.jsonl'];
   for (const f of files) write(f, '');
   const pending = new Map();   // file -> the rest of a half-written line
   let rebuilds = 0;
   for (let step = 0; step < 300; step += 1) {
     const op = rnd(10);
+    fired.add(op);
     let f = files[rnd(files.length)];
     if (pending.has(f) && op < 8) { append(f, pending.get(f)); pending.delete(f); }
     else if (op < 5) append(f, row(rnd(4) ? 'id' + rnd(40) : null, 1 + rnd(50), { model: rnd(3) ? 'm' : 'n', day: rnd(8) ? DAY : '2026-10-04' }));
@@ -318,6 +327,8 @@ test('#5759: a seeded random run of appends, new files, duplicates, cwds and hal
     await same('step ' + step);
     if (usage.lastDayCursorRun.rebuilt) rebuilds += 1;
   }
+  assert.deepEqual([...fired].sort((x, y) => x - y), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 'every kind of step ran');
+  assert.ok(files.length > 3 && files.some((f) => f.includes('/subagents/')), 'new files and a subagent were made: ' + files.join(' '));
   assert.ok(rebuilds < 150, 'most steps were incremental reads, not rebuilds (' + rebuilds + ' of 300)');
 });
 

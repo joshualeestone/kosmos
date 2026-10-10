@@ -389,21 +389,22 @@ async function scanDayCursorNow(day) {
       rebuilt = true;
     }
   }
-  // A from-the-start pass asked to rebuild again (it should not be able to): the full read, and no cursor kept.
+  // A from-the-start pass asked to rebuild again (it should not be able to): the full read, and no cursor kept
+  // (bytesConsumed -1 says so).
   resetDayCursor();
   lastDayCursorRun.rebuilt = true;
   lastDayCursorRun.bytesConsumed = -1;
   return scanUsage({ sinceDay: day, untilDay: day, mtimeCut: true });
 }
 
-/* Round 2: the full read's limits, mirrored. readFile refuses a file over 2 GiB, and its utf8 decode throws past the
+/* The full read's limits, mirrored. readFile refuses a file over 2 GiB, and its utf8 decode throws past the
    longest string Node can make; either way the full read counts the file unreadable. Overridable by tests only. */
 const CURSOR_LIMITS = {
   maxReadBytes: 2 ** 31 - 1,
   maxStringBytes: require('node:buffer').constants.MAX_STRING_LENGTH,
   decode: (b) => b.toString('utf8'),
 };
-const SEAM_BYTES = 64;   // round 1: bytes before the cursor, read back to tell an appended file from a rewritten one
+const SEAM_BYTES = 64;   // bytes before the cursor, read back to tell an appended file from a rewritten one
 async function readFrom(fh, start, end) {
   const buf = Buffer.alloc(Math.max(0, end - start));
   let got = 0;
@@ -457,7 +458,7 @@ async function dayCursorPass(day, roots) {
       let s = C.files.get(file);
       const fresh = !s;
       let lines = [];
-      /* Round 1: every listed file is opened on every pass, read or not, so one that became unreadable is noticed
+      /* Every listed file is opened on every pass, read or not, so one that became unreadable is noticed
          (the full read would drop its rows and count it unreadable), and an empty one that cannot be opened counts. */
       let fh;
       try { fh = await fsp.open(file, 'r'); } catch { if (!fresh) throw new Rebuild(); unreadable += 1; continue; }
@@ -465,14 +466,14 @@ async function dayCursorPass(day, roots) {
       let taken = null;
       let fst;
       try {
-        fst = await fh.stat();   // round 2: the OPENED file's size, inode and mtime, so a swap after the stat is not mixed in
+        fst = await fh.stat();   // the OPENED file's size, inode and mtime, so a swap after the stat is not mixed in
         if (!fresh && (s.ri !== ri || s.ino !== fst.ino || s.dev !== fst.dev || fst.size < s.offset)) throw new Rebuild();
-        /* Round 2: a file too big for one string is unreadable to the full read (its readFile fails). A known file that
+        /* A file too big for one string is unreadable to the full read (its readFile fails). A known file that
            grew that big is read again from the start, where the whole-file decode below fails the same way. */
         if (!fresh && fst.size > CURSOR_LIMITS.maxStringBytes) throw new Rebuild();
         if (fresh && fst.size > CURSOR_LIMITS.maxReadBytes) throw new Error('too big to read whole');
         if (fresh) s = { ri, file, ino: fst.ino, dev: fst.dev, offset: 0, seam: Buffer.alloc(0), mtimeMs: fst.mtimeMs, firstCwd: '', counted: false, launch: '', orphan: false, days: {}, folders: {}, folderModels: {} };
-        /* Round 1: the SEAM, the last bytes before the cursor, is read back with any new bytes (and on its own when the
+        /* The SEAM, the last bytes before the cursor, is read back with any new bytes (and on its own when the
            file was written without growing). A file truncated and rewritten, even longer and on the same inode, no
            longer has it there, and the cursor rebuilds rather than read the middle of new content. */
         let buf = null;
@@ -493,7 +494,7 @@ async function dayCursorPass(day, roots) {
             if (!whole) take = nl + 1;
           }
           taken = buf.subarray(0, take);
-          lines = CURSOR_LIMITS.decode(taken).split('\n');   // round 2: inside the try, as the full read's readFile is
+          lines = CURSOR_LIMITS.decode(taken).split('\n');   // inside the try, as the full read's readFile is
         }
       } catch (err) {
         if (err instanceof Rebuild) throw err;
@@ -519,14 +520,14 @@ async function dayCursorPass(day, roots) {
         if (ps && listed.has(parentFile)) parent = ps.firstCwd;
         else if (skippedTop.has(parentFile)) {
           // A parent last written before the window: its first cwd, head-read once per version of that file, and asked
-          // at most once a pass (round 2: the stat and the open probe too).
+          // at most once a pass (the stat and the open probe too).
           if (passHeads.has(parentFile)) parent = passHeads.get(parentFile);
           else {
             let pst = null;
             try { pst = await fsp.stat(parentFile); } catch { /* read below fails the same way */ }
             const h = C.heads.get(parentFile);
-            // Round 1: the saved head is trusted only while the parent still opens (a full read would fail to head-read
-            // it). Round 2: a failed close is not an error.
+            // The saved head is trusted only while the parent still opens (a full read would fail to head-read
+            // it). A failed close is not an error.
             const opens = () => fsp.open(parentFile, 'r').then((p) => p.close().catch(() => {}).then(() => true), () => false);
             if (h && pst && h.mtimeMs === pst.mtimeMs && h.size === pst.size && await opens()) parent = h.cwd;
             else {
@@ -573,7 +574,7 @@ async function dayCursorPass(day, roots) {
   const folders = {};
   const folderModels = {};
   const sum = (into, from) => { for (const [k, b] of Object.entries(from)) addInto(into, k, b); };
-  // Summed in (root, path) order, so the result's keys come in the order a full read gives them (round 1).
+  // Summed in (root, path) order, so the result's keys come in the order a full read gives them.
   for (const s of [...C.files.values()].sort((a, b) => (orderBefore(a, b) ? -1 : orderBefore(b, a) ? 1 : 0))) {
     if (!s.counted) continue;
     sum((days[day] = days[day] || {}), s.days);
@@ -756,9 +757,9 @@ function todayUtc() {
  * written since an hour before today began (UTC); just after UTC midnight, since an hour before yesterday began.
  * An open with a past day missing (the first of each UTC day), and the first
  * open after the board starts, still read the files written since the first
- * missing day in full (measured on the fleet Mac, about 4 to 6 seconds before
- * #5759, 10 s by #5759's own count); the usual open after that reads only what
- * was appended (#5759, below). What this DOES
+ * missing day in full (on the fleet Mac at 0.7.35, 2026-10-10: 10 to 11 s
+ * with every past day frozen, 155 of today's files, 392 MB); the usual open
+ * after that reads only what was appended (#5759, below). What this DOES
  * avoid, because every read on this path is async (fs.promises, not
  * fs.*Sync): it does not block Node's single event loop while doing so --
  * without that, every OTHER route on this server (agent status polling

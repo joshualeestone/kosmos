@@ -67,3 +67,11 @@ memory kept about 0 MB. Fixed (comments only): the docblock's "every call costs 
 still read in full; the three test exports say they are for tests only. Left as is (NITs): resetDayCursor is not
 chained (tests call it between awaited calls); a known file over the longest string rebuilds every call, and a new one
 that cannot decode is re-read every call (no worse than before); yesterday's cursor is held until the next cursor call.
+
+## Review round 4 fixes
+- The random test's generator (a multiply-mod in doubles) lost its low bits and produced only even ops, so cwd lines,
+  new files and subagents never happened in it. It uses mulberry32 now and asserts every kind of step ran and a
+  subagent was made; on its own it now catches the launch-change mutant.
+- The "Round N:" labels in the code comments and test titles are gone (the round history is this file); each reason
+  stays.
+- The docblock's cost figure names its measurement (0.7.35, 2026-10-10, 10 to 11 s); the -1 sentinel is commented.
