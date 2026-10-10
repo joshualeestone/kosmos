@@ -37,6 +37,10 @@ test('#5752: the words, and the CLI form --at 09:00,21:00', () => {
   assert.deepEqual(r.fromWords('daily', { at: '09:00, 21:00' }), TWICE, 'a space after the comma');
   assert.deepEqual(r.fromWords('daily', { at: '09:00' }), { every: 'day', at: '09:00' }, 'control: one time stays a string');
   assert.equal(typeof r.repeatProblem(r.fromWords('daily', { at: '09:00,' })), 'string', 'a trailing comma is refused, not dropped');
+  assert.deepEqual(r.fromWords('daily', { at: '09:00 21:00' }), TWICE, 'round 1: spaces between the times read as a list too');
+  assert.equal(r.repeatProblem(r.fromWords('weekly', { on: 'mon', at: '09:00,21:00' })), 'a weekly task runs at one time on its day',
+    'round 1: a weekly task given several times gets the weekly sentence');
+  assert.deepEqual(r.fromWords('weekly', { on: 'mon', at: '09:00' }), { every: 'week', day: 1, at: '09:00' }, 'control: one weekly time');
 });
 
 test('#5752: the next run is the next of the day\'s times, past midnight to the first one', () => {
@@ -81,4 +85,13 @@ test('#5752: on the spring-forward night the next run is the EARLIEST time the c
     + "console.log(JSON.stringify([f(r.nextAfter({every:'day',at:['02:30','03:00']},new Date(2026,2,8,1,0).getTime()))]));";
   const out = JSON.parse(execFileSync(process.execPath, ['-e', src], { env: { ...process.env, TZ: 'America/Chicago' } }).toString());
   assert.equal(out[0], '3/8 3:00', '02:30 does not exist that night (it would land at 03:30), so 03:00 comes first');
+});
+
+test('#5752 round 1: a stored list that does not check out is never read: no throw, no words, no next run (as a bad single time)', () => {
+  const bad = { repeat: { every: 'day', at: ['9:00', '21:00'] }, repeatSetAt: iso(at(2026, 10, 5, 12, 0)) };
+  assert.deepEqual(r.fieldsOf({ repeat: { every: 'day', at: '9:00' }, repeatSetAt: bad.repeatSetAt }, at(2026, 10, 6, 12, 0)),
+    { repeatWords: '', repeatNextAt: null, repeatNextWords: '' }, 'control: the single-time form of the same mistake');
+  assert.deepEqual(r.fieldsOf(bad, at(2026, 10, 6, 12, 0)), { repeatWords: '', repeatNextAt: null, repeatNextWords: '' });
+  assert.doesNotThrow(() => r.waitingForNextRun(bad, at(2026, 10, 6, 12, 0)));
+  assert.doesNotThrow(() => r.missedRuns(bad, at(2026, 10, 6, 12, 0)));
 });

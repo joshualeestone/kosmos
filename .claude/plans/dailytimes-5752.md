@@ -14,13 +14,13 @@ its fix) and slice 3 (a board notice with Add as member) are separate.
     times 30 minutes apart do not get a 10-minute grace. The latest-slot walk keeps a one-day period, so a
     lopsided pair (09:00 and 09:30) is never skipped.
 - web/index.html (the task page's Repeats control): a list rule keeps its list. The time box shows the first time
-  and the line below already says every time; only a person editing the time box (or choosing another frequency)
-  makes a different choice. Save stays off while nothing changed.
+  and the line below says every time. Editing the box changes that first time and keeps the others (sorted, a repeat
+  collapsing to one); choosing another frequency takes the box's one time. Save stays off while nothing changed.
 - install/kosmos and tools/windows/kosmos-cli.js: usage says `--at HH:MM[,HH:MM...]`; both already pass `--at`
   through as text, and the board checks it.
 
 ## Tests
-- engine/taskrepeat.test.js: shapes accepted and refused; nextAfter across both times and past midnight; describe;
+- engine/taskrepeat-dailytimes-5752.test.js: shapes accepted and refused; nextAfter across both times and past midnight; describe;
   fromWords; graces from the shortest gap; missedRuns and runIsLate on a twice-daily rule; a lopsided pair's
   latest slot.
 - server.task-repeat-4787.test.js (or a new file): the route sets `--at 09:00,21:00` and a run at each time is
@@ -38,5 +38,5 @@ is read by tasks.setRepeat (JSON compare of the normalised rule), the route (fro
 
 ## Not covered
 - An interval cadence ("every 6 hours from 08:00"). Different shape; not asked for.
-- The screen cannot ADD a second time; that is set by the agent or the CLI. A design pass for a multi-time picker
+- The screen cannot ADD a time or remove one (except by moving the first onto another); that is the agent or the CLI. A design pass for a multi-time picker
   would be its own card.

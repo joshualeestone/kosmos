@@ -158,7 +158,13 @@ test('#4787 slice 3 review 6: a capped miss reads "More than 99"; a finished tas
   assert.match(src, /if \(done\) \{[^\n]*tkPaintReviewer\(p, t\); return; \}/);
 });
 
-test('#5752: a twice-daily rule round-trips through the task page\'s Repeats control; only changing the time makes a new choice', () => {
+test('#5752 round 1: the Mac and Windows CLI help say the several-times form the same way', () => {
+  const line = '--at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)';
+  assert.ok(fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8').includes(line), 'install/kosmos');
+  assert.ok(fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8').includes(line), 'tools/windows/kosmos-cli.js');
+});
+
+test('#5752: a twice-daily rule round-trips through the task page\'s Repeats control; the time box moves the first time and keeps the others', () => {
   const SRC = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
   const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
   const els = { 'tk-repeat-every': { value: '', dataset: {} }, 'tk-repeat-at': { value: '', dataset: {} }, 'tk-repeat-day': { value: 'mon', dataset: {} } };
@@ -173,8 +179,12 @@ test('#5752: a twice-daily rule round-trips through the task page\'s Repeats con
   f.tkRepeatFillAt(stored.at);
   assert.equal(els['tk-repeat-at'].value, '09:00');
   assert.deepEqual(f.tkRepeatChoice(), stored, 'untouched, the choice IS the stored list (Save stays off; nothing is dropped)');
-  els['tk-repeat-at'].value = '10:00';
-  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '10:00' }, 'the person changed the time: their one time');
+  els['tk-repeat-at'].value = '08:00';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '08:00,21:00' }, 'round 1: moving the first time keeps the other');
+  els['tk-repeat-at'].value = '22:00';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '21:00,22:00' }, 'sorted, whichever way it moves');
+  els['tk-repeat-at'].value = '21:00';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '21:00' }, 'moved onto the other: one time, said once');
   els['tk-repeat-every'].value = 'week';
   els['tk-repeat-at'].value = '09:00';
   assert.deepEqual(f.tkRepeatChoice(), { every: 'week', on: 'mon', at: '09:00' }, 'another frequency takes the box\'s one time');

@@ -121,6 +121,13 @@ function noteProblem(note) {
   return null;
 }
 
+/* kosmos#5752: --at as given: one time stays as it is; times split on commas or spaces become a list (a trailing comma
+   leaves an empty entry, which is refused rather than dropped). */
+function timesWords(at) {
+  if (typeof at !== 'string') return at;
+  const s = at.trim();
+  return /[,\s]/.test(s) ? s.split(/\s*,\s*|\s+/) : at;
+}
 /* CLI words to a rule: ('day', { at: '09:00' }), ('week', { on: 'mon', at: '09:30' }), ('hour', { at: ':15' }). */
 function fromWords(every, opts = {}) {
   const e = String(every || '').toLowerCase().replace(/ly$/, '').replace(/^dai$/, 'day');   // hourly/daily/weekly too
@@ -128,15 +135,14 @@ function fromWords(every, opts = {}) {
     const at = opts.at === undefined ? undefined : String(opts.at).replace(/^:/, '');
     return { every: 'hour', ...(at === undefined ? {} : { minute: /^\d{1,2}$/.test(at) ? Number(at) : NaN }) };
   }
-  /* kosmos#5752: --at 09:00,21:00 is two times a day. One time stays a string. */
-  if (e === 'day') {
-    if (typeof opts.at !== 'string' || !opts.at.includes(',')) return { every: 'day', at: opts.at };
-    return { every: 'day', at: opts.at.split(',').map((s) => s.trim()) };
-  }
+  /* kosmos#5752: --at 09:00,21:00 (or "09:00 21:00") is two times a day. One time stays a string. A weekly task given
+     several is passed on as a list too, so it is refused with the weekly sentence rather than the bad-time one. */
+  const at = timesWords(opts.at);
+  if (e === 'day') return { every: 'day', at };
   if (e === 'week') {
     const on = String(opts.on || '').toLowerCase().slice(0, 3);
     const day = DAY_NAMES.findIndex((n) => n.toLowerCase().startsWith(on) && on.length === 3);
-    return { every: 'week', day: day === -1 ? undefined : day, at: opts.at };
+    return { every: 'week', day: day === -1 ? undefined : day, at };
   }
   return { every: e };
 }
@@ -217,7 +223,9 @@ function periodOf(rule) {
    lopsided pair (09:00 and 09:30) is never walked past. */
 function gapOf(rule) {
   const r = normalise(rule);
-  if (!r || r.every !== 'day' || !Array.isArray(r.at)) return periodOf(r);
+  /* round 1: a rule that does not check out (a hand-edited stored list) is sized as its period, never read: hm() throws
+     on a bad time, and fieldsOf runs for every task in the projects list. nextAfter and describe guard the same way. */
+  if (!r || repeatProblem(r) || r.every !== 'day' || !Array.isArray(r.at)) return periodOf(r);
   const mins = r.at.map((a) => { const [h, m] = hm(a); return h * 60 + m; });
   let gap = 1440;
   for (let i = 0; i < mins.length; i += 1) gap = Math.min(gap, ((mins[(i + 1) % mins.length] - mins[i]) + 1440) % 1440 || 1440);
