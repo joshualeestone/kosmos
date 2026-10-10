@@ -93,7 +93,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       chk(where.withinSection && where.belowHeader, '[' + W + '] #4610 they sit inside the settings column, below the header, not across the window', JSON.stringify(where));
       chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the connect block (#5787)', JSON.stringify(where));
       /* State 1 (not enrolled, the marketing pane) is the tall one: placed after it, the first Allow sat at y=985 at
-         1400 wide, which the done step above is too short to show. */
+         1400 wide, which the connected pane above (#5787) sits high enough to show. */
       const s1 = await page.evaluate(async () => {
         document.getElementById('plus-state1').hidden = false;
         document.getElementById('plus-state2').hidden = true;

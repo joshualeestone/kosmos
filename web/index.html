@@ -11402,9 +11402,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-apps-say { margin: 0 0 10px; font-size: .8125rem; line-height: 1.45; color: #B8C2DA; }
 #s-sec-plus .plus-stores { display: flex; flex-direction: column; gap: 8px; }
 /* Greyed until the store lists the app. The ribbon's words fit inside the button and clear the store's name (measured
-   by render-plus-panel-3829 at 1280 and 390). */
+   by render-plus-panel-3829 at 1400 and 390; #A3ADC6 is 4.67:1 on the pane's lightest navy). */
 #s-sec-plus .plus-store { position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; height: 60px; padding: 0 92px 0 14px;
-  border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(255,255,255,.04); color: #8E98B3; font: 600 .9rem var(--font-ui); text-decoration: none; }
+  border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(255,255,255,.04); color: #A3ADC6; font: 600 .9rem var(--font-ui); text-decoration: none; }
 #s-sec-plus .plus-store small { display: block; font-weight: 500; font-size: .72rem; line-height: 1.1; }
 #s-sec-plus .plus-store-name { line-height: 1.15; }
 #s-sec-plus .plus-sash { position: absolute; top: 15px; right: -38px; width: 140px; text-align: center; transform: rotate(38deg); background: #E6EBF7; color: #18223f;
@@ -47618,7 +47618,7 @@ function plusStoresPaint(links) {
     if (!el || !url || el.tagName === 'A') continue;
     const a = document.createElement('a');
     a.className = el.className; a.id = el.id; a.dataset.store = key;
-    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
     while (el.firstChild) a.appendChild(el.firstChild);
     el.replaceWith(a);
   }
@@ -49308,10 +49308,18 @@ async function plusSiDoRegister(name, owned) {
      that unlucky window fall back to the wizard with this confirmation instead, and the
      recurring 5s tick completes the handoff once enrolled reads true. */
   /* #3827: turned off while the sign-in was finishing: that stands, so say so. */
+  /* #5787 review: the register went through, so its button (Finish, or Try again after a failed automatic register)
+     goes, and a second press cannot register this computer twice while the 5s tick finishes the handoff. */
+  btn.hidden = true;
+  PLUS_SI_RETRY = '';
   plusSiMsg(r.data && r.data.switchedOn === false
     ? 'Signed in. Kosmos+ is off, as you set it; turn it on to be reachable.'
     : 'Signed in. Connecting this computer to Kosmos+.');
-  paintPlus();
+  await paintPlus();
+  /* #5787 review: the landing's Done used to take focus. The sign-in panel that held it is now hidden, so focus goes to
+     the Kosmos+ section (it has tabindex -1) and a keyboard or screen reader carries on from the connected pane. */
+  { const flow = document.getElementById('plus-flow'), sec = document.getElementById('s-sec-plus');
+    if (flow && !flow.hidden && sec && !sec.hidden && typeof sec.focus === 'function') sec.focus({ preventScroll: true }); }
 }
 document.getElementById('plus-si-register-go').addEventListener('click', () => {
   if (PLUS_SI_OWNED) { PLUS_SI_PICKED = PLUS_SI_RETRY_FROM_LIST; plusSiDoRegister(PLUS_SI_OWNED, PLUS_SI_RETRY || PLUS_SI_OWNED); return; }   // Try again, owned
