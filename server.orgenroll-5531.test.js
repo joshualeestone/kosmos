@@ -532,7 +532,7 @@ test('#5531 follow-up review 3: a review\'s lost Accept through the real routes 
   assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
   const r = await call('/api/org/enroll', { body: { accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
   assert.equal(r.json.ok, false, 'a lost Accept was taken as accepted: ' + JSON.stringify(r.json));
-  assert.match(r.json.because, /press Accept again/);
+  assert.match(r.json.because, /tries again on its own/);
   assert.equal(oe.mayReport(), false, 'a lost Accept let this Kosmos report');
 });
 

@@ -47745,7 +47745,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
-    const reports = j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company\'s words ask it to report nothing.' : '. It sends your company nothing: its words were not accepted on this computer.';
+    const reports = j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company asks it to report nothing.' : '. It reports to your company once Kosmos has your company\'s current terms.';
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
       ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
@@ -47769,7 +47769,7 @@ function plusOrgPaint() {
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   // A record whose company's words are not on record here sends nothing until the board re-accepts them on its own
   // (#5791), and the joined view says so (review 34).
-  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It is catching up with your company and will report shortly.') : '');
+  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : '');
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */

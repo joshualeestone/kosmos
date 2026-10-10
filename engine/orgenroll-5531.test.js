@@ -1040,15 +1040,15 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   const lostAnswer = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => { lost.push(route);
     return route === org.ROUTES.enroll ? { ok: false, because: 'the tunnel program did not answer in time' } : withConsent().macRequest(m, route); } } });
   assert.equal(lostAnswer.ok, false, 'a lost Accept was taken as accepted: ' + JSON.stringify(lostAnswer));
-  assert.match(lostAnswer.because, /press Accept again/);
+  assert.match(lostAnswer.because, /tries again on its own/);
   assert.equal(org.mayReport({ root: a }), false, 'a lost Accept let this Kosmos report');
   assert.deepEqual(lost, [org.ROUTES.enroll], 'a lost Accept asked the company and trusted a "here" that was true before');
   // Every refusal of a review's Accept is said in review words: never a code to type, never "Nothing was joined" (review 2).
   for (const [ans, want] of [
-    [{ ok: false, because: '409 {"because":"org_consent_changed"}' }, /changed what it asks.*Press Review what your company sees/],
+    [{ ok: false, because: '409 {"because":"org_consent_changed"}' }, /changed its terms again.*tries again on its own/],
     [{ ok: false, because: '403 {"because":"org_not_member"}' }, /no longer in it\. Nothing changed/],
-    [{ ok: false, because: '400 {"because":"org_bad_world"}' }, /did not take the acceptance.*Press Review what your company sees/],
-    [{ ok: false, notSent: true, because: 'not connected' }, /Nothing was sent; press Accept again/]]) {
+    [{ ok: false, because: '400 {"because":"org_bad_world"}' }, /did not take the acceptance.*tries again on its own/],
+    [{ ok: false, notSent: true, because: 'not connected' }, /Nothing was sent; Kosmos tries again on its own/]]) {
     const refused = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => (route === org.ROUTES.enroll ? ans : withConsent().macRequest(m, route)) } });
     assert.equal(refused.ok, false, JSON.stringify(refused));
     assert.match(refused.because, want, JSON.stringify(ans));

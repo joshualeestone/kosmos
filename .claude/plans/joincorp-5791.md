@@ -30,6 +30,12 @@ Josh, 2026-10-10 14:32 CDT, testing the #5531 join flow: the company has already
 - Web tests: web.lost-phone.test.js, web.modal-way-out-1316.test.js, web.plus-stale.test.js.
 - Design shots (light/dark, desktop/phone) via /design-shots before asking for review.
 
+## Found while building, and decided
+- **A failed re-accept had no way back.** With the Review button gone, a re-accept that could not reach the company (or a record from before terms were kept here) left the board with no terms on record, so the rollup and the event sender sent nothing for good and nothing ever asked again. Fixed in `engine/orgrollup.js` tick: a work Kosmos with no terms on record (or none readable) asks for them again by itself, at most once per `RETAKE_EVERY_MS` (15 minutes, stamped before the ask so a silent company is asked once per window). Terms on record that ask for no reports are an answer, not a gap, and are left alone. Pinned in orgrollup-5532.test.js with a control; mutated three ways (no retry, no throttle, retry on no-report terms), each red.
+- **The page's not-reporting line** said "its words were not accepted on this computer", which no longer has a remedy a person can take. It now says "It reports to your company once Kosmos has your company's current terms." (the 15-minute retry is what makes that true).
+- **The review path's refusal sentences** pointed at a Review button and an Accept press that no longer exist; they now reach only the board's log, and say "Kosmos tries again on its own."
+- **Lost your phone?** sits under the device list on a phone too; it renders a little larger there than the device hint (the phone tap-size rule for that link class). Left as is.
+
 ## Gaps, stated
 - The coordinator's audit line still records a join as the member accepting the words; a relay follow-up can reword it (card comment, 14:45).
 

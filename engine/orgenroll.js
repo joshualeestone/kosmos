@@ -498,18 +498,18 @@ async function enrollNow(code, accepted, opts) {
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
   /* A review's Accept (this world already named here before it was pressed) is never a join, so none of the join words
-     below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and points at Accept or at the
-     Review button, never at a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
+     below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and say Kosmos tries again on its own
+     (#5791: there is no screen for it), never a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
      "here" was true either way, so nothing is recorded; accepting again is harmless. */
   const review = asReview;   // no code, so always a move; checked against this world's record before sending (above)
   if (!r.ok && review) {
     const c = codeOf(r.because);
-    if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed what it asks of this Kosmos since you read it. Nothing changed here. Press Review what your company sees to read the new words.' };
+    if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed its terms again since Kosmos read them. Nothing changed here; Kosmos tries again on its own.' };
     // No longer in that company: a Review would be refused too, so do not send the person there (review 3).
     if (c === 'org_not_member' || c === 'org_other_org') return { ok: false, code: c, because: 'Your company says this account is no longer in it. Nothing changed on this computer.' };
-    if (c) return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer. Press Review what your company sees to try again.' };
-    if (r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; press Accept again in a minute.' };
-    return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; press Accept again in a minute.' };
+    if (c) return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer; Kosmos tries again on its own.' };
+    if (r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; Kosmos tries again on its own.' };
+    return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; Kosmos tries again on its own.' };
   }
   const secretCode = typeof code === 'string' ? code.trim() : null;
   // A move refused because the words changed: no code was typed, so say how to see them again (consenthash review 2).
@@ -580,7 +580,7 @@ async function enrollNow(code, accepted, opts) {
          Leave (review 12). A FIRST join is undone with a leave. A MOVE is not: the person was a member before, and a
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
-      if (review) return { ok: false, because: NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder, then press Accept again.' };
+      if (review) return { ok: false, because: NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder; Kosmos then tries again on its own.' };
       if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Join again.' };
       return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint }));
     }
