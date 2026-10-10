@@ -66,7 +66,7 @@ const GAMMA = 'c'.repeat(32);
 function others(gathered) {
   return {
     otherWorlds: () => [{ id: 'beta', root: '/nowhere/beta', env: { K: 'beta' } }, { id: 'gamma', root: '/nowhere/gamma', env: { K: 'gamma' } }],
-    gatherIn: async (env) => (gathered[env.K] === null ? null : { world: env.K === 'beta' ? BETA : GAMMA, gathered: JSON.parse(JSON.stringify(gathered[env.K])) }),
+    gatherIn: async (env) => (gathered[env.K] === null ? null : { world: env.K === 'beta' ? BETA : GAMMA, enrolled: false, gathered: JSON.parse(JSON.stringify(gathered[env.K])) }),
   };
 }
 const inv = (name) => ({ agents: [{ name, provider: 'openai', model: 'gpt-5.1', state: 'working' }], projects: [{ name: 'P-' + name, agents: [name] }],
@@ -157,12 +157,35 @@ test('#5532 widening (board review 1): another Kosmos read in part is not sent, 
   // gamma resolves to beta's id: two registry entries, one Kosmos.
   const o = {
     otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }, { id: 'gamma', env: { K: 'gamma' } }, { id: 'again', env: { K: 'again' } }],
-    gatherIn: async (env) => (env.K === 'beta' ? { world: BETA, gathered: JSON.parse(JSON.stringify(part)) }
-      : { world: GAMMA, gathered: JSON.parse(JSON.stringify(inv('Bo'))) }),
+    gatherIn: async (env) => (env.K === 'beta' ? { world: BETA, enrolled: false, gathered: JSON.parse(JSON.stringify(part)) }
+      : { world: GAMMA, enrolled: false, gathered: JSON.parse(JSON.stringify(inv('Bo'))) }),
   };
   await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
   assert.deepEqual(rollups(c).map((x) => x.world), [oe.readEnrollment({ root }).world, GAMMA],
     'a partial read was sent as the day\'s, or one Kosmos went twice');
+  // Board review 3: partial again at the NEXT daily, it goes, marked truncated, rather than never.
+  const c2 = coordinator();
+  await r.tick(Object.assign({ root, remote: c2, sources: sources(), now: T0 + 25 * 3600 * 1000 }, o));
+  const second = rollups(c2);
+  assert.deepEqual(second.map((x) => x.world), [oe.readEnrollment({ root }).world, BETA, GAMMA], 'a Kosmos partial every day never reached the company');
+  assert.equal(second[1].truncated, true, 'a partial daily was sent as the whole picture');
+});
+
+test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const o = {
+    otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }, { id: 'gamma', env: { K: 'gamma' } }, { id: 'delta', env: { K: 'delta' } }],
+    gatherIn: async (env) => ({ world: env.K === 'beta' ? BETA : env.K === 'gamma' ? GAMMA : 'd'.repeat(32),
+      // beta holds its own enrollment (another company); delta's child could not say (no field): both are skipped.
+      ...(env.K === 'gamma' ? { enrolled: false } : env.K === 'beta' ? { enrolled: true } : {}),
+      gathered: JSON.parse(JSON.stringify(inv(env.K))) }),
+  };
+  await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  assert.deepEqual(rollups(c).map((x) => x.world), [oe.readEnrollment({ root }).world, GAMMA],
+    'an enrolled Kosmos, or one that could not say, was sent under this enrollment');
 });
 
 test('#5532 widening (board review 2): past the company\'s cap, the Kosmoses not reached keep their signatures', async (t) => {
@@ -170,7 +193,7 @@ test('#5532 widening (board review 2): past the company\'s cap, the Kosmoses not
   const sent = [];
   const c = {
     o: { otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }, { id: 'gamma', env: { K: 'gamma' } }],
-      gatherIn: async (env) => ({ world: env.K === 'beta' ? BETA : GAMMA, gathered: JSON.parse(JSON.stringify(inv(env.K))) }) },
+      gatherIn: async (env) => ({ world: env.K === 'beta' ? BETA : GAMMA, enrolled: false, gathered: JSON.parse(JSON.stringify(inv(env.K))) }) },
     oe: { mayReport: () => true, readEnrollment: () => ({ world: 'a'.repeat(32), consentHash: 'h' }) },
     eo: {}, rec: { world: 'a'.repeat(32), consentHash: 'h' }, accepted: { everyKosmosConsented: true, usageConsented: false },
     pf: { fields: {} }, root: '/nowhere', now: T0, reason: 'daily', prev,

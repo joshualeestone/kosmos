@@ -19,9 +19,14 @@ async function main(mode) {
   if (mode !== 'gather') return { ok: false, because: 'unknown mode' };
   const oe = require('./orgenroll');
   const rollup = require('./orgrollup');
+  // worldId() mints this Kosmos's opaque id file in its own data root on its first read: the one write a gather makes.
   const world = oe.worldId();
   const gathered = await rollup.gather();
-  return { ok: true, world, gathered };
+  // Whether this Kosmos holds an enrollment record of its own (any company): such a Kosmos reports for itself, or for
+  // another company, never under the enrolled one's (board review 3).
+  let enrolled = true;
+  try { enrolled = !!oe.readEnrollment(); } catch { enrolled = true; }   // unreadable: treated as enrolled, not sent
+  return { ok: true, world, enrolled, gathered };
 }
 
 if (require.main === module) {

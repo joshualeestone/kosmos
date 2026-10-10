@@ -4,8 +4,12 @@
  * the consent stated before anything binds. The coordinator side is #5530 (E0.1); its routes and shapes are contract
  * v1.3, agreed 2026-10-07 with the coordinator's owner (orgs-5530.md on kosmos-relay).
  *
- * 🔑 THE UNIT IS THE WORK KOSMOS, NOT THE PERSON (#5529 decision 1). Only the enrolled world ever reports or backs up;
- * the person's other Kosmoses on this computer never do. That holds three ways:
+ * 🔑 THE UNIT IS THE WORK KOSMOS, NOT THE PERSON (#5529 decision 1). Only the enrolled world enrolls, refreshes, backs
+ * up and holds the keys. Since the kosmos#5532 widening (Josh, #admin 2026-10-09 08:43: everything on a work computer
+ * is company property), the enrolled world's rollup also carries the OTHER Kosmoses on this computer, each under its
+ * own opaque id, and ONLY while the accepted words name every Kosmos on this computer (NAMES_EVERY_KOSMOS below), and
+ * never one that is itself enrolled (it may be another company's: engine/orgrollup.js sendOthers). The rest holds
+ * three ways:
  *   - each world keeps its own data root (engine/worlds.js), so its id file and enrollment record live inside it and
  *     no other world can read or write them;
  *   - the world is named to the coordinator only by an OPAQUE id minted here (random, never the world's name, which

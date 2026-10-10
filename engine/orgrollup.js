@@ -456,11 +456,16 @@ async function sendOthers(c) {
   const next = {};
   const prev = c.prev && typeof c.prev === 'object' ? c.prev : {};
   // Only under words that name every Kosmos on this computer (the coordinator refuses the rest): none read, none sent.
-  // Words that do not name every Kosmos keep no signatures (board review 2, decided): words naming them again start
-  // clean, as the enrolled Kosmos's state does on new words, and a daily resends every Kosmos anyway.
+  // Words that do not name every Kosmos keep no signatures (board review 2, decided): words naming them again resend
+  // every Kosmos at once, the safe direction (the enrolled Kosmos's own signature, by contrast, survives new words).
+  c.heldNext = [];
   if (!c.accepted || c.accepted.everyKosmosConsented !== true) return next;
   let list = [];
   const seen = new Set();
+  // The Kosmoses whose partial daily was held last time (one daily's hold), and this time's.
+  const heldPrev = new Set(Array.isArray(c.held) ? c.held : []);
+  const heldNext = [];
+  c.heldNext = heldNext;
   try { list = (c.o.otherWorlds || otherWorlds)(c.root) || []; } catch { return prev; }
   for (const w of list) {
     if (!c.oe.mayReport(c.eo)) break;   // left meanwhile: nothing more goes
@@ -470,15 +475,27 @@ async function sendOthers(c) {
     // entries that resolve to one id are one Kosmos: it goes once (board review 1).
     if (!got || !/^[0-9a-f]{32}$/.test(got.world) || got.world === c.rec.world || seen.has(got.world)) continue;
     seen.add(got.world);
+    /* A Kosmos enrolled itself (to this company, or another: a contractor's computer) is never sent under this
+       enrollment (board review 3): its record says whom it reports to, and that is not ours to decide. A child that
+       could not say is treated as enrolled. */
+    if (got.enrolled !== false) continue;
     if (Object.prototype.hasOwnProperty.call(prev, got.world)) next[got.world] = prev[got.world];
     const g = got.gathered;
     if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
     delete g.policyVersion; delete g.policyRefused;   // the company's policy is the computer's, reported by the enrolled Kosmos
     const sig = signature(build(Object.assign({ world: got.world, nowMs: c.now, reason: 'change' }, g)));
-    /* A partial read is never sent (board review 1): the company takes a Kosmos's statuses from its first daily of the
-       day, and the enrolled Kosmos holds a partial daily for that reason. Another Kosmos's partial read goes nowhere,
-       and the next send that reads it in full carries it. */
-    if (g.partial || (c.reason === 'change' && prev[got.world] === sig)) continue;
+    /* A partial read (board reviews 1 and 3): the company takes a Kosmos's statuses from its first daily of the day,
+       so a partial daily is held once, as the enrolled Kosmos holds its own for an hour. The others send only with the
+       enrolled Kosmos, so the hold is one daily: a Kosmos partial again at the next daily is sent, marked truncated,
+       rather than never reaching the company. A partial read is never a change. */
+    if (g.partial) {
+      if (c.reason !== 'daily') continue;
+      if (!heldPrev.has(got.world)) {
+        heldNext.push(got.world);
+        console.error('orgrollup: another Kosmos on this computer could not be read in full; its daily waits a day');
+        continue;
+      }
+    } else if (c.reason === 'change' && prev[got.world] === sig) continue;
     const body = build(Object.assign({ world: got.world, at: new Date(c.now).toISOString(), reason: c.reason, nowMs: c.now }, g));
     Object.assign(body, c.pf.fields);
     /* Re-checked just before this send (board review 1), as the enrolled tick re-checks after its read: a read can take
@@ -487,7 +504,7 @@ async function sendOthers(c) {
     if (!now2 || now2.world !== c.rec.world || now2.consentHash !== c.rec.consentHash) break;
     let r;
     try { r = await c.remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
-    if (r && r.ok) { next[got.world] = sig; continue; }
+    if (r && r.ok) { if (!g.partial) next[got.world] = sig; continue; }
     const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
     console.error('orgrollup: the company did not take another Kosmos\'s rollup (' + code + ')');
     if (code === 'org_rollup_too_many_worlds') {
@@ -627,8 +644,9 @@ async function tick(opts) {
       st.others && typeof st.others === 'object' ? { others: st.others } : {});
     writeState(root, done);
     // #5532 widening: then every other Kosmos on this computer, recorded once they are sent.
-    const others = await sendOthers({ o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others });
-    writeState(root, Object.assign({}, done, { others }));
+    const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld };
+    const others = await sendOthers(oc);
+    writeState(root, Object.assign({}, done, { others, othersHeld: oc.heldNext || [] }));
     return { sent: true, reason: body.reason };
   }
   const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
