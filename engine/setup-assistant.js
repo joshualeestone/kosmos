@@ -743,8 +743,8 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
    inside scripts, what shell startup adds to PATH, a link held in an ancestor of the agent folder (such as /var in /),
    replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
-   files other than those part 2 denies (see tokenOnlySettingsRules for what part 2 covers; it does NOT cover the scripts a
-   hook, the status line or a server's command points at, wherever they sit), the code in shell startup files, and what a file the start
+   files other than those part 2 denies (see tokenOnlySettingsRules for what part 2 covers; the scripts a hook, the status
+   line or a server's command points at are #5774's, engine/startcommands.js), the code in shell startup files, and what a file the start
    reads can pull in or run in turn (tmux includes, run-shell and plugins; config other started programs read, such as
    git's). Program files are named to the file tools only (review 23: the sandbox profile has a size limit). Both layers match by
    PATH, so a hard link to a user-owned program made under another name is not covered either (as #4491 says of the

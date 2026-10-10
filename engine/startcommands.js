@@ -36,7 +36,7 @@
  * guard says it is not whole.
  *
  * Not covered here (stated gaps, later parts of #5774): what a script or program runs or reads in turn (a script that
- * sources another, npm or make reading the agent folder's package.json or Makefile), the shell's own startup files,
+ * sources another, a program not in the folder-runner list reading the folder it runs in), the shell's own startup files,
  * environment settings that point a program at code, and hooks declared inside skills, agents and commands.
  */
 
@@ -62,7 +62,7 @@ const RUNNER_SUB = { deno: /^run$/, bun: /^(?:run|x)$/, uv: /^run$/, go: /^run$/
    task in package.json, deno.json or pyproject.toml, which is the folder's own code. */
 const PACKAGE_SCRIPT_RUNNER = /^(?:bun|deno|uv)$/;
 /* Words before the real program: it is the next word that is not a flag, a NAME=value or (for timeout) a duration. */
-const WRAPPER = /^(?:env|exec|nohup|time|sudo|doas|g?timeout|nice|ionice|command|builtin|xargs|stdbuf|caffeinate|npx|pnpx|bunx|uvx|watch|parallel|setsid|chronic|flock|script|export|if|then|elif|else|while|until|do|!|\{)$/;
+const WRAPPER = /^(?:arch|env|exec|nohup|time|sudo|doas|g?timeout|nice|ionice|command|builtin|xargs|stdbuf|caffeinate|npx|pnpx|bunx|uvx|watch|parallel|setsid|chronic|flock|script|export|if|then|elif|else|while|until|do|!|\{)$/;
 /* Review 6: a word with a script's file extension is code wherever it sits in the command, so an unlisted wrapper
    (some-runner hook.sh) cannot hide it. */
 const SCRIPT_EXT = /\.(?:sh|bash|zsh|js|mjs|cjs|ts|mts|cts|py|rb|pl|php|lua|ps1|jar|awk|scpt|applescript|swift|kts)$/i;
@@ -289,7 +289,7 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,]+)/g;
  * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
  * words whose value cannot be known.
  */
-function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
+function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true) {
   const paths = [];
   const runPaths = [];   // the subset named where something runs
   const unsafe = [];
@@ -298,13 +298,17 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
      makes a relative script unknowable. */
   const cwds = cwdsIn ? [...cwdsIn] : [cwd];
   let cwdUnknown = false;
+  /* Review 11: a hook or status line runs in the session's CURRENT folder (2.1.296 passes the session's cwd), which the
+     agent moves with cd into any folder inside its own. So until the line cd's somewhere absolute, a relative script
+     could be one the agent made in any subfolder: it is named. A server runs in the project folder (anchored). */
+  let anchored = anchoredIn;
   let lastCwd = cwds[cwds.length - 1];   // where the line most recently cd'd to
   const pathDirs = [];   // review 6: folders a PATH= assignment put in front, where a bare program is then found
   const codePaths = [];  // review 7: the paths in an interpreter's code position, where a folder is code too
   const UNKNOWN_CWD = '/\0unknown';
   const more = (line) => {
     if (depth >= 3) { unsafe.push('commands nested too deep for Kosmos to read'); return; }   // review 8: named, not dropped
-    const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds);
+    const r = pathsOfWords(shellWords(line, vars), cwd, vars, depth + 1, cwds, anchored);
     paths.push(...r.paths); runPaths.push(...r.runPaths); codePaths.push(...r.codePaths); unsafe.push(...r.unsafe);
   };
   let cwdReal = cwd;
@@ -368,9 +372,9 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     if (w.head) { flushRunner(); cmdCwd = null; chdirNext = false; packageScriptNext = false; slotTaken = false; pendingHead = false; durationNext = false; flagScriptNext = false; skipNext = false; splitNext = false; inExec = false; }
     if (cdNext) {
       cdNext = false;
-      if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; } }   // a bare cd goes home
+      if (w.head) { if (vars.HOME) { cwds.push(vars.HOME); lastCwd = vars.HOME; anchored = true; } }   // a bare cd goes home
       else if (w.dynamic || w.text === '-') { cwdUnknown = true; lastCwd = UNKNOWN_CWD; continue; }
-      else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } lastCwd = path.resolve(lastCwd, w.text); continue; }
+      else if (!w.text.startsWith('-')) { for (const d of [...cwds]) { const t = path.resolve(d, w.text); if (!cwds.includes(t)) cwds.push(t); } lastCwd = path.resolve(lastCwd, w.text); if (path.isAbsolute(w.text)) anchored = true; continue; }
       else { cdNext = true; continue; }   // cd -P dir
     }
     let isHead = w.head;
@@ -462,6 +466,9 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null) {
     else if (text.includes('/')) { for (const m of text.matchAll(INNER_ABS)) paths.push(path.normalize(m[1])); continue; }
     else if (runs && !isHead) { relative = true; ps = cwds.map((d) => path.join(d, text)); }   // bash check.sh: the agent could create it
     if (relative && runs && cwdUnknown) unsafe.push(`a script named from a folder a cd moved to that Kosmos cannot read (${text})`);
+    // Review 11: where the script itself sits (not a later argument of an interpreter, such as a hook's mode word).
+    const scriptWord = isHead || codeSlot || (w.input && INTERPRETER.test(prog)) || flagValue || (!w.dynamic && !w.globbed && !/[*?\s]/.test(text) && SCRIPT_EXT.test(text));
+    if (relative && runs && !anchored && !cwdUnknown && scriptWord) unsafe.push(`a script named relative to the folder the session is in, which the agent can move into any of its own subfolders (${text}); name it by a full path or from $CLAUDE_PROJECT_DIR`);
     for (const p of ps) {
       if (!runs && inAgentFolder(p)) continue;   // an argument in the agent's own folder is its work, not code
       paths.push(p);
@@ -641,15 +648,16 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const settingsEnv = {};
   for (const [k, vs] of envValues) if (vs.size === 1 && !vs.has('\0not a string')) settingsEnv[k] = [...vs][0];
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
-  // PWD: hooks run in the agent folder (review 5).
+  // Review 11: no PWD: a hook runs in the session's current folder, which the agent moves.
   // Review 9: the login's own name and temp folder, which hooks see unchanged.
   let login = {};
   try { const u = require('os').userInfo().username; login = { USER: u, LOGNAME: u }; } catch { login = {}; }
   const tmp = process.env.TMPDIR || require('os').tmpdir();
-  const baseVars = { ...settingsEnv, ...login, TMPDIR: tmp, PATH: PATH_MARK, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, PWD: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
+  const baseVars = { ...settingsEnv, ...login, TMPDIR: tmp, PATH: PATH_MARK, ...(home ? { HOME: home } : {}), CLAUDE_PROJECT_DIR: agentDir, ...(ownHome ? { CLAUDE_CONFIG_DIR: ownHome } : {}) };
   const take = (cmds, vars, where) => {
     for (const c of cmds) {
-      const r = pathsOfWords(wordsOf(c, vars), agentDir, vars);
+      // A server (program and args) starts in the project folder; a shell line in the session's current one.
+      const r = pathsOfWords(wordsOf(c, vars), agentDir, vars, 0, null, c.line === undefined);
       raw.push(...r.paths);
       for (const p of r.runPaths) runRaw.add(p);
       for (const p of r.codePaths) codeRaw.add(p);
@@ -660,6 +668,9 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     const part = s.pick(s.json);
     if (part) take(commandsIn(part), baseVars, s.file);
   }
+  /* Review 11: CLAUDE_CODE_SHELL_PREFIX in a settings env is a command Claude Code puts in front of every hook. */
+  if (settingsEnv.CLAUDE_CODE_SHELL_PREFIX !== undefined) take([{ line: settingsEnv.CLAUDE_CODE_SHELL_PREFIX }], baseVars, 'the settings env (CLAUDE_CODE_SHELL_PREFIX)');
+  else if (envValues.has('CLAUDE_CODE_SHELL_PREFIX')) unsafe.push('CLAUDE_CODE_SHELL_PREFIX (set two ways in the settings env, so the program every hook runs through is unknown)');
   /* A plugin folder is denied whole, so one that is the agent folder, a folder above it, the home or a config home would
      take the agent's own work away: named instead. */
   const never = new Set([...foldersFrom(agentDir), ...(home ? [path.resolve(home)] : []), ...homes.map((h) => path.resolve(h))]);

@@ -232,7 +232,7 @@ test('#5774 review 1: a folder a command names is never denied (cd into the agen
 
 test('#5774 review 1: an interpreter\'s script is denied even before it exists; an inline assignment\'s file is read', () => {
   const dir = agentDir('pilot-slot');
-  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash check.sh; BASH_ENV=${path.join(SANDBOX, 'benv.sh')} bash -c true` }] }] } });
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cd "$CLAUDE_PROJECT_DIR" && bash check.sh; BASH_ENV=${path.join(SANDBOX, 'benv.sh')} bash -c true` }] }] } });
   try {
     const g = setup.guardTokenOnlyFolder(dir, 'pilot-slot', DEPS);
     assert.equal(g.ok, true, JSON.stringify(g));
@@ -273,7 +273,7 @@ test('#5774 review 1: a plugin\'s manifest can point at its own hook file; its d
   const out = path.join(SANDBOX, 'scripts', 'from-manifest.sh');
   touch(out);
   writeJson(path.join(plug, '.claude-plugin', 'plugin.json'), { name: 'p2', hooks: './custom/h.json' });
-  writeJson(path.join(plug, 'custom', 'h.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${out}; \${CLAUDE_PLUGIN_DATA}/venv/bin/python x.py` }] }] } });
+  writeJson(path.join(plug, 'custom', 'h.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${out}; \${CLAUDE_PLUGIN_DATA}/venv/bin/python \${CLAUDE_PLUGIN_ROOT}/x.py` }] }] } });
   writeJson(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'p2@local': [{ scope: 'user', installPath: plug }] } });
   try {
     const g = setup.guardTokenOnlyFolder(dir, 'pilot-plug', DEPS);
@@ -311,7 +311,7 @@ test('#5774 review 2: the agent\'s own files a command only reads or writes stay
   const dir = agentDir('pilot-data');
   for (const f of ['package.json', path.join('log', 'hook.log')]) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), '{}\n'); }
   touch(path.join(dir, 'tools', 'run.sh'));
-  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'jq . package.json | tee log/hook.log; jq . "$CLAUDE_PROJECT_DIR/package.json"; nohup bash tools/run.sh' }] }] } });
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'jq . package.json | tee log/hook.log; jq . "$CLAUDE_PROJECT_DIR/package.json"; nohup bash "$CLAUDE_PROJECT_DIR"/tools/run.sh' }] }] } });
   try {
     const g = setup.guardTokenOnlyFolder(dir, 'pilot-data', DEPS);
     assert.equal(g.ok, true, JSON.stringify(g));
@@ -474,7 +474,7 @@ test('#5774 review 5: a hook with a quoted assignment in front has its script de
   touch(path.join(dir, 'hook.py'));
   const srv = path.join(SANDBOX, 'scripts', 'staging-srv.js');
   touch(srv);
-  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'PYTHONUNBUFFERED="1" python3 hook.py; bash "$PWD/tools/p.sh"' }] }] } });
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'cd "$CLAUDE_PROJECT_DIR" && PYTHONUNBUFFERED="1" python3 hook.py' }] }] } });
   writeJson(path.join(HOME, '.claude-staging-oauth.json'), { mcpServers: { s: { command: 'node', args: [srv] } } });
   try {
     const g = setup.guardTokenOnlyFolder(dir, 'pilot-r5', DEPS);
@@ -482,7 +482,6 @@ test('#5774 review 5: a hook with a quoted assignment in front has its script de
     const deny = readSettings(dir).permissions.deny;
     assert.ok(editDeniedBy(deny, path.join(dir, 'hook.py')).length > 0, 'the script after a quoted assignment');
     assert.ok(editDeniedBy(deny, srv).length > 0, 'a server in a suffixed global config');
-    assert.ok(editDeniedBy(deny, path.join(dir, 'tools', 'p.sh')).length > 0, '$PWD is the agent folder, where hooks run');
   } finally {
     fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
     fs.rmSync(path.join(HOME, '.claude-staging-oauth.json'), { force: true });
@@ -634,5 +633,41 @@ test('#5774 review 10: a config file caught mid-write is read once more before i
   } finally {
     fs.readFileSync = real;
     fs.rmSync(file, { force: true });
+  }
+});
+
+test('#5774 review 11: a hook runs in the session\'s current folder, so a relative script is named unless the line anchors it', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
+  for (const c of ['bash scripts/check.sh', '.claude/hooks/fmt.sh', 'python3 hook.py', 'cd sub && ./x.sh', 'bash -c "./a.sh"', 'bash "$PWD/x.sh"']) assert.ok(line(c).unsafe.length > 0, c);
+  for (const c of ['"$CLAUDE_PROJECT_DIR"/tools/x.sh', 'cd "$CLAUDE_PROJECT_DIR" && ./x.sh', 'cd /opt && ./x.sh', 'cd && ./x.sh']) assert.deepEqual(line(c).unsafe, [], `anchored: ${c}`);
+  assert.deepEqual(line('bash "/abs/kosmos-report-hook.sh" start').unsafe, [], 'a later argument (the report hook\'s mode word) is not a script position');
+  const dir = agentDir('pilot-r11');
+  const prefix = path.join(SANDBOX, 'scripts', 'prefix.sh');
+  touch(prefix);
+  try {
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bash scripts/check.sh' }] }] } });
+    let g = setup.guardTokenOnlyFolder(dir, 'pilot-r11', DEPS);
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /relative to the folder the session is in/);
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bash "$PWD/x.sh"' }] }] } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r11', DEPS);
+    assert.equal(g.ok, false, '$PWD is the session\'s folder, which Kosmos cannot know');
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+    writeJson(path.join(HOME, '.claude.json'), { mcpServers: { s: { command: 'node', args: ['server.js'] } } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r11', DEPS);
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+    assert.equal(g.ok, true, 'a server starts in the project folder, so its relative script is known: ' + JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(dir, 'server.js')).length > 0);
+    writeJson(path.join(HOME, '.claude', 'settings.json'), { env: { CLAUDE_CODE_SHELL_PREFIX: prefix } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r11', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, prefix).length > 0, 'the shell prefix every hook runs through');
+    writeJson(path.join(HOME, '.claude-acct', 'settings.json'), { env: { CLAUDE_CODE_SHELL_PREFIX: '/other' } });
+    g = setup.guardTokenOnlyFolder(dir, 'pilot-r11', DEPS);
+    assert.equal(g.ok, false, 'set two ways: unknown');
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+    fs.rmSync(path.join(HOME, '.claude-acct', 'settings.json'), { force: true });
   }
 });
