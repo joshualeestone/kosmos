@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: rnquote
-diff_hash: 92760aa8a52bef567f7443321fdc282174bb59ac67ba843c78dcbc2bee74fb75
+diff_hash: e35f4bf109956c6e33b50c1d832b6118abf806944c4db00c8ac6ab255015b66f
 validation: Scoped, stated plainly. The diff touches only tools/post-release-notes.sh and its test, so I ran tools/test-post-release-notes.sh (all arms pass, including the two new entity arms) and bash -n on both files. I did NOT run the full node or shell suite locally; nothing else reads this script. Control: both new arms go red against origin/main's script with the exact 0.7.37 garble. Field check: the fixed decoder over all 359 real versions-page entries leaves no HTML entity behind. The merge is gated on all-green GitHub CI.
 subdir_audit: passed
 timestamp: 2026-10-10T17:06:09Z
