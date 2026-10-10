@@ -28,3 +28,4 @@ fixture). A managed agent whose own report says otherwise keeps today's path.
 - Known gap, filed as #5743: room posts and automatic deliveries still paste into the menu (decide hold vs close at the delivery level).
 - Review 2: at most 9 entries (one key per answer); Claude cards only; a message that fails after its question was closed says so on the record.
 - Review 3 (measured with real captures, now fixtures): multi-select ([ ] options) and multi-question ("←  ☐ A  ☐ B  ✔ Submit  →") are refused; an unreadable screen is never answered or closed; Claude cards by allowlist; no key while a delivery is being typed into the pane.
+- Review 4 converged (nothing new beyond decisions). Accepted trade-off: the question is closed before the message goes, so a delivery then refused (a paused agent's command check, a pane gone) leaves it closed; the record says so. Known gap (#5743): a reply while the card is not asking takes the old path.
