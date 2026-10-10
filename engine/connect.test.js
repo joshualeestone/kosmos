@@ -99,6 +99,12 @@ const CONNECTED_CONFIG = {
 const writeClaudeConfig = (obj) => fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(obj));
 const clearClaudeConfig = () => { try { fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true }); } catch { /* fine */ } };
 
+// #5727: do NOT migrate this until() onto test-support/eventually(). It is EXCLUDED on purpose:
+// the #3326 forced-re-login flows depend on this poll's setInterval cadence interleaving with
+// the engine's driver tick and its refresh-expiry reads, and eventually()'s t=0 probe + sequential
+// awaits break them deterministically (STUCK instead of CONNECTED, reader asked twice). The
+// STUCK-within-1400ms wait below is also a discriminating timing bound that must not scale. See
+// the #5727 exclusion comment for the full evidence before touching this.
 function until(fn, ms) {
   const deadline = Date.now() + (ms || 3000);
   return new Promise((resolve, reject) => {
