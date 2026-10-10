@@ -515,9 +515,14 @@ test('#5791: a work Kosmos left with no terms on record asks for them again on i
   assert.equal(oe.mayReport({ root }), false, 'precondition: nothing on record');
   const T0 = Date.UTC(2026, 9, 7, 12);
   const statuses = () => c.sent.filter((x) => x.route === oe.ROUTES.status).length;
+  // Review 4: the ask runs before the run lock, so it must not read-modify-write the shared rollup state.
+  const stateFile = path.join(root, r.STATE_FILE);
+  fs.writeFileSync(stateFile, JSON.stringify({ marker: 'another run wrote this' }));
   const t1 = await r.tick({ root, remote, sources: sources(), now: T0 });
   assert.equal(t1.sent, false);
   assert.equal(statuses(), 1, 'the first tick did not ask the company for its terms');
+  assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), { marker: 'another run wrote this' }, 'the ask rewrote the shared rollup state');
+  assert.ok(fs.existsSync(path.join(root, r.RETAKE_FILE)), 'the ask was not stamped in its own file');
   reachable = true;
   const t2 = await r.tick({ root, remote, sources: sources(), now: T0 + r.RETAKE_EVERY_MS - 60e3 });
   assert.equal(t2.sent, false);
