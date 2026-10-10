@@ -31,6 +31,11 @@ async function main(mode) {
 }
 
 if (require.main === module) {
+  /* Bounded by itself (board review 5): its parent's timer dies with the parent, so a read that hangs, or a tick whose
+     board was killed, ends here. Unref'd: it never keeps a finished child alive. */
+  const r = require('./orgrollup');
+  const bound = process.argv[2] === 'tick' ? r.TICK_CHILD_TIMEOUT_MS : r.GATHER_TIMEOUT_MS;
+  setTimeout(() => process.exit(1), bound).unref();
   main(process.argv[2]).then(
     // Exit once the line is flushed (board review 1): a handle a reader left open must not turn every read into the
     // caller's timeout, which reads as no report.

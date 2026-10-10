@@ -435,6 +435,28 @@ function otherWorlds(root, opts) {
   return out;
 }
 
+/* kosmos#5532 widening: the enrolled Kosmos on this computer when the board on screen serves ANOTHER Kosmos, searched
+   in the whole registry (board review 1), or null. deps: { otherWorlds, oe } (tests). */
+function enrolledElsewhere(root, deps) {
+  const d = deps || {};
+  const oe = d.oe || require('./orgenroll');
+  let list = [];
+  try { list = (d.otherWorlds || otherWorlds)(root, { all: true }) || []; } catch { return null; }
+  return list.find((w) => { try { return oe.isEnrolledHere({ root: w.root }); } catch { return false; } }) || null;
+}
+
+/* Runs that enrolled Kosmos's own tick in a child with its folders, so its words, timing, print and key are its own.
+   `done(err)` when the child ends; a failed or timed-out child is said (board review 2). Returns the child, so the
+   board can stop it when it exits (board review 5). deps: { execFile } (tests). */
+function spawnEnrolledTick(w, done, deps) {
+  const execFile = (deps && deps.execFile) || require('child_process').execFile;
+  return execFile(process.execPath, [path.join(__dirname, 'orgrollup-child.js'), 'tick'],
+    { env: w.env, timeout: TICK_CHILD_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (err) => {
+      if (err) console.error('orgrollup: the enrolled Kosmos\'s rollup, run for it from this board, failed (' + String(err.signal || err.code || err.message) + ')');
+      done(err || null);
+    });
+}
+
 /* One other Kosmos's inventory, read by a child process in its environment: { world, gathered } or null. */
 function gatherIn(env) {
   return new Promise((resolve) => {
@@ -461,6 +483,11 @@ async function sendOthers(c) {
   const heldPrev = new Set(Array.isArray(c.held) ? c.held : []);
   const held = new Set(heldPrev);
   c.heldNext = held;
+  /* The Kosmoses whose last DAILY did not land (board review 5): the next send of any kind sends them as a daily, so a
+     failed daily waits for the enrolled Kosmos's next send, not a whole day. Carried like the holds. */
+  const missedPrev = new Set(Array.isArray(c.missed) ? c.missed : []);
+  const missed = new Set(missedPrev);
+  c.missedNext = missed;
   // Only under words that name every Kosmos on this computer (the coordinator refuses the rest): none read, none sent.
   // Words that do not name every Kosmos keep no signatures (board review 2, decided): words naming them again resend
   // every Kosmos at once, the safe direction (the enrolled Kosmos's own signature, by contrast, survives new words).
@@ -485,22 +512,25 @@ async function sendOthers(c) {
     if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
     delete g.policyVersion; delete g.policyRefused;   // the company's policy is the computer's, reported by the enrolled Kosmos
     const sig = signature(build(Object.assign({ world: got.world, nowMs: c.now, reason: 'change' }, g)));
+    const reason = c.reason === 'daily' || missedPrev.has(got.world) ? 'daily' : c.reason;
     /* A partial read (board reviews 1 and 3): the company takes a Kosmos's statuses from its first daily of the day,
        so a partial daily is held once, as the enrolled Kosmos holds its own for an hour. The others send only with the
        enrolled Kosmos, so the hold is one daily: a Kosmos partial again at the next daily is sent, marked truncated,
-       rather than never reaching the company. A partial read is never a change. */
+       rather than never reaching the company, and stays marked while it stays partial, so it is sent every day after
+       the first (board review 5: dropping the mark after a send held it every other day). A partial read is never a
+       change. */
     if (g.partial) {
-      if (c.reason !== 'daily') continue;
+      if (reason !== 'daily') continue;
       if (!heldPrev.has(got.world)) {
         held.add(got.world);
         console.error('orgrollup: another Kosmos on this computer could not be read in full; its daily waits a day');
         continue;
       }
     } else {
-      if (c.reason === 'daily') held.delete(got.world);   // read in full: no hold
-      if (c.reason === 'change' && prev[got.world] === sig) continue;
+      if (reason === 'daily') held.delete(got.world);   // read in full: no hold
+      if (reason === 'change' && prev[got.world] === sig) continue;
     }
-    const body = build(Object.assign({ world: got.world, at: new Date(c.now).toISOString(), reason: c.reason, nowMs: c.now }, g));
+    const body = build(Object.assign({ world: got.world, at: new Date(c.now).toISOString(), reason, nowMs: c.now }, g));
     Object.assign(body, c.pf.fields);
     /* Re-checked just before this send (board review 1), as the enrolled tick re-checks after its read: a read can take
        minutes, and a Leave, or new words (which may no longer name every Kosmos), in that time stops every later send. */
@@ -508,9 +538,12 @@ async function sendOthers(c) {
     if (!now2 || now2.world !== c.rec.world || now2.consentHash !== c.rec.consentHash) break;
     let r;
     try { r = await c.remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
-    if (r && r.ok) { if (g.partial) held.delete(got.world); else next[got.world] = sig; continue; }
+    if (r && r.ok) { if (reason === 'daily') missed.delete(got.world); if (!g.partial) next[got.world] = sig; continue; }
+    if (reason === 'daily') missed.add(got.world);
     const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
     console.error('orgrollup: the company did not take another Kosmos\'s rollup (' + code + ')');
+    // Refused for the member, not the Kosmos (board review 5): every later one would be refused too, after its read.
+    if (code === 'org_consent_changed' || code === 'org_not_enrolled' || code === 'org_not_member') break;
     if (code === 'org_rollup_too_many_worlds') {
       /* The company is full (board review 2): the Kosmoses not reached this time keep their signatures, so the next
          change send does not resend them all and hit the cap again at once. A Leave or new words drop them instead
@@ -645,12 +678,14 @@ async function tick(opts) {
     const done = Object.assign({ enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig },
       // #5534: what was reported, so a read that fails next time sends the same (review 3).
       'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true } } : {},
-      st.others && typeof st.others === 'object' ? { others: st.others } : {});
+      st.others && typeof st.others === 'object' ? { others: st.others } : {},
+      // Board review 5: the holds and missed dailies survive a board stopped while the others are read.
+      Array.isArray(st.othersHeld) ? { othersHeld: st.othersHeld } : {}, Array.isArray(st.othersMissed) ? { othersMissed: st.othersMissed } : {});
     writeState(root, done);
     // #5532 widening: then every other Kosmos on this computer, recorded once they are sent.
-    const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld };
+    const oc = { o, oe, eo, rec, accepted, pf, root, now, reason: body.reason, remote, prev: st.others, held: st.othersHeld, missed: st.othersMissed };
     const others = await sendOthers(oc);
-    writeState(root, Object.assign({}, done, { others, othersHeld: [...(oc.heldNext || [])] }));
+    writeState(root, Object.assign({}, done, { others, othersHeld: [...(oc.heldNext || [])], othersMissed: [...(oc.missedNext || [])] }));
     return { sent: true, reason: body.reason };
   }
   const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
@@ -690,5 +725,5 @@ module.exports = {
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
   STATUS, statusWord, providerOfModel, build, gather, defaultSources, otherWorlds, gatherIn, sendOthers, OTHERS_MAX,
-  TICK_CHILD_TIMEOUT_MS,
+  TICK_CHILD_TIMEOUT_MS, GATHER_TIMEOUT_MS, enrolledElsewhere, spawnEnrolledTick,
 };

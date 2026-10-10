@@ -21138,6 +21138,11 @@ function companyPolicySync() {
     ten minutes; engine/orgrollup.js decides). */
 const ORG_ROLLUP_TICK_MS = 5 * 60 * 1000;
 let ORG_ROLLUP_RUNNING = false;
+/* The enrolled Kosmos's tick child, when this board serves another Kosmos (kosmos#5532 widening). Stopped when this board
+   exits (board review 5), so a restarted board does not run that tick beside it; a board killed outright cannot stop
+   it, and the child bounds itself (engine/orgrollup-child.js). */
+let ORG_ROLLUP_CHILD = null;
+process.on('exit', () => { try { if (ORG_ROLLUP_CHILD) ORG_ROLLUP_CHILD.kill(); } catch { /* gone */ } });
 function orgRollupTick() {
   if (ORG_ROLLUP_RUNNING) return;   // one at a time: a slow read must not start a second send
   // Rollup review 28: a send to the company is a real side effect, so it waits for live execution like the board's other
@@ -21155,15 +21160,10 @@ function orgRollupTick() {
        reports, with every other Kosmos, this one included. Its tick runs in a child with its own folders, so its words,
        timing, print and key are its own. One board runs per computer, so one such child at a time (ORG_ROLLUP_RUNNING,
        held until it ends, at most TICK_CHILD_TIMEOUT_MS); the enrolled Kosmos's own state paces its sends. */
-    const enrolled = rollup.otherWorlds(require('./engine/store').ROOT, { all: true }).find((w) => { try { return oe.isEnrolledHere({ root: w.root }); } catch { return false; } });
+    const enrolled = rollup.enrolledElsewhere(require('./engine/store').ROOT);
     if (!enrolled) return;   // no work Kosmos on this computer: nothing is read or sent
     ORG_ROLLUP_RUNNING = true;
-    require('child_process').execFile(process.execPath, [path.join(__dirname, 'engine', 'orgrollup-child.js'), 'tick'],
-      { env: enrolled.env, timeout: rollup.TICK_CHILD_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (err) => {
-        ORG_ROLLUP_RUNNING = false;
-        // A failed child is said, not swallowed (board review 2); the next tick tries again.
-        if (err) console.error('orgrollup: the enrolled Kosmos\'s rollup, run for it from this board, failed (' + String(err.signal || err.code || err.message) + ')');
-      });
+    ORG_ROLLUP_CHILD = rollup.spawnEnrolledTick(enrolled, () => { ORG_ROLLUP_RUNNING = false; ORG_ROLLUP_CHILD = null; });
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
 /** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own

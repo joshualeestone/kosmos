@@ -169,6 +169,10 @@ test('#5532 widening (board review 1): another Kosmos read in part is not sent, 
   const second = rollups(c2);
   assert.deepEqual(second.map((x) => x.world), [oe.readEnrollment({ root }).world, BETA, GAMMA], 'a Kosmos partial every day never reached the company');
   assert.equal(second[1].truncated, true, 'a partial daily was sent as the whole picture');
+  // Board review 5: still partial the day after, it goes again (not every other day).
+  const c3 = coordinator();
+  await r.tick(Object.assign({ root, remote: c3, sources: sources(), now: T0 + 49 * 3600 * 1000 }, o));
+  assert.ok(rollups(c3).some((x) => x.world === BETA), 'an always-partial Kosmos was held again after it was sent');
 });
 
 test('#5532 widening (board review 4): a change send between two dailies keeps another Kosmos\'s partial hold', async (t) => {
@@ -189,6 +193,57 @@ test('#5532 widening (board review 4): a change send between two dailies keeps a
   const c2 = coordinator();
   await r.tick(Object.assign({ root, remote: c2, sources: sources([{ name: 'newbie', folder: '/g', job: null, profile: true }]), now: T0 + 25 * 3600 * 1000 }, o));
   assert.ok(rollups(c2).some((x) => x.world === BETA && x.truncated === true), 'the change send wiped the hold, so the always-partial Kosmos was held again');
+});
+
+test('#5532 widening (board review 5): a daily that did not land rides the next send, as a daily', async (t) => {
+  const root = world(t);
+  let fail = true;
+  const c = coordinator((body) => (body.world === BETA && fail ? { ok: false, because: '503 busy' } : { ok: true, data: { ok: true } }));
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const o = { otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }],
+    gatherIn: async () => ({ world: BETA, enrolled: false, gathered: JSON.parse(JSON.stringify(inv('Ada'))) }) };
+  await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  fail = false;
+  const before = rollups(c).length;
+  await r.tick(Object.assign({ root, remote: c, sources: sources([{ name: 'newbie', folder: '/g', job: null, profile: true }]), now: T0 + 2 * 3600 * 1000 }, o));
+  const later = rollups(c).slice(before);
+  assert.equal(later[0].reason, 'change', 'CONTROL: the second tick is the enrolled Kosmos\'s change send');
+  const beta = later.find((x) => x.world === BETA);
+  assert.ok(beta && beta.reason === 'daily', 'the missed daily did not ride the next send: ' + JSON.stringify(later.map((x) => [x.world, x.reason])));
+});
+
+test('#5532 widening (board review 5): a refusal for the member stops the loop before the next read', async (t) => {
+  const reads = [];
+  const c = {
+    o: { otherWorlds: () => [{ id: 'beta', env: { K: 'beta' } }, { id: 'gamma', env: { K: 'gamma' } }],
+      gatherIn: async (env) => { reads.push(env.K); return { world: env.K === 'beta' ? BETA : GAMMA, enrolled: false, gathered: JSON.parse(JSON.stringify(inv(env.K))) }; } },
+    oe: { mayReport: () => true, readEnrollment: () => ({ world: 'a'.repeat(32), consentHash: 'h' }) },
+    eo: {}, rec: { world: 'a'.repeat(32), consentHash: 'h' }, accepted: { everyKosmosConsented: true, usageConsented: false },
+    pf: { fields: {} }, root: '/nowhere', now: T0, reason: 'daily', prev: {},
+    remote: { macRequest: async () => ({ ok: false, because: '409 org_consent_changed' }) },
+  };
+  await r.sendOthers(c);
+  assert.deepEqual(reads, ['beta'], 'a Kosmos was read after the company refused the member');
+});
+
+test('#5532 widening (board review 5): the enrolled Kosmos is found in the whole registry and its tick runs in a child with its folders', () => {
+  const list = [{ id: 'a', root: '/r/a', env: { K: 'a' } }, { id: 'b', root: '/r/b', env: { K: 'b' } }];
+  let opts = null;
+  const found = r.enrolledElsewhere('/r/me', { otherWorlds: (root, o) => { opts = o; return list; }, oe: { isEnrolledHere: (x) => x.root === '/r/b' } });
+  assert.equal(found.id, 'b');
+  assert.deepEqual(opts, { all: true }, 'the search used the capped list');
+  assert.equal(r.enrolledElsewhere('/r/me', { otherWorlds: () => list, oe: { isEnrolledHere: () => false } }), null, 'CONTROL: none enrolled');
+  let call = null;
+  let ended = 'no';
+  const child = r.spawnEnrolledTick(found, (err) => { ended = err ? 'err' : 'ok'; }, { execFile: (bin, args, o, cb) => { call = { bin, args, o }; cb(Object.assign(new Error('x'), { signal: 'SIGTERM' })); return { pid: 1 }; } });
+  assert.equal(call.bin, process.execPath);
+  assert.match(call.args[0], /orgrollup-child\.js$/);
+  assert.equal(call.args[1], 'tick');
+  assert.deepEqual(call.o.env, { K: 'b' }, 'the child did not get the enrolled Kosmos\'s folders');
+  assert.equal(call.o.timeout, r.TICK_CHILD_TIMEOUT_MS);
+  assert.equal(ended, 'err', 'a killed child did not end the run (the board would stay busy)');
+  assert.deepEqual(child, { pid: 1 }, 'the child is not handed back for the board to stop');
 });
 
 test('#5532 widening (board review 3): another Kosmos enrolled itself is never sent under this enrollment', async (t) => {
