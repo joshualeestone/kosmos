@@ -169,7 +169,7 @@ test('#5752: a twice-daily rule round-trips through the task page\'s Repeats con
   const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
   const els = { 'tk-repeat-every': { value: '', dataset: {} }, 'tk-repeat-at': { value: '', dataset: {} }, 'tk-repeat-day': { value: 'mon', dataset: {} } };
   const document = { getElementById: (id) => els[id] };
-  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatRemember'])
+  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatKeepOthers'])
     + '\nreturn { tkRepeatStoredChoice, tkRepeatChoice, tkRepeatFillAt };')(eval(days[1]), document);
   const t = { repeat: { every: 'day', at: ['09:00', '21:00'] } };
   const stored = f.tkRepeatStoredChoice(t);
@@ -191,7 +191,7 @@ test('#5752: a twice-daily rule round-trips through the task page\'s Repeats con
   // CONTROL: a one-time rule forgets the list, so its own 09:00 is just 09:00.
   f.tkRepeatFillAt('09:00');
   els['tk-repeat-every'].value = 'day';
-  assert.equal(els['tk-repeat-at'].dataset.multi, undefined);
+  assert.equal(els['tk-repeat-at'].dataset.others, undefined);
   assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '09:00' });
 });
 
@@ -200,8 +200,8 @@ test('#5752 round 2: after a Save the remembered list is the saved one, so the n
   const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
   const els = { 'tk-repeat-every': { value: 'day', dataset: {} }, 'tk-repeat-at': { value: '', dataset: {} }, 'tk-repeat-day': { value: 'mon', dataset: {} } };
   const document = { getElementById: (id) => els[id] };
-  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatRemember', 'tkRepeatSaved'])
-    + '\nreturn { tkRepeatChoice, tkRepeatFillAt, tkRepeatSaved };')(eval(days[1]), document);
+  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatKeepOthers', 'tkRepeatSaved', 'tkRepeatFollowUnderEdit'])
+    + '\nreturn { tkRepeatStoredChoice, tkRepeatChoice, tkRepeatFillAt, tkRepeatSaved, tkRepeatFollowUnderEdit };')(eval(days[1]), document);
   const box = els['tk-repeat-at'];
   // 1: 9am and 9pm, the person moves the morning run onto 9pm (one time), saves, then picks 10am: 10am alone.
   f.tkRepeatFillAt('09:00,21:00');
@@ -224,4 +224,71 @@ test('#5752 round 2: after a Save the remembered list is the saved one, so the n
   assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '09:00' });
   // The Save handler is what calls it (a page reader, so a rename that leaves the handler on the old line is seen).
   assert.match(SRC, /if \(still\(\)\) tkRepeatSaved\(sent\);/);
+  // Round 3: the box's time moved PAST another one and saved: Save is off afterwards (the choice is what is stored),
+  // and a second click could not drop a time.
+  els['tk-repeat-every'].value = 'day';
+  f.tkRepeatFillAt('09:00,21:00');
+  box.value = '22:00';
+  const sent = f.tkRepeatChoice();
+  assert.deepEqual(sent, { every: 'day', at: '21:00,22:00' });
+  f.tkRepeatSaved(sent);
+  assert.deepEqual(f.tkRepeatChoice(), f.tkRepeatStoredChoice({ repeat: { every: 'day', at: ['21:00', '22:00'] } }), 'unchanged after the save');
+  box.value = '23:00';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '21:00,23:00' }, 'the next edit moves the box\'s own time, not 21:00');
+});
+
+test('#5752 round 3: a rule an agent changes under the person\'s unsaved edit: the edit stands and the others follow the new rule', () => {
+  const SRC = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
+  const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
+  const els = { 'tk-repeat-every': { value: 'day', dataset: {} }, 'tk-repeat-at': { value: '', dataset: {} }, 'tk-repeat-day': { value: 'mon', dataset: {} } };
+  const document = { getElementById: (id) => els[id] };
+  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatKeepOthers', 'tkRepeatFollowUnderEdit'])
+    + '\nreturn { tkRepeatChoice, tkRepeatFillAt, tkRepeatFollowUnderEdit };')(eval(days[1]), document);
+  const box = els['tk-repeat-at'];
+  f.tkRepeatFillAt('09:00,21:00');
+  box.value = '10:00';   // unsaved
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '10:00,21:00' }, 'precondition: the edit keeps 9pm');
+  f.tkRepeatFollowUnderEdit({ repeat: { every: 'day', at: '09:00' } });
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '10:00' }, 'the agent dropped 9pm: Save would not bring it back');
+  f.tkRepeatFollowUnderEdit({ repeat: { every: 'day', at: ['08:00', '20:00'] } });
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '10:00,20:00' }, 'the box stands for the new first time, the rest kept');
+  f.tkRepeatFollowUnderEdit({ repeat: { every: 'week', day: 1, at: '09:00' } });
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '10:00' }, 'a weekly rule has no other daily times');
+  // tkPaintRepeat calls it when the stored rule moved and the person's edit was kept.
+  assert.match(SRC, /\} else if \(every\.dataset\.stored !== stored\) tkRepeatFollowUnderEdit\(t\);/);
+});
+
+test('#5752 round 3: through the page\'s own paint loop: Save goes dark after a save, and a later agent change is followed', () => {
+  const SRC = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
+  const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
+  const el = () => ({ value: '', dataset: {}, hidden: false, disabled: false, textContent: '', classList: { toggle() {} } });
+  const els = {};
+  for (const id of ['tk-repeat-row', 'tk-repeat-when', 'tk-repeat-line', 'tk-repeat-msg', 'tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day', 'tk-repeat-save']) els[id] = el();
+  const document = { getElementById: (id) => els[id], querySelector: () => el() };
+  const f = new Function('TK_REPEAT_DAYS', 'document', 'TK_ACT', 'tkPaintReviewer', 'tskRepeatSentence', 'tskRepeatMissed',
+    page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatKeepOthers', 'tkRepeatSaved', 'tkRepeatFollowUnderEdit',
+      'tkRepeatShowWhen', 'tkRepeatDirty', 'tkPaintRepeat'])
+    + '\nreturn { tkRepeatChoice, tkRepeatSaved, tkPaintRepeat };')(eval(days[1]), document, '', () => {}, () => '', () => false);
+  const p = { id: 'p1' };
+  const task = (at) => ({ number: 3, repeat: { every: 'day', at } });
+  const save = els['tk-repeat-save'];
+  f.tkPaintRepeat(p, task(['09:00', '21:00']));
+  assert.equal(els['tk-repeat-at'].value, '09:00');
+  assert.equal(save.disabled, true, 'nothing changed: Save is off');
+  els['tk-repeat-at'].value = '22:00';
+  f.tkPaintRepeat(p, task(['09:00', '21:00']));   // the poll during the edit
+  assert.equal(els['tk-repeat-at'].value, '22:00', 'the poll keeps the edit');
+  assert.equal(save.disabled, false);
+  f.tkRepeatSaved(f.tkRepeatChoice());
+  f.tkPaintRepeat(p, task(['21:00', '22:00']));   // the repaint after pjReload
+  assert.equal(save.disabled, true, 'after the save, Save is off (round 3: it stayed lit and a second click dropped 9pm)');
+  f.tkPaintRepeat(p, task(['07:00']));   // an agent changes it
+  assert.equal(els['tk-repeat-at'].value, '07:00', 'and a later agent change is followed (round 3: the control froze)');
+  assert.equal(save.disabled, true);
+  // Mid-edit agent change: the edit stands, Save sends only what is on screen.
+  els['tk-repeat-at'].value = '10:00';
+  f.tkPaintRepeat(p, task(['07:00']));
+  f.tkPaintRepeat(p, task(['06:00', '18:00']));
+  assert.equal(els['tk-repeat-at'].value, '10:00');
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '10:00,18:00' });
 });

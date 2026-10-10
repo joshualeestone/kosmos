@@ -14,8 +14,10 @@ its fix) and slice 3 (a board notice with Add as member) are separate.
     times 30 minutes apart do not get a 10-minute grace. The latest-slot walk keeps a one-day period, so a
     lopsided pair (09:00 and 09:30) is never skipped.
 - web/index.html (the task page's Repeats control): a list rule keeps its list. The time box shows the first time
-  and the line below says every time. Editing the box changes that first time and keeps the others (sorted, a repeat
-  collapsing to one); choosing another frequency takes the box's one time. Save stays off while nothing changed.
+  and the line below says every time; the OTHER times are kept beside the box (`dataset.others`), and the choice is the
+  box's time plus them, sorted, a repeat said once. After a Save the others are the saved times other than the box's;
+  when an agent changes the rule under an unsaved edit, the edit stands and the others follow the new rule. Choosing
+  another frequency takes the box's one time. Save stays off while nothing changed.
 - install/kosmos and tools/windows/kosmos-cli.js: usage says `--at HH:MM[,HH:MM...]`; both already pass `--at`
   through as text, and the board checks it.
 
@@ -23,8 +25,11 @@ its fix) and slice 3 (a board notice with Add as member) are separate.
 - engine/taskrepeat-dailytimes-5752.test.js: shapes accepted and refused; nextAfter across both times and past midnight; describe;
   fromWords; graces from the shortest gap; missedRuns and runIsLate on a twice-daily rule; a lopsided pair's
   latest slot.
-- server.task-repeat-4787.test.js (or a new file): the route sets `--at 09:00,21:00` and a run at each time is
-  recorded on time.
+- server.task-repeat-4787.test.js: the route stores `--at 21:00, 09:00` sorted as a list, says it in words, records a
+  run on it, and refuses a bad time in the list while keeping the stored rule. (On-time and late runs at each time are
+  covered by the engine tests, not this one.)
+- web.task-repeat-4787.test.js: the Repeats control's choice, Save, and the page's own paint loop (tkPaintRepeat and
+  tkRepeatDirty with a stub page) across a save, the 5-second repaint and an agent's change.
 
 ## Weakest premise
 That the screen editor is the only reader that turns a rule into one time. Checked: outside taskrepeat.js the rule
@@ -54,3 +59,10 @@ is read by tasks.setRepeat (JSON compare of the normalised rule), the route (fro
 - The file header documents the list shape.
 - Left as is (NITs): a 24-time rule reads as a long sentence; the latest-slot walk does about 50 `nextAfter` calls for a
   24-time rule; the early-run grace (gap/30) and the miss grace (gap/4) differ, as they did before, now sized by gap.
+
+## Review round 3 fixes
+- The screen keeps the OTHER times, not the list with the box as its first entry. Moving the box's time past another
+  one and saving left Save lit (a second click dropped a time) and froze the control against later agent changes.
+- An agent's change under an unsaved edit updates the others, so Save never sends a time on no screen.
+- A test drives the page's own paint loop with a stub page.
+- Left as is (NIT): `--at ' 09:00 '` (one time with spaces) is still refused, as today; a list is trimmed.

@@ -61779,12 +61779,12 @@ function tkRepeatChoice() {
   const atEl = document.getElementById('tk-repeat-at');
   const at = atEl.value;
   if (!at) return { needsTime: true };   // review 1: an empty time is no choice yet, never a silent 9am
-  /* kosmos#5752: a daily rule with several times shows its first in the time box (the line below says them all). The box
-     edits THAT time and keeps the others (round 1: replacing the whole list with the one time dropped the rest, and this
-     screen cannot add them back). Untouched, the choice is the stored list, so Save stays off. */
-  if (every === 'day' && atEl.dataset.multi) {
-    const rest = atEl.dataset.multi.split(',').slice(1);
-    return { every: 'day', at: [...new Set([at, ...rest])].sort().join(',') };
+  /* kosmos#5752: a daily rule with several times shows one in the time box (the line below says them all) and keeps the
+     OTHERS beside it, so the choice is the box's time plus those, sorted. Round 1: replacing the list with the box's one
+     time dropped the rest, which this screen cannot add back. Round 3: the others are kept as the others, never as "the
+     list minus its first", so a time moved past another one is still the box's own. Untouched, it is the stored list. */
+  if (every === 'day' && atEl.dataset.others) {
+    return { every: 'day', at: [...new Set([at, ...atEl.dataset.others.split(',')])].sort().join(',') };
   }
   return every === 'day' ? { every: 'day', at } : { every: 'week', on: document.getElementById('tk-repeat-day').value, at };
 }
@@ -61795,22 +61795,33 @@ function tkRepeatStoredChoice(t) {
   // kosmos#5752: several times a day travel as one comma list, the form the route reads.
   return r.every === 'day' ? { every: 'day', at: Array.isArray(r.at) ? r.at.join(',') : r.at } : { every: 'week', on: TK_REPEAT_DAYS[r.day], at: r.at };
 }
-/* kosmos#5752: a stored list of times fills the time box with its first and is remembered whole, so tkRepeatChoice keeps
-   the other times when the person changes that one. One time (or none: 9am to start from) forgets any list. */
+/* kosmos#5752: a stored list of times fills the time box with its first and keeps the rest as the others (tkRepeatChoice).
+   One time (or none: 9am to start from) has no others. */
 function tkRepeatFillAt(at) {
-  tkRepeatRemember(at);
-  document.getElementById('tk-repeat-at').value = (at || '09:00').split(',')[0];
+  const first = (at || '09:00').split(',')[0];
+  tkRepeatKeepOthers(at, first);
+  document.getElementById('tk-repeat-at').value = first;
 }
-function tkRepeatRemember(at) {
+/* The times of a comma list other than `box`, kept beside the time box (none: nothing kept). */
+function tkRepeatKeepOthers(list, box) {
   const atEl = document.getElementById('tk-repeat-at');
-  if (typeof at === 'string' && at.includes(',')) atEl.dataset.multi = at; else delete atEl.dataset.multi;
+  const others = (typeof list === 'string' ? list.split(',') : []).filter((x) => x && x !== box);
+  if (others.length) atEl.dataset.others = others.join(','); else delete atEl.dataset.others;
 }
-/* A saved choice is now what is stored: the repaint after it follows it (review 2), and the remembered list is the one
-   saved (kosmos#5752 round 2: the list from before the save brought back a time the person had just removed, on the
-   next edit). The time box already shows the saved choice's first time, so it is left alone. */
+/* A saved choice is now what is stored: the repaint after it follows it (review 2), and the others are the saved times
+   other than the box's (kosmos#5752 round 2: the others from before the save brought back a time the person had just
+   removed; round 3: the box is left showing what the person put in it, whichever place it sorts to). */
 function tkRepeatSaved(sent) {
   document.getElementById('tk-repeat-every').dataset.stored = JSON.stringify(sent);
-  tkRepeatRemember(sent && sent.every === 'day' ? sent.at : undefined);
+  tkRepeatKeepOthers(sent && sent.every === 'day' ? sent.at : '', document.getElementById('tk-repeat-at').value);
+}
+/* kosmos#5752 round 3: the stored rule changed elsewhere (an agent) while the person has an unsaved edit. The edit stands
+   (review 2), but the others follow the new rule: the box stands for its first time, the rest are kept. Otherwise Save
+   would send times that are on no screen and that the agent had just removed. */
+function tkRepeatFollowUnderEdit(t) {
+  const c = tkRepeatStoredChoice(t);
+  const list = c.every === 'day' && typeof c.at === 'string' ? c.at.split(',').slice(1).join(',') : '';
+  tkRepeatKeepOthers(list, document.getElementById('tk-repeat-at').value);
 }
 function tkRepeatShowWhen() {
   const every = document.getElementById('tk-repeat-every').value;
@@ -61854,7 +61865,7 @@ function tkPaintRepeat(p, t) {
     document.getElementById('tk-repeat-day').value = c.on || 'mon';
     every.dataset.task = key;
     every.dataset.stored = stored;
-  }
+  } else if (every.dataset.stored !== stored) tkRepeatFollowUnderEdit(t);   // kosmos#5752 round 3
   tkRepeatShowWhen();
   tkRepeatDirty(t);
   const line = document.getElementById('tk-repeat-line');
