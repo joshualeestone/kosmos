@@ -564,6 +564,13 @@ test('#5683 slice 3 review 5: a real unreadable policy record is unknown, not a 
   assert.equal(ae.manipulationCheckOn(), null, 'a corrupt applied record read as off');
   fs.rmSync(applied);
   assert.equal(ae.manipulationCheckOn(), false, 'CONTROL: no record is off');
+  // Review 40: the record clear() leaves when a Kosmos joins another company (its version marks, no policy) is no policy.
+  fs.writeFileSync(applied, JSON.stringify({ marks: { o: 3 } }));
+  require('./orgpolicy').clear();
+  const left = JSON.parse(fs.readFileSync(applied, 'utf8'));
+  assert.ok(left.marks && !left.policy, 'CONTROL: clear() left a marks-only record: ' + JSON.stringify(left));
+  assert.equal(ae.manipulationCheckOn('o'), false, 'a marks-only record (no policy) read as unknown');
+  fs.rmSync(applied);
   const { root, tdir, c } = await enrolled(t, 'words');
   const f = path.join(root, oe.CONSENT_FILE);
   const j = JSON.parse(fs.readFileSync(f, 'utf8'));

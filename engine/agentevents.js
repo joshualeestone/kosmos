@@ -818,7 +818,7 @@ function scanText(text, calls, ctx) {
       if (b.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
       const call = calls.get(b.tool_use_id) || {};
       calls.delete(b.tool_use_id);   // any result answers its call (review 2: a successful one too)
-      if (ctx.callsOnly) continue;   // rebuilding the call map after a cut (review 35: no second pattern pass)
+      if (ctx.callsOnly) continue;   // rebuilding the call map after a cut (review 35: no second pass over results; each call's own-input match is computed again, review 40, since a call still pending past the cut needs it)
       /* Slice 1 reads error results only (a refusal); slice 3 reads every result (what the agent received), and only
          when the org turned it on (ctx.manipulationCheck). A refusal, when one is found, is the result's one event. */
       if (b.is_error !== true && !ctx.manipulationCheck) continue;
@@ -1228,9 +1228,11 @@ function manipulationCheckOn(orgId) {
   } catch { return null; }   // could not read: not a turn-off
   if (!p) {
     /* inForce() reads an unreadable or corrupt applied record as "no policy" (review 5). A record that EXISTS but does
-       not read is not a turn-off: unknown, so the check's state is kept this tick. */
-    try { if (fs.existsSync(op.APPLIED()) && !op.current()) return null; } catch { return null; }
-    return false;
+       not parse is not a turn-off: unknown, so the check's state is kept this tick. One that parses with no policy in
+       it (clear() keeps only the version marks when a Kosmos joins another company, review 40) is no policy: off. */
+    let raw;
+    try { raw = fs.readFileSync(op.APPLIED(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? false : null; }
+    try { const j = JSON.parse(raw); return j && typeof j === 'object' && !Array.isArray(j) ? false : null; } catch { return null; }
   }
   return !!(p.manipulation_check && typeof p.manipulation_check === 'object' && p.manipulation_check.enabled === true);
 }
@@ -1502,11 +1504,14 @@ async function tickOnce(opts) {
        refusals need. Each group rotates on its own. */
     const order = [...rotate([...dirs].filter(([n]) => tokenOnly.has(n))), ...rotate([...dirs].filter(([n]) => !tokenOnly.has(n)))];
     TURN = turn + 1;
+    /* A cleared agent not read this tick (no folder now, or not in the read list) keeps its mark until it is (review 40):
+       dropping it would let a later tick read its files from before the collision, other agents' sessions included. */
+    for (const n of clearedNow) if (!dirs.get(n)) keepCleared(n);
     for (const [agent, dir] of order) {
       if (!dir) continue;
       const fromMs = tokenOnly.has(agent) ? Math.max(sinceMs, st.listed[agent]) : sinceMs;
       const fromS = Math.floor(fromMs / 1000);
-      if (!Number.isFinite(fromS)) continue;   // fail closed (review 3)
+      if (!Number.isFinite(fromS)) { if (clearedNow.has(agent)) keepCleared(agent); continue; }   // fail closed (review 3)
       /* One agent whose transcripts cannot be listed is skipped, never every agent (review 21). */
       let files;
       try { files = await src.transcripts(dir); } catch (e) {
