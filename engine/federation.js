@@ -372,7 +372,7 @@ async function verify(remote, body) {
     let plus = false;
     try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
     if (!plus) {
-      return { status: 403, body: { reason: 'not-plus', error: 'Joining your other computer\'s project needs Kosmos Plus on this computer.' } };
+      return { status: 403, body: { reason: 'not-plus', error: 'Joining your other computer\'s project needs Kosmos Plus on this computer. Turn it on in Settings, under Kosmos+, then paste the code again.' } };
     }
     let here;
     try { here = ownRefHere(own.ref); } catch { return { status: 500, body: { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' } }; }
