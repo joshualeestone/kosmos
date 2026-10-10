@@ -463,7 +463,8 @@ test('#5752 slice 3: a refused row says what was tried and offers the add only w
   api.setLast([{ sessionName: 'mona' }, { sessionName: 'zed' }]);   // zed is an agent on this board
   const html = api.pjRoomRow(row, p);
   assert.match(html, /zed tried to record a run of a task here and Kosmos stopped it: /);
-  assert.match(html, /<button type="button" class="btn-quiet pj-refused-add" data-add-member="zed">Add zed to this project<\/button>/);
+  assert.match(html, /<div class="pj-refused-act"><button type="button" class="pj-refused-add" data-add-member="zed">Add zed to this project<\/button>/);
+  assert.ok(html.indexOf('class="msg-t"') < html.indexOf('pj-refused-act'), 'the time stays with the sentence, before the add');
   assert.doesNotMatch(api.pjRoomRow(row, { id: 'p1', agents: [{ sessionName: 'zed', name: 'zed' }] }), /data-add-member/,
     'already a member: no button');
   const legacy = { kind: 'refused', from: 'zed', because: 'the room is held', at: new Date().toISOString() };

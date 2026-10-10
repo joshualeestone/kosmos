@@ -7709,6 +7709,12 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    band is a plain block, so nothing does and the sentence ran straight into
    it ("…bring you in.2 minutes ago"). Pack value, measured (FROZEN-2026-08-18c). */
 .msg-valve .msg-t { margin-left: .5em; }
+/* kosmos#5752 slice 3: the add on a refused band, on its own line, dressed as the room notice's Try again (.pnotice .qopt). */
+.msg-valve .pj-refused-act { display: flex; align-items: center; gap: .6em; flex-wrap: wrap; margin-top: 6px; }
+.msg-valve .pj-refused-add { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-rule); border-radius: 8px; padding: .4em .9em; cursor: pointer; white-space: nowrap; }
+.msg-valve .pj-refused-add:disabled { cursor: default; opacity: .6; }
+.msg-valve .pj-refused-msg:empty { display: none; }
 /* ⚠️ A FILLED, PADDED TRAY rather than a bare flex row (Mona Lisa's triage,
    the one of thirty-two items that was a real gap). The pack gives the
    composer a ground of its own, and the difference it makes is not decoration:
@@ -67433,13 +67439,15 @@ function pjRoomRow(m, p, hideHeader) {
     const onIt = (p && Array.isArray(p.agents) ? p.agents : []).some((a) => a && (a.sessionName || a) === m.from);
     // Only an agent this board still has (the Members picker's own source): a deleted one would be added as a ghost.
     const live = (LAST || []).some((a) => a && a.sessionName === m.from);
+    /* The add sits on its own line under the sentence, at the size of the room notice's Try again (the design shots of
+       the first version showed a full-size button breaking the band's sentence and stranding its time). */
     const add = m.addable === true && !onIt && live
-      ? ' <button type="button" class="btn-quiet pj-refused-add" data-add-member="' + esc(m.from) + '">Add ' + esc(nameR)
-        + ' to this project</button><span class="pj-refused-msg" role="status"></span>'
+      ? '<div class="pj-refused-act"><button type="button" class="pj-refused-add" data-add-member="' + esc(m.from) + '">Add ' + esc(nameR)
+        + ' to this project</button><span class="pj-refused-msg" role="status"></span></div>'
       : '';
     return '<div class="msg-valve">' + esc(nameR)
       + ' tried to ' + esc(m.doing || 'post') + ' here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
-      + add + (whenR ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
+      + (whenR ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + add + '</div>';
   }
   if (m.kind === 'refused-group') {
     /* #2700: a valve-stopped room refuses every agent that then tries to post,
