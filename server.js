@@ -15993,8 +15993,9 @@ const server = http.createServer(async (req, res) => {
       /* #3769: a menu's labels come from the same screen text, so they are masked too. */
       options: guideThread && Array.isArray(options) ? options.map((o) => (o && typeof o.label === 'string' ? { ...o, label: guideMasked(guideName, o.label) } : o)) : options,
       /* #5406 part 2 slice C: the question's identity (chat.questionAbove, the twin of the check the POST makes), sent
-         with the options so a button press names the question it was drawn for; the page never re-derives it. */
-      asked: Array.isArray(options) && question && typeof question.text === 'string' ? chat.questionAbove(question.text) : null,
+         with the options so a button press names the question it was drawn for; the page never re-derives it. Null in
+         the setup guide's thread: everything served there is masked (#3769), and this is unmasked screen text. */
+      asked: !guideThread && Array.isArray(options) && question && typeof question.text === 'string' ? chat.questionAbove(question.text) : null,
     });
     return;
   }

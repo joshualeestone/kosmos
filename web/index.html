@@ -37379,19 +37379,22 @@ let TALK_QUERY = '';
    press or to ignore (typing still works). Only what the server could be sure of (options and the question's identity,
    `asked`); a press sends the digit, the option's words and `asked`, and the server checks all three against the
    screen before it sends a key (409 when the menu moved). */
-let DM_CHOICES = null;   // { session, options: [{ n, label }], asked, sig } or null
+let DM_CHOICES = null;   // { session, options: [{ n, label }], asked } or null
+let DM_CHOICE_NOTE = null;   // { session, text }: why the last press did not go, kept across the repaint it asks for
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
   DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked)
-    ? { session: sessionName, options: opts, asked: body.asked, sig: body.asked + '\u0001' + opts.map((o) => o.n + ':' + o.label).join('\u0001') }
+    ? { session: sessionName, options: opts, asked: body.asked }
     : null;
+  if (!DM_CHOICES) DM_CHOICE_NOTE = null;   // the menu is gone, and so is what the note was about
 }
 function dmChoicesHtml(m) {
-  if (!DM_CHOICES || !m || m.kind !== 'question' || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
+  if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
+  const note = DM_CHOICE_NOTE && DM_CHOICE_NOTE.session === DM_CHOICES.session ? DM_CHOICE_NOTE.text : '';
   return '<div class="dmchoices" role="group" aria-label="Choices">'
     + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice" data-n="' + esc(String(o.n)) + '">'
-      + '<span class="dmchoice-n" aria-hidden="true">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
-    + '<span class="dmchoices-msg" role="status" aria-live="polite"></span></div>';
+      + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
+    + '<span class="dmchoices-msg" role="status" aria-live="polite">' + esc(note) + '</span></div>';
 }
 async function dmChoicePress(btn) {
   const c = DM_CHOICES;
@@ -37403,7 +37406,9 @@ async function dmChoicePress(btn) {
   if (box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = true; });
   if (msg) msg.textContent = 'Sending…';
   const session = c.session;
+  DM_CHOICE_NOTE = null;
   let ok = false;
+  let note = '';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -37411,12 +37416,17 @@ async function dmChoicePress(btn) {
     });
     const out = await res.json().catch(() => ({}));
     ok = res.ok;
-    if (!ok && msg) msg.textContent = pjSentence(out.error || 'that did not go; try again');
+    if (!ok) note = pjSentence(out.error || 'that did not go; try again');
   } catch {
-    if (msg) msg.textContent = 'We could not reach Kosmos; try again.';
+    note = 'We could not reach Kosmos; try again.';
   }
-  if (!ok && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
-  if (ok && CURRENT && CURRENT.sessionName === session) paintTalk(CURRENT.sessionName, CURRENT.name);
+  if (msg) msg.textContent = ok ? 'Sent.' : note;
+  if (!ok) {
+    DM_CHOICE_NOTE = { session, text: note };
+    if (box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
+  }
+  /* A refusal repaints too: it usually means the menu moved, and the buttons should show the one up now. */
+  if (CURRENT && CURRENT.sessionName === session) paintTalk(CURRENT.sessionName, CURRENT.name);
 }
 document.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
@@ -37559,8 +37569,7 @@ function paintTalkThread(body, name) {
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
-      + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '')
-      + (DM_CHOICES ? '\u0000' + DM_CHOICES.sig : '');   // #5406: new choices (or none) repaint the question's buttons
+      + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
     /* #4256: reply headers by dmReplyAdjacency. */
     const dmHtml = rows.map((m, i) => dmRow(m, name, replyAdj.rows[i])).join('')
       + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
@@ -37666,10 +37675,10 @@ async function paintTalk(sessionName, agentName) {
        for a tied card. An older server that does not send `because` reads as
        transient, which is the arm that keeps its time phrase and its detail. */
     if (!res.ok) { standing = body.because === 'borrowed'; throw new Error(body.error || 'we could not read this conversation'); }
-    dmChoicesFrom(body, sessionName);   // #5406: the menu the agent's screen offers, drawn in its question's bubble
   } catch (err) {
     if (mine !== TALK_LOAD) return;
     if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    DM_CHOICES = null;   // #5406: no thread read, no choices
     /* ⚠️ WHERE THE PERSON IS STANDING, READ BEFORE ANYTHING HIDES OR DISABLES.
        Disabling a focused control blurs it synchronously, so asking afterwards
        always answers BODY. The success path carries four rescues for exactly
@@ -37733,6 +37742,7 @@ async function paintTalk(sessionName, agentName) {
   }
   if (mine !== TALK_LOAD) return;
   if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  dmChoicesFrom(body, sessionName);   // #5406: after the two checks above, so an older read never replaces a newer one's
 
 
   // Whose send is in the air, if any. Read before anything that disables.

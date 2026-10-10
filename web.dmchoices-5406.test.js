@@ -19,7 +19,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 function load(env) {
   const fn = new Function('esc', 'CURRENT', 'fetch', 'pjSentence', 'paintTalk', REGION
-    + '\nreturn { from: dmChoicesFrom, html: dmChoicesHtml, press: dmChoicePress, get: () => DM_CHOICES };');
+    + '\nreturn { from: dmChoicesFrom, html: dmChoicesHtml, press: dmChoicePress, get: () => DM_CHOICES, note: () => DM_CHOICE_NOTE };');
   return fn(esc, env.CURRENT, env.fetch || (async () => ({ ok: true, json: async () => ({}) })), (s) => s, env.paintTalk || (() => {}));
 }
 const BODY = { asking: true, asked: 'Which fruit do you want?', options: [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana <b>' }] };
@@ -44,6 +44,8 @@ test('#5406 C: buttons only on the question row, only when the server is sure, l
   assert.equal((html.match(/class="dmchoice"/g) || []).length, 2);
   assert.ok(html.includes('Banana &lt;b&gt;') && !html.includes('Banana <b>'), 'a label was not escaped');
   assert.equal(m.html({ kind: 'agent', text: 'hi' }), '', 'buttons on an ordinary message');
+  assert.equal(m.html({ ...Q, reported: true }), '', 'buttons on a question the agent reported, not one on its screen');
+  assert.match(html, /<span class="dmchoice-n">1<\/span> Apple/, 'the digit left the accessible name (WCAG 2.5.3)');
   // Not sure, not asking, or another agent's thread: no buttons.
   for (const b of [{ ...BODY, asked: null }, { ...BODY, asking: false }, { ...BODY, options: null }, { ...BODY, options: [] }]) {
     m.from(b, CUR.sessionName);
@@ -54,26 +56,39 @@ test('#5406 C: buttons only on the question row, only when the server is sure, l
 });
 
 test('#5406 C: a press sends the digit, the option\'s words and the question it was drawn for, then repaints', async () => {
-  const sent = []; let painted = 0;
+  const sent = []; let painted = 0; let duringFlight = null;
   const CUR = realCard();
+  const btns = [{ disabled: false }, { disabled: false }];
+  const msg = { textContent: '' };
   const m = load({
     CURRENT: CUR,
-    fetch: async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); return { ok: true, json: async () => ({}) }; },
+    fetch: async (url, init) => {
+      duringFlight = { disabled: btns.map((b) => b.disabled), msg: msg.textContent };
+      sent.push({ url, body: JSON.parse(init.body) });
+      return { ok: true, json: async () => ({}) };
+    },
     paintTalk: () => { painted += 1; },
   });
   m.from(BODY, CUR.sessionName);
-  const btns = [{ disabled: false }, { disabled: false }];
-  const msg = { textContent: '' };
   const box = { querySelectorAll: () => btns, querySelector: () => msg };
   const btn = { getAttribute: () => '2', closest: () => box };
   await m.press(btn);
   assert.deepEqual(sent, [{ url: '/api/agent/' + encodeURIComponent(CUR.sessionName) + '/thread', body: { text: '2', chose: 'Banana <b>', asked: 'Which fruit do you want?' } }]);
   assert.equal(painted, 1, 'no repaint after the answer');
+  assert.deepEqual(duringFlight, { disabled: [true, true], msg: 'Sending…' }, 'the buttons stayed pressable while the answer was in flight');
+  assert.equal(msg.textContent, 'Sent.');
   // A refusal (the menu moved) says why and gives the buttons back.
-  const m2 = load({ CURRENT: CUR, fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }) });
+  let painted2 = 0;
+  const m2 = load({ CURRENT: CUR, paintTalk: () => { painted2 += 1; }, fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }) });
   m2.from(BODY, CUR.sessionName);
   const b2 = [{ disabled: false }]; const msg2 = { textContent: '' };
   await m2.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => b2, querySelector: () => msg2 }) });
   assert.equal(msg2.textContent, 'its screen moved');
   assert.equal(b2[0].disabled, false, 'the buttons stayed disabled after a refusal');
+  assert.equal(painted2, 1, 'a refusal did not repaint, so stale buttons stay up');
+  // The repaint keeps the reason: the redrawn bubble carries it.
+  assert.match(m2.html(Q), /role="status" aria-live="polite">its screen moved</, 'the repaint dropped why the press did not go');
+  // CONTROL: once the menu is gone the note goes with it.
+  m2.from({ ...BODY, asking: false }, CUR.sessionName);
+  assert.equal(m2.note(), null, 'a note outlived the menu it was about');
 });
