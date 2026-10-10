@@ -803,3 +803,13 @@ test('#5774 review 16: .command scripts, awk and sed program text, runner specif
   for (let i = 0; i < 40; i++) deep = { a: deep };
   assert.ok(sc.commandsIn(deep).some((c) => c.tooDeep), 'a config nested past the limit is marked, so the scan names it');
 });
+
+test('#5774 review 17: a program from a package folder, inline python or node in the agent folder, formatters and linters', () => {
+  const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
+  const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
+  for (const c of ['"$CLAUDE_PROJECT_DIR"/node_modules/.bin/prettier --write x', '"$CLAUDE_PROJECT_DIR"/.venv/bin/python ~/hooks/x.py', 'python3 -c "import foo"', 'node -e "require(\'./x\')"', 'eslint .', 'cd /opt/p && prettier --write .', 'swift build']) {
+    assert.ok(paths(c).unsafe.length > 0, c);
+  }
+  for (const c of ['python3 ~/x.py', 'bash -c "echo hi"', 'perl -e "print 1"']) assert.deepEqual(paths(c).unsafe, [], `control: ${c}`);
+  assert.deepEqual(paths('exec -a name "$CLAUDE_PROJECT_DIR"/bin/hook').runPaths, ['/A/bin/hook'], 'exec -a takes a value');
+});

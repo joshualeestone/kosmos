@@ -61,7 +61,7 @@ const HELPER_KEYS = new Set(['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExp
 const SERVER_KEYS = new Set(['mcpServers', 'lspServers', 'managedMcpServers']);
 const OPERATORS = new Set([';', '&', '|', '(', ')', '<', '>', '\n']);
 /* Programs whose first plain argument is a script they run. */
-const INTERPRETER = /^(?:(?:ba|z|da|k|fi|c|tc)?sh|source|\.|node|nodejs|deno|bun|tsx|ts-node|ruby|perl|php|lua|Rscript|osascript|pwsh|swift|python[0-9.]*)$/;
+const INTERPRETER = /^(?:(?:ba|z|da|k|fi|c|tc)?sh|source|\.|node|nodejs|deno|bun|tsx|ts-node|ruby|perl|php|lua|Rscript|osascript|pwsh|python[0-9.]*)$/;
 /* Runners whose script comes after a subcommand (deno run x.ts). */
 const RUNNER_SUB = { deno: /^run$/, bun: /^(?:run|x)$/, uv: /^run$/, go: /^run$/ };
 /* Review 8: a runner's word that is no file (bun start, bun test, deno task, uv run hook, uv sync) names a script or
@@ -76,9 +76,11 @@ const SCRIPT_EXT = /\.(?:sh|bash|zsh|js|mjs|cjs|ts|mts|cts|py|rb|pl|php|lua|ps1|
 const CHDIR_FLAGS = { uv: /^--directory$/, make: /^-C$/, gmake: /^-C$/, npm: /^--prefix$/, pnpm: /^(?:-C|--dir)$/, yarn: /^--cwd$/, bun: /^--cwd$/, git: /^-C$/, go: /^-C$/ };
 /* Review 6: programs that run code the folder they run in supplies (package.json scripts and node_modules, a Makefile,
    build scripts, test configs, git hooks). Run in the agent folder, that code is the agent's, so Kosmos names it. */
-const FOLDER_RUNNER = /^(?:npm|pnpm|yarn|npx|pnpx|bunx|make|gmake|just|rake|cargo|mvn|gradle|git|pytest|tox|jest|vitest)$/;
+/* Review 17: and the formatters, linters and build tools that load config CODE from the folder (eslint.config.js,
+   prettier.config.js, .envrc, Gemfile, Package.swift, mypy plugins...). The list is partial; see the plan's gaps. */
+const FOLDER_RUNNER = /^(?:npm|pnpm|yarn|npx|pnpx|bunx|make|gmake|just|rake|cargo|mvn|gradle|git|pytest|tox|jest|vitest|eslint|prettier|stylelint|pre-commit|lint-staged|husky|direnv|bundle|rails|rspec|poetry|pdm|hatch|mypy|dotnet|tsc|swift|composer|phpunit|gulp|grunt|webpack|vite|next|nx|turbo|lerna)$/;
 /* A wrapper's flags that take the next word as their value (sudo -u bob bash x.sh). */
-const WRAPPER_VALUE_FLAGS = { sudo: /^-[ughpCDrtU]$/, doas: /^-[uC]$/, env: /^-[uCP]$/, timeout: /^-[sk]$/, gtimeout: /^-[sk]$/, nice: /^-n$/, ionice: /^-[cnp]$/, xargs: /^-[InPLdEs]$/, watch: /^-n$/, parallel: /^-[jS]$/, flock: /^-[wE]$/ };
+const WRAPPER_VALUE_FLAGS = { sudo: /^-[ughpCDrtU]$/, doas: /^-[uC]$/, env: /^-[uCP]$/, timeout: /^-[sk]$/, gtimeout: /^-[sk]$/, nice: /^-n$/, ionice: /^-[cnp]$/, xargs: /^-[InPLdEs]$/, watch: /^-n$/, parallel: /^-[jS]$/, flock: /^-[wE]$/, exec: /^-a$/ };
 /* A program's own flags that take the next word as a value, so it is not the script (review 4). */
 const VALUE_FLAGS = {
   uv: /^(?:--with|--with-requirements|--python|-p|--from|--project|--env-file|--extra|--group|--index|--package)$/,
@@ -496,7 +498,11 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       // paths in it are taken (review 9: its code read as shell named nonsense files).
       scriptSlot = false;
       if (/^(?:(?:ba|z|da|k|fi|c|tc)?sh)$/.test(prog)) more(text);
-      else for (const m of text.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
+      else {
+        for (const m of text.matchAll(INNER_ABS)) { paths.push(path.normalize(m[1])); runPaths.push(path.normalize(m[1])); }
+        // Review 17: python -c and node -e import from the folder they run in (sys.path '', ./node_modules).
+        if (/^(?:python[0-9.]*|node|nodejs|deno|bun)$/.test(prog)) folderRunner(`${prog} ${before}`);
+      }
       continue;
     }
     if (!text || text === '{}' || text.includes(PATH_MARK) || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text)) continue;   // a URL, find's {} placeholder or $PATH is not a file
@@ -518,6 +524,13 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       paths.push(p);
       if (runs) runPaths.push(p);
       if (codeSlot || isHead) codePaths.push(p);   // review 15: a folder as the program means the parse went wrong: named
+      /* Review 17: a program in a package folder (node_modules/.bin/x, .venv/bin/python) loads the rest of that folder's
+         code, which one file's rule does not cover: named like a folder runner, at the package's root. */
+      const pkg = (isHead || codeSlot) ? /^(.*?)\/(?:node_modules|\.?venv|vendor)\//.exec(p) : null;
+      if (pkg) {
+        const place = inAgentFolder(pkg[1]) ? 'the agent folder' : pkg[1];
+        if (deferRunners) runners.push({ name: path.basename(p), where: pkg[1], place }); else unsafe.push(runnerSay(path.basename(p), place));
+      }
     }
   }
   flushRunner();
