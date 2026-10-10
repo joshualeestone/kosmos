@@ -1,0 +1,17 @@
+────────────────────────────────────────────────────────────────────────────────
+←  ☐ Fruits  ✔ Submit  →
+
+Which fruits do you want?
+
+❯ 1. [ ] Apple
+         Apple
+  2. [ ] Banana
+         Banana
+  3. [ ] Cherry
+         Cherry
+  4. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -2401,6 +2401,8 @@ function claudeQuestionMenu(text) {
   }
   // Review 2: at most 9 entries, so every answer is ONE key (send-keys "10" would type "1", which selects at once).
   if (opts.length < 2 || opts.length > 9 || selected !== 1) return null;
+  /* Review 3, measured: the multi-select form draws "❯ 1. [ ] Apple"; a digit there only ticks a box. */
+  if (opts.some((o) => /^\[[ x✓✔]\]/.test(o.label))) return null;
   if (opts.some((o, k) => o.n !== k + 1)) return null;
   /* The question: the run of non-blank lines just above the first option (Claude Code wraps a long question itself,
      so it can be several lines; review round 1), joined; the header ("☐ ...") above it, if any. */
@@ -2416,10 +2418,10 @@ function claudeQuestionMenu(text) {
   let at = top;
   for (let i = top - 1; i >= Math.max(0, top - 4); i -= 1) {
     if (!lines[i].trim()) continue;
-    if (HEADER.test(lines[i])) {
-      if ((lines[i].match(/[☐☒✔✓]/g) || []).length > 1 || /Submit/.test(lines[i])) return null;   // several questions
-      at = i;
-    }
+    /* Review 3, measured: the multi-question and multi-select forms draw "←  ☐ Fruit  ☐ Colour  ✔ Submit  →" (arrows
+       first). Any header line with two marks or Submit is refused, however it starts: Escape would drop every question. */
+    if ((lines[i].match(/[☐☒✔✓]/g) || []).length > 1 || /\bSubmit\b/.test(lines[i])) return null;
+    if (HEADER.test(lines[i])) at = i;
     break;
   }
   const FREE = /^(Type something\.?|Chat about this)$/;

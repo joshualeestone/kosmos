@@ -31,7 +31,7 @@ function arm(screens) {
   const fn = (args) => {
     calls.push(args);
     if (args[0] === 'display-message') return ok('2.1.212\t\t0\n');
-    if (args[0] === 'capture-pane') return screens.length ? ok(screens.shift()) : ok(IDLE);
+    if (args[0] === 'capture-pane') { const next = screens.length ? screens.shift() : IDLE; return next === null ? { ran: true, spawnFailed: false, status: 1, out: '', err: 'no such pane' } : ok(next); }
     return ok();
   };
   fn.keys = () => calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
@@ -62,7 +62,7 @@ test('#5406 status: refused when it cannot be sure (each a control against the r
     'several questions': MENU.replace(' ☐ Fruit', ' ☐ Fruit  ☐ Color  ✔ Submit'),
     'a gap in the numbers': MENU.replace(/^  2\. Banana\n     Banana\n/m, ''),
     'no highlighted option': MENU.replace('❯ 1. Apple', '  1. Apple'),
-    'a checkbox menu': MENU.replace('❯ 1. Apple', '❯ 1. [ ] Apple').replace('Which fruit do you want?', 'Which fruits?\n[ ] note'),
+    'a checkbox option': MENU.replace('❯ 1. Apple', '❯ 1. [ ] Apple').replace('  2. Banana', '  2. [ ] Banana').replace('  3. Cherry', '  3. [ ] Cherry'),
   };
   for (const [why, screen] of Object.entries(cases)) assert.equal(status.claudeQuestionMenu(screen), null, why);
   assert.equal(status.claudeQuestionMenu(IDLE), null, 'an idle screen');
@@ -135,4 +135,31 @@ test('#5406 review 1: closeQuestionMenu closes only the question the person saw'
 test('#5406 review 2: a menu with ten or more entries is refused (every answer must be one key)', () => {
   const many = MENU.replace('  4. Type something.', [4, 5, 6, 7, 8, 9].map((k) => '  ' + k + '. Fruit ' + k).join('\n') + '\n  10. Type something.').replace('  5. Chat about this', '  11. Chat about this');
   assert.equal(status.claudeQuestionMenu(many), null);
+});
+
+const SCREEN = (f) => fs.readFileSync(path.join(__dirname, '..', 'test-support', 'claude-screens', f), 'utf8');
+test('#5406 review 3: the real multi-select and multi-question screens are refused', () => {
+  assert.equal(status.claudeQuestionMenu(SCREEN('question-menu-multiselect-2.1.29x.txt')), null, 'multi-select (a digit only ticks a box)');
+  assert.equal(status.claudeQuestionMenu(SCREEN('question-menu-multiquestion-2.1.29x.txt')), null, 'multi-question (Escape drops every question)');
+});
+
+test('#5406 review 3: only a Claude card, and an unreadable screen is never "answered" or "closed"', async () => {
+  const codex = fleet.install([fleet.agent('sam', { state: 'unknown', runner: 'codex', command: 'node', screen: MENU })]);
+  try {
+    const t = arm([MENU, MENU]);
+    const a = await chat.answerQuestionMenu('sam', 2, codex.agents, {});
+    const c = await chat.closeQuestionMenu('sam', codex.agents);
+    assert.deepEqual([a.ok, c.ok, t.keys()], [false, false, []], 'Claude keys went to a Codex card');
+  } finally { codex.restore(); }
+  await withClaude(async (board) => {
+    let t = arm([MENU, null]);
+    let r = await chat.answerQuestionMenu('casey', 2, board.agents, {});
+    assert.deepEqual([r.ok, r.answered], [true, false], 'an unreadable screen after the key was reported answered');
+    t = arm([MENU, null]);
+    r = await chat.closeQuestionMenu('casey', board.agents);
+    assert.equal(r.ok, false, 'an unreadable screen after Escape was reported closed');
+    t = arm([null]);
+    r = await chat.closeQuestionMenu('casey', board.agents);
+    assert.deepEqual([r.ok, t.keys()], [false, []], 'an unreadable screen before was taken for no menu');
+  });
 });
