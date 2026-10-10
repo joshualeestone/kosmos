@@ -21367,12 +21367,13 @@ function start(port = PORT) {
           const r = safeRoster();
           roomhold.flushReleased(r, {
             isAgy: (c) => c.runner === 'antigravity' && c.isNamedOurs !== false,
+            isLimitable: (c) => String(c.runner || 'claude') === 'claude' && c.isNamedOurs !== false && c.state === 'idle',   // #5805
             readReport: (n) => selfreport.read(n), now: Date.now(), decayMs: require('./engine/status').REPORT_WORKING_DECAY_MS,
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
           }).then((done) => {
-            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold or the Gemini limit'));   // #4797; #4588 ask 3
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);

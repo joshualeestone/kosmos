@@ -277,7 +277,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     try {
       const sent = await deliver(name, clauseFor(projectId, shown, ids), roster);
       state = sent && sent.state;
-      capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
+      capped = !!(sent && sent.held === true && (sent.heldBy === 'cap' || sent.heldBy === 'limit'));
     } catch { state = DELIVERY.COULD_NOT; }
     /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
        posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */
@@ -293,14 +293,21 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
    each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
    same gated path (a held verdict puts the ids back again). `isAgy` picks the cards; only they are retried here, so a
    #4624 hold for any other runner is exactly as before. Never throws. */
-async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
+async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
     try {
-      if (!card || !card.sessionName || !isAgy(card)) continue;
+      if (!card || !card.sessionName) continue;
+      const agy = isAgy(card);
+      /* #5805: a Claude member's posts held for its usage limit carry the cap's mark (messages.js), and no idle report
+         comes once the limit resets, so they are retried here too, but only while `isLimitable` says its card reads
+         idle off its screen (the server's predicate), never while it still reads capped or busy. Only marked posts:
+         any other #4624 hold on such a member waits for its next wake, as before. */
+      if (!agy && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
       const name = String(card.sessionName);
       if (!heldProjects(name).length) continue;
+      if (!agy && !heldProjects(name).some((p) => heldIn(name, p).some(isCapped))) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;
       /* #4624 follow-up (review 1/2): an idle member holding only posts that ask nothing of it waits for its next wake,
          as on every other runner; this minute retry is for posts the quota held that name it. That includes posts held

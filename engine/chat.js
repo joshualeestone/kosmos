@@ -1916,6 +1916,24 @@ function menuHeldVerdict(sessionName, roster) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
+/* #5805: a timer's line for a Claude agent paused on a usage limit whose screen names a DATED reset still ahead (the
+   weekly form status.limitResetAt reads) is HELD until then, the #4588 hold shape with heldBy 'limit': typed, it would
+   reach a session that cannot answer and the sender would count it as delivered. A limit line with no date (the
+   5-hour form) or a reset already past is not held, so a line typed after the reset still wakes the agent. */
+function limitHeldVerdict(sessionName, roster, now = Date.now()) {
+  const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
+  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.RATE_LIMITED) return null;
+  if (String(card.runner || 'claude') !== 'claude') return null;
+  if (addressable(sessionName, roster).ok !== true) return null;
+  const until = status.limitResetAt(card.stateEvidence, now);
+  if (until === null || !(until > now)) return null;
+  const iso = new Date(until).toISOString();
+  return {
+    state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: iso,
+    because: 'held: this agent is paused on a usage limit until ' + iso,
+    at: new Date().toISOString(), paneState: null, paneNote: null,
+  };
+}
 /* #5743/#5754: true while this agent's screen waits for an answer (question menu, permission prompt, safeguards menu), for a sweep that decides BEFORE it types
    anything (the recommender holds a whole convening on it, as it does on the quota). */
 function menuHeld(sessionName, roster) {
@@ -1925,6 +1943,9 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
   let menuHold = null;
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
   if (menuHold) return menuHold;
+  let limitHold = null;
+  try { limitHold = limitHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws
+  if (limitHold) return limitHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
   // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
@@ -1941,6 +1962,9 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
   let menuHold = null;
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
   if (menuHold) return menuHold;
+  let limitHold = null;
+  try { limitHold = limitHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws
+  if (limitHold) return limitHold;
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return held;
   // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
@@ -3710,7 +3734,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

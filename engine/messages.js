@@ -2169,8 +2169,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
            is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
         const asksIt = mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
         /* #4588 ask 3 (review 13): a post the Gemini cap held is marked too, so roomhold.flushReleased retries it once the
-           cap lets the member through (a cap hold has no wake coming); an unmarked one waits for the next wake. */
-        if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
+           cap lets the member through (a cap hold has no wake coming); an unmarked one waits for the next wake.
+           #5805: a post a Claude usage limit held takes the same mark, even one that names the member (the later line
+           then does not single it out), since no wake comes after the reset either. */
+        if (roomhold.hold(name, projectId, sent.heldBy === 'limit' ? roomhold.cappedId(id) : asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
           reached += 1;
