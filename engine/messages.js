@@ -1627,11 +1627,14 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   /* The same attributed-refusal contract as send(): every refusal their
      agent meets is an event, logged once per sender-target-because per
      window; the logged target is the PROJECT (capped like send's to). */
-  const refuse = (because) => {
+  /* kosmos#5752 round 3: `toAgent` (the add-member fix) goes back to the agent only. The refused row the person sees in
+     the room keeps the bare sentence: "ask the person to add this agent ... run the same command again" is advice for
+     the agent, and read on the person's screen it talks about them in the third person. */
+  const refuse = (because, toAgent = '') => {
     /* Operator refusals are NOT logged: the composer answers the person
        directly, so the sentence has its surface -- the refused-row
        contract exists for refusals an AGENT meets invisibly. */
-    if (operator === true) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+    if (operator === true) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };   // never a toAgent here
     const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
     try {
       const now2 = Date.parse(at);
@@ -1643,7 +1646,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
          happens to share the slug space. */
       if (!already) appendLog({ kind: 'refused', from, to: toLogged, project: toLogged, because, at });
     } catch { /* the record is best-effort; the verdict is not */ }
-    return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+    return { state: chat.DELIVERY.COULD_NOT, because: because + toAgent, id: null, at, outcomes: null };
   };
 
   if (!/^[A-Za-z0-9._ -]+$/.test(from) || from.includes(']')) {
@@ -1707,7 +1710,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   if (operator !== true && !members.includes(from)) {
     /* kosmos#5752: the fix only where adding would help. An agent still on the record but removed from Kosmos is
        filtered out above; adding it again changes nothing, so it gets the sentence without the fix. */
-    return refuse('you are not on that project, so this room is not yours to post into' + (onRecord ? '' : NOT_ON_PROJECT_FIX));
+    return refuse('you are not on that project, so this room is not yours to post into', onRecord ? '' : NOT_ON_PROJECT_FIX);
   }
   const recipients = operator === true ? members.slice() : members.filter((m) => m !== from);
   /**

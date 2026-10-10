@@ -49,3 +49,10 @@ The Kosmos+ remote view serves the same page. Not checked on a phone.
   engine/messages.test.js and engine/reactions-2255.test.js assert the fix is absent, with a stranger as the control.
 - Left as is (NITs): close/act and move share the helper with add, which is tested; the "could not tell which agent
   this token belongs to" sentence is not matched by the bash CLI's restart hint (it is accurate as it stands).
+
+## Review round 3 fixes
+- A stranger's refused room post is logged as a refused row the person sees in the room; that row keeps the bare
+  sentence, and only the answer to the agent carries the fix (`refuse(because, toAgent)`).
+- Left as is (NITs): an agent removed from Kosmos that is NOT on the project's record (its token revoke failed, #2323)
+  still gets the fix, which would not help; a post the outbox replays later says "run the same command again" about a
+  command run some time before (re-running after being added does the right thing).

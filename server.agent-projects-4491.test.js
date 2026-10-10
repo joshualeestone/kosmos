@@ -112,6 +112,10 @@ test('the maker can post in the room of the project it made, which is what its w
   assert.match(outsider.text, NOT_ON_IT, 'an agent that is not on the project posted in its room: ' + outsider.code + ' ' + outsider.text.slice(0, 200));
   // kosmos#5752 slice 2: and the refusal names its fix.
   assert.match(outsider.text, /not yours to post into; ask the person to add this agent with the \+ beside Members on the project's page, then run the same command again/);
+  // kosmos#5752 round 3: the room's refused row (which the person sees) keeps the bare sentence; the fix is the agent's.
+  const refusedRows = messagesEngine.record().rows.filter((m) => m && m.kind === 'refused' && m.project === id);
+  assert.deepEqual(refusedRows.map((m) => m.because), ['you are not on that project, so this room is not yours to post into'],
+    'the person\'s refused row: ' + JSON.stringify(refusedRows));
   const reacted = await call('POST', '/api/react', { headers: { 'x-kosmos-agent-token': otto }, body: { project: id, of: 'abc12345', emoji: '👍' } });
   assert.match(reacted.text, /not yours to react in; ask the person to add this agent with the \+ beside Members on the project's page, then run the same command again/,
     'react: ' + reacted.code + ' ' + reacted.text.slice(0, 200));
