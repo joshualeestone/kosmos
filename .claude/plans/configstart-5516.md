@@ -47,8 +47,11 @@ Part 1 (#5660) denied the programs a token-only agent's next start runs from its
 
 - Review 17 (Opus): one WARNING, real, fixed; got wrong at review 16. My deep-folder test used a fixed 16 levels, which passes the ceiling only under macOS's default temp folder (deep, and reached through a link, so every ancestor is denied by both spellings); under /private/tmp or Linux's /tmp it read no warning and went red. The depth is now found by adding levels until the warning fires (bounded at 60, the first level a no-warning control); passes under both temp layouts, red with the ceiling raised. NITs taken: the fix advice names every character the rules refuse, and is given only where renaming is the fix (not for a failed lookup of the agents' folder; tested, red by mutation); a launch passes exclusive false explicitly.
 
+- Review 18 (Sonnet): one WARNING, a plan line: an unchanged board start records no changed size warning; stated under Gaps, no code change. NITs, decided: review numbers in comments (review 14); the per-level realpath cost is fine at real depths and unmeasured as a cost; the global-config suffix list is copied in the test, as stated.
+
 
 ## Gaps, stated (the rest of the card)
+- A board start that leaves the line alone (its non-PATH part unchanged) does not record a size warning it measures either: the warning describes the profile Claude Code built at the launch, so the launch's stays until the next launch, as review 15 kept it. When a board start does rewrite the line, its own warning wins over the launch's (review 18).
 - A board start reads the guard line and then writes it; a launch that writes between the two has its line replaced by one built from the older launch's PATH part, until the next launch (review 15). The window is the time between one read and one rename.
 - A config member that links to a folder holding the agent's own folder (e.g. a commands link to ~/work) denies the agent's file tools that whole folder, and nothing reports it (review 15).
 - A plugin folder Claude Code is pointed at by its plugin cache or seed environment variables, outside every config home: not covered (same shape as the CLAUDE_CONFIG_DIR gap).
