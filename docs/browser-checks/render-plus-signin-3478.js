@@ -1046,7 +1046,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
       await page.click('#plus-si-register-go');
       await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 5000 });
-      chk(regTries === 2 && (await page.$('#plus-si-done')) === null, `[${k}] #3796 review and #5787: Try again registers the owned name again and goes on to connect (no landing card)`, String(regTries));
+      chk(regTries === 2 && (await page.$('#plus-si-done')) === null && !(await visible(page, '#plus-si-register-go')), `[${k}] #3796 review and #5787: Try again registers the owned name again, goes on to connect (no landing card), and its button goes so it cannot register twice`, String(regTries));
       /* What Done used to do and the 5s tick does now: leave the wizard (this mock never reads enrolled). */
       await page.evaluate(() => { PLUS_SIGNIN_ACTIVE = false; paintPlus(); });
       await page.waitForTimeout(300);

@@ -42,6 +42,11 @@ test('#5787: the Scan to connect code is drawn in the page, never fetched', () =
   const fig = PAGE.slice(i, PAGE.indexOf('</figure>', i));
   assert.match(fig, /<svg viewBox="0 0 29 29"[^>]*aria-label="Code that opens login\.kosmosplus\.com on a phone"><path stroke="#000000" d="M0 0\.5h7/);
   assert.match(fig, /<figcaption>Scan to connect<\/figcaption>/);
+  /* The WHOLE code, not its corner: every QR code starts with the same finder square, so pinning a prefix passes on a
+     wrong address. This hash is of the path the qrcode package draws for https://login.kosmosplus.com (version 3,
+     error correction M, margin 0), checked by regenerating it on 2026-10-10. Change the address, regenerate both. */
+  const d = /<path stroke="#000000" d="([^"]+)"/.exec(fig)[1];
+  assert.equal(require('node:crypto').createHash('sha256').update(d).digest('hex'), '053cc36bf89eb51be742c9092093149e7da983c408180ea27685be0e04574efe');
   assert.equal(/<img|https?:\/\/[^"]*qr/i.test(fig), false, 'no image or QR service');
 });
 
