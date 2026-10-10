@@ -492,6 +492,25 @@ function pathClass(p0, ctx) {
   return 'system';   // resolved, so always absolute
 }
 
+/* The targets the company's sandbox itself denies (see scanText). */
+const SANDBOX_TARGETS = new Set(['board-files', 'agent-config', 'other-agent']);
+/* The phrase the coordinator's consent line for these events carries. The words a person accepted must name these
+   events before any is read or sent (contract v1.4: the words list only what is sent, and change, with a re-accept,
+   when something new starts). The coordinator's line is added in its own change; until it is served and accepted,
+   this module reads nothing. One phrase, matched case-blind, so a reworded sentence around it still counts. */
+const EVENTS_CONSENT_PHRASE = "stopped by your company's rules";
+
+/* The enrollment and the words a state was kept under: one key, built in one place (challenge-loop iteration 1: it
+   was joined with '|' in two places and split in a third, so an id holding '|' compared wrongly). A JSON array, so no
+   value can run into the next. */
+function enrollmentKey(rec) {
+  return JSON.stringify([String(rec.world || ''), String((rec.org && rec.org.id) || ''), String(rec.enrolledAt || ''), String(rec.consentHash || '')]);
+}
+/* The same membership (world, company, enrollment), whatever words were accepted. */
+function sameMembership(a, b) {
+  try { return typeof a === 'string' && JSON.stringify(JSON.parse(a).slice(0, 3)) === JSON.stringify(JSON.parse(b).slice(0, 3)); } catch { return false; }
+}
+
 /* A refused call's rule, or null when it is not one the company placed. */
 function classify(text, tool, platform) {
   if (denied(text)) return 'token-only-guard';
@@ -529,8 +548,15 @@ function scanText(text, calls, ctx) {
       const sessionRef = ref(ctx.session);
       const toolUseRef = ref(b.tool_use_id);
       if (!agent || !sessionRef || !toolUseRef) continue;
+      const target = call.target || targetClass(tool, {}, ctx);
+      /* An "Operation not permitted" is the company's sandbox only where that sandbox denies something: the board's
+         files (its denyRead), and the agent's and the account's config (its denyWrite), and another agent's folder.
+         Anywhere else it is macOS privacy control (TCC: Desktop, Documents, Full Disk Access) or an unrelated EPERM, not
+         a company rule, so it is not reported (challenge-loop iteration 1). A lost call has no known target: not
+         reported either. */
+      if (rule === 'sandbox' && !SANDBOX_TARGETS.has(target)) continue;
       out.push({ agent, ms: at, at: Math.floor(at / 1000), action: (tool && Object.prototype.hasOwnProperty.call(ACTION, tool) ? ACTION[tool] : 'run'), rule,
-        targetClass: call.target || targetClass(tool, {}, ctx), sessionRef, toolUseRef });
+        targetClass: target, sessionRef, toolUseRef });
     }
   }
   return out;
@@ -676,7 +702,7 @@ function defaultSources() {
     dirOf: (name) => { try { return create.workerDir(name); } catch { return null; } },
     /* Every agent this Kosmos knows (token-only or not), or null when that cannot be read (review 10). */
     everyAgent: () => { try { const r = require('./register').survey(); return r && r.ok ? r.agents.map((a) => a.name) : null; } catch { return null; } },
-    transcriptDirsOf: (dir) => receipt._transcriptDirs(dir),
+    transcriptDirsOf: (dir) => receipt.transcriptDirs(dir),
     /* Review 13: what the guard denies beyond this store, and the account's Claude config folders. Best effort: a
        lookup that throws only narrows the classes (never the reading). */
     boardRoots: () => {
@@ -708,7 +734,7 @@ function defaultSources() {
     },
     transcripts: async (dir) => {
       const files = [];
-      for (const d of receipt._transcriptDirs(dir)) files.push(...await receipt._transcriptsIn(d));
+      for (const d of receipt.transcriptDirs(dir)) files.push(...await receipt.transcriptsIn(d));
       return [...new Set(files)];
     },
   };
@@ -733,6 +759,12 @@ async function tick(opts) {
       try { withdrawIfStopped(eo); } catch { /* the next tick tries again */ }
       return { sent: 0, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
     }
+    /* Challenge-loop iteration 1: the rollup's own rule (orgrollup.js), that a missing consent is never a yes, applied
+       to these events: the accepted words must name them, or nothing is read. */
+    const words = oe.acceptedConsent(eo);
+    if (!words || !words.reports.some((l) => l.toLowerCase().includes(EVENTS_CONSENT_PHRASE))) {
+      return { sent: 0, because: 'the words accepted here do not name these events; nothing is read or sent' };
+    }
     const rec = oe.readEnrollment(eo);
     if (!rec || typeof rec.world !== 'string') return { sent: 0, because: 'not the enrolled Kosmos' };
     const root = o.root || require('./store').ROOT;
@@ -744,7 +776,7 @@ async function tick(opts) {
     /* The state belongs to one enrollment AND one set of accepted words (review 1): a new enrollment, or words accepted
        again after the company changed them, starts clean, and nothing from before that moment is sent (not the last
        company's queue, not what happened while no words were accepted). */
-    const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '') + '|' + (rec.consentHash || '');
+    const enrolledAs = enrollmentKey(rec);
     let st = readStateForUpdate(root);
     if (!st) return { sent: 0, because: 'the state could not be read; nothing read or sent' };   // review 43
     const stRaw = JSON.stringify(st);
@@ -753,10 +785,11 @@ async function tick(opts) {
     const unwritten = UNWRITTEN_STOP;   // review 41: a stop that could not be written starts this tick as withdrawn
     if (unwritten) st.withdrawn = true;
     /* Words withdrawn and then accepted again under the SAME hash (review 3): the key alone would not change, so the
-       withdrawal itself is recorded and a resumed tick starts clean as for new words. */
+       withdrawal itself is recorded and a resumed tick starts clean as for new words. What keeps the gap out after any
+       reset is `listed: {}`: every agent is then first listed now, and reading starts at the later of since and that. */
     if (st.withdrawn) st.enrolledAs = null;
     if (st.enrolledAs !== enrolledAs) {
-      const sameEnrollment = typeof st.enrolledAs === 'string' && st.enrolledAs.split('|').slice(0, 3).join('|') === enrolledAs.split('|').slice(0, 3).join('|');
+      const sameEnrollment = sameMembership(st.enrolledAs, enrolledAs);
       st = { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, stops: stops0, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
     }
     const sinceMs = Math.max(joinedAt, st.since || joinedAt);
@@ -933,7 +966,7 @@ async function tick(opts) {
     /* Re-checked after the scan (review 2, the rollup's review 3): a Leave pressed, or words withdrawn, while the
        transcripts were read stops the send. */
     const rec2 = oe.mayReport(eo) ? oe.readEnrollment(eo) : null;
-    if (!rec2 || rec2.world + '|' + ((rec2.org && rec2.org.id) || '') + '|' + (rec2.enrolledAt || '') + '|' + (rec2.consentHash || '') !== enrolledAs) {
+    if (!rec2 || enrollmentKey(rec2) !== enrolledAs) {
       return { sent: 0, because: 'the enrollment changed while reading' };
     }
     /* The computer print, as the rollup sends it (review 1): the company refuses a copy of this Mac's key elsewhere. */
@@ -1005,5 +1038,5 @@ async function tick(opts) {
   }
 }
 
-module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn, withdrawIfStopped, _readState: readState,
+module.exports = { ROUTE, SEND_MAX, EVENTS_CONSENT_PHRASE, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn, withdrawIfStopped, _readState: readState,
   _defaultSources: defaultSources };   // the guard check's round-trip test (review 17)

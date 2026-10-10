@@ -30,7 +30,7 @@ const ctx = (over) => Object.assign({ agent: 'Scout', session: 'sess-1', platfor
 test('#5683 scan: a deny-rule refusal is the token-only guard, a Bash EPERM is the sandbox, other errors are not reported', () => {
   const lines = [
     use('tu-1', 'Bash', { command: SECRET }), result('tu-1', DENIED(SECRET), true),
-    use('tu-2', 'Bash', { command: 'touch /etc/hosts' }), result('tu-2', 'touch: /etc/hosts: Operation not permitted', true),
+    use('tu-2', 'Bash', { command: 'touch /Users/ann/Library/Kosmos/x' }), result('tu-2', 'touch: /Users/ann/Library/Kosmos/x: Operation not permitted', true),
     use('tu-3', 'Bash', { command: 'ls /nope' }), result('tu-3', 'ls: /nope: No such file or directory', true),
     use('tu-4', 'Write', { file_path: '/Users/ann/work/workers/rex/notes.md' }), result('tu-4', 'Permission to use Write has been denied.', true),
     use('tu-5', 'Bash', { command: 'echo hi' }), result('tu-5', 'Permission to use Bash with command echo hi has been denied.', false),
@@ -38,7 +38,7 @@ test('#5683 scan: a deny-rule refusal is the token-only guard, a Bash EPERM is t
   const got = ae.scanText(lines, new Map(), ctx());
   assert.deepEqual(got.map((e) => [e.toolUseRef, e.rule, e.action, e.targetClass]), [
     ['tu-1', 'token-only-guard', 'run', 'home'],   // resolvable: classed by the real roots (in this ctx, none covers it)
-    ['tu-2', 'sandbox', 'run', 'system'],
+    ['tu-2', 'sandbox', 'run', 'board-files'],   // the sandbox's own target (challenge-loop iteration 1)
     ['tu-4', 'token-only-guard', 'write', 'other-agent'],
   ]);
   assert.equal(got[0].sessionRef, 'sess-1');
@@ -83,8 +83,11 @@ function accept(root) {
   rec.consentHash = HASH;
   fs.writeFileSync(f, JSON.stringify(rec));
   fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: {
-    reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], usageConsented: false } } }));
+    reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped',
+      EVENTS_LINE], usageConsented: false } } }));
 }
+/* The consent line naming these events (challenge-loop iteration 1): without it nothing is read. */
+const EVENTS_LINE = "when one of your agents is stopped by your company's rules: which agent, the kind of thing it tried, and when";
 function coordinator(answer) {
   const sent = [];
   let w = null;   // the enrollment's world, as the coordinator remembers it (the rollup tests' coordinator)
@@ -221,9 +224,9 @@ test('#5683 r1: a line longer than the read window is skipped, never wedging the
 
 test('#5683 r1: a call in one read and its result in the next keep the tool (a sandbox refusal stays one)', () => {
   const calls = new Map();
-  assert.deepEqual(ae.scanText(use('s1', 'Bash', { command: 'touch /etc/x' }), calls, ctx()), []);
-  const got = ae.scanText(result('s1', 'touch: /etc/x: Operation not permitted', true), calls, ctx());
-  assert.deepEqual(got.map((e) => [e.rule, e.targetClass]), [['sandbox', 'system']]);
+  assert.deepEqual(ae.scanText(use('s1', 'Bash', { command: 'touch /Users/ann/Library/Kosmos/x' }), calls, ctx()), []);
+  const got = ae.scanText(result('s1', 'touch: /Users/ann/Library/Kosmos/x: Operation not permitted', true), calls, ctx());
+  assert.deepEqual(got.map((e) => [e.rule, e.targetClass]), [['sandbox', 'board-files']]);
 });
 
 test('#5683 r1: target paths are resolved; ~user and a .claude-like folder are not mistaken', () => {
@@ -279,7 +282,7 @@ test('#5683 r1: the company changing its words stops the sends; words accepted a
   const H2 = 'cd'.repeat(32);
   rec.consentHash = H2;
   fs.writeFileSync(f, JSON.stringify(rec));
-  fs.writeFileSync(path.join(s.root, oe.CONSENT_FILE), JSON.stringify({ order: [H2], byHash: { [H2]: { reports: ['x'], usageConsented: false } } }));
+  fs.writeFileSync(path.join(s.root, oe.CONSENT_FILE), JSON.stringify({ order: [H2], byHash: { [H2]: { reports: ['x', EVENTS_LINE], usageConsented: false } } }));
   refuse = false;
   /* The first tick under the new words starts clean (review 2: then a refusal AFTER it must be sent). */
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // a new consent state has no failure wait
@@ -309,12 +312,12 @@ test('#5683 r1: a call in one tick and its sandbox result in the next is sent as
   const { s, c } = await enrolled(t);
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // Scout is seen listed
   await new Promise((r) => setTimeout(r, 1100));
-  append(s.file, use('sp', 'Bash', { command: 'touch /etc/x' }));
+  append(s.file, use('sp', 'Bash', { command: 'touch ' + path.join(s.root, 'x') }));
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
-  append(s.file, result('sp', 'touch: /etc/x: Operation not permitted', true));
+  append(s.file, result('sp', 'touch: x: Operation not permitted', true));
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const ev = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
-  assert.deepEqual(ev.map((e) => [e.toolUseRef, e.rule, e.targetClass]), [['sp', 'sandbox', 'system']]);
+  assert.deepEqual(ev.map((e) => [e.toolUseRef, e.rule, e.targetClass]), [['sp', 'sandbox', 'board-files']]);
 });
 
 /* ---- review 2 ---- */
@@ -532,9 +535,12 @@ test('#5683 r4: an offset is kept while its file exists, even when a listing com
 
 /* ---- review 5 ---- */
 
-test('#5683 r5: a sandbox refusal whose call was lost (a restart) is still reported, as Bash', () => {
-  const got = ae.scanText(result('lost', 'touch: /etc/x: Operation not permitted', true), new Map(), ctx());
-  assert.deepEqual(got.map((e) => [e.rule, e.action]), [['sandbox', 'run']]);
+test('#5683 r5, reversed in challenge-loop iteration 1: a sandbox-shaped refusal whose call was lost is NOT reported', () => {
+  /* Review 5 reported it as Bash. Its target is unknown, so it cannot be shown to be one the company's sandbox denies
+     (not macOS privacy control), and it is left out. A deny-rule refusal names its rule in its own text and is kept. */
+  assert.deepEqual(ae.scanText(result('lost', 'touch: /etc/x: Operation not permitted', true), new Map(), ctx()), []);
+  const kept = ae.scanText(result('lost2', DENIED('x'), true), new Map(), ctx());
+  assert.deepEqual(kept.map((e) => e.rule), ['token-only-guard']);
 });
 
 test('#5683 r5: a rewritten file cannot lift the read budget', () => {
@@ -770,7 +776,7 @@ test('#5683 r16: a listed agent whose guard is not in force is not read', async 
 });
 
 test('#5683 r16: a sandbox refusal counts only on macOS; a tool named like an object key is a run', () => {
-  const lines = use('e1', 'Bash', { command: 'x' }) + '\n' + result('e1', 'x: Operation not permitted', true);
+  const lines = use('e1', 'Bash', { command: 'cat /Users/ann/Library/Kosmos/board.token' }) + '\n' + result('e1', 'x: Operation not permitted', true);
   assert.deepEqual(ae.scanText(lines, new Map(), ctx({ platform: 'linux' })), []);
   assert.equal(ae.scanText(lines, new Map(), ctx({ platform: 'darwin' })).length, 1);
   const odd = ae.scanText(result('e2', 'Permission to use constructor has been denied.', true), new Map(), ctx());
@@ -885,15 +891,15 @@ test('#5683 r23: a failed state write keeps the calls, so the re-read is classed
   const { s, c } = await enrolled(t);
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
-  append(s.file, use('wf', 'Bash', { command: 'touch /etc/x' }));
+  append(s.file, use('wf', 'Bash', { command: 'touch ' + path.join(s.root, 'x') }));
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // the call: written
-  append(s.file, result('wf', 'touch: /etc/x: Operation not permitted', true));
+  append(s.file, result('wf', 'touch: x: Operation not permitted', true));
   /* The result lands in a tick whose state write fails (the state folder unwritable), so that tick must not consume the call. */
   fs.chmodSync(s.root, 0o500);
   try { await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() }); } finally { fs.chmodSync(s.root, 0o700); }
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // the re-read
   const ev = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
-  assert.deepEqual(ev.map((e) => [e.toolUseRef, e.targetClass]), [['wf', 'system']], 'the call was lost with the failed write');
+  assert.deepEqual(ev.map((e) => [e.toolUseRef, e.targetClass]), [['wf', 'board-files']], 'the call was lost with the failed write');
 });
 
 /* ---- review 24 ---- */
@@ -1562,4 +1568,33 @@ test('#5683 r45: a stop before any state was ever written sends nothing from the
   const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
   assert.ok(refs.includes('later'), 'control: a refusal after the first tick was not sent: ' + refs.join(','));
   assert.equal(refs.includes('gap'), false, 'a refusal from before any state was written was sent');
+});
+
+/* ---- challenge-loop iteration 1 ---- */
+
+test('#5683 cl1: an EPERM outside what the company sandbox denies (macOS privacy control) is not reported', () => {
+  const lines = [
+    use('t1', 'Bash', { command: 'ls /Users/ann/Desktop' }), result('t1', 'ls: /Users/ann/Desktop: Operation not permitted', true),
+    use('t2', 'Bash', { command: 'touch /etc/hosts' }), result('t2', 'touch: /etc/hosts: Operation not permitted', true),
+    use('t3', 'Bash', { command: 'cat /Users/ann/Library/Kosmos/board.token' }), result('t3', 'cat: Operation not permitted', true),
+    use('t4', 'Bash', { command: 'touch /Users/ann/work/workers/rex/x' }), result('t4', 'touch: Operation not permitted', true),
+    use('t5', 'Bash', { command: 'printf x > /Users/ann/work/workers/scout/.claude/settings.json' }), result('t5', 'Operation not permitted', true),
+  ].join('\n');
+  const got = ae.scanText(lines, new Map(), ctx());
+  assert.deepEqual(got.map((e) => [e.toolUseRef, e.targetClass]), [['t3', 'board-files'], ['t4', 'other-agent'], ['t5', 'agent-config']]);
+});
+
+test('#5683 cl1: nothing is read or sent until the accepted words name these events', async (t) => {
+  const { s, c } = await enrolled(t);
+  /* The words as served today: no line about these events. */
+  fs.writeFileSync(path.join(s.root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: {
+    reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], usageConsented: false } } }));
+  const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.match(r.because || '', /do not name these events/);
+  assert.equal(s.read.length, 0, 'transcripts were read under words that do not name these events');
+  assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false);
+  /* The same words with the line: read as before (the control). */
+  accept(s.root);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.ok(s.read.length > 0, 'control: with the line accepted, nothing was read');
 });

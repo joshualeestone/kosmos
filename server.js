@@ -21181,7 +21181,7 @@ function start(port = PORT) {
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
-  setTimeout(agentEventsTick, 60 * 1000).unref();   // #5683: a first look a minute after start (review 15), as the rollup
+  setTimeout(agentEventsTick, 2 * 60 * 1000).unref();   // #5683: a first look two minutes after start, a minute after the rollup's, so their computer-print reads do not land together
   setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
