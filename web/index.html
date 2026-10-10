@@ -11402,12 +11402,13 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-apps-say { margin: 0 0 10px; font-size: .8125rem; line-height: 1.45; color: #B8C2DA; }
 #s-sec-plus .plus-stores { display: flex; flex-direction: column; gap: 8px; }
 /* Greyed until the store lists the app. The ribbon's words fit inside the button and clear the store's name (measured
-   by render-plus-panel-3829 at 1400 and 390; #A3ADC6 is 4.67:1 on the pane's lightest navy). */
+   by render-plus-panel-3829 at 1400 and 390; #A3ADC6 is 4.67:1 on the pane's lightest navy). On the 60px button a 36 degree ribbon keeps its words inside for a top of
+   18 to 22px (measured), so 20px sits in the middle of that range; 38 degrees at 15px pushed them past the top edge.. */
 #s-sec-plus .plus-store { position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; height: 60px; padding: 0 92px 0 14px;
   border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(255,255,255,.04); color: #A3ADC6; font: 600 .9rem var(--font-ui); text-decoration: none; }
 #s-sec-plus .plus-store small { display: block; font-weight: 500; font-size: .72rem; line-height: 1.1; }
 #s-sec-plus .plus-store-name { line-height: 1.15; }
-#s-sec-plus .plus-sash { position: absolute; top: 15px; right: -38px; width: 140px; text-align: center; transform: rotate(38deg); background: #E6EBF7; color: #18223f;
+#s-sec-plus .plus-sash { position: absolute; top: 20px; right: -40px; width: 150px; text-align: center; transform: rotate(36deg); background: #E6EBF7; color: #18223f;
   font: normal 700 .6rem/1 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; padding: 5px 0; }
 #s-sec-plus a.plus-store { color: #E6EBF7; border-color: rgba(255,255,255,.25); }
 #s-sec-plus a.plus-store .plus-sash { display: none; }
