@@ -183,3 +183,18 @@ test('#5643 retry review 1 Windows: refused only says not recorded; a reset then
   assert.match(r.out, /stopped answering/);
   assert.ok(/^[0-9a-f]{16}$/.test(r.ids[0]) && r.ids.every((x) => x === r.ids[0]), 'the attempts carried different run ids: ' + r.ids);
 });
+
+test('#5643 retry review 2 Mac: a rule (task repeat) that fails says only what it said before', async () => {
+  const home = makeHome();
+  await withStub(['cut'], async (port, seen) => {
+    const r = await sh(port, home, ['task', 'repeat', 'proj', '3', 'daily']);
+    assert.equal(r.code, 1, r.out);
+    assert.equal(posts(seen), 1);
+    assert.doesNotMatch(r.out, /that run|recorded/, 'a rule change was told about a run: ' + r.out);
+    assert.match(r.out, /change that task/);
+  });
+  await withStub(['cutclose'], async (port) => {
+    const r = await sh(port, home, ['task', 'repeat', 'proj', '3', 'daily']);
+    assert.doesNotMatch(r.out, /that run|stopped answering while we recorded/, r.out);
+  });
+});

@@ -1095,7 +1095,8 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
   /* kosmos#5643, as install/kosmos: a run the board did not take (no answer, a timeout, a cut reply, or a 503 while it
      could not check who is running) is asked again, twice, before the agent hears it failed: a run whose check
      succeeded was lost when one busy moment ended the only attempt. Safe to repeat: the board takes a repeat from the
-     same agent inside a minute as the same run (engine/tasks.js RUN_DEDUP_MS), and the attempts fit inside one.
+     same agent inside a minute as the same run (engine/tasks.js RUN_DEDUP_MS), and each command sends one run_id on
+     every attempt, which the board takes as the same run however late it lands.
      A rule (repeat) is asked once, as before. */
   let mayHaveLanded = !r.reached && !r.refused && !r.notConnected;
   for (let tries = 0; which === 'ran' && tries < 2 && (!r.reached || r.status === 503); tries += 1) {

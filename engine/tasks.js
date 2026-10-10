@@ -1261,7 +1261,7 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
 /** kosmos#5643: the run streak's fields (how many runs in a row found nothing new, and the last change), which belong to
     one repeat rule: dropped when the rule changes, is cleared, or the task closes. */
 function dropRunStreak(t) {
-  delete t.unchangedRuns; delete t.unchangedInferred; delete t.lastRunUnchanged; delete t.lastChangeAt; delete t.lastChangeNote;
+  delete t.unchangedRuns; delete t.unchangedInferred; delete t.lastRunUnchanged; delete t.lastChangeAt; delete t.lastChangeNote; delete t.lastRunId;
 }
 
 /**

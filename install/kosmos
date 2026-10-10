@@ -4872,17 +4872,18 @@ cmd_task() {
         printf '%sKosmos did not answer or was busy; asking again (it takes the same run only once)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
         sleep "$(awk -v ms="$_pause" -v k="$(( _try == 0 ? 2 : 8 ))" 'BEGIN { printf "%.3f", ms * k / 1000 }')"; _try=$((_try + 1))
       done
+      # A rule (repeat) fails as it always did (retry review 2: none of the run's words reach it).
+      [ "$rc" -eq 0 ] || [ "$sub" = ran ] || { say_unreached "change that task" "$rc" write; exit 1; }
       if [ "$rc" -ne 0 ]; then
         # A timeout on any attempt may have recorded it, so that says check first; otherwise it was not recorded.
-        if [ "$sub" = ran ] && [ "$_maybe" -eq 0 ]; then say "We could not reach Kosmos to record that run, so it was not recorded. Run the same command again once Kosmos is running at $URL."; exit 1; fi
+        if [ "$_maybe" -eq 0 ]; then say "We could not reach Kosmos to record that run, so it was not recorded. Run the same command again once Kosmos is running at $URL."; exit 1; fi
         # Review 1: an earlier attempt may have landed. A last attempt that timed out means it is busy; one refused means
         # it stopped answering, so it is never told it is running. Exit 3, the "maybe" the Windows CLI and msg use.
         case "$rc" in
           18|28|52|56) say_unreached "record that run" 28 write ;;
           *) say "Kosmos stopped answering while we recorded that run, so it may have been recorded before it did. Once it is running at $URL, check with: kosmos task list ${project:-<project>}, before recording it again." ;;
         esac
-        [ "$sub" = ran ] && exit 3
-        say_unreached "change that task" "$rc" write; exit 1
+        exit 3
       fi
       case "$body" in
         '{"task":'*)
