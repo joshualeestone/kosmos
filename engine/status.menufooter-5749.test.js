@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // #4273: first, so this file's temp dirs are contained and removed when it exits
 /* #5749: Claude Code's question menu reads needs-you when its highlight is on the unnumbered Submit row (no `❯ N.` row in
  * the tail) and on the footer-less review tab. The screens are real captures (2.1.296) in test-support/claude-screens. */
 const os = require('node:os');
