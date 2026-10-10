@@ -71,8 +71,11 @@ for (const [name, screen] of [['single-select', MENU], ['multi-select', MULTISEL
       const v = await chat.deliverAsync('casey', 'A room post for Casey.', board.agents);
       assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
       assert.match(v.because, /showing a question on its screen/);
+      // The direct-message route answers only the single-select form by number, so only that form is pointed there.
+      if (name === 'single-select') assert.match(v.because, /by its number in its direct messages/);
+      else assert.doesNotMatch(v.because, /direct messages/, 'a form the direct messages cannot answer was pointed there');
       assert.deepEqual(calls.typed(), [], 'something was typed into the menu');
-      const h = await chat.deliverAutomaticAsync('casey', 'A task line for Casey.', board.agents);
+      const h = await chat.deliverAutomaticAsync('casey', 'A line for Casey.', board.agents);
       assert.equal(h.held, true, JSON.stringify(h));
       assert.equal(h.heldBy, 'menu');
       assert.equal(h.state, chat.DELIVERY.COULD_NOT);
@@ -85,7 +88,7 @@ for (const [name, screen] of [['single-select', MENU], ['multi-select', MULTISEL
 
 test('#5743 the synchronous sender is refused too', async () => {
   await onScreen(MENU, 'needs_you', async (board, calls) => {
-    const v = chat.deliver('casey', 'A task line for Casey.', board.agents);
+    const v = chat.deliver('casey', 'A line for Casey.', board.agents);
     assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
     assert.deepEqual(calls.typed(), []);
   });
@@ -93,7 +96,7 @@ test('#5743 the synchronous sender is refused too', async () => {
 
 test('#5743 CONTROLS: an idle agent and a permission prompt are typed into as before', async () => {
   await onScreen('⏺ Done.\n\n────────\n❯ \n────────\n  bypass permissions on (shift+tab to cycle)', 'idle', async (board, calls) => {
-    const v = await chat.deliverAutomaticAsync('casey', 'A task line for Casey.', board.agents);
+    const v = await chat.deliverAutomaticAsync('casey', 'A line for Casey.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
     assert.ok(calls.typed().length > 0, 'nothing was typed to an idle agent');
     // An ordinary delivery pays no extra screen read: only a card the snapshot already calls needs_you is looked at.

@@ -1394,13 +1394,15 @@ function codexScreenRefusal(card, sessionName, roster) {
    after closing the menu, so failing closed would refuse ordinary replies whenever one capture fails; the trust-dialog
    floor above still covers the dialog that ends a session. */
 const CLAUDE_MENU_SENTENCE = 'it is showing a question on its screen, and a message typed now would pick an answer nobody chose, '
-  + 'so we did not type anything; answer the question in its window first (a question with one choice to make can also '
-  + 'be answered by its number in its direct messages)';
+  + 'so we did not type anything; answer the question in its window first';
+/* Said only when the screen is the form the direct-message route answers by number (status.claudeQuestionMenu). */
+const CLAUDE_MENU_DM_CLAUSE = ', or by its number in its direct messages';
 function claudeMenuRefusal(card, sessionName, roster) {
   if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
   if (card.state !== status.STATE.NEEDS_YOU) return null;
   const view = viewport(sessionName, roster);
-  return view && typeof view.text === 'string' && status.claudeQuestionMenuUp(view.text) ? CLAUDE_MENU_SENTENCE : null;
+  if (!(view && typeof view.text === 'string' && status.claudeQuestionMenuUp(view.text))) return null;
+  return CLAUDE_MENU_SENTENCE + (status.claudeQuestionMenu(view.text) ? CLAUDE_MENU_DM_CLAUSE : '');
 }
 
 /**

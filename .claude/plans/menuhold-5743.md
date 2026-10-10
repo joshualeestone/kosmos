@@ -6,7 +6,8 @@ Card: joshualeestone/kosmos#5743. Follow-up to #5406 slice A (merged #5746), whi
 
 While Claude's question menu is on an agent's screen (any menu drawn with its "Enter to select · ... Esc to cancel"
 footer: single-select, multi-select, multi-question), no path types a message into that pane:
-- automatic deliveries (a colleague's room post, task lines, the idle flush) are HELD (COULD_NOT, held: true,
+- automatic deliveries that can reach a needs_you card (a colleague's room post, the unanswered-post nudge, the
+  restart hello, the handoff pickup, the auto-handoff) are HELD (COULD_NOT, held: true,
   heldBy: 'menu'), so the room keeps the post and the next idle flush, after the question is answered, delivers it;
 - every other sender (a person's room post, the task line, slash commands) is refused COULD_NOT with a sentence that
   says why and where to answer (the agent's direct messages, or its window). Nothing is typed, so re-sending is safe.
@@ -40,6 +41,12 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
   needs_you on this menu, so it is not special-cased.
 - The direct-message close-then-deliver path runs through this floor: server.question-menu-5406.test.js ("any other
   reply closes the menu with Escape first, then goes as a message") reads the screen again after the Escape and types.
+
+- deliverAutomatic reads the screen in menuHeldVerdict and again at the floor; a menu drawn between the two reads is
+  refused rather than held, so a room does not keep that one post.
+- A paused-swarm Claude agent on its menu is logged as menu-held rather than paused; its later flush is refused as paused.
+- The idle-only sweeps (assigner, agentnudge, firstreply, replynudge) never meet a menu hold; their menu-held wording is
+  defensive.
 
 ## Weakest premise
 
