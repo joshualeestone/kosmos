@@ -401,6 +401,9 @@ const SCREENS = [
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => { const r = document.querySelector('#pj-room'); if (r) r.scrollIntoView({ block: 'start' }); });
+    /* #5782: the click on the project row leaves the pointer where the room's first message lands, so every shot showed
+       that message's hover bar. Park it in the corner, as the other screens here do. */
+    await page.mouse.move(1, 1);
   } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
      and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
@@ -1213,6 +1216,14 @@ DATA_SETS.marketing = {
   agents: STORE_AGENTS.map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo' })),
   /* The person at the hub: a made-up name, so the hub shows an initial (Josh's ruled empty-disc rule otherwise). */
   you: { name: 'Sam Rivera', does: 'Runs a small home goods business' },
+  /* The work spread across the team, and each agent's own report of what it is on (engine/commitments, the record an
+     agent writes), so a task card says who is doing it instead of "has not reported what it is working on yet". */
+  tasks: [['Draft the product copy for every page', 'dana'], ['Check the prices against the spreadsheet', 'eli'], ['Book the photographer', 'cleo']],
+  commitments: {
+    dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
+    eli: 'Task 2 of Launch the spring catalogue: checking the linen prices against the March sheet',
+    cleo: 'Task 3 of Launch the spring catalogue: booking the photographer for Thursday',
+  },
 };
 let FACES_DIR = null;   // --faces: pictures for the seeded agents and the person
 let DATA = DATA_SETS.sample;   // run() picks the set before the board is seeded
@@ -1443,8 +1454,13 @@ async function seed(base, roots) {
     ...(DATA.projectDescription ? { description: DATA.projectDescription } : {}) });
   const pid = made.project && made.project.id;
   if (!pid) throw new Error('seed: the board made no project');
-  for (const s2 of ['Draft the product copy for every page', 'Check the prices against the spreadsheet', 'Book the photographer']) {
-    await post('/api/project/' + pid + '/tasks', { sentence: s2, who: DATA.chatAgent });
+  const taskList = DATA.tasks || ['Draft the product copy for every page', 'Check the prices against the spreadsheet', 'Book the photographer'].map((t) => [t, DATA.chatAgent]);
+  for (const [s2, who] of taskList) {
+    await post('/api/project/' + pid + '/tasks', { sentence: s2, who });
+  }
+  if (DATA.commitments) {
+    const commitments = require(path.join(REPO, 'engine', 'commitments'));
+    for (const [agent, what] of Object.entries(DATA.commitments)) commitments.report(agent, [{ id: 'c-' + agent, what }]);
   }
   await post('/api/projects', DATA.secondProject);
   const t0 = Date.now() - 1800e3;
