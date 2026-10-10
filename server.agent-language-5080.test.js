@@ -72,10 +72,12 @@ test('#5080: PUT saves and changes running agents at once; English takes the blo
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.choice, 'pt-BR');
     assert.equal(r.body.changed, 1, 'the running agent was not changed by the save');
+    assert.equal(r.body.removed, 0, 'CONTROL: writing a block is not a removal');
     assert.equal(r.body.couldNot, 0);
     assert.match(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /reads Portuguese \(pt-BR, chosen in Kosmos Settings\)/);
     r = await put({ choice: 'en' });
     assert.equal(r.body.changed, 1);
+    assert.equal(r.body.removed, 1, 'a removal was not reported apart, so the page would promise a switch that never comes');
     assert.equal(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), original, 'English did not take the block out');
     assert.equal((await (await fetch(base + '/api/agent-language')).json()).choice, 'en');
     // Review 1: back to Automatic on a computer the board cannot read (this one, Linux in the seam) also takes out the
