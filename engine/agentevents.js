@@ -745,7 +745,16 @@ function defaultSources() {
  * SEND_MAX when this is the enrolled Kosmos with the consent recorded here. Never throws.
  * opts: { root, remote, sources, now, home } (tests); the board passes nothing.
  */
+/* One tick at a time in this process (challenge-loop iteration 2): the send's read-modify-writes slice the queue by
+   the batch's length, which holds only while nothing else changes the queue meanwhile. server.js keeps its own flag
+   too; this one holds for any caller. */
+let TICKING = false;
 async function tick(opts) {
+  if (TICKING) return { sent: 0, because: 'a tick is already running' };
+  TICKING = true;
+  try { return await tickOnce(opts); } finally { TICKING = false; }
+}
+async function tickOnce(opts) {
   const o = opts || {};
   try {
     const oe = require('./orgenroll');
@@ -975,7 +984,11 @@ async function tick(opts) {
     const batch = st.pending.slice(0, st.sendMax || SEND_MAX);
     const remote = o.remote || require('./remote');
     let r;
-    try { r = await remote.macRequest('POST', ROUTE, Object.assign({ events: batch }, pf.fields)); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
+    /* Only the contract's fields go out (challenge-loop iteration 2): a stored entry with an extra key would make the
+       coordinator refuse the whole batch as bad, and the good events in it would be dropped with it. */
+    const wire = batch.map((e) => ({ world: e.world, agent: e.agent, at: e.at, action: e.action, rule: e.rule,
+      targetClass: e.targetClass, sessionRef: e.sessionRef, toolUseRef: e.toolUseRef }));
+    try { r = await remote.macRequest('POST', ROUTE, Object.assign({ events: wire }, pf.fields)); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
     if (!r || !r.ok) {
       /* A batch the coordinator REFUSES as malformed or too big (org_agent_events_bad / _too_big, public codes) would be
          refused on every retry and hold back every later event. Drop exactly that batch; anything else (offline, busy,
