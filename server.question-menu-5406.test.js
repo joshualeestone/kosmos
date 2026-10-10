@@ -32,6 +32,9 @@ const chat = require('./engine/chat');
 const fleet = require('./test-support/fleet');
 
 const MENU = fs.readFileSync(path.join(__dirname, 'test-support', 'claude-screens', 'question-menu-2.1.29x.txt'), 'utf8');
+/* The menu's identity as the server derives it from the real capture (review 32), not a string typed to match it. */
+const ASKED = chat.questionAbove(chat.questionIn(MENU, 'claude').text);
+test('#5406 slice C premise: the capture\'s identity is its question line', () => { assert.equal(ASKED, 'Which fruit do you want?'); });
 const IDLE = '⏺ Banana\n\n────────\n❯ \n────────\n  bypass permissions on (shift+tab to cycle)';
 
 let base;
@@ -76,12 +79,12 @@ test('#5406: a typed number answers the menu with the bare key, nothing pasted, 
 
 test('#5406: a button press with its words is checked and sent as the key; a stale one is refused', async () => {
   await withMenu(async (calls) => {
-    const r = await post({ text: '3', chose: 'Cherry', asked: 'Which fruit do you want?' });
+    const r = await post({ text: '3', chose: 'Cherry', asked: ASKED });
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.deepEqual(calls.keys(), ['3']);
   });
   await withMenu(async (calls) => {
-    const r = await post({ text: '3', chose: 'Mango', asked: 'Which fruit do you want?' });
+    const r = await post({ text: '3', chose: 'Mango', asked: ASKED });
     assert.equal(r.status, 409, 'a button whose words the screen contradicts was sent');
     assert.deepEqual(calls.keys(), []);
   });
@@ -167,7 +170,7 @@ test('#5406 review 2: a Codex card whose screen ends like this menu is not answe
 });
 
 test('#5406 review 3: a question that changed between the read and the key is refused; a failed message says the question was closed', async () => {
-  const OTHER = MENU.replace('Which fruit do you want?', 'Which colour do you want?');
+  const OTHER = MENU.replace(ASKED, 'Which colour do you want?');
   const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
   try {
     const screens = [MENU, OTHER];
@@ -200,7 +203,7 @@ test('#5406 slice C: the thread GET serves the menu\'s options and its identity 
     const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
     assert.equal(back.asking, true);
     assert.deepEqual(back.options, [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana' }, { n: 3, label: 'Cherry' }]);
-    assert.equal(back.asked, 'Which fruit do you want?');
+    assert.equal(back.asked, ASKED);
     // CONTROL (the positive one every refusal in this file leans on): the identity it serves is the one a press must
     // send, and a press with it goes through AS THE KEY. Status alone is not enough: this route answers 200 for
     // could_not too.
@@ -227,7 +230,7 @@ test('#5406 slice C: the setup guide\'s thread serves no asked (everything there
     } finally { fs.rmSync(marker, { force: true }); }
     // CONTROL: without the marker the same thread serves it.
     const plain = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
-    assert.equal(plain.asked, 'Which fruit do you want?');
+    assert.equal(plain.asked, ASKED);
   });
 });
 
@@ -271,7 +274,7 @@ test('#5406 slice C: a button press for a question that is no longer on screen i
   const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
   try {
     const calls = armPane();
-    const r = await post({ text: '1', chose: 'Apple', asked: 'Which fruit do you want?' });
+    const r = await post({ text: '1', chose: 'Apple', asked: ASKED });
     assert.equal(r.status, 409, JSON.stringify(r.json));
     assert.match(r.json.error, /no longer on its screen/);
     assert.deepEqual(calls.keys(), [], 'a key was sent');
@@ -287,7 +290,7 @@ test('#5406 slice C: a press whose words fail the bounds is still checked by its
   const bad = 'Apple\u0007';   // a control character: chose is dropped by its bounds check
   // The menu is up and the question matches, but the words could not be checked: refused, nothing sent.
   await withMenu(async (calls) => {
-    const r = await post({ text: '1', chose: bad, asked: 'Which fruit do you want?' });
+    const r = await post({ text: '1', chose: bad, asked: ASKED });
     assert.equal(r.status, 409, JSON.stringify(r.json));
     assert.match(r.json.error, /could not check that choice's words/, 'refused with a sentence that is not true here');
     assert.deepEqual(calls.keys(), []);
@@ -297,7 +300,7 @@ test('#5406 slice C: a press whose words fail the bounds is still checked by its
   const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
   try {
     const calls = armPane();
-    const r = await post({ text: '1', chose: bad, asked: 'Which fruit do you want?' });
+    const r = await post({ text: '1', chose: bad, asked: ASKED });
     assert.equal(r.status, 409, JSON.stringify(r.json));
     assert.equal(calls.pasted(), '', 'a press with dropped words was typed as a prompt');
   } finally { chat.resetForTests(); board.restore(); }
@@ -332,7 +335,7 @@ test('#5406 slice C: a press for an agent not run by Claude is refused, never pa
   const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'gemini', command: 'claude', screen: MENU })]);
   try {
     const calls = armPane();
-    const r = await post({ text: '1', chose: 'Apple', asked: 'Which fruit do you want?' });
+    const r = await post({ text: '1', chose: 'Apple', asked: ASKED });
     assert.equal(r.status, 409, JSON.stringify(r.json));
     assert.match(r.json.error, /cannot be answered with a button/, 'a press for another runner was given a sentence that is not true');
     assert.deepEqual(calls.keys(), []);
@@ -344,7 +347,7 @@ test('#5406 slice C: a press for an agent not run by Claude is refused, never pa
    arm for a number not on the menu no route here reaches (the page only sends digits it drew from the menu). */
 test('#5406 slice C: a press whose words were dropped and whose digit is not on the live menu is refused, nothing closed or typed', async () => {
   await withMenu(async (calls) => {
-    const r = await post({ text: '7', chose: 'Apple\u0007', asked: 'Which fruit do you want?' });
+    const r = await post({ text: '7', chose: 'Apple\u0007', asked: ASKED });
     assert.equal(r.status, 409, JSON.stringify(r.json));
     assert.match(r.json.error, /could not check that choice's words/);
     assert.deepEqual(calls.keys(), [], 'the menu was closed or answered');
@@ -354,7 +357,7 @@ test('#5406 slice C: a press whose words were dropped and whose digit is not on 
 
 test('#5406 slice C: an automatic message cannot carry a question identity (it would be pasted into the menu)', async () => {
   await withMenu(async (calls) => {
-    const r = await post({ text: '1', asked: 'Which fruit do you want?', automatic: true });
+    const r = await post({ text: '1', asked: ASKED, automatic: true });
     assert.equal(r.status >= 400, true, JSON.stringify(r.json));
     assert.match(String(r.json && r.json.error), /plain text/);
     assert.deepEqual(calls.keys(), []);
@@ -464,7 +467,7 @@ test('#5406 slice C review 21: the cursor moving inside the single-select menu k
 });
 
 test('#5406 slice C review 22: on the live menu, a new question whose identity CONTAINS the pressed one is refused (equality, not containment)', async () => {
-  const MORE = MENU.replace('Which fruit do you want?', 'Which fruit do you want? Pick the one for the second basket.');
+  const MORE = MENU.replace(ASKED, 'Which fruit do you want? Pick the one for the second basket.');
   const asked = chat.questionAbove(chat.questionIn(MENU, 'claude').text);
   const nowIdent = chat.questionAbove(chat.questionIn(MORE, 'claude').text);
   assert.ok(nowIdent.includes(asked) && nowIdent !== asked, 'premise: the new identity contains the pressed one');
@@ -516,9 +519,37 @@ test('#5406 slice C review 28: a press while the asking card\'s screen cannot be
       return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
     });
     chat.setDryRun(false); chat.setPauser(() => {});
-    const r = await post({ text: '1', chose: 'Apple', asked: 'Which fruit do you want?' });
+    const r = await post({ text: '1', chose: 'Apple', asked: ASKED });
     assert.equal(r.status, 409, JSON.stringify(r.json));
     assert.match(r.json.error, /could not read its screen just now/);
     assert.deepEqual(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys'), []);
   } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5406 slice C review 32: a screen that cannot be read right before the key says so, not "the question went"; nothing sent', async () => {
+  /* The last read before the key is the one answerQuestionMenu takes; counted on a run that succeeds (the control), so
+     the failing run breaks exactly that read and no other. */
+  let before = 0;
+  await withMenu(async (calls) => {
+    const r = await post({ text: '1', chose: 'Apple', asked: chat.questionAbove(chat.questionIn(MENU, 'claude').text) });
+    assert.equal(r.status, 200, 'CONTROL: ' + JSON.stringify(r.json));
+    const firstKey = calls.findIndex((a) => a[0] === 'send-keys');
+    before = calls.slice(0, firstKey).filter((a) => a[0] === 'capture-pane').length;
+  });
+  assert.ok(before >= 1, 'premise: a read before the key');
+  await withMenu(async (calls) => {
+    let seen = 0;
+    chat.setRunner((args) => {
+      calls.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') { seen += 1; return seen === before ? { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' } : { ran: true, spawnFailed: false, status: 0, out: MENU, err: '' }; }
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    const r = await post({ text: '1', chose: 'Apple', asked: chat.questionAbove(chat.questionIn(MENU, 'claude').text) });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(r.json.error, /could not see its screen to answer its question/);
+    assert.doesNotMatch(r.json.error, /no longer on its screen/);
+    assert.deepEqual(calls.keys(), [], 'a key was sent');
+    assert.equal(calls.pasted(), '', 'something was typed');
+  });
 });

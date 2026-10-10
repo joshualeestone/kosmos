@@ -1185,7 +1185,9 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   const t = paneTarget(allowed.card);
   const look = () => { try { const v = viewport(sessionName, roster); return v && typeof v.text === 'string' ? v.text : null; } catch { return null; } };
   const before = look();
-  const menu = before ? status.claudeQuestionMenu(before) : null;
+  // Review 32: a screen that could not be read is not "the question went": say which (nothing was sent either way).
+  if (!before) return { ok: false, because: 'we could not see its screen to answer its question, so nothing was sent; try again' };
+  const menu = status.claudeQuestionMenu(before);
   if (!menu) return { ok: false, because: 'its question is no longer on its screen, so nothing was sent' };
   const opt = menu.options.find((o) => o.n === Number(n));
   const e = expect || {};

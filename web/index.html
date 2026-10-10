@@ -37401,16 +37401,25 @@ function dmChoiceBlocksSend(session) {
 let DM_CHOICE_GEN = 0;
 /* The options as one string, so a question repeated word for word with other choices is a NEW question (review 29). */
 const dmChoiceSig = (opts) => opts.map((o) => o.n + '\u0001' + o.label).join('\u0002');
+/* Review 32: the header and run-up above the question line count too, so a menu whose question line and choices stay
+   but whose header changed is a new question. Only the lines up to the question line: the option lines below it carry
+   the highlight, which moves without the question changing, and the options are in dmChoiceSig already. */
+function dmChoiceHead(body, asked) {
+  const t = body && body.question && typeof body.question.text === 'string' ? body.question.text : '';
+  const lines = t.split('\n');
+  const at = lines.findIndex((l) => l.includes(asked));
+  return at < 0 ? '' : lines.slice(0, at + 1).map((l) => l.trim()).join('\n');
+}
 const DM_CHOICE_INFLIGHT = new Map();   // session -> asked, while a press is in the air: a repaint draws the buttons disabled
 function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
   /* No buttons where the composer is closed (presence off: the agent cannot be typed into), the same rule as the box. */
   const prev = DM_CHOICES;
   DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked && body.presence !== 'off')
-    ? { session: sessionName, options: opts, asked: body.asked,
+    ? { session: sessionName, options: opts, asked: body.asked, head: dmChoiceHead(body, body.asked),
       /* a new number whenever the question (or agent) changes, so focus is never carried onto another question's button */
       gen: prev && prev.session === sessionName && prev.asked === body.asked && dmChoiceSig(prev.options) === dmChoiceSig(opts)
-        ? prev.gen : (DM_CHOICE_GEN += 1) }
+        && prev.head === dmChoiceHead(body, body.asked) ? prev.gen : (DM_CHOICE_GEN += 1) }
     : null;
   if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
 }
@@ -37475,7 +37484,9 @@ async function dmChoicePress(btn) {
      while the page's poll is still catching up. Only a refusal or could_not (nothing typed) gives the buttons back now. */
   const mayHaveSent = ok || unsure;
   if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok });
-  if (msg) msg.textContent = ok ? note : '';
+  /* Review 32: emptied either way; a success is announced once, in #d-reply-say below (the repaint draws "Sent." here
+     for the eye, in a new node a screen reader does not read out again). */
+  if (msg) msg.textContent = '';
   if (!mayHaveSent && box) box.querySelectorAll('.dmchoice').forEach((b) => { b.disabled = false; });
   /* Why it did not go goes on the conversation's own line, said once: a refusal usually means the question changed or
      went, and the repaint then draws another question's bubble, or none. */
@@ -37506,8 +37517,11 @@ async function dmChoicePress(btn) {
   if (!document.activeElement || document.activeElement === document.body) {
     const thread = document.getElementById('d-dmthread');
     const sameQuestion = DM_CHOICES && DM_CHOICES.session === session && DM_CHOICES.gen === c.gen;   // same question AND choices
-    const back = (mayHaveSent || !sameQuestion) ? document.getElementById('d-say')   // locked, or the question changed (review 28)
+    const choice = (mayHaveSent || !sameQuestion) ? null   // locked, or the question changed (review 28)
       : thread && (thread.querySelector('.dmchoice[data-n="' + CSS.escape(String(opt.n)) + '"]') || thread.querySelector('.dmchoice'));
+    /* Review 32: a choice drawn disabled (a typed send now in the air) cannot take focus: the message box does, the
+       same rule as paintTalkThread's. */
+    const back = choice && !choice.disabled ? choice : document.getElementById('d-say');
     if (back) back.focus({ preventScroll: true });
   }
 }

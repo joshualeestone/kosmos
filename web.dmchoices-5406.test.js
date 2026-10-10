@@ -93,7 +93,8 @@ test('#5406 C: a press sends the digit, the option\'s words and the question it 
   // CONTROL: a NEW question on the same agent is pressable.
   m.from({ ...BODY, asked: 'Which colour?' }, CUR.sessionName);
   assert.doesNotMatch(m.html(Q), / disabled>/);
-  assert.equal(msg.textContent, 'Sent.');
+  // Review 32: the bubble's own status is left empty; a success is announced once, in #d-reply-say (tested below).
+  assert.equal(msg.textContent, '', 'the bubble status said Sent. as well as the quiet announcement');
   // Once this agent's menu is gone, the lock goes with it.
   m.from({ ...BODY, asking: false }, CUR.sessionName);
   assert.equal(m.answered(CUR.sessionName), null, 'a lock outlived the menu it was about');
@@ -371,4 +372,44 @@ test('#5406 C review 28: a question that changes gets a new button generation; t
   const g2 = /data-gen="(\d+)"/.exec(m.html(Q))[1];
   m.from({ ...BODY, options: [{ n: 1, label: 'Pear' }, { n: 2, label: 'Plum' }] }, CUR.sessionName);
   assert.notEqual(/data-gen="(\d+)"/.exec(m.html(Q))[1], g2, 'other choices under the same question kept the generation');
+});
+
+test('#5406 C review 32: a changed header above the same question line and choices is a new generation', () => {
+  const CUR = realCard();
+  const m = load({ CURRENT: CUR });
+  const withHead = (head) => ({ ...BODY, question: { text: head + '\nWhich fruit do you want?\n\u276f 1. Apple\n  2. Banana <b>' } });
+  m.from(withHead('Lunch'), CUR.sessionName);
+  const g1 = /data-gen="(\d+)"/.exec(m.html(Q))[1];
+  // CONTROL: only the highlight moved (an option line), so it is the same question and keeps its generation.
+  m.from({ ...BODY, question: { text: 'Lunch\nWhich fruit do you want?\n  1. Apple\n\u276f 2. Banana <b>' } }, CUR.sessionName);
+  assert.equal(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'a moved highlight changed the generation');
+  m.from(withHead('Dinner'), CUR.sessionName);
+  assert.notEqual(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'a new header over the same question kept the old generation');
+});
+
+test('#5406 C review 32: after a refusal, a choice drawn disabled does not take focus; the message box does', async () => {
+  const CUR = realCard();
+  const focused = []; const body = {};
+  let choiceDisabled = false;
+  const thread = { querySelector: (sel) => (sel.includes('data-n="1"') ? { disabled: choiceDisabled, focus: () => focused.push('choice') } : null) };
+  const doc = { activeElement: body, body, getElementById: (id) => (id === 'd-dmthread' ? thread : id === 'd-say' ? { focus: () => focused.push('say') } : null) };
+  const m = load({ CURRENT: CUR, document: doc, fetch: async () => ({ ok: false, json: async () => ({ error: 'its screen moved' }) }) });
+  m.from(BODY, CUR.sessionName);
+  const press = () => m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => null }) });
+  await press();
+  assert.deepEqual(focused, ['choice'], 'CONTROL: an enabled choice of the same question takes focus back');
+  focused.length = 0; choiceDisabled = true;
+  await press();
+  assert.deepEqual(focused, ['say'], 'focus was put on a disabled choice');
+});
+
+test('#5406 C review 32: a success is announced once, in the live region that survives the repaint', async () => {
+  const CUR = realCard();
+  const quiet = { textContent: '' }; const msg = { textContent: '' };
+  const doc = { activeElement: null, getElementById: (id) => (id === 'd-reply-say' ? quiet : null) };
+  const m = load({ CURRENT: CUR, document: doc });
+  m.from(BODY, CUR.sessionName);
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => msg }) });
+  assert.equal(quiet.textContent, 'Sent.', 'the success was not announced');
+  assert.equal(msg.textContent, '', 'the success was announced twice');
 });
