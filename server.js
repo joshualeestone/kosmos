@@ -16271,16 +16271,6 @@ const server = http.createServer(async (req, res) => {
             gone.status = 409;
             throw gone;
           }
-          /* A press is answered only as a key on Claude's single-select question menu (the GET serves `asked` for nothing
-             else). Any other screen that reads as a numbered menu (a permission prompt, another runner's list) would take
-             the paste's Enter as its highlighted option. */
-          if (askedAbove && (!card || String(card.runner || 'claude') !== 'claude'
-            || (seen && seen.text && !require('./engine/status').claudeQuestionMenu(seen.text)))) {
-            const notThis = new Error('that question cannot be answered with a button, so we did not send anything. '
-              + 'Answer it in its window.');
-            notThis.status = 409;
-            throw notThis;
-          }
         }
         // Deliver first, then record the verdict with it — and record even a
         // failure, exactly as the project thread does.

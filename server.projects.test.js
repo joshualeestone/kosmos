@@ -2696,7 +2696,7 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
     });
 });
 
-test('the same question still on screen is not refused BY THE IDENTITY CHECK (the permission-prompt refusal answers instead)', async () => {
+test('a press at a permission-style prompt is refused as not a button question, nothing typed (the identity check is server.question-menu-5406.test.js\'s)', async () => {
   reset();
   /* ⚠️ THE CONTROL FOR IT. Without this, the refusal above passes for a server
      that 409s every button send, which would be worse than the hole it closes:
@@ -2710,10 +2710,6 @@ test('the same question still on screen is not refused BY THE IDENTITY CHECK (th
       const chatEngine = require('./engine/chat');
       const asked = chatEngine.questionAbove(chatEngine.questionIn(aPrompt).text);
       const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes', asked });
-      /* ORDER IS LOAD-BEARING: this reads which refusal came back, so it discriminates only while the identity check
-         runs before the permission-prompt refusal. The positive control (a matching press goes out as the key) is in
-         server.question-menu-5406.test.js. */
-      assert.doesNotMatch(String(json(res).error), /moved between drawing that button|changed on its screen/, 'the identity check refused the question that is on screen');
       assert.match(String(json(res).error), /cannot be answered with a button/, 'a press at a permission prompt was not refused as one');
       assert.equal(calls.sends().length, 0, 'a press was typed into a permission prompt');
     });
@@ -2785,10 +2781,9 @@ test('the cursor moving inside a SHORT prompt keeps the same identity (questionA
          the identity does not move at all. That is the ordinary permission
          prompt. The false refusal needs a capture DEEPER than the run-up
          window, and `engine/chat.test.js` holds that case. */
-      /* #5406 slice C / #5754: a press at this permission prompt is refused now (pasted, its Enter would take the
-         highlighted option), so the clamp is read off the identity itself and off WHICH refusal came back. */
+      /* #5406 slice C / #5754: a press at this permission prompt is refused before any identity check, so the clamp is
+         read off the identity itself. */
       assert.equal(chatEngine.questionAbove(chatEngine.questionIn(moved).text), asked, 'a short prompt clamps to the same window at either cursor position');
-      assert.doesNotMatch(String(json(res).error), /moved between drawing that button/, 'the cursor moving was taken for a different question');
       assert.equal(calls.sends().length, 0, 'a press was typed into a permission prompt');
     });
 });
