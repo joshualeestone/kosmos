@@ -443,3 +443,8 @@ the content view #5686 logs who looked). Never the matched text. Off unless the 
 ## Review 38 (Opus, base origin/main): one WARNING, fixed
 - WARNING: a check-only agent's transcript, idle past the window, was read from byte 0 when the agent joined the token-only list while the check had been on for weeks (the reading point fell back to the turn-on), spending the tick's read budget on lines the window then drops. The reading point is now never earlier than the window. Tested with a file bigger than one tick's budget, last written ten days ago: it starts at its end; red with the clamp removed (read 4 MB of 18 MB).
 - NIT taken: a comment says folders only the survey found are used to keep agents apart and are never read for flags.
+
+## Review 39 (Sonnet, base origin/main): one WARNING, fixed
+- WARNING: collision marks gathered while the check was off were carried into its first tick on, read as "just cleared", and started a token-only agent's files at their end, losing that tick's refusals. A fresh turn-on now carries no earlier marks (a check-only file first seen then starts at its end anyway, and a token-only agent's own collisions are slice 1's listing reset). Tested; red without the change.
+- NIT taken: the span comment says up to SPANS_MAX, and that past the cap an agent's own span can be flagged (the safe side).
+- NIT recorded, a known miss: after a board restart the call map is empty, so a result whose call was lost is scanned even if its tool was Edit or Write, and a write tool's echo of the agent's own text can be flagged. It needs a restart and a result landing in a later tick; the flag says what was received, so the company sees an agent's own words, not a hidden attack.

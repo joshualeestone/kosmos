@@ -1723,3 +1723,22 @@ test('#5683 slice 3 (review after the rebase onto main): a token-only transcript
   const st = ae._readState(root);
   assert.equal(st.offsets[old], size, 'an idle file past the window was read from its start (offset ' + st.offsets[old] + ' of ' + size + ')');
 });
+
+test('#5683 slice 3 review 39: a collision mark kept while the check was off does not cost a token-only agent its refusals at turn-on', async (t) => {
+  const { root, tdir, c } = await enrolled(t, 'fc');
+  const file = path.join(tdir, 'scout.jsonl');
+  fs.writeFileSync(file, 'x\n');
+  const sources = { everyAgent: () => [], transcriptDirsOf: (d) => [d], guarded: () => true, agents: () => ['Scout'], allAgents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [file] };
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: false });
+  await new Promise((r) => setTimeout(r, 2100));
+  fs.appendFileSync(file, [use('fc-1', 'Bash', { command: 'cat z' }), result('fc-1', 'Permission to use Bash with command cat z has been denied.', true)].join('\n') + '\n');
+  // A mark left from while the check was off (a collision since gone), as an older tick carried it.
+  const statePath = path.join(root, 'agent-events.json');
+  const st = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  assert.ok(!Number.isFinite(st.manipSince) && Object.prototype.hasOwnProperty.call(st.offsets, file), 'CONTROL: the check is off and the file is known: ' + JSON.stringify(st));
+  st.flagCollided = ['Scout'];
+  fs.writeFileSync(statePath, JSON.stringify(st));
+  await ae.tick({ root, remote: c, sources, now: Date.now(), manipulationCheck: true });   // turned on now
+  const refusals = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.filter((e) => e.rule !== 'manipulation-check').map((e) => e.toolUseRef));
+  assert.ok(refusals.includes('fc-1'), 'a refusal was skipped at turn-on over a stale collision mark: ' + JSON.stringify(refusals));
+});

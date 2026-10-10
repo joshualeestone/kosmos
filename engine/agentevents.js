@@ -902,7 +902,8 @@ function ownInputMatch(b, ctx, at) {
   };
   walk(b.input, 0);
   if (size > OWN_INPUT_MAX) return undefined;
-  // The keys of every span the input matches (review 31: a category hid other matches of it), or null when none.
+  // The keys of the spans the input matches, up to SPANS_MAX (review 31: a category hid other matches of it; past the
+  // cap a span of the agent's own can be flagged, the safe side), or null when none.
   const spans = new Set();
   manipulationOf(parts.join('\n'), null, spans);
   return spans.size ? [...spans] : null;
@@ -1441,7 +1442,10 @@ async function tickOnce(opts) {
        another agent's sessions too, and would be flagged under its name. Kitty's listing reset does this for refusals;
        this is the same for flags, for every collision (token-only or read only for the check). */
     const flagCollidedNow = new Set([...checkOnlyCollided, ...collidedNow]);
-    const prevFlagCollided = Array.isArray(st.flagCollided) ? st.flagCollided : [];
+    /* Not carried into a fresh turn-on (review 39): marks gathered while the check was off would read as cleared on its
+       first tick and start a token-only agent's files at their end, losing that tick's refusals. A check-only file
+       first seen at turn-on starts at its end anyway, and a token-only agent's own collisions are Kitty's listing reset. */
+    const prevFlagCollided = manip && !Number.isFinite(st.manipSince) ? [] : (Array.isArray(st.flagCollided) ? st.flagCollided : []);
     /* Only a tick that could compute every collision may clear one (review 18): on a tick with the check off, an unknown
        policy or words, or an unreadable agent list, the earlier collisions are carried forward. */
     const collisionsKnown = manip && !agentsUnknown && !foldersUnknown;
