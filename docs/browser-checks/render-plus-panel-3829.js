@@ -280,7 +280,7 @@ const STATES = {
           const live = await page.evaluate(() => { plusStoresPaint({ android: 'https://play.google.com/store/apps/details?id=io.kosmos.app', ios: 'javascript:alert(1)' });
             const a = document.getElementById('plus-store-android'), i = document.getElementById('plus-store-ios');
             return { aTag: a.tagName, aHref: a.getAttribute('href'), aRel: a.getAttribute('rel'), aSash: getComputedStyle(a.querySelector('.plus-sash')).display, iTag: i.tagName, iOff: i.getAttribute('aria-disabled') }; });
-          chk(live.aTag === 'A' && live.aHref === 'https://play.google.com/store/apps/details?id=io.kosmos.app' && live.aRel === 'noopener' && live.aSash === 'none' && live.iTag === 'SPAN' && live.iOff === 'true',
+          chk(live.aTag === 'A' && live.aHref === 'https://play.google.com/store/apps/details?id=io.kosmos.app' && live.aRel === 'noopener noreferrer' && live.aSash === 'none' && live.iTag === 'SPAN' && live.iOff === 'true',
             `${t} #5787: a store page set for Android turns that button into a link with no ribbon; iOS (a non-https value) stays greyed`, JSON.stringify(live));
         }
         chk(!v.sectionText.includes(ADDR) && v.status === '', `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
