@@ -61776,15 +61776,27 @@ function tkRepeatChoice() {
   const every = document.getElementById('tk-repeat-every').value;
   if (!every) return { clear: true };
   if (every === 'hour') return { every: 'hour' };
-  const at = document.getElementById('tk-repeat-at').value;
+  const atEl = document.getElementById('tk-repeat-at');
+  const at = atEl.value;
   if (!at) return { needsTime: true };   // review 1: an empty time is no choice yet, never a silent 9am
+  /* kosmos#5752: a daily rule with several times shows its first in the time box (the line below says them all). Until
+     the person changes that time, the choice IS the stored list, so this screen never quietly drops the others. */
+  if (every === 'day' && atEl.dataset.multi && at === atEl.dataset.multi.split(',')[0]) return { every: 'day', at: atEl.dataset.multi };
   return every === 'day' ? { every: 'day', at } : { every: 'week', on: document.getElementById('tk-repeat-day').value, at };
 }
 function tkRepeatStoredChoice(t) {
   const r = t && t.repeat;
   if (!r) return { clear: true };
   if (r.every === 'hour') return { every: 'hour' };
-  return r.every === 'day' ? { every: 'day', at: r.at } : { every: 'week', on: TK_REPEAT_DAYS[r.day], at: r.at };
+  // kosmos#5752: several times a day travel as one comma list, the form the route reads.
+  return r.every === 'day' ? { every: 'day', at: Array.isArray(r.at) ? r.at.join(',') : r.at } : { every: 'week', on: TK_REPEAT_DAYS[r.day], at: r.at };
+}
+/* kosmos#5752: a stored list of times fills the time box with its first and is remembered whole, so tkRepeatChoice reads
+   the list back until the person changes the time. One time (or none: 9am to start from) forgets any list. */
+function tkRepeatFillAt(at) {
+  const atEl = document.getElementById('tk-repeat-at');
+  if (at && at.includes(',')) atEl.dataset.multi = at; else delete atEl.dataset.multi;
+  atEl.value = (at || '09:00').split(',')[0];
 }
 function tkRepeatShowWhen() {
   const every = document.getElementById('tk-repeat-every').value;
@@ -61824,7 +61836,7 @@ function tkPaintRepeat(p, t) {
     const c = tkRepeatStoredChoice(t);
     every.value = c.clear ? '' : c.every;
     // Review 1: a task with no time or day of its own starts from Monday 9am, never the last task's unsaved choice.
-    document.getElementById('tk-repeat-at').value = c.at || '09:00';
+    tkRepeatFillAt(c.at);
     document.getElementById('tk-repeat-day').value = c.on || 'mon';
     every.dataset.task = key;
     every.dataset.stored = stored;

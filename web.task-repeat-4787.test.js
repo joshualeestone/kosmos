@@ -157,3 +157,30 @@ test('#4787 slice 3 review 6: a capped miss reads "More than 99"; a finished tas
   const src = page.liftAll(SCRIPT, ['tkPaintRepeat']);
   assert.match(src, /if \(done\) \{[^\n]*tkPaintReviewer\(p, t\); return; \}/);
 });
+
+test('#5752: a twice-daily rule round-trips through the task page\'s Repeats control; only changing the time makes a new choice', () => {
+  const SRC = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
+  const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
+  const els = { 'tk-repeat-every': { value: '', dataset: {} }, 'tk-repeat-at': { value: '', dataset: {} }, 'tk-repeat-day': { value: 'mon', dataset: {} } };
+  const document = { getElementById: (id) => els[id] };
+  const f = new Function('TK_REPEAT_DAYS', 'document', page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt'])
+    + '\nreturn { tkRepeatStoredChoice, tkRepeatChoice, tkRepeatFillAt };')(eval(days[1]), document);
+  const t = { repeat: { every: 'day', at: ['09:00', '21:00'] } };
+  const stored = f.tkRepeatStoredChoice(t);
+  assert.deepEqual(stored, { every: 'day', at: '09:00,21:00' }, 'the comma list the route reads');
+  // Painted as the page paints it: Every day, the box shows the first time.
+  els['tk-repeat-every'].value = 'day';
+  f.tkRepeatFillAt(stored.at);
+  assert.equal(els['tk-repeat-at'].value, '09:00');
+  assert.deepEqual(f.tkRepeatChoice(), stored, 'untouched, the choice IS the stored list (Save stays off; nothing is dropped)');
+  els['tk-repeat-at'].value = '10:00';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '10:00' }, 'the person changed the time: their one time');
+  els['tk-repeat-every'].value = 'week';
+  els['tk-repeat-at'].value = '09:00';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'week', on: 'mon', at: '09:00' }, 'another frequency takes the box\'s one time');
+  // CONTROL: a one-time rule forgets the list, so its own 09:00 is just 09:00.
+  f.tkRepeatFillAt('09:00');
+  els['tk-repeat-every'].value = 'day';
+  assert.equal(els['tk-repeat-at'].dataset.multi, undefined);
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'day', at: '09:00' });
+});

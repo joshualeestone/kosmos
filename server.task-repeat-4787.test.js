@@ -268,3 +268,20 @@ test('#4787 slice 3 review 6: a process cannot close a task whose reviewer the p
   assert.equal(r.status, 409, JSON.stringify(r.json));
   assert.equal(stored(m).repeatReviewer, 'fixture');
 });
+
+/* kosmos#5752: twice a day through the route, the form both CLIs and the screen send (`at` as one comma list). */
+test('#5752: an agent sets a twice-daily rule with --at 09:00,21:00, records a run, and a bad time in the list is refused', async () => {
+  const n = newTask('Twice-daily price check');
+  const minted = sendertoken.mint('mona');
+  let r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '21:00, 09:00' }, { 'x-kosmos-agent-token': minted.token });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.deepEqual(stored(n).repeat, { every: 'day', at: ['09:00', '21:00'] }, 'stored sorted, as a list');
+  assert.equal(r.json.words, 'every day at 9am and 9pm');
+  r = await post(`/api/project/${projectId}/task/${n}/ran`, { note: 'prices unchanged', unchanged: true }, { 'x-kosmos-agent-token': minted.token });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.ok(stored(n).lastRunAt, 'the run is recorded');
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00,25:00' }, { 'x-kosmos-agent-token': minted.token });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /HH:MM/);
+  assert.deepEqual(stored(n).repeat, { every: 'day', at: ['09:00', '21:00'] }, 'a refused rule leaves the stored one');
+});
