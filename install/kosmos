@@ -4850,10 +4850,31 @@ cmd_task() {
       else
         data="{\"note\":\"$(_jesc "$note")\",\"unchanged\":$unchanged,\"from_pane\":\"$esc_pane\"}"
       fi
-      local rc=0 body
-      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
-        -H 'content-type: application/json' --data "$data" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
+      local rc=0 body _code _try=0 _maybe=0 _pause
+      # kosmos#5643: a run the board did not take is asked again, twice, before the agent hears it failed. A run whose
+      # check succeeded was lost when one busy moment (a timeout, a restart, a 503 while the board could not check who
+      # is running) ended the only attempt. Safe to repeat: the board takes a repeat from the same agent inside a
+      # minute as the same run (engine/tasks.js RUN_DEDUP_MS), and all three attempts fit inside one (15 s each, at
+      # most 2 s and 8 s apart). A rule (repeat) is asked once, as before.
+      _pause=$(( ${KOSMOS_RETRY_PAUSE_MS:-2000} / 1000 ))
+      while :; do
+        rc=0
+        body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w '\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
+          -H 'content-type: application/json' --data "$data" 2>/dev/null) || rc=$?
+        _code=$(printf '%s' "$body" | tail -n 1); body=$(printf '%s' "$body" | sed '$d')
+        case "$rc" in 18|28|52|56) _maybe=1 ;; esac
+        [ "$sub" = ran ] && [ "$_try" -lt 2 ] || break
+        if [ "$rc" -eq 0 ] && [ "$_code" != 503 ]; then break; fi
+        case "$rc" in 0|7|18|28|52|56) ;; *) break ;; esac
+        printf '%sKosmos did not take that run; asking again (a repeat inside a minute is the same run)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
+        sleep $(( _try == 0 ? _pause : _pause * 4 )); _try=$((_try + 1))
+      done
+      if [ "$rc" -ne 0 ]; then
+        # A timeout on any attempt may have recorded it, so that says check first; otherwise it was not recorded.
+        if [ "$sub" = ran ] && [ "$_maybe" -eq 0 ]; then say "We could not reach Kosmos to record that run, so it was not recorded. Run the same command again once Kosmos is running at $URL."; exit 1; fi
+        if [ "$sub" = ran ]; then say_unreached "record that run" 28 write; exit 1; fi
+        say_unreached "change that task" "$rc" write; exit 1
+      fi
       case "$body" in
         '{"task":'*)
           local words; words=$(printf '%s' "$body" | sed -n 's/.*"words":"\([^"]*\)".*/\1/p')
@@ -4869,6 +4890,11 @@ cmd_task() {
           else say "Task $num on ${project:-the project} now repeats ${words:-on that schedule}.$( [ -z "$reviewer" ] || [ "$reviewer" = none ] || printf ' %s will be told when it misses a run.' "$reviewer") Each time its job runs, record it with: kosmos task ran $project $num"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          if [ "$sub" = ran ] && [ "$_code" = 503 ] && [ "$_maybe" -eq 0 ]; then
+            say "Kosmos could not record that run: ${because:-it was busy}. It was not recorded; run the same command again in a minute."; exit 1
+          fi
+          # An earlier attempt that timed out may have recorded it, so a later busy answer says check first.
+          if [ "$sub" = ran ] && [ "$_code" = 503 ]; then say_unreached "record that run" 28 write; exit 1; fi
           say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when changing that task."; exit 1 ;;
       esac
