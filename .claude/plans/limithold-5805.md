@@ -14,9 +14,11 @@ and the room reminder is sent once only.
 4. Reply reminder: let an agent declare its reply channel.
 
 ## What changes
-- engine/chat.js: `limitHeldVerdict` (exported) returns the #4588 hold shape with heldBy 'limit' and heldUntil = the
-  reset, for an addressable Claude card in rate_limited whose stateEvidence has a dated reset still ahead
-  (status.limitResetAt). deliverAutomatic and deliverAutomaticAsync check it after the menu hold.
+- engine/chat.js: `limitHeldVerdict` (exported) returns the #4588 hold shape with heldBy 'limit', for an addressable
+  Claude card (`limitable`) in rate_limited whose stateEvidence has a dated reset (status.limitResetAt): heldUntil the
+  reset while it is ahead, and a minute on after it while the card still reads capped (status keeps a passed dated
+  line only while Claude Code's limit menu is on screen, or in its one-minute grace). deliverAutomatic and
+  deliverAutomaticAsync check it after the menu hold.
 - engine/messages.js: a room post the limit held keeps its normal mark (addressed when it names the member, plain
   otherwise), and its reset is recorded with roomhold.noteLimit. staleHeld also reports `answered`.
 - engine/roomhold.js: `<member>.limit` beside the held file records, per project, the posts a usage limit kept and the
@@ -30,9 +32,10 @@ and the room reminder is sent once only.
   limit-held, "held while it is out of usage", never as the Google quota.
 
 ## Decided
-- Hold only on a DATED reset ahead. A dateless limit line (the 5-hour form) stays on screen after its reset until
-  something is typed; holding on it would mean nothing ever wakes the agent. The weekly form is the reported case.
-  status.retireResetLimits already drops a dated line after its reset, so the card leaves rate_limited by itself.
+- Hold only on a DATED limit line. A dateless one (the 5-hour form) stays on screen after its reset until something is
+  typed; holding on it would mean nothing ever wakes the agent. The weekly form is the reported case. After a dated
+  reset status drops the line by itself unless the limit menu is still up, where a typed line would land in the menu,
+  so the hold lasts exactly as long as the card reads capped (looked at again every minute).
 - A limit-held room post keeps its normal mark, so the agent is told it was named. The minute retry for a Claude
   member looks only for posts that name it, and only while its card reads idle off the screen; a member holding only
   posts that ask nothing of it waits for its next wake. This also retries an addressed #4624 hold an idle Claude member
@@ -46,8 +49,6 @@ and the room reminder is sent once only.
 - A person's own message is not held here (slice 2).
 
 ## Residuals, stated
-- In the minute after a printed reset, status may still read the card capped while the hold has lifted, so a line typed
-  then can still land on the limit screen and count as delivered (about one minute per limit).
 - Windows agents run headless; whether their cards ever read rate_limited is unmeasured (slices 2 and 3).
 
 ## Weakest premise
@@ -55,12 +56,15 @@ That a capped Claude card's stateEvidence is the limit line with its reset. It i
 future Claude Code wording moves the reset to another line, limitResetAt finds nothing and nothing is held (the old
 behaviour), never the reverse.
 
-## Tests (engine/limithold-5805.test.js)
-- Real limit screens: a dated reset ahead holds sync and async (heldBy limit, heldUntil the reset, nothing typed); a
-  dateless line and a past reset are typed; a person's message is not held; a codex card is not held by this gate.
-- Room: a colleague's post that names a capped Claude member is held with the cap's mark, not retried while capped, not
-  retried without the predicate (CONTROL), told once when idle; a plain #4624 hold on an idle Claude member is not woken.
-- Red without the change: 3 fail (the 3 controls pass).
+## Tests (engine/limithold-5805.test.js, plus a limit-held case in agyhold-4588 and replynudge-4951)
+- Real limit screens: a dated reset ahead holds sync and async; a passed dated reset on a card still reading capped is
+  held for a minute; a dateless line is typed; a reset status has retired is typed; a person's message is not held; a
+  codex card is not held.
+- Room: an ask to a capped Claude member keeps its addressed mark and is recorded; not retried while capped or without
+  the predicate; told once when idle, with "names you"; a plain post waits; only a project with a surviving ask is told.
+- withoutStale with the real staleHeld: a limit-kept ask survives its day, an answered one or one past its grace does
+  not, another member's limit does not count; the flush path records the limit; noteLimit merge, prune, forgetProject.
+- server.js wires isLimitable with chat.limitable.
 
 ## Review 1 (opus)
 - FIXED (BLOCKER): a limit-held ask older than a day was dropped at the flush by staleHeld's day rule; it now counts
@@ -81,3 +85,13 @@ behaviour), never the reverse.
   reset-grace minute is a stated residual. Not taken: a test of the hello route's text (one string beside the menu arm).
 - Found in this round by the new flush test: an edit had referenced `sent` outside its block, which would have thrown
   on every idle flush; fixed before commit.
+
+## Review 3 (opus)
+- FIXED: after a dated reset Claude's limit menu can stay up (status keeps the card capped for that reason); the hold now
+  lasts while the card reads capped, looking again every minute, instead of ending at the printed reset (tested).
+- FIXED: the Claude retry told every held project once any ask existed; it now tells only a project whose ask survives
+  withoutStale and puts the rest back (askedOnly, tested).
+- FIXED: an arrival limit-held now records every ask it put back, not only the new post.
+- NITs taken: forgetProject clears its room's limit entries and an empty sidecar is removed; tests for merge and
+  prune; stale comments ("the cap's mark") corrected; the server predicate is source-asserted; the two comment blocks
+  above limitable merged.

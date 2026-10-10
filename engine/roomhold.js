@@ -101,10 +101,16 @@ function noteLimit(name, projectId, ids, untilIso, now = Date.now()) {
       const prev = out[projectId] ? Date.parse(out[projectId][k]) : NaN;
       if (!Number.isFinite(prev) || prev < until) (out[projectId] = out[projectId] || Object.create(null))[k] = new Date(until).toISOString();
     }
-    fs.mkdirSync(dir(), { recursive: true });
-    require('./securewrite').writeSecret(limitFileFor(name), JSON.stringify(out), 0o600, { atomicOnly: true });
-    return true;
+    return writeLimits(name, out);
   } catch { return false; }
+}
+function writeLimits(name, all) {
+  const kept = Object.create(null);
+  for (const [p, m] of Object.entries(all)) if (m && typeof m === 'object' && Object.keys(m).length) kept[p] = m;
+  if (!Object.keys(kept).length) { try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* nothing to remove */ } return true; }
+  fs.mkdirSync(dir(), { recursive: true });
+  require('./securewrite').writeSecret(limitFileFor(name), JSON.stringify(kept), 0o600, { atomicOnly: true });
+  return true;
 }
 function limitKept(name, projectId, id, now = Date.now()) {
   const m = readLimits(name)[projectId];
@@ -241,6 +247,10 @@ function restore(name, projectId, ids) {
    tell it about a room it has left (the posts are still in the room). Its other projects' holds are kept. Returns
    how many were dropped, 0 when none or they could not be. */
 function forgetProject(name, projectId) {
+  try {   // #5805: a left room's asks are not kept back either
+    const all = readLimits(name);
+    if (all[projectId]) { delete all[projectId]; writeLimits(name, all); }
+  } catch { /* pruned a day after its reset anyway */ }
   return take(name, projectId).length;
 }
 
@@ -314,12 +324,15 @@ function withoutStale(projectId, ids, stale, name) {
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
    COULD_NOT), so a pane that could not take it keeps it for the next arrival; a stale one (#4926, withoutStale) is
    cleared without being told. Never throws. */
-async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale }) {
+async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
     const ids = withoutStale(projectId, take(name, projectId), stale, name);
     if (!ids.length) continue;
+    /* #5805: the Claude retry (flushReleased) tells only a project where an ask survives the staleness rule; the rest
+       go back untouched for the member's next wake. */
+    if (askedOnly === true && !ids.some(isAddressed)) { restore(name, projectId, ids); continue; }
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
     let state;
@@ -381,7 +394,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          skipped. */
       const agyquota = require('./agyquota');
       if (agyquota.heldForAgy(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;   // #4588 ask 3: the cap too
-      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale })) out.push({ name, ...d });
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }
   return out;

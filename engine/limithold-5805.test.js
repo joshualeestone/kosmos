@@ -3,9 +3,10 @@
 /**
  * #5805 slice 1: a Claude agent paused on a usage limit whose screen names a DATED reset still ahead is not typed into
  * by a timer or a colleague. chat.deliverAutomatic(Async) returns the #4588 hold shape with heldBy 'limit' and
- * heldUntil the reset, so every automatic sender keeps its try. A room post held this way is kept with the cap's mark
- * and roomhold.flushReleased tells it once the member's card reads idle again. A limit line with no date (the 5-hour
- * form) or a reset already past is typed as before, and a person's own message is never held here.
+ * heldUntil the reset, so every automatic sender keeps its try, and after the reset while the card still reads capped
+ * (its limit menu on screen). A room post held this way keeps its mark, its reset is recorded beside the held file,
+ * and roomhold.flushReleased tells a project's surviving asks once the member's card reads idle again. A limit line
+ * with no date (the 5-hour form) is typed as before, and a person's own message is never held here.
  *
  * Cards come from test-support/fleet with real limit screens (the shape status.test.js pins for #5029); every "was it
  * typed" assertion reads the scripted tmux runner's recorded pastes.
@@ -127,6 +128,21 @@ test('#5805 not held: a limit line with no date, a reset already past, and a per
   });
 });
 
+test('#5805 a passed dated reset on a card that still reads capped (its limit menu on screen) is held, looking again in a minute', async () => {
+  await onScreen(AHEAD(), async (board, tmux) => {
+    const past = `You've hit your weekly limit · resets ${chicagoDay(Date.now() - 3 * DAY)} at 3pm (America/Chicago)`;
+    const r = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: past } : c));
+    const before = Date.now();
+    const v = chat.deliverAutomatic('casey', 'A colleague line.', r);
+    assert.equal(v.held, true, JSON.stringify(v));
+    assert.equal(v.heldBy, 'limit');
+    assert.match(v.because, /still shows its usage limit on screen/);
+    const until = Date.parse(v.heldUntil);
+    assert.ok(until >= before + 50e3 && until <= Date.now() + 70e3, 'not a minute on: ' + v.heldUntil);
+    assert.deepEqual(tmux.typed(), []);
+  });
+});
+
 test('#5805 only a Claude card: a capped card of another runner is not held by the limit gate', async () => {
   await onScreen(AHEAD(), async (board) => {
     const codex = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, runner: 'codex' } : c));
@@ -233,4 +249,38 @@ test('#5805 flush: a #4624 hold the limit holds at the idle flush keeps its mark
   assert.equal(done[0].state, chat.DELIVERY.COULD_NOT);
   assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.addressedId('m9')], 'the mark was lost on the put-back');
   assert.equal(roomhold.limitKept('april', PROJECT, 'm9'), true, 'the flush did not record the limit');
+});
+
+test('#5805 retry: only a project whose ask survives is told; a project holding only plain posts waits untouched', async () => {
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'idle' })]);
+  try {
+    roomhold.hold('april', PROJECT, roomhold.addressedId('m51'));
+    roomhold.hold('april', 'other-room', 'm52');
+    const tmux = arm('');
+    const idle = roomRoster(board, false);
+    const done = await roomhold.flushReleased(idle, flushDeps(idle, { stale: undefined }));
+    assert.deepEqual(done.map((d) => [d.name, d.projectId]), [['april', PROJECT]]);
+    assert.equal(tmux.pastedTo('april').length, 1);
+    assert.deepEqual(roomhold.heldIn('april', 'other-room'), ['m52'], 'the plain-only project was told or lost');
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#5805 noteLimit: a later reset wins, entries a day past their reset are pruned, forgetProject clears its room', () => {
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+  roomhold.noteLimit('april', PROJECT, ['m1'], iso(now + 3600e3), now);
+  roomhold.noteLimit('april', PROJECT, ['m1'], iso(now - 3600e3), now);   // an earlier reset does not shorten it
+  assert.equal(roomhold.limitKept('april', PROJECT, 'm1', now + 24 * 3600e3 + 1800e3), true, 'the earlier reset replaced the later');
+  roomhold.noteLimit('april', 'old-room', ['m7'], iso(now - 26 * 3600e3), now - 26 * 3600e3);
+  roomhold.noteLimit('april', PROJECT, ['m2'], iso(now + 60e3), now);      // this write prunes old-room
+  assert.equal(roomhold.limitKept('april', 'old-room', 'm7', now), false);
+  roomhold.forgetProject('april', PROJECT);
+  assert.equal(roomhold.limitKept('april', PROJECT, 'm1', now), false, 'forgetProject kept the left room\'s asks back');
+});
+
+test('#5805 server.js wires the Claude retry with the hold\'s own test', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('roomhold.flushReleased(r, {');
+  assert.notEqual(at, -1);
+  assert.match(src.slice(at, at + 1200), /isLimitable: \(c\) => chat\.limitable\(c\) && c\.state === 'idle'/);
 });

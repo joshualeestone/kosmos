@@ -1916,25 +1916,29 @@ function menuHeldVerdict(sessionName, roster) {
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
-/* #5805: a timer's line for a Claude agent paused on a usage limit whose screen names a DATED reset still ahead (the
-   weekly form status.limitResetAt reads) is HELD until then, the #4588 hold shape with heldBy 'limit': typed, it would
-   reach a session that cannot answer and the sender would count it as delivered. A limit line with no date (the
-   5-hour form) or a reset already past is not held, so a line typed after the reset still wakes the agent (including
-   in the minute after the reset while status still reads the card capped: the vendor has reset by then). */
 /* #5805: the cards the usage-limit hold applies to, one test for the hold and the server's release predicate. */
 function limitable(card) {
   return !!card && card.isNamedOurs === true && String(card.runner || 'claude') === 'claude';
 }
+/* #5805: a timer's line for a Claude agent paused on a usage limit whose screen names a DATED reset (the weekly form
+   status.limitResetAt reads) is HELD, the #4588 hold shape with heldBy 'limit': typed, it would reach a session that
+   cannot answer and the sender would count it as delivered. Held while the reset is ahead (heldUntil the reset), and
+   after it for as long as status still reads the card capped (heldUntil a minute on, to look again): status keeps a
+   passed dated line only while Claude Code's limit menu is on screen, where a typed line would land in the menu, or
+   in its one-minute grace. A limit line with no date (the 5-hour form) is not held: it stays on screen after its
+   reset until something is typed, and holding on it would mean nothing ever wakes the agent. */
+const LIMIT_RELOOK_MS = 60 * 1000;
 function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   if (!limitable(card) || card.state !== status.STATE.RATE_LIMITED) return null;
   if (addressable(sessionName, roster).ok !== true) return null;
-  const until = status.limitResetAt(card.stateEvidence, now);
-  if (until === null || !(until > now)) return null;
-  const iso = new Date(until).toISOString();
+  const reset = status.limitResetAt(card.stateEvidence, now);
+  if (reset === null) return null;
+  const iso = new Date(reset > now ? reset : now + LIMIT_RELOOK_MS).toISOString();
   return {
     state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: iso,
-    because: 'held: this agent is paused on a usage limit until ' + iso,
+    because: reset > now ? 'held: this agent is paused on a usage limit until ' + iso
+      : 'held: this agent still shows its usage limit on screen; looking again at ' + iso,
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }

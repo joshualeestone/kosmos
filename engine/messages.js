@@ -2177,7 +2177,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
-          if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [id], sent.heldUntil);   // #5805: for withoutStale's day rule
+          // #5805: for withoutStale's day rule, every ask this arrival put back, not only the new post.
+          if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [id, ...heldIds.filter(roomhold.isAddressed)], sent.heldUntil);
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         return sent;
