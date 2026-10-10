@@ -1663,3 +1663,20 @@ test('#5683 cl3: on Windows nothing is surveyed or read', async (t) => {
   assert.equal(asked, 0, 'the agent survey ran on Windows');
   assert.equal(s.read.length, 0);
 });
+
+/* ---- challenge loop after the rebase ---- */
+
+test('#5683 cl-rebase: a sandbox refusal inside a network command is judged by the path it touched', () => {
+  const CFG = 'curl -o /Users/ann/work/workers/scout/.claude/settings.json https://example.com/x';
+  const lines = [
+    use('n1', 'Bash', { command: CFG }), result('n1', 'curl: (23) Failure writing output: Operation not permitted', true),
+    use('n2', 'Bash', { command: 'curl https://example.com/x > /Users/ann/work/workers/rex/notes.txt' }), result('n2', 'Operation not permitted', true),
+    /* Outside what the sandbox denies: still not reported (macOS privacy control). */
+    use('n3', 'Bash', { command: 'curl -o /Users/ann/Desktop/x https://example.com/x' }), result('n3', 'Operation not permitted', true),
+    /* The control: a deny rule refusing the same command keeps the network class. */
+    use('n4', 'Bash', { command: CFG }), result('n4', DENIED(CFG), true),
+  ].join('\n');
+  const got = ae.scanText(lines, new Map(), ctx());
+  assert.deepEqual(got.map((e) => [e.toolUseRef, e.rule, e.targetClass]),
+    [['n1', 'sandbox', 'agent-config'], ['n2', 'sandbox', 'other-agent'], ['n4', 'token-only-guard', 'network-host']]);
+});

@@ -408,7 +408,7 @@ function targetClass(tool, input, ctx) {
       if (roots.some((r) => r === t || r.startsWith(t.endsWith(path.sep) ? t : t + path.sep))) { best = 'board-files'; break; }
     }
   }
-  if (netHost && best !== 'board-files') return 'network-host';
+  if (netHost && best !== 'board-files' && !ctx.pathOnly) return 'network-host';
   return best;
 }
 
@@ -533,7 +533,14 @@ function scanText(text, calls, ctx) {
     for (const b of blocks) {
       if (!b || typeof b !== 'object') continue;
       /* Only the tool's name and its target CLASS are kept (review 2): never the input, which can hold a whole file. */
-      if (b.type === 'tool_use' && typeof b.id === 'string') { calls.set(b.id, { name: b.name, target: targetClass(b.name, b.input || {}, ctx) }); continue; }
+      if (b.type === 'tool_use' && typeof b.id === 'string') {
+        const target = targetClass(b.name, b.input || {}, ctx);
+        /* A sandbox refusal is judged by the path it touched, not by the network command around it (challenge loop after the rebase:
+           curl -o ~/.claude/settings.json, refused by the sandbox, was network-host and so never reported). */
+        const pathTarget = target === 'network-host' && b.name === 'Bash' ? targetClass(b.name, b.input || {}, { ...ctx, pathOnly: true }) : target;
+        calls.set(b.id, { name: b.name, target, pathTarget });
+        continue;
+      }
       if (b.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
       const call = calls.get(b.tool_use_id) || {};
       calls.delete(b.tool_use_id);   // any result answers its call (review 2: a successful one too)
@@ -548,7 +555,7 @@ function scanText(text, calls, ctx) {
       const sessionRef = ref(ctx.session);
       const toolUseRef = ref(b.tool_use_id);
       if (!agent || !sessionRef || !toolUseRef) continue;
-      const target = call.target || targetClass(tool, {}, ctx);
+      const target = (rule === 'sandbox' ? call.pathTarget : call.target) || targetClass(tool, {}, ctx);
       /* An "Operation not permitted" is the company's sandbox only where that sandbox denies something: the board's
          files (its denyRead), and the agent's and the account's config (its denyWrite), and another agent's folder.
          Anywhere else it is macOS privacy control (TCC: Desktop, Documents, Full Disk Access) or an unrelated EPERM, not
@@ -601,7 +608,7 @@ function readState(root) {
        one damaged entry would otherwise make the coordinator refuse its whole batch, good events with it. */
     const pend = Array.isArray(j && j.pending) ? j.pending.filter(goodQueued) : [];
     return { offsets: nums(j && j.offsets), pending: pend, listed: obj(j && j.listed),
-      confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isInteger(j.sendMax) && j.sendMax >= 1 ? j.sendMax : null, stops: j && Number.isInteger(j.stops) && j.stops >= 0 ? j.stops : 0,
+      confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided.filter((x) => typeof x === 'string') : [], sendMax: j && Number.isInteger(j.sendMax) && j.sendMax >= 1 ? j.sendMax : null, stops: j && Number.isInteger(j.stops) && j.stops >= 0 ? j.stops : 0,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
   } catch { return emptyState(); }
 }
@@ -854,7 +861,7 @@ async function tickOnce(opts) {
           UNGUARDED_SAID.delete(n);   // guarded again: a later lapse is said again (review 22)
           /* Review 24: a guard confirmed long ago (the board was down) may have lapsed and been rewritten unseen; the gap's
              refusals could be the person's own, so the agent counts from now, as if newly listed. */
-          if (Number.isFinite(st.confirmed[n]) && now - st.confirmed[n] > GUARD_GAP_MS) collidedNow.add(n), gapNow.add(n);
+          if (Number.isFinite(st.confirmed[n]) && now - st.confirmed[n] > GUARD_GAP_MS) { collidedNow.add(n); gapNow.add(n); }
           /* Refreshed once it is over half the gap old (review 25: refreshing every tick rewrote the state every tick). */
           if (!Number.isFinite(st.confirmed[n]) || now - st.confirmed[n] > GUARD_REFRESH_MS) st.confirmed[n] = now;
           continue;
