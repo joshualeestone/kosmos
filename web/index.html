@@ -48466,6 +48466,7 @@ function plusSiClear() {
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
   const sug = document.getElementById('plus-si-name-suggested'); if (sug) sug.hidden = true;   // #3842: a fresh one next time
+  plusSiKStop();   // #5785 review 1: a Sign out during a connect ends the loader (a hidden canvas would keep drawing)
   /* A request abandoned by Sign out returns without re-enabling its button, and a cooldown is
      stopped mid-count; start the next sign-in with every control live. */
   if (typeof PLUS_COUNTDOWN !== 'undefined' && PLUS_COUNTDOWN) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; }
@@ -49166,8 +49167,8 @@ async function plusSiDoRegister(name, owned) {
   plusSiMsg('');
   btn.disabled = true;
   PLUS_SI_BOUGHT_SEQ += 1;   // kosmos#4756: a bought-address read still out is not drawn over this register
-  /* #4608: while the register runs, the heading says what is happening and, for the automatic register, the
-     ring loader turns (a chosen name has no loader line, so it says so in the live status line instead). They
+  /* #4608: while the register runs, the heading says what is happening (#5785: and the big K loader plays, for the
+     automatic register and a chosen name alike; a chosen name also says so in the live status line). They
      are put back once THIS register answers, and not by a stale answer from an abandoned sign-in (a newer one
      may be showing them by then; its own steps restore the heading). */
   const siTitle = document.getElementById('plus-si-title');
@@ -49176,10 +49177,14 @@ async function plusSiDoRegister(name, owned) {
   if (siSpin) siSpin.hidden = true;   // #5785: the big loader below replaces the small one for this wait
   plusSiKStart();
   const kStart = Date.now();
+  const kEpoch = PLUS_SI_EPOCH;   // review 1: an answer held past a Sign out or Start over is not drawn into the new step
   /* #5785: at least one whole K-into-circle loop before the answer shows (#2692's rule), so a fast connect does not
      flash. The restart interstitial's floor and test seam. */
   const kHoldMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
-  const kHold = () => new Promise((res) => setTimeout(res, Math.max(0, kHoldMs - (Date.now() - kStart))));
+  const kHold = () => {
+    const left = kHoldMs - (Date.now() - kStart);
+    return left > 0 ? new Promise((res) => setTimeout(res, left)) : Promise.resolve();
+  };
   if (!owned) plusSiMsg('Signing in...');
   const siRestore = () => {
     if (siSpin) siSpin.hidden = true;
@@ -49201,10 +49206,16 @@ async function plusSiDoRegister(name, owned) {
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
   let r;
   try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
-  catch (e) { await kHold(); siRestore(); if (!owned) plusSiMsg(''); throw e; }
-  PLUS_SI_REGISTERING = false;
-  if (r.stale) return;
+  catch (e) {
+    await kHold();
+    if (kEpoch !== PLUS_SI_EPOCH) return;   // signed out or started over during the hold: that step owns the screen
+    siRestore(); if (!owned) plusSiMsg(''); throw e;
+  }
+  if (r.stale) { PLUS_SI_REGISTERING = false; return; }
   await kHold();
+  if (kEpoch !== PLUS_SI_EPOCH) return;
+  /* Review 1: still registering through the hold, so the status tick does not paint the connected view early. */
+  PLUS_SI_REGISTERING = false;
   siRestore();
   if (!owned && r.ok) plusSiMsg('');
   btn.disabled = false;

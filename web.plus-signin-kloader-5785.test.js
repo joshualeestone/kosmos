@@ -32,16 +32,33 @@ test('#5785: it is the existing branded loader (startKLoader on a fresh canvas),
 });
 
 test('#5785: a register plays it instead of the small spinner, holds one whole loop, and removes it on the answer', () => {
-  const reg = code.slice(code.indexOf('async function plusSiDoRegister('), code.indexOf("plusSiPost('/api/remote/signin-register'") + 400);
+  const reg = code.slice(code.indexOf('async function plusSiDoRegister('), code.indexOf("plusSiPost('/api/remote/signin-register'") + 900);
   assert.ok(reg.length > 1000, 'CONTROL: the register function was found');
-  assert.match(reg, /if \(siSpin\) siSpin\.hidden = true;[^\n]*\n\s*plusSiKStart\(\);/, 'the small spinner still shows during the register');
+  assert.match(reg, /if \(siSpin\) siSpin\.hidden = true;[^\n]*\n\s*plusSiKStart\(\);/, 'expected the small spinner hidden just before plusSiKStart');
   assert.doesNotMatch(reg, /siSpin\.hidden = !owned/, 'the small spinner is back beside the line during the register');
   assert.match(reg, /const kHoldMs = \(typeof window\.__kosmosRestartHoldMs === 'number' \? window\.__kosmosRestartHoldMs : RESTART_HOLD_MS\);/);
   assert.match(reg, /const siRestore = \(\) => \{[\s\S]{0,120}plusSiKStop\(\);/);
-  assert.match(reg, /catch \(e\) \{ await kHold\(\); siRestore\(\);/);
-  assert.match(reg, /if \(r\.stale\) return;\s*await kHold\(\);/);
+  // Review 1: after every hold, an answer for a sign-in that was left (Sign out, Start over) is dropped, and the register
+  // counts as running until the hold ends (the status tick must not paint the connected view early).
+  assert.match(reg, /const kEpoch = PLUS_SI_EPOCH;/);
+  assert.match(reg, /catch \(e\) \{\s*await kHold\(\);\s*if \(kEpoch !== PLUS_SI_EPOCH\) return;[^\n]*\n\s*siRestore\(\);/);
+  assert.match(reg, /if \(r\.stale\) \{ PLUS_SI_REGISTERING = false; return; \}\s*await kHold\(\);\s*if \(kEpoch !== PLUS_SI_EPOCH\) return;\s*PLUS_SI_REGISTERING = false;/);
 });
 
 test('#5785: a step change ends the loader, as it ends the small spinner', () => {
   assert.match(fnBody('plusSiShow'), /if \(sp\) sp\.hidden = true; \}[^\n]*\n\s*plusSiKStop\(\);/);
+});
+
+test('#5785 review 1: a Sign out during a connect removes the loader (plusSiClear stops it)', () => {
+  assert.match(fnBody('plusSiClear'), /plusSiKStop\(\);/);
+});
+
+test('#5785 review 1: the browser checks that drive a register skip the hold (the restart interstitial\'s seam)', () => {
+  for (const f of ['render-plus-bought-4756.js', 'render-plus-signin-enter-0929.js', 'render-plus-signin-3478.js']) {
+    const src = fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', f), 'utf8');
+    const pages = (src.match(/const page = await \w+\.newPage\(/g) || []).length;
+    const seams = (src.match(/await page\.addInitScript\(\(\) => \{ window\.__kosmosRestartHoldMs = 0; \}\);/g) || []).length;
+    assert.ok(pages > 0, 'CONTROL: ' + f + ' opens a page');
+    assert.equal(seams, pages, f + ': a page that drives a register would wait out the 4.4 s hold');
+  }
 });
