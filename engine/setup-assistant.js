@@ -1665,9 +1665,12 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     if ((old.otherReason || null) === nowOther) return r;
     const pathReason = typeof old.pathReason === 'string' ? old.pathReason : null;
     const parts = [pathReason, nowOther].filter(Boolean);
+    // Review 15: a launch's size warning is about the profile Claude Code built at that launch, so it is kept like the
+    // PATH part when this board start has none of its own.
+    const keptWarning = (r && r.warning) || (typeof old.warning === 'string' ? old.warning : null);
     const merged = parts.length
-      ? { ok: false, because: parts.join('; and ') + (nowOther === null || Object.prototype.hasOwnProperty.call(r, 'pathReason') ? '; the rest of the guard is in place' : ''), ...(pathReason ? { pathReason } : {}), ...(nowOther ? { otherReason: nowOther } : {}), ...(r && r.warning ? { warning: r.warning } : {}) }
-      : (r && r.warning ? { ok: true, warning: r.warning } : { ok: true });
+      ? { ok: false, because: parts.join('; and ') + (nowOther === null || Object.prototype.hasOwnProperty.call(r, 'pathReason') ? '; the rest of the guard is in place' : ''), ...(pathReason ? { pathReason } : {}), ...(nowOther ? { otherReason: nowOther } : {}), ...(keptWarning ? { warning: keptWarning } : {}) }
+      : (keptWarning ? { ok: true, warning: keptWarning } : { ok: true });
     recordGuardState(agentName, merged, deps);
     return r;
   }
@@ -1827,7 +1830,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
        Review 8: both reasons together when both apply, so fixing one does not hide the other until the next refresh. */
     const notWhole = [];
     if (rules.launchUnsafe && rules.launchUnsafe.length) notWhole.push(LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')');
-    if (rules.configUnsafe && rules.configUnsafe.length) notWhole.push('a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')');   // review 10: a link reached twice is named once
+    if (rules.configUnsafe && rules.configUnsafe.length) notWhole.push('a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + '): renaming that folder so its name has no ( ) [ or ], or pointing the link somewhere else, lets Kosmos cover it');   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
     /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace

@@ -359,6 +359,7 @@ test('#5516 part 2 (review 13): a board start replaces only the non-PATH part of
   assert.ok(line.because.includes('/launch-only/bin'), 'the launch PATH gap was dropped: ' + line.because);
   assert.ok(!line.because.includes('relative/bin'), 'the board PATH was shown as the agent own: ' + line.because);
   assert.ok(/could not be covered \(.*Box \(P\)/.test(line.because), 'the config gap is not named: ' + line.because);
+  assert.ok(/renaming that folder so its name has no/.test(line.because), 'the refusal does not say how to fix it (review 15): ' + line.because);
   // 2. The person fixes the link: the next board start clears the config part and keeps the launch's PATH part.
   fs.unlinkSync(link);
   quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, boardStart: true }));
@@ -368,6 +369,13 @@ test('#5516 part 2 (review 13): a board start replaces only the non-PATH part of
   fs.writeFileSync(file, JSON.stringify({ ok: false, because: 'x; the rest of the guard is in place', otherReason: 'x', at: 't-launch' }));
   quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, boardStart: true }));
   assert.equal(setup.readGuardState()[name].ok, true, 'a fixed config gap with no PATH part did not read ok');
+  // 4. A launch's size warning is kept when the board start rewrites the line and has none of its own (review 15).
+  fs.writeFileSync(file, JSON.stringify({ ok: false, because: launchPath + '; the rest of the guard is in place', pathReason: launchPath, warning: 'launch-size', at: 't-launch' }));
+  fs.symlinkSync(odd, link);
+  quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, boardStart: true }));
+  line = setup.readGuardState()[name];
+  assert.ok(line.at !== 't-launch' && line.warning === 'launch-size', 'the launch size warning was dropped: ' + JSON.stringify(line));
+  fs.unlinkSync(link);
   // CONTROL: nothing changed in the non-PATH part, so the launch line is left as it is.
   fs.writeFileSync(file, JSON.stringify({ ok: false, because: launchPath + '; the rest of the guard is in place', pathReason: launchPath, at: 't-launch' }));
   quiet(() => setup.guardTokenOnlyFolder(dir, name, { ...DEPS, home: home3, panePath: 'relative/bin', boardStart: true }));
