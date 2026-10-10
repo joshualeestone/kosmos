@@ -832,3 +832,24 @@ test('#4588 B the SAME agent pausing again after its old reset records a fresh f
   // So pause 2 does not count as holding back an agent whose window had closed before it began.
   assert.equal(agyquota.heldBackBy(t - 7 * 3600e3, memo), null, 'a pause that began after X\'s window closed extended it');
 });
+
+/* #5743: a hold for Claude's question menu goes through the same branches; it is logged as itself, never as the quota. */
+const MENU_HELD = () => ({ state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu', because: 'held: it is showing a question on its screen' });
+test('#5743 firstreply and agentnudge: a menu hold is logged as menu-held, not as the shared quota; nothing is spent', () => {
+  const h = frSweep(MENU_HELD);
+  try {
+    const r = firstreply.sweepOnce(h.o);
+    assert.deepEqual(r.results.map((x) => x.act), ['menu-held']);
+    assert.match(r.results[0].because, /held while it shows a question on its screen/);
+    assert.doesNotMatch(r.results[0].because, /Google quota/);
+    assert.equal(h.book.size, 0, 'a menu hold spent a try');
+  } finally { h.restore(); }
+  const w = anWorld('anmenu');
+  try {
+    const book = new Map(); const sent = [];
+    const p = anPass(w, MENU_HELD, book, sent);
+    assert.deepEqual(p.res.results.map((x) => x.act), ['menu-held']);
+    assert.doesNotMatch(p.res.results[0].because, /Google quota/);
+    assert.equal(book.size, 0); assert.equal(sent.length, 0);
+  } finally { w.restore(); }
+});

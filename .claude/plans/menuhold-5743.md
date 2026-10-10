@@ -29,7 +29,16 @@ The direct-message route keeps slice A's behaviour (a number answers, other text
   paid only by a needs_you Claude card with no menu up.
 - The refusal sentence points at the window first: the DM route answers only the single-choice form by number.
 
+- A person's room post refused here does not carry this sentence to them: a room reports one aggregate outcome per
+  post (unconfirmed, or could not reach anybody), not each member's reason. The direct, task and slash routes show it.
+- Under the room brake (AGENT_WORKFORCE_ROOM_HOLD_OFF=1) a colleague's post goes through plain deliver, so a member on
+  its menu is refused, not held and kept (before this card it was typed into the menu).
+
 ## Weakest premise
 
-The snapshot reads needs_you while the menu is up. A menu drawn after the snapshot and before the paste is not caught;
-that window is the request's own lifetime.
+The snapshot reads needs_you while the menu is up. Not caught, recorded rather than fixed here (each needs the board's
+classifier to read the menu's footer as needs_you, which changes every agent's card; follow-up #5749):
+- a menu drawn after the snapshot and before the paste (the request's own lifetime);
+- the multi-select form with its highlight on the unnumbered Submit row, and the multi-question form's review tab (no
+  numbered highlighted row for the classifier, and the review tab has no free-answer row for claudeQuestionMenuUp);
+- a menu so tall that its highlighted row is more than 25 rows above the footer.
