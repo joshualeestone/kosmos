@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: kplusconnect-5787
-diff_hash: 0d0e99aa767ffa36daeab20b0a4b9837ab4395fcdbd8e61b6e0633ccc864c46d
+diff_hash: e420774294f14974e0ca3c2a6b82f1abe507af0fe7635c696335d6e3e9982638
 validation: Scoped, stated plainly. Browser, run on the box as queued turns: render-plus-panel-3829 128/128 on the final ribbon placement (the connect block at 1400 and 390, Josh's #4744 sentence one line at 640 and 600, the store link switch); render-plus-signin-3478, render-plus-bought-4756 and render-plus-asks-signin-4610 (each restated for the removed landing) all passed. Unit: the 14 Kosmos+ test files 81/81 including web.plus-connect-5787.test.js, the selector guard and web.plus-route. render-plus-company-5628, render-plus-stars-3778 and render-plus-gate-1615 (named by the surface gate) were queued locally but the box was held for over an hour; GitHub CI's browser-checks job runs them. REBASED onto main (kosmos#5786 changed render-plus-asks-signin-4610; both sides kept), so the browser runs above are on the pre-rebase commits: the 85 Kosmos+ unit tests pass on the rebased head, and all seven Kosmos+ checks are queued to re-run on it. The full node and shell suites were NOT run locally; the merge is gated on all-green GitHub CI.
 subdir_audit: passed
 timestamp: 2026-10-10T22:47:04Z
@@ -32,6 +32,9 @@ The change (#5787, Josh 2026-10-10 14:07/14:15, "we just combine these pages so 
 
 #### Iteration 2 (browser)
 - render-plus-panel-3829 caught the Coming soon ribbon's words past the 60px button's edge (top, then right) --> FIXED by measuring this page's own styles: 32 deg, top 20, right -34 keeps them 3 to 4px inside every edge.
+
+#### CI round (PR #5806)
+- [found by CI browser-checks] render-plus-panel-3829: at a 600px window Josh's #4744 sentence wrapped. The review's W4 had named this 6px; it passed locally, so the margin is that thin --> FIXED by giving the block #4744's 6px right padding back: the one-line container measures 596/556px at 640/600, identical to main (compared on both pages).
 
 #### Iteration 3 (re-check)
 - render-plus-panel-3829 128/128; unit 23/23 on the final head; surface gate rc 0 with per-check reasons.
