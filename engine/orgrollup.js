@@ -454,6 +454,8 @@ function gatherIn(env) {
 async function sendOthers(c) {
   const next = {};
   const prev = c.prev && typeof c.prev === 'object' ? c.prev : {};
+  // Only under words that name every Kosmos on this computer (the coordinator refuses the rest): none read, none sent.
+  if (!c.accepted || c.accepted.everyKosmosConsented !== true) return next;
   let list = [];
   try { list = (c.o.otherWorlds || otherWorlds)(c.root) || []; } catch { return prev; }
   for (const w of list) {

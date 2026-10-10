@@ -429,7 +429,7 @@ test('#5532 rollup review 7: a refresh keeps the accepted words (found by the ha
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root, ['agent names'], true);
   await oe.refresh({ root, remote: c });
-  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
+  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false, everyKosmosConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
 });
 
 test('#5532 wiring: the words are found only for the hash on the record, and only while it may report', async (t) => {
@@ -453,7 +453,7 @@ test('#5532 wiring: the real enroll path remembers the words shown, and usage is
     const c = coordinator();
     const r0 = await oe.enroll('ACME-JOIN-1234', true, { root, remote: c, consentHash: HASH, consent: { reports: lines, backsUp: [], readers: ['you'], never: [] } });
     assert.equal(r0.ok, true, JSON.stringify(r0));
-    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false }, JSON.stringify(lines));
+    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false, everyKosmosConsented: false }, JSON.stringify(lines));
   }
 });
 

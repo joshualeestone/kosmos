@@ -238,6 +238,10 @@ const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
    the update line mentions the policy too, and promises no version): the coordinator's CONSENT_NAMES_POLICY is pinned
    to the same phrase. Read from the words each time, so words accepted before this existed answer for themselves. */
 const NAMES_POLICY = /\bversion of your company's policy\b/i;
+/* #5532 widening: whether the accepted words name reports from every Kosmos on this computer, so the other Kosmoses
+   here may send theirs. The coordinator's CONSENT_NAMES_EVERY_KOSMOS is pinned to the same phrase and refuses another
+   Kosmos's report until its words name it. Read from the words each time, as NAMES_POLICY is. */
+const NAMES_EVERY_KOSMOS = /\bevery kosmos on this computer\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -267,7 +271,8 @@ function acceptedConsent(opts) {
   const j = readConsents(opts).byHash[rec.consentHash];
   if (!j || !Array.isArray(j.reports)) return null;
   const reports = j.reports.filter((l) => typeof l === 'string' && l);
-  return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)) };
+  return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)),
+    everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)) };
 }
 /* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
    the words on record here are no longer accepted words, so this Kosmos stops reporting until the person accepts the

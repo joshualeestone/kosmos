@@ -19,13 +19,15 @@ const r = require('./orgrollup');
 const oe = require('./orgenroll');
 
 const HASH = 'cd'.repeat(32);
-function accept(root) {
+/* The coordinator's line naming every Kosmos on this computer: without it only the enrolled Kosmos reports. */
+const EVERY = 'all of the above from every Kosmos on this computer, not only this one';
+function accept(root, every = true) {
   const f = path.join(root, oe.ENROLLMENT_FILE);
   const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
   rec.consentHash = HASH;
   fs.writeFileSync(f, JSON.stringify(rec));
   fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: {
-    reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'] } } }));
+    reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'].concat(every ? [EVERY] : []) } } }));
 }
 function world(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgrollup-worlds-5532-w-'));
@@ -91,6 +93,29 @@ test('#5532 widening: with the enrolled Kosmos\'s daily, every other Kosmos on t
     assert.deepEqual(x.usage, [], 'usage rows left another Kosmos');
     assert.equal('policyVersion' in x, false, 'another Kosmos reported a policy version');
   }
+});
+
+test('#5532 widening: under words that do not name every Kosmos on this computer, only the enrolled Kosmos reports', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, false);
+  let read = 0;
+  const o = others({ beta: inv('Ada'), gamma: inv('Bo') });
+  const gatherIn = o.gatherIn;
+  o.gatherIn = async (env) => { read += 1; return gatherIn(env); };
+  const res = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  assert.equal(res.sent, true, 'the enrolled Kosmos stopped too');
+  assert.deepEqual(rollups(c).map((x) => x.world), [oe.readEnrollment({ root }).world], 'another Kosmos reported under words that do not name it');
+  assert.equal(read, 0, 'another Kosmos was read under words that do not name it');
+  assert.equal(oe.acceptedConsent({ root }).everyKosmosConsented, false);
+  // CONTROL: the same tick under words that name it sends all three.
+  const c2 = coordinator();
+  const root2 = world(t);
+  await oe.enroll('ACME-JOIN-1234', true, { root: root2, remote: c2 });
+  accept(root2);
+  await r.tick(Object.assign({ root: root2, remote: c2, sources: sources(), now: T0 }, others({ beta: inv('Ada'), gamma: inv('Bo') })));
+  assert.equal(rollups(c2).length, 3);
 });
 
 test('#5532 widening: a change send skips another Kosmos that did not change and sends one that did', async (t) => {
