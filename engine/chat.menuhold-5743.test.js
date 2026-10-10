@@ -297,7 +297,8 @@ test('#5754 review 14: a WORKING card on the single-select menu is not pointed a
 });
 
 test('#5754 review 17: agent prose that merely ends in "Esc to cancel" under a "Do you want to" line is not a permission prompt', () => {
-  const PROSE = '⏺ Do you want to keep the old config? I will ask before changing it.\n  If a dialog opens, press Esc to cancel';
+  // A wrapped reply: its second line starts "Do you want to", its last ends in the footer's words.
+  const PROSE = '⏺ Before I change anything:\n  Do you want to keep the old config? I will ask first.\n  If a dialog opens, press Esc to cancel';
   assert.equal(status.claudePermissionPromptKind(PROSE), null, 'prose ending in the footer words read as a permission prompt');
   // CONTROL: both real footer forms still count.
   assert.equal(status.claudePermissionPromptKind(PERM_BASH), 'wording');
