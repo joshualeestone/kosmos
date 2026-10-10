@@ -619,3 +619,17 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - NITs fixed: one enrollmentKey() (a JSON array) instead of '|' joins in two places and a split in a third; the
   events tick's first look is two minutes after start, a minute after the rollup's; the reset comment names `listed`
   as what keeps the gap out, and an unchecked clause in my new consent comment was deleted.
+
+## Challenge-loop iteration 2 (sonnet)
+- WARNING, FIXED: the send path's slice-by-batch-length held only because server.js runs one tick at a time; tick()
+  is now single-flight in the module (TICKING), for any caller. Test, red by mutation.
+- WARNING, FIXED: queued entries went out as stored, so one with an extra key would make the coordinator refuse the
+  whole batch as bad and drop its good events: only the contract's eight fields are sent. Test, red by mutation.
+- WARNING, DEFERRED: "writeState's temp name has no random suffix". writeState writes and renames synchronously with no
+  await between, so two writers in one process cannot interleave; the fixed name is safe. (Tried the suffix; it broke
+  the r41 test's way of failing a write, which is what prompted the re-read.)
+- CONVENTION, DEFERRED: "drop the review-N tags from comments". They are this repo's established style (used across
+  engine/ and server.js); removing them here alone would make this file the odd one out.
+- CONVENTION, DEFERRED: "extract targetClass's shell parser into its own module". A reorganisation, not a defect; a
+  large move this late risks the misclassing the loop has been closing. Worth a follow-up once slice 1 ships.
+- NITs noted: long seam-excuse strings; a repeated sentence in test-connector-verbs.sh.

@@ -1598,3 +1598,31 @@ test('#5683 cl1: nothing is read or sent until the accepted words name these eve
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.ok(s.read.length > 0, 'control: with the line accepted, nothing was read');
 });
+
+/* ---- challenge-loop iteration 2 ---- */
+
+test('#5683 cl2: a second tick while one runs does nothing (single flight in the module itself)', async (t) => {
+  const { s, c } = await enrolled(t);
+  const [a, b] = await Promise.all([
+    ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() }),
+    ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() }),
+  ]);
+  assert.match(b.because || '', /already running/, JSON.stringify([a, b]));
+  const after = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.doesNotMatch(after.because || '', /already running/, 'the flag was not released after the first tick');
+});
+
+test('#5683 cl2: only the contract\'s eight fields are sent, whatever a stored entry carries', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const file = path.join(s.root, 'agent-events.json');
+  const st = JSON.parse(fs.readFileSync(file, 'utf8'));
+  st.pending = [{ world: oe.readEnrollment({ root: s.root }).world, agent: 'Scout', at: Math.floor(Date.now() / 1000), action: 'run',
+    rule: 'token-only-guard', targetClass: 'board-files', sessionRef: 's1', toolUseRef: 'tu-extra', secret: 'the command text' }];
+  fs.writeFileSync(file, JSON.stringify(st));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const sent = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
+  const e = sent.find((x) => x.toolUseRef === 'tu-extra');
+  assert.ok(e, 'the stored entry was not sent');
+  assert.deepEqual(Object.keys(e).sort(), ['action', 'agent', 'at', 'rule', 'sessionRef', 'targetClass', 'toolUseRef', 'world']);
+});
