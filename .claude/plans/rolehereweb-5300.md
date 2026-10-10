@@ -13,9 +13,12 @@ screen, which still showed each agent's one role.
   (and the page's own `esc`) for: role only, role here wins, role here alone (escaped), neither.
 
 ## Decided
-- Only the member list row. Other places that show an agent's role (cards, the add-member select) are the
+- Only the member row (`pjMember`), which draws both the project's member list and the project settings
+  members list (`paintSettingsMembers`); both take the same project's describe rows. Other places that show an agent's role (cards, the add-member select) are the
   agent's own role on purpose: they are not about one project.
 - roleHere goes through roleLine rather than shown raw, so one member list does not mix capital rules.
+- The "this project" hint is only a `title` tooltip, which touch screens never show. Deliberate: the role
+  text itself is the information; the hint is extra.
 - No new browser check: render-project-members-3387 reads `pj-member-role` presence and passes HEADED=0.
 
 ## Verify
