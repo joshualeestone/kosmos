@@ -153,5 +153,5 @@ test('#5743 pin: the recommender\'s hold hook asks about the menu too, so a stuc
   const at = src.indexOf('const out = recommender.runOnce({');
   assert.notEqual(at, -1, 'premise: the recommender sweep was found');
   const call = src.slice(at, src.indexOf('});', at));
-  assert.match(call, /heldUntil: \(session\) => \{[\s\S]*?agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)[\s\S]*?chat\.menuHeld\(session, roster\)/, 'the recommender hold hook does not ask about the menu');
+  assert.match(call, /heldUntil: \(session\) => agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)\s*\?\? \(chat\.menuHeld\(session, roster\)/, 'the recommender hold hook does not ask about the menu');
 });
