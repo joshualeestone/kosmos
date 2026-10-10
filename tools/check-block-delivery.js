@@ -90,8 +90,10 @@ function hasContent(name) {
     /* #4557: a seeded team member's brief, written ONCE at birth and never re-synced. Per agent, never
        empty where it exists; who is entitled is decided below. */
     case 'team':     return true;
-    /* #5050: only on a Mac whose first language is not English (a sure read); a fallback or English read writes none. */
-    /* An unsure read (a failed Mac read, any non-Mac) leaves existing blocks alone, so it is CANNOT TELL (null), never "nothing to deliver". */
+    /* #5050/#5080: written on a sure read that is not English: the person's choice in Settings (any platform) or a Mac's
+       own language; an English read writes none. */
+    /* An unsure read (Automatic on a failed Mac read or off a Mac) is CANNOT TELL (null), never "nothing to deliver":
+       it leaves blocks alone, except one an earlier choice in Settings wrote, which it takes out. */
     case 'language': return safe(() => { const pl = require(path.join(REPO, 'engine', 'personlanguage.js')); const got = pl.read(); return got.sure ? !!pl.blockBody(got.tag) : null; });
     default: return null;
   }

@@ -94,6 +94,7 @@ test('#5080: PUT saves and changes running agents at once; English takes the blo
 test('#5080: an agent cannot change it, and a language off the list or a bad body is refused without saving', async () => {
   fs.rmSync(pl.CHOICE_FILE, { force: true });
   assert.equal((await put({ choice: 'es-419' }, { 'x-kosmos-agent-token': 'any' })).status, 403);
+  assert.equal((await put({ choice: 'es-419', token: 'any' })).status, 403, 'an agent token in the body was not refused');
   for (const body of [{ choice: 'fr' }, {}, { choice: null }, '{nope']) {
     const r = await put(body);
     assert.equal(r.status, 400, JSON.stringify(body));
