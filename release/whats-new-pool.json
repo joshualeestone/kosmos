@@ -170,6 +170,9 @@
       "title": "Kosmos waits while Claude asks you",
       "line": "While an agent shows a Claude prompt or question, Kosmos types nothing into it on its own; if you send, you are told to answer it there.",
       "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
       "rank": 8.5,
       "since": "0.7.37",
       "status": "pending"
@@ -178,6 +181,9 @@
       "title": "Reply to Claude questions by number",
       "line": "When a Claude agent asks you to pick one option, replying with its number reaches it as your answer, not the highlighted default.",
       "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
       "rank": 8.6,
       "since": "0.7.37",
       "status": "pending"
@@ -186,6 +192,9 @@
       "title": "Answer Claude questions with a button",
       "line": "When a Claude agent asks you to pick one option, its question in your conversation shows a button for each choice.",
       "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
       "rank": 4.5,
       "since": "0.7.38",
       "status": "pending"
@@ -200,7 +209,7 @@
     },
     {
       "title": "Token Usage opens faster",
-      "line": "Token Usage now reads only what was added to today's records since you last opened it, instead of all of today again.",
+      "line": "Reopening Token Usage now reads only what was added to today's records since you last opened it, not all of today again.",
       "icon": "spark",
       "rank": 10.5,
       "since": "0.7.38",
