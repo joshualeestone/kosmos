@@ -59,7 +59,7 @@ job must pass the epoch ensureMemberKey answers (a Number; sealedEpoch converts 
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at HEAD of review 12: 26 tests, 26 pass)
+## Tests (measured at HEAD of review 13: 27 tests, 27 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -193,3 +193,9 @@ the API doc's missing `member` field.
   rebuilt, it is red without the fix (1 of 26).
 - FIXED (doc): the job passes lostEpoch on every call until a newer key is taken.
 - NIT taken: the fake's comment says its check order is not the route's own.
+
+## Review 13 (sonnet)
+- FIXED: an unreadable key file failed forever with no distinct signal; the answer now carries `unreadableKeyFile:
+  true` so the job can say so (tested).
+- FIXED: the echoed member_public is compared as bytes (a lenient decode), so a padded echo of the same key is taken.
+- Duplicates: two processes on one data root (Review 2, a stated premise); the excuse names #5535 (Review 7).

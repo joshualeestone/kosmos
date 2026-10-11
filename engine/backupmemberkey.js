@@ -46,6 +46,9 @@ const store = require('./store');
 const backupkeys = require('./backupkeys');
 
 const BACKUP_KEY_ROUTE = '/v1/org/backup-key';
+/* The key file is there but cannot be read (malformed, a mismatched pair, another company's): never overwritten, so it
+   stays this way until a person moves it aside; `unreadableKeyFile` lets the caller say so, not retry quietly. */
+const UNREADABLE = Object.freeze({ ok: false, unreadableKeyFile: true, because: 'the backup key file on this computer could not be read; it was left as it is' });
 const MEMBER_KEY_ROUTE = '/v1/org/backup/member-key';
 // The context id rule the wrap itself checks (engine/backupkeys.js, as the coordinator's keywrap valid_id).
 const ID = backupkeys.ID_RE;
@@ -122,7 +125,7 @@ async function ensureNow(opts) {
     const company = companyOf(bk.data);
     if (!company) return { ok: false, because: 'the company backup key Kosmos+ sent could not be read' };
     const read = readKeys(company.org, company.member);
-    if (!read.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
+    if (!read.ok) return { ...UNREADABLE };
     const keys = read.keys;
     const epochs = Object.keys(keys).map(Number).sort((a, b) => b - a);
     /* opts.lostEpoch: the backup job saw a grant for another epoch than this registered key's (one computer per member,
@@ -151,7 +154,9 @@ async function ensureNow(opts) {
     for (;;) {
       const r = await register(macRequest, company, epoch, keys[epoch]);
       // The answer must name what was sent, so a changed coordinator or tunnel shape is not taken as registered.
-      if (r && r.ok && !(r.data && r.data.epoch === epoch && r.data.member_public === b64(keys[epoch].pk))) {
+      // Compared as bytes (a lenient decode: padding or not), so only a different key refuses.
+      const echoed = r && r.ok && r.data && typeof r.data.member_public === 'string' ? Buffer.from(r.data.member_public, 'base64url') : null;
+      if (r && r.ok && !(r.data && r.data.epoch === epoch && echoed && echoed.equals(keys[epoch].pk))) {
         return { ok: false, because: 'Kosmos+ answered the backup key registration in a shape this computer does not know' };
       }
       if (r && r.ok) {
@@ -170,7 +175,7 @@ async function ensureNow(opts) {
       if (code === 'member_key_reused' && !refreshed) {
         refreshed = true;
         const now = readKeys(company.org, company.member);
-        if (!now.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
+        if (!now.ok) return { ...UNREADABLE };
         const theirsNow = newestRegistered(now.keys);
         if (theirsNow !== undefined && theirsNow !== lost) return { ok: true, epoch: theirsNow, publicKey: now.keys[theirsNow].pk };
         keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
@@ -193,7 +198,7 @@ async function ensureNow(opts) {
       }
       // Another process may have registered a key meanwhile: re-read, and answer that one rather than replace it.
       const fresh = readKeys(company.org, company.member);
-      if (!fresh.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
+      if (!fresh.ok) return { ...UNREADABLE };
       const theirs = newestRegistered(fresh.keys);
       if (theirs !== undefined && theirs !== lost) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
       // The write below comes before the next send, so the key is on disk before Kosmos+ can take it at `next`.
