@@ -344,6 +344,9 @@ if (args[0] === 'devices') {
     console.log(JSON.stringify({ removed: true, device_id: flag('--device-id'), local_cutoff: !mode.includes('remove-no-cutoff'), signed_out: !mode.includes('remove-not-told') }));
     process.exit(0);
   }
+  // kosmos#5786 (b): a deny the tunnel refuses, and an allow that takes a while.
+  if (verb === 'deny' && mode.includes('deny-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
+  if (verb === 'allow' && mode.includes('slow-allow')) { const until = Date.now() + 1500; while (Date.now() < until) { /* wait */ } }
   // kosmos#5786 (b): an allow the tunnel refuses (the vouch path's retry cap).
   if (verb === 'allow' && mode.includes('allow-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
@@ -4584,5 +4587,38 @@ test('#5786 (b): Not me still takes the device back out when its note could not 
     await remote.signinRegister('vouchheld');
     assert.equal(remote.vouchSecretForTests(), null, 'a held computer minted a secret');
   } finally { fs.rmSync(nodePath.join(held, require('./enrolment').HELD_FILE), { force: true }); }
+  remote.setOn(false);
+});
+
+test('#5786 (b): Not me takes an automatically allowed device back out even when the deny is refused', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchdenyf');
+  plant([{ device_id: 'dev-df', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-df', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-df') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-df'], 'the vouched allow');
+  const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-df')).length;
+  const before = removes();
+  process.env.FAKE_TUNNEL_MODE = 'deny-fails';
+  try {
+    const den = await remote.deviceDeny('dev-df');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(removes(), before + 1, 'a refused deny left an automatically allowed device in');
+  remote.setOn(false);
+});
+
+test('#5786 (b): an automatic allow that lands across a re-register of the SAME identity is still noted', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchrereg');
+  plant([{ device_id: 'dev-rr', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-allow';
+  try {
+    plant([{ device_id: 'dev-rr', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-rr') }]);
+    remote.vouchTickForTests();
+    await until(() => allowsOf().includes('dev-rr'), 'the allow to start');
+    remote.bumpSelfEpochForTests();   // what a same-identity re-register does to the epoch
+    await until(() => remote.read().vouched['dev-rr'], 'the allow across the re-register to be noted');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
   remote.setOn(false);
 });
