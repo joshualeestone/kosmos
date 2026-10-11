@@ -27,8 +27,9 @@ new-key posts show.
    Until such a check succeeds, a room check or shared answer asked before the remove does not
    count: holdForCheck holds the next post and asks sharedEdges for a newer answer, and checkRoom
    releases only posts that arrived before the remove under an older answer. The order is judged
-   on the monotonic clock where the check's moment is known there (a remove and its own check
-   share a millisecond), and by wall time otherwise, the same millisecond counting as before.
+   on the monotonic clock where the moment is known there (a remove and its own check share a
+   millisecond; a held post records its arrival there too), and by wall time otherwise, the same
+   millisecond counting as before the remove for a check and after it for a post.
 
 ## Not covered (stated)
 - An older relay sends no stamp: unchanged, #5228's grace is the bound.
