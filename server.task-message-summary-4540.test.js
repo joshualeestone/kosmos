@@ -93,7 +93,7 @@ test('#5805: an assignee out of usage is said as kept, not told and not "may hav
     { agent: 'casey', state: 'held', heldUntil: '2026-10-12T20:00:00.000Z', because: 'held: casey is out of usage until 2026-10-12T20:00:00.000Z; Kosmos types it after the reset' },
   ], 2);
   assert.equal(s, 'Told mara. Kept, not typed yet: casey is out of usage until 2026-10-12T20:00:00.000Z; Kosmos types it after the reset.');
-  assert.doesNotMatch(s, /casey may have been told|Told .*casey|Not told: casey/);
+  assert.doesNotMatch(s, /casey may have been told|Told [^.]*casey|Not told: casey/);
   assert.doesNotMatch(s, /["\\\r\n]/);
 });
 
