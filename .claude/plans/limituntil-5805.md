@@ -93,3 +93,6 @@ occurrence of that time after the board first saw the line.
 
 ## Review 6 (sonnet)
 - NO NEW ISSUES. CONVERGED at iteration 6.
+
+## After review 6 (found before the Mortals run, by running engine.reachable alone)
+- FIXED: resetLimitFirstSeenForTests is a test seam engine.reachable (#265) would refuse; excused by file in SEAMS_5548.
