@@ -205,3 +205,8 @@ test('round 5: EPERM/EACCES are retry only on Windows; an unreadable mac_id is n
     }
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
+
+test('round 6: null options never throw', () => {
+  const r = deviceKey(null);
+  assert.equal(typeof r.ok, 'boolean');
+});

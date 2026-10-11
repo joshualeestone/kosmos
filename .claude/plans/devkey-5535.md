@@ -107,3 +107,11 @@ fixed sentence, never a path or a byte. Read on each call, never cached or writt
 - FIXED (WARNING): the Windows-only lines ran nowhere (POSIX reaches ELOOP first). Stub tests reach the lstat link check,
   the dev/ino mismatch and the oversize read on any OS; the folder case runs on Windows too. Each line's mutant red.
 - FIXED (NIT): the header says when ENOENT is retry (between the open and the lstat).
+
+## Review 6 (opus, blind, on ac9f83f72): CONVERGED, NITs only
+- Checked: every stub reaches the line it claims (fs is called through the object); Windows behaviour of every test;
+  the connector and coordinator claims (write_identity, MacState::open, holdsKey, no device column, retired macs rows
+  kept, member_of requiring the enrolled Mac, so a key beside an old mac_id cannot upload); no secret exposure; the
+  scheduler classification.
+- FIXED (NITs): null options return instead of throwing (test); a failure to load remote.js has its own sentence; the
+  header names a partial-key read as a known unclassified case and the connector's non-signature use of the seed.
