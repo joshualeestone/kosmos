@@ -65,6 +65,10 @@ printf '%s\n' "yarn test $P tail -5" "[ $Q -eq 0 ] || exit 1  # pipe-status-ok" 
 flags "$T/markedfirst.sh" && ok "a marker cannot excuse a read straight after the pipe with no command before it" || bad "a marker excused a read that can only be the filter's"
 printf '%s\n' "yarn test $P tail -5" "# c" "[ $Q -eq 0 ]  # pipe-status-ok" > "$T/markedaftercomment.sh"
 flags "$T/markedaftercomment.sh" && ok "a comment line between does not count as a command that ran" || bad "a comment line let a marker excuse the filter's status"
+printf '%s\n' "yarn test $P tail -5" "" "[ $Q -eq 0 ]  # pipe-status-ok" > "$T/markedafterblank.sh"
+flags "$T/markedafterblank.sh" && ok "a blank line between does not count as a command that ran" || bad "a blank line let a marker excuse the filter's status"
+printf '%s\n' "a $P tail -1" "run_it" "rc=$Q  # pipe-status-ok" "b $P tail -1" "[ $Q -eq 0 ]  # pipe-status-ok" > "$T/markedsecondpipe.sh"
+flags "$T/markedsecondpipe.sh" && ok "commands run after an earlier pipe do not count for the next pipe" || bad "a count from an earlier pipe excused a read after the next one"
 printf '%s\n' "yarn test $P tail -5" "run_it" "[ $Q -eq 0 ]  # pipe-status-ok" > "$T/markedafterrun.sh"
 [ -z "$(lint "$T/markedafterrun.sh")" ] && ok "a marked bare read after a command line is accepted (it reads that command)" || bad "a marked read after a command line was refused: $(lint "$T/markedafterrun.sh")"
 printf '%s\n' "yarn test $P tail -5" "run_it && rc=$Q  # pipe-status-ok" "x $P grep y" "run_it || rc=$Q  # pipe-status-ok" > "$T/markedandor.sh"
@@ -150,13 +154,16 @@ mustflag "a single-quoted literal that only looks like a substitution" "yarn tes
 mustflag "a substitution that only runs as a default" "yarn test $P tail -5" "x=\${y:-\$(true)}; rc=$Q"
 mustflag "return owns no status" "yarn test $P tail -5" "return; rc=$Q"
 
-# The file the finding was about, as it is in this tree.
-if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then
-  out="$(lint "$HERE/tools/test-light-side-4911.sh")"
-  [ -z "$out" ] && ok "tools/test-light-side-4911.sh is accepted (it was refused on six correct lines)" || bad "test-light-side-4911.sh still refused: $out"
-else
-  bad "tools/test-light-side-4911.sh is missing, so the case this card is about was not checked"
-fi
+# The files this card is about, as they are in this tree: the one the finding named, and the two whose own-status
+# lines carry the marker. If a marker is lost, the hook refuses the file, and so does this check.
+for g in test-light-side-4911.sh test-feedback-digest-daily.sh test-test-leak-guard-4273.sh; do
+  if [ -f "$HERE/tools/$g" ]; then
+    out="$(lint "$HERE/tools/$g")"
+    [ -z "$out" ] && ok "tools/$g is accepted" || bad "tools/$g refused: $out"
+  else
+    bad "tools/$g is missing, so a case this card is about was not checked"
+  fi
+done
 
 [ "$fails" -eq 0 ] && { echo "all pipe-lint checks passed"; exit 0; }
 echo "$fails pipe-lint check(s) failed"; exit 1

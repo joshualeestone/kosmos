@@ -177,3 +177,13 @@ command's status.
   removed (an earlier rule masked the comment fixture). Added; each mutant BAD.
 - NO CHANGE (NIT): a ";" inside a quoted string on the marked line counts as a separator; reachable only with a marker
   present, where a command did run.
+
+## Review 15 (opus, blind, on 3ba077c36): no BLOCKER; 26 of 28 clause mutants already failed a fixture
+- FIXED (WARNING): the q reset on a new pipe had no fixture; a two-pipe fixture now fails without it.
+- FIXED (WARNING): blank lines being excluded from q had no fixture (only a comment line); a blank-line sibling now
+  fails when blanks are counted.
+- FIXED (NIT): the "cannot be true" comment now says it is best-effort (a quoted ";" or an assignment still passes
+  with a marker; the marker is the author's word).
+- FIXED (NIT): the test now lints all three marked files, not one; removing one marker makes it fail (checked).
+- The reviewer confirmed: old vs new over all 244 files differ on exactly 14 lines (3 "||" lines, 11 marked); with
+  the markers stripped from copies, the new lint flags exactly those 11 again.

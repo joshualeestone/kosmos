@@ -40,7 +40,8 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     { c = $0; gsub(/\$\{#|\$#/, "", c) }
     # If no code line has run since the pipe (blank and comment lines do not count), a status read before any command
     # on this line ("[ <status> ... ] # marker") can only be the filter'"'"'s, so the marker cannot be true there: it
-    # counts only after a ";", "&&" or "||" on the line. q counts the code lines since the pipe.
+    # counts only after a ";", "&&" or "||" on the line. q counts the code lines since the pipe. Best-effort: it refuses
+    # a marker that is provably false there, and trusts the author otherwise (a quoted ";", or an assignment, passes).
     { first = substr(c, 1, index(c, "$" "?") - 1); ran = (q > 0 || first ~ /;|&&|\|\|/) }
     p && p != NR && ran && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
