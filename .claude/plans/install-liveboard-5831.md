@@ -29,8 +29,13 @@ A full `tools/test-install.sh` run on Mortals on 2026-10-11 restarted the live b
    guard's own override, `AGENT_WORKFORCE_HALF_SANDBOX_OK=1`, for this one install.
 3. **The control Liu Kang asked for.** The harness records the real `com.kosmos.board` job's pid and start time
    at the start (`live_board_id`) and the closing checks fail if it differs at the end. Full run only: under
-   `KOSMOS_INSTALL_GATE=1` a release cut may restart the build Mac's board for its own reasons. With no such
-   job loaded it prints a note and checks nothing.
+   `KOSMOS_INSTALL_GATE=1` the run stops before the leg, and a red for somebody else's restart would block a cut.
+   It compares even when no process was running at the start: a harness that starts the real job is the same
+   fault as one that restarts it.
+4. **The stop after the control install now reaches the control's own install** (review round 1). The harness
+   still exported the previous scenario's `KOSMOS_HOME`, so `kosmos stop` read that home's pid file and stopped
+   nothing. Invisible while no sandbox board came up; with this fix one does, and the port check after it was
+   freeing the port by force after 15 seconds.
 
 ## Rejected
 
@@ -61,3 +66,14 @@ costs every agent on this Mac a board restart. The real restart is on record onc
 - My own read outside the harness, before and after: pid 23352, same start time. The board was not restarted.
 - Planted control for the closing check: `live_board_id` compared with the old pid (21886) and another start
   time is not equal, so the check goes red on a changed process.
+
+## Review round 1 (2026-10-11)
+
+- The stop finding above: fixed, and needs its own full run (below).
+- The closing check skipped "nothing running before, something running after": now compared always.
+- "Can it fail" was shown by comparing strings by hand. Now shown with the harness's own `chk` line through its
+  `eval`: the true value passes; the old pid (21886) fails; "no process at the start" against a running board fails.
+- The gate test now reads like the file's other two (`"${KOSMOS_INSTALL_GATE:-0}" != 1`).
+- Comments corrected: where the unset folders really resolve, and why the here-doc.
+- Not changed: the reviewer found no other leg with this hazard (the #931 leg unsets LAUNCH with a sandboxed home,
+  so its label is hashed).

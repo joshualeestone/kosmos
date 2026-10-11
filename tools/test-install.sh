@@ -259,7 +259,8 @@ curl -s -m 1 -o /dev/null "http://127.0.0.1:$KOSMOS_DEFAULT_PORT/" 2>/dev/null &
 # #5831: the port check above cannot see a RESTART. On 2026-10-11 a leg of this harness kicked the real board on
 # Mortals; launchd had it answering again within a second, so "busy before, busy after" passed. The process is what
 # changes, so that is what is recorded: the pid and start time of the real com.kosmos.board job, or empty when no
-# such job is loaded. No pipe: under this file's pipefail an awk that exits early would fail the assignment.
+# job has no running process (not loaded, or loaded and stopped). The here-doc instead of a pipe keeps awk's early
+# exit from becoming a SIGPIPE failure under this file's pipefail.
 live_board_id() {
   local _out _pid
   _out="$(/bin/launchctl print "gui/$(/usr/bin/id -u)/com.kosmos.board" 2>/dev/null || true)"
@@ -451,14 +452,12 @@ closing_checks() {
   # because a machine that already had a board there is not this run's doing.
   chk "port $KOSMOS_DEFAULT_PORT is as we found it (was: $DEFAULT_PORT_BEFORE)" "[ \"$DEFAULT_PORT_AFTER\" = \"$DEFAULT_PORT_BEFORE\" ]"
 
-  # #5831. Full run only: a release cut may restart the build Mac's board for its own reasons while the gate runs.
-  if [ -z "${KOSMOS_INSTALL_GATE:-}" ]; then
+  # #5831. Left out of the release gate: the gate stops before the leg that did this, and a red here for a restart
+  # that was somebody else's (an update, a person) would block a cut. Compared even when there was no process at
+  # the start: a harness that STARTS the real job is the same fault as one that restarts it.
+  if [ "${KOSMOS_INSTALL_GATE:-0}" != 1 ]; then
     echo "== the live board on this Mac was not restarted (#5831) =="
-    if [ -n "$LIVE_BOARD_BEFORE" ]; then
-      chk "the real com.kosmos.board job is the same process as when this run began: $LIVE_BOARD_BEFORE (a FAIL here can also mean something else restarted it DURING the run, an update for one; check before blaming the harness)" "[ \"\$(live_board_id)\" = \"$LIVE_BOARD_BEFORE\" ]"
-    else
-      echo "      note: no com.kosmos.board job was loaded when this run began, so there is no live board to watch"
-    fi
+    chk "the real com.kosmos.board job is the same process as when this run began: ${LIVE_BOARD_BEFORE:-no running process} (a FAIL here can also mean something else started or restarted it DURING the run, an update for one; check before blaming the harness)" "[ \"\$(live_board_id)\" = \"$LIVE_BOARD_BEFORE\" ]"
   fi
 
   echo "== the operator's real folders were never touched (top-level entries) =="
@@ -2128,8 +2127,9 @@ printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Supp
 # `kosmos start` starts a plain board of this sandbox's own.
 # Pinning LAUNCH while DATA, PROJECTS and WORKERS stay unset is the shape engine/sandbox.js refuses as
 # half-sandboxed (#634), and an earlier version of this leg hit exactly that refusal. Those three are unset ON
-# PURPOSE here (the default data root is what this control is about), and under this fake HOME their defaults
-# resolve inside the sandbox, so the guard's own override is stated for this one install.
+# PURPOSE here (the default data root is what this control is about). Their defaults resolve inside the sandbox,
+# under this fake HOME or under the AGENT_WORKFORCE_HOME exported at the top, and tmux is this run's own
+# (AGENT_WORKFORCE_TMUX_BIN), so the guard's own override is stated for this one install.
 RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
   HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$D924_DEFHOME/Library/LaunchAgents" AGENT_WORKFORCE_HALF_SANDBOX_OK=1 \
   KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
@@ -2145,7 +2145,10 @@ RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFOR
   echo "DEBUG #924 control install.log:"; cat "$D924_DEFHOME/.local/share/kosmos/logs/install.log" 2>&1 || true;
 }
 chk "#924 control (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
-HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$D924_DEFHOME/Library/LaunchAgents" "$D924_DEFHOME/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true   # #5831: never under the real label
+# #5831: KOSMOS_HOME is dropped here as on the install above. The harness still exports the previous scenario's
+# home, and with it this stop read that home's pid file, found nothing and stopped nothing. That was invisible
+# while no sandbox board came up; now one does, and the port check below would free the port by force.
+env -u KOSMOS_HOME HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$D924_DEFHOME/Library/LaunchAgents" "$D924_DEFHOME/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before the control uninstall runs" "wait_port_free"
 # 🛑 AGENT_WORKFORCE_LAUNCH IS PINNED FOR THE UNINSTALL STEP (#946). A fake
 # HOME scopes the files; it does not scope the launchd domain. With
