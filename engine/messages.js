@@ -1281,13 +1281,12 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* #5805 slice 2a: the same send again while its first copy is still kept for an agent out of usage answers with
      that copy's held receipt; nothing is kept twice. */
   if (sameMsg && sameMsg.state === HELD_STATE) {
-    const typedFirst = log.some((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
-    const keptCopy = typedFirst ? null : require('./limitqueue').list(qName).find((e) => e.id === sameMsg.id);
+    const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
+    const keptCopy = typed ? null : require('./limitqueue').list(qName).find((e) => e.id === sameMsg.id);
     if (keptCopy) {
       return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true);
     }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
-    const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
     // As the fold below: only while the two have not spoken since (#4580); after that the same words are a new message.
     if (typed && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) {
       return { state: typed.state, because: typed.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };

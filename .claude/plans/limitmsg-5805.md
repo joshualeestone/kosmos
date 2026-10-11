@@ -43,6 +43,8 @@ That holding a message until the reset beats typing it now into a session that c
 reply sooner must send it elsewhere; the held answer tells it when, so it can.
 
 ## Residuals, stated
+- A restart between a drop and its removal can tell the sender of a dropped message twice (the record of a failed
+  removal is in memory).
 - A board restart between a kept message being typed and its removal from the file types it once more: the in-memory
   record of a failed removal does not survive a restart. The window is one paste.
 - A message queued behind a backlog that never clears (a menu or quota hold that stays up) is dropped a day after it
@@ -183,3 +185,11 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   queues; it is filed under the resolved card's name (tested).
 - CONVENTIONS taken: the held-row read rule no longer sits between the reaction rule and its comment; "The call"
   matches the code.
+
+## Review 14 (sonnet)
+- FIXED (data loss): a queue file that could not be read for a moment (a rename in progress, too many open files) was
+  deleted by the sweep's listing, and a send that met the same read error wrote a one-message file over the backlog.
+  Reads now tell a missing file (empty) from an unreadable one (refused): add and remove refuse rather than
+  overwrite, and the listing deletes only a file it read and found nothing for (tested both ways).
+- STATED (residual): a restart can repeat a drop notice.
+- CONVENTION taken: the held fold reads the delivery row once.

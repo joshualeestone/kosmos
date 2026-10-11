@@ -504,3 +504,26 @@ test('#5805 2a review 13: two spellings the router folds together share one queu
     assert.deepEqual(limitqueue.list('Casey'), []);
   });
 });
+
+test('#5805 2a review 14: a queue file that cannot be read is never overwritten or deleted; a missing one starts empty', async () => {
+  const t = new Date().toISOString();
+  fs.mkdirSync(limitqueue.dir(), { recursive: true });
+  const file = limitqueue.fileFor('casey');
+  fs.writeFileSync(file, '[{"id":"m1080","from":"leo","to":"casey","envelope":"kept"');   // cut off mid-write
+  assert.equal(limitqueue.add('casey', { id: 'm1081', from: 'leo', envelope: 'new', at: t, reset: t }), false, 'a send overwrote an unreadable backlog');
+  assert.equal(limitqueue.remove('casey', 'm1080'), false);
+  assert.deepEqual(limitqueue.names(), [], 'CONTROL: nothing listed from it');
+  assert.equal(fs.readFileSync(file, 'utf8'), '[{"id":"m1080","from":"leo","to":"casey","envelope":"kept"', 'the unreadable file was changed or deleted');
+  fs.writeFileSync(file, JSON.stringify([{ id: 'm1082', from: 'leo', to: 'casey', envelope: 'kept', at: t, reset: t }]));
+  fs.chmodSync(file, 0o000);
+  try {
+    if (process.getuid && process.getuid() !== 0) {
+      assert.equal(limitqueue.add('casey', { id: 'm1083', from: 'leo', envelope: 'new', at: t, reset: t }), false, 'a send overwrote a file it could not read');
+      limitqueue.names();
+      assert.equal(fs.existsSync(file), true, 'the listing deleted a file it could not read');
+    }
+  } finally { fs.chmodSync(file, 0o600); }
+  assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m1082']);
+  fs.rmSync(file, { force: true });
+  assert.equal(limitqueue.add('casey', { id: 'm1084', from: 'leo', envelope: 'new', at: t, reset: t }), true, 'CONTROL: a missing file did not start empty');
+});

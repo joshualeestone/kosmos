@@ -28,13 +28,19 @@ function fileFor(name) {
   return path.join(dir(), store.safeKey(n) + '-' + crypto.createHash('sha256').update(n).digest('hex').slice(0, 12) + '.json');
 }
 
-function list(name) {
-  try {
-    const got = JSON.parse(fs.readFileSync(fileFor(name), 'utf8'));
-    // Only entries for this exact agent: another name with the same store key never reads them (see add).
-    return Array.isArray(got) ? got.filter((e) => e && typeof e.id === 'string' && typeof e.envelope === 'string' && e.to === String(name)) : [];
-  } catch { return []; }
+/* One agent's kept messages, read from its file: { ok, entries }. A missing file is ok and empty; a file that cannot be
+   read or parsed (a rename in progress, too many open files) is NOT ok, so nothing built on it overwrites it. Only
+   entries for this exact agent are returned. */
+function readEntries(name) {
+  let raw;
+  try { raw = fs.readFileSync(fileFor(name), 'utf8'); }
+  catch (err) { return { ok: !!err && err.code === 'ENOENT', entries: [] }; }
+  let got;
+  try { got = JSON.parse(raw); } catch { return { ok: false, entries: [] }; }
+  if (!Array.isArray(got)) return { ok: false, entries: [] };
+  return { ok: true, entries: got.filter((e) => e && typeof e.id === 'string' && typeof e.envelope === 'string' && e.to === String(name)) };
 }
+function list(name) { return readEntries(name).entries; }
 
 function write(name, entries) {
   // force: a file already gone is no error, so any error here is a removal that failed.
@@ -48,7 +54,9 @@ function write(name, entries) {
 function add(name, entry) {
   try {
     if (!entry || typeof entry.id !== 'string' || typeof entry.envelope !== 'string') return false;
-    const now = list(name).filter((e) => e.id !== entry.id);
+    const read = readEntries(name);
+    if (!read.ok) return false;   // an unreadable file is never overwritten: the sender is told it could not be kept
+    const now = read.entries.filter((e) => e.id !== entry.id);
     if (now.length >= MAX_KEPT || now.filter((e) => e.from === String(entry.from || '')).length >= MAX_PER_SENDER) return false;
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
       key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null,
@@ -62,19 +70,21 @@ function has(name, id) { return list(name).some((e) => e.id === id); }
 function keptByKey(name, key) { return (key && list(name).find((e) => e.key === key)) || null; }
 
 function remove(name, id) {
-  try { return write(name, list(name).filter((e) => e.id !== id)); } catch { return false; }
+  try {
+    const read = readEntries(name);
+    if (!read.ok) return false;   // unreadable: not rewritten (the caller remembers the id instead)
+    return write(name, read.entries.filter((e) => e.id !== id));
+  } catch { return false; }
 }
 
 /* The agents that have kept messages. */
 function names() {
   try {
     return fs.readdirSync(dir()).filter((f) => f.endsWith('.json')).map((f) => {
-      let first = null;
-      try {
-        const got = JSON.parse(fs.readFileSync(path.join(dir(), f), 'utf8'));
-        first = Array.isArray(got) ? got.find((e) => e && typeof e.to === 'string' && fileFor(e.to) === path.join(dir(), f)) || null : null;
-      } catch { first = null; }
-      // Nothing readable left in it: removed, so it is not looked at every minute for ever.
+      let got;
+      try { got = JSON.parse(fs.readFileSync(path.join(dir(), f), 'utf8')); } catch { return null; }   // unreadable now: left alone, next minute
+      const first = Array.isArray(got) ? got.find((e) => e && typeof e.to === 'string' && fileFor(e.to) === path.join(dir(), f)) || null : null;
+      // Read, and nothing in it belongs here: removed, so it is not looked at every minute for ever.
       if (!first) { try { fs.rmSync(path.join(dir(), f), { force: true }); } catch { /* next minute */ } }
       return first ? first.to : null;
     }).filter(Boolean);
