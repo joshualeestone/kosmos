@@ -48,7 +48,8 @@ function fakeToggle() {
 function paint(answer) {
   const els = { 'feedback-toggle': fakeToggle(), 'feedback-msg': { textContent: '' } };
   const document = { getElementById: (id) => els[id] || null };
-  const feedbackPaint = new Function('document', pageFnSource('paintSwitch') + '\n' + pageFnSource('feedbackPaint') + '\nreturn feedbackPaint;')(document);
+  // #5865: the unreadable line has a Linux arm; this harness is the Mac's.
+  const feedbackPaint = new Function('document', 'onLinux', pageFnSource('paintSwitch') + '\n' + pageFnSource('feedbackPaint') + '\nreturn feedbackPaint;')(document, () => false);
   feedbackPaint(answer);
   const t = els['feedback-toggle'];
   return { hidden: t.hidden, checked: t.getAttribute('aria-checked'), msg: els['feedback-msg'].textContent };

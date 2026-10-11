@@ -9961,6 +9961,7 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
 /* win32-board-copy: the platform copy layer's one hiding rule. applyPlatformCopy()
    stamps data-kosmos-platform on <html> only on Windows, so on a Mac nothing matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
+html[data-kosmos-platform="linux"] [data-linux-hide] { display: none !important; }   /* #5865 */
 /* #3443 (Josh, Windows QA 2026-09-22, raised several times): Windows renders wide
    light-gray native scrollbars on scrollable panes (agent nav, conversation, the
    Members/Files/Tasks panels), which clash with the dark UI. Replace them with a thin,
@@ -18102,9 +18103,9 @@ window.kosmosMeasureScrollbarWidth();
            Six sizes already ship, so this is a reference, not new artwork, and it
            cannot drift from the real icon. -->
       <div class="dockrow">
-        <img class="dockrow-i" data-win-hide src="/icons/kosmos-180.png" width="44" height="44"
+        <img class="dockrow-i" data-win-hide data-linux-hide src="/icons/kosmos-180.png" width="44" height="44"
              alt="The Kosmos app icon" decoding="async">
-        <p class="dhint" style="margin:0;" data-win-copy="settingsOpenKosmos">
+        <p class="dhint" style="margin:0;" data-win-copy="settingsOpenKosmos" data-linux-copy="settingsOpenKosmos">
           Kosmos is already in your Dock. Drag it to the far left so it stays handy.
         </p>
       </div>
@@ -18282,7 +18283,7 @@ window.kosmosMeasureScrollbarWidth();
          browser, because the app reads the count from the board even with no page open. Ships hidden
          and unclickable until the setting has loaded (paintSwitch), the auto-handoff pattern. Above
          Sounds (#3138 keeps Sounds last). Hidden on Windows until its taskbar count ships (Homer). -->
-    <section class="dbox" data-win-hide>
+    <section class="dbox" data-win-hide data-linux-hide>
       <h3 class="dlab">App icon</h3>
       <div class="setrow" id="wb-row" style="margin-top:14px;">
         <div><b>Show the waiting count on the Kosmos icon</b>
@@ -19668,6 +19669,23 @@ function onLinux(platform) {
   const known = typeof platform === 'string' && platform ? platform : servedPlatform();
   return known === 'linux';
 }
+/* #5865: what the person calls the machine Kosmos runs on, in words shown from elsewhere (a phone through Kosmos+).
+   A Linux board is often a headless server, so it is not "your Mac". */
+function hostMachine(platform) {
+  return onLinux(platform) ? 'the computer running Kosmos' : 'your Mac';
+}
+function linuxCopyTable() {
+  return {
+    /* Settings can be read from a phone through Kosmos+, so not "this computer". */
+    settingsOpenKosmos: 'Kosmos runs in the background on the computer it is installed on. If it stops, run '
+      + '<b>kosmos restart</b> in a terminal on that computer (over SSH on a headless server).',
+  };
+}
+function linuxCopy(key) {
+  const v = linuxCopyTable()[key];
+  if (typeof v !== 'string') throw new Error('no Linux copy for ' + key);
+  return v;
+}
 function windowsCopyTable() {
   const restartKosmos = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
   return {
@@ -19753,6 +19771,7 @@ function windowsCopyTable() {
       + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
     /* %NAME% is the Kosmos being switched to, filled in by the caller. */
     worldSwitchRestart: 'Kosmos could not restart itself. To finish switching to %NAME%, ' + restartKosmos,
+    worldswStuck: restartKosmos,   // #5865: the slow world-switch line's step
     /* The Copy button beside a command a person must paste (W-14). */
     copyLabel: 'Copy',
     copyDone: 'Copied',
@@ -19793,6 +19812,12 @@ function platformHides(el) {
   return onWindows() && Boolean(el && typeof el.closest === 'function' && el.closest('[data-win-hide]'));
 }
 function applyPlatformCopy(root) {
+  if (onLinux() && root && typeof root.querySelectorAll === 'function') {
+    /* #5865: the Linux twin of the Windows pass below: data-linux-hide (CSS keyed on this stamp) and data-linux-copy. */
+    document.documentElement.setAttribute('data-kosmos-platform', 'linux');
+    root.querySelectorAll('[data-linux-copy]').forEach((el) => { el.innerHTML = linuxCopy(el.getAttribute('data-linux-copy')); });
+    return;
+  }
   if (!onWindows() || !root || typeof root.querySelectorAll !== 'function') return;
   document.documentElement.setAttribute('data-kosmos-platform', 'win32');
   if (typeof window !== 'undefined' && typeof window.kosmosMeasureScrollbarWidth === 'function') window.kosmosMeasureScrollbarWidth();
@@ -23688,7 +23713,7 @@ function paintOfflineNote(down, deviceIsOffline) {
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt"><b>You are offline</b>'
-      + '<small>This phone or computer is not connected to the internet, so it cannot reach your Mac.</small>'
+      + '<small>This phone or computer is not connected to the internet, so it cannot reach ' + hostMachine() + '.</small>'
       + '</div></div>';
     return;
   }
@@ -23704,7 +23729,7 @@ function paintOfflineNote(down, deviceIsOffline) {
     catch { /* no location: the sentence stands on its own */ }
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>Your Mac is not answering</b>'
+      + '<div class="utxt"><b>' + (onLinux() ? 'The computer running Kosmos' : 'Your Mac') + ' is not answering</b>'
       + '<small>' + MAC_ASLEEP_SENTENCE + at + '</small>'
       + '</div></div>';
     return;
@@ -28987,6 +29012,7 @@ async function worldswSwitch(id, name, agents) {
 function worldswStuckStep() {
   return onLinux()
     ? 'run kosmos restart in a terminal on the computer running Kosmos (over SSH on a headless server).'
+    : onWindows() ? windowsCopy('worldswStuck')   // #5865: Windows has no "quit and reopen"
     : 'quit and reopen Kosmos.';
 }
 async function worldswReconnect(switchedId, switchedName, say, switchStart) {
@@ -32794,7 +32820,8 @@ function feedbackPaint(r) {
   const unread = !r || typeof r.on !== 'boolean' || (r.ok !== true && !damaged);
   paintSwitch('feedback-toggle', unread ? null : (damaged ? false : r.on === true));
   document.getElementById('feedback-msg').textContent = unread
-    ? 'We could not check this setting here. Open Kosmos from its icon and you can change it.'
+    ? (onLinux() ? 'We could not check this setting here. Open Kosmos on the computer running it and you can change it.'
+      : 'We could not check this setting here. Open Kosmos from its icon and you can change it.')
     : (damaged ? 'Your Daily report setting could not be read, so no report is being sent. Turn it on to set it again.' : '');
 }
 async function refreshFeedback() {
@@ -36159,7 +36186,7 @@ let BOARD_SIGNED_OUT = false;
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }
-const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. Your Mac and your agents are fine.';
+const ORG_SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos. ' + (onLinux() ? 'The computer running Kosmos' : 'Your Mac') + ' and your agents are fine.';
 const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-signin>Sign in</button>';
 /* #718 state 1: a read that got no answer, from a phone or computer reaching the Mac through
    Kosmos+, while the browser says it has no network. Then the thing that is offline is the
@@ -36174,15 +36201,19 @@ function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 /* #718 state 2: what a phone or remote computer is told when the Mac behind Kosmos+ does not answer. */
-const MAC_ASLEEP_SENTENCE = 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If your Mac is on, check this phone or computer\'s own connection.';
-const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach your Mac. The board tries again by itself when you are online again.';
+/* #5865: a Linux board is often a server: not asleep, but off or with Kosmos stopped, and the step is #5862's. Chosen at
+   load from the served platform meta, which is in <head> before this script runs. */
+const MAC_ASLEEP_SENTENCE = onLinux()
+  ? 'It may be turned off, or Kosmos may have stopped on it. Run kosmos restart in a terminal on that computer, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
+  : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If your Mac is on, check this phone or computer\'s own connection.';
+const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach ' + hostMachine() + '. The board tries again by itself when you are online again.';
 function deviceOfflineHtml() {
   return '<div class="pj-empty boardfail">'
     + '<p><b>You are offline.</b><br>' + OFFLINE_SENTENCE + '</p>'
     + '<button class="btn" type="button" data-board-retry>Try again</button>'
     + '</div>';
 }
-const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. Your Mac and your agents are fine. Sign in again from the Agents or Projects page.';
+const SIGNED_OUT_SENTENCE = 'This phone or computer was signed out of your Kosmos, so it cannot see your agents or projects. ' + (onLinux() ? 'The computer running Kosmos' : 'Your Mac') + ' and your agents are fine. Sign in again from the Agents or Projects page.';
 function deviceSignedOutHtml(what) {
   return '<div class="pj-empty boardfail">'
     + '<p><b>Sign in again to see your ' + (what === 'projects' ? 'projects' : 'agents') + '.</b><br>'
@@ -36247,7 +36278,7 @@ function boardEmpty() {
     return '<div class="pj-empty boardfail">'
       + '<p><b>We cannot read your agents right now.</b><br>'
       + 'This is not the same as having none. Something on '
-      + (!onWindows() && kplusRemote() ? 'your Mac' : 'this computer') // #718 state 2: through Kosmos+, "this computer" is the phone
+      + (!onWindows() && kplusRemote() ? hostMachine() : 'this computer') // #718 state 2: through Kosmos+, "this computer" is the phone
       + ' did not answer, so we are not telling you the board is empty. ('
       + esc(BOARD_LOOK_FAILED) + ')</p>'
       /* #274: the moment a person most needs to look for themselves is the
