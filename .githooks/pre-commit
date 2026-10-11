@@ -24,12 +24,20 @@ set -eu
 shape_reds=0
 for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bash)$|^install/kosmos$|^\.githooks/' || true); do
   [ -f "$f" ] || continue
+  # kosmos#4911: the program sits between these two markers so tools/test-precommit-pipe-lint-4911.sh runs THIS text.
+  # PIPE-LINT-BEGIN
   hits="$(git show ":$f" | awk '
     /^[^#]*set -o pipefail|^[^#]*set -[a-zA-Z]*o pipefail/ { pf = 1 }
-    /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
+    # "a || b" is not a pipe: drop every || before looking for one (a "cmd || sed" fallback was read as "| sed").
+    { s = $0; gsub(/\|\|/, "  ", s) }
+    s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
+    # A "$?" straight after a command on its own line ("cmd; rc=$?") is that command'"'"'s status, so a pipe on an EARLIER
+    # line cannot reach it. A pipe on the same line still counts ("x=$(a | tail); rc=$?" is the hazard itself).
+    p && p != NR && /[^[:space:];][^;]*;[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
   ')"
+  # PIPE-LINT-END
   if [ -n "$hits" ]; then
     echo "pre-commit: $f reads the wrong exit status (#632):" >&2
     echo "$hits" >&2

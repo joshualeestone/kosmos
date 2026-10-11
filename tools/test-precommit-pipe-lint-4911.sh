@@ -1,0 +1,59 @@
+#!/bin/bash
+# kosmos#4911 (Mona Lisa's finding, 2026-10-02): the pre-commit "$? after a pipe" lint (#632) refused
+# tools/test-light-side-4911.sh on six correct lines, so any commit staging that file (a merge of main into an
+# older branch) was refused. Two shapes were misread:
+#   - "cmd || sed ..." : the "|" of "||" was read as a pipe into sed;
+#   - "cmd; rc=$?" one or two lines after an unrelated pipe: that $? is cmd's own status.
+# This runs the hook's OWN program (the region between PIPE-LINT-BEGIN and PIPE-LINT-END in .githooks/pre-commit),
+# not a copy, against each shape, and against the real hazard it exists for, which must still be caught.
+set -u
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+HOOK="$HERE/.githooks/pre-commit"
+REGION="$(sed -n '/# PIPE-LINT-BEGIN/,/# PIPE-LINT-END/p' "$HOOK")"
+T="$(mktemp -d)"
+trap 'rm -rf "$T"' EXIT
+fails=0
+ok()  { printf 'ok   %s\n' "$1"; }
+bad() { printf 'BAD  %s\n' "$1"; fails=$((fails + 1)); }
+
+[ -n "$REGION" ] || { echo "BAD  the PIPE-LINT markers are gone from $HOOK, so this test checks nothing"; exit 1; }
+case "$REGION" in *'awk '*) ;; *) echo "BAD  the marked region holds no awk program"; exit 1 ;; esac
+
+# lint <file>: what the hook prints for it (empty = accepted).
+lint() {
+  FIX="$1" bash -c 'git() { cat "$FIX"; }; f=x.sh; eval "$1"; printf "%s" "$hits"' _ "$REGION"
+}
+flags() { [ -n "$(lint "$1")" ]; }
+
+# The fixtures are built from these pieces so this file never holds the shapes the lint refuses (it lints itself on
+# commit): P is a pipe, Q the exit-status variable, O the "or echo 0" tail.
+P='|'; Q='$''?'; O='|''| echo 0'
+
+printf '%s\n' "yarn test $P tail -5" "[ $Q -eq 0 ] || exit 1" > "$T/hazard.sh"
+flags "$T/hazard.sh" && ok "the #632 hazard is still caught: a pipe, then \$? on the next line" || bad "the #632 hazard is no longer caught"
+
+printf '%s\n' "x=\$(make $P tail -1); rc=$Q" > "$T/sameline.sh"
+flags "$T/sameline.sh" && ok "a pipe and the status read on the same line is still caught" || bad "a same-line pipe then \$? passed"
+
+printf '%s\n' "sed -i '' '6d' f 2>/dev/null || sed -i '6d' f" "rc=$Q" > "$T/oror.sh"
+[ -z "$(lint "$T/oror.sh")" ] && ok "a 'cmd || sed' fallback is not a pipe" || bad "'|| sed' read as a pipe: $(lint "$T/oror.sh")"
+
+printf '%s\n' "echo \"calls=\$(grep -c . f $P tr -d x)\"" 'true' "run_it --flag 2> err; rc=$Q" > "$T/ownstatus.sh"
+[ -z "$(lint "$T/ownstatus.sh")" ] && ok "'cmd; rc=\$?' reads cmd's own status, whatever pipe came before" || bad "'cmd; rc=\$?' after an unrelated pipe was refused"
+
+printf '%s\n' 'set -o pipefail' "yarn test $P tail -5" "[ $Q -eq 0 ]" > "$T/pipefail.sh"
+[ -z "$(lint "$T/pipefail.sh")" ] && ok "CONTROL: under pipefail the shape is accepted, as before" || bad "pipefail no longer accepted"
+
+printf '%s\n' "n=\$(grep -c x f $O)" > "$T/grepc.sh"
+flags "$T/grepc.sh" && ok "CONTROL: the grep-count-or-echo-zero shape is still caught" || bad "the grep-count-or-echo-zero shape is no longer caught"
+
+# The file the finding was about, as it is in this tree.
+if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then
+  out="$(lint "$HERE/tools/test-light-side-4911.sh")"
+  [ -z "$out" ] && ok "tools/test-light-side-4911.sh is accepted (it was refused on six correct lines)" || bad "test-light-side-4911.sh still refused: $out"
+else
+  bad "tools/test-light-side-4911.sh is missing, so the case this card is about was not checked"
+fi
+
+[ "$fails" -eq 0 ] && { echo "all pipe-lint checks passed"; exit 0; }
+echo "$fails pipe-lint check(s) failed"; exit 1
