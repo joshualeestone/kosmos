@@ -1055,13 +1055,15 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
      replyTo = that id; a room post, not a direct message), or a post older than HELD_ASKED_MAX_MS from the post itself.
    The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
-   counts from the post even then, so a pause of days does not deliver days-old asks. An id not in the record yet (a
-   post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
+   counts from the post even then, so a pause of days does not deliver days-old asks. (#5805: roomhold.withoutStale
+   keeps back an ask a Claude usage limit held; `answered`, the ids the member answered, tells the two apart.)
+   An id not in the record yet (a post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
   out.evenIfAsked = new Set();
+  out.answered = new Set();
   try {
     const rows = Array.isArray(log) ? log : readLog();
     const t = Number.isFinite(now) ? now : Date.now();
@@ -1083,6 +1085,7 @@ function staleHeld(projectId, ids, log, now, member) {
       const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
       const from = Number.isFinite(until) && until > at ? until : at;
       if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
+      if (answered.has(r.id)) out.answered.add(r.id);
       if (answered.has(r.id) || t - at > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
     }
   } catch { /* nothing is dropped */ }
@@ -2157,9 +2160,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
-      /* #4588 PR B: held (the shared Google quota, or #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu), nothing typed. The post is kept for this member like a #4624
+      /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
          hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless staleHeld drops it) in one line by the
-         idle flush, the next typed arrival here, or (a quota hold only) roomhold.flushReleased after the reset. Could not keep it: not
+         idle flush, the next typed arrival here, or (a quota or #5805 usage-limit hold) roomhold.flushReleased after the reset. Could not keep it: not
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
       if (sent && sent.held === true) {
@@ -2173,6 +2176,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
+          // #5805: for withoutStale's day rule, every ask this arrival put back, not only the new post.
+          if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [...(asksIt ? [id] : []), ...heldIds.filter(roomhold.isAddressed)], sent.limitReset);
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         return sent;
@@ -2575,7 +2580,7 @@ function sweepUnanswered(roster, now) {
         const line = '[the room has not seen an answer to ' + postId
           + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
         const sent = chat.deliverAutomatic(name, line, roster);
-        /* #4588 PR B: held (the shared Google quota, or #5743/#5754 an answer awaited on its screen), nothing typed. No row, so the pair's one nudge is still unspent, and
+        /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen, or #5805 a usage limit), nothing typed. No row, so the pair's one nudge is still unspent, and
            unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so the post is still due after a long pause. */
         if (sent && sent.held === true) continue;
         appendLog({ kind: 'nudge', post: postId, to: name, project: projectId,

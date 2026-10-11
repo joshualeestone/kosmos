@@ -16565,7 +16565,9 @@ const server = http.createServer(async (req, res) => {
               ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
               : delivery.heldBy === 'menu'   // #5743
                 ? 'held: nothing was typed while it waits for an answer on its screen, so nothing was kept'
-                : 'held: nothing was typed while the shared quota is out, so nothing was kept' });
+                : delivery.heldBy === 'limit'   // #5805
+                  ? 'held: nothing was typed while it is out of usage, so nothing was kept'
+                  : 'held: nothing was typed while the shared quota is out, so nothing was kept' });
           return;
         }
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
@@ -21516,8 +21518,9 @@ function start(port = PORT) {
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
+            isLimitable: chat.limitReleased,   // #5805: the card reads idle, or idle on screen under its StopFailure limit report
           }).then((done) => {
-            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold or the Gemini limit'));   // #4797; #4588 ask 3
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);

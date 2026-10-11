@@ -356,6 +356,19 @@ test('#4951 review 6 (Opus): a delivery held for quota is no failed try; after t
   assert.equal(typed.length, 1, 'a reply held for quota three passes (past MAX_TRIES) was never told, or told twice: ' + typed.length);
 });
 
+test('#5805: a delivery held for a Claude usage limit is logged as limit-held (never the Google quota), spends no try, and is told once after', async () => {
+  const { o, typed } = rig({});
+  let held = 3;
+  o.deliver = (s, text) => { if (held > 0) { held -= 1; return { state: D.COULD_NOT, held: true, heldBy: 'limit' }; } typed.push({ s, text }); return { state: D.PLACED }; };
+  const r = await rn.sweepOnce(o);
+  const h = r.results.find((x) => x.act === 'limit-held');
+  assert.ok(h, 'no limit-held result: ' + JSON.stringify(r.results));
+  assert.match(h.because, /held while it is out of usage/);
+  assert.doesNotMatch(h.because, /Google quota/);
+  for (let i = 0; i < 4; i += 1) await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'a limit-held reply was never told, or told twice: ' + typed.length);
+});
+
 test('#4951 review 6 (Opus): a busy count waits for the read and asks again, so later agents are counted; a refusing service ends the pass', async () => {
   const typed = [];
   const asked = [];

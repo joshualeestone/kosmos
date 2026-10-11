@@ -853,3 +853,24 @@ test('#5743 firstreply and agentnudge: a menu hold is logged as menu-held, not a
     assert.equal(book.size, 0); assert.equal(sent.length, 0);
   } finally { w.restore(); }
 });
+
+/* #5805: a Claude usage-limit hold goes through the same branches; it is logged as itself, never as the quota. */
+const LIMIT_HELD = () => ({ state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: new Date(Date.now() + 3600e3).toISOString(), because: 'held: this agent is paused on a usage limit' });
+test('#5805 firstreply and agentnudge: a usage-limit hold is logged as limit-held, not as the shared quota; nothing is spent', () => {
+  const h = frSweep(LIMIT_HELD);
+  try {
+    const r = firstreply.sweepOnce(h.o);
+    assert.deepEqual(r.results.map((x) => x.act), ['limit-held']);
+    assert.match(r.results[0].because, /held while it is out of usage/);
+    assert.doesNotMatch(r.results[0].because, /Google quota/);
+    assert.equal(h.book.size, 0, 'a limit hold spent a try');
+  } finally { h.restore(); }
+  const w = anWorld('anlimit');
+  try {
+    const book = new Map(); const sent = [];
+    const p = anPass(w, LIMIT_HELD, book, sent);
+    assert.deepEqual(p.res.results.map((x) => x.act), ['limit-held']);
+    assert.doesNotMatch(p.res.results[0].because, /Google quota/);
+    assert.equal(book.size, 0); assert.equal(sent.length, 0);
+  } finally { w.restore(); }
+});
