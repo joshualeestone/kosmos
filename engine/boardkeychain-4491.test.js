@@ -280,6 +280,15 @@ test('#4475: the records the board trusts, and the sender-token folder, are writ
       assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(p)})`), f + ' under ' + root + ' is writable: a forged birth or an erased end');
       assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(p)), f + ' under ' + root + ' is not in sandbox denyWrite');
     }
+    // kosmos#5208: the rest of the history of ended agents (the sealed files) lives in ended-agents.d.
+    const endedD = path.join(root, 'ended-agents.d');
+    assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(endedD)}/**)`), 'ended-agents.d under ' + root + ' is writable: an agent could delete its own end');
+    assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(endedD)})`), 'the path ended-agents.d itself is writable under ' + root + ': a file there refuses every removal');
+    assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(endedD)), 'ended-agents.d under ' + root + ' is not in sandbox denyWrite');
+    const lockD = path.join(root, 'ended-agents.jsonl.lock');
+    assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(lockD)}/**)`), 'the ended-agents lock under ' + root + ' is writable: an agent could hold it');
+    assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(lockD)})`), 'the lock path itself is writable under ' + root);
+    assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(lockD)), 'the ended-agents lock under ' + root + ' is not in sandbox denyWrite');
     const tokens = path.join(root, 'sendertokens');
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(tokens)}/**)`), 'the sender-token folder is writable under ' + root);
     assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(tokens)), 'the sender-token folder is not in sandbox denyWrite under ' + root);
@@ -287,6 +296,7 @@ test('#4475: the records the board trusts, and the sender-token folder, are writ
   // CONTROL: these are the same files the board writes and reads, so a test of the right paths can fail.
   assert.equal(require('./create').createdLogFile(), path.join(store.ROOT, 'created.jsonl'));
   assert.equal(sendertoken.endedLogFile(), path.join(store.ROOT, 'ended-agents.jsonl'));
+  assert.equal(sendertoken.endedDir(), path.join(store.ROOT, 'ended-agents.d'));
   assert.equal(sendertoken.tokenOnlyFile(), path.join(store.ROOT, 'agent-token-only.json'));
 });
 
