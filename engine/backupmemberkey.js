@@ -35,7 +35,8 @@
  * registered one), a fresh key replaces its slot; a registered key the job called stale (lostEpoch) stays. A call
  * answers the newest registered key. On Windows the file modes do nothing; the profile's ACLs are what protect it.
  * The backup job must seal ONLY under a key answered ok here: an unregistered key may be replaced by a fresh one
- * (member_key_reused), and anything sealed under it would then open only through escrow.
+ * (member_key_reused), and its private half is then deleted. Under that rule nothing this computer sealed is under it
+ * (a key Kosmos+ holds at an epoch this file never recorded was never answered ok here).
  * Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
  */
 
@@ -67,6 +68,8 @@ const unb64 = (s) => { try { const b = Buffer.from(String(s), 'base64url'); retu
    file is ok and empty; an unreadable or malformed one is NOT ok, so nothing overwrites it. */
 function readKeys(org, member) {
   let raw;
+  // A file left looser (an older build, a copy, a restore) is made owner-only on read, best effort.
+  try { fs.chmodSync(fileFor(org, member), 0o600); } catch { /* missing, or not ours to change: read decides */ }
   try { raw = fs.readFileSync(fileFor(org, member), 'utf8'); }
   catch (err) { return { ok: err.code === 'ENOENT', keys: {} }; }
   let got;
@@ -109,8 +112,9 @@ async function register(macRequest, company, epoch, key) {
   return macRequest('POST', MEMBER_KEY_ROUTE, { epoch, member_public: b64(key.pk), wrap: b64(wrap) });
 }
 
-/* One at a time. Today reading the file and writing a new key have no await between them, so a second call sees the
-   first call's key anyway; the chain keeps that true if the store ever gains one. */
+/* One at a time, in this process only (the header assumes one board process per data root). Today reading the file
+   and writing a new key have no await between them, so a second call sees the first call's key anyway; the chain
+   keeps that true if the store ever gains one. */
 let chain = Promise.resolve();
 function ensureMemberKey(opts = {}) {
   const run = chain.then(() => ensureNow(opts));
@@ -138,7 +142,9 @@ async function ensureNow(opts) {
       lost = opts.lostEpoch;
     }
     const done = lost === null ? newestRegistered(keys) : undefined;
-    if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk };
+    // A lostEpoch that is not this file's newest registered epoch is ignored, and the answer says so.
+    const ignored = opts.lostEpoch !== undefined && lost === null ? { lostEpochIgnored: true } : {};
+    if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk, ...ignored };
     // The newest key not yet taken (kept before an earlier send), else a new one for epoch 1.
     // A stale registered key is KEPT (it still opens its own epoch's backups); the new key starts one past it, and the
     // move path takes it to the member's current epoch + 1 if that is later.
