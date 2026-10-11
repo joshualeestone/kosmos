@@ -7070,8 +7070,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      sit in; light keeps the #3369 recessed fill. The inset is always on so the
      box does not jump width during a file drag; only the FILL is gated
      :not(.dragging) so the #2868 gold drag tint still wins over it. */
-  :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox, :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox,
-  :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .pj-held-strip { margin-left: 12px; margin-right: 12px; }   /* #5800: the hold notice lines up with the box under it */
+  :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox, :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
+  /* #5800: the hold notice lines up with the box under it. */
+  :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .pj-held-strip { margin-left: 12px; margin-right: 12px; }
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
   :root:not([data-theme="light"]) body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root:not([data-theme="light"]) body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
   /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
@@ -7633,9 +7634,12 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .dmbusy-room { display: flex; align-items: center; gap: 8px;
                font-size: .875rem; color: var(--k-ink-2); margin: 10px 0 0; }
 .pj-held-strip { margin: 0; }   /* #5800: the hold notice, at the top of the sticky composer (its column gap spaces it) */
-/* #5800: the notice sticks with the composer until the hold lifts, so on a short window (a small phone, or any phone with
-   the keyboard up) its full reason would leave almost none of the conversation on screen. There the reason keeps about
-   three lines and scrolls inside itself; the Reopen button sits outside that scroll, so it is never scrolled away. */
+/* #5800: the notice sticks with the composer until the hold lifts, so on a short window, or with a phone's keyboard up,
+   its full reason would leave almost none of the conversation on screen. There the reason keeps three and a half lines
+   (the half line shows it scrolls) and scrolls inside itself; the Reopen button sits outside that scroll, so it is never
+   scrolled away. max-height reads the layout viewport, which a phone keyboard does not shrink, so the keyboard case is
+   keyed on html.kosmos-keyboard-up, which the visualViewport listener sets. */
+html.kosmos-keyboard-up .pj-held-why { display: block; max-height: 4.4em; overflow-y: auto; overscroll-behavior: contain; }
 @media (max-height: 700px) {
   .pj-held-why { display: block; max-height: 4.4em; overflow-y: auto; overscroll-behavior: contain; }
 }
@@ -11119,8 +11123,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      sit in; light keeps the #3369 recessed fill. The inset is always on so the
      box does not jump width during a file drag; only the FILL is gated
      :not(.dragging) so the #2868 gold drag tint still wins over it. */
-:root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox, :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox,
-:root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .pj-held-strip { margin-left: 12px; margin-right: 12px; }   /* #5800: the hold notice lines up with the box under it */
+:root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox, :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
+/* #5800: the hold notice lines up with the box under it. */
+:root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .pj-held-strip { margin-left: 12px; margin-right: 12px; }
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
 :root[data-theme="dark"] body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root[data-theme="dark"] body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
 /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
@@ -66248,7 +66253,7 @@ function pjHeldNotice(held, project) {
   const until = new Date(held.until || '');
   const by = Number.isNaN(until.getTime()) ? ''
     : ' Otherwise it should lift on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
-  return '<div class="msg-valve pj-held"><span class="pj-held-why">This room has reached its limit for agent posts, because it kept going back and forth '
+  return '<div class="msg-valve pj-held"><span class="pj-held-why" tabindex="0" role="region" aria-label="Why this room is held">This room has reached its limit for agent posts, because it kept going back and forth '
     + 'without a result. Your agents\' posts will most likely not go through until you post something yourself or reopen the room.' + esc(by)
     + '</span><div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="' + esc(project) + '">Reopen the room</button>'
     + '<span class="pj-refused-msg" role="status"></span></div></div>';
