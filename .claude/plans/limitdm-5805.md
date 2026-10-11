@@ -97,3 +97,6 @@ the way out when that is wrong.
 - FIXED: the menu check (review 3 fix 1) read the pane on EVERY person DM, not only one that would be held, so a
   scripted-runner test (server.projects "a button answer that never reached the pane") lost a runner entry and an
   ordinary send cost an extra capture. The check runs only when the message would otherwise be held.
+- FIXED (second Mortals run): the browser-check surface gate (#2518) refused 2b because Send now anyway's under-box
+  variable was named `msg`, a token render-unread-edge-3743 and render-agentdm-3414 map; renamed (`under`), gate green
+  locally and red with the old name.
