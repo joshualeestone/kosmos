@@ -40,6 +40,8 @@ as `vouch` (absent = no auto-allow).
 - A vouch needs no relay-side binding: the board recomputes HMAC(S, row's own device id), so a vouch moved to another
   row never matches (review 18).
 - A pinned device that leaves the snapshot leaves S waiting until the window ends: fails closed (review 18).
+- A manual Allow pressed while the automatic allow runs on the same row is still labelled "on this computer ... did not
+  ask you": wording only, needs both presses in the same seconds, and the fix threads a flag through server.js (review 19).
 
 ## Verify
 - engine/remote.test.js #5786 (13 tests): opens only with a recent eligible request; allows by vouch once, notes it and

@@ -47420,6 +47420,7 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
     ASK.confirm = null;
     ASK.removing = id;
     paintDevices();
+    paintAsk();   // kosmos#5786 (b): the notice's Undo shares this lock, so it shows disabled too
     let res = null;
     try {
       try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
@@ -47429,6 +47430,7 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
     ASK.saidAt = Date.now();
     msg.textContent = ASK.said;
     paintDevices();
+    paintAsk();
   }
 });
 setInterval(pollAsk, 5000);

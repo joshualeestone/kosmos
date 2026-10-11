@@ -1123,6 +1123,7 @@ async function forget() {
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
   stopVouch();   // kosmos#5786 (b): nor an open-browser secret
+  lastVouched = null;
   resetSelfGrant();   // and an allow already out is not noted under the identity being forgotten (bumps the epoch)
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
@@ -1822,6 +1823,7 @@ function vouchTick() {
       lastVouched = { id, at: Math.floor(Date.now() / 1000) };
       // The person pressed Not me while this allow ran: their answer wins. Take the device back out, note nothing.
       if (Object.prototype.hasOwnProperty.call(read().denied || {}, id)) {
+        lastVouched = null;
         return deviceRemove(id).then((rr) => {
           if (!rr || !rr.ok) process.stderr.write('kosmos+: a device refused while it was being allowed automatically could not be removed again (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
         });
