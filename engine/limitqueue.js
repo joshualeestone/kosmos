@@ -31,10 +31,12 @@ function write(name, entries) {
   return true;
 }
 
-/* Keep one message for `name`. Returns true when kept. */
+/* Keep one message for `name`. Returns true when kept. A name whose store key is not the name itself is refused: two
+   such names can share one file, and one agent's messages would be typed to the other. */
 function add(name, entry) {
   try {
     if (!entry || typeof entry.id !== 'string' || typeof entry.envelope !== 'string') return false;
+    if (store.safeKey(String(name)) !== String(name)) return false;
     const now = list(name).filter((e) => e.id !== entry.id);
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset });
     return write(name, now);
@@ -61,17 +63,22 @@ function names() {
    when `isReleased(card)` (the card for the agent in `roster`), type the rest in order with `deliver`. A message typed
    (placed or unconfirmed) is removed and reported (onDelivered); the first that is not stops that agent's run and
    stays. Returns [{ name, id, state }] for what was typed. */
+let flushing = false;
 async function flush(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, now = Date.now() }) {
   const out = [];
+  // One run at a time: a run still typing a backlog when the next minute starts would type each message twice.
+  if (flushing) return out;
+  flushing = true;
+  try {
   for (const name of names()) {
     try {
-      const kept = list(name);
+      const kept = list(name).filter((e) => e.to === name);
       const live = [];
       for (const e of kept) {
         const reset = Date.parse(e.reset);
         if (Number.isFinite(reset) && now - reset > DROP_AFTER_MS) {
           remove(name, e.id);
-          try { if (onDropped) onDropped(e); } catch { /* the drop stands */ }
+          try { if (onDropped) onDropped(e, roster); } catch { /* the drop stands */ }
         } else live.push(e);
       }
       if (!live.length) continue;
@@ -88,6 +95,7 @@ async function flush(roster, { deliver, isReleased, resolveCard, DELIVERY, onDel
       }
     } catch { /* this agent's messages stay for the next minute */ }
   }
+  } finally { flushing = false; }
   return out;
 }
 

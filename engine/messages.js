@@ -1276,10 +1276,13 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
   /* #5805 slice 2a: the same send again while its first copy is still kept for an agent out of usage answers with
      that copy's held receipt; nothing is kept twice. */
-  if (sameMsg && sameMsg.state === HELD_STATE && require('./limitqueue').has(toName, sameMsg.id)) {
-    return heldReceipt(toName, sameMsg.id, sameMsg.at, sameMsg.heldUntil, true);
+  if (sameMsg && sameMsg.state === HELD_STATE) {
+    if (require('./limitqueue').has(toName, sameMsg.id)) return heldReceipt(toName, sameMsg.id, sameMsg.at, sameMsg.heldUntil, true);
+    // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
+    const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
+    if (typed) return { state: typed.state, because: null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
   }
-  if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true, ...(sameMsg.queued === true ? { queued: true } : {}) };
+  if (sameMsg && sameMsg.state !== HELD_STATE && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true, ...(sameMsg.queued === true ? { queued: true } : {}) };
   const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
   // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
   const msgTwin = deliverToPane !== chat.deliver ? inFlightTwin(msgKey) : null;
@@ -1361,8 +1364,10 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
       unspill(spillFile);
       return refuse(toName, 'this agent is out of usage, and Kosmos could not keep the message for after its reset');
     }
-    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: limitHold.limitReset });
-    return heldReceipt(toName, id, at, limitHold.limitReset, false);
+    // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
+    const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
+    return heldReceipt(toName, id, at, until, false);
   }
 
   const finish = (sent) => {
@@ -1411,6 +1416,14 @@ function logHeldDelivered(entry, verdict) {
 }
 function logHeldDropped(entry) {
   appendLog({ kind: 'held-dropped', of: entry.id, from: entry.from, to: entry.to, at: new Date().toISOString() });
+}
+/* A dropped message's sender was told it was accepted, so it is told, in its own pane, that it never arrived. Through
+   the automatic gate (held or refused there, the dropped row still records it). */
+async function tellHeldDropped(entry, roster) {
+  logHeldDropped(entry);
+  const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: ' + entry.to
+    + ' stayed out of usage for a day past its reset. Send it again, or to someone else, if it still matters.';
+  try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
 }
 
 function sendAsync(input, roster) {
@@ -3137,7 +3150,7 @@ function projectOfPost(id) {
 }
 
 module.exports = {
-  HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped,   // kosmos#5805 slice 2a
+  HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,

@@ -51,3 +51,17 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   could_not, drops one a day past its reset.
 - The CLI prints the held line and exits 0 (bash CLI through a stub server; Windows CLI by its own test style).
 - outboxOutcomeOf treats held as delivered.
+
+## Review 1 (opus)
+- FIXED (BLOCKER): queue files are keyed by the store key, so two names with one key shared a file and one agent's
+  messages could be typed to another. A name that is not its own key is not kept (refused, as any could-not-keep), and
+  the sweep types only entries addressed to that exact agent (both tested).
+- FIXED: a sweep still typing a backlog when the next minute started would type each message twice; one run at a time.
+- FIXED: the same send again after the held copy was typed answered "held" as a raw state; it is now that delivery
+  (placed, duplicate), and after a drop it goes as new. The repeat-send fold never passes "held" through.
+- FIXED: held past the printed reset, the sender was promised a time already past; no time is promised then.
+- FIXED: a dropped message's sender, told it was accepted, was never told otherwise; Kosmos tells it in its own pane.
+- DEFERRED: the board UI shows no state for these rows. It renders no agent-to-agent message rows at all (no reader of
+  /api/messages in web/), so there is no "delivered" impression to correct there.
+- NIT taken: the bash CLI matches heldBy "limit" as the Windows CLI and the outbox predicate do. Not taken: a test of
+  server.js's sweep wiring by running the server (a half-sandboxed server refuses to load; the predicate is tested).

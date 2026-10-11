@@ -173,3 +173,65 @@ test('#5805 2a: a message still kept a day past its reset is dropped and logged,
   assert.deepEqual(dropped, ['m903']);
   assert.deepEqual(limitqueue.list('casey'), []);
 });
+
+const opts = (extra = {}) => ({ deliver: chat.deliverAutomaticAsync, isReleased: chat.limitReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDelivered: messages.logHeldDelivered, onDropped: messages.logHeldDropped, ...extra });
+
+test('#5805 2a review 1: a name whose store key differs is not kept; an entry for another agent in a file is never typed', async () => {
+  assert.notEqual(store.safeKey('Casey.2'), 'Casey.2', 'CONTROL: this name is not its own key');
+  assert.equal(limitqueue.add('Casey.2', { id: 'm950', from: 'leo', envelope: 'x', at: new Date().toISOString(), reset: new Date().toISOString() }), false);
+  fs.mkdirSync(limitqueue.dir(), { recursive: true });
+  const now = new Date().toISOString();
+  fs.writeFileSync(limitqueue.fileFor('casey'), JSON.stringify([{ id: 'm951', from: 'leo', to: 'casey', envelope: 'mine', at: now, reset: now }, { id: 'm952', from: 'leo', to: 'mallory', envelope: 'not hers', at: now, reset: now }]));
+  const typed = [];
+  await limitqueue.flush([{ sessionName: 'casey' }], { deliver: async (n, env) => { typed.push(env); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY });
+  assert.deepEqual(typed, ['mine'], 'another agent\'s message was typed into this one');
+});
+
+test('#5805 2a review 1: two sweeps at once type each kept message once', async () => {
+  const now = new Date().toISOString();
+  for (const id of ['m961', 'm962']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: now, reset: now });
+  const typed = [];
+  const o = { deliver: async (n, env) => { typed.push(env); await new Promise((r) => setTimeout(r, 30)); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY };
+  await Promise.all([limitqueue.flush([{ sessionName: 'casey' }], o), limitqueue.flush([{ sessionName: 'casey' }], o)]);
+  assert.deepEqual(typed, ['m961', 'm962']);
+});
+
+test('#5805 2a review 1: the same send again after the held copy was typed is that delivery, never "held" and never a second copy', async () => {
+  let id;
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    id = (await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'ship it' }, board.agents)).id;
+  });
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    await limitqueue.flush(board.agents, opts());
+    assert.equal(tmux.pastedTo('casey').length, 1);
+    const again = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'ship it' }, board.agents);
+    assert.deepEqual([again.state, again.id, again.duplicate], [chat.DELIVERY.PLACED, id, true], JSON.stringify(again));
+    assert.equal(tmux.pastedTo('casey').length, 1, 'typed twice');
+  });
+});
+
+test('#5805 2a review 1: held past the printed reset (the card still reads capped), no time is promised', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    const past = `You've hit your weekly limit · resets ${resetAt(Date.now() - 15 * 60e3)} (America/Chicago)`;
+    const r = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: past } : c));
+    const v = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'later' }, r);
+    assert.equal(v.held, true, JSON.stringify(v));
+    assert.equal(v.heldUntil, null, 'a time already past was promised');
+    assert.doesNotMatch(v.because, / until /);
+  });
+});
+
+test('#5805 2a review 1: a message dropped a day past its reset is told to its sender, in its own pane', async () => {
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+    limitqueue.add('casey', { id: 'm970', from: 'leo', envelope: 'x', at: old, reset: old });
+    const told = [];
+    await limitqueue.flush(board.agents, opts({ onDropped: (e, r) => { told.push(messages.tellHeldDropped(e, r)); } }));
+    await Promise.all(told);
+    const lines = tmux.pastedTo('leo');
+    assert.equal(lines.length, 1, 'the sender was not told');
+    assert.match(lines[0], /Your message m970 to casey was never delivered/);
+    assert.deepEqual(tmux.pastedTo('casey'), [], 'the dropped message was typed');
+    assert.ok(rows().some((r) => r.kind === 'held-dropped' && r.of === 'm970'));
+  });
+});

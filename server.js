@@ -21576,7 +21576,7 @@ function start(port = PORT) {
           if (limitqueue.names().length) {
             limitqueue.flush(safeRoster(), {
               deliver: chat.deliverAutomaticAsync, isReleased: chat.limitReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
-              onDelivered: messages.logHeldDelivered, onDropped: messages.logHeldDropped,
+              onDelivered: messages.logHeldDelivered, onDropped: (e, r) => { messages.tellHeldDropped(e, r).catch(() => { /* recorded */ }); },
             }).then((done) => {
               for (const d of done) process.stdout.write('limit-queue: ' + d.name + ' was given held message ' + d.id + ' after its usage reset, delivery=' + d.state + '\n');
             }).catch(() => { /* kept for the next minute */ });
