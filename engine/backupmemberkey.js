@@ -49,10 +49,10 @@ const store = require('./store');
 const backupkeys = require('./backupkeys');
 
 const BACKUP_KEY_ROUTE = '/v1/org/backup-key';
+const MEMBER_KEY_ROUTE = '/v1/org/backup/member-key';
 /* The key file is there but cannot be read (malformed, a mismatched pair, another company's): never overwritten, so it
    stays this way until a person moves it aside; `unreadableKeyFile` lets the caller say so, not retry quietly. */
 const UNREADABLE = Object.freeze({ ok: false, unreadableKeyFile: true, because: 'the backup key file on this computer could not be read; it was left as it is' });
-const MEMBER_KEY_ROUTE = '/v1/org/backup/member-key';
 // The context id rule the wrap itself checks (engine/backupkeys.js, as the coordinator's keywrap valid_id).
 const ID = backupkeys.ID_RE;
 const EPOCH_MAX = Number.MAX_SAFE_INTEGER;
@@ -70,6 +70,8 @@ const unb64 = (s) => { try { const b = Buffer.from(String(s), 'base64url'); retu
    file is ok and empty; an unreadable or malformed one is NOT ok, so nothing overwrites it. */
 function readKeys(org, member) {
   let raw;
+  // A symlinked key file is not ours: the folder is 0700, so only this user could have put it there, but it is refused.
+  try { if (fs.lstatSync(fileFor(org, member)).isSymbolicLink()) return { ok: false, keys: {} }; } catch { /* missing: read decides */ }
   try { raw = fs.readFileSync(fileFor(org, member), 'utf8'); }
   catch (err) { return { ok: err.code === 'ENOENT', keys: {} }; }
   let got;
@@ -88,7 +90,7 @@ function readKeys(org, member) {
   const pendings = es.filter((e) => !keys[e].registered);
   if (pendings.length > 1 || (pendings.length === 1 && pendings[0] !== es[0])) return { ok: false, keys: {} };
   // A file left looser (an older build, a copy, a restore) is made owner-only once it has read as ours, best effort.
-  try { if (!fs.lstatSync(fileFor(org, member)).isSymbolicLink()) fs.chmodSync(fileFor(org, member), 0o600); } catch { /* the read stands */ }
+  try { fs.chmodSync(fileFor(org, member), 0o600); } catch { /* the read stands */ }
   return { ok: true, keys };
 }
 function writeKeys(org, member, keys) {
@@ -142,7 +144,8 @@ async function ensureNow(opts) {
        so this file is stale, e.g. a restored data root). That key is treated as lost: a new key goes the same way a
        lost key's does (one move, the day respected). The stale key stays in the file, so this computer still opens
        its own backups from that epoch; nothing is deleted on the job's word. The job passes lostEpoch on EVERY call
-       until a newer key is registered: without it, a call answers the stale key from disk. */
+       until a newer key is registered: without it, a call answers the stale key from disk. lostEpochIgnored and
+       pendingEpoch ride only an answer from disk; a first registration answers neither. */
     let lost = null;
     if (Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= 1 && opts.lostEpoch < EPOCH_MAX && newestRegistered(keys) === opts.lostEpoch) {
       lost = opts.lostEpoch;
@@ -150,7 +153,7 @@ async function ensureNow(opts) {
     const done = lost === null ? newestRegistered(keys) : undefined;
     // A lostEpoch that is not this file's newest registered epoch is ignored; an answer from disk says so, and names a
     // newer key still pending (the job forgot lostEpoch, or restarted), so falling back is never silent.
-    const ignored = opts.lostEpoch !== undefined && lost === null ? { lostEpochIgnored: true } : {};
+    const ignored = opts.lostEpoch != null && lost === null ? { lostEpochIgnored: true } : {};
     const above = done !== undefined && epochs.length && epochs[0] > done && !keys[epochs[0]].registered ? { pendingEpoch: epochs[0] } : {};
     if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk, ...ignored, ...above };
     // The newest key not yet taken (kept before an earlier send), else a new one for epoch 1.

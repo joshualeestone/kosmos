@@ -311,7 +311,7 @@ test('#5744 2b: a key file for another company or member, or an epoch past 2^53,
   await mk.ensureMemberKey({ macRequest: c.macRequest });
   const file = keyFile();
   const good = fs.readFileSync(file, 'utf8');
-  for (const edit of [(k) => { k.org = 'other'; }, (k) => { k.keys = { 9007199254740993: k.keys['1'] }; }]) {
+  for (const edit of [(k) => { k.org = 'other'; }, (k) => { k.keys = { '9007199254740993': k.keys['1'] }; }]) {
     const k = JSON.parse(good);
     edit(k);
     fs.writeFileSync(file, JSON.stringify(k));
@@ -494,4 +494,24 @@ test('#5744 2b: the company key\'s epoch in the backup-key answer is not read as
   const two = async (m, route, b) => { const r = await c.macRequest(m, route, b); return route === mk.BACKUP_KEY_ROUTE ? { ok: true, data: { ...r.data, epoch: 2 } } : r; };
   const r = await mk.ensureMemberKey({ macRequest: two });
   assert.deepEqual([r.ok, r.epoch], [true, 1], JSON.stringify(r));
+});
+
+test('#5744 2b: lostEpoch null means none, so nothing is flagged as ignored', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: null });
+  assert.deepEqual([r.ok, 'lostEpochIgnored' in r], [true, false], JSON.stringify(r));
+});
+
+test('#5744 2b: a symlinked key file is not read', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });
+  const file = keyFile();
+  const real = file + '.real';
+  fs.renameSync(file, real);
+  fs.symlinkSync(real, file);
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.equal(r.unreadableKeyFile, true, JSON.stringify(r));
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), true, 'the link was replaced');
+  fs.rmSync(file); fs.renameSync(real, file);
 });

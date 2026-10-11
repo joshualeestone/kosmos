@@ -59,7 +59,7 @@ job must pass the epoch ensureMemberKey answers (a Number; sealedEpoch converts 
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at review 17: 34 tests, 34 pass)
+## Tests (measured at review 18: 36 tests, 36 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -227,3 +227,9 @@ the API doc's missing `member` field.
   grant from Kosmos+ anyway (header).
 - Duplicate: the reused-key deletion (Review 15).
 - NITs taken: the test helper picks the .json file; a test pins that the company key's epoch is not read.
+
+## Review 18 (opus)
+- FIXED: `lostEpoch: null` (a natural "none") flagged lostEpochIgnored on every answer; the flag needs a non-null
+  lostEpoch (tested).
+- NITs taken: a symlinked key file is refused outright (tested); the 2^53 fixture is a string so it is past 2^53;
+  the header says the flags ride only an answer from disk; UNREADABLE sits after the routes.
