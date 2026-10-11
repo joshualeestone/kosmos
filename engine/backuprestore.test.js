@@ -405,6 +405,8 @@ test('#5535: the naming key travels in the manifest; a given one must match it, 
     ['carried, not a string', { namingKeyId: id, namingKey: [...nk] }, undefined],
     ['carried, not canonical base64', { namingKeyId: id, namingKey: b64.replace(/=$/, '') }, nk],
     ['carried but malformed, a valid one given (never falls back to it)', { namingKeyId: id, namingKey: 'x' }, nk],
+    // The same 32 bytes spelled with a non-zero trailing bit: decodes to nk, refused as non-canonical.
+    ['carried, a non-canonical spelling of the right key', { namingKeyId: id, namingKey: b64.slice(0, 42) + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'[('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.indexOf(b64[42]) ^ 1)] + '=' }, undefined],
     ['none carried, given, the id is another key\'s', { namingKeyId: namingKeyId(other) }, nk],
     ['none carried, none given', { namingKeyId: id }, undefined],
   ]) {

@@ -94,14 +94,33 @@ function collidingPaths(entries) {
   return bad;
 }
 
+/* The naming key to check chunk names with (#5535). A manifest that carries one (base64, 32 bytes) must also name its
+   id (backupkeys namingKeyId), and a key the caller gives must be that same key. A manifest without one (written before
+   #5535) uses the caller's, which must match the recorded id when there is one. Null when no usable key: never a
+   guess, since a wrong key fails every chunk as tampering. */
+function manifestNamingKey(manifest, given) {
+  // Canonical only: the bytes must encode back to the very string (a non-zero trailing bit in the last character
+  // decodes to the same key and is refused, so one key has one spelling).
+  const decoded = typeof manifest.namingKey === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(manifest.namingKey)
+    ? Buffer.from(manifest.namingKey, 'base64') : null;
+  const carried = decoded && decoded.toString('base64') === manifest.namingKey ? decoded : null;
+  if (manifest.namingKey !== undefined && !carried) return null;
+  const key = carried || (Buffer.isBuffer(given) ? given : null);
+  if (!key || key.length !== 32) return null;
+  if (carried && Buffer.isBuffer(given) && !given.equals(carried)) return null;
+  if (manifest.namingKeyId !== undefined && manifest.namingKeyId !== namingKeyIdOf(key)) return null;
+  if (carried && manifest.namingKeyId === undefined) return null;
+  return key;
+}
+
 /**
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }] (the first 10000), failedNotListed
  * (how many more failed), skippedAtBackup: [...] }; or { overBound: 'maxManifestObject' | 'maxFiles' } when the
  * manifest is larger than the caller allowed (raise the bound and retry; the object-size bound is checked before the
  * signature, so it says nothing about authenticity); or { malformed: 'files' } when a manifest that verified has no
- * file list (the device wrote it badly, not tampering); or { malformed: 'namingKey' } when no usable naming key is known (the
-manifest's own is malformed or does not match its namingKeyId, a given one differs from it, or an older manifest has
-none and none was given); or null
+ * file list (the device wrote it badly, not tampering); or { malformed: 'namingKey' } when no usable naming key is
+ * known (the manifest's own is malformed or does not match its namingKeyId, a given one differs from it, or an older
+ * manifest has none and none was given); or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering).
  *
  * maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the bytes committed: a file that would pass
@@ -132,22 +151,6 @@ none and none was given); or null
  * control, bidi, tag and other invisible characters and lone surrogates written as \u{...}. failed is grouped by stage, not in manifest order. fetchChunk and the
  * sink have no timeout here: a call that never settles stalls the restore, so the caller bounds them.
  */
-/* The naming key to check chunk names with (#5535). A manifest that carries one (base64, 32 bytes) must also name its
-   id (backupkeys namingKeyId), and a key the caller gives must be that same key. A manifest without one (written before
-   #5535) uses the caller's, which must match the recorded id when there is one. Null when no usable key: never a
-   guess, since a wrong key fails every chunk as tampering. */
-function manifestNamingKey(manifest, given) {
-  const carried = typeof manifest.namingKey === 'string' && /^[A-Za-z0-9+/]{43}=$/.test(manifest.namingKey)
-    ? Buffer.from(manifest.namingKey, 'base64') : null;
-  if (manifest.namingKey !== undefined && !carried) return null;
-  const key = carried || (Buffer.isBuffer(given) ? given : null);
-  if (!key || key.length !== 32) return null;
-  if (carried && Buffer.isBuffer(given) && !given.equals(carried)) return null;
-  if (manifest.namingKeyId !== undefined && manifest.namingKeyId !== namingKeyIdOf(key)) return null;
-  if (carried && manifest.namingKeyId === undefined) return null;
-  return key;
-}
-
 async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,
   maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES, maxTotalBytes }) {
   // Caller mistakes throw rather than read as tampering in every file.

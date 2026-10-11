@@ -833,7 +833,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   const manifest = {
     // namingKey (#5535): the period's naming key itself, so a restore has it from the sealed, device-signed manifest
     // rather than from a stored wrap, which is unauthenticated (engine/backupkeys.js) and kept nowhere. The manifest is
-    // sealed to the member public key, as a wrap would be. The 1024 bytes the estimate starts at cover it.
+    // sealed to the member public key, as a wrap would be. The 1024 bytes the estimate starts at cover it (the fixed
+    // fields come to about 270 with it).
     format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId, namingKey: namingKey.toString('base64'),   // t: the reading already checked
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
