@@ -1279,8 +1279,9 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      that copy's held receipt; nothing is kept twice. */
   if (sameMsg && sameMsg.state === HELD_STATE) {
     const typedFirst = log.some((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
-    if (!typedFirst && require('./limitqueue').has(toName, sameMsg.id)) {
-      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true);
+    const keptCopy = typedFirst ? null : require('./limitqueue').list(toName).find((e) => e.id === sameMsg.id);
+    if (keptCopy) {
+      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true);
     }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
     const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
@@ -1375,20 +1376,21 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const limitqueue = require('./limitqueue');
     /* The same send already kept, at any age (the fold above looks back minutes; a hold lasts days): that copy. */
     const already = limitqueue.keptByKey(toName, msgKey);
-    if (already) { unspill(spillFile); return heldReceipt(toName, already.id, already.at, Date.parse(already.reset) > Date.parse(at) ? already.reset : null, true); }
-    if (!limitqueue.add(toName, { id, from, envelope, at, reset: limitHold.limitReset, key: msgKey, spill: spillFile })) {
+    if (already) {
+      unspill(spillFile);
+      return heldReceipt(toName, already.id, already.at, !already.behind && Date.parse(already.reset) > Date.parse(at) ? already.reset : null, true, already.behind === true);
+    }
+    /* The drop clock: the printed reset, or now when that is already past (a limit menu left up overnight would
+       otherwise drop the message at the next sweep). */
+    const dropFrom = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : at;
+    if (!limitqueue.add(toName, { id, from, envelope, at, reset: dropFrom, key: msgKey, spill: spillFile, behind: limitHold.behind === true })) {
       unspill(spillFile);
       return refuse(toName, 'this agent is out of usage, and Kosmos could not keep the message for after its reset');
     }
     // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
     appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
-    const receipt = heldReceipt(toName, id, at, until, false);
-    if (limitHold.behind) {
-      receipt.behind = true;
-      receipt.because = 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them';
-    }
-    return receipt;
+    return heldReceipt(toName, id, at, until, false, limitHold.behind === true);
   }
 
   const finish = (sent) => {
@@ -1419,10 +1421,13 @@ function send(input, roster) {
 /* #5805 slice 2a: a `kosmos msg` message kept for an agent out of usage. Its row's state, and the sender's answer:
    nothing was typed (could_not), it is held (the chat held shape, heldBy 'limit'), and when it will be typed. */
 const HELD_STATE = 'held';
-function heldReceipt(toName, id, at, heldUntil, duplicate) {
+function heldReceipt(toName, id, at, heldUntil, duplicate, behind) {
   return {
-    state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: heldUntil || null, id, at,
-    because: 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
+    state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: (!behind && heldUntil) || null, id, at,
+    because: behind
+      ? 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them'
+      : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
+    ...(behind ? { behind: true } : {}),
     ...(duplicate ? { duplicate: true } : {}),
   };
 }

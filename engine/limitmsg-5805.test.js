@@ -183,7 +183,7 @@ test('#5805 2a: a message still kept a day past its reset is dropped and logged,
 
 const opts = (extra = {}) => ({ deliver: chat.deliverAutomaticAsync, isReleased: chat.limitQueueReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDelivered: messages.logHeldDelivered, onDropped: messages.logHeldDropped, ...extra });
 
-test('#5805 2a review 1: a name whose store key differs is not kept; an entry for another agent in a file is never typed', async () => {
+test('#5805 2a review 1/5: two names with one store key keep separate queues; an entry for another agent in a file is never typed', async () => {
   // Review 5: two names with one store key each keep their own messages (the file name carries a hash of the name).
   assert.equal(store.safeKey('Casey.2'), store.safeKey('casey2'), 'CONTROL: these two names share a store key');
   const t = new Date().toISOString();
@@ -395,4 +395,50 @@ test('#5805 2a review 7: a message queued behind an old backlog has its own day,
   await limitqueue.flush(caseyRoster(), { now: Date.now() + 15 * 60e3, deliver: async () => ({ state: chat.DELIVERY.COULD_NOT }), isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id) });
   assert.deepEqual(dropped, ['m1030']);
   assert.deepEqual(limitqueue.list('casey').map((e) => e.id), [v.id], 'the new message was dropped on the backlog\'s clock');
+});
+
+test('#5805 2a review 9: held long past its printed reset (limit menu still up), the message gets its own day', async () => {
+  const realV = chat.limitHeldVerdict;
+  const longAgo = new Date(Date.now() - 30 * 3600e3).toISOString();
+  chat.limitHeldVerdict = () => ({ state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', limitReset: longAgo, heldUntil: new Date(Date.now() + 60e3).toISOString() });
+  let v;
+  try {
+    await withFleet(undefined, 'idle', async (board) => { v = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'overnight' }, board.agents); });
+  } finally { chat.limitHeldVerdict = realV; }
+  assert.equal(v.held, true, JSON.stringify(v));
+  const dropped = [];
+  await limitqueue.flush(caseyRoster(), { deliver: async () => ({ state: chat.DELIVERY.PLACED }), isReleased: () => false, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id) });
+  assert.deepEqual(dropped, [], 'dropped a minute after it was held, on a reset a day old');
+  assert.deepEqual(limitqueue.list('casey').map((e) => e.id), [v.id]);
+});
+
+test('#5805 2a review 9: the same send again, queued behind a backlog, keeps the behind wording', async () => {
+  const t = new Date().toISOString();
+  limitqueue.add('casey', { id: 'm1040', from: 'mona', envelope: 'earlier', at: t, reset: t });
+  await withFleet(undefined, 'idle', async (board) => {
+    const first = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'after that' }, board.agents);
+    fs.rmSync(messages.LOG, { recursive: true, force: true });   // past the recent-send window: the kept copy answers
+    messages.resetForTests();
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    const again = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'after that' }, board.agents);
+    assert.deepEqual([first.behind, again.behind, again.id, again.duplicate], [true, true, first.id, true], JSON.stringify(again));
+    assert.doesNotMatch(again.because, /is out of usage/);
+  });
+});
+
+test('#5805 2a review 9: a message being typed is claimed (isTyping), and a second sweep at the same time types nothing', async () => {
+  const t = new Date().toISOString();
+  limitqueue.add('casey', { id: 'm1050', from: 'leo', envelope: 'one', at: t, reset: t });
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const typed = [];
+  const o = { deliver: async (n, env) => { typed.push(env); await gate; return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY };
+  const run1 = limitqueue.flush(caseyRoster(), o);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(limitqueue.isTyping('m1050'), true, 'not claimed while being typed');
+  assert.deepEqual(await limitqueue.flush(caseyRoster(), o), []);
+  release();
+  await run1;
+  assert.equal(limitqueue.isTyping('m1050'), false);
+  assert.deepEqual(typed, ['one']);
 });

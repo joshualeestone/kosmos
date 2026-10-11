@@ -14,7 +14,8 @@ still typed straight in.
 
 ## The call
 - engine/limitqueue.js: the messages kept for one agent, in order, in one small file per agent under the store:
-  `{ id, from, to, envelope, at, reset }`. add, list, remove, and `flush` for the minute sweep.
+  `{ id, from, to, envelope, at, reset, key, spill, behind? }` (reset is the drop clock; key the repeat-send key; spill
+  a long message's file; behind when it was queued behind a backlog). add, list, remove, and `flush` for the minute sweep.
 - messages.sendWithDelivery: after the envelope is built, if chat.limitHeldVerdict says the recipient is held on a
   usage limit, the message is kept (limitqueue.add), logged as a `message` row with `state: 'held'` and `heldUntil`
   (the printed reset while it is ahead, else null), and the sender gets the held shape: `{ state: could_not, held: true, heldBy: 'limit',
@@ -130,3 +131,17 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - NITs taken: the sweep checks a message is still kept just before typing it (so a run that outlived the one-run guard
   cannot type it twice); a repeat of a held message that was typed reads the delivery row before the queue; the bash
   CLI accepts a space after the colon; the flush comment sits on flush.
+
+## Review 8 (sonnet)
+- DEFERRED, by design: a held row counts as a send for the pair valve and for the sender's activity; the sender did
+  send it, and no reader shows it as delivered. NITs not taken.
+
+## Review 9 (opus)
+- FIXED: a plain hold took the printed reset as its drop clock, so with the limit menu left up a day past the reset a
+  message was dropped a minute after it was held; the clock is the later of the reset and now (tested).
+- FIXED: a repeat of a message queued behind a backlog lost its behind wording; the kept entry remembers it (tested).
+- FIXED: a run that outlived the one-run guard could type a message alongside a newer run. Each message is claimed
+  while it is typed (isTyping), and only the run that set the guard frees it (tested: claimed, and a second sweep at
+  the same time types nothing).
+- NITs taken: the store-key test's title; the plan's entry shape. Not taken: heldUntil as UTC ISO (the agent parses
+  it); the double names() read.

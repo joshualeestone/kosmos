@@ -48,7 +48,8 @@ function add(name, entry) {
     const now = list(name).filter((e) => e.id !== entry.id);
     if (now.length >= MAX_KEPT || now.filter((e) => e.from === String(entry.from || '')).length >= MAX_PER_SENDER) return false;
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
-      key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null });
+      key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null,
+      ...(entry.behind === true ? { behind: true } : {}) });
     return write(name, now);
   } catch { return false; }
 }
@@ -80,7 +81,12 @@ function names() {
 /* Ids this board already typed or dropped whose removal from the file failed: skipped (and their removal tried again)
    so a failed write never types a message twice or tells its sender twice. */
 const done = new Set();
+/* Ids being typed this moment: claimed before the await, so no other run (one that outlived the guard below) and
+   no other path can type the same message alongside it. */
+const typing = new Set();
+function isTyping(id) { return typing.has(id); }
 let flushingSince = 0;
+let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
 /* The minute sweep. For each agent with kept messages: drop those DROP_AFTER_MS past their reset (onDropped); then,
    when `isReleased(card)` (the card for the agent in `roster`), type the rest in order with `deliver`. A message typed
@@ -90,8 +96,10 @@ async function flush(roster, opts) {
   // One run at a time: a run still typing a backlog when the next minute starts would type each message twice. A run
   // that has not finished in FLUSH_STUCK_MS (a delivery that never settled) no longer blocks the next one.
   if (flushingSince && Date.now() - flushingSince < FLUSH_STUCK_MS) return [];
+  const mine = ++runToken;
   flushingSince = Date.now();
-  try { return await flushOnce(roster, opts); } finally { flushingSince = 0; }
+  // Only this run frees the guard: a stuck run that finishes late must not clear a newer run's.
+  try { return await flushOnce(roster, opts); } finally { if (runToken === mine) flushingSince = 0; }
 }
 async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, now = Date.now() }) {
   const out = [];
@@ -116,9 +124,10 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       if (!card || !isReleased(card, roster)) continue;
       for (const e of live) {
         // Still kept, and not typed by a run that outlived the one-run guard: checked just before typing.
-        if (done.has(e.id) || !has(name, e.id)) continue;
+        if (done.has(e.id) || typing.has(e.id) || !has(name, e.id)) continue;
+        typing.add(e.id);
         let v;
-        try { v = await deliver(name, e.envelope, roster); } catch { v = null; }
+        try { v = await deliver(name, e.envelope, roster); } catch { v = null; } finally { typing.delete(e.id); }
         const state = v && v.state;
         if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) break;
         if (!remove(name, e.id)) done.add(e.id);
@@ -132,6 +141,6 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
   return out;
 }
 
-function resetForTests() { done.clear(); flushingSince = 0; }
+function resetForTests() { done.clear(); typing.clear(); flushingSince = 0; }
 
-module.exports = { resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER };
+module.exports = { isTyping, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER };
