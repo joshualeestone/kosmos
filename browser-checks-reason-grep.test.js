@@ -410,6 +410,7 @@ const SITE_COUNTS = {
   'render-inline-field-errors-2606.js': [1, 0],
   'render-keyed-install-3713.js': [3, 2],
   'render-layer-gutter-4494.js': [3, 2],
+  'render-limit-until-5805.js': [1, 1],
   'render-made-before.js': [1, 0],
   'render-mobilenav-4823.js': [3, 1],
   'render-model-restart-interstitial.js': [1, 1],
