@@ -69,3 +69,17 @@ Also: a reply inside the hour may still be about an earlier direct message (Baro
 - FIXED (WARNING, by comment): suspectedMisrouteCount keeps the room-only test on purpose and says so.
 - FIXED (WARNING): a thread was parsed on every render and every sweep per project; cached by mtime and size.
 - FIXED (NIT): the nudge is asserted, with a control that it fires for an owed ask.
+
+## Review 2 (sonnet, blind, on 706233b24)
+- DEFERRED (WARNING): a declaration silences the room's "has not answered" line too, with no expiry, and covers asks
+  made before it. By design: the person's own instructions send the agent's answers to that channel, so the line
+  would be false. This is the weakest premise above; the change named there (show the channel instead) is the fix
+  if it ever misfires.
+- DEFERRED (WARNING): a process holding the board token can name another agent's pane (`from_pane`, taken as given).
+  Accepted: the same posture as the role route; the board token is the person's credential; the token path names
+  the caller exactly.
+- FIXED (WARNING): the declared channel was read from disk per ask on every render; now once per name per pass.
+- FIXED (NIT): the Mac turned a newline in the channel into a space where Windows refuses it; the Mac now refuses it
+  in the board's words (test, with a control and a mutation).
+- FIXED (NIT): the inserted block had separated unanswered's doc comment from unanswered; a stray blank line.
+- NOTED (NIT): suspectedMisrouteCount still counts a declared agent; its comment says so.

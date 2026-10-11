@@ -122,3 +122,16 @@ test('kosmos#5805 Windows: the same verb, the same body, the same answers', asyn
   assert.equal(r.code, 0, r.out);
   assert.equal(r.calls.length, 0, '--help sent something');
 });
+
+test('kosmos#5805: a channel on two lines is refused the same way by both commands, and the Mac sends nothing', () => withStub('{"error":"say the channel on one line"}', async (port, seen) => {
+  const r = await mac(port, ['reply-channel', 'Discord\nand more']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /did not set your reply channel: say the channel on one line/);
+  assert.equal(seen.length, 0, 'the Mac sent a two-line channel instead of refusing it');
+  // CONTROL: one line is sent.
+  await mac(port, ['reply-channel', 'Discord and more']);
+  assert.equal(seen.length, 1, 'CONTROL: the stub never heard a one-line channel');
+  const w = await win(['reply-channel', 'Discord\nand more'], '{"error":"say the channel on one line"}');
+  assert.equal(w.code, 1);
+  assert.match(w.out, /did not set your reply channel: say the channel on one line/);
+}));

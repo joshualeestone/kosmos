@@ -2470,17 +2470,6 @@ function setUnansweredAfterForTests(ms) {
   UNANSWERED_AFTER_MS = Number.isFinite(ms) ? ms : 10 * 60 * 1000;
 }
 
-/**
- * Which addressed agents have not answered which operator posts in this
- * project, from the record alone. Returns { <postId>: [names...] }.
- *
- * ⚠️ OPERATOR posts only, MENTIONED names only, TYPED deliveries only:
- * a colleague's mention is a different contract (the room model refuses
- * unaddressed steering, and a peer's ask carries no operator weight), a
- * name the tokenizer did not mark was never asked, and a delivery that
- * never reached the pane is not silence, it is non-delivery, which the
- * post's own outcomes already report.
- */
 /* kosmos#5805 part 2: did `name` answer an ask made at `askAt` on the person's direct thread (`kosmos reply`) instead of
    in the room? The person who asked is the one who heard back, which is what the room's unanswered line, its nudge and
    the which-room question exist for. Counted: the agent's own row (`from` it, not Kosmos's words in its name) within
@@ -2520,19 +2509,33 @@ function answeredDirectly(name, askAt) {
 /* kosmos#5805 part 2: is an ask to `name` at `askAt` answered somewhere other than the room? Either the agent declared
    another channel it answers the person on (kosmos reply-channel: an answer there is out of Kosmos's sight, so it is
    never called silent), or it answered on the person's direct thread (answeredDirectly). The one test unanswered and
-   owedElsewhere share, so the room line, its nudge and the which-room question cannot disagree. */
-function answeredOffRoom(name, askAt) {
-  if (require('./replychannel').forAgent(name, store)) return true;
+   owedElsewhere share, so the room line, its nudge and the which-room question cannot disagree. `declared` (a Map, one
+   per caller's pass) holds each agent's declaration once read, so a render reads a profile once per name, not per ask. */
+function answeredOffRoom(name, askAt, declared) {
+  const has = declared instanceof Map && declared.has(name) ? declared.get(name) : require('./replychannel').forAgent(name, store);
+  if (declared instanceof Map) declared.set(name, has);
+  if (has) return true;
   return answeredDirectly(name, askAt);
 }
 
+/**
+ * Which addressed agents have not answered which operator posts in this
+ * project, from the record alone. Returns { <postId>: [names...] }.
+ *
+ * ⚠️ OPERATOR posts only, MENTIONED names only, TYPED deliveries only:
+ * a colleague's mention is a different contract (the room model refuses
+ * unaddressed steering, and a peer's ask carries no operator weight), a
+ * name the tokenizer did not mark was never asked, and a delivery that
+ * never reached the pane is not silence, it is non-delivery, which the
+ * post's own outcomes already report.
+ */
 function unanswered(projectId, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const rec = record();
   if (!rec.ok) return {};
   const rows = rec.rows.filter((m) => m && m.project === projectId);
   const out = {};
-
+  const declared = new Map();   // kosmos#5805 part 2: one profile read per name for this pass
   for (const p of rows) {
     if (p.kind !== 'post' || p.operator !== true || !Array.isArray(p.mentioned) || !p.mentioned.length) continue;
     const age = at - Date.parse(p.at);
@@ -2554,7 +2557,7 @@ function unanswered(projectId, now) {
          read in the other direction. */
       return !rows.some((m) => m.kind === 'post' && m.operator !== true && m.from === name
         && Date.parse(m.at) >= Date.parse(p.at))
-        && !answeredOffRoom(name, Date.parse(p.at));
+        && !answeredOffRoom(name, Date.parse(p.at), declared);
     });
     if (silent.length) out[p.id] = silent;
   }
@@ -3017,7 +3020,8 @@ function owedElsewhere(agent, targetProject, now, opts) {
      --new rerun is cleared too. Accepted: the window is one rerun long. */
   // kosmos#5805 part 2: an ask answered off the room (a declared channel, or the person's direct thread) is not owed,
   // as unanswered reads it.
-  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt && !answeredOffRoom(who, a.t));
+  const declared = new Map();
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt && !answeredOffRoom(who, a.t, declared));
   const elsewhere = owed.filter((a) => a.project !== target && (() => {
     try { return canPostIn(a.project) === true; } catch { return false; }
   })());
