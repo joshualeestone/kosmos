@@ -307,3 +307,18 @@ test('#5805 2a review 3: one sender cannot fill an agent\'s queue for everyone e
   assert.equal(limitqueue.add('casey', { id: 'ml-over', from: 'loop', envelope: 'x', at: now, reset: now }), false, 'past the per-sender cap');
   assert.equal(limitqueue.add('casey', { id: 'mg', from: 'leo', envelope: 'go ahead', at: now, reset: now }), true, 'another sender was crowded out');
 });
+
+test('#5805 2a review 4: reads see only entries for that exact agent; an entry whose reset cannot be read is dropped a day after it arrived', async () => {
+  fs.mkdirSync(limitqueue.dir(), { recursive: true });
+  const now = new Date().toISOString();
+  fs.writeFileSync(limitqueue.fileFor('casey'), JSON.stringify([{ id: 'm1001', from: 'leo', to: 'mallory', envelope: 'not hers', at: now, reset: now, key: 'k' }]));
+  assert.deepEqual(limitqueue.list('casey'), [], 'another agent\'s entry was read as this one\'s');
+  assert.equal(limitqueue.keptByKey('casey', 'k'), null);
+  assert.equal(limitqueue.has('casey', 'm1001'), false);
+  fs.rmSync(limitqueue.fileFor('casey'), { force: true });
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'm1002', from: 'leo', envelope: 'x', at: old, reset: 'never' });
+  const dropped = [];
+  await limitqueue.flush([], { deliver: async () => ({ state: chat.DELIVERY.PLACED }), isReleased: () => false, resolveCard: () => null, DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id) });
+  assert.deepEqual(dropped, ['m1002'], 'an entry with no readable reset was kept for ever');
+});

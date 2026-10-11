@@ -977,7 +977,8 @@ function logRefusedSend(from, toWho, because, at) {
  * Returns { state: 'placed'|'unconfirmed'|'could_not', because, id, at } --
  * the delivery states are chat.DELIVERY's own, because the delivery IS
  * chat.deliver and inventing a second vocabulary for the same outcomes is
- * how two surfaces drift.
+ * how two surfaces drift. #5805 slice 2a: a message kept for an agent out of usage answers could_not with
+ * held: true (heldReceipt), and its log row's state is HELD_STATE ('held'), the one row state outside that set.
  */
 /* #3769: a filter on what an AGENT sender says, applied once the sender is known and before the
    text is checked, recorded or pasted anywhere. The board installs the setup guide's secret mask

@@ -22,7 +22,8 @@ function fileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '
 function list(name) {
   try {
     const got = JSON.parse(fs.readFileSync(fileFor(name), 'utf8'));
-    return Array.isArray(got) ? got.filter((e) => e && typeof e.id === 'string' && typeof e.envelope === 'string') : [];
+    // Only entries for this exact agent: another name with the same store key never reads them (see add).
+    return Array.isArray(got) ? got.filter((e) => e && typeof e.id === 'string' && typeof e.envelope === 'string' && e.to === String(name)) : [];
   } catch { return []; }
 }
 
@@ -85,8 +86,9 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       const kept = list(name).filter((e) => e.to === name);
       const live = [];
       for (const e of kept) {
-        const reset = Date.parse(e.reset);
-        if (Number.isFinite(reset) && now - reset > DROP_AFTER_MS) {
+        // Its reset, or when it arrived if the reset cannot be read: nothing is kept for ever.
+        const reset = Number.isFinite(Date.parse(e.reset)) ? Date.parse(e.reset) : Date.parse(e.at);
+        if (!Number.isFinite(reset) || now - reset > DROP_AFTER_MS) {
           remove(name, e.id);
           try { if (onDropped) onDropped(e, roster); } catch { /* the drop stands */ }
         } else live.push(e);

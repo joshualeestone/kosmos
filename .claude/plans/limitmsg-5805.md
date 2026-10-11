@@ -87,3 +87,12 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - NITs taken: the recent-send fold no longer promises a time already past; the sweep is skipped when the roster cannot
   be read (a drop then waits for a minute when its sender can be told). Not taken: the spill written before the hold
   check (removed on refuse and drop); names() pruning empty files (commented where it happens).
+
+## Review 4 (sonnet)
+- FIXED: reads (list, has, keptByKey) now see only entries addressed to that exact agent, as the sweep already did, so
+  a colliding name cannot pick up another agent's backlog or kept copy (tested).
+- FIXED: an entry whose reset cannot be read is dropped a day after it arrived, so the day rule holds unconditionally
+  (tested).
+- NIT taken: sendWithDelivery's header names the held answer and the 'held' row state. Duplicate: the pair valve
+  counts held sends (stated under Residuals). Not taken: an in-memory count to skip the queue read on every send (a
+  missing file is one failed open).
