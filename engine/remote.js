@@ -2462,6 +2462,8 @@ function signinCancel() {
   companySetup = null;   // kosmos#5628 review 1: as the session: no secret is left behind a sign out
   stopVouch();   // kosmos#5786 (b): the same for the open-browser secret
   lastVouched = null;
+  // ...and its "on this computer" notices: signed out, their Undo could not work.
+  if (Object.keys(read().vouched || {}).length) write({ vouched: {} });
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not

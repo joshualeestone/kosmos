@@ -4337,8 +4337,11 @@ test('#5786 (b): removing a vouched device (Undo) drops its "on this computer" n
 
 test('#5786 (b): a secret ends on Sign out and on switching off, and an old request or a plain-http coordinator opens nothing', async () => {
   let r = await vouchSignedIn('vouchend1');
+  { const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8')); f.vouched = { 'dev-so': { at: nowS(), name: 'Mac · Safari' } }; fs.writeFileSync(remote.FILE, JSON.stringify(f)); }
+  assert.ok(remote.read().vouched['dev-so'], 'premise: a note before Sign out');
   remote.signinCancel();
   assert.equal(remote.vouchSecretForTests(), null, 'Sign out left the secret live');
+  { const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8')); assert.equal(Object.keys(f.vouched || {}).length, 0, 'Sign out kept an on-this-computer note'); }
   r = await vouchSignedIn('vouchend2');
   remote.setOn(false);
   assert.equal(remote.vouchSecretForTests(), null, 'switching off left the secret live');
