@@ -100,8 +100,18 @@ function names() {
 const done = new Set();
 /* Ids being typed this moment: claimed before the await, so no other flush run (one that outlived the guard below)
    types the same message alongside it, or ahead of it. */
-const typing = new Set();
-function isTyping(id) { return typing.has(id); }
+const typing = new Map();   // id -> when it was claimed
+/* A claim older than CLAIM_STALE_MS is a paste that never settled: dropped, so one hung message does not hold its
+   agent's queue until a restart (it is then tried again, the stated cost). Longer than FLUSH_STUCK_MS on purpose: a
+   newer run that starts after the one-run guard frees waits behind a paste that is merely slow. */
+const CLAIM_STALE_MS = 60 * 60 * 1000;
+function claimedNow(id) {
+  const since = typing.get(id);
+  if (since === undefined) return false;
+  if (Date.now() - since > CLAIM_STALE_MS) { typing.delete(id); return false; }
+  return true;
+}
+function isTyping(id) { return claimedNow(id); }   // read by the tests
 /* Typed (or dropped) already, its removal from the file having failed: still in the file, but not kept. */
 function isDone(id) { return done.has(id); }   // read by the tests; the sweep reads `typing` itself
 /* What the recipient is told about a kept message as it is typed: kept, and when it was sent, so a day-old go-ahead
@@ -137,7 +147,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         // Its reset, or when it arrived if the reset cannot be read: nothing is kept for ever.
         const reset = Number.isFinite(Date.parse(e.reset)) ? Date.parse(e.reset) : Date.parse(e.at);
         // Being typed this moment (a run that outlived the guard): not dropped under it.
-        if (typing.has(e.id)) { live.push(e); continue; }
+        if (claimedNow(e.id)) { live.push(e); continue; }
         if (!Number.isFinite(reset) || now - reset > DROP_AFTER_MS) {
           if (!remove(name, e.id)) done.add(e.id);
           try { if (onDropped) onDropped(e, roster); } catch { /* the drop stands */ }
@@ -148,13 +158,13 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       if (!card || !isReleased(card, roster)) continue;
       let typedNow = 0;
       for (const e of live) {
-        // Still kept, and not typed by a run that outlived the one-run guard: checked just before typing.
         // Claimed by a run that outlived the guard: this agent waits, so nothing is typed ahead of it.
-        if (typing.has(e.id)) break;
+        if (claimedNow(e.id)) break;
+        // Still kept (not typed or dropped meanwhile): checked just before typing.
         if (done.has(e.id) || !has(name, e.id)) continue;
         if (typedNow >= PER_RUN) break;
         typedNow += 1;
-        typing.add(e.id);
+        typing.set(e.id, Date.now());
         let v;
         try { v = await deliver(name, e.envelope + keptNote(e), roster); } catch { v = null; } finally { typing.delete(e.id); }
         const state = v && v.state;
@@ -172,4 +182,4 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
 
 function resetForTests() { done.clear(); typing.clear(); flushingSince = 0; }
 
-module.exports = { keptNote, isTyping, isDone, addOrWhy, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN };
+module.exports = { keptNote, isTyping, isDone, addOrWhy, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS };

@@ -204,3 +204,12 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - FIXED: a repeat of a message typed but not removed from the file answered "held"; it answers as that delivery
   (tested with a failed removal).
 - NIT taken: the queue folder is owner-only (0700). Not taken: local time in the kept note and the CLI line.
+
+## Review 16 (sonnet)
+- FIXED: a paste that never settles left its claim for good, holding that agent's queue until a restart; a claim older
+  than an hour (CLAIM_STALE_MS, longer than the 15-minute run guard so review 11's wait behind a slow paste still holds)
+  is stale and the message is tried again (tested; found by review 11's test deadlocking on a shared threshold). Residual: if that hung paste did land,
+  the message arrives twice.
+- DEFERRED: a send to a card not yet released but not held either (a dateless limit) is typed, slice 1's stated gap;
+  "after a drop it goes as new" is the design (review 1), noted as a coverage question.
+- NIT taken: the comments above the claim check sit on the lines they describe.

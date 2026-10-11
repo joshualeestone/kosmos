@@ -583,3 +583,20 @@ test('#5805 2a review 15: a repeat of a message typed but not removed from the f
     assert.deepEqual([again.state, again.id, again.duplicate], [chat.DELIVERY.PLACED, first.id, true]);
   });
 });
+
+test('#5805 2a review 16: a paste that never settles does not hold its agent for good: a claim older than CLAIM_STALE_MS is stale', async () => {
+  const t = new Date().toISOString();
+  limitqueue.add('casey', { id: 'm1100', from: 'leo', envelope: 'hangs', at: t, reset: t });
+  const typed = [];
+  limitqueue.flush(caseyRoster(), { deliver: async (n, env) => { typed.push(bare(env)); return new Promise(() => {}); }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(limitqueue.isTyping('m1100'), true, 'CONTROL: claimed while the paste hangs');
+  const realNow = Date.now;
+  Date.now = () => realNow() + limitqueue.CLAIM_STALE_MS + 60e3;
+  try {
+    assert.equal(limitqueue.isTyping('m1100'), false, 'a claim older than CLAIM_STALE_MS still holds the queue');
+    await limitqueue.flush(caseyRoster(), { deliver: async (n, env) => { typed.push(bare(env)); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY });
+  } finally { Date.now = realNow; }
+  assert.deepEqual(typed, ['hangs', 'hangs'], 'the hung message was not tried again');
+  assert.deepEqual(limitqueue.list('casey'), []);
+});
