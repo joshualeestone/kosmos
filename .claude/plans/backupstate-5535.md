@@ -113,3 +113,15 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
   caller then just uses its clock's period next run; adding it is a backupsnapshot change for the run slice to judge.
 - FIXED (NITs): the prune comment names uploadManifest's stricter floor; a stale "compare as strings" comment removed.
 - Tests: 11. Mutant (resume the stored period for any label): red. backup*.test.js + reachable: 372 pass.
+
+## Review 7 (sonnet, blind, on cd31ec42c): NOT CONVERGED
+- Checked: the manifest lock (coordinator retain_until_for(period_end)) against the defensive prune; review 6's point;
+  withRun against every takeSnapshot result field; no dead code left.
+- FIXED (WARNING): the stated cost was wrong. With ONE period slot, this clock's week and the coordinator's granted week
+  overwrote each other's key and index on every run near Monday, so EVERY run in the skew window re-uploaded the tree
+  (not "once a week"). Now TWO slots (SLOTS), most recently used first (withPeriod), forPeriod resuming the slot of an
+  equal label: the caller still chooses the week, and each week keeps its key and index. Real cost now: the first batch
+  of each such run, uploaded under the wrong week. State shape: `periods` (a list) replaces `period`. Tests (resume
+  the other kept week; LRU eviction; two-slot round trip; three slots and repeated labels refused); mutants red (one
+  slot, appended not first, the duplicate-label check).
+- FIXED (NIT): leftOut counts added rows dropped for want of a bucket. Test; mutant red.
