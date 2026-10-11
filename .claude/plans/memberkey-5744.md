@@ -35,6 +35,8 @@ and this slice reads codes only from `refusal`, so neither lost-key arm can fire
 - Retrying past one next epoch: each new epoch is audited and limited to one a day; a loop would burn the day.
 
 ## Weakest premise
+- One key file per tunnel identity: two data roots sharing one tunnel state (AGENT_WORKFORCE_TUNNEL_STATE, a test
+  or development setup) would each read the other's key as lost and rotate in turn. Stated, not guarded.
 - One computer per member gets backup keys. The coordinator enforces it: POST /v1/org/backup-key refuses 403
   backup_not_member when "the computer is not its enrolled one" (docs/coordinator-api.md, Org backup key). So the
   409 member_key_exists arm reads "another key holds this epoch" as "this computer lost its key"; a second computer
@@ -50,10 +52,12 @@ whether it is still current, so the job MUST compare the epoch it answers with e
 mismatch as "the member moved on"; until that job lands nothing detects it. ALSO: a `waiting` answer carries no
 retry time (the coordinator's retry_after_secs does not ride in the tunnel's refusal line), so the job must back
 off on its own: each early retry costs a round trip, and past the day each send counts toward the registration cap.
+AND: backupupload.js checks a grant's epoch only when `opts.epoch` is passed (epochProblem is null without it), so the
+job must pass the epoch ensureMemberKey answers (a Number; sealedEpoch converts it).
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at c9c9056e0: 20 tests, 20 pass)
+## Tests (measured at 805fa52d1: 21 tests, 21 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -67,12 +71,13 @@ the API doc's missing `member` field.
   another process registered before a fresh-key refresh is answered (red without the check, 1 of 18); a file error
   is said as a fixed sentence and its code, no path (red with the raw message, 1 of 18; both at 266cfd43f); a
   wrong_epoch whose next is the epoch just sent resends the same key (red without the guard, 1 of 20, c9c9056e0);
-  a file for another org or with an epoch past 2^53 is not read.
+  a file for another org or with an epoch past 2^53 is not read; a wrong_epoch naming the epoch just sent (a race)
+  is answered, not a move.
 - Red-capable (each measured): without writing the key before sending, 1 fails (1be4a071f); without the 409 arm, 3
   fail (1be4a071f); without the epoch-0 arm, 1 fails (5052ecedd); without the reused refresh, 2 of 14 fail; without
   the re-read guard, 1 of 14 fails (both f3dbaeb74).
-- Neighbours and gates at 1be4a071f: engine/backup*, engine/hpke*, engine.reachable, browser-checks-reason-grep,
-  web.speech-kind-1397: 339 tests, 339 pass.
+- Neighbours and gates at 805fa52d1: engine/backup*, engine/hpke*, engine.reachable, browser-checks-reason-grep,
+  web.speech-kind-1397: 353 tests, 353 pass.
 
 ## Review 1 (sonnet)
 - Two calls at once could each make a key and the later write replace one Kosmos+ took: MEASURED NOT TO HAPPEN in
@@ -144,3 +149,9 @@ the API doc's missing `member` field.
 - FIXED: the reachability excuse names #5535 (E0.6) as where its caller lands.
 - Duplicate: the backup job's epoch comparison (Review 5, on #5744).
 - NIT taken: the epoch-0 comment covers the "already epoch 1" half.
+
+## Review 8 (opus)
+- STATED (premise, not guarded): one key file per tunnel identity; two data roots sharing one tunnel state would
+  each read the other's key as lost. A shipped board has one; the header and Weakest premise say so.
+- NITs taken: a wrong_epoch naming the epoch just sent is answered, not a move (tested); the Tests and gate shas
+  re-measured at HEAD (353 pass); the job must pass the answered epoch to the uploader (Not in this slice).
