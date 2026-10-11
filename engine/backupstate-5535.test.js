@@ -181,13 +181,18 @@ test('round 1: discardState sets a refused file aside (never deletes it), and th
 test('round 2: an EARLIER label keeps the stored later period (the coordinator granted ahead of this clock)', () => {
   const nk = crypto.randomBytes(32);
   const state = { job: {}, period: { label: '2026-W42', namingKey: nk, bucket: 'b/', index: new Map([entry(1, '2026-W42')]) } };
-  const p = bs.forPeriod(state, '2026-W41', { memberKeyId: MK, nowMs: NOW, newKey: () => crypto.randomBytes(32) });
+  // This clock: Sunday 23:30 UTC, the last half hour of W41 (W42 starts Monday 00:00 UTC).
+  const sunday = Date.parse('2026-10-11T23:30:00Z');
+  const p = bs.forPeriod(state, '2026-W41', { memberKeyId: MK, nowMs: sunday, newKey: () => crypto.randomBytes(32) });
   assert.equal(p.label, '2026-W42'); assert.ok(p.namingKey.equals(nk)); assert.equal(p.index.size, 1);
-  // Across a year: 2026-W53 is before 2027-W01.
+  // Across a year: 2026-W53 is before 2027-W01 (which starts Monday 2027-01-04).
   const y = { job: {}, period: { label: '2027-W01', namingKey: nk, bucket: null, index: new Map() } };
-  assert.equal(bs.forPeriod(y, '2026-W53', { memberKeyId: MK, nowMs: NOW }).label, '2027-W01');
+  assert.equal(bs.forPeriod(y, '2026-W53', { memberKeyId: MK, nowMs: Date.parse('2027-01-03T23:30:00Z') }).label, '2027-W01');
+  // Round 3: a stored period MORE than a day ahead of this clock (written under a wrong clock) is not kept.
+  const far = bs.forPeriod({ job: {}, period: { label: '2026-W44', namingKey: nk, bucket: 'b/', index: new Map() } }, '2026-W41', { memberKeyId: MK, nowMs: sunday });
+  assert.equal(far.label, '2026-W41'); assert.ok(!far.namingKey.equals(nk));
   // Control: a LATER label starts fresh.
-  const later = bs.forPeriod(state, '2026-W43', { memberKeyId: MK, nowMs: NOW });
+  const later = bs.forPeriod(state, '2026-W43', { memberKeyId: MK, nowMs: sunday });
   assert.equal(later.label, '2026-W43'); assert.ok(!later.namingKey.equals(nk));
 });
 
@@ -198,4 +203,25 @@ test('round 2: withRun says how many added rows it left out', () => {
   const [org, member] = ids();
   bs.writeState(org, member, r);
   assert.equal('leftOut' in bs.readState(org, member).state, false, 'not persisted');
+});
+
+test('round 3: org and member must be strings; week labels are 01 to 53; a passing read error is retry', () => {
+  assert.throws(() => bs.readState(5, 'm'), /non-empty strings/);
+  assert.throws(() => bs.writeState('o', '', { job: {}, period: null }), /non-empty strings/);
+  assert.throws(() => bs.discardState(undefined, 'm'), /non-empty strings/);
+  for (const bad of ['2026-W00', '2026-W54', '2026-W99']) assert.throws(() => bs.forPeriod({ job: {}, period: null }, bad, { memberKeyId: MK, nowMs: NOW }), String(bad));
+  const [org, member] = ids();
+  bs.writeState(org, member, { job: {}, period: null });
+  const realRead = fs.readFileSync;
+  try {
+    fs.readFileSync = function (file, ...rest) {
+      if (String(file) === bs.fileFor(org, member)) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; }
+      return realRead.call(fs, file, ...rest);
+    };
+    const r = bs.readState(org, member);
+    assert.equal(r.ok, false); assert.equal(r.retry, true);
+  } finally { fs.readFileSync = realRead; }
+  // A not-ours file is NOT retry (it is the discard case).
+  fs.writeFileSync(bs.fileFor(org, member), '{');
+  assert.equal(bs.readState(org, member).retry, undefined);
 });
