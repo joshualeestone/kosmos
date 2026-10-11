@@ -12,11 +12,14 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
   reset is unreadable, so a reset may not have been seen; reviews 1, 3, 4):
   sent: "Your message to Mona, kept while Mona was out of usage, was sent once Mona was back";
   unconfirmed: "Kosmos tried to send your message to Mona once Mona was back, but could not confirm Mona got it";
-  dropped: "Your message to Mona was never sent: Mona was out of usage, and Kosmos kept it for more than a day without
-  being able to send it". Kept behind earlier messages (`behind`): "kept behind earlier messages ... once the messages
-  ahead of it had gone" / "kept it behind earlier messages for more than a day". From an agent: "Leo's message to Mona".
+  dropped: "Your message to Mona was never sent: Kosmos kept it while Mona was out of usage and could not send it within
+  a day" (not "because": a menu, a quota hold or a paused swarm can also block it; review 5). Kept behind earlier
+  messages (`behind`): "kept behind earlier messages ... once the messages ahead of it had gone" / "kept it behind
+  earlier messages and could not send it within a day". From an agent: "Leo's message to Mona".
 - An entry kept with no task records nothing and is typed or dropped as before.
-- Tests fail without the change (engine: 4 of 4 new fail on main's engine; page: the new phrase test fails on main's page).
+- Tests fail without the change: every new engine and route test except the no-task CONTROL (which passes on main by
+  design) fails on main's code, each recognised path was also broken in place and seen to fail; the page phrase tests
+  fail on main's page.
 
 ## Calls
 - The record goes in the task's own conversation (taskchat), the one place the person reads about a task, not in the
@@ -28,7 +31,7 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
   already does for progressTimes.
 - Unconfirmed is said as such ("tried to send ... could not confirm"), never as sent.
 - A line kept behind earlier messages (`behind`, no usage limit of its own) is recorded with `behind`, and the page says
-  "sent once the messages ahead of it had gone" / "kept it for a day behind earlier messages", never a reset that did
+  "sent once the messages ahead of it had gone" / "kept it behind earlier messages and could not send it within a day", never a reset that did
   not happen (review 3).
 - "Quietest first" (tasks.lastActivityOf): a dropped note is not activity, like a missed run; a sent one is, since an
   agent got the work (review 1).

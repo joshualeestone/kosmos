@@ -1478,7 +1478,8 @@ async function tellHeldDropped(entry, roster) {
    kept like a `kosmos msg` and typed by the same minute sweep after the reset; so is one for an agent whose messages
    kept from then are still waiting, so it never arrives ahead of them. null: not held, type it now. Otherwise the
    outcome the route reports for that agent: held when kept, could_not when it could not be kept (and was not typed).
-   `from` is the sending agent's name, or '' for the person. Never throws: a throw before a hold is found types it
+   `from` is the sending agent's name, or '' for the person. `where` (#5842, optional): { projectId, task }, the task
+   the line belongs to, kept with it so its outcome is recorded in that task's conversation. Never throws: a throw before a hold is found types it
    (as an unreadable limit verdict does for `kosmos msg`); one after a hold is found refuses it, untyped. */
 function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
