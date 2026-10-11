@@ -392,3 +392,11 @@ test('#5805 review 7: an ask held before the limit (no arrival during it) is rec
     assert.equal(tmux.pastedTo('april').length, 1);
   } finally { chat.resetForTests(); board.restore(); }
 });
+
+test('#5805 review 9: the restart pickup ({ cap: false }) is held by the limit, as by the shared quota; only the Gemini cap lets it through', async () => {
+  await onScreen(AHEAD(), async (board, tmux) => {
+    const v = await chat.deliverAutomaticAsync('casey', 'Pick up your handoff.', board.agents, undefined, undefined, { cap: false });
+    assert.equal(v.heldBy, 'limit', JSON.stringify(v));
+    assert.deepEqual(tmux.typed(), []);
+  });
+});

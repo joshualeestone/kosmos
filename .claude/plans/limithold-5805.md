@@ -150,3 +150,13 @@ behaviour), never the reverse.
 - DEFERRED: past the hour cap a capped card's delivery reads the pane for the limit menu. Only a card whose dated line
   never retires reaches it, and the menu hold already reads the pane per delivery for needs-you and working cards.
 - NIT taken: providerLimitReport no longer splits the #4588 part 3 comment from reconcileReport.
+
+## Review 9 (opus)
+- DEFERRED, by design (decided): the handoff-restart pickup sends with `{ cap: false }` and the limit holds it. The
+  usage limit is the Claude form of the shared quota, which holds that route, not of the Gemini cap the person's click
+  overrides: typed into a capped session the pickup lands on the limit screen and is lost, while the 409 shows the
+  person the manual line. Weakest premise: a stale roster just after a restart could give a needless 409, which costs
+  one manual line. What would change it: evidence that a restarted session often reads capped from an old roster.
+  Pinned by a test.
+- NIT taken: the staleHeld comment's broken wrap. Not taken: an injected clock for withoutStale's limitKept (tests
+  pass explicit times to limitKept directly); the shared held-by wording helper (as before).

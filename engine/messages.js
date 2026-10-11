@@ -1056,9 +1056,8 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      replyTo = that id; a room post, not a direct message), or a post older than HELD_ASKED_MAX_MS from the post itself.
    The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
    counts from the post even then, so a pause of days does not deliver days-old asks. (#5805: roomhold.withoutStale
-   keeps back an ask a Claude usage limit held; `answered`, the ids the member answered, tells the two apart.) An id
-   not in the record yet (a
-   post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
+   keeps back an ask a Claude usage limit held; `answered`, the ids the member answered, tells the two apart.)
+   An id not in the record yet (a post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 function staleHeld(projectId, ids, log, now, member) {
