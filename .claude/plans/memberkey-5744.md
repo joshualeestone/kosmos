@@ -59,7 +59,7 @@ job must pass the epoch ensureMemberKey answers (a Number; sealedEpoch converts 
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at 805fa52d1: 21 tests, 21 pass)
+## Tests (measured at 799c42e16: 25 tests, 25 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -74,7 +74,8 @@ the API doc's missing `member` field.
   is said as a fixed sentence and its code, no path (red with the raw message, 1 of 18; both at 266cfd43f); a
   wrong_epoch whose next is the epoch just sent resends the same key (red without the guard, 1 of 20, c9c9056e0);
   a file for another org or with an epoch past 2^53 is not read; a wrong_epoch naming the epoch just sent (an
-  impossible answer, labelled so) is answered, not a move; lostEpoch moves a stale registered key once; a pair whose
+  impossible answer, labelled so) is answered, not a move; lostEpoch keeps the stale registered key and moves a new one past it (red without the lost-epoch guard, 1 of 25,
+  799c42e16), also inside the day; the "registered but not noted" branch is a repeat next call; a pair whose
   public half is not the private half's is not read.
 - Red-capable (each measured): without writing the key before sending, 1 fails (1be4a071f); without the 409 arm, 3
   fail (1be4a071f); without the epoch-0 arm, 1 fails (5052ecedd); without the reused refresh, 2 of 14 fail; without
@@ -170,9 +171,16 @@ the API doc's missing `member` field.
 ## Review 10 (opus)
 - FIXED: no way out once a registered key is stale (one computer per member, so a grant for another epoch means this
   file is stale, e.g. a restored data root). `opts.lostEpoch` from the backup job treats that registered key as lost
-  and takes the move path once (its backups stay readable through escrow); tested with a control.
+  and takes the move path once; tested with a control. [Revised by Review 11: the stale key is now KEPT.]
 - FIXED (the loop's own claims, SELF, from Reviews 5 and 8): "a race between sends" and "the current epoch moved under
   this send" are answers the coordinator never gives (it reads the current epoch once); the comments say the guards
   are defensive, and the two tests are labelled impossible-answer tests.
 - NITs taken: backupkeys.js exports publicKeyOf and a kept pair must be a pair (tested). Noted for a later slice: a
   key file left from a company this computer moved out of is never removed.
+
+## Review 11 (sonnet)
+- FIXED: lostEpoch deleted the only copy of a registered key before a replacement was taken (a wrong signal, or a
+  day's wait, left this computer keyless). The stale key is now KEPT (it still opens its own epoch's backups) and
+  the new key starts one past it; the re-read guards skip the lost epoch (red without it); tested inside the day.
+- FIXED: the "Kosmos+ took it, the note failed" branch is tested (the next call is a repeat, no second epoch).
+- Duplicate: the 409-as-lost premise (Reviews 3, 7, 8). NIT taken: the Windows ACL limit is stated.
