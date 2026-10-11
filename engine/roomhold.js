@@ -375,7 +375,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
       if (!card || !card.sessionName) continue;
       const agy = isAgy(card);
       // Read from the card before any file: only a capped or released Claude card has anything for #5805 below.
-      if (!agy && card.state !== 'rate_limited' && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
+      if (!agy && !(card.state === 'rate_limited' && require('./chat').limitable(card)) && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
       /* #5805: no idle report comes once a Claude usage limit resets, so a Claude member is retried here too, but only
          while `isLimitable` says its card reads idle off its screen (the server's predicate; never while it reads capped
          or busy) and only when it holds an ask a usage limit kept (limitKept). Every other hold on such a member waits

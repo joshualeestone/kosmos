@@ -40,8 +40,10 @@ and the room reminder is sent once only.
   limit-held, "held while it is out of usage", never as the Google quota.
 
 ## Decided
-- Hold only on a DATED limit line. A dateless one (the 5-hour form) stays on screen after its reset until something is
-  typed; holding on it would mean nothing ever wakes the agent. The weekly form is the reported case. After a dated
+- Hold only on a DATED limit line. A dateless one stays on screen after its reset until something is
+  typed; holding on it would mean nothing ever wakes the agent. Dateless covers the 5-hour form AND a weekly limit in
+  its last day (Claude Code prints a time with no date when the reset is under a day away), so slice 1 does not hold
+  the weekly limit's final day; slice 3's first-seen time is what makes a dateless reset holdable. After a dated
   reset status drops the line by itself unless the limit menu is still up, where a typed line would land in the menu,
   so the hold lasts exactly as long as the card reads capped (looked at again every minute).
 - A limit-held room post keeps its normal mark, so the agent is told it was named. The minute retry for a Claude
@@ -60,6 +62,8 @@ and the room reminder is sent once only.
 - A person's own message is not held here (slice 2).
 
 ## Residuals, stated
+- A limit menu nobody dismisses keeps the hold (typing would land in it) and the card capped, so its kept asks are
+  dropped a day after the printed reset, logged by the board; nothing in this slice keeps them longer.
 - Windows agents run headless; whether their cards ever read rate_limited is unmeasured (slices 2 and 3).
 - A limit-kept ask whose try keeps coming back COULD_NOT for an idle, addressable member is retried each minute while
   its record lasts (a day past the reset). Unreachable members are skipped before the try, and an idle Claude card
@@ -193,3 +197,11 @@ behaviour), never the reverse.
 - Duplicates: the sidecar lock (reviews 4 and 10), the pane read past the hour cap (review 8).
 - DEFERRED: flushReleased calls chat.limitHeldVerdict directly rather than through an injected option. It reads only
   the card unless the card is capped past the hour cap, and roomhold already requires chat lazily (addressable).
+
+## Review 15 (opus)
+- STATED (scope, not built): a weekly limit's last day prints a time with no date, so it is not held; the plan said
+  "dateless" meant only the 5-hour form. Slice 3's first-seen time covers it.
+- STATED (residual): a limit menu nobody dismisses ends with the kept asks dropped a day after the reset.
+- FIXED: two more comments listing the hold kinds without the usage limit (messages reply nudge, missedtell).
+- NIT taken: flushReleased's pre-filter passes only a capped card the limit hold applies to (a capped Codex or Gemini
+  card costs nothing). Not taken: the held-by wording helper; one read of the limit file per sweep.
