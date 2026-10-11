@@ -6199,8 +6199,17 @@ function readGeminiSession(agentName) {
      unchanged (~/.gemini). This is the SAME helper the birth write uses, so the write
      and the read cannot target different dirs. See create.geminiStorageHome. */
   const home = create.geminiStorageHome(job.configDir);
-  try { return require('./geminisession').read(dir, home); }
+  let sess;
+  try { sess = require('./geminisession').read(dir, home); }
   catch { return { found: false }; }
+  /* #5811: the model this job is SET to, from the job already read above (every caller gets it), so the #5804
+     "(set to X)" decision (engine/geminimodelswitch.js) needs no second job read per poll. */
+  if (sess && sess.found) {
+    let planned = null;
+    try { planned = create.plannedModelOfJob(job); } catch { planned = null; }
+    return { ...sess, planned };
+  }
+  return sess;
 }
 
 /* #4039: the windows of Gemini models, for a transcript that does not state one (neither the Gemini
@@ -7978,6 +7987,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     },
     model: null,
     modelName: null,
+    geminiSeen: null,   // #5811: no pane, no session read
     neverRecorded: false,
     hasAvatar: Boolean(safeAvatar(key)),
     // #2698: the avatar version travels with hasAvatar so a changed picture
@@ -8701,6 +8711,12 @@ function snapshot() {
       context,
       model,
       modelName: modelDisplayName(model),
+      /* #5811: what the #5804 "(set to X)" decision needs, all from this tick's ONE session read (geminiSess above), so
+         server.js decides it without reading the job or the session again. Gemini panes only; null when the session
+         was not found. server.js takes it off the row before the page gets it. */
+      geminiSeen: (tied && isGeminiPane && geminiSess && geminiSess.found)
+        ? { model: sessModel(geminiSess), modelAt: Number.isFinite(geminiSess.modelAt) ? geminiSess.modelAt : null, planned: geminiSess.planned || null }
+        : null,
       /* #149/#150: no launch file for a pane TIED to the name. The screen's
          wording branches on this rather than re-deriving it, so the card, the
          detail panel and the memory panel cannot disagree about which state

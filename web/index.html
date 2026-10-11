@@ -63896,6 +63896,11 @@ let PJ_DOCS_FILES = [];
 let PJ_DOCS_TOTAL = 0;
 let PJ_DOCS_PAGE = 0;
 const PJ_DOCS_PER = 50;
+/* One Files row's small line: size, date, and (#5812) the agent that changed it last when the board recorded one. */
+function pjDocMeta(f) {
+  return pjSize(f.size) + (f.modified ? ' · ' + new Date(f.modified).toLocaleDateString() : '')
+    + (typeof f.changedBy === 'string' && f.changedBy ? ' · changed by ' + f.changedBy : '');
+}
 function pjDocsPaintPage() {
   const box = document.getElementById('docs-list');
   const count = document.getElementById('docs-count');
@@ -63910,7 +63915,7 @@ function pjDocsPaintPage() {
     b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
     const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = f.name;
     const w = document.createElement('span'); w.className = 'pj-doc-w';
-    w.textContent = pjSize(f.size) + (f.modified ? ' · ' + new Date(f.modified).toLocaleDateString() : '');
+    w.textContent = pjDocMeta(f);
     b.append(n, w); box.append(b);
   }
   const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
