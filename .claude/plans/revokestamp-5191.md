@@ -55,8 +55,8 @@ new-key posts show.
 - A post held after a remove while a check asked before it is still out waits for the remove's
   own check; if that check also fails, it waits for the next post's check or the 60 s pass, and
   the pass, when Kosmos+ cannot answer, shows held posts unchecked, as before this change.
-- The remove's moment lives on the room's seat: a seat replaced after a remove whose own check
-  failed forgets it, and its first post's check may use a shared answer up to 15 s old from before
+- The remove's moment lives on the room's seat: with no seat at the remove, or a seat replaced
+  after a remove whose own check failed, it is not kept, and its first post's check may use a shared answer up to 15 s old from before
   the remove (the 90 s grace still bounds it).
 
 ## Tests (engine/fedseats.test.js, server.fedmembers-4649.test.js)
