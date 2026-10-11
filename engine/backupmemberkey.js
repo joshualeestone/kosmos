@@ -68,8 +68,6 @@ const unb64 = (s) => { try { const b = Buffer.from(String(s), 'base64url'); retu
    file is ok and empty; an unreadable or malformed one is NOT ok, so nothing overwrites it. */
 function readKeys(org, member) {
   let raw;
-  // A file left looser (an older build, a copy, a restore) is made owner-only on read, best effort.
-  try { fs.chmodSync(fileFor(org, member), 0o600); } catch { /* missing, or not ours to change: read decides */ }
   try { raw = fs.readFileSync(fileFor(org, member), 'utf8'); }
   catch (err) { return { ok: err.code === 'ENOENT', keys: {} }; }
   let got;
@@ -83,6 +81,8 @@ function readKeys(org, member) {
     if (!backupkeys.publicKeyOf(sk).equals(pk)) return { ok: false, keys: {} };
     keys[e] = { sk, pk, registered: k.registered === true };
   }
+  // A file left looser (an older build, a copy, a restore) is made owner-only once it has read as ours, best effort.
+  try { if (!fs.lstatSync(fileFor(org, member)).isSymbolicLink()) fs.chmodSync(fileFor(org, member), 0o600); } catch { /* the read stands */ }
   return { ok: true, keys };
 }
 function writeKeys(org, member, keys) {
@@ -142,9 +142,11 @@ async function ensureNow(opts) {
       lost = opts.lostEpoch;
     }
     const done = lost === null ? newestRegistered(keys) : undefined;
-    // A lostEpoch that is not this file's newest registered epoch is ignored, and the answer says so.
+    // A lostEpoch that is not this file's newest registered epoch is ignored; an answer from disk says so, and names a
+    // newer key still pending (the job forgot lostEpoch, or restarted), so falling back is never silent.
     const ignored = opts.lostEpoch !== undefined && lost === null ? { lostEpochIgnored: true } : {};
-    if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk, ...ignored };
+    const above = done !== undefined && epochs.length && epochs[0] > done && !keys[epochs[0]].registered ? { pendingEpoch: epochs[0] } : {};
+    if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk, ...ignored, ...above };
     // The newest key not yet taken (kept before an earlier send), else a new one for epoch 1.
     // A stale registered key is KEPT (it still opens its own epoch's backups); the new key starts one past it, and the
     // move path takes it to the member's current epoch + 1 if that is later.
@@ -161,7 +163,8 @@ async function ensureNow(opts) {
     for (;;) {
       const r = await register(macRequest, company, epoch, keys[epoch]);
       // The answer must name what was sent, so a changed coordinator or tunnel shape is not taken as registered.
-      // Compared as bytes (a lenient decode: padding or not), so only a different key refuses.
+      // Compared as bytes (a lenient decode: padding, and characters Node's decoder skips), so only a different key
+      // refuses.
       const echoed = r && r.ok && r.data && typeof r.data.member_public === 'string' ? Buffer.from(r.data.member_public, 'base64url') : null;
       if (r && r.ok && !(r.data && r.data.epoch === epoch && echoed && echoed.equals(keys[epoch].pk))) {
         return { ok: false, because: 'Kosmos+ answered the backup key registration in a shape this computer does not know' };

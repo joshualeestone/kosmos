@@ -348,8 +348,10 @@ test('#5744 2b: lostEpoch (the job saw a grant for another epoch) treats the reg
   assert.equal(file.keys['1'].pk, first.publicKey.toString('base64url'), 'the stale registered key was deleted');
   assert.equal(file.keys['1'].registered, true);
   // A lostEpoch that is not this file's registered epoch changes nothing.
+  const sendsBefore = c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length;
   const other = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
-  assert.equal(other.epoch, 3);
+  assert.deepEqual([other.epoch, other.lostEpochIgnored], [3, true]);
+  assert.equal(c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length, sendsBefore, 'an ignored lostEpoch sent a key');
 });
 
 test('#5744 2b: a kept pair whose public half is not the private half\'s is not read', async () => {
@@ -463,4 +465,12 @@ test('#5744 2b: a key file left readable by others is made owner-only when read'
   fs.chmodSync(keyFile(), 0o644);
   await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.equal(fs.statSync(keyFile()).mode & 0o777, 0o600);
+});
+
+test('#5744 2b: a stale key answered from disk names a newer key still pending', async () => {
+  const c = fakeCoordinator({ day: false });
+  await mk.ensureMemberKey({ macRequest: c.macRequest });             // registered at 1
+  await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 }); // a new key at 2, waiting out the day
+  const forgot = await mk.ensureMemberKey({ macRequest: c.macRequest }); // the job forgot lostEpoch
+  assert.deepEqual([forgot.ok, forgot.epoch, forgot.pendingEpoch], [true, 1, 2], JSON.stringify(forgot));
 });

@@ -59,7 +59,7 @@ job must pass the epoch ensureMemberKey answers (a Number; sealedEpoch converts 
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at review 15: 31 tests, 31 pass)
+## Tests (measured at review 16: 32 tests, 32 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -212,3 +212,10 @@ the API doc's missing `member` field.
 - FIXED: a lostEpoch that matches nothing answers `lostEpochIgnored: true`, so the job notices (tested).
 - FIXED (test): a non-wait failure right after a move keeps the moved key and the next call sends it there.
 - NITs taken: a looser key file is made 0600 on read (tested); the chain comment says in-process only.
+
+## Review 16 (opus)
+- FIXED: a job that forgot lostEpoch got the stale key with no sign a newer one was pending; an answer from disk now
+  names `pendingEpoch` when an unregistered key sits above the registered one (tested).
+- NITs taken: lostEpochIgnored's comment says it rides the from-disk answer; the read-time chmod runs only after the
+  file read as ours and not through a symlink; the echo comment names Node's skipped characters; the ignore-path test
+  asserts the flag and that nothing was sent.
