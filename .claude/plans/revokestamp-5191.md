@@ -30,6 +30,11 @@ new-key posts show.
 - Unsealed rooms: the relay's ticket is the bound, as today.
 - A room pinned before this change, whose revoke answer also lacks the account, cannot name the
   member: the 90 s grace stays the bound there.
+- A rotation that keeps a peer whose account it cannot name (pinned before this change, missing
+  from the revoke's answer) records nothing, so that one revoke falls back to the 90 s grace:
+  that peer might share a dropped account, and refusing its in-flight posts would be worse.
+- `revokedAccounts` is never pruned: one entry per account ever revoked from the room, so it is
+  bounded by the room's invites, and it goes when the room is forgotten.
 - Between the remove and its own check answering (one request), the revoked member is still
   pinned and nothing is noted yet.
 
