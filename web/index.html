@@ -37865,7 +37865,8 @@ document.addEventListener('click', (e) => {
  * `before` counts from the OLDEST message, so a send cannot shift a page. `end` is the position just after the last
  * earlier row; messages that leave the latest 200 while this is open are fetched into it (earlierFillGap), so nothing
  * falls between. Per agent: a DIFFERENT agent on screen resets it (paintTalk, before any await) and `earlierOn` draws
- * rows only for their own agent; coming back to the SAME agent keeps them until Hide. `opening` drops an answer that
+ * rows only for their own agent. A repaint of the SAME agent (the poll, a return with no other DM opened between)
+ * keeps them until Hide; opening another agent's DM and coming back starts closed. `opening` drops an answer that
  * belongs to a reset that came after it.
  */
 const EARLIER = { session: null, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: 0 };

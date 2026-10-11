@@ -24,7 +24,8 @@
 - **Isolation:**
   - `earlierOn` draws earlier rows only for their own agent.
   - `paintTalk` resets the earlier rows before any await when a DIFFERENT agent comes on screen, so that agent starts
-    closed. Coming back to the SAME agent keeps them until Hide (a snapshot, see below).
+    closed. A repaint of the SAME agent (the poll, or a return with no other DM opened in between) keeps them until
+    Hide; going A to B to A starts closed (a snapshot, see below).
   - The `opening` counter drops a stale answer.
   - When the latest read fails, nothing draws earlier rows over the failure.
 - **Snapshot:** the earlier rows are not refreshed by the 5 s poll. A reaction made here is written in. A preview, or a
@@ -146,3 +147,12 @@ search, styling. Gone: the separate box, its CSS extensions, the read-only conve
   last page leaves focus on the body (the server's clamp makes this unlikely).
 - **Checked as safe by review:** earlierFillGap's re-check cannot loop or grow the stack. Each level needs a strictly
   larger olderCount, and the call is not awaited.
+
+## Review 8 (sonnet): CONVERGED (NITs only)
+- The comment's "coming back to the SAME agent keeps them" overstated it, because A to B to A starts closed. The
+  comment and the plan are corrected; this is a comment-only change after convergence.
+- **Not taken (NITs):**
+  - a silent reset on a moved page (unreachable today);
+  - Hide stealing focus from a click on a non-focusable area during a load;
+  - the guide rule computed in both the thread route and dmServeRows (the thread route needs it for `pressable`);
+  - the "latest N" count including the synthetic rows, which predates this change.
