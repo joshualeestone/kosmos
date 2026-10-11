@@ -230,7 +230,7 @@
     },
     {
       "title": "Messages wait for an agent out of usage",
-      "line": "When a Claude agent runs out of usage, Kosmos usually holds messages from its chat and from other agents until the limit resets.",
+      "line": "When a Claude agent is out of usage, Kosmos usually holds your direct messages to it and most from other agents until the limit resets.",
       "icon": "chat",
       "platforms": [
         "mac"
