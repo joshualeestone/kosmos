@@ -11,7 +11,7 @@
 - `CLAUDE_CODE_PLUGIN_SEED_DIR`: the value is split on the path delimiter, empty parts are dropped, and each part has a leading `~` expanded.
 
 ## The change
-- The other agents' config homes come from their job files: for each agent folder in the agents' folder, `create.readJob(name).configDir` (Claude agents only). Each one outside `~/.claude*` joins the config homes the guard already covers, for every member it covers.
+- The other agents' config homes come from their job files: for each agent folder in the agents' folder, `create.readJobVerdict` (its configDir; Claude agents only). Each one outside `~/.claude*` joins the config homes the guard already covers, for every member it covers.
   - The names come from the agents' folder, not from the job files' names, which carry a world key.
   - It is not read from `create.runningJobs()`, which asks launchd: the guard runs at every refresh.
 - `engine/startcommands.js` also returns every value each settings tier gives a variable (not only the agreed ones), with this agent's own tiers and other accounts' homes apart. The three plugin variables are read from this agent's environment, from the home's shell startup files (review 1: the agent's Claude Code inherits the tmux server's environment, which carries shell exports; a value with another variable in it is named), from this agent's own tiers, and from other accounts' homes (absolute values there; a relative one resolves under that account's agent folder, which is not known here, so it is NAMED and the guard fails closed, since review 6). They are parsed as Claude Code parses them. Each folder is denied whole in both layers, links followed, as part 2's folders are. A folder too wide to deny, or one the rules cannot carry, is named.
@@ -161,4 +161,12 @@ engine/startplugins-5774.test.js (see the iteration notes for what each test cov
   - [NIT] TAKEN (comment): the indented-line pattern interpolates one of three fixed names.
   - [NIT] not taken: a value mixing `"$HOME/a":~/b` is named (fails closed).
   - [NIT] DUPLICATE of a stated gap: jobsHere's Linux arm is untested.
+- Merged origin/main (97 commits; one touched setup-assistant.js, #5843; no conflict) as 32f92b263; the guard set stayed green.
+- Iteration 15 (Opus), on 32f92b263: no BLOCKER.
+  - [WARNING] FIXED. A plugin folder holding the projects folder (`CLAUDE_CODE_PLUGIN_DIRS=~/Kosmos`) was denied whole, silently taking every project's work away. The projects folder (projects.projectsRoot, read lazily) now joins the too-wide set, and a plugin folder inside it is named, as one inside the agent's own folder is. A project kept in a folder of the person's own outside it is not known here (stated gap). Tested, with a control (same folder, projects elsewhere: denied whole); both mutations red. My first mutation run of the too-wide arm reported nothing: my replacement string broke the module's syntax, so the run failed on a load error my grep did not match. Re-applied correctly, it is red.
+  - [WARNING] TAKEN (comment): agentevents' per-tick check passes no accountConfigDir, so there the agent's own job home reads as another account's. It compares token rules only, which do not change; a comment now says that path's configUnsafe must not be trusted. Not changed in agentevents.js (outside this branch).
+  - [NIT] TAKEN: readJob in the comment and plan is readJobVerdict.
+  - [NIT] TAKEN: the 4 MiB constant's comment no longer claims to be the import scan's limit.
+  - [NIT] FIXED: a dangling home whose target holds or sits inside the agent's own folder is named, not given code-folder denies there. Tested; mutation red.
+  - [NIT] not taken: the envKinds dedup keeps the last copy (same kind and folder either way).
 

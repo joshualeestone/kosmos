@@ -541,3 +541,30 @@ test('#5774 route 5 review 14: a startup file that is there but cannot be read, 
     assert.ok(!JSON.stringify(g3).includes('a shell startup file'), JSON.stringify(g3));
   } finally { try { fs.chmodSync(zshrc, 0o644); } catch { /* gone */ } fs.rmSync(zshrc, { force: true }); }
 });
+
+test('#5774 route 5 review 15: a plugin folder holding the projects folder is too wide; one inside a project is named; a dangling home pointing into the agent is named', () => {
+  const base = path.join(fs.realpathSync.native(SANDBOX), 'r15');
+  const proj = path.join(base, 'Kosmos', 'Projects');
+  fs.mkdirSync(path.join(proj, 'p1', 'myplug'), { recursive: true });
+  const d = agentDir('pilot-projwide');
+  const g = setup.guardTokenOnlyFolder(d, 'pilot-projwide', { ...DEPS, projectsRoot: proj, env: { CLAUDE_CODE_PLUGIN_DIRS: path.join(base, 'Kosmos') } });
+  assert.equal(g.ok, false, JSON.stringify(g));
+  assert.ok(JSON.stringify(g).includes('too wide to deny'), JSON.stringify(g));
+  const s = readSettings(d);
+  assert.equal(editDeniedBy(s.permissions.deny, path.join(proj, 'p1', 'work.txt')).length, 0, 'a project file was denied (file tools)');
+  assert.ok(!sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(proj, 'p1', 'work.txt')), 'a project file was denied (sandbox)');
+  const d2 = agentDir('pilot-projinside');
+  const g2 = setup.guardTokenOnlyFolder(d2, 'pilot-projinside', { ...DEPS, projectsRoot: proj, env: { CLAUDE_CODE_PLUGIN_DIRS: path.join(proj, 'p1', 'myplug') } });
+  assert.ok(JSON.stringify(g2).includes('inside the projects folder'), JSON.stringify(g2));
+  assert.equal(editDeniedBy(readSettings(d2).permissions.deny, path.join(proj, 'p1', 'myplug', 'x.js')).length, 0, 'the project plugin was denied whole');
+  // Control: the same folder with the projects folder elsewhere is denied whole, as before.
+  const d3 = agentDir('pilot-projcontrol');
+  setup.guardTokenOnlyFolder(d3, 'pilot-projcontrol', { ...DEPS, projectsRoot: path.join(base, 'elsewhere'), env: { CLAUDE_CODE_PLUGIN_DIRS: path.join(proj, 'p1', 'myplug') } });
+  assert.ok(editDeniedBy(readSettings(d3).permissions.deny, path.join(proj, 'p1', 'myplug', 'x.js')).length > 0, 'control: denied whole');
+  // A config home that is a link to something absent INSIDE the agent's own folder is named, not given code-folder denies there.
+  const d4 = agentDir('pilot-dangleinside');
+  const dangle = path.join(base, 'dangle-in');
+  fs.symlinkSync(path.join(fs.realpathSync.native(d4), 'cfg-absent'), dangle);
+  const g4 = setup.guardTokenOnlyFolder(d4, 'pilot-dangleinside', { ...DEPS, env: ENV0, agentConfigDirs: [dangle] });
+  assert.ok(JSON.stringify(g4).includes("sits inside this agent's own folder"), JSON.stringify(g4));
+});
