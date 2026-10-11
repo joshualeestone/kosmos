@@ -1027,10 +1027,13 @@ const KEY_ONLY_ROUTE = '/v1/mac/standing';
    before sending). Each field is checked: status a whole number 100 to 599, code letters, digits and _ (at most
    40), currentEpoch a safe whole number of 0 or more; anything else reads as null. Only the last stdout line is
    read, as for an answer. */
+/* The one refusal that carries current_epoch (the coordinator's 400). */
+const WRONG_EPOCH_CODE = 'member_key_wrong_epoch';
 function refusalOf(said) {
   const got = lastJsonLine(said);
   const r = got && got.value && typeof got.value === 'object' ? got.value.refusal : null;
   if (!r || typeof r !== 'object' || !Number.isInteger(r.status) || r.status < 100 || r.status > 599) return null;
+  // The tunnel's own rule for a public code (refusal_code: letters, digits and _, at most 40).
   const code = typeof r.code === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(r.code) ? r.code : null;
   return {
     status: r.status,
@@ -1039,8 +1042,6 @@ function refusalOf(said) {
     currentEpoch: code === WRONG_EPOCH_CODE && Number.isSafeInteger(r.current_epoch) && r.current_epoch >= 0 ? r.current_epoch : null,
   };
 }
-/* The one refusal that carries current_epoch (the coordinator's 400). */
-const WRONG_EPOCH_CODE = 'member_key_wrong_epoch';
 /* A line that is a refusal object: JSON with a `refusal` key. One rule for setupRun's `because` filter and
    refusalOf, whatever the line's spacing or key order. */
 function isRefusalLine(line) {
