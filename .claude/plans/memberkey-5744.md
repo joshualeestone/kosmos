@@ -233,3 +233,10 @@ the API doc's missing `member` field.
   lostEpoch (tested).
 - NITs taken: a symlinked key file is refused outright (tested); the 2^53 fixture is a string so it is past 2^53;
   the header says the flags ride only an answer from disk; UNREADABLE sits after the routes.
+
+## Mortals validation 1 (13:35 CDT, at 5679227a5): FAILED on one shell test
+- node suite: 19181 tests, 0 fail, 0 cancelled. The only red was tools/test-connector-verbs.sh: its pinned list of
+  macRequest callers did not name engine/backupmemberkey.js (and its pass count fell to 26 of 27 as a result).
+- DECIDED: re-decided per that test's rule and added the file with its reason (an old connector refuses backup-key
+  first and nothing is written; a connector without member-key leaves the key kept unregistered and resends it;
+  nothing calls ensureMemberKey yet). Local run: 27 passed, 0 failures. The red arm is the Mortals run itself.
