@@ -1,5 +1,6 @@
 'use strict';
-/* #5805 slice 3: a capped Claude card says "Out of usage until <time>" from its limitUntil while the reset is ahead,
+/* #5805 slice 3: a capped Claude card says when its usage comes back, from its limitUntil, while the reset is ahead
+ * ("Looks like a usage limit until <time>" for a screen reading, "Out of usage until <time>" for a reported one),
  * and says nothing about a time that has passed (its limit line stays on screen until something is typed).
  * The page's own functions, lifted out of index.html and run.
  *   node --test web.limituntil-5805.test.js */

@@ -2,7 +2,7 @@
 
 /**
  * #5805 slice 3: a capped Claude card carries `limitUntil`, the reset its limit line printed, so the card can say
- * "Out of usage until <time>". A dated line is read as slice 1 reads it; a dateless one ("resets 4pm (zone)", the
+ * "Looks like a usage limit until <time>". A dated line is read as slice 1 reads it; a dateless one ("resets 4pm (zone)", the
  * 5-hour session limit and a weekly limit's last day) is its next occurrence after the board first saw the line,
  * within five hours for a session limit and a day otherwise (later than that, no time is given).
  *

@@ -8763,7 +8763,8 @@ function snapshot() {
          usage-limit hold can release once the screen is back at its prompt (chat.limitReleased). Null otherwise. */
       screenState: typeof status.screenState === 'string' ? status.screenState : null,
       /* #5805 slice 3: the reset a capped Claude agent is out of usage until (an ISO time, dated or dateless, see
-         claudeLimitUntil), so the card can say "Out of usage until <time>". Null for any other card or an unread line. */
+         claudeLimitUntil), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
+         screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */
       limitUntil: claudeLimitUntilIso(pane, status),
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}

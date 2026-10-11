@@ -86,3 +86,7 @@ occurrence of that time after the board first saw the line.
   tests cover that hour.
 - NIT not taken: "until 1:00 AM" with no "tomorrow" for a reset past midnight; it is within five hours and matches the
   existing quota wording (quotaResetWords names the day past 20 hours).
+
+## Review 5 (opus)
+- FIXED (NIT): three comments still promised "Out of usage until"; every Claude card is a screen reading today, so
+  they now name "Looks like a usage limit until" and say the plain form is for a reported reading.
