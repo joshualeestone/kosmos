@@ -1730,7 +1730,7 @@ function vouchUrl(secret) {
 }
 function startVouch() {
   stopVouch();
-  vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, opened: false, matched: '', allowing: false, tries: 0 };
+  vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, opened: false, matched: '', allowing: false, tries: 0, matchedOk: false };
   vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
   if (vouchTimer.unref) vouchTimer.unref();
 }
@@ -1887,8 +1887,9 @@ function pendingDevices() {
   // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
   // still lists it (until its next poll).
   const here = recentlyVouched(settings);
-  // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows.
-  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here };
+  // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows. A minute of slack:
+  // first_seen is the coordinator's clock, the note's is this computer's.
+  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
    of JSON. Other lines
