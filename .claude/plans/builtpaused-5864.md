@@ -31,3 +31,14 @@ project wants finished work shown as waiting for review. Overridable in one line
 - Challenge loop, validation (tools/run-tests.sh via the queue), PR, merge.
 - Done when (card): on a served build, a paused project with built tasks shows them under Built but waiting. That
   check needs a release, so the card goes needs-release after merge.
+
+## Review log
+- Review 1 (opus, blind, read-only): 0 blockers, 2 warnings, 1 convention, 2 nits. W1: both CLIs printed
+  [on hold] [built] while the row grouped built, so --state held disagreed with the printed marks; now
+  [built] [project paused], with a paused-project fixture for the route and both CLIs. W2/C/N: stale "held is
+  checked first" text in CLAUDE.md, the 5705 test, tasks.js and web/index.html. Fixed in 6e262be87.
+- Review 2 (sonnet, blind, read-only): 0 blockers, 0 warnings, 1 convention (my CLAUDE.md edit left a duplicated,
+  garbled sentence), 3 nits (taskState header lacked held; a web comment). Fixed in cea68de73. Not done, decided:
+  a "project paused" hint on a built row of the Tasks view. The CLI prints [project paused]; on the board the
+  project's own Paused badge and the task page hint already say it. Optional polish, overridable.
+- Review 3 (opus): running, on committed content only (a queued test job may be editing the worktree).
