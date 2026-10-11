@@ -17,7 +17,7 @@
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 22 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 23 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -29,7 +29,9 @@
 
 ## Gaps, stated
 - A shell beyond zsh, bash, sh, csh and tcsh, fish and nushell is not listed (ksh's .kshrc, xonsh, PowerShell profiles); nor ~/.inputrc (key bindings, not code).
-- ENV=rc (a bare name with no slash) is read as a label and skipped (review 2), which fails open, but only for an interactive sh.
+- ENV=rc (a bare name with no slash) is read as a label and skipped (review 2), which fails open, but only for an interactive sh. ENV=prod/us (a label with a slash) reads as a relative path and is named, which fails closed (review 12).
+- Link targets that carry a version or a hash, outside a Homebrew Cellar or Caskroom and outside a read-only store (an asdf or mise shim folder, a store that rotates writable names), are listed by name, and can pile up at upgrades. DECIDED (review 12): rare among shell startup files, and capping it would need pruning these rules, which only launch rules have today.
+- Dumps by name in a ZDOTDIR outside the home can pile up at zsh upgrades (rare; accepted in review 11).
 - A ZDOTDIR or XDG_CONFIG_HOME set conditionally (`[[ -d x ]] && ZDOTDIR=x`) or indented (inside an if, a function or a here-document) is not read: only an assignment at the very start of a line is (review 6, so a mention never makes a guard not whole). The conventional XDG folder is covered regardless.
 - A link inside a folder that is itself reached through a link is not followed further.
 - Other guard tests that pass neither deps.env nor deps.userShellDirs read this host's environment and Homebrew folders. Decided, not pinned in their nine files: only a relative BASH_ENV, path-like ENV, ZDOTDIR or XDG_CONFIG_HOME in the host's environment can change their result, and it fails closed. Homebrew targets are now covered by a stable Cellar rule rather than by name.
@@ -108,4 +110,8 @@
   - [WARNING] FIXED. Joined quoting (`ZDOTDIR="$HOME"/.zsh`, a common spelling) was named, so the guard was not whole. Values are now unquoted part by part. A quoted ~ (zsh leaves it literal) or a single-quoted $ is named, and a quoted space is fine. The old review-1 and review-2 test cases were corrected: one expected a quoted ~ to expand, and one expected "$HOME"/.zsh to be named. Mutation of the quoted-~ rule: red.
   - [WARNING] FIXED: tests for linked parents and for a read-only non-link file.
   - NITs taken: a read-only linked folder gets /** (mutation red). Accepted: dumps by name in a ZDOTDIR outside the home can pile up at zsh upgrades (rare). The hermeticity of homebrewPrefixes is stated in iteration 5.
+- Iteration 12 (Sonnet), on d05d2c5ba:
+  - [WARNING] FIXED. A DANGLING link found by the folder scan was skipped as "nothing there to write". But anything that creates its target (the agent's tools) makes the link run it. Its would-be target is now denied, as withTarget does for a top-level dangling file. Tested; mutation red.
+  - [WARNING] DECIDED, stated under Gaps: other versioned or hashed link targets can pile up.
+  - NITs: DEPS now pins homebrewPrefixes to empty (this file is fully hermetic). ENV with a slash, and dumps outside the home, are stated under Gaps.
 

@@ -63,6 +63,7 @@ const ENV0 = {};   // no ZDOTDIR, BASH_ENV or ENV unless a test sets one
 // The Homebrew-style folders, pinned to the sandbox so this host's own are not read (review 3).
 const USERDIRS = [path.join(SANDBOX, 'brew', 'share', 'zsh', 'site-functions'), path.join(SANDBOX, 'brew', 'share', 'fish', 'vendor_conf.d')];
 DEPS.userShellDirs = USERDIRS;
+DEPS.homebrewPrefixes = [];   // review 12: this host's own Homebrew is not read either (tests that need one pass theirs)
 
 test('#5774 part 2: each shell startup file in the home folder is denied in both layers', () => {
   const dir = agentDir('pilot-rc');
@@ -611,4 +612,22 @@ test('#5774 part 2 review 11: joined quoting ("$HOME"/.zsh) is read; a quoted ~ 
     assert.ok(deny.some((r) => r.endsWith(`${link}/**)`)), 'no /** rule for the read-only linked folder');
     assert.ok(!deny.some((r) => r.includes('h-fish')), 'the store path itself was listed');
   } finally { fs.chmodSync(store, 0o755); fs.rmSync(link, { force: true }); }
+});
+
+test('#5774 part 2 review 12: a DANGLING link inside a startup folder has its would-be target denied', () => {
+  const fishDir = path.join(HOME, '.config', 'fish', 'conf.d');
+  fs.mkdirSync(fishDir, { recursive: true });
+  const target = path.join(SANDBOX, 'later-dotfiles', 'fish', 'x.fish');   // not there yet
+  const link = path.join(fishDir, 'x.fish');
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(target, link);
+  try {
+    const dir = agentDir('pilot-dangling');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-dangling', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(dir);
+    assert.ok(!fs.existsSync(target), 'precondition: the target does not exist');
+    assert.ok(editDeniedBy(s.permissions.deny, target).length > 0 || editDeniedBy(s.permissions.deny, realOrLeaf(target)).length > 0, 'the agent could create the target the link runs');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, target), 'and the shell could');
+  } finally { fs.rmSync(link, { force: true }); }
 });

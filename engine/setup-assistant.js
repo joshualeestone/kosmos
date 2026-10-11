@@ -1286,7 +1286,11 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
         const real = real0 || fs.realpathSync.native(p);
         // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
         (fs.statSync(real).isDirectory() ? res.dirs : res.files).push(real);
-      } catch { /* dangling: nothing there to write */ }
+      } catch {
+        /* Review 12: dangling. The target is not there YET, and anything that creates it (the agent's own tools) makes
+           the link run it, so the target as it would resolve is denied, as withTarget does for a dangling file. */
+        try { res.files.push(realOrLeaf(path.resolve(path.dirname(p), fs.readlinkSync(p)))); } catch { /* unreadable link */ }
+      }
     } else if (d.isDirectory() && depth > 1) {
       const sub = linkTargetsIn(p, depth - 1, budget);
       res.files.push(...sub.files); res.dirs.push(...sub.dirs);
