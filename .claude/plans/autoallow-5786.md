@@ -15,7 +15,17 @@ as `vouch` (absent = no auto-allow).
 ## Change (engine/remote.js, web/index.html, one new browser check)
 - After a successful sign-in that spent the code steps (fresh register and the already-this-computer path): mint S
   in memory (it also passes through the opener's argv and the browser's history), 10-minute window restarted when
-  the browser opens, a 3 s timer while live; Forget, Sign out and switching off stop it.
+  the browser opens, a 3 s timer while live; Forget, Sign out, switching off and an identity change stop it.
+- Open the default browser (runCompanyOpener) at the coordinator origin #allow=S, only once the snapshot holds an
+  eligible phone or browser request from the last 30 minutes, so an app-only sign-up never gets a stray tab. https,
+  or http on loopback only. An opener that fails ends S, with a log line.
+- Allow the ONE row whose vouch equals HMAC(S, its id), constant-time; never a joining computer (joining_computer or
+  code_wait), never this computer's own sign-ins, never a device the person said Not me to; spend S on the first
+  allowed match; three refused tries end S (a busy register or Forget is waited out, not counted).
+- Note it in remote.json `vouched` ({id: {at, name}}, newest 20): pendingDevices().connected_here (10 min) and
+  devicesList on_this_computer; Remove (the Undo) drops the note unless it timed out; an identity change drops all.
+- Page: "<Browser> on this computer is connected." with why, Undo (Remove, one at a time) and Got it; other views show
+  the compact line; Devices list "on this computer".
 
 ## Residuals accepted (beyond Josh's 19:04 ruling on a page-serving coordinator)
 - S is visible briefly in the opener's argv (`ps`) and in browser history; using it also needs a session on the
@@ -23,21 +33,16 @@ as `vouch` (absent = no auto-allow).
 - The browser opens when ANY eligible request is under 30 minutes old, a stranger's included: the tab is harmless
   (S stays in the fragment). 30 minutes, not 5: Josh's own request was 6 minutes old when he hit this.
 - The vouch path allows in-engine, bypassing server.js's screen-only Allow gate, like #4610's own-sign-in grant.
-- Open the default browser (runCompanyOpener) at the coordinator origin #allow=S, ONLY once the snapshot holds a
-  phone or browser request from the last 30 minutes, so an app-only sign-up never gets a stray tab. https, or http on
-  loopback only.
-- Allow the ONE row whose vouch equals HMAC(S, its id), constant-time; never a joining computer (joining_computer or
-  code_wait), never this computer's own sign-ins; spend S on the first allowed match.
-- Note it in remote.json `vouched` ({id: {at, name}}, newest 20): pendingDevices().connected_here (10 min) and
-  devicesList on_this_computer; Remove (the Undo) drops the note.
-- Page: "<Browser> on this computer is connected." with why, Undo (Remove) and Got it; Devices list "on this computer".
+- The vouch path's "is it a computer" test is deliberately STRICTER than pendingDevices' (raw fields: any
+  joining_computer value, any code_wait); not shared, so a loosening there cannot loosen this.
+- An account-switch sign-in on the already-this-computer path can mint an S no row can match (harmless).
 
 ## Verify
-- engine/remote.test.js #5786 (7 tests): opens only with a recent eligible request; allows by vouch once, notes it and
+- engine/remote.test.js #5786 (8 tests): opens only with a recent eligible request; allows by vouch once, notes it and
   clears the remembered address; wrong vouch / swapped id / joining computer / own sign-in (vouch-path name) never
   allowed, with a positive arm; Undo drops the note; Sign out, switch-off, an hour-old request and a plain-http
   coordinator; a no-session Try again mints nothing; a Not-me device is never allowed and a refused allow stops after
-  three tries; a timed-out remove keeps the note. Mutants for each guard red their own test (iterations 1-3).
+  three tries; a timed-out remove keeps the note; a new identity drops the notes. Mutants for each guard red their own test (iterations 1-3).
 - docs/browser-checks/render-connected-here-5786.js (new) + the three existing ask checks (surface gate), headless,
   through queued-heavy.
 - Page tests that touch the ask code pass.

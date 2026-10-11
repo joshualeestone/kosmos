@@ -1771,10 +1771,15 @@ function vouchTick() {
     const url = vouchUrl(v.secret);
     if (!url) { stopVouch(); return; }
     vouchOpenedUrl = url;
-    runCompanyOpener(url).then((ok) => { if (!ok && vouchState === v) stopVouch(); });
+    runCompanyOpener(url).then((ok) => {
+      if (ok || vouchState !== v) return;
+      process.stderr.write('kosmos+: could not open the browser to connect it to this computer; the Allow card stays\n');
+      stopVouch();
+    });
     return;
   }
-  if (v.allowing) return;
+  // A register or a Forget in flight (busy) is waited out, not counted as a refused try.
+  if (v.allowing || busy()) return;
   // One device per secret: the first row that matched, retried until it is allowed or the window ends.
   const hit = rows.find((d) => (!v.matched || String(d.device_id) === v.matched) && vouchMatches(v.secret, d));
   if (!hit) return;
