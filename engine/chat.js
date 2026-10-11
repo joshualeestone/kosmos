@@ -1926,7 +1926,8 @@ function limitable(card) {
    after it for as long as status still reads the card capped (heldUntil a minute on, to look again): status keeps a
    passed dated line only while Claude Code's limit menu is on screen, where a typed line would land in the menu, or
    in its one-minute grace. Not past LIMIT_RELOOK_MAX_MS after the reset: a capped card whose line status never retires
-   (another limit wording) would otherwise be held for good; after that, lines are typed as before. A limit line with
+   (another limit wording) would otherwise be held for good; after that, lines are typed as before, unless the limit
+   menu is still on screen (it holds the session until a key is pressed, and a typed line would land in it). A limit line with
    no date (the 5-hour form) is not held: it stays on screen after its reset until something is typed, and holding on
    it would mean nothing ever wakes the agent. */
 const LIMIT_RELOOK_MS = 60 * 1000;
@@ -1936,7 +1937,11 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   if (!limitable(card) || card.state !== status.STATE.RATE_LIMITED) return null;
   if (addressable(sessionName, roster).ok !== true) return null;
   const reset = status.limitResetAt(card.stateEvidence, now);
-  if (reset === null || now - reset > LIMIT_RELOOK_MAX_MS) return null;
+  if (reset === null) return null;
+  if (now - reset > LIMIT_RELOOK_MAX_MS) {
+    const view = viewport(sessionName, roster);
+    if (!(view && typeof view.text === 'string' && status.claudeLimitMenuUp(view.text))) return null;
+  }
   const iso = new Date(reset > now ? reset : now + LIMIT_RELOOK_MS).toISOString();
   return {
     state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: iso,
@@ -1944,6 +1949,14 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
       : 'held: this agent still shows its usage limit on screen; looking again at ' + iso,
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
+}
+/* #5805: the server's release test for a limit-held member: its card reads idle, or still reads the blocked report
+   Claude Code's StopFailure hook made on the limit while its screen reads idle (that report stands until the agent's
+   next turn, which the held posts are what gives it). */
+function limitReleased(card) {
+  if (!limitable(card)) return false;
+  if (card.state === status.STATE.IDLE) return true;
+  return card.state === status.STATE.BLOCKED && card.screenState === status.STATE.IDLE;
 }
 /* #5743/#5754: true while this agent's screen waits for an answer (question menu, permission prompt, safeguards menu), for a sweep that decides BEFORE it types
    anything (the recommender holds a whole convening on it, as it does on the quota). */
@@ -3745,7 +3758,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

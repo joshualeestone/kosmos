@@ -32,6 +32,7 @@ const status = require('./status');
 const roomhold = require('./roomhold');
 const store = require('./store');
 const fleet = require('../test-support/fleet');
+const selfreport = require('./selfreport');
 
 test('sandbox: the store root is inside this process\'s temp dir', () => {
   assert.ok(path.resolve(store.ROOT).startsWith(path.resolve(os.tmpdir()) + path.sep), store.ROOT);
@@ -95,7 +96,7 @@ async function onScreen(screen, fn, state = 'rate_limited') {
 test.beforeEach(() => {
   chat.resetForTests();
   messages.resetForTests();
-  for (const d of [messages.LOG, roomhold.dir()]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
+  for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -124,10 +125,11 @@ test('#5805 not held: a limit line with no date, a reset already past, and a per
   });
   // A reset already past: status retires the line, so the card reads idle again and the line is typed.
   await onScreen(PAST(), async (board, tmux) => {
+    assert.equal(board.agents.find((c) => c.sessionName === 'casey').state, status.STATE.IDLE, 'the screen did not read idle once its reset passed');
     const v = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
     assert.ok(tmux.typed().length > 0, 'a past reset held a timer\'s line');
-  }, 'idle');
+  }, 'idle');   // fleet.install checks the engine read this screen as idle
   await onScreen(AHEAD(), async (board) => {
     const v = await chat.deliverAsync('casey', 'From the person.', board.agents);
     assert.notEqual(v.held, true, 'a person\'s message was held: ' + JSON.stringify(v));
@@ -174,7 +176,7 @@ function roomRoster(board, capped) {
 }
 function flushDeps(r, extra = {}) {
   return {
-    isAgy: (c) => c.runner === 'antigravity', isLimitable: (c) => chat.limitable(c) && c.state === 'idle',
+    isAgy: (c) => c.runner === 'antigravity', isLimitable: chat.limitReleased,
     readReport: () => null, now: Date.now(), decayMs: status.REPORT_WORKING_DECAY_MS,
     deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, roster: r,
     shownOf: () => 'Henderson lease', stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2), ...extra,
@@ -293,7 +295,7 @@ test('#5805 server.js wires the Claude retry with the hold\'s own test', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf('roomhold.flushReleased(r, {');
   assert.notEqual(at, -1);
-  assert.match(src.slice(at, at + 1200), /isLimitable: \(c\) => chat\.limitable\(c\) && c\.state === 'idle'/);
+  assert.match(src.slice(at, at + 1200), /isLimitable: chat\.limitReleased,/);
 });
 
 test('#5805 retry CONTROL: an ask held for any other reason (no limit record) does not wake an idle Claude member', async () => {
@@ -306,4 +308,64 @@ test('#5805 retry CONTROL: an ask held for any other reason (no limit record) do
     assert.deepEqual(tmux.pastedTo('april'), []);
     assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.addressedId('m61')]);
   } finally { chat.resetForTests(); board.restore(); }
+});
+
+/* Review 5: Claude Code's StopFailure hook reports the limit as an automatic blocked "provider api (rate_limit)"
+   (kosmos-report-hook.js). Each card below is the real one: the report through selfreport.record, the screen through
+   the real snapshot. */
+const LIMIT_REPORT = { state: 'blocked', auto: true, on: 'provider api (rate_limit)', owner: 'provider', because: '' };
+async function withReport(entry, screen, fn) {
+  const board0 = fleet.install([fleet.agent('casey', { state: null, runner: 'claude', command: 'claude', screen })]);
+  const name = board0.agents.find((c) => c.sessionName === 'casey').name;
+  board0.restore();
+  const rec = selfreport.record(name, entry);
+  assert.equal(rec.recorded, true, JSON.stringify(rec));
+  return onScreen(screen, fn, null);   // the state is the report's and the screen's; each test asserts it
+}
+
+test('#5805 review 5: the fresh StopFailure limit report does not outrank the limit screen, so the hold applies at once', async () => {
+  await withReport(LIMIT_REPORT, AHEAD(), async (board, tmux) => {
+    const card = board.agents.find((c) => c.sessionName === 'casey');
+    assert.equal(card.state, status.STATE.RATE_LIMITED, 'the fresh auto blocked won over the dated limit line: ' + card.state);
+    assert.notEqual(status.limitResetAt(card.stateEvidence, Date.now()), null, 'the dated line was lost');
+    const v = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
+    assert.equal(v.heldBy, 'limit', JSON.stringify(v));
+    assert.deepEqual(tmux.typed(), []);
+  });
+  // CONTROL: a blocked the agent itself reported still wins over the screen (#966), so the test can see the difference.
+  await withReport({ ...LIMIT_REPORT, auto: false, because: 'waiting on the deploy' }, AHEAD(), async (board) => {
+    assert.equal(board.agents.find((c) => c.sessionName === 'casey').state, status.STATE.BLOCKED);
+  });
+});
+
+test('#5805 review 5 BLOCKER: after the reset the card reads blocked under the StopFailure report, and is released once its screen reads idle', async () => {
+  await withReport(LIMIT_REPORT, PAST(), async (board) => {
+    const card = board.agents.find((c) => c.sessionName === 'casey');
+    assert.equal(card.state, status.STATE.BLOCKED, 'CONTROL: the standing report no longer leaves the card blocked: ' + card.state);
+    assert.equal(card.screenState, status.STATE.IDLE);
+    assert.equal(chat.limitReleased(card), true, 'the hold never releases');
+  });
+  // Not released while the screen still shows the limit, nor for a blocked the agent reported, nor another runner.
+  await withReport(LIMIT_REPORT, AHEAD(), async (board) => {
+    assert.equal(chat.limitReleased(board.agents.find((c) => c.sessionName === 'casey')), false);
+  });
+  await withReport({ ...LIMIT_REPORT, auto: false, because: 'waiting on the deploy' }, PAST(), async (board) => {
+    const card = board.agents.find((c) => c.sessionName === 'casey');
+    assert.equal(card.state, status.STATE.BLOCKED);
+    assert.equal(card.screenState, null);
+    assert.equal(chat.limitReleased(card), false, 'released an agent that said it is blocked');
+  });
+  await withReport(LIMIT_REPORT, PAST(), async (board) => {
+    assert.equal(chat.limitReleased({ ...board.agents.find((c) => c.sessionName === 'casey'), runner: 'codex' }), false);
+  });
+});
+
+test('#5805 review 5: past the hour cap, the hold stays while the limit menu is on screen', async () => {
+  const MENU = PAST().replace('✻ Sautéed', '   What do you want to do?\n   ❯ 1. Stop and wait for limit to reset\n✻ Sautéed');
+  for (const [screen, held] of [[MENU, true], [PAST(), false]]) {
+    await onScreen(screen, async (board) => {
+      const r = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: `You've hit your weekly limit · resets ${resetAt(Date.now() - 30 * 3600e3)} (America/Chicago)` } : c));
+      assert.equal(chat.limitHeldVerdict('casey', r) !== null, held, held ? 'typed into the limit menu past the cap' : 'CONTROL: held past the cap with no menu');
+    }, null);   // the card is pinned to capped below; only the screen differs
+  }
 });
