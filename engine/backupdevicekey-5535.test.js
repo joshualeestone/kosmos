@@ -82,6 +82,7 @@ test('no file is "missing"; a link and a folder are refused without being read',
     fs.mkdirSync(path.join(d, 'mac_key'));
     const dir = deviceKey({ stateDir: d });
     assert.equal(dir.ok, false); assert.equal(dir.missing, undefined);
+    assert.match(dir.because, /not a plain file/, 'refused as what it is, not as a read error');
     // Control: the same bytes as a plain file are read.
     fs.rmdirSync(path.join(d, 'mac_key'));
     fs.copyFileSync(real, path.join(d, 'mac_key'));

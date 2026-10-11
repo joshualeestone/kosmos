@@ -24,3 +24,7 @@ fixed sentence, never a path or a byte. Read on each call, never cached or writt
   the default folder follows AGENT_WORKFORCE_TUNNEL_STATE.
 - On the real thing, 2026-10-11 17:5x: two mac_key files the Rust connector wrote on this Mac (a fedproof sandbox and a
   walk base) read ok as ed25519; a third, a 1-byte placeholder in a probe folder, was refused. Nothing printed but ok/type.
+- Mutants: the canonical check, the trim and the missing case each red alone. Three checks are deliberate second
+  layers and survive alone, so they were run in pairs, each pair red: O_NOFOLLOW with the lstat check (a link), the
+  base64url regex with the canonical check (another spelling), the stat size with the read size (an oversize file).
+  isFile first survived (a folder failed later on read); the test now requires the "not a plain file" sentence: red.
