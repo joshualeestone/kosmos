@@ -127,7 +127,26 @@ test('#5842: the board still words a line kept behind earlier ones as the page r
   assert.match(src.slice(start, end), /still has messages kept/, 'heldReceipt reworded the kept-behind reason; update tkSayPost\'s match');
 });
 
+test('#5842: the board still words the reasons the page recognises as the page reads them', () => {
+  /* The page picks out three could_not reasons by the board's wording. A reworded one falls to a sentence that stays
+     true, but the person would lose e.g. "Switch it on in the project's members". These keep the two in step. */
+  const read = (f) => fs.readFileSync(nodePath.join(__dirname, ...f.split('/')), 'utf8');
+  assert.match(read('engine/projects.js'), /SWARM_OFF_SENTENCE = \(who\) => `\$\{who\} is switched off in this project\./, 'SWARM_OFF_SENTENCE reworded; update tkSayPost');
+  assert.match(read('server.js'), /' is not on this project any more, so it was not told'/, 'the task route reworded a departed member; update tkSayPost');
+  // keepTaskLine (the task route's keep, limittask-5805): checked inside its body once it is on main.
+  const msgs = read('engine/messages.js');
+  const at = msgs.indexOf('function keepTaskLine(');
+  if (at < 0) return;
+  let depth = 0; let end = -1;
+  for (let k = msgs.indexOf('{', at); k < msgs.length; k += 1) {
+    if (msgs[k] === '{') depth += 1;
+    else if (msgs[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
+  }
+  assert.match(msgs.slice(at, end), /could not keep this one/, 'keepTaskLine reworded a failed keep; update tkSayPost');
+});
+
 test('#5842: a delivery Kosmos could not confirm is never claimed either way', async () => {
+  // dana carries no state, which the route never sends: a malformed row is read as not confirmed, never as told.
   const r = await send([{ agent: 'casey', state: 'unconfirmed', because: 'part of it reached its window before the send failed, so it may be sitting there half-typed' }, { agent: 'dana' }]);
   assert.equal(r.said, 'Kosmos could not confirm that casey got it. Kosmos could not confirm that dana got it.');
 });
