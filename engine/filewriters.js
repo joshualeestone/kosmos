@@ -66,7 +66,7 @@ function projectOf(file, roots) {
   let best = null;
   for (const { id, root } of roots) {
     const rel = path.relative(root, abs);
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+    if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) continue;   // '..notes.md' is inside
     if (!best || root.length > best.root.length) best = { root, projectId: id, name: rel.split(path.sep).join('/') };
   }
   return best && { projectId: best.projectId, name: best.name };

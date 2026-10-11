@@ -85,3 +85,10 @@ toward naming nobody. If either case shows up in practice, a PostToolUse record 
 ## After review 4 (found by a sibling branch's review, not this one's)
 - FIXED: engine/filewriters.js is an owner-only store writer (writeSecret at 0o600) and was not in the #5434 writer
   guard's lists; it is now in both, so a later switch to a loose save is caught.
+
+## Review 5 (opus)
+- FIXED: the writer note ran before undo.keep on the hook's path (the hook waits at most 3 s before the edit), so a slow
+  write could make the undo copy miss it; the note now runs after the answer is sent.
+- NIT taken: a top-level file named '..notes.md' is inside the project (tested). Not taken: the Files row's width for a
+  long name (the row is the existing one; design shots are for a layout change); the preview header showing the same
+  line; repeating the plan's premise in the module comment.

@@ -119,3 +119,9 @@ test('#5812 review 3: a file named __proto__ is recorded and read back like any 
   assert.equal(row.changedBy, 'uri', 'the __proto__ entry was lost');
   assert.equal('changedBy' in other, false, 'an inherited property named a writer');
 });
+
+test('#5812 review 5: a file whose name starts with two dots is inside the project; one level up is not', () => {
+  const now = Date.now();
+  assert.equal(fw.noteWrite(path.join(folder, '..notes.md'), 'uri', { now, projects: PROJECTS }), true, 'a ..name file was taken for outside the project');
+  assert.equal(fw.noteWrite(path.join(folder, '..', 'sibling.md'), 'uri', { now, projects: [{ id: 'lease', folder }] }), false, 'CONTROL: the folder above was taken for inside');
+});

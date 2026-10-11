@@ -8954,15 +8954,18 @@ const server = http.createServer(async (req, res) => {
         const only = agentTokenOnlyCaller(req);
         if (only === '') { sendJson(res, 403, { kept: false, because: 'that agent token names nobody' }); return; }
         const undo = require('./engine/undo');
-        /* #5812: the same call, switch on or off, records which agent is about to write a project file (the agent is
-           looked up only for a file inside a project). Never changes the answer below. */
-        try {
-          require('./engine/filewriters').noteWrite(body.path, () => {
-            const who = undo.agentFor(body.cwd, body.session);
-            return who && undo.ownedBy(only || null, who) ? who : null;
-          });
-        } catch { /* the copy below goes ahead either way */ }
         sendJson(res, 200, undo.keep(body.path, { cwd: body.cwd, session: body.session, onlyFor: only || null }));
+        /* #5812: the same call, switch on or off, records which agent is about to write a project file (the agent is
+           looked up only for a file inside a project). After the answer, so the hook (which waits at most 3 s, before
+           the edit) never waits on it. */
+        setImmediate(() => {
+          try {
+            require('./engine/filewriters').noteWrite(body.path, () => {
+              const who = undo.agentFor(body.cwd, body.session);
+              return who && undo.ownedBy(only || null, who) ? who : null;
+            });
+          } catch { /* the record is best-effort */ }
+        });
       })
       .catch(() => sendJson(res, 400, { kept: false, because: 'unreadable request' }));
     return;
