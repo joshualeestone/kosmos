@@ -492,6 +492,8 @@ LOG="$LOG_DIR/install.log"
 # a never-touched Mac we want to test the INSTALLER, not the CDN, so
 # KOSMOS_TMUX_SRC and KOSMOS_SRC can point at local files carried over on a
 # thumb drive. Same code path, one variable different.
+# KOSMOS_READONLY_APP=1 leaves the installed app/ folder read-only after an install or update (#4449). Off by
+# default; #4455 turns it on once every installer in circulation can lift it.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 
 # ⚠️ EVERY DOWNLOAD IS CHECKSUM-VERIFIED before anything is extracted. The
@@ -1087,11 +1089,15 @@ install_kosmos() {
     return 1
   fi
   local part
+  # #4449: the previous install may have left `app` read-only (KOSMOS_READONLY_APP, below), and rm -rf cannot
+  # remove files from a folder nobody may write to, so every part is made writable again before the swap starts.
+  # Harmless on a part that never was read-only. A chmod that fails is tolerated here on purpose: with the switch
+  # off (the default) nothing was locked, so the swap below behaves as it always has. Refusing before anything is
+  # removed when a locked part cannot be unlocked is a condition of turning the switch on (#4455).
   for part in bin app runtime; do
-    # #4449: the previous install may have left `app` read-only (KOSMOS_READONLY_APP, below), and rm -rf cannot
-    # remove files from a folder nobody may write to, so it is made writable again first. Harmless on a part that
-    # never was read-only.
     [ -d "$dest/$part" ] && chmod -R u+w "$dest/$part" 2>/dev/null || true
+  done
+  for part in bin app runtime; do
     rm -rf "$dest/$part" || { rm -rf "$stage"; return 1; }
     mv "$stage/$part" "$dest/$part" || { rm -rf "$stage"; return 1; }
   done

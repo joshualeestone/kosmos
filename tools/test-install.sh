@@ -795,7 +795,14 @@ touch "$SB/home/app/engine/stale-marker.js"
 # compares against, so the run continues and the red says what it saw.
 wait_for_file "$SB/home/board.pid" 30 || echo "note: $SB/home/board.pid absent after 30s before the update (the board from the install is not running or has not written its pid)"
 PID1="$(cat "$SB/home/board.pid" 2>/dev/null || echo none)"
-RC=0; cat "$SETUP" | sh > "$SB/update.log" 2>&1 || RC=$?
+# #4449: this update installs from a source whose app/ is read-only, the shape a copy of a locked install has. cp -R
+# keeps the modes, and a read-only folder cannot be moved into place, so without the installer making its stage
+# writable "update exits 0" reds here (after the old app was already removed). A copy inside the sandbox, so the
+# repo's own dist/ bundle is never touched.
+cp -R "$KOS_SRC" "$SB/ro-src"
+chmod -R a-w "$SB/ro-src/app"
+chk "CONTROL #4449: the update's source app is read-only" "[ ! -w \"$SB/ro-src/app\" ] && [ ! -w \"$SB/ro-src/app/server.js\" ]"
+RC=0; cat "$SETUP" | KOSMOS_SRC="$SB/ro-src" sh > "$SB/update.log" 2>&1 || RC=$?
 chk "update exits 0" "rc_ok $RC"
 chk "stale file gone (swap, not merge)" "[ ! -e \"$SB/home/app/engine/stale-marker.js\" ]"
 chk "board restarted (new pid)" "[ \"$PID1\" != \"$(cat "$SB/home/board.pid")\" ]"
