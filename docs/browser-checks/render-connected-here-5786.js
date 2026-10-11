@@ -7,8 +7,8 @@
  * What this pins, and why each line can fail:
  *  - with the engine's connected_here set and nothing waiting, #plus-ask-rows reads "Safari on this computer is
  *    connected." (the browser word out of "Mac · Safari"), with Undo and Got it, and no "Waiting for you" heading;
- *  - a first Undo that fails (500) says "We could not disconnect it" and keeps Undo; the next posts that device id
- *    to /api/remote/devices/remove and the line becomes "Disconnected. ...";
+ *  - a first Undo that fails (500) shows the server's reason and keeps Undo; the next posts that device id
+ *    to /api/remote/devices/remove and the line says what the Remove reached (the Devices list's words);
  *  - Got it puts the line away; with connected_here null (the CONTROL) the line never shows;
  *  - in the Devices list a device with on_this_computer says "on this computer", and one without (the CONTROL) does not;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
@@ -93,14 +93,14 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} "Safari on this computer is connected." with Undo and Got it, under no Waiting heading`, JSON.stringify(r));
       // A failed Undo: the sentence shows inside the notice, and Undo is still there to try again.
       await page.click('#plus-ask-rows [data-ask="here-undo"]');
-      await page.waitForFunction(() => /could not disconnect/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      await page.waitForFunction(() => /tunnel did not answer/i.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       r = await rows();
-      chk(/We could not disconnect it/.test(r.text) && r.acts.includes('Undo') && removed.length === 0,
+      chk(/tunnel did not answer/i.test(r.text) && r.acts.includes('Undo') && removed.length === 0,
         `${tag} a failed Undo says so and keeps Undo`, JSON.stringify({ removed, r }));
       await page.click('#plus-ask-rows [data-ask="here-undo"]');
-      await page.waitForFunction(() => /Disconnected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      await page.waitForFunction(() => /^Removed/.test(document.getElementById('plus-ask-rows').innerText.trim()), null, { timeout: 5000 }).catch(() => {});
       r = await rows();
-      chk(removed.join(',') === 'd-saf' && /^Disconnected\. That browser can ask again by signing in\./.test(r.text), `${tag} Undo removes it and says so`, JSON.stringify({ removed, r }));
+      chk(removed.join(',') === 'd-saf' && /^Removed/.test(r.text), `${tag} Undo removes it and says what it reached (the Devices list's words)`, JSON.stringify({ removed, r }));
       await page.click('#plus-ask-rows [data-ask="here-ok"]');
       r = await rows();
       chk(!r.shown || r.text === '', `${tag} Got it puts the line away`, JSON.stringify(r));

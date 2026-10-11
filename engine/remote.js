@@ -1123,7 +1123,7 @@ async function forget() {
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
   stopVouch();   // kosmos#5786 (b): nor an open-browser secret
-  selfEpoch += 1;   // and an allow already out is not noted under the identity being forgotten
+  resetSelfGrant();   // and an allow already out is not noted under the identity being forgotten (bumps the epoch)
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();

@@ -39,7 +39,7 @@ as `vouch` (absent = no auto-allow).
 - An account-switch sign-in on the already-this-computer path can mint an S no row can match (harmless).
 
 ## Verify
-- engine/remote.test.js #5786 (11 tests): opens only with a recent eligible request; allows by vouch once, notes it and
+- engine/remote.test.js #5786 (12 tests): opens only with a recent eligible request; allows by vouch once, notes it and
   clears the remembered address; wrong vouch / swapped id / joining computer / own sign-in (vouch-path name) never
   allowed, with a positive arm; Undo drops the note; Sign out, switch-off, an hour-old request and a plain-http
   coordinator; a no-session Try again mints nothing; a Not-me device is never allowed and a refused allow stops after

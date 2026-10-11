@@ -47214,7 +47214,7 @@ function paintAsk() {
   if (here) {
     const word = askEsc(askBrowserWord(here.name));
     after.unshift('<div class="askrow done"><p class="askok">' + word + ' on this computer is connected.</p>' +
-      '<p>It was opened from this computer and is signed in to your account, so Kosmos did not ask you. Not yours? Undo turns it away.</p>' +
+      '<p>It was opened from this computer and is signed in to your account, so Kosmos did not ask you. Not yours? Undo disconnects it here.</p>' +
       (ASK.hereSaid && ASK.hereSaidFor === askHereKey(here) ? '<p class="askwait">' + askEsc(ASK.hereSaid) + '</p>' : '') +
       '<div class="acts"><button class="btn quiet" type="button" data-ask="here-undo" data-id="' + askEsc(here.device_id) + '" data-at="' + askEsc(String(here.at)) + '" aria-label="Undo: disconnect ' + word + ' on this computer"' + (ASK.removing ? ' disabled' : '') + '>' + (ASK.removing === here.device_id ? 'Disconnecting' : 'Undo') + '</button>' +
       '<button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(here.device_id) + '" data-at="' + askEsc(String(here.at)) + '">Got it</button></div></div>');
@@ -47237,15 +47237,15 @@ async function askAct(act, id, at) {
     const key = at ? id + '@' + at : ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : '';
     ASK.removing = id;
     paintAsk();
+    paintDevices();
     let res = null;
     try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
     ASK.removing = null;
-    const said = res && res.ok ? await res.json().catch(() => null) : null;
+    const said = res ? await res.json().catch(() => null) : null;
     ASK.hereSaidFor = key;
-    if (res && res.ok && said && said.removed === false) { ASK.hereGone = key; ASK.hereSaid = removedWords(said); }
-    else if (res && res.ok && !(said && said.timed_out)) { ASK.hereGone = key; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
-    else if (res && res.ok) { ASK.hereGone = key; ASK.hereSaid = 'Disconnecting is taking a while. Check it is gone under Devices.'; }
-    else ASK.hereSaid = 'We could not disconnect it. Try again, or remove it under Devices.';
+    // The same words the Devices list's Remove says (what it reached, what it did not), from the same answer.
+    if (res && res.ok) { ASK.hereGone = key; ASK.hereSaid = removedWords(said); }
+    else ASK.hereSaid = plusWords((said && said.error) || 'we could not disconnect it; try again, or remove it under Devices');
     for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
     paintAsk();
     paintDevices();
