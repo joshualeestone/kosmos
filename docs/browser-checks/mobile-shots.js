@@ -1202,7 +1202,7 @@ const SCREENS = [
        the #4524 screen does: the runner calls verify only after the picture is taken, so a check there would read a
        page that may have moved since. The point at the Reopen button's centre must be that button: anything drawn
        over it (the sticky composer below it), or the button outside the viewport, fails before the shot. Polled for
-       up to 3 s, so a repaint between two reads is not a red; verify reads it again after the shot. */
+       up to 3 s, so a repaint between two reads is not a red; verify reads it again after the shot, so a move that is still there then fails too. */
     await page.evaluate(() => document.getElementById('pj-held').scrollIntoView({ block: 'center', behavior: 'instant' }));
     // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
     if (COVER_CONTROL === 'overlay') {
@@ -1213,8 +1213,8 @@ const SCREENS = [
     for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(heldReopenAt)) await page.waitForTimeout(200);
     if (hit) throw new Error('the Reopen button is not seen: ' + hit);
   }, verify: async (page) => {
-    // After the shot, one read, no poll: a failure here deletes the shot, so a re-render that moved the strip between
-    // the read in go and the picture cannot pass.
+    // After the shot, one read, no poll: a failure here deletes the shot, so a move between the read in go and the
+    // picture that is still there now fails the row (one that reverted before this read is not seen).
     const seen = await page.evaluate(heldReopenAt);
     if (seen) throw new Error('the Reopen button is not seen after the shot: ' + seen);
     const t = await page.evaluate(() => { const b = document.querySelector('#pj-held [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
