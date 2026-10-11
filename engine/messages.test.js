@@ -3480,57 +3480,6 @@ test('#4888: a send that was refused does not hand its id to the next one', () =
   });
 });
 
-test('kosmos#5805 part 2: an ask answered on the person\'s direct thread is not unanswered; only the agent\'s own reply, inside the hour, before the person speaks again', () => {
-  withFleet(room3(), (board) => {
-    messages.setUnansweredAfterForTests(1000);
-    try {
-      /* One fresh ask, its id and time, with mara's direct thread emptied. */
-      const ask = () => {
-        fs.rmSync(messages.LOG, { force: true });
-        try { fs.rmSync(chat.threadFile(chat.DIRECT, 'mara'), { force: true }); } catch { /* fresh */ }
-        arm([]);
-        const sent = messages.sendPost({ operator: true, project: 'henderson-lease', projectName: 'Henderson Lease', text: '@mara where is the draft?' }, board.agents, MEMBERS);
-        assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-        const row = messages.record().rows.find((m) => m.kind === 'post');
-        return { id: row.id, at: Date.parse(row.at) };
-      };
-      const dm = (fields, ms) => assert.equal(chat.appendMessage(chat.DIRECT, 'mara', { text: 'x', ...fields, at: new Date(ms).toISOString() }).recorded, true, 'precondition: the row was kept');
-
-      // 1. CONTROLS that are not an answer: mara's reply from before the ask, and Kosmos's own words in her name.
-      let a = ask();
-      dm({ from: 'mara', text: 'an older reply' }, a.at - 60e3);
-      dm({ from: 'mara', kosmos: true, text: 'Kosmos: mara is out of usage today' }, a.at + 1000);
-      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), { [a.id]: ['mara'] }, 'a row that is not mara\'s own later reply counted');
-      assert.ok(messages.owedElsewhere('mara', 'other-room', a.at + 5000), 'CONTROL: the which-room question sees the ask as owed');
-      // mara answers the person directly after the ask: answered, for the room line, its nudge and the which-room question.
-      dm({ from: 'mara', text: 'in the folder, one pass left' }, a.at + 2000);
-      dm({ text: 'thanks' }, a.at + 3000);   // the person speaking AFTER the reply changes nothing
-      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), {}, 'a direct reply to the person after the ask still reads unanswered');
-      assert.equal(messages.owedElsewhere('mara', 'other-room', a.at + 5000), null, 'the which-room question still treats it as owed');
-      arm([]);
-      const swept = messages.sweepUnanswered(board.agents, a.at + 5000);
-      assert.equal(swept.ok, true, 'CONTROL: the sweep read the record');
-      assert.deepEqual((swept.nudged || []).filter((n) => n.to === 'mara'), [], 'mara was nudged about an ask she answered directly');
-
-      // 2. The person spoke on the thread between the ask and mara's reply: the reply answers that, not the room.
-      a = ask();
-      dm({ text: 'also, lunch?' }, a.at + 1000);
-      dm({ from: 'mara', text: 'sure, noon' }, a.at + 2000);
-      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), { [a.id]: ['mara'] }, 'a reply to a later direct message cleared the room ask');
-      arm([]);
-      const owedSweep = messages.sweepUnanswered(board.agents, a.at + 5000);
-      assert.deepEqual((owedSweep.nudged || []).filter((n) => n.to === 'mara').map((n) => n.post), [a.id], 'CONTROL: the sweep nudges mara for an ask still owed');
-
-      // 3. A reply more than an hour after the ask is not an answer to it (review 1: a chatty agent cleared every ask).
-      a = ask();
-      dm({ from: 'mara', text: 'status: still on it' }, a.at + 61 * 60e3);
-      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 62 * 60e3), { [a.id]: ['mara'] }, 'a direct message past the hour cleared the room ask');
-    } finally {
-      messages.setUnansweredAfterForTests(null);
-    }
-  });
-});
-
 test('kosmos#5805 part 2: an agent that declared another reply channel is not called silent on a room ask, and is not nudged', () => {
   const replychannel = require('./replychannel');
   withFleet(room3(), (board) => {
@@ -3550,11 +3499,8 @@ test('kosmos#5805 part 2: an agent that declared another reply channel is not ca
       let a = ask();
       assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), { [a.id]: ['mara'] }, 'CONTROL: an unanswered ask did not read unanswered');
       assert.ok(messages.owedElsewhere('mara', 'other-room', a.at + 5000), 'CONTROL: the which-room question does not see the ask as owed');
-      const tm = arm([]);
+      arm([]);
       assert.deepEqual((messages.sweepUnanswered(board.agents, a.at + 5000).nudged || []).filter((n) => n.to === 'mara').map((n) => n.post), [a.id], 'CONTROL: the sweep does not nudge an owed ask');
-      // The reminder that landed teaches the opt-out (the agent in the report had no way to learn it).
-      const typed = tm.pastedMessages();
-      assert.ok(typed.some((t) => /run: kosmos reply-channel "<where>"\]$/.test(t)), 'the room reminder does not teach kosmos reply-channel: ' + JSON.stringify(typed));
       // Declared: Kosmos cannot see that channel, so it calls her silent nowhere.
       replychannel.set('mara', 'Discord');
       a = ask();
@@ -3572,32 +3518,3 @@ test('kosmos#5805 part 2: an agent that declared another reply channel is not ca
   });
 });
 
-test('kosmos#5805 part 2: a Kosmos notice on the direct thread is not the person speaking again', () => {
-  withFleet(room3(), (board) => {
-    messages.setUnansweredAfterForTests(1000);
-    try {
-      const ask = () => {
-        fs.rmSync(messages.LOG, { force: true });
-        try { fs.rmSync(chat.threadFile(chat.DIRECT, 'mara'), { force: true }); } catch { /* fresh */ }
-        arm([]);
-        const sent = messages.sendPost({ operator: true, project: 'henderson-lease', projectName: 'Henderson Lease', text: '@mara where is the draft?' }, board.agents, MEMBERS);
-        assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-        const row = messages.record().rows.find((m) => m.kind === 'post');
-        return { id: row.id, at: Date.parse(row.at) };
-      };
-      const dm = (fields, ms) => assert.equal(chat.appendMessage(chat.DIRECT, 'mara', { text: 'x', ...fields, at: new Date(ms).toISOString() }).recorded, true, 'precondition: the row was kept');
-      // A Kosmos notice with no `from` between the ask and mara's reply: the reply still answers the ask.
-      let a = ask();
-      dm({ kosmos: true, text: 'Kosmos: a notice' }, a.at + 1000);
-      dm({ from: 'mara', text: 'in the folder' }, a.at + 2000);
-      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), {}, 'a Kosmos notice ended the answer window');
-      // CONTROL: the person speaking in the same place does end it.
-      a = ask();
-      dm({ text: 'also, lunch?' }, a.at + 1000);
-      dm({ from: 'mara', text: 'sure' }, a.at + 2000);
-      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), { [a.id]: ['mara'] }, 'CONTROL: the person speaking did not end the window');
-    } finally {
-      messages.setUnansweredAfterForTests(null);
-    }
-  });
-});

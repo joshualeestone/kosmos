@@ -352,7 +352,8 @@ test('kosmos#5805: an injected replyChannel is honoured, and a throwing one is n
 });
 
 test('kosmos#5805: the reminder teaches the opt-out, by a verb both commands ship', () => {
-  assert.match(nudge.NUDGE_TEXT, /answer there and run: kosmos reply-channel "<where>"/);
+  assert.match(nudge.NUDGE_TEXT, /Only if your instructions say to answer them somewhere else: answer there, then run kosmos reply-channel "<where>"/);
+  assert.match(nudge.NUDGE_TEXT, /never run it just to quiet one/, 'the opt-out is taught without saying what it is not for');
   assert.ok(require('../tools/windows/kosmos-cli').VERBS.includes('reply-channel'), 'the reminder names a verb the Windows command lacks');
   const mac = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   assert.match(mac, /^ {2}reply-channel\) shift; cmd_reply_channel "\$@" ;;/m, 'the reminder names a verb the Mac command lacks');

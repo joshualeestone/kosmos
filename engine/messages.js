@@ -2470,56 +2470,15 @@ function setUnansweredAfterForTests(ms) {
   UNANSWERED_AFTER_MS = Number.isFinite(ms) ? ms : 10 * 60 * 1000;
 }
 
-/* kosmos#5805 part 2: did `name` answer an ask made at `askAt` on the person's direct thread (`kosmos reply`) instead of
-   in the room? The person who asked is the one who heard back, which is what the room's unanswered line, its nudge and
-   the which-room question exist for. Counted: the agent's own row (`from` it, not Kosmos's words in its name) within
-   DIRECT_ANSWER_WINDOW_MS after the ask, with no newer message from the person on that thread between the ask and it
-   (then it is answering that, not the room). Review 1: unbounded, any later chat cleared every room ask, so the
-   reminder went quiet for the agents who talk to the person most. A thread that cannot be read is no answer (as
-   before). Weakest premise: a reply inside the hour may still be about an earlier direct message. */
-const DIRECT_ANSWER_WINDOW_MS = 60 * 60 * 1000;
-/* Parsed direct threads by file, reused while the file's mtime and size stand (unanswered runs on every room render
-   and every minute's sweep, once per project). Keyed by the resolved path, so a switched data root never reads
-   another root's rows. One entry per thread file. */
-const directCache = new Map();
-function directRows(name) {
-  let file = null;
-  let st = null;
-  try { file = chat.threadFile(chat.DIRECT, name); st = fs.statSync(file); } catch { st = null; }
-  if (!st) { if (file) directCache.delete(file); return []; }
-  const hit = directCache.get(file);
-  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.rows;
-  let rows = [];
-  try { const t = chat.readThread(chat.DIRECT, name); rows = (t && Array.isArray(t.messages)) ? t.messages : []; } catch { return []; }
-  directCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, rows });
-  return rows;
-}
-function answeredDirectly(name, askAt) {
-  if (!name || !Number.isFinite(askAt)) return false;
-  let personSince = Infinity;   // the person's first direct message after the ask
-  const replies = [];
-  for (const m of directRows(name)) {
-    if (!m) continue;
-    const t = Date.parse(m.at);
-    if (!Number.isFinite(t) || t < askAt) continue;
-    // Kosmos's own rows (a notice in the agent's name, its derived kinds) are neither the person nor the agent.
-    if (m.kosmos === true || m.kind === 'kosmos' || m.kind === 'question') continue;
-    if (!m.from) { if (t < personSince) personSince = t; continue; }
-    if (m.from === name && m.kosmos !== true && t - askAt <= DIRECT_ANSWER_WINDOW_MS) replies.push(t);
-  }
-  return replies.some((t) => t <= personSince);
-}
-
-/* kosmos#5805 part 2: is an ask to `name` at `askAt` answered somewhere other than the room? Either the agent declared
-   another channel it answers the person on (kosmos reply-channel: an answer there is out of Kosmos's sight, so it is
-   never called silent), or it answered on the person's direct thread (answeredDirectly). The one test unanswered and
-   owedElsewhere share, so the room line, its nudge and the which-room question cannot disagree. `declared` (a Map, one
-   per caller's pass) holds each agent's declaration once read, so a render reads a profile once per name, not per ask. */
-function answeredOffRoom(name, askAt, declared) {
-  const has = declared instanceof Map && declared.has(name) ? declared.get(name) : require('./replychannel').forAgent(name, store);
-  if (declared instanceof Map) declared.set(name, has);
-  if (has) return true;
-  return answeredDirectly(name, askAt);
+/* kosmos#5805 part 2: has `name` declared another channel it answers the person on (kosmos reply-channel)? An answer
+   there is out of Kosmos's sight, so the agent is never called silent. The one test unanswered and owedElsewhere share,
+   so the room line, its nudge and the which-room question cannot disagree. `declared` (a Map, one per caller's pass)
+   holds each agent's declaration once read, so a render reads a profile once per name, not per ask. */
+function answersElsewhere(name, declared) {
+  if (declared.has(name)) return declared.get(name);
+  const has = Boolean(require('./replychannel').forAgent(name, store));
+  declared.set(name, has);
+  return has;
 }
 
 /**
@@ -2561,7 +2520,7 @@ function unanswered(projectId, now) {
          read in the other direction. */
       return !rows.some((m) => m.kind === 'post' && m.operator !== true && m.from === name
         && Date.parse(m.at) >= Date.parse(p.at))
-        && !answeredOffRoom(name, Date.parse(p.at), declared);
+        && !answersElsewhere(name, declared);
     });
     if (silent.length) out[p.id] = silent;
   }
@@ -2632,9 +2591,7 @@ function sweepUnanswered(roster, now) {
         const card = (roster || []).find((c) => c && c.sessionName === name);
         if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
-          + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId
-          // kosmos#5805 part 2: the opt-out, taught where the false reminder lands.
-          + '; if your instructions say to answer the person somewhere else, run: kosmos reply-channel "<where>"]';
+          + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
         const sent = chat.deliverAutomatic(name, line, roster);
         /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen, or #5805 a usage limit), nothing typed. No row, so the pair's one nudge is still unspent, and
            unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so the post is still due after a long pause. */
@@ -2666,11 +2623,9 @@ function sweepUnanswered(roster, now) {
    delivered (TYPED, not could_not -- an undelivered ask is not owed), and NO room
    post from W in B in [askAt, postAt). This mirrors `unanswered`'s own definition
    of an owed answer (operator + mentioned + typed), bounded to the post's instant,
-   with one difference kept on purpose: it does not read direct threads or declared
-   channels (kosmos#5805 part 2, answeredOffRoom), so an ask W answered on the
-   person's direct thread, or W's declared channel, still counts here. It is an
-   aggregate "suspected" count over the whole record, and reading every agent's
-   thread for every day compiled is not worth it.
+   with one difference kept on purpose: it does not read declared reply channels
+   (kosmos#5805 part 2, answersElsewhere), so an agent that answers on one still
+   counts here. It is an aggregate "suspected" count over the whole record.
 
    ⚠️ AS-OF-POST-TIME is deliberate, and it is why this does NOT reuse `unanswered`
    (whose answer-check is unbounded, "answered ever after the ask"). A misroute
@@ -2977,8 +2932,8 @@ function reopenRoom(project, at) {
  *
  * "Owed" is the same test the #185 nudge (`unanswered`) uses: an operator post that
  * mentioned this agent and reached its pane (anything but could_not), with no room post
- * from the agent in that project since, no answer to the person on their direct thread,
- * and no declared reply channel (answeredOffRoom, kosmos#5805 part 2). Two bounds keep
+ * from the agent in that project since, and no declared reply channel (answersElsewhere,
+ * kosmos#5805 part 2). Two bounds keep
  * the cost of a wrong guess to one rerun, and rarely:
  * - only questions from the last WHICH_ROOM_WINDOW_MS count, so an ask the agent
  *   ignored yesterday does not hold every post it makes today;
@@ -3024,10 +2979,9 @@ function owedElsewhere(agent, targetProject, now, opts) {
      ask at or before the agent's latest --new post is treated as acknowledged. That is
      slightly wider than "was put to it": a question landing between the hold and the
      --new rerun is cleared too. Accepted: the window is one rerun long. */
-  // kosmos#5805 part 2: an ask answered off the room (a declared channel, or the person's direct thread) is not owed,
-  // as unanswered reads it.
+  // kosmos#5805 part 2: an agent that answers on a declared channel owes nothing here, as unanswered reads it.
   const declared = new Map();
-  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt && !answeredOffRoom(who, a.t, declared));
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt && !answersElsewhere(who, declared));
   const elsewhere = owed.filter((a) => a.project !== target && (() => {
     try { return canPostIn(a.project) === true; } catch { return false; }
   })());

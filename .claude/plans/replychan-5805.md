@@ -1,43 +1,36 @@
-# replychan-5805: a room ask answered on the person's direct thread is answered (kosmos#5805 part 2)
+# replychan-5805: an agent declares its reply channel, so the reminders stop calling it silent (kosmos#5805 part 2)
 
-## The defect
-The room's reply reminder (#185: messages.unanswered, the room's "has not answered" line, and sweepUnanswered's one
-nudge) counts an agent's answer to the person's @-mention only when the agent posts in that room. An agent that
-answers the person on their direct thread (`kosmos reply`) is still shown as not answering, and is nudged.
+## The defect (the collected 10-10 report, read at the source)
+An agent whose instructions said to answer the person through a different channel answered there, and a reminder then
+said *nothing had reached the person*. That wording is the first-reply nudge (engine/firstreply-nudge.js); the room's
+#185 reminder (messages.unanswered, its "has not answered" line, sweepUnanswered's nudge, owedElsewhere's which-room
+question) calls such an agent silent the same way. Kosmos cannot see that channel.
 
 ## The change
-engine/messages.js answeredDirectly(name, askAt): the agent's own row on the person's direct thread (not Kosmos's own
-words in its name), within an hour after the ask, with no newer message from the person between the ask and it.
-unanswered() (the room line and, through it, sweepUnanswered's nudge) and owedElsewhere() (the which-room question)
-both use it. Parsed threads are cached by file mtime and size. suspectedMisrouteCount (the daily "suspected" figure)
-does not read threads, on purpose, and says so.
+`kosmos reply-channel "<where>"` (empty, "kosmos" or `--clear` clears it), on the Mac and Windows CLIs, POST
+/api/agent/reply-channel, stored as `replyChannel` on the agent's profile (engine/replychannel.js). With one declared,
+neither reminder speaks for that agent (messages.answersElsewhere, shared by unanswered and owedElsewhere; the
+first-reply sweep's replyChannel reader). suspectedMisrouteCount (a daily aggregate) does not read it, and says so.
 
-## Decided (PigeonPete took this over at 34aedd9ef; the call changed, reasons below)
-- **The agent declares it, as the report asked: `kosmos reply-channel "<where>"`** (empty, or "kosmos", clears it), on
-  the Mac and Windows CLIs, POST /api/agent/reply-channel, stored as `replyChannel` on the agent's profile
-  (engine/replychannel.js). With one declared, neither reminder speaks for that agent: the first-reply nudge
-  (firstreply-nudge.js) and the room's #185 reminder, its "has not answered" line and the which-room question
-  (messages.answeredOffRoom, shared by unanswered and owedElsewhere).
-- **Why the call changed.** The collected 10-10 report, read at the source, says the agent's instructions told it to
-  answer through a different channel, it answered there, and a reminder then said *nothing had reached the person*.
-  That wording is the first-reply nudge, and the channel is one Kosmos cannot see. Automatic counting cannot see an
-  answer that never touches a Kosmos thread, so on its own it does not fix the reported case.
-- **Kept: Baron's automatic counting** (a `kosmos reply` to the person inside the hour, before they speak again,
-  answers a room ask). A real false reminder of the same family; it needs no declaration.
-- Only the person's direct thread counts automatically. A `kosmos msg` to a colleague is not an answer to the person.
-- Bounded to an hour after the ask, and to before the person speaks again on that thread (review 1).
-- An unreadable thread or profile counts as no answer and no declaration (today's behaviour).
+## Decided (PigeonPete took this over from Baron at 34aedd9ef)
+- **The agent declares it, as the report asked.** Baron's branch had instead counted a `kosmos reply` to the person
+  within an hour of a room ask as answering it, with no declaration. That cannot see the reported case (the answer
+  never touched a Kosmos thread). It was kept at first beside the declaration, then **removed in review 7**: review 6
+  found Kosmos rows ending its window early, review 7 found one reply clearing every room's asks for an hour (it did
+  not look at the project). It was never asked for, and a third patch was the wrong direction.
+- An unreadable profile counts as no declaration (today's behaviour), and a stored value the command would refuse
+  counts as none.
 - The route is in AGENT_TOKEN_ROUTES (every Windows agent holds a token and no board token). Its handler names the
-  caller with processCaller (a token exactly; a pane as given) and sets only that agent's own channel. No name in the
-  body is read, and the screen sets nothing (review 5 removed a screen branch no page called).
-- **How an agent learns the verb:** both reminders now end by teaching it ("if your instructions say to answer them
-  somewhere else, ... run: kosmos reply-channel"). That is the moment it is needed. Rejected: a line in the agents'
-  working rules (engine/defaults.js): it changes the doctrine every agent holds, which needs a version bump and a
-  measured rollout, for one sentence the reminder already carries.
+  caller with processCaller (a token exactly; a pane as given) and sets only that agent's own channel; no name in the
+  body is read. A page request carries no pane, so it names nobody (review 5 removed a screen branch no page called).
+- **How an agent learns the verb:** the first-reply nudge (the report's case) ends by teaching it, and says it is
+  never a way to quiet a reminder (review 7: teaching it on every reminder steered forgetful agents toward it). The
+  room line is unchanged. Rejected: a line in the agents' working rules (engine/defaults.js): a doctrine change for
+  every agent, with a version bump and a measured rollout, for one sentence.
 - **The person cannot yet see or clear a declaration:** kosmos#5820 (follow-up, needs a page change).
 
 ## Rejected
-- Automatic only (34aedd9ef's call): blind to the reported case.
+- Automatic counting of a direct reply (34aedd9ef's call): blind to the reported case; removed in review 7.
 - Reading the channel out of the agent's instructions: free text, guessed.
 - Rewording the operator envelope's "to answer, run: kosmos reply" hint (the report calls it wrong for such an agent):
   engine/musefront.js recognises that envelope by its exact text, so a change breaks a parser silently. Follow-up.
@@ -47,7 +40,6 @@ A declared agent that does not answer on its channel is never reminded: the decl
 nothing checks the claim. What would change it: a missed message from an agent that declared a channel; then show the
 declared channel where the reminder would have been, rather than staying silent.
 
-Also: a reply inside the hour may still be about an earlier direct message (Baron's premise, unchanged).
 
 ## Incidental fixes
 - Windows help padded verbs to 13 columns, so `reply-channel` ran into its words; now the Mac's 14, widened for a
@@ -56,8 +48,8 @@ Also: a reply inside the hour may still be about an earlier direct message (Baro
   widened, with the two internal Mac arms (board-run, keep-copy) excluded by name and asserted present.
 
 ## Tests
-- engine/messages.test.js: Baron's direct-thread test (controls included), and a declared-channel test (control: the
-  same ask undeclared is owed, nudged and asked about; declared it is none of those; cleared, it is back).
+- engine/messages.test.js: a declared-channel test (control: the same ask undeclared is owed, nudged and asked
+  about; declared it is none of those; cleared, it is back).
 - engine/firstreply-nudge.test.js: the real store, the sweep's own default reader, the card's own case nudged
   undeclared and not declared; an injected reader honoured, a throwing one no declaration.
 - engine/replychannel.test.js: normalize, of (a hand-edited value the command would refuse is no declaration), set.
@@ -134,3 +126,12 @@ Also: a reply inside the hour may still be about an earlier direct message (Baro
 - FIXED (NIT): the first-reply sweep read every idle agent's profile; it now reads one only once a nudge is due.
 - FIXED (NIT): the Mac's leading-space strip gets a one-line comment.
 - NO CHANGE (NIT): the cache comment claims no exactness ("while the file's mtime and size stand").
+
+## Review 7 (opus, blind, on 358b87fb9)
+- FIXED (WARNING): every reminder taught the opt-out, steering an agent that simply forgot toward silencing them for
+  good. Only the first-reply nudge teaches it now, saying it is never for quieting one; the room line is main's again.
+- FIXED (WARNING, by removal): one direct reply cleared every room's asks for an hour (not project-scoped). The
+  automatic direct-thread counting is removed (see Decided); its tests go with it.
+- FIXED (NIT): the nudge's comment now says an agent that clears its channel is reminded on the next sweep.
+- FIXED (NIT): "the screen sets nothing" claimed more than the code enforces; reworded (a page carries no pane).
+- GONE (NIT): the "no upper bound at now" note was about the removed direct-thread code.

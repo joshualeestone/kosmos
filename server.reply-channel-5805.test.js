@@ -2,7 +2,7 @@
 /**
  * kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel). An agent whose instructions say to answer
  * the person somewhere Kosmos cannot see declares it, so the reminders stop saying nothing reached the person. Over HTTP
- * on a sandboxed board: an agent sets only its own channel (by token or by pane), the screen sets none, and the refusals.
+ * on a sandboxed board: an agent sets only its own channel (by token or by pane), a page request names nobody, and the refusals.
  *
  *   node --test server.reply-channel-5805.test.js
  */
@@ -74,7 +74,7 @@ test('kosmos#5805: an agent declares its own reply channel, a name in its body i
   } finally { board.restore(); }
 });
 
-test('kosmos#5805: refusals (too long, two lines, not words, nobody named); the screen sets no agent\'s channel', async () => {
+test('kosmos#5805: refusals (too long, two lines, not words, nobody named); a page request names no agent', async () => {
   const { board, ada, bo } = twoAgents();
   try {
     const minted = sendertoken.mint(ada);
@@ -92,7 +92,7 @@ test('kosmos#5805: refusals (too long, two lines, not words, nobody named); the 
     assert.ok(r.status >= 400 && r.status < 500, 'an unnamed caller got ' + r.status);
     assert.equal(declared(ada), null);
     assert.equal(declared(bo), null);
-    // The screen sets no agent's channel: only an agent declares its own, and a name in the body names nobody.
+    // A page request carries no pane and the body's name is never read, so it names no agent and sets nothing.
     r = await asScreen({ channel: 'Discord', name: bo });
     assert.ok(r.status >= 400 && r.status < 500, 'the screen set a channel: ' + r.status);
     assert.equal(declared(bo), null, 'a name typed on the screen set that agent\'s channel');
