@@ -145,7 +145,7 @@ test('kosmos#5208: every way to stop leaves the live file as it was, and both bu
     assert.deepEqual(views(names, times), before, label + ': an answer changed');
   }
   // The ways that would stop every compaction from then on are said, once each, so a history that keeps growing can be traced.
-  for (const re of [/no longer compacted/, /could not be replaced/, /no hard link: EXDEV/, /could not be written to disk \(EWRITEBACK\)/]) {
+  for (const re of [/no longer compacted/, /could not be replaced/, /no hard link: EXDEV/, /could not be written to disk/]) {   // a failed flush and a short write share one note
     assert.equal(allSaid.filter((m) => re.test(m)).length, 1, 'not said exactly once: ' + re);
   }
 });
@@ -435,7 +435,7 @@ test('kosmos#5208: a sealed name that is not a regular file (a pipe, a link to a
 test('kosmos#5208: revokeIfUnchanged records the end without compacting under its session lock', () => {
   reset();
   const big = [];
-  for (let i = 0; big.join('\n').length <= sendertoken.ENDED_COMPACT_AT_BYTES; i++) big.push(line('n' + i, T0 + i));
+  for (let i = 0; big.join('\n').length <= sendertoken.ENDED_COMPACT_AT_BYTES; i++) big.push(line('n' + (i % 7), T0 + i));   // few names, so a compaction shrinks it
   writeLive(big);
   const key = 'cleanup-me';
   fs.mkdirSync(sendertoken.DIR, { recursive: true });
