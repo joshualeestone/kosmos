@@ -37,9 +37,12 @@ as `vouch` (absent = no auto-allow).
 - The vouch path's "is it a computer" test is deliberately STRICTER than pendingDevices' (raw fields: any
   joining_computer value, any code_wait); not shared, so a loosening there cannot loosen this.
 - An account-switch sign-in on the already-this-computer path can mint an S no row can match (harmless).
+- A vouch needs no relay-side binding: the board recomputes HMAC(S, row's own device id), so a vouch moved to another
+  row never matches (review 18).
+- A pinned device that leaves the snapshot leaves S waiting until the window ends: fails closed (review 18).
 
 ## Verify
-- engine/remote.test.js #5786 (12 tests): opens only with a recent eligible request; allows by vouch once, notes it and
+- engine/remote.test.js #5786 (13 tests): opens only with a recent eligible request; allows by vouch once, notes it and
   clears the remembered address; wrong vouch / swapped id / joining computer / own sign-in (vouch-path name) never
   allowed, with a positive arm; Undo drops the note; Sign out, switch-off, an hour-old request and a plain-http
   coordinator; a no-session Try again mints nothing; a Not-me device is never allowed and a refused allow stops after

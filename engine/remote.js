@@ -1622,6 +1622,7 @@ function forgetPendingSnapshot() {
   try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
   resetSelfGrant();   // round 2: every identity change also starts the self-grant over (all four call sites)
   // kosmos#5786 (b): the "on this computer" notes belong to the identity they were made under.
+  lastVouched = null;
   const cur = read();
   if (cur.ok !== false && Object.keys(cur.vouched || {}).length) write({ vouched: {} });
 }
