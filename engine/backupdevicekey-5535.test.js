@@ -103,3 +103,32 @@ test('with no stateDir given it reads the connector folder remote.js uses (AGENT
     fs.rmSync(d, { recursive: true, force: true });
   }
 });
+
+test('round 1: trimmed exactly as Rust trims: a BOM is refused (the connector cannot read it), U+0085 is trimmed', () => {
+  const d = tmp();
+  try {
+    const k = connectorKey();
+    fs.writeFileSync(path.join(d, 'mac_key'), '﻿' + k.seed);
+    const bom = deviceKey({ stateDir: d });
+    assert.equal(bom.ok, false); assert.match(bom.because, /form the connector writes/);
+    // Rust's char::is_whitespace includes U+0085 (NEL), which JS trim() keeps: the connector reads this one.
+    fs.writeFileSync(path.join(d, 'mac_key'), k.seed + '\u0085\n');
+    assert.equal(deviceKey({ stateDir: d }).ok, true);
+    // And a no-break space, which both trim.
+    fs.writeFileSync(path.join(d, 'mac_key'), ' ' + k.seed);
+    assert.equal(deviceKey({ stateDir: d }).ok, true);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('round 1: a FIFO is refused as not a plain file without blocking; a stateDir must be an absolute path', () => {
+  const d = tmp();
+  try {
+    require('child_process').execFileSync('mkfifo', [path.join(d, 'mac_key')]);
+    const r = deviceKey({ stateDir: d });
+    assert.equal(r.ok, false); assert.match(r.because, /not a plain file/);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+  for (const bad of ['', 'relative/dir', 5, null]) {
+    const r = deviceKey({ stateDir: bad });
+    assert.equal(r.ok, false, String(bad)); assert.match(r.because, /not an absolute path/, String(bad));
+  }
+});
