@@ -10,9 +10,8 @@
  *
  * ensureMemberKey():
  *   1. asks POST /v1/org/backup-key for the company (org), this computer's account as the coordinator names it
- *      (member), and the company's public key, all from one answer to a device-signed request (the answer itself is
- *      not signed; it rests on the tunnel's TLS to Kosmos+, and is bounded by the coordinator, which keeps a wrap only
- *      if its own escrowed company key opens it);
+ *      (member), and the company's public key, all from one answer to a device-signed request. The answer itself is
+ *      not signed: the tunnel's TLS to Kosmos+ is what keeps the private key from being wrapped to someone else's;
  *   2. with a key here that Kosmos+ already took, answers it;
  *   3. otherwise keeps a key on disk BEFORE sending it (an answer lost after Kosmos+ kept it must not lose the key),
  *      wraps it to the company's key for (org, member, epoch), and registers it: epoch 1 first; a different key
@@ -24,8 +23,8 @@
  * It does NOT ask whether a key Kosmos+ took is still the member's current one: the backup job compares the epoch
  * it answers with each grant's `epoch` (the uploader refuses a grant for another epoch), and a mismatch is the sign
  * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
- * assumed (the board's own lock), and a rotation re-reads the file first, so a key another process registered
- * meanwhile is answered, never replaced.
+ * assumed (the board's own lock). A rotation or a fresh key re-reads the file first, so a key another process
+ * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected).
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
  * base64url. Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
@@ -86,6 +85,11 @@ function companyOf(data) {
   return { org: data.org, member: data.member, orgPublic };
 }
 
+/* The newest epoch in a key map that Kosmos+ took, or undefined. */
+function newestRegistered(keys) {
+  return Object.keys(keys).map(Number).sort((a, b) => b - a).find((e) => keys[e].registered);
+}
+
 async function register(macRequest, company, epoch, key) {
   const wrap = backupkeys.wrapMemberKey(key.sk, company.orgPublic, { org: company.org, member: company.member, epoch: String(epoch) });
   return macRequest('POST', MEMBER_KEY_ROUTE, { epoch, member_public: b64(key.pk), wrap: b64(wrap) });
@@ -110,7 +114,7 @@ async function ensureNow(opts) {
     if (!read.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
     const keys = read.keys;
     const epochs = Object.keys(keys).map(Number).sort((a, b) => b - a);
-    const done = epochs.find((e) => keys[e].registered);
+    const done = newestRegistered(keys);
     if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk };
     // The newest key not yet taken (kept before an earlier send), else a new one for epoch 1.
     let epoch = epochs.length ? epochs[0] : 1;
@@ -143,7 +147,7 @@ async function ensureNow(opts) {
         refreshed = true;
         const now = readKeys(company.org, company.member);
         if (!now.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
-        const theirsNow = Object.keys(now.keys).map(Number).sort((a, b) => b - a).find((e) => now.keys[e].registered);
+        const theirsNow = newestRegistered(now.keys);
         if (theirsNow !== undefined) return { ok: true, epoch: theirsNow, publicKey: now.keys[theirsNow].pk };
         keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
         writeKeys(company.org, company.member, keys);
@@ -162,7 +166,7 @@ async function ensureNow(opts) {
       // Another process may have registered a key meanwhile: re-read, and answer that one rather than replace it.
       const fresh = readKeys(company.org, company.member);
       if (!fresh.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
-      const theirs = Object.keys(fresh.keys).map(Number).sort((a, b) => b - a).find((e) => fresh.keys[e].registered);
+      const theirs = newestRegistered(fresh.keys);
       if (theirs !== undefined) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
       // The write below comes before the next send, so the key is on disk before Kosmos+ can take it at `next`.
       // The lost epoch's key is not this computer's; the new epoch gets the same unregistered key, kept before it is sent.

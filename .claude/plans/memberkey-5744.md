@@ -47,7 +47,10 @@ mac_key already is.
 ## Not in this slice
 DEPENDENCY for the backup job (recorded on #5744): ensureMemberKey answers a registered key from disk without asking
 whether it is still current, so the job MUST compare the epoch it answers with each grant's `epoch` and treat a
-mismatch as "the member moved on"; until that job lands nothing detects it. The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
+mismatch as "the member moved on"; until that job lands nothing detects it. ALSO: a `waiting` answer carries no
+retry time (the coordinator's retry_after_secs does not ride in the tunnel's refusal line), so the job must back
+off on its own: each early retry costs a round trip, and past the day each send counts toward the registration cap.
+The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
 ## Tests (measured at c9c9056e0: 20 tests, 20 pass)
@@ -106,7 +109,8 @@ the API doc's missing `member` field.
   keys must encode back to what was read.
 - Answered with a citation, not a change: several computers per member (the 409 arm's premise). Only the enrolled
   computer gets backup keys (Weakest premise above).
-- CONVENTION fixed: the header says the coordinator's own wrap check bounds the unsigned answer. NITs taken: the
+- CONVENTION "fixed": the header said the coordinator's own wrap check bounds the unsigned answer [WRONG, corrected
+  by Review 6: that check limits what the coordinator stores, not where the secret is wrapped]. NITs taken: the
   `theirs` sentinel; a comment pinning write-before-send at the move; a test asserts the offline key was kept.
 
 ## Review 4 (opus)
@@ -124,3 +128,12 @@ the API doc's missing `member` field.
   org-mismatch arm too.
 - RECORDED (dependency, not a defect here): the backup job must compare epochs (Not in this slice, and on #5744).
 - NIT taken: `!!err &&` removed inside the catch.
+
+## Review 6 (opus)
+- FIXED (the loop's own claim, SELF, from Review 3): the header said the coordinator's wrap check bounds an unsigned
+  answer. A forged public_key would get the private key wrapped to the forger before the coordinator is involved;
+  the claim is deleted, and the header says the tunnel's TLS is what protects it.
+- FIXED (doc): the re-read protects REGISTERED keys only; the header now says so.
+- RECORDED (dependency, on #5744): a waiting answer has no retry time; the job backs off on its own.
+- NITs taken: the registration-cap test uses its real code (rate_limited); a reversed assertion message; one
+  newestRegistered helper for the three copies.
