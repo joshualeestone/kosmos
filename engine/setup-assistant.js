@@ -722,10 +722,9 @@ function accountConfigHomes(home) {
 
 /* #5774 route 5: the config homes OTHER Kosmos agents run with (a job's CLAUDE_CONFIG_DIR), from each job file named
    after an agent in the agents' folder. Read from the files (create.readJob), never by asking launchd: the guard runs at
-   every refresh. Claude agents only (another runner's account folder is not a Claude config home). Review 6: on Windows
-   readJob reads the task through win32job's cache, so the first pass of a process may ask schtasks once per agent; the
-   pass's launchCache keeps it to once per pass after that. */
-function agentJobConfigDirs(workersRoot) {
+   every refresh. Claude agents only (another runner's account folder is not a Claude config home). (The guard does not
+   run on Windows, so no Task Scheduler read happens here; review 11 corrected a note that said it did.) */
+function agentJobConfigDirs(workersRoot, platform) {   // platform: the guard's (tests drive the Linux reader)
   const out = [];
   let names = [];
   // Review 1: an agents' folder that cannot be read is named by the caller (never a silent loss).
@@ -735,9 +734,10 @@ function agentJobConfigDirs(workersRoot) {
     /* Review 10: readJobVerdict tells a job that is absent (fine) from one that could not be read (an unreadable unit, a
        failed task read): the latter is named, never a silent loss of that agent's config home. */
     let v = null;
-    try { v = create.readJobVerdict(name); } catch (e) { v = { job: null, because: (e && e.message) || String(e) }; }
+    try { v = create.readJobVerdict(name, undefined, platform); } catch (e) { v = { job: null, because: (e && e.message) || String(e) }; }
     const job = v && v.job;
-    if (!job && v && v.because && !v.absent) (out.failed = out.failed || []).push(`${name} (${v.because})`);
+    // Review 11: a MASKED unit (Linux, #5445) is the person's on purpose: it cannot start, so it is no job, not a failure.
+    if (!job && v && v.because && !v.absent && !v.masked) (out.failed = out.failed || []).push(`${name} (${v.because})`);
     // On macOS the reader says only job-or-null: a job file that EXISTS there and still read as none could not be read.
     else if (!job && v && !v.absent && !v.because && !v.win32 && !v.linux) {
       try { fs.lstatSync(create.plistPath(name)); (out.failed = out.failed || []).push(`${name} (its job file is there but does not read as a job)`); } catch { /* absent: no job */ }
@@ -1713,8 +1713,15 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // (create.AGENTS_DIR is macOS's launch folder; on Linux and Windows the jobs live elsewhere, and this asks only whether the
   // caller's home is the machine's, which that folder's place answers on every platform Kosmos runs on.)
   const jobsHere = () => {
-    if (process.env.AGENT_WORKFORCE_LAUNCH) return true;
-    try { const a = realOrLeaf(create.AGENTS_DIR), hh = realOrLeaf(home); return a === hh || a.startsWith(hh + path.sep); } catch { return false; }
+    // Review 11: the platform's OWN job place: the systemd unit folder on Linux (AGENT_WORKFORCE_SYSTEMD_DIR), the launch
+    // folder on macOS (AGENT_WORKFORCE_LAUNCH). The guard does not run on Windows.
+    const linux = (deps.platform || process.platform) === 'linux';
+    if (linux ? process.env.AGENT_WORKFORCE_SYSTEMD_DIR : process.env.AGENT_WORKFORCE_LAUNCH) return true;
+    try {
+      const place = linux ? path.dirname(require('./linuxjob').unitPath('x')) : create.AGENTS_DIR;
+      const a = realOrLeaf(place), hh = realOrLeaf(home);
+      return a === hh || a.startsWith(hh + path.sep);
+    } catch { return false; }
   };
   try {
     if (deps.agentConfigDirs !== undefined) jobHomes = deps.agentConfigDirs;
@@ -1723,7 +1730,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
       const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
       const key = `#5774 route 5 job homes ${root}`;
       if (cache && cache.has(key)) jobHomes = cache.get(key);
-      else { jobHomes = agentJobConfigDirs(root); if (cache) cache.set(key, jobHomes); }
+      else { jobHomes = agentJobConfigDirs(root, deps.platform); if (cache) cache.set(key, jobHomes); }
     }
   } catch (e) { jobHomes = []; configUnsafe.push(`other agents' config homes (they could not be read: ${(e && e.message) || e})`); }
   if (jobHomes.unreadable) configUnsafe.push(`the agents' folder (it could not be read: ${jobHomes.unreadable}), so other agents' config homes are not found`);
@@ -1851,11 +1858,15 @@ function tokenOnlySettingsRules(dir, deps = {}) {
       for (const k of PLUGIN_VARS) {
         if (!text.includes(k)) continue;   // review 2: most files name none of them
         // Review 4: a quoted ~ is kept literal by the shell and expanded by Claude Code, so it is read here.
-        for (const v of assignmentsIn(text, k, { quotedTildeOk: true })) {
+        for (let v of assignmentsIn(text, k, { quotedTildeOk: true })) {   // let: a default-if-unset wrapper is unwrapped below
         /* Review 3: the append idiom refers back to the variable itself (`$K:$HOME/x`, `${K:+$K:}...`): every earlier
            value is already gathered and covered, so those parts are dropped. $HOME (balanced braces) is replaced at the
            start of each part. A backtick or any other variable is a value Kosmos cannot work out: named. */
         // Review 5: the prepend form too, `${K:+:$K}` (as PATH is usually extended).
+        // Review 11: the default-if-unset idioms, `${K:-x}` and `${K:=x}` (with or without the colon), reduce to x: K's
+        // earlier values are already gathered, so only the default is new.
+        const dflt = v === null ? null : new RegExp(`^\\$\\{${k}:?[-=]([^}]*)\\}$`).exec(v);
+        if (dflt) v = dflt[1];
         const selfRef = new RegExp(`\\$\\{${k}:\\+(?:\\$\\{?${k}\\}?${path.delimiter}|${path.delimiter}\\$\\{?${k}\\}?)\\}`, 'g');
         const plain = v === null ? null : v.replace(selfRef, '').split(path.delimiter)
           .filter((part) => part !== `$${k}` && part !== `\${${k}}`)

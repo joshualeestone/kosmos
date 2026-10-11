@@ -789,12 +789,6 @@ function pluginConfigFiles(dir) {
   return [...new Set(files)];
 }
 
-/*
- * The scripts Claude Code's start-time commands run for the agent in `dir`.
- * Returns { files, runFiles, pluginDirs, unsafe }: the script files (absolute, not yet resolved through links; never an existing
- * folder; runFiles are those named where something runs), the installed plugin folders (whose own code runs, wherever they sit; never the agent folder, a folder above
- * it or the home), and what could not be worked out.
- */
 /* #5774 route 5: the three variables that name plugin folders, and the folders their values name, parsed as Claude Code
    2.1.296 does (measured in its bundle): CLAUDE_CODE_PLUGIN_DIRS split on the path delimiter, each part trimmed with a
    leading ~ expanded, absolute parts only; CLAUDE_CODE_PLUGIN_CACHE_DIR one path, ~ expanded; CLAUDE_CODE_PLUGIN_SEED_DIR
@@ -816,6 +810,12 @@ function pluginVarDirs(values, agentDir, home, relativeOk, skipped = [], kinds =
   for (const v of values.CLAUDE_CODE_PLUGIN_SEED_DIR || []) for (const part of v.split(path.delimiter)) if (part) cacheOrSeed(tilde(part));
   return out;
 }
+/*
+ * The scripts Claude Code's start-time commands run for the agent in `dir`.
+ * Returns { files, runFiles, pluginDirs, envPluginDirs, unsafe } (envPluginDirs: the plugin folders the variables name, #5774 route 5): the script files (absolute, not yet resolved through links; never an existing
+ * folder; runFiles are those named where something runs), the installed plugin folders (whose own code runs, wherever they sit; never the agent folder, a folder above
+ * it or the home), and what could not be worked out.
+ */
 function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, managedDir: md, managedPrefsDir, covered = [], pluginVars = {} } = {}) {
   const runnerSeen = [];   // folder runners, decided once the plugin folders are known
   const agentDir = path.resolve(dir);

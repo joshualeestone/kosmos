@@ -440,3 +440,35 @@ test('#5774 route 5 review 10: a job file that exists but cannot be read is name
   const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-relhome'), 'pilot-relhome', { ...DEPS, env: ENV0, agentConfigDirs: ['rel/home'] });
   assert.ok(JSON.stringify(g2).includes('rel/home (a config home an agent\'s job names, not a full path'), JSON.stringify(g2));
 });
+
+test('#5774 route 5 review 11: the default-if-unset idioms ${K:-x} and ${K:=x} read as x', () => {
+  const zshrc = path.join(HOME, '.zshrc');
+  const K = 'CLAUDE_CODE_PLUGIN_CACHE_DIR';
+  for (const [form, n] of [[`\${${K}:-$HOME/dflt1}`, 'dflt1'], [`\${${K}:=$HOME/dflt2}`, 'dflt2']]) {
+    fs.writeFileSync(zshrc, `export ${K}=${form}\n`);
+    try {
+      const d = agentDir(`pilot-${n}`);
+      const g = setup.guardTokenOnlyFolder(d, path.basename(d), { ...DEPS, env: ENV0 });
+      assert.equal(g.ok, true, `${form}: ${JSON.stringify(g)}`);
+      assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, n, 'x')).length > 0, form);
+    } finally { fs.rmSync(zshrc, { force: true }); }
+  }
+});
+
+test('#5774 route 5 review 11: on Linux a MASKED agent unit is no job (not a failure); an unreadable unit is named', () => {
+  const lj = require('./linuxjob');
+  const masked = 'sib-masked';
+  const broken = 'sib-brokenunit';
+  for (const n of [masked, broken]) fs.mkdirSync(path.join(SANDBOX, 'workers', n), { recursive: true });
+  const mp = lj.unitPath(masked), bp = lj.unitPath(broken);
+  fs.mkdirSync(path.dirname(mp), { recursive: true });
+  fs.rmSync(mp, { recursive: true, force: true }); fs.symlinkSync('/dev/null', mp);
+  fs.rmSync(bp, { recursive: true, force: true }); fs.mkdirSync(bp);   // a folder where the unit file should be
+  try {
+    const g = setup.guardTokenOnlyFolder(agentDir('pilot-linuxjobs'), 'pilot-linuxjobs', { ...DEPS, platform: 'linux', env: ENV0 });
+    const said = JSON.stringify(g);
+    assert.ok(!said.includes(`the job of the agent ${masked}`), `a masked unit was named: ${said}`);
+    assert.ok(said.includes(`the job of the agent ${broken}`), `an unreadable unit was not named: ${said}`);
+  } finally { fs.rmSync(mp, { force: true }); fs.rmSync(bp, { recursive: true, force: true }); }
+});
+
