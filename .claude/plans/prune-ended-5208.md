@@ -194,3 +194,17 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
 - FIXED (NIT): a base larger than the live file (shrunk outside this code) resets to 0.
 - RECORDED (NITs): newestPerName stops on a bad line for any name, wider than endedSince's refusal (safe: it only stops
   compacting); the test's old-build model folds case, which equals slugFor for every name it uses.
+
+## Review 11 (opus, blind, on 8f164b5bc)
+- FIXED (BLOCKER): the fold was written with one writeSync and its byte count never checked; a short write (a disk
+  filling partway) would be flushed, renamed over the live file, and the sealed files deleted on its strength. It is
+  written with writeFileSync(fd) (which loops) and READ BACK and compared before any link or rename; a mismatch stops
+  the compaction, said once (test: a short write, among the ways to stop).
+- FIXED (WARNING): a sealed name that is not a regular file (a pipe, a link to a device) could hang the reader. Sealed
+  files are lstat'd and read only if regular; anything else refuses (tests: a FIFO, a link to /dev/zero).
+- FIXED (WARNING): revokeIfUnchanged called noteEnded under the session lock, so a compaction could outlast that lock's
+  stale bound. It now records the end without compacting; the next end compacts (test with a control).
+- FIXED (NITs): the identity comment says birth time is not reliable on NTFS and that safety rests on step 4's whole
+  put-back; the backoff comment says "where it can write that".
+- Residual named: if the put-back of a late line fails, that line is in the sealed file only until the next compaction,
+  so an older build misses it meanwhile (this build reads the sealed file).

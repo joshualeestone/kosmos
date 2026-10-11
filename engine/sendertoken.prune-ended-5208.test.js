@@ -105,6 +105,14 @@ test('kosmos#5208: every way to stop leaves the live file as it was, and both bu
       writeLive([line('a', T0), line('b', T0 + 5)]);
       return () => { fs.renameSync = function (from, to) { if (to === LIVE()) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); return realRename.call(this, from, to); }; try { return sendertoken.compactEnded({ force: true }); } finally { fs.renameSync = realRename; } };
     },
+    'a short write (the disk filled partway)': () => {
+      writeLive([line('a', T0), line('b', T0 + 5)]);
+      return () => {
+        const realWFS = fs.writeFileSync;
+        fs.writeFileSync = function (f, data, ...rest) { if (typeof f === 'number') { fs.writeFileSync = realWFS; return fs.writeSync(f, String(data).slice(0, 9)); } return realWFS.call(this, f, data, ...rest); };
+        try { return sendertoken.compactEnded({ force: true }); } finally { fs.writeFileSync = realWFS; }
+      };
+    },
     'no hard link here (EXDEV)': () => {
       writeLive([line('a', T0), line('b', T0 + 5)]);
       return () => { const realLink = fs.linkSync; fs.linkSync = () => { throw Object.assign(new Error('EXDEV'), { code: 'EXDEV' }); }; try { return sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; } };
@@ -137,7 +145,7 @@ test('kosmos#5208: every way to stop leaves the live file as it was, and both bu
     assert.deepEqual(views(names, times), before, label + ': an answer changed');
   }
   // The ways that would stop every compaction from then on are said, once each, so a history that keeps growing can be traced.
-  for (const re of [/no longer compacted/, /could not be replaced/, /no hard link: EXDEV/]) {
+  for (const re of [/no longer compacted/, /could not be replaced/, /no hard link: EXDEV/, /could not be written to disk \(EWRITEBACK\)/]) {
     assert.equal(allSaid.filter((m) => re.test(m)).length, 1, 'not said exactly once: ' + re);
   }
 });
@@ -408,4 +416,37 @@ test('kosmos#5208: a sealed file that grew with its mtime unchanged is not delet
   try { sendertoken.compactEnded({ force: true }); } finally { fs.readFileSync = realRead; }
   assert.ok(fs.existsSync(f), 'a sealed file that grew after it was read was deleted (its mtime did not move)');
   assert.equal(sendertoken.endedSince(['same-ms'], iso(T0)), true);
+});
+
+test('kosmos#5208: a sealed name that is not a regular file (a pipe, a link to a device) refuses at once, never hangs', () => {
+  for (const make of [
+    (f) => require('node:child_process').execFileSync('mkfifo', [f]),
+    (f) => fs.symlinkSync('/dev/zero', f),
+  ]) {
+    reset();
+    fs.mkdirSync(DIR(), { recursive: true });
+    make(path.join(DIR(), 'sealed.1.1.ab.jsonl'));
+    assert.equal(sendertoken.endedSince(['anyone'], iso(T0)), null, 'a non-regular sealed file was read (or answered)');
+    writeLive([line('a', T0)]);
+    assert.equal(sendertoken.compactEnded({ force: true }).compacted, false, 'a compaction read a non-regular sealed file');
+  }
+});
+
+test('kosmos#5208: revokeIfUnchanged records the end without compacting under its session lock', () => {
+  reset();
+  const big = [];
+  for (let i = 0; big.join('\n').length <= sendertoken.ENDED_COMPACT_AT_BYTES; i++) big.push(line('n' + i, T0 + i));
+  writeLive(big);
+  const key = 'cleanup-me';
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  const file = path.join(sendertoken.DIR, key + '.json');
+  const OLD = Date.parse('2026-08-28T00:00:00Z');
+  fs.writeFileSync(file, JSON.stringify({ tokens: [{ token: 'x', instance: 'i', mintedAt: new Date(OLD).toISOString() }] }));
+  fs.utimesSync(file, OLD / 1000, OLD / 1000);
+  const r = sendertoken.revokeIfUnchanged(key, fs.lstatSync(file).mtimeMs, OLD);
+  assert.deepEqual(r, { ok: true }, 'fixture: the cleanup did not revoke');
+  assert.match(fs.readFileSync(LIVE(), 'utf8'), /"name":"cleanup-me"/, 'the end was not recorded');
+  assert.ok(fs.statSync(LIVE()).size > sendertoken.ENDED_COMPACT_AT_BYTES, 'it compacted under the session lock');
+  sendertoken.revoke('next-end');   // CONTROL: the next ordinary end compacts
+  assert.ok(fs.statSync(LIVE()).size < sendertoken.ENDED_COMPACT_AT_BYTES, 'CONTROL: the next end did not compact');
 });

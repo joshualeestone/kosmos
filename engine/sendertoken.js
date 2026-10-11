@@ -289,9 +289,9 @@ function appendEnded(sessionName) {
    appended anyway, unlocked, and nothing is compacted: losing an end is the dangerous direction (the removal check would
    then allow); an uncompacted history is not. While a compaction holds the lock this can wait up to LOCK_WAIT_MS, on
    every revoke and create. */
-function noteEnded(sessionName) {
+function noteEnded(sessionName, opts = {}) {
   try {
-    const held = withFileLock(endedLogFile(), () => { appendEnded(sessionName); compactEnded(); }, {
+    const held = withFileLock(endedLogFile(), () => { appendEnded(sessionName); if (opts.compact !== false) compactEnded(); }, {
       busy: 'the history of ended agents is busy', cannotAccess: 'we could not lock the history of ended agents',
     });
     if (!held.ok) appendEnded(sessionName);
@@ -346,14 +346,25 @@ function sealedFiles() {
   try { names = fs.readdirSync(endedDir()); } catch (e) { if (e && e.code === 'ENOENT') return []; throw e; }
   return names.filter((n) => SEALED_RE.test(n)).sort().map((n) => path.join(endedDir(), n));
 }
+/* A sealed file's text, read only if it is a regular file (lstat, so a link is not followed): anything else under that
+   name (a pipe, a link to a device) could block or flood the reader, and is refused as unreadable instead. A file gone
+   meanwhile throws ENOENT, as a read would. */
+function readSealed(f) {
+  const st = fs.lstatSync(f);
+  if (!st.isFile()) throw Object.assign(new Error('not a regular file'), { code: 'ENOTREG' });
+  return fs.readFileSync(f, 'utf8');
+}
 function compactedBytesFile() { return path.join(endedDir(), 'compacted-bytes'); }
 function writeFlushed(file, text, mode) {
   const fd = fs.openSync(file, 'wx', mode);
   try {
-    fs.writeSync(fd, text);
+    fs.writeFileSync(fd, text, 'utf8');   // loops on a short write (writeSync once would not)
     try { fs.fchmodSync(fd, mode); } catch { /* the umask may have narrowed it; best effort */ }
     securewrite.flushOrThrow(fd);
   } finally { fs.closeSync(fd); }
+  /* This file replaces the security record, so it is read back and compared before anything trusts it: a disk that
+     filled partway, or any short or wrong write, stops the compaction here with every file as it was. */
+  if (fs.readFileSync(file, 'utf8') !== text) throw Object.assign(new Error('the written history does not read back the same'), { code: 'EWRITEBACK' });
 }
 /* Compact when the live file has grown `atBytes` past its size after the last compaction (or always, opts.force).
    Called under the live file's lock (noteEnded). Returns { compacted: true, removed } (removed: sealed files deleted),
@@ -366,15 +377,16 @@ function compactEnded(opts = {}) {
     let st; try { st = fs.statSync(live); } catch { return { compacted: false }; }
     /* The file's identity, to tell "still the file that was read" (step 3). The inode alone is not enough everywhere
        (on Windows Node reports it as a Number that can lose precision, and some file systems report 0), so the device
-       and birth time go with it: a replaced file differs in at least one where they are reported. Best effort where
-       none is. */
+       and birth time go with it. Best effort: NTFS can carry a name's old birth time over to a file renamed onto it.
+       A false "same file" loses nothing, since step 4 then puts the whole replaced file back (it no longer starts with
+       what was read). */
     const idOf = (x) => x.dev + ':' + x.ino + ':' + x.birthtimeMs;
     let base = 0; try { base = Number(fs.readFileSync(compactedBytesFile(), 'utf8')) || 0; } catch { base = 0; }
     if (base > st.size) base = 0;   // the live file shrank outside this code (a hand cleanup): measure from nothing
     if (opts.force !== true && st.size <= atBytes + base) return { compacted: false };
-    /* Every try that stops after the size check records the size it saw, so the next try waits for another `atBytes`
-       of growth instead of folding the whole history on every end (a torn line, an unreadable file, a flush or a rename
-       that keeps failing, no hard links). */
+    /* A try that stops after the size check records the size it saw (where it can write that), so the next try waits
+       for another `atBytes` of growth instead of folding the whole history on every end (a torn line, an unreadable
+       file, a flush or a rename that keeps failing, no hard links). */
     const gaveUp = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
     // 1. Read and fold. Any failure leaves every file as it was.
     const startedAt = Date.now();
@@ -382,8 +394,8 @@ function compactEnded(opts = {}) {
     let liveText;
     try {
       for (const f of sealedFiles()) {
-        let fst; try { fst = fs.statSync(f); } catch (e) { if (e && e.code === 'ENOENT') continue; throw e; }
-        read.push({ f, mtimeMs: fst.mtimeMs, size: fst.size, text: fs.readFileSync(f, 'utf8') });
+        let fst; try { fst = fs.lstatSync(f); } catch (e) { if (e && e.code === 'ENOENT') continue; throw e; }
+        read.push({ f, mtimeMs: fst.mtimeMs, size: fst.size, text: readSealed(f) });
       }
       liveText = fs.readFileSync(live, 'utf8');
     } catch { return gaveUp({ compacted: false }); }
@@ -490,14 +502,15 @@ function endedSince(names, sinceIso, opts = {}) {
      is in that sealed file either way. A sealed file deleted before it is read was folded into the live file that
      replaced it before the deletion, which the second live read sees. A missing file is none. */
   const texts = [];
-  const readOr = (f) => { try { texts.push(fs.readFileSync(f, 'utf8')); return true; } catch (e) { return !!(e && e.code === 'ENOENT'); } };
-  if (!readOr(endedLogFile())) return null;
+  const readOr = (f, read) => { try { texts.push(read(f)); return true; } catch (e) { return !!(e && e.code === 'ENOENT'); } };
+  const readLive = (f) => fs.readFileSync(f, 'utf8');
+  if (!readOr(endedLogFile(), readLive)) return null;
   let sealed; try { sealed = sealedFiles(); } catch { return null; }
-  for (const f of sealed) if (!readOr(f)) return null;
-  if (!readOr(endedLogFile())) return null;
+  for (const f of sealed) if (!readOr(f, readSealed)) return null;
+  if (!readOr(endedLogFile(), readLive)) return null;
   let sealedAfter; try { sealedAfter = sealedFiles(); } catch { return null; }
   const seen = new Set(sealed);
-  for (const f of sealedAfter) if (!seen.has(f) && !readOr(f)) return null;
+  for (const f of sealedAfter) if (!seen.has(f) && !readOr(f, readSealed)) return null;
   const raw = texts.join('\n');
   for (const line of raw.split('\n')) {
     if (!line) continue;
@@ -555,7 +568,9 @@ function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
       // A mint rewrites the file (temp then rename), so its mtime moves; the mintedAt check above covers a mount
       // whose mtime is too coarse to.
       if (st.mtimeMs !== mtimeMs) return { ok: false, because: 'written since the plan was made: kept' };
-      noteEnded(sessionName);   // #4475: a whole-file revoke ends the identity, as revoke() records it
+      // #4475: a whole-file revoke ends the identity, as revoke() records it. kosmos#5208: no compaction here, under the
+      // session lock, so the lock is never held through one; the next end compacts.
+      noteEnded(sessionName, { compact: false });
       return revokeUnlocked(sessionName);
     });
   } catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
