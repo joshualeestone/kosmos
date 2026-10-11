@@ -167,7 +167,12 @@ run_case() {
   local root state outp rc
   root="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$root/board.token"
   state="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$state"
-  outp="$(env "$@" MOCK_STATE="$state" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" \
+  # kosmos#5849: a case means exactly the variables it names. The caller's own are cleared first, or a "no override"
+  # case inherits an exported KOSMOS_STAGING_VERIFY_ALLOW_LIVE (or a raised MAX_EXISTING), the guard stands down, and
+  # the case goes red with nothing naming why. The "caller exports" case below is the control for this line.
+  outp="$(env -u KOSMOS_STAGING_VERIFY_ALLOW_LIVE -u KOSMOS_AGENT_ONLINE_MAX_EXISTING \
+    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING \
+    "$@" MOCK_STATE="$state" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" \
     KOSMOS_STORE_ROOT="$root" KOSMOS_PORT=19999 \
     KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 \
     bash "$CHECK" 2>&1)"
@@ -196,6 +201,9 @@ run_case "unexpected create-400 (not sign-in) -> cannot-tell" 2 MOCK_ACCOUNTS=bo
 run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
 run_case "populated fleet, no override -> REFUSE"       2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
 run_case "garbage MAX_EXISTING still guards a populated fleet" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_AGENT_ONLINE_MAX_EXISTING=abc
+# kosmos#5849 control: the caller has the override exported and the limit raised; a case that names neither still refuses.
+KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1 KOSMOS_AGENT_ONLINE_MAX_EXISTING=99 \
+  run_case "populated fleet, the CALLER exports the override and a raised limit -> still REFUSE" 2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
 run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 --expect "cannot count the fleet" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=status-garbage
 run_case "Claude ONLINE, OpenAI WEDGED -> PARTIAL (3, surface not auto-hold)" 3 --expect "PARTIAL" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=claude-ok-openai-wedge
 run_case "populated fleet WITH allow-live + online"     0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1
