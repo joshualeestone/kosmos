@@ -57,14 +57,14 @@ const unb64 = (s) => { try { const b = Buffer.from(String(s), 'base64url'); retu
 function readKeys(org, member) {
   let raw;
   try { raw = fs.readFileSync(fileFor(org, member), 'utf8'); }
-  catch (err) { return { ok: !!err && err.code === 'ENOENT', keys: {} }; }
+  catch (err) { return { ok: err.code === 'ENOENT', keys: {} }; }
   let got;
   try { got = JSON.parse(raw); } catch { return { ok: false, keys: {} }; }
   if (!got || got.org !== org || got.member !== member || !got.keys || typeof got.keys !== 'object') return { ok: false, keys: {} };
   const keys = {};
   for (const [e, k] of Object.entries(got.keys)) {
     const sk = unb64(k && k.sk), pk = unb64(k && k.pk);
-    if (!/^[1-9][0-9]*$/.test(e) || !sk || !pk) return { ok: false, keys: {} };
+    if (!/^[1-9][0-9]*$/.test(e) || !Number.isSafeInteger(Number(e)) || !sk || !pk) return { ok: false, keys: {} };
     keys[e] = { sk, pk, registered: k.registered === true };
   }
   return { ok: true, keys };
@@ -166,8 +166,11 @@ async function ensureNow(opts) {
       if (theirs !== undefined) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
       // The write below comes before the next send, so the key is on disk before Kosmos+ can take it at `next`.
       // The lost epoch's key is not this computer's; the new epoch gets the same unregistered key, kept before it is sent.
-      keys[next] = { sk: keys[epoch].sk, pk: keys[epoch].pk, registered: false };
-      delete keys[epoch];
+      // next can equal epoch (the current epoch moved under this send): then it is the same key again, nothing moved.
+      if (next !== epoch) {
+        keys[next] = { sk: keys[epoch].sk, pk: keys[epoch].pk, registered: false };
+        delete keys[epoch];
+      }
       writeKeys(company.org, company.member, keys);
       epoch = next;
       moved = true;
