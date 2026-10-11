@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: tellstate-5836
-diff_hash: 10530f9594d69a760b6410f6ca0c74f0809a3e091e87eeafd09d7599ea07fb84
+diff_hash: 8a0a0e4a10b692756c3a255f53e833c7081b4f9b24ed6b0390537d24a8317e67
 validation: pending (full suite not run locally: Agent1s queue busy; the PR's GitHub CI runs it. Focused on the final head, branch even with origin/main: 293 pass, 0 fail across the card's tests, the task/ran tests, the CLI parity and help pins, doctrine/defaults, agent-token gate, fixture-discipline, brand/name refs, sandbox, the three Windows guards; tools/test-kosmos-help-exit0-3036.sh 0 failures; browser-check surface and coarse gates pass)
 subdir_audit: passed
-timestamp: 2026-10-11T11:32:54Z
+timestamp: 2026-10-11T11:34:16Z
 iterations: 2
 converged: true
 ---
@@ -32,6 +32,9 @@ converged: true
 - [WARNING] `--` became part of the told text --> FIXED (-- ends options on both)
 - [NIT] noteProblem's comment displaced --> FIXED
 - [NIT] paneless spelling can refuse a bare told (fails safe); verified.at vs lastRunAt on a duplicate --> ACCEPTED
+
+### After the loop
+- A design-shots screen, task-told-5836, added for the house screenshot rule (docs/browser-checks/mobile-shots.js + README line); test-only, not re-reviewed. tools.mobile-shots-desktop and browser-checks-reason-grep pass; both browser-check gates pass.
 
 ### Mutation checks
 - engine duplicate-keeps-reading removed: the duplicate test FAILS; server vs_told-from-sent removed together with it: FAILS (the server half alone is a second line of defence, not independently pinned)
