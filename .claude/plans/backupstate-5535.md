@@ -139,3 +139,17 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - Process slip: I ran the write-cap mutant BEFORE committing, and `git checkout` reverted my uncommitted header edits
   with it (memory feedback-git-checkout-discards-all-uncommitted, my own rule). Re-applied from the same text, then
   committed.
+
+## Review 9 (sonnet, blind, on 4a1816504): NOT CONVERGED
+- FIXED (WARNING): "a refused file is never overwritten" was a promise, not a check: a caller falling back to a fresh
+  state after a refused or retry read would have replaced the file and lost both weeks' keys. writeState now refuses to
+  replace an existing file unless it is a plain file whose first bytes are this module's for (org, member) (v, org,
+  member are written first); a passing read error throws with retry. After discardState there is no file, so it writes.
+  Reads only the first bytes. Tests: a corrupt and a foreign file refused and left byte-identical; discard then write;
+  EBUSY refused with retry; a link refused and left; our own file replaced (control). Mutants red: the check removed,
+  isFile, the head comparison, retry forced false.
+- FIXED (NIT): the header bounds EACCES/EPERM retries (lasting on POSIX: a caller tells the person after a few).
+- FIXED (NIT): the leftOut-not-persisted assertion now reads the file's keys (it could not fail before); the cap test
+  writes and reads a full slot back and asserts leftOut 1.
+- Process: the clean-tree guard went first this time; three multi-line mutant specs broke the syntax (caught by
+  node --check, nothing lost), redone on one line.
