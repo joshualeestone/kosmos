@@ -47210,6 +47210,7 @@ function paintAsk() {
     const word = askEsc(askBrowserWord(here.name));
     after.unshift('<div class="askrow done"><p class="askok">' + word + ' on this computer is connected.</p>' +
       '<p>This computer opened it, signed in to your account, so it did not ask you. Not yours? Undo turns it away.</p>' +
+      (ASK.hereSaid ? '<p class="askwait">' + askEsc(ASK.hereSaid) + '</p>' : '') +
       '<div class="acts"><button class="btn quiet" type="button" data-ask="here-undo" data-id="' + askEsc(here.device_id) + '" aria-label="Undo: disconnect ' + word + ' on this computer">Undo</button>' +
       '<button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(here.device_id) + '">Got it</button></div></div>');
   } else if (ASK.hereSaid) {
@@ -47227,7 +47228,9 @@ async function askAct(act, id) {
   if (act === 'here-undo') {
     let res = null;
     try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
-    if (res && res.ok) { ASK.hereGone = id; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
+    const said = res && res.ok ? await res.json().catch(() => null) : null;
+    if (res && res.ok && !(said && said.timed_out)) { ASK.hereGone = id; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
+    else if (res && res.ok) { ASK.hereGone = id; ASK.hereSaid = 'Disconnecting is taking a while. Check it is gone under Devices.'; }
     else ASK.hereSaid = 'We could not disconnect it. Try again, or remove it under Devices.';
     for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
     paintAsk();

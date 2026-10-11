@@ -194,17 +194,17 @@ function secureStateDir() {
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: true };
-    return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false };
+    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: true };
+    return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false }; }
+  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false }; }
   // A JSON array passes `typeof === 'object'`, but that is harmless HERE, unlike
   // in heartbeat-setting: `on` below is read as `parsed.on === true` (an explicit
   // true test), never defaulted to true, so an array reads off -- the safe value
   // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
   // guard because heartbeat DID default true; this copy needs no Array.isArray.
-  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false };
+  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false };
   return {
     on: parsed.on === true,
     relay: typeof parsed.relay === 'string' ? parsed.relay : '',
@@ -631,6 +631,7 @@ function tracked(p) {
 }
 function setOn(on) {
   if (typeof on !== 'boolean') return { ok: false, because: 'that has to be on or off' };
+  if (!on) stopVouch();   // kosmos#5786 (b): off ends an open-browser secret at once
   // #3827: Forget stops the tunnel, then waits on the retire; turning on in that
   // wait would start one from the key it is about to delete. And a register still
   // out may already have written the certificate: a second tunnel would start
@@ -1157,7 +1158,7 @@ async function forgetNow() {
   stopChild();
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
-  write({ on: false }, { repair: true });
+  write({ on: false, vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
   flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
@@ -1690,12 +1691,13 @@ function allowSelfQuietly() {
 }
 /* kosmos#5786 (b) (Josh, 2026-10-10 14:02: "this should automatically just allow since i am on this computer"): after
    this computer signs in, it may open the default browser at the sign-in page with #allow=<S>, where S is a secret
-   minted here and kept only in this process. That page, signed in as the person, sends the coordinator
+   minted here, in memory (it also passes through the opener's argv and the browser's history). That page, signed in as the person, sends the coordinator
    HMAC-SHA256(S, its own device id), never S. The tunnel's snapshot carries that back as the row's `vouch`, and this
    computer allows the ONE row whose vouch it can reproduce.
    What it proves: the device asking holds a session on this account AND was opened by this computer in the last
-   VOUCH_WINDOW_MS. The coordinator never sees S, so a coordinator (or anyone holding it) cannot produce a matching
-   vouch, and a stranger with a stolen match code has no S (#3311).
+   VOUCH_WINDOW_MS; a stranger with a stolen match code has no S (#3311). The residual Josh accepted (10-10 19:04):
+   the coordinator serves the page that reads S, so a compromised coordinator could vouch for one device of its own
+   inside the window (kosmos-relay docs/coordinator-api.md, device-vouch).
    What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
    The browser is opened only once the snapshot holds a phone or browser request from the last VOUCH_RECENT_S, so an
    app-only sign-up never gets a stray sign-in tab. A joining computer is never allowed this way: computers pair by
@@ -1771,7 +1773,7 @@ function vouchTick() {
     .then((r) => {
       if (vouchState !== v || !r || !r.ok) return;
       stopVouch();
-      const kept = Object.entries({ ...read().vouched, [id]: { at: Math.floor(Date.now() / 1000), name } })
+      const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
         .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
       const saved = write({ vouched: Object.fromEntries(kept) });
       if (!saved.ok) process.stderr.write('kosmos+: allowed the browser this computer opened, but could not note it: ' + saved.because + '\n');
@@ -1877,7 +1879,7 @@ async function devicesList() {
   const r = parseSaid(await setupRun(deviceArgs('list', null, false)));
   if (!r.ok) return r;
   const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
-  const vouched = read().vouched;
+  const vouched = read().vouched || {};
   return { ok: true, because: null, data: { devices: list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
     .map((d) => ({
@@ -1960,8 +1962,9 @@ async function deviceRemove(id) {
 }
 /* kosmos#5786 (b): a removed device (the notice's Undo, or the list's Remove) is no longer "on this computer". */
 function forgetVouched(id, answer) {
-  if (answer && answer.ok && read().vouched[id]) {
-    const { [id]: _gone, ...rest } = read().vouched;
+  const vouched = read().vouched || {};
+  if (answer && answer.ok && vouched[id]) {
+    const { [id]: _gone, ...rest } = vouched;
     write({ vouched: rest });
   }
   return answer;
@@ -2862,10 +2865,13 @@ async function signinRegister(name) {
     const have = address();
     if (have && have.split('.')[0] === name) {
       /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
+      // kosmos#5786 (b): only when this call spent a real sign-in (the code steps). A Try again with Kosmos+ already on
+      // (no session) does not mint a secret, so no local caller can re-open the browser by repeating it.
+      const spentSignin = !!(signinSession && typeof signinSession.token === 'string');
       turnOnAfterSignin();
       ensure(localPort);
       signinSession = null;
-      startVouch();   // kosmos#5786 (b)
+      if (spentSignin) startVouch();
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
       // uniform shape (always a standing key) is easier for the wizard than a

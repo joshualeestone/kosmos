@@ -4297,6 +4297,10 @@ test('#5786 (b) CONTROLS: a wrong vouch, a joining computer and this computer\'s
   remote.vouchTickForTests();
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual(allowsOf().slice(before).filter((x) => x !== self), [], 'a row was allowed without its own vouch');
+  // This computer's own sign-in may be allowed by allowSelfQuietly (#4610, under its own name), never by the vouch path,
+  // which passes the ROW's name ('this computer' here).
+  assert.ok(!recorded().slice(-20).some((a) => a[0] === 'devices' && a[1] === 'allow' && a.includes(self) && a.includes('this computer')),
+    'the vouch path allowed this computer\'s own sign-in');
   assert.ok(remote.vouchSecretForTests(), 'the secret is still live after only bad vouches');
   // The arm that must work, on the same tick shape, so the controls above are not passing by never matching.
   plant([{ device_id: 'dev-recent', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-recent') }]);
@@ -4316,5 +4320,48 @@ test('#5786 (b): removing a vouched device (Undo) drops its "on this computer" n
   assert.equal(r.ok, true, r.because);
   assert.equal(remote.read().vouched['dev-undo'], undefined, 'the note survived the Undo');
   assert.equal(remote.pendingDevices().connected_here, null, 'the notice still offers an Undo for a removed device');
+  remote.setOn(false);
+});
+
+test('#5786 (b): a secret ends on Sign out and on switching off, and an old request or a plain-http coordinator opens nothing', async () => {
+  let r = await vouchSignedIn('vouchend1');
+  remote.signinCancel();
+  assert.equal(remote.vouchSecretForTests(), null, 'Sign out left the secret live');
+  r = await vouchSignedIn('vouchend2');
+  remote.setOn(false);
+  assert.equal(remote.vouchSecretForTests(), null, 'switching off left the secret live');
+  // An old request (an hour ago) is not "the person, a moment ago": no browser opens.
+  r = await vouchSignedIn('vouchend3');
+  r.plant([{ device_id: 'dev-old', name: 'Mac · Safari', first_seen: nowS() - 3600, code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'an hour-old request opened the browser');
+  // CONTROL for the line above: a recent one does.
+  r.plant([{ device_id: 'dev-new', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: a recent request opens the browser');
+  remote.setOn(false);
+  // A coordinator that is plain http and not loopback: the secret is dropped rather than sent in the clear.
+  const before = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://coordinator.example.test';
+  try {
+    remote.resetForTests();   // the earlier arms' opened URL must not be read as this one's
+    r = await vouchSignedIn('vouchend4');
+    r.plant([{ device_id: 'dev-http', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6' }]);
+    remote.vouchTickForTests();
+    assert.equal(remote.vouchOpenedUrlForTests(), '', 'a plain-http coordinator was opened with the secret');
+    assert.equal(remote.vouchSecretForTests(), null, 'the secret stayed live with nowhere safe to send it');
+  } finally {
+    if (before === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = before;
+  }
+  remote.setOn(false);
+});
+
+test('#5786 (b): a register Try again with no sign-in session does not mint a new secret (no local re-open)', async () => {
+  const { secret } = await vouchSignedIn('vouchretry');
+  // The same name again, Kosmos+ on, no code steps: the already-this-computer path answers, and mints nothing.
+  const again = await remote.signinRegister('vouchretry');
+  assert.equal(again.ok, true, again.because);
+  assert.equal(again.data && again.data.alreadySetUp, true, 'premise: the already-set-up path answered');
+  assert.equal(remote.vouchSecretForTests(), secret, 'a Try again with no session minted a new secret');
   remote.setOn(false);
 });
