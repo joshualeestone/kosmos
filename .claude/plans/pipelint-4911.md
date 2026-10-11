@@ -127,3 +127,13 @@ kind refuses a correct line: a false positive, the safe direction for a guard.
   comment no longer claims they all succeed; the "comment between" fixture no longer has the status variable on the
   comment line; this plan says the mutations were run by hand.
 - Sweep: 0 flagged under BSD awk and mawk; controls hold.
+
+## Review 8 (sonnet, blind, on a2d302940): no BLOCKER; about 55 shapes probed, no filter-status escape found
+- FIXED (WARNING): an assignment-only line counted a literal "$(" in single quotes, or a "$(...)" inside a "${...}"
+  default, as a command that ran; both read a constant 0. Single-quoted spans and ${...} are removed before that
+  test. Two fixtures; each mutant BAD.
+- FIXED (NITs): jobs bg fg break continue return exit pwd type history false listed (fixture for return; mutant BAD);
+  the test now runs the hook's region under /bin/sh, the hook's own interpreter.
+- NO CHANGE (NIT): an apostrophe in a comment or a double-quoted string makes opens() keep a pipe live, refusing a
+  correct line (the old lint refused it too; the safe direction; the tree sweep is 0). Covered by the quote-parity
+  residual above.

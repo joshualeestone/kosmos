@@ -21,7 +21,8 @@ case "$REGION" in *'awk '*) ;; *) echo "BAD  the marked region holds no awk prog
 
 # lint <file>: what the hook prints for it (empty = accepted).
 lint() {
-  FIX="$1" bash -c 'git() { cat "$FIX"; }; f=x.sh; eval "$1"; printf "%s" "$hits"' _ "$REGION"
+  # Under /bin/sh, the interpreter the hook runs under (#!/bin/sh), not bash.
+  FIX="$1" /bin/sh -c 'git() { cat "$FIX"; }; f=x.sh; eval "$1"; printf "%s" "$hits"' _ "$REGION"
 }
 flags() { [ -n "$(lint "$1")" ]; }
 
@@ -106,6 +107,9 @@ mustflag "an and-chain with a comment after it" "yarn test $P tail -5 &&  # then
 mustflag "a pipe-and-stderr continuation" "yarn test $P tee log $P&" "  tail -5; rc=$Q"
 mustflag "a quoted filter argument that closes on the status line" "out=\"\$(yarn test 2>&1 $P sed \"s/a/b/" "  s/c/d/g\")\"; rc=$Q"
 mustflag "a full path to an always-zero command" "yarn test $P tail -5" "/usr/bin/true; rc=$Q"
+mustflag "a single-quoted literal that only looks like a substitution" "yarn test $P tail -5" "v='\$(x'; rc=$Q"
+mustflag "a substitution that only runs as a default" "yarn test $P tail -5" "x=\${y:-\$(true)}; rc=$Q"
+mustflag "return owns no status" "yarn test $P tail -5" "return; rc=$Q"
 
 # The file the finding was about, as it is in this tree.
 if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then
