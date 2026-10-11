@@ -2891,8 +2891,14 @@ function agentBirthOf(name) {
   let births;
   try { births = create.createdLog(); } catch { return null; }
   if (!Array.isArray(births)) return null;
-  // kosmos#5208: the rule lives in create.newestBirthBySlug, which the prune of ended-agents.jsonl reads too.
-  return create.newestBirthBySlug(births).get(want) || null;
+  let newest = null;
+  for (const b of births) {
+    if (!b || (b.outcome !== 'created' && b.outcome !== 'partial') || !b.name) continue;
+    let slug = (typeof b.slug === 'string' && b.slug) ? b.slug : null;
+    if (!slug) { try { slug = create.slugFor(b.name); } catch { slug = String(b.name); } }
+    if (slug === want) newest = b;
+  }
+  return newest;
 }
 /* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
    (tokenOnlyRemoveRefusal answers null for yes, or the sentence to refuse with.)

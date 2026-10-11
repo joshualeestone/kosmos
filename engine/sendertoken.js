@@ -273,18 +273,26 @@ function othersTokens(held, sessionName) {
    creator re-issued its name keeps what it made. The births it is compared with record the board name each create
    acted on (`slug`), so a name here and a birth there are the same spelling. */
 function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
+/* kosmos#5208: the history is three kinds of file, all read by endedSince. The LIVE file above is the only one appended
+   to. ENDED_DIR holds `compact.jsonl`, the newest line per name from everything compacted so far, and `sealed.*.jsonl`,
+   former live files waiting to be folded in. Nothing that is appended to is ever rewritten or deleted promptly, so no
+   end can be lost to a compaction: see compactEnded. setup-assistant.js denies token-only agents writes to ENDED_DIR. */
+const ENDED_DIRNAME = 'ended-agents.d';
+function endedDir() { return path.join(store.ROOT, ENDED_DIRNAME); }
+function endedCompactFile() { return path.join(endedDir(), 'compact.jsonl'); }
+const SEALED_RE = /^sealed\.[0-9]+\.[0-9]+\.[0-9a-f]+\.jsonl$/;
 function appendEnded(sessionName) {
   fs.mkdirSync(path.dirname(endedLogFile()), { recursive: true });
   // A leading newline too, so a line torn by an earlier failed write ends there and does not swallow this one.
   fs.appendFileSync(endedLogFile(), '\n' + JSON.stringify({ name: String(sessionName), at: new Date().toISOString() }) + '\n', 'utf8');
 }
-/* kosmos#5208: the append runs under a lock on the file, and so does pruneEnded, so a prune never rewrites the file
-   from a read that misses a line appended meanwhile. If the lock cannot be had, the line is appended anyway, unlocked,
-   and nothing is pruned: losing an end is the dangerous direction (the removal check would then allow), an unpruned
-   file is not. */
+/* The append runs under a lock on the live file, and so does compactEnded. If the lock cannot be had, the line is
+   appended anyway, unlocked, and nothing is compacted: the line lands in the live file or, if a compaction renamed it
+   meanwhile, in the sealed file it became, and endedSince reads both. Losing an end is the dangerous direction (the
+   removal check would then allow); an uncompacted history is not. */
 function noteEnded(sessionName) {
   try {
-    const held = withFileLock(endedLogFile(), () => { appendEnded(sessionName); pruneEnded(); }, {
+    const held = withFileLock(endedLogFile(), () => { appendEnded(sessionName); compactEnded(); }, {
       busy: 'the history of ended agents is busy', cannotAccess: 'we could not lock the history of ended agents',
     });
     if (!held.ok) appendEnded(sessionName);
@@ -295,77 +303,90 @@ function noteEnded(sessionName) {
   }
 }
 
-/* kosmos#5208: bound ended-agents.jsonl. endedSince's only caller, the token-only removal check (server.js
-   tokenOnlyRemoveRefusal), compares a line with the NEWEST birth of the target's name, and only when that birth was
-   made by an agent (`created` with `createdByName`): the target from after its `at`, the creator from its `askedAt`
-   on (inclusive). A birth written later is stamped later than every line already here. So a line strictly older than
-   every such newest birth's `askedAt` and `at` can never change an answer, and it is dropped once it is also older
-   than ENDED_KEEP_MS (the floor covers a clock that went back and a create still in flight, whose `askedAt` predates
-   its birth line). A removed agent's birth still counts: its removal line is what keeps ownership from coming back
-   on restore. Anything it cannot read whole makes it prune nothing. */
-const ENDED_PRUNE_AT_BYTES = 256 * 1024;
-const ENDED_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
-/* The cutoff (an ISO time; lines strictly older are droppable), or null to prune nothing. birthsRaw: the birth log's
-   text, '' when it does not exist. */
-function endedPruneCutoff(birthsRaw, nowMs) {
-  if (typeof birthsRaw !== 'string' || !Number.isFinite(nowMs)) return null;
+/* kosmos#5208: bound the history. endedSince(names, since) answers true when ANY line for those names is after `since`
+   (or at it), so for each name only its NEWEST line can decide an answer, for every `since`, strict or inclusive.
+   Keeping the newest line per name (by the largest `at`) therefore changes no answer, with no reference to births,
+   clocks or which agents exist. The file grows with distinct names, not with events.
+   HOW, so that no end is ever lost, even to an unlocked append or a compaction that wakes after its lock was stolen:
+   1. the live file is RENAMED to a new sealed file (atomic: later appends start a fresh live file, and an append that
+      opened the old one lands in the sealed file);
+   2. compact.jsonl is rewritten (temp file and rename) from itself plus every sealed file;
+   3. a sealed file is deleted only once it was read in this run and has not changed for SEALED_KEEP_MS. Until then it is
+      still read, so a stale compaction that overwrites compact.jsonl with older content cannot drop it.
+   Anything it cannot read whole stops it before step 2 (the sealed files stay, and are read). */
+const ENDED_COMPACT_AT_BYTES = 64 * 1024;
+let compactStuckSaid = false;
+const SEALED_KEEP_MS = 60 * 60 * 1000;
+function endedSlug(name) {
   const create = require('./create');   // lazy: create.js requires this file
-  // Read as createdLog reads it (a line that does not parse is skipped), so this sees exactly the births the check does.
-  const births = birthsRaw.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
-    .filter((e) => e && typeof e === 'object');
-  let cutoff = new Date(nowMs - ENDED_KEEP_MS).toISOString();
-  for (const b of create.newestBirthBySlug(births).values()) {
-    if (b.outcome !== 'created' || typeof b.createdByName !== 'string' || !b.createdByName) continue;   // never compared
-    for (const t of [b.askedAt, b.at]) {
-      if (typeof t !== 'string' || !ISO_MS.test(t)) return null;   // a time we cannot order: keep everything
-      if (t < cutoff) cutoff = t;
+  try { return create.slugFor(name) || ('raw:' + name); } catch { return 'raw:' + name; }
+}
+/* The newest line per name across `texts`, as the text of a history file, or null when any line cannot be read whole
+   (endedSince refuses on such a line; dropping it would turn that refusal into an answer). */
+function newestPerName(texts) {
+  const newest = new Map();
+  for (const raw of texts) {
+    for (const line of String(raw).split('\n')) {
+      if (!line) continue;
+      let r; try { r = JSON.parse(line); } catch { return null; }
+      if (!r || typeof r.name !== 'string' || typeof r.at !== 'string' || !ISO_MS.test(r.at)) return null;
+      const key = endedSlug(r.name);
+      const had = newest.get(key);
+      if (!had || r.at > had.at) newest.set(key, { name: r.name, at: r.at });
     }
   }
-  return cutoff;
+  const lines = [...newest.values()].map((r) => JSON.stringify(r));
+  return lines.length ? '\n' + lines.join('\n') + '\n' : '';
 }
-/* The history with the lines older than `cutoff` dropped, or null when any line cannot be read whole (endedSince
-   refuses on such a line, and dropping it would turn that refusal into an answer). */
-function pruneEndedText(raw, cutoff) {
-  if (typeof raw !== 'string' || typeof cutoff !== 'string' || !ISO_MS.test(cutoff)) return null;
-  const kept = [];
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    let r; try { r = JSON.parse(line); } catch { return null; }
-    if (!r || typeof r.name !== 'string' || typeof r.at !== 'string' || !ISO_MS.test(r.at)) return null;
-    if (r.at >= cutoff) kept.push(line);   // at the cutoff is kept: the creator check counts an end AT askedAt
-  }
-  return kept.length ? '\n' + kept.join('\n') + '\n' : '';
+function sealedFiles() {
+  let names;
+  try { names = fs.readdirSync(endedDir()); } catch (e) { if (e && e.code === 'ENOENT') return []; throw e; }
+  return names.filter((n) => SEALED_RE.test(n)).sort().map((n) => path.join(endedDir(), n));
 }
-/* Prune when the file has grown past `atBytes`. Called under the file's lock (noteEnded). The new text is written to a
-   temp file beside it and renamed over it, so endedSince, which reads without the lock, sees the old file or the new
-   one whole, never a truncated or missing one. Returns how many bytes it dropped, 0 when it pruned nothing. */
-function pruneEnded(opts = {}) {
+/* Compact when the live file has grown past `atBytes`. Called under the live file's lock (noteEnded). Returns
+   { compacted, removed } (removed: sealed files deleted), or { compacted: false } when it did nothing. Never throws. */
+function compactEnded(opts = {}) {
   try {
-    const file = endedLogFile();
-    const atBytes = Number.isFinite(opts.atBytes) ? opts.atBytes : ENDED_PRUNE_AT_BYTES;
-    let st; try { st = fs.statSync(file); } catch { return 0; }
-    if (st.size <= atBytes) return 0;
-    let births;
-    try { births = fs.readFileSync(require('./create').createdLogFile(), 'utf8'); }
-    catch (e) { if (e && e.code === 'ENOENT') births = ''; else return 0; }
-    const cutoff = endedPruneCutoff(births, Number.isFinite(opts.now) ? opts.now : Date.now());
-    if (!cutoff) return 0;
-    const raw = fs.readFileSync(file, 'utf8');
-    const next = pruneEndedText(raw, cutoff);
-    if (next === null || next.length >= raw.length) return 0;
-    const tmp = file + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
-    try {
-      fs.writeFileSync(tmp, next, { encoding: 'utf8', mode: st.mode & 0o777 });
-      fs.renameSync(tmp, file);
-    } catch (e) {
-      try { fs.unlinkSync(tmp); } catch { /* nothing to tidy */ }
-      return 0;
+    const live = endedLogFile();
+    const atBytes = Number.isFinite(opts.atBytes) ? opts.atBytes : ENDED_COMPACT_AT_BYTES;
+    const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+    let st; try { st = fs.statSync(live); } catch { return { compacted: false }; }
+    if (st.size <= atBytes) return { compacted: false };
+    fs.mkdirSync(endedDir(), { recursive: true });
+    const sealedName = 'sealed.' + Date.now() + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.jsonl';
+    fs.renameSync(live, path.join(endedDir(), sealedName));
+    const read = [];
+    for (const f of sealedFiles()) {
+      let fst; try { fst = fs.statSync(f); } catch { continue; }
+      read.push({ f, mtimeMs: fst.mtimeMs, text: fs.readFileSync(f, 'utf8') });
     }
-    return raw.length - next.length;
-  } catch { return 0; }
+    let compact = '';
+    try { compact = fs.readFileSync(endedCompactFile(), 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') return { compacted: false }; }
+    const next = newestPerName([compact, ...read.map((r) => r.text)]);
+    if (next === null) {
+      /* A line it cannot read whole stops every compaction from now on, so the history grows again; say so once per
+         process, naming the folder, so it can be found and cleaned (Angel's review). */
+      if (!compactStuckSaid) {
+        compactStuckSaid = true;
+        console.error('kosmos#5208: the history of ended agents holds a line that cannot be read whole, so it is no longer compacted and will keep growing (' + endedDir() + ')');
+      }
+      return { compacted: false, stuck: true };
+    }
+    const tmp = path.join(endedDir(), 'compact.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp');
+    try { fs.writeFileSync(tmp, next, 'utf8'); fs.renameSync(tmp, endedCompactFile()); }
+    catch { try { fs.unlinkSync(tmp); } catch { /* nothing to tidy */ } return { compacted: false }; }
+    let removed = 0;
+    for (const r of read) {
+      let fst; try { fst = fs.statSync(r.f); } catch { continue; }
+      if (fst.mtimeMs !== r.mtimeMs || now - fst.mtimeMs <= SEALED_KEEP_MS) continue;   // changed since read, or too new
+      try { fs.unlinkSync(r.f); removed++; } catch { /* still read; tried again next time */ }
+    }
+    return { compacted: true, removed };
+  } catch { return { compacted: false }; }
 }
 /* Did an agent whose name matches any of `names` (by slug, both sides) end AFTER `sinceIso` (or at it, when
-   `inclusive`)? true, false, or null when the history cannot be read (a missing file is none). Loose on purpose: a
+   `inclusive`)? true, false, or null when the history cannot be read (a missing file is none; kosmos#5208: the history
+   is the live file, the sealed files and compact.jsonl, all read). Loose on purpose: a
    caller uses true to REFUSE, so matching more names only refuses more. A line that does not parse, has no name, or
    has a time it cannot order may be an end that could not be written whole: the answer is then null (cannot tell),
    which the caller also refuses on, with its own words. Blank lines are skipped. */
@@ -377,8 +398,17 @@ function endedSince(names, sinceIso, opts = {}) {
   const want = new Set((names || []).map(slug).filter(Boolean));
   if (want.size === 0) return null;   // no name to look for: refuse rather than answer "nothing ended"
   const since = String(sinceIso);
-  let raw;
-  try { raw = fs.readFileSync(endedLogFile(), 'utf8'); } catch (e) { return (e && e.code === 'ENOENT') ? false : null; }
+  /* kosmos#5208: every file of the history, in an order that a compaction running meanwhile cannot slip a line past:
+     the LIVE file first (if a compaction renames it after this read, its lines are in what was read; if before, they
+     are in a sealed file listed next); then each SEALED file (one deleted before it is read was already folded into
+     compact.jsonl, which a compaction writes before it deletes); then compact.jsonl. A file that is missing is none. */
+  const texts = [];
+  const readOr = (f) => { try { texts.push(fs.readFileSync(f, 'utf8')); return true; } catch (e) { return !!(e && e.code === 'ENOENT'); } };
+  if (!readOr(endedLogFile())) return null;
+  let sealed; try { sealed = sealedFiles(); } catch { return null; }
+  for (const f of sealed) if (!readOr(f)) return null;
+  if (!readOr(endedCompactFile())) return null;
+  const raw = texts.join('\n');
   for (const line of raw.split('\n')) {
     if (!line) continue;
     let r; try { r = JSON.parse(line); } catch { return null; }
@@ -796,6 +826,6 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, revokeIfUnchanged, retire, endedSince, endedLogFile, pruneEnded, endedPruneCutoff, pruneEndedText,
-  ENDED_PRUNE_AT_BYTES, ENDED_KEEP_MS, holdsTokens, keyHoldsOthers, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
+  mint, revoke, revokeIfUnchanged, retire, endedSince, endedLogFile, endedDir, endedCompactFile, compactEnded, newestPerName,
+  ENDED_DIRNAME, ENDED_COMPACT_AT_BYTES, SEALED_KEEP_MS, holdsTokens, keyHoldsOthers, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
   NO_MATCH };   // #5333: exported so the CLIs' recovery hint is pinned to the one sentence (cli.token-refused-5333.test.js)
