@@ -46,6 +46,8 @@ test('no snapshot unless the key step answered ok, with a usable key', async () 
     assert.strictEqual(snapshot.calls.length, 0, what);
     assert.strictEqual(r.result.ok, false, what);
     assert.doesNotMatch(r.result.because, /Users/, `${what}: a thrown message is never passed on`);
+    assert.doesNotMatch(r.result.because, /snapshot/, `${what}: the key step's reason, not a snapshot failure`);
+    if (what === 'a refusal') assert.strictEqual(r.result.because, 'Kosmos+ did not answer');
   }
   // Control: the same stand-ins with a good answer do snapshot.
   const snapshot = snapper({ ok: true });
