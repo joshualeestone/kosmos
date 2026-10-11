@@ -1123,6 +1123,7 @@ async function forget() {
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
   stopVouch();   // kosmos#5786 (b): nor an open-browser secret
+  selfEpoch += 1;   // and an allow already out is not noted under the identity being forgotten
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1768,7 +1769,11 @@ function vouchTick() {
     v.opened = true;   // an opener still running after 5 s counts as opened (runCompanyOpener); the window still bounds S
     // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
     const url = vouchUrl(v.secret);
-    if (!url) { stopVouch(); return; }
+    if (!url) {
+      process.stderr.write('kosmos+: the sign-in page is not https here, so the browser is not opened to connect it; the Allow card stays\n');
+      stopVouch();
+      return;
+    }
     vouchOpenedUrl = url;
     runCompanyOpener(url).then((ok) => {
       if (ok || vouchState !== v) return;
@@ -1882,7 +1887,8 @@ function pendingDevices() {
   // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
   // still lists it (until its next poll).
   const here = recentlyVouched(settings);
-  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here };
+  // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows.
+  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
    of JSON. Other lines

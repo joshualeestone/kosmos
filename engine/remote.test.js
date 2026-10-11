@@ -4536,6 +4536,9 @@ test('#5786 (b): one device per secret, the code_wait and invalid-joining arms, 
   // Not shown as waiting once noted, even while the snapshot still lists it.
   assert.ok(!remote.pendingDevices().devices.some((d) => d.device_id === 'dev-a'), 'the device shows as waiting AND connected');
   assert.ok(remote.pendingDevices().devices.some((d) => d.device_id === 'dev-b'), 'CONTROL: another waiting device still shows');
+  // The same browser asking AGAIN (removed elsewhere; a newer first_seen than the note) is shown.
+  plant([{ device_id: 'dev-a', name: 'Mac · Safari', first_seen: nowS() + 5, code: 'VR-D6' }]);
+  assert.ok(remote.pendingDevices().devices.some((d) => d.device_id === 'dev-a'), 'a newer request from the noted browser was hidden');
   remote.setOn(false);
   // code_wait alone, and a joining_computer the display would null out, are never allowed.
   const r2 = await vouchSignedIn('vouchwait');
