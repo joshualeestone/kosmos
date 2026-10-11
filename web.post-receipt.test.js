@@ -588,15 +588,18 @@ test('#5800: Reopen posts the release for the room it was pressed in, then rerea
   const calls = [];
   let reopenAnswer = { status: 200, body: { ok: true } };
   let onReopen = () => {};
-  /* Only the two room routes answer; the page's own start-up requests never settle, as in every other test here. */
+  /* Project routes answer (any but the two room routes with a 404, so a wrong route fails fast rather than hanging);
+     the page's own start-up requests elsewhere never settle, as in every other test here. */
   const fetchImpl = (url, opts) => {
     const u = String(url);
     const m = (opts && opts.method) || 'GET';
-    if (!/^\/api\/project\/[^/]+\/room(\/reopen)?$/.test(u)) return new Promise(() => {});
+    if (!u.startsWith('/api/project/')) return new Promise(() => {});
     calls.push([u, m]);
     const isReopen = u.endsWith('/room/reopen');
     if (isReopen) onReopen();
-    const a = isReopen ? reopenAnswer : { status: 200, body: { ok: true, rows: [] } };
+    const known = /^\/api\/project\/[^/]+\/room(\/reopen)?$/.test(u);
+    const a = !known ? { status: 404, body: { ok: false, because: 'no such route' } }
+      : isReopen ? reopenAnswer : { status: 200, body: { ok: true, rows: [] } };
     return Promise.resolve({ ok: a.status < 300, status: a.status, json: () => Promise.resolve(a.body), text: () => Promise.resolve('') });
   };
   const scope = pageScope(fetchImpl);
