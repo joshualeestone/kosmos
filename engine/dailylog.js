@@ -78,7 +78,7 @@ function dayFromFileName(name) {
 const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
 const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
 
-/* kosmos#5855: a rolled-over conversation's earlier rows are only in a `.full` file beside its thread file
+/* kosmos#5855: a rolled-over conversation's rows from before the ones its fresh file carries are only in a `.full` file beside its thread file
    (`<thread file>.<stamp>.<pid>.<ms>[.<n>].full`), which the two patterns above do not match; its fresh thread file
    names that file in `continues`. This recognises the name: any thread file's name, a dot, `.full` at the end. That
    is deliberately wide (a stray file named this way counts): counting too much refuses a run, counting too little
@@ -99,6 +99,14 @@ const NAMES_AN_EARLIER_FILE = /"continues"\s*:\s*"[^"]/;
 /* What compileAll's summary says in `refused`, and the command's exit code for it (2 is a usage error). */
 const REFUSED_ROLLED_OVER = 'rolled-over';
 const EXIT_REFUSED = 3;
+/* How many file names of each kind a refusal prints before it says "and N more": enough to find the files, short
+   enough to read in a terminal. */
+const REFUSAL_NAMES_SHOWN = 10;
+/* A file name as a refusal prints it: quoted, and every character outside printable ASCII written as \\uXXXX, so
+   the output is printable ASCII whatever the name holds (a newline, a terminal escape, a right-to-left mark). */
+function shownName(name) {
+  return JSON.stringify(String(name)).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+}
 
 /**
  * Classify a filename in the chats dir. Returns a descriptor or null for
@@ -309,7 +317,7 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
 
 /**
  * Read + parse every conversation file in a chats dir. Returns
- * `{ conversations, readable, readErrors, rolledOver, continued }`, all of which the caller
+ * `{ conversations, readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles }`, which the caller
  * needs to decide whether writing and pruning are safe:
  *   - `rolledOver` counts the `.full` files of rolled-over conversations (kosmos#5855),
  *     whose rows this function does NOT return. By name only: they are not opened.
@@ -405,7 +413,8 @@ function compileAll(opts = {}) {
   if (rolledOver > 0 || continued > 0) {
     return {
       conversations: conversations.length, messages: 0, days: 0, written: [], pruned: [], undated: 0,
-      readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles, refused: REFUSED_ROLLED_OVER, outDir,
+      readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles, refused: REFUSED_ROLLED_OVER,
+      chatsDir, outDir,
     };
   }
 
@@ -469,6 +478,7 @@ function compileAll(opts = {}) {
     rolledOverFiles,
     continuedFiles,
     refused: null,
+    chatsDir,
     outDir,
   };
 }
@@ -488,6 +498,7 @@ module.exports = {
   groupByDay,
   renderDay,
   readConversations,
+  shownName,
   compileAll,
 };
 
@@ -497,7 +508,8 @@ module.exports = {
 if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
     + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
-    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file named as the earlier part of a conversation (ending .full) or a conversation that points to one\n`;
+    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file named as\n`
+    + '  the earlier part of a conversation (ending .full) or a conversation that points to one\n';
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};
@@ -529,23 +541,20 @@ if (require.main === module) {
   if (summary.refused) {
     // kosmos#5855: say it on stderr, print no success line, and exit non-zero, so a scheduled run cannot read as
     // "compiled, nothing new".
-    // A file name is somebody's bytes: shown quoted and escaped (JSON), so one with a newline or a terminal escape in
-    // it cannot forge a line of this message or drive the terminal.
-    const MAX_SHOWN = 10;
-    const list = (names) => names.slice(0, MAX_SHOWN).map((n) => `  ${JSON.stringify(n)}\n`).join('')
-      + (names.length > MAX_SHOWN ? `  and ${names.length - MAX_SHOWN} more\n` : '');
+    const list = (names) => names.slice(0, REFUSAL_NAMES_SHOWN).map((n) => `  ${shownName(n)}\n`).join('')
+      + (names.length > REFUSAL_NAMES_SHOWN ? `  and ${names.length - REFUSAL_NAMES_SHOWN} more\n` : '');
     const earlier = summary.rolledOverFiles;
     const pointing = summary.continuedFiles;
     process.stderr.write('dailylog: not compiled. Nothing was written or removed. The daily files made before are '
       + 'still there, as they were, and so are the conversations.\n'
-      + 'Why: Kosmos keeps a very long conversation in two files, and this tool cannot read one kept that way. No '
-      + 'version of this tool can yet.\n'
-      + (earlier.length ? 'Files named as the earlier part of a conversation (the name ends in .full):\n' + list(earlier) : '')
-      + (pointing.length ? 'Conversations that point to an earlier part. Leave these where they are:\n' + list(pointing) : '')
-      + (earlier.length
-        ? 'If a file in the first list is not a Kosmos file (a copy someone made, say), move it out of the chats '
-          + 'folder and run this again. Otherwise there is nothing to do here.\n'
-        : 'There is nothing to do here.\n'));
+      + 'Why: this tool cannot read a conversation that continues from another file, and it stopped rather than '
+      + 'leave days out of the daily files. No version of this tool can read one yet.\n'
+      + `In ${summary.chatsDir}:\n`
+      + (earlier.length ? 'Files named as the earlier part of a conversation (a conversation file\'s name, then more, ending in .full):\n' + list(earlier) : '')
+      + (pointing.length ? 'Conversation files that point to an earlier part:\n' + list(pointing) : '')
+      + 'Leave these files where they are: Kosmos uses them. The one exception is a file ending in .full that you '
+      + 'know Kosmos did not make (a copy someone saved there, say); moving that one out lets this run. If unsure, '
+      + 'leave it.\n');
     process.exit(EXIT_REFUSED);
   }
   process.stdout.write(
