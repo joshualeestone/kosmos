@@ -251,3 +251,16 @@ test('#5805 3b review 7: an older row the board saw late does not hide a newer l
   for (let t = t17 + 60e3; t < t2102; t += 60e3) read(t, both, null, () => {});
   read(t2102, both, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'an older row kept the card capped past the newer limit\'s reset'));
 });
+
+test('#5805 3b review 8: a quoted limit line ending a turn never retires the real, binding row above it', () => {
+  const t0 = Date.parse('2026-10-10T16:00:00Z');
+  const weekly = `You've hit your weekly limit · resets Oct 14 at 12am ${Z}`;   // binding, days ahead
+  const quoted = `You've hit your session limit · resets 4pm ${Z}`;
+  const screen = '> hello\n' + `  ⎿  ${weekly}\n` + FOOTER
+    + '● Bash(cat old-capture.txt)\n' + `  ⎿  ${quoted}\n` + NEW_FOOTER + STATUS_LINE;   // the turn ended on the tool result
+  const out = status.retireResetLimits(screen, t0, () => t0 - 6 * 3600e3);
+  assert.ok(out.includes('weekly limit'), 'a quoted line under a tool call retired the binding weekly row');
+  // CONTROL: the same newer row straight under the person's prompt is a newer limit, and the older row goes.
+  const real = '> hello\n' + `  ⎿  ${weekly}\n` + FOOTER + '> again\n' + `  ⎿  ${quoted}\n` + NEW_FOOTER + STATUS_LINE;
+  assert.ok(!status.retireResetLimits(real, t0, () => null).includes('weekly limit'), 'CONTROL: a newer limit under a prompt did not retire the older row');
+});

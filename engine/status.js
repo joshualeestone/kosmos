@@ -2956,12 +2956,23 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const lastMenu = rows.reduce((at, row, i) => (CLAUDE_LIMIT_MENU_TITLE.test(row) ? i : at), -1);
-  /* #5805 slice 3b review 7: the last Claude Code limit row (its own turn footer below it). Every limit row above it
+  /* #5805 slice 3b review 7: the last "hit your ... limit" row Claude Code printed for a turn the person started (its
+     turn footer below it, and the person's prompt the nearest column-0 row above it). Every "hit your" row above that
      has been typed past (a newer turn ended on a newer limit), so it is retired whatever its reset: otherwise an older
      row the board saw late, untimed, stays on screen as the card's evidence (messageAt reads the first from the top)
-     and hides the newer limit's reset, so the newer limit is neither held nor ever retired. */
+     and hides the newer limit's reset, so the newer limit is neither held nor ever retired. Review 8: only a row
+     straight under a prompt counts as the newer limit; a quoted limit line in a tool result (under a "●" row) that
+     happens to end a turn must never retire the real, binding row above it. A limit hit mid-turn (after the agent's
+     own text) does not count either, and then the older row stays, as before. */
+  const underPrompt = (i) => {
+    for (let k = i - 1; k >= 0; k--) {
+      if (!rows[k].trim() || /^\s/.test(rows[k])) continue;
+      return /^>\s/.test(rows[k]);
+    }
+    return false;
+  };
   let lastLimit = -1;
-  rows.forEach((row, i) => { if (HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0) lastLimit = i; });
+  rows.forEach((row, i) => { if (HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0 && underPrompt(i)) lastLimit = i; });
   const drop = new Set();
   rows.forEach((row, i) => {
     if (!HIT_YOUR_LIMIT.test(row)) return;
