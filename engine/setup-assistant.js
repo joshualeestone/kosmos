@@ -741,7 +741,15 @@ function agentJobConfigDirs(workersRoot, platform) {   // platform: the guard's 
     if (!job && v && v.because && !v.absent && !v.masked) (out.failed = out.failed || []).push(`${name} (${v.because})`);
     // On macOS the reader says only job-or-null: a job file that EXISTS there and still read as none could not be read.
     else if (!job && v && !v.absent && !v.because && !v.win32 && !v.linux) {
-      try { fs.lstatSync(create.plistPath(name)); (out.failed = out.failed || []).push(`${name} (its job file is there but does not read as a job)`); } catch { /* absent: no job */ }
+      /* Review 18: a job file there that does not parse as a job (an old or hand-edited layout) is read for its config
+         home directly, as the reader would: covered, not named, so one odd file does not stop every creation. One with no
+         CLAUDE_CONFIG_DIR carries no config home of its own. Only a file that cannot be read at all is named. */
+      let text = null;
+      try { text = fs.readFileSync(create.plistPath(name), 'utf8'); } catch (e) {
+        if (!(e && e.code === 'ENOENT')) (out.failed = out.failed || []).push(`${name} (its job file is there but could not be read: ${(e && e.code) || e})`);
+      }
+      const m = text && /<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/.exec(text);
+      if (m) out.push(m[1]);
     }
     if (job && job.configDir && (job.runner || 'claude') === 'claude') out.push(job.configDir);
   }

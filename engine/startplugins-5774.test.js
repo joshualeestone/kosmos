@@ -617,3 +617,29 @@ test('#5774 route 5 review 17: a plugin folder under a fixed temp root (/tmp) is
   setup.guardTokenOnlyFolder(d3, 'pilot-slashtmp-control', { ...DEPS, tempRoots: [], env: { CLAUDE_CODE_PLUGIN_DIRS: plug } });
   assert.ok(editDeniedBy(readSettings(d3).permissions.deny, path.join(plug, 'x.js')).length > 0, 'control: denied whole');
 });
+
+test('#5774 route 5 review 18: a job file that does not parse as a job is read for its config home, not named; one that cannot be read is named', () => {
+  const base = path.join(fs.realpathSync.native(SANDBOX), 'r18');
+  const home = path.join(base, 'odd-home');
+  fs.mkdirSync(home, { recursive: true });
+  const odd = 'odd-r18';
+  fs.mkdirSync(path.join(SANDBOX, 'workers', odd), { recursive: true });
+  const plist = create.plistPath(odd);
+  // Too few arguments for the reader (an old or hand-edited layout), with a config home in its environment.
+  fs.writeFileSync(plist, `<?xml version="1.0"?><plist><dict><key>ProgramArguments</key><array><string>/bin/bash</string></array><key>EnvironmentVariables</key><dict><key>CLAUDE_CONFIG_DIR</key><string>${home}</string></dict></dict></plist>`);
+  try {
+    assert.equal(create.readJob(odd), null, 'the fixture must not parse as a job');
+    const d = agentDir('pilot-oddjob');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-oddjob', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(home, 'settings.json')).length > 0, 'its config home was not covered');
+    // With no config home in it: nothing to cover, and nothing named.
+    fs.writeFileSync(plist, '<?xml version="1.0"?><plist><dict><key>ProgramArguments</key><array><string>/bin/bash</string></array></dict></plist>');
+    const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-oddjob2'), 'pilot-oddjob2', { ...DEPS, env: ENV0 });
+    assert.equal(g2.ok, true, JSON.stringify(g2));
+    // Control: a job file there that cannot be read is named.
+    fs.chmodSync(plist, 0o000);
+    const g3 = setup.guardTokenOnlyFolder(agentDir('pilot-oddjob3'), 'pilot-oddjob3', { ...DEPS, env: ENV0 });
+    assert.ok(JSON.stringify(g3).includes(`${odd} (`), JSON.stringify(g3));
+  } finally { try { fs.chmodSync(plist, 0o644); } catch { /* gone */ } fs.rmSync(plist, { force: true }); }
+});
