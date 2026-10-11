@@ -3,6 +3,7 @@
  * later, or not confirmed), from the route's `delivered` list. A send that reached everyone adds nothing. Runs the
  * page's own tkSayPost against a stub DOM and fetch, as web.task-composer-768.test.js does.
  *   node --test web.task-say-outcome-5842.test.js */
+require('./test-support/tmpscope');   // #4273: first, so the sandbox folders below are removed when this file exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -77,13 +78,13 @@ test('#5842: an assignee switched off in the project is named, with how to switc
     { agent: 'mara', state: 'placed' },
     { agent: 'casey', state: 'could_not', because: 'casey is switched off in this project. Switch it on in the project\'s members to send it work here.' },
   ]);
-  assert.equal(r.said, 'casey is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.');
+  assert.equal(r.said, 'casey is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here. Your message stays on the task.');
   assert.doesNotMatch(r.said, /mara/, 'an agent that was told is listed');
 });
 
 test('#5842: an assignee no longer on the project is named', async () => {
   const r = await send([{ agent: 'casey', state: 'could_not', because: 'casey is not on this project any more, so it was not told' }]);
-  assert.equal(r.said, 'casey is not on this project any more, so it was not told.');
+  assert.equal(r.said, 'casey is not on this project any more, so it was not told. Your message stays on the task.');
 });
 
 test('#5842: a message Kosmos could not keep says so and claims no cause (full, unreadable, or kept behind)', async () => {
@@ -95,7 +96,7 @@ test('#5842: a message Kosmos could not keep says so and claims no cause (full, 
     'casey still has messages kept from while it was out of usage, and Kosmos could not keep this one for it, so it was not told',
   ]) {
     const r = await send([{ agent: 'casey', state: 'could_not', because }]);
-    assert.equal(r.said, 'Kosmos could not keep your message for casey, so it was not told.', 'for: ' + because);
+    assert.equal(r.said, 'Kosmos could not keep your message for casey, so it was not told. Your message stays on the task.', 'for: ' + because);
   }
 });
 
@@ -177,7 +178,7 @@ test('#5842: a delivery Kosmos could not confirm is never claimed either way', a
 
 test('#5842: an agent listed twice gets one line, the worst outcome, by its card name', async () => {
   const r = await send([{ agent: 'casey-bot', state: 'placed' }, { agent: 'casey-bot', state: 'could_not', because: 'casey-bot is not on this project any more, so it was not told' }], { project: NAMED });
-  assert.equal(r.said, 'Casey Rivera is not on this project any more, so it was not told.');
+  assert.equal(r.said, 'Casey Rivera is not on this project any more, so it was not told. Your message stays on the task.');
 });
 
 test('#5842: a task with no agent on it says nobody was told', async () => {
@@ -192,9 +193,9 @@ test('#5842: CONTROL: no delivered list (an older board) and a refused send beha
   assert.equal(refused.said, 'refused', 'a refusal no longer shows its error');
   const nameless = await send([{ state: 'could_not', because: 'x' }]);
   const lower = await send([{ agent: 'casey', state: 'unconfirmed' }, { agent: 'casey2', state: 'could_not', because: 'casey2 is not on this project any more' }]);
-  assert.equal(lower.said, 'Kosmos could not confirm that casey got it. casey2 is not on this project any more, so it was not told.', 'a real name was re-cased');
+  assert.equal(lower.said, 'Kosmos could not confirm that casey got it. casey2 is not on this project any more, so it was not told. Your message stays on the task.', 'a real name was re-cased');
   assert.equal(nameless.said, 'Kosmos could not reach an agent, so it was not told. Your message stays on the task.');
   const leading = await send([{ state: 'could_not', because: 'an agent is not on this project any more, so it was not told' }]);
-  assert.equal(leading.said, 'An agent is not on this project any more, so it was not told.', 'a line opening with the fallback name is not capitalised');
+  assert.equal(leading.said, 'An agent is not on this project any more, so it was not told. Your message stays on the task.', 'a line opening with the fallback name is not capitalised');
   assert.equal(refused.input.value, 'the price moved', 'a refusal cleared the draft');
 });
