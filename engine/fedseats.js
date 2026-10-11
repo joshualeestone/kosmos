@@ -281,7 +281,7 @@ function handleEvent(projectId, line, heldAt) {
       // #5191: the relay's stamp names a member this owner knows is revoked, and the post opened
       // under a key that member held: refused, grace or not. No stamp (an older relay): as before.
       if (sealed && sealed.role === 'owner' && isRevokedPost(sealed, ev.member, ev.data.epoch)) {
-        noteOnce(projectId, s, 'revokedPost', 'A message from someone removed from this shared project arrived after you removed them, so it was not shown.');
+        noteOnce(projectId, s, 'revokedPost', 'A message from someone you removed from this shared project was not shown.');
         return;
       }
       const fresh = freshMessage(s, opened, now);

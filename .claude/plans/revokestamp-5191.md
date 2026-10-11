@@ -33,6 +33,11 @@ new-key posts show.
 - A rotation that keeps a peer whose account it cannot name (pinned before this change, missing
   from the revoke's answer) records nothing, so that one revoke falls back to the 90 s grace:
   that peer might share a dropped account, and refusing its in-flight posts would be worse.
+- The stamp is the relay's word. A relay that stamped a kept member's post with a revoked account
+  could have that post refused (only on a key the revoked account held); it can already drop any
+  post, so this adds no power over delivery. A stamp that does not equal the edge's
+  member_account_id matches nothing and falls back to the grace (coordinator fed.rs: an outside
+  member's ticket member is its account id).
 - `revokedAccounts` is never pruned: one entry per account ever revoked from the room, so it is
   bounded by the room's invites, and it goes when the room is forgotten.
 - Between the remove and its own check answering (one request), the revoked member is still
