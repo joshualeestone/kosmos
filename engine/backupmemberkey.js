@@ -25,7 +25,9 @@
  * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
  * assumed (the board's own lock), and ONE computer per member: Kosmos+ answers backup-key only to the member's
  * enrolled computer (403 backup_not_member otherwise), so "another key holds this epoch" means this computer lost its
- * key, not that a second computer of the member registered one. A rotation or a fresh key re-reads the file first, so a key another process
+ * key, not that a second computer of the member registered one. That needs one key file per tunnel identity too: two
+ * data roots sharing one tunnel state (AGENT_WORKFORCE_TUNNEL_STATE, a test or development setup) would each read the
+ * other's key as lost. A rotation or a fresh key re-reads the file first, so a key another process
  * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected).
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
@@ -161,7 +163,9 @@ async function ensureNow(opts) {
       else if (code === 'member_key_wrong_epoch' && Number.isSafeInteger(r.refusal.currentEpoch) && r.refusal.currentEpoch >= 0) {
         // 0: no key is registered for this member at all (a kept key from an earlier epoch), so start at 1; if this send
         // was already epoch 1, there is nothing to move to and the refusal is answered.
-        next = r.refusal.currentEpoch === 0 ? (epoch === 1 ? null : 1) : r.refusal.currentEpoch + 1;
+        // currentEpoch equal to the epoch just sent can only be a race between sends: answer it, do not move.
+        next = r.refusal.currentEpoch === epoch ? null
+          : r.refusal.currentEpoch === 0 ? (epoch === 1 ? null : 1) : r.refusal.currentEpoch + 1;
       }
       if (moved || next === null || next > EPOCH_MAX) {
         return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer', ...(r && r.refusal ? { refusal: r.refusal } : {}) };
