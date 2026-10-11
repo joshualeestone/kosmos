@@ -30,6 +30,8 @@ test('a present marker (count >= 1) renders the notice: title, N, agents-kept-wo
   assert.match(s.innerHTML, /agents keep working/i, 'the reassurance that agents keep working is missing');
   // The action is quit-and-reopen (measured: "Update now" re-enters setup.sh's
   // pause block and aborts identically -- a dead button), never a type instruction.
+  // This page is unstamped, so it reads as a Mac. A Linux server has no window, and there the
+  // step IS a typed `kosmos restart` (#5860; pinned in web.win32-board-copy.test.js).
   assert.match(s.innerHTML, /quit and reopen Kosmos/i, 'the actionable, user-doable step is missing');
   assert.ok(!/update now|paste|install line|kosmos stop|in a terminal/i.test(s.innerHTML), 'the notice offered a dead button or a type instruction');
 });
