@@ -315,10 +315,34 @@ test('review 10: the write guard is readState itself: a body-corrupt file is ref
   bs.writeState(org, member, { job: { waits: 3 }, periods: [] });
   assert.deepEqual(bs.readState(org, member).state.job, { waits: 3 });
   // Ids with a quote, a backslash, a line separator, an emoji and a lone surrogate: written, read, replaced.
-  for (const odd of ['o"q', 'o\\b', 'o\u2028x', 'o\u{1F600}', 'o\ud800']) {
+  // A lone surrogate is refused (it would share a file with U+FFFD, review 11).
+  assert.throws(() => bs.writeState('o\ud800', 'm', { job: {}, periods: [] }), /well-formed/);
+  assert.throws(() => bs.readState('o\ufffd', 'm\udc00'), /well-formed/);
+  for (const odd of ['o"q', 'o\\b', 'o\u2028x', 'o\u{1F600}', 'o\ufffd']) {
     bs.writeState(odd, 'm', { job: {}, periods: [] });
     assert.equal(bs.readState(odd, 'm').ok, true, JSON.stringify(odd));
     bs.writeState(odd, 'm', { job: { waits: 2 }, periods: [] });
     assert.deepEqual(bs.readState(odd, 'm').state.job, { waits: 2 }, JSON.stringify(odd));
   }
+});
+
+test('review 11: a failed write says why (code, cause) and is retry only for a passing reason', () => {
+  const [org, member] = ids();
+  bs.writeState(org, member, { job: { waits: 1 }, periods: [] });
+  const before = fs.readFileSync(bs.fileFor(org, member), 'utf8');
+  const realRename = fs.renameSync;
+  try {
+    for (const [code, retry] of [['EBUSY', true], ['ENOSPC', false], ['EROFS', false]]) {
+      fs.renameSync = function () { const e = new Error('refused'); e.code = code; throw e; };
+      let caught;
+      try { bs.writeState(org, member, { job: { waits: 2 }, periods: [] }); } catch (err) { caught = err; }
+      assert.ok(caught, code);
+      assert.equal(caught.retry, retry, code); assert.equal(caught.code, code, code);
+      assert.ok(caught.cause, `${code}: the underlying error is kept`);
+      assert.match(caught.message, new RegExp(`\\(${code}\\)`));
+    }
+  } finally { fs.renameSync = realRename; }
+  assert.equal(fs.readFileSync(bs.fileFor(org, member), 'utf8'), before, 'a refused write leaves the old file');
+  bs.writeState(org, member, { job: { waits: 2 }, periods: [] });
+  assert.deepEqual(bs.readState(org, member).state.job, { waits: 2 }, 'control: unstubbed it writes');
 });

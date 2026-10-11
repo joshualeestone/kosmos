@@ -32,18 +32,21 @@
  *   falls back to a fresh state after a refused read cannot overwrite the good or set-aside-worthy file: it must
  *   discardState first (after which there is no file) or wait out the retry. "Plainly ours" is readState's own test, the
  *   whole file (review 10: a head-only check let a body-corrupt file be overwritten, and refused a reformatted good one),
- *   so a write costs one read first (about 250 ms at 70 MB). The window between that read and the rename is covered by
+ *   so a write costs one read first (measured: 251 ms for one full slot; about half a second at two, 70 MB). The window between that read and the rename is covered by
  *   the one-run-at-a-time duty (the folder is 0700: only this user can put a file there meanwhile). A passing error
- *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too.
+ *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too, and every
+ *   write error carries the underlying `code` and `cause` (a full disk, a read-only folder), so the caller can tell the
+ *   person why. EACCES and EPERM are retry on write as on read, and the same bounded-retry duty applies.
  * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the stored period whose label IS `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
  *   costing a run) and, defensively, of locks already ended (uploadManifest's own floor is stricter: a chunk must
  *   outlast the new manifest's lock, now + 30 days + 15 minutes; within one period every kept row does); otherwise a
- *   fresh period with a new naming key and an empty index. Nothing else: which label to run is the CALLER's decision, since only it sees takeSnapshot's answers (this
- *   clock's periodOf(now), or the coordinator's grantedPeriod after a newPeriod answer). Review history: five rounds of
- *   keeping a stored neighbouring period here each failed one way or the other. A kept EARLIER period can never
- *   deduplicate after the COORDINATOR's Monday 00:00 (its chunks' locks end before any new manifest's would, so uploadManifest refuses it,
- *   measured by review 6); a kept LATER one needs the coordinator's word, which only the caller has.
+ *   fresh period with a new naming key and an empty index.
+ *   Nothing else: which label to run is the CALLER's decision, since only it sees takeSnapshot's answers (this clock's
+ *   periodOf(now), or the coordinator's grantedPeriod after a newPeriod answer). Five review rounds of keeping a stored
+ *   neighbouring period here each failed one way or the other: a kept EARLIER period can never deduplicate after the
+ *   COORDINATOR's Monday 00:00 (its chunks' locks end before any new manifest's would, so uploadManifest refuses it,
+ *   measured by review 6), and a kept LATER one needs the coordinator's word, which only the caller has.
  *   What starting fresh costs: deduplication against the period left, never a restore (its naming key is inside every
  *   manifest stored in it). With both weeks kept (SLOTS), a run near Monday 00:00 that starts in its clock's week and is
  *   granted in the other resumes the other week's key and index, so what it costs is the first batch of each such run
@@ -92,6 +95,8 @@ const PERIOD_RE = /^[0-9]{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$/;
 const TRANSIENT = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES']);
 function ids(org, member) {
   if (typeof org !== 'string' || !org || typeof member !== 'string' || !member) throw new TypeError('backupstate: org and member must be non-empty strings');
+  // A lone surrogate hashes (as UTF-8, U+FFFD) to another id's file; refused like any other caller mistake.
+  if (!org.isWellFormed() || !member.isWellFormed()) throw new TypeError('backupstate: org and member must be well-formed text');
 }
 const NAME_RE = /^[0-9a-f]{64}$/;
 const HEX32_RE = /^[0-9a-f]{32}$/;
@@ -188,10 +193,15 @@ function writeState(org, member, state) {
   }
   const body = JSON.stringify({ v: 1, org, member, job: cleanJob(state && state.job), periods });
   mayReplace(org, member);
-  fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
-  try { require('./securewrite').writeSecret(fileFor(org, member), body, 0o600, { atomicOnly: true }); }
-  catch (err) { throw Object.assign(new Error('backupstate: the state file could not be written'), { retry: TRANSIENT.has(err && err.code) || TRANSIENT.has(err && err.cause && err.cause.code) }); }
+  try {
+    fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
+    try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
+    require('./securewrite').writeSecret(fileFor(org, member), body, 0o600, { atomicOnly: true });
+  } catch (err) {
+    const code = err && typeof err.code === 'string' ? err.code : undefined;
+    throw Object.assign(new Error(`backupstate: the state file could not be written${code && /^[A-Z0-9_]{1,32}$/.test(code) ? ` (${code})` : ''}`),
+      { code, cause: err, retry: TRANSIENT.has(code) || TRANSIENT.has(err && err.cause && err.cause.code) });
+  }
 }
 
 function forPeriod(state, label, opts = {}) {
