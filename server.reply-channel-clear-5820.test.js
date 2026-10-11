@@ -129,3 +129,30 @@ test('kosmos#5820: an agent that declared with no worker folder (any roster agen
   const again = await clear('rcc-folderless');
   assert.equal(again.status, 404, await again.clone().text());
 });
+
+test('kosmos#5820: a stranger\'s session holding a declared agent\'s name shows no channel (status.js\'s tie gate)', async () => {
+  const board = fleet.install([fleet.agent('rcc-stray', { state: 'idle', ours: false })]);
+  try {
+    const card = board.agents.find((c) => c.name === 'rcc-stray');
+    assert.ok(card, 'the fleet gave no card');
+    replychannel.set(card.sessionName, 'Discord', store);
+    assert.equal(declared(card.sessionName), 'Discord', 'fixture: the declaration was not stored');
+    const c = await cards();
+    assert.ok(c.has(card.sessionName), 'fixture: the stranger is not on the board');
+    assert.equal('replyChannel' in c.get(card.sessionName), false, 'a stranger\'s session showed the agent\'s channel');
+  } finally { board.restore && board.restore(); replychannel.set('rcc-stray', null, store); }
+});
+
+test('kosmos#5820: clearing a known agent with nothing declared writes nothing', async () => {
+  const { board, ada } = twoAgents();
+  try {
+    const file = path.join(process.env.AGENT_WORKFORCE_DATA, 'profiles');
+    const before = fs.existsSync(file) ? fs.readdirSync(file).sort().join(',') : '';
+    const stamp = (() => { try { return JSON.stringify(store.readProfile(ada)); } catch { return null; } })();
+    const r = await clear(ada);
+    assert.equal(r.status, 200, await r.clone().text());
+    assert.deepEqual(await r.json(), { ok: true, channel: null });
+    assert.equal(JSON.stringify(store.readProfile(ada)), stamp, 'a clear with nothing declared changed the profile');
+    assert.equal(fs.existsSync(file) ? fs.readdirSync(file).sort().join(',') : '', before, 'a clear with nothing declared created a file');
+  } finally { board.restore && board.restore(); }
+});

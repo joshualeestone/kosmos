@@ -7081,7 +7081,14 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(replyClear[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
     const rcMod = require('./engine/replychannel');
-    if (rcMod.forAgent(name) === null && !fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    /* Nothing declared: nothing to write. Answered 200 for a known agent (the page may race the agent's own clear),
+       and NEVER written: a write merges over readProfile, which answers {} for a profile it cannot read, so a clear
+       here would overwrite a damaged profile, or give a stray folder a profile it never had. */
+    if (rcMod.forAgent(name) === null) {
+      if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+      sendJson(res, 200, { ok: true, channel: null });
+      return;
+    }
     try { rcMod.set(name, null); }
     catch { sendJson(res, 500, { ok: false, because: 'Kosmos could not clear it just now' }); return; }
     sendJson(res, 200, { ok: true, channel: null });

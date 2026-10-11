@@ -7151,7 +7151,6 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 #d-linklost { color: var(--label-2); }   /* #5333: a state that means "your messages will not be answered", not helper text */
 #d-replychan { color: var(--label-2); }   /* #5820: the agent's declared reply channel, with Clear */
 #d-replychan-clear { margin-left: .4em; }
-#d-replychan-msg:empty { display: none; }
 #d-tokenguard { color: var(--label-2); }   /* #5668: the agent's token protection is not complete, or its shell may not run */
 .msg-menu { position: fixed; z-index: 40; min-width: 200px; padding: 4px; border: 1px solid var(--k-rule); border-radius: 8px;
             background: var(--k-surface); box-shadow: 0 8px 24px rgba(20,22,26,.16); }
@@ -12576,7 +12575,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #5820: where this agent says it answers you (#5805 part 2, `kosmos reply-channel`), and Clear. Kosmos cannot
            see an answer given there, so while it is declared the first-reply reminder stays quiet for this agent. -->
       <div class="fhint detail-replychan" id="d-replychan" hidden><span id="d-replychan-text"></span>
-        <button type="button" class="linkish" id="d-replychan-clear" data-agent="">Clear</button></div>
+        <button type="button" class="linkish" id="d-replychan-clear" data-agent="" aria-label="Clear the reply channel">Clear</button></div>
       <!-- Outside the line, so it is still there (and said) when a Clear that worked takes the line away. -->
       <p class="fhint" id="d-replychan-msg" role="status" aria-live="polite" tabindex="-1"></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
@@ -39297,9 +39296,11 @@ function paintDetailState(card) {
       const b = document.getElementById('d-replychan-clear');
       if (b && b.dataset.agent !== a.sessionName) { b.dataset.agent = a.sessionName; b.disabled = false; }
     }
-    // The last Clear's answer belongs to the agent it was for: gone on any other agent's page, channel or not.
+    // The last Clear's answer belongs to the agent it was for: gone on any other agent's page, channel or not. And a
+    // "Cleared" never stands beside a line that shows a channel (a poll that started before the clear, or the agent
+    // declaring again): the line is the newer truth.
     const m = document.getElementById('d-replychan-msg');
-    if (m && m.textContent && m.dataset.agent !== a.sessionName) { m.textContent = ''; m.dataset.agent = ''; }
+    if (m && m.textContent && (m.dataset.agent !== a.sessionName || (on && /^Cleared\./.test(m.textContent)))) { m.textContent = ''; m.dataset.agent = ''; }
   }
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
@@ -45500,7 +45501,7 @@ document.getElementById('d-replychan-clear').addEventListener('click', async (e)
     ok = res.ok && out && out.ok === true;
     because = (out && out.because) || '';
   } catch { ok = false; }
-  if (!here()) return;
+  if (!here()) { b.disabled = false; return; }   // re-armed, so coming back to this agent does not find it stuck
   if (!ok) {
     if (m) m.textContent = 'We could not clear it' + (because ? ': ' + because : '') + '. Try again.';
     b.disabled = false;

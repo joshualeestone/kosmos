@@ -112,3 +112,21 @@ test('#5820: a channel typed with a full stop does not read "on Discord., so"', 
     assert.match(els['d-replychan-text'].textContent, / on Discord, so /);
   } finally { fleet.restore(); }
 });
+
+test('#5820: a "Cleared" never stands beside a line that shows a channel (a stale poll, or a new declaration)', () => {
+  try {
+    const { ada } = cards();
+    const { els, paint } = page();
+    paint(ada);   // the page's elements exist once a paint has asked for them
+    els['d-replychan-msg'].textContent = 'Cleared. Kosmos will remind ada to answer your first message here again.';
+    els['d-replychan-msg'].dataset.agent = ada.sessionName;
+    paint({ ...ada, replyChannel: 'Discord' });
+    assert.equal(els['d-replychan'].hidden, false);
+    assert.equal(els['d-replychan-msg'].textContent, '', 'Cleared stood beside a shown channel');
+    // CONTROL: a failure message for the same agent stays beside the line (it is about that line).
+    els['d-replychan-msg'].textContent = 'We could not clear it. Try again.';
+    els['d-replychan-msg'].dataset.agent = ada.sessionName;
+    paint({ ...ada, replyChannel: 'Discord' });
+    assert.equal(els['d-replychan-msg'].textContent, 'We could not clear it. Try again.');
+  } finally { fleet.restore(); }
+});
