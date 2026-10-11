@@ -27,20 +27,23 @@ function canonicalId(id) {
   return String(id == null ? '' : id).toLowerCase().trim().replace(SAME_MODEL_SUFFIX, '');
 }
 
-/* Everything it reads, injectable for tests; production passes nothing. */
+/* Everything it reads, injectable. #5811: deps may be PARTIAL, the given ones overriding the real ones, so server.js
+   passes the planned model and the session from the snapshot it already read and keeps the rest. A key left out is
+   read for real, so a test that must not touch the machine passes all four. Each real read requires its module only
+   when it runs, so a caller that injects all four loads neither. */
 function realDeps() {
-  const create = require('./create');
-  const status = require('./status');
+  const create = () => require('./create');
+  const status = () => require('./status');
   return {
-    planned: (name) => create.plannedModelOf(name),
-    session: (name) => status.readGeminiSession(name),   // review 2: the one reader (its own account's home), not a copy
-    startedAt: (name) => status.sessionStartedAtFromTmux(name),
-    display: (id) => status.modelDisplayName(id),
+    planned: (name) => create().plannedModelOf(name),
+    session: (name) => status().readGeminiSession(name),   // review 2: the one reader (its own account's home), not a copy
+    startedAt: (name) => status().sessionStartedAtFromTmux(name),
+    display: (id) => status().modelDisplayName(id),
   };
 }
 
 function settingModelName(name, deps) {
-  const d = deps || realDeps();
+  const d = { ...realDeps(), ...(deps || {}) };
   let planned; let sess; let startedAt;
   try { planned = d.planned(name); } catch { return null; }
   // An alias picks a model by design, so there is no switch to report: a versionless one (auto, flash, pro) and, review 5,
@@ -57,4 +60,18 @@ function settingModelName(name, deps) {
   return started || null;
 }
 
-module.exports = { settingModelName, canonicalId };
+/* #5811: the decision for one snapshot row (engine/status.js), from what that tick's ONE session read already put on it:
+   the row's `geminiSeen` ({ model, modelAt, planned }), passed as `seen` because server.js takes it off the row before
+   the page gets it. No job read and no session read here. No `seen`
+   means the snapshot could not read the session, so there is nothing to say. `deps` reaches only the run start and the
+   display name: the planned model and the session always come from the row. */
+function settingModelNameOfRow(a, seen, deps) {
+  if (!a || !seen) return null;
+  return settingModelName(a.sessionName, {
+    ...(deps || {}),
+    planned: () => seen.planned,
+    session: () => ({ found: true, model: seen.model, modelAt: seen.modelAt }),
+  });
+}
+
+module.exports = { settingModelName, settingModelNameOfRow, canonicalId };

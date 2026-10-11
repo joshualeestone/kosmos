@@ -38,7 +38,8 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
  * ⚠️ Evaluating the whole script is also the only version that CANNOT drift:
  * there is no list of dependencies to keep in step with the page.
  */
-function pageScope() {
+/* fetchImpl (#5800): a stand-in network for a test that drives a handler; by default fetch never settles. */
+function pageScope(fetchImpl) {
   /* NON-GREEDY (*?), because the page carries more than one <script> region: the
      attributed theme-boot block, the main app script (the single BARE <script>),
      and #718's attributed push-client block. A greedy [\s\S]* runs to the LAST
@@ -92,9 +93,11 @@ function pageScope() {
     src[1] + `
     return { pjJoinNames, pjNameOf,
              pjReceiptSentence, pjOldEnoughToJudge, pjRoomRow, pjFoldRoomRows, PJ_SILENCE_AFTER_MS,
-             paintRoom, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; },
+             paintRoom, pjHeldReopenClick, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; },
+             current: () => PJ_CURRENT, setCurrent: (id) => { PJ_CURRENT = id; },
+             openProject, setProjects: (list) => { PROJECTS = list; },
              setLast: (cards) => { LAST = cards; } };`,
-  )(document, window, {}, () => new Promise(() => {}), () => 0, () => 0, () => {},
+  )(document, window, {}, fetchImpl || (() => new Promise(() => {})), () => 0, () => 0, () => {},
     function EventSource() {}, window.location, window.localStorage);
   return Object.assign(api, { written });
 }
@@ -562,4 +565,101 @@ test('#5752 slice 3: pressing Add adds that agent, repaints the room from what i
   const addRule = src.match(/\.msg-valve \.pj-refused-add \{[^}]*\}/);
   assert.ok(addRule, 'the base .pj-refused-add rule exists (so the next check is not vacuous)');
   assert.doesNotMatch(addRule[0], /nowrap/);
+});
+
+test('#5800: a held room shows one notice in the strip above the composer (why, who can end it, Reopen); an open room has none', () => {
+  const scope = pageScope();
+  scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
+  const because = 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.';
+  const band = { kind: 'valve', project: 'proj-1', because, at: ago(90) };
+  const later = { kind: 'post', operator: false, from: 'rick', at: ago(2), outcomes: {}, text: 'still going' };
+  const until = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+  scope.paintRoom({ ok: true, rows: [band, later], held: { at: band.at, because, until } });
+  const thread = scope.written['pj-room'];
+  const strip = scope.written['pj-held'];
+  assert.equal((strip.match(/data-reopen-room/g) || []).length, 1, 'exactly one Reopen in the strip: ' + strip);
+  assert.doesNotMatch(thread, /data-reopen-room/, 'the notice is in the scrolling thread, where a person scrolled up cannot see it');
+  assert.ok(thread.indexOf('bring you in') < thread.indexOf('still going'), 'the old band moved: it stays a record in its place');
+  assert.match(strip, /This room has reached its limit for agent posts, because it kept going back and forth without a result\. Your agents' posts will most likely not go through until you post something yourself or reopen the room\. Otherwise it should lift on its own by /);
+  assert.match(strip, /data-reopen-room="proj-1">Reopen the room<\/button>/, 'the button does not carry the room it was drawn for');
+
+  scope.paintRoom({ ok: true, rows: [band, later], held: { at: band.at, because, until: null } });
+  assert.doesNotMatch(scope.written['pj-held'], /should lift/, 'no until: no time promised');
+  assert.match(scope.written['pj-held'], /data-reopen-room/, 'CONTROL: still held, still the button');
+
+  scope.paintRoom({ ok: true, rows: [band, later] });
+  assert.equal(scope.written['pj-held'], '', 'CONTROL: with no held in the read, the strip is emptied');
+});
+
+test('#5800: Reopen posts the release for the room it was pressed in, then rereads it; a refusal says why and re-arms', async () => {
+  const calls = [];
+  let reopenAnswer = { status: 200, body: { ok: true } };
+  let onReopen = () => {};
+  /* Project routes answer (any but the two room routes with a 404, so a wrong route fails fast rather than hanging);
+     the page's own start-up requests elsewhere never settle, as in every other test here. */
+  const fetchImpl = (url, opts) => {
+    const u = String(url);
+    const m = (opts && opts.method) || 'GET';
+    if (!u.startsWith('/api/project/')) return new Promise(() => {});
+    calls.push([u, m]);
+    const isReopen = u.endsWith('/room/reopen');
+    if (isReopen) onReopen();
+    const known = /^\/api\/project\/[^/]+\/room(\/reopen)?$/.test(u);
+    const a = !known ? { status: 404, body: { ok: false, because: 'no such route' } }
+      : isReopen ? reopenAnswer : { status: 200, body: { ok: true, rows: [] } };
+    return Promise.resolve({ ok: a.status < 300, status: a.status, json: () => Promise.resolve(a.body), text: () => Promise.resolve('') });
+  };
+  const scope = pageScope(fetchImpl);
+  scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
+  const msg = { textContent: '', classList: { contains: (c) => c === 'pj-refused-msg' } };
+  let drawnFor = 'proj-1';
+  const btn = { disabled: false, nextElementSibling: msg, getAttribute: () => drawnFor };
+  const ev = { target: { closest: (sel) => (sel === '[data-reopen-room]' ? btn : null) } };
+
+  await scope.pjHeldReopenClick(ev);
+  assert.deepEqual(calls[0], ['/api/project/proj-1/room/reopen', 'POST'], 'the release did not go to this room\'s reopen route: ' + JSON.stringify(calls));
+  assert.deepEqual(calls[1], ['/api/project/proj-1/room', 'GET'], 'the room was not read again after the release: ' + JSON.stringify(calls));
+  assert.equal(msg.textContent, '', 'a successful release left a message beside the button');
+
+  calls.length = 0;
+  reopenAnswer = { status: 404, body: { ok: false, because: 'there is no project by that name' } };
+  btn.disabled = false;
+  await scope.pjHeldReopenClick(ev);
+  assert.equal(msg.textContent, 'We could not reopen the room: there is no project by that name. Try again, or post in the room.');
+  assert.equal(btn.disabled, false, 'a refused release left the button disabled');
+  assert.equal(calls.length, 1, 'CONTROL: a refused release reread the room as if it had worked: ' + JSON.stringify(calls));
+
+  /* The person moves to another room while the release is in flight: the release still names the room pressed in,
+     and the room on screen is not reread under the old room's name. */
+  calls.length = 0;
+  reopenAnswer = { status: 200, body: { ok: true } };
+  onReopen = () => scope.setCurrent('proj-2');
+  await scope.pjHeldReopenClick(ev);
+  assert.deepEqual(calls, [['/api/project/proj-1/room/reopen', 'POST']], 'after moving rooms mid-release: ' + JSON.stringify(calls));
+
+  /* A notice drawn for another room (left on screen across a switch) reopens nothing. */
+  calls.length = 0;
+  onReopen = () => {};
+  scope.setCurrent('proj-2');
+  drawnFor = 'proj-1';
+  await scope.pjHeldReopenClick(ev);
+  assert.deepEqual(calls, [], 'a notice drawn for another room reopened the room on screen: ' + JSON.stringify(calls));
+  drawnFor = 'proj-2';
+  await scope.pjHeldReopenClick(ev);
+  assert.deepEqual(calls[0], ['/api/project/proj-2/room/reopen', 'POST'], 'CONTROL: a notice drawn for this room reopens it');
+});
+
+test('#5800: switching rooms empties the hold strip, so the last room\'s notice never shows (or is pressed) under the next', () => {
+  const scope = pageScope();
+  const p1 = { id: 'proj-1', name: 'One', agents: P.agents };
+  const p2 = { id: 'proj-2', name: 'Two', agents: P.agents };
+  scope.setProjects([p1, p2]);
+  try { scope.openProject('proj-1'); } catch { /* the stub, past the clear (below) */ }
+  scope.paintRoom({ ok: true, rows: [], held: { at: null, because: null, until: null } });
+  assert.match(scope.written['pj-held'], /data-reopen-room="proj-1"/, 'CONTROL: the held room drew its notice');
+  /* This stub cannot run the whole of openProject (its composer sizing reads layout the stub does not have); the
+     strip is cleared first in the switch, so a throw after that point does not decide this test. */
+  try { scope.openProject('proj-2'); } catch { /* the stub, past the clear */ }
+  assert.equal(scope.current(), 'proj-2', 'CONTROL: the switch began');
+  assert.equal(scope.written['pj-held'], '', 'the last room\'s hold notice stayed on screen under the next room');
 });

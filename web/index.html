@@ -7071,6 +7071,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      box does not jump width during a file drag; only the FILL is gated
      :not(.dragging) so the #2868 gold drag tint still wins over it. */
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox, :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
+  /* #5800: the hold notice lines up with the box under it. */
+  :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .pj-held-strip { margin-left: 12px; margin-right: 12px; }
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
   :root:not([data-theme="light"]) body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root:not([data-theme="light"]) body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
   /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
@@ -7631,6 +7633,16 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    came from in the first place. */
 .dmbusy-room { display: flex; align-items: center; gap: 8px;
                font-size: .875rem; color: var(--k-ink-2); margin: 10px 0 0; }
+.pj-held-strip { margin: 0; }   /* #5800: the hold notice, at the top of the sticky composer (its column gap spaces it) */
+/* #5800: the notice sticks with the composer until the hold lifts, so on a short window, or with a phone's keyboard up,
+   its full reason would leave almost none of the conversation on screen. There the reason keeps three and a half lines
+   (the half line shows it scrolls) and scrolls inside itself; the Reopen button sits outside that scroll, so it is never
+   scrolled away. max-height reads the layout viewport, which a phone keyboard does not shrink, so the keyboard case is
+   keyed on html.kosmos-keyboard-up, which the visualViewport listener sets. */
+html.kosmos-keyboard-up .pj-held-why { display: block; max-height: 4.4em; overflow-y: auto; overscroll-behavior: contain; }
+@media (max-height: 700px) {
+  .pj-held-why { display: block; max-height: 4.4em; overflow-y: auto; overscroll-behavior: contain; }
+}
 .dmoff { margin-top: 12px; font-size: .8125rem; line-height: 1.45; color: var(--k-ink-2);
   border: 0.5px solid var(--border-strong); border-radius: var(--radius-control); padding: 8px 12px; }
 /* ⚠️ The question box is NOT red. It is a thing to answer, not a thing that has
@@ -10656,6 +10668,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    AND their generated forced-dark twins, which sit later in the sheet at the same weight. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox { margin-left: 0; margin-right: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .pj-held-strip { margin-left: 0; margin-right: 0; }   /* #5800: as the box under it */
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox:not(.dragging) { background: var(--nl-grey); }
 /* #4470, an agent's page in the new look: the agent's conversation in the project room's language above (Josh's v9
    drawing): on the page's own ground with no box (the talk box painted the surface, which the new look makes grey),
@@ -11111,6 +11124,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      box does not jump width during a file drag; only the FILL is gated
      :not(.dragging) so the #2868 gold drag tint still wins over it. */
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox, :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
+/* #5800: the hold notice lines up with the box under it. */
+:root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .pj-held-strip { margin-left: 12px; margin-right: 12px; }
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
 :root[data-theme="dark"] body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root[data-theme="dark"] body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
 /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
@@ -16557,6 +16572,11 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3745: "Replying to <name>: <first words>" with an x, while a reply is being written. -->
       <div class="pj-replying" id="pj-reply" hidden></div>
       <div class="composer">
+        <!-- #5800: while the loop guard holds the room, why, who can end it, and Reopen. INSIDE the sticky composer, not
+             between the thread and it: the composer sticks to the window's bottom, so a strip placed above it in the
+             flow sat UNDER it whenever the page was not scrolled to its end, which is how a held room opens (the
+             first design shots showed exactly that). Here it stays against the box you type into, however you scroll. -->
+        <div class="pj-held-strip" id="pj-held" hidden></div>
         <div class="composerbox">
           <!-- ⚠️ THE PLACEHOLDER CARRIES THE @name MECHANISM (Josh, 6.59 QA
                #2919), AND THE ARIA-LABEL IS NOT THE PLACEHOLDER. The
@@ -20854,6 +20874,15 @@ function stateReason(a, opts) {
   if (typeof a.poolUntil === 'string' && !(poolAt > Date.now())) return 'Waiting for the shared Google quota.'; // a stale card's past time is not said
   if (Number.isFinite(poolAt)) {
     return 'Waiting for the shared Google quota, reported to reset at ' + quotaResetWords(poolAt, Date.now()) + '.';
+  }
+  /* #5805 slice 3: a Claude agent out of usage, with the reset its limit line printed (engine claudeLimitUntil, dated
+     or not). Said only while it is ahead: past it, the line stays on its screen until something is typed, and a past
+     time is not said (as the quota arms above). */
+  const limitAt = typeof a.limitUntil === 'string' ? Date.parse(a.limitUntil) : NaN;
+  // The hedge below holds here too (#215): a time read off the screen is "looks like", a reported one is not.
+  if (limitAt > Date.now()) {
+    return (a.stateConfidence === 'scraped' ? 'Looks like a usage limit until ' : 'Out of usage until ')
+      + quotaResetWords(limitAt, Date.now()) + '.';
   }
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks
@@ -63896,6 +63925,11 @@ let PJ_DOCS_FILES = [];
 let PJ_DOCS_TOTAL = 0;
 let PJ_DOCS_PAGE = 0;
 const PJ_DOCS_PER = 50;
+/* One Files row's small line: size, date, and (#5812) the agent that changed it last when the board recorded one. */
+function pjDocMeta(f) {
+  return pjSize(f.size) + (f.modified ? ' · ' + new Date(f.modified).toLocaleDateString() : '')
+    + (typeof f.changedBy === 'string' && f.changedBy ? ' · changed by ' + f.changedBy : '');
+}
 function pjDocsPaintPage() {
   const box = document.getElementById('docs-list');
   const count = document.getElementById('docs-count');
@@ -63910,7 +63944,7 @@ function pjDocsPaintPage() {
     b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
     const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = f.name;
     const w = document.createElement('span'); w.className = 'pj-doc-w';
-    w.textContent = pjSize(f.size) + (f.modified ? ' · ' + new Date(f.modified).toLocaleDateString() : '');
+    w.textContent = pjDocMeta(f);
     b.append(n, w); box.append(b);
   }
   const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
@@ -65366,6 +65400,46 @@ async function pjRefusedAddClick(e) {
   if (composer) composer.focus();
 }
 document.getElementById('pj-room').addEventListener('click', pjRefusedAddClick);
+/* #5800: Reopen on the current hold's band. The same release as `kosmos room reopen` (#2710): it writes no post and
+   nothing to the agents, it only lets their next posts through. On success the room is read again, which drops the
+   button with the hold; a refusal says why beside the button, which can be pressed again. */
+async function pjHeldReopenClick(e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-reopen-room]') : null;
+  /* The room the notice was drawn for, never only the room on screen: a notice left from another room must not
+     reopen this one. */
+  const project = btn ? btn.getAttribute('data-reopen-room') : null;
+  if (!project || project !== PJ_CURRENT) return;
+  const msg = btn.nextElementSibling && btn.nextElementSibling.classList.contains('pj-refused-msg') ? btn.nextElementSibling : { textContent: '' };
+  btn.disabled = true;
+  msg.textContent = '';
+  let ok = false;
+  let because = '';
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(project) + '/room/reopen', { method: 'POST' });
+    const out = await res.json().catch(() => ({}));
+    ok = res.ok && out && out.ok === true;
+    because = (out && out.because) || '';
+  } catch { ok = false; }
+  if (!ok) {
+    msg.textContent = 'We could not reopen the room' + (because ? ': ' + because : '') + '. Try again, or post in the room.';
+    btn.disabled = false;
+    return;
+  }
+  if (PJ_CURRENT !== project) return;
+  /* The band comes off now, from the room as last read, so a reread that fails (loadRoom keeps the old paint then)
+     cannot leave a held band with a dead button on screen. */
+  const box = document.getElementById('pj-room');
+  if (box && box.__lastBody && typeof box.__lastBody === 'object') {
+    delete box.__lastBody.held;
+    box.__lastRoom = undefined;
+    paintRoom(box.__lastBody);
+  }
+  const composer = document.getElementById('pj-post');   // focus first: the button it was on has just gone
+  if (composer) composer.focus();
+  pjRoomAnnounce('Reopened the room. Your agents can post here again.');
+  await loadRoom();
+}
+document.getElementById('pj-held').addEventListener('click', pjHeldReopenClick);
 document.getElementById('pj-room').addEventListener('click', async (e) => {
   const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
   if (!box) return;
@@ -66036,6 +66110,11 @@ function openProject(id) {
   // work, and `pjThreadWho` would only catch it when that agent is not on
   // this project — so the dangerous half (it IS on both) would be silent.
   if (switching) {
+    /* #5800: the hold strip is the last room's: never shown (or pressed) under this room's name. First, so nothing
+       below can leave it standing. */
+    PJ_ROOM_HELD = null;
+    const heldStrip = document.getElementById('pj-held');
+    heldStrip.innerHTML = ''; heldStrip.__lastHeld = ''; heldStrip.hidden = true;
     PJ_WHO = null;
     PJ_SENT_LINE = null;
     document.getElementById('pj-thread-msg').textContent = '';
@@ -66128,6 +66207,22 @@ const PJ_REPLY = {};
 let PJ_ROOM_POSTS = new Map();
 let PJ_ROOM_POSTS_OF = null;   // which project PJ_ROOM_POSTS was painted for
 let PJ_ROOM_PARTIAL = false;   // the last room read could not read everything (ok:false)
+/* #5800: the hold the last room read reported (body.held: { at, because, until }), or null when the room is open. */
+let PJ_ROOM_HELD = null;
+/* #5800: while the room is held, one notice at the top of the sticky composer (#pj-held): why, who can
+   end it and how, and the Reopen button. A room hold used to be only a sentence in the scrollback (its band can be an
+   hour up the room) with no way out on the screen: the release (#2710) was only on the command line, and nothing said
+   that posting here also ends it. The bands in the scrollback stay a record. */
+function pjHeldNotice(held, project) {
+  if (!held || !project) return '';
+  const until = new Date(held.until || '');
+  const by = Number.isNaN(until.getTime()) ? ''
+    : ' Otherwise it should lift on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
+  return '<div class="msg-valve pj-held"><span class="pj-held-why" tabindex="0" role="region" aria-label="Why this room is held">This room has reached its limit for agent posts, because it kept going back and forth '
+    + 'without a result. Your agents\' posts will most likely not go through until you post something yourself or reopen the room.' + esc(by)
+    + '</span><div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="' + esc(project) + '">Reopen the room</button>'
+    + '<span class="pj-refused-msg" role="status"></span></div></div>';
+}
 let PJ_JUMP_FOCUS = null;      // the post a jump focused, so a repaint can put focus back on it
 const PJ_HIDDEN_BY_SEARCH = 'That message is hidden by your search.';   // said by the jump, cleared by the search
 /* A post's first line, for the reply strip and the reply header. */
@@ -68331,6 +68426,7 @@ function paintRoom(body) {
   PJ_ROOM_POSTS = new Map(allRows.filter((r) => r && r.kind === 'post' && typeof r.id === 'string').map((r) => [r.id, r]));   // #3745
   PJ_ROOM_POSTS_OF = p ? p.id : null;
   PJ_ROOM_PARTIAL = body.ok === false;
+  PJ_ROOM_HELD = body.held && typeof body.held === 'object' ? body.held : null;   // #5800 (at may be null: no valve row in the window)
   /* #3745: a reply needs no header when the room already reads that way: it sits right under the
      post it answers, or right under another answer to the same post (three agents answering one
      question). Any other row in between (a refusal, a note, an unanswered line) shows it, and so
@@ -68371,6 +68467,17 @@ function paintRoom(body) {
           ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and it shows in this room on the other computer too, where its agents read it.</p>'
           : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>')));
   const html = note + (rows || empty);
+  /* #5800: the hold notice, written only when it changes (it holds a button the person may be focused on), and said
+     aloud when the room goes on hold, so a screen-reader user hears it as a sighted person sees it appear. */
+  const heldEl = document.getElementById('pj-held');
+  if (heldEl) {
+    const heldHtml = pjHeldNotice(PJ_ROOM_HELD, PJ_CURRENT);
+    if (heldEl.__lastHeld !== heldHtml) {
+      if (heldHtml && !heldEl.__lastHeld) pjRoomAnnounce('This room has reached its limit for agent posts. Post something yourself or reopen the room to let them through.');
+      heldEl.innerHTML = heldHtml; heldEl.__lastHeld = heldHtml;
+    }
+    heldEl.hidden = !heldHtml;
+  }
   /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
      the floor is a fact about the DOM as it stands right now, and the markup is
      about to be replaced. holdFloorOnResize keeps a flag for the resize case,

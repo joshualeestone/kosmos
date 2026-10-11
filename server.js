@@ -2465,7 +2465,9 @@ function safeRoster() {
     const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
     /* #3726: the roster carries where the automatic reconnect stands, as /api/status's rows do (the
        same expression), so the project routes can tell a connection Kosmos has given up on. */
-    return agents.filter((a) => !gone.has(a.sessionName)).map((a) => {
+    /* #5811: `geminiSeen` comes off here too, as on /api/status's rows: the roster's consumers never need it, so no route
+       that forwards a roster row can carry it (server.gemini-seen-5811.test.js). */
+    return agents.filter((a) => !gone.has(a.sessionName)).map(({ geminiSeen, ...a }) => {
       const withReconnect = a.state === 'connection_lost'
         ? Object.assign({}, a, { reconnect: connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) })
         : a;
@@ -3595,6 +3597,8 @@ function agentBelongsToThisKosmos(name) {
    duplicate every client's "do not re-send" sentence exists to stop. */
 function outboxOutcomeOf(delivery) {
   const state = delivery && delivery.state;
+  // #5805 slice 2a: held for an agent out of usage is accepted (kept and typed after the reset); a retry would duplicate it.
+  if (messages.heldAccepted(delivery)) return { outcome: 'delivered' };
   if (state === chat.DELIVERY.PLACED || state === chat.DELIVERY.UNCONFIRMED) return { outcome: 'delivered' };
   return { outcome: 'retry', because: (delivery && delivery.because) || 'it could not be placed' };
 }
@@ -5407,9 +5411,11 @@ const server = http.createServer(async (req, res) => {
         return planned ? modelDisplayName(planned.id) + (planned.isDefault ? ' (default)' : '') : null;
       };
       /* #5804: for a running Gemini agent of ours, the model Kosmos started it on when its newest reply (since this run
-         began) came from a different one (engine/geminimodelswitch.js decides; null otherwise). */
-      const settingGeminiModel = (a) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
-        ? require('./engine/geminimodelswitch').settingModelName(a.sessionName)
+         began) came from a different one (engine/geminimodelswitch.js decides; null otherwise). #5811: from what the
+         snapshot already read (the row's geminiSeen), never a second job or session read per poll; no geminiSeen means
+         the snapshot could not read the session, so there is nothing to say. */
+      const settingGeminiModel = (a, seen) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
+        ? require('./engine/geminimodelswitch').settingModelNameOfRow(a, seen)
         : null;
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
@@ -5499,7 +5505,9 @@ const server = http.createServer(async (req, res) => {
           return create.recordedRunner(a.sessionName);
         } catch { return null; }
       };
-      const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map((a) => ({
+      /* #5811: `geminiSeen` is the snapshot's input to the "(set to X)" decision: taken off here so the page row never
+         carries it (server.gemini-seen-5811.test.js), and handed to that decision directly. */
+      const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map(({ geminiSeen, ...a }) => ({
         ...a,
         runner: runnerOfCard(a),
         linkLost: a.linkLost === true && !removing.has(a.sessionName),   // #5333: never for an agent being removed
@@ -5532,7 +5540,7 @@ const server = http.createServer(async (req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
-        settingModelName: settingGeminiModel(a),   // #5804
+        settingModelName: settingGeminiModel(a, geminiSeen),   // #5804, #5811
         /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
            plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
            plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).
@@ -8959,7 +8967,19 @@ const server = http.createServer(async (req, res) => {
            the board token (the person, every agent's CLI today) is not narrowed, as before. */
         const only = agentTokenOnlyCaller(req);
         if (only === '') { sendJson(res, 403, { kept: false, because: 'that agent token names nobody' }); return; }
-        sendJson(res, 200, require('./engine/undo').keep(body.path, { cwd: body.cwd, session: body.session, onlyFor: only || null }));
+        const undo = require('./engine/undo');
+        sendJson(res, 200, undo.keep(body.path, { cwd: body.cwd, session: body.session, onlyFor: only || null }));
+        /* #5812: the same call, switch on or off, records which agent is about to write a project file (the agent is
+           looked up only for a file inside a project). After the answer, so the hook (which waits at most 3 s, before
+           the edit) never waits on it. */
+        setImmediate(() => {
+          try {
+            require('./engine/filewriters').noteWrite(body.path, () => {
+              const who = undo.agentFor(body.cwd, body.session);
+              return who && undo.ownedBy(only || null, who) ? who : null;
+            });
+          } catch { /* the record is best-effort */ }
+        });
       })
       .catch(() => sendJson(res, 400, { kept: false, because: 'unreadable request' }));
     return;
@@ -18548,6 +18568,11 @@ const server = http.createServer(async (req, res) => {
          person sees it. Neither arm re-derives it. Best-effort like the room. */
       let silent = {};
       try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
+      /* #5800: whether the loop guard is holding this room now, for both arms: the page draws the reason and a
+         Reopen button in the strip above its composer, and the text view puts one line at the top, so a member reading the room
+         learns of the hold before posting rather than by being refused. Best-effort: unreadable reads as open. */
+      let held = null;
+      try { held = messages.roomHeld(id, Date.now()); } catch { held = null; }
       if (asText) {
         /* #1895: the operator's own zone, read ONCE for the whole render rather
            than per line. Same best-effort contract as `silent` above -- a store
@@ -18635,14 +18660,22 @@ const server = http.createServer(async (req, res) => {
         let shared = '';
         try { if (fedseats.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
         catch (err) { fedseats.logUnreadable(err); }
+        /* #5800: who can release it and how. The time is roomHeld's until, an estimate (see there). */
+        const onHold = held
+          /* Not held.because: that sentence is written to the person ("bring you in"), and this one is read by agents. */
+          ? '[kosmos] This room is at its limit for agent posts: it kept going back and forth without a result. '
+            + 'A post from you now will most likely be refused. Your person can lift the hold now by posting here or '
+            + 'reopening the room' + (held.until ? '; otherwise it should lift by ' + messages.roomClock(held.until, zone) : '') + '. '
+            + 'Do not send your post another way meanwhile.\n'
+          : '';
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end(shared + head + lines.join('\n') + (lines.length ? '\n' : ''));
+        res.end(shared + onHold + head + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from
          the record alone; the page renders the small line from this and
          never re-derives it. Best-effort like the room itself. */
-      sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows), unanswered: silent });
+      sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent }, held ? { held } : {}));
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
     }
@@ -18807,7 +18840,20 @@ const server = http.createServer(async (req, res) => {
        the view asks for up to 500, and an unbounded ask cannot be minted. */
     let fileCap = 10;
     try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) fileCap = Math.min(Math.floor(l), 500); } catch { fileCap = 10; }
-    sendJson(res, 200, projects.listFiles(record.folder, fileCap));
+    const listed = projects.listFiles(record.folder, fileCap);
+    /* #5812: each row says which agent changed it last, when the board recorded one close enough to the change. */
+    if (listed && listed.ok && Array.isArray(listed.files)) {
+      try {
+        // The display name, read only for a row that has a writer (no roster snapshot on this per-poll route).
+        const names = new Map();
+        const nameOf = (s) => {
+          if (!names.has(s)) names.set(s, require('./engine/status').readIdentity(s).displayName || s);
+          return names.get(s);
+        };
+        listed.files = require('./engine/filewriters').annotate(record.id, listed.files, nameOf);
+      } catch { /* the list stands without writers */ }
+    }
+    sendJson(res, 200, listed);
     return;
   }
 
@@ -21523,6 +21569,21 @@ function start(port = PORT) {
             for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
+        /* #5805 slice 2a: `kosmos msg` messages kept while their recipient was out of usage are typed, in order, once
+           its card reads released; through the automatic gate, so a menu or a renewed limit on screen still holds them. */
+        try {
+          const limitqueue = require('./engine/limitqueue');
+          const roster = limitqueue.names().length ? safeRoster() : null;
+          if (roster) {
+            limitqueue.flush(roster, {
+              deliver: chat.deliverAutomaticAsync, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
+              isReleased: chat.limitQueueReleased,
+              onDelivered: messages.logHeldDelivered, onDropped: (e, r) => { messages.tellHeldDropped(e, r).catch(() => { /* recorded */ }); },
+            }).then((done) => {
+              for (const d of done) process.stdout.write('limit-queue: ' + d.name + ' was given held message ' + d.id + ' after its usage reset, delivery=' + d.state + '\n');
+            }).catch(() => { /* kept for the next minute */ });
+          }
+        } catch { /* kept for the next minute */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
       /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185
@@ -22801,6 +22862,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  safeRoster, // #5811: its rows carry no geminiSeen, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test

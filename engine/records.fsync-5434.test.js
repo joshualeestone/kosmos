@@ -84,9 +84,11 @@ test('#5434 agent permission settings: an existing 0644 file ends exactly 0600 (
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
-test('#5434: all twelve writers save flushed, with no hand-made temp renamed', () => {
+test('#5434: every listed writer saves flushed, with no hand-made temp renamed', () => {
   const files = ['commitments.js', 'instructionadds.js', 'worldbootguard.js', 'worldstarts.js', 'federation.js', 'fedmembers.js',
-    'agentpermission.js', 'restartnote.js', 'roomhold.js', 'orgrollup.js', 'styles.js', 'communitystore.js'];
+    'agentpermission.js', 'restartnote.js', 'roomhold.js', 'orgrollup.js', 'styles.js', 'communitystore.js',
+    'filewriters.js',   // #5812
+    'limitqueue.js'];   // #5805 slice 2a
   for (const f of files) {
     const src = fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
     assert.match(src, /(?:saveFlushed|writeSecret)\(/, f + ': no flushed save');
@@ -101,7 +103,7 @@ test('#5434: all twelve writers save flushed, with no hand-made temp renamed', (
     assert.equal(count('renameSync('), move ? 1 : 0, f + ': renames by hand');
     if (move) assert.equal(count(move), 1, f + ': its documented move is not the one rename');
     // review 2: the owner-only records must stay on writeSecret at their exact mode, never saveFlushed.
-    if (['instructionadds.js', 'agentpermission.js', 'restartnote.js', 'roomhold.js', 'orgrollup.js', 'communitystore.js'].includes(f)) {
+    if (['instructionadds.js', 'agentpermission.js', 'restartnote.js', 'roomhold.js', 'orgrollup.js', 'communitystore.js', 'filewriters.js', 'limitqueue.js'].includes(f)) {
       assert.match(src, /writeSecret\([^;]*(?:0o600|FILE_MODE)/, f + ': an owner-only record must save through writeSecret at its exact mode');
       assert.doesNotMatch(src, /saveFlushed\(/, f + ': an owner-only record saved through saveFlushed would keep a loose mode');
     }

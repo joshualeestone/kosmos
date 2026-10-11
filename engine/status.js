@@ -2776,6 +2776,106 @@ function limitResetAt(line, nowMs) {
   } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
 }
 
+/* #5805 slice 3: Claude Code prints a reset with no date ("resets 4pm (America/Chicago)") when it is under a day
+   away: the 5-hour session limit, and a weekly limit on its last day. The time alone does not say which day, so it is
+   read as its next occurrence after the board FIRST saw the line (claudeLimitUntil keeps that time). */
+const LIMIT_RESET_TIME_ONLY = /\bresets (\d{1,2})(?::(\d{2}))? ?(am|pm) \(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)*)\)/i;
+/* How far after it is first seen a dateless reset can be: a session limit resets within five hours of the turn it
+   stopped, anything else within a day (Claude Code dates a reset further away). A reading past that means the line
+   was first seen late (a board restarted after the reset had passed), so no time is given rather than tomorrow's. */
+const SESSION_LIMIT_SPAN_MS = 5 * 3600 * 1000 + 5 * 60 * 1000;
+const DAY_LIMIT_SPAN_MS = 24 * 3600 * 1000 + 5 * 60 * 1000;
+function limitResetTimeOnlyAt(line, firstSeenMs) {
+  const text = String(line == null ? '' : line);
+  const m = LIMIT_RESET_TIME_ONLY.exec(text);
+  if (!m || !Number.isFinite(firstSeenMs)) return null;
+  const hour12 = Number(m[1]);
+  const minute = m[2] === undefined ? 0 : Number(m[2]);
+  if (hour12 < 1 || hour12 > 12 || minute > 59) return null;
+  const hour = (hour12 % 12) + (m[3].toLowerCase() === 'pm' ? 12 : 0);
+  const zone = m[4];
+  try {
+    // The calendar day the line was first seen on, in the reset's own zone, then that day and the next two.
+    const local = new Date(firstSeenMs + zoneOffsetMs(zone, firstSeenMs));
+    const span = /\bsession limit\b/i.test(text) ? SESSION_LIMIT_SPAN_MS : DAY_LIMIT_SPAN_MS;
+    for (let d = 0; d <= 2; d += 1) {
+      const wall = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + d, hour, minute);
+      let at = wall - zoneOffsetMs(zone, wall);
+      at = wall - zoneOffsetMs(zone, at);   // the offset AT the instant (they differ near a DST change)
+      if (at + 3600000 + zoneOffsetMs(zone, at + 3600000) === wall) at += 3600000;   // the repeated fall-back hour: later, as limitResetAt
+      if (at + RESET_GRACE_MS < firstSeenMs) continue;
+      return at - firstSeenMs <= span ? at : null;
+    }
+    return null;
+  } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
+}
+/* When each agent's dateless limit line was first seen, keyed by agent and the line itself. In memory: a board
+   restart sees it again from then, which the span above bounds. An entry ends when the line does: claudeLimitUntilIso
+   forgets an agent's entries once its card has read not capped for LIMIT_ENDED_AFTER_MS, and claudeLimitUntil when
+   it reads capped on any other line, so the same words tomorrow
+   are a new limit, never read against yesterday's time. NOT on a gap in reads (review 1): a Mac that slept through
+   the reset is still showing the same line, and restarting its clock then would name tomorrow's time. A day past
+   the longest span is only a memory backstop, for an agent that is gone. */
+const limitFirstSeen = new Map();
+const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;
+/* Review 2: "not capped" must hold for a while before it ends a limit. One reading can be unknown (a pane read that
+   failed) or briefly another state, and the line is still there; forgetting then restarts the clock. */
+const LIMIT_ENDED_AFTER_MS = 2 * 60 * 1000;
+const limitNotCappedSince = new Map();
+/* The memory backstop for agents that went away (review 3): run on every card read, both maps stay one entry per
+   agent at most for two days. */
+function pruneLimitMaps(now) {
+  for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
+  for (const [k, since] of limitNotCappedSince) if (now - since > LIMIT_FIRST_SEEN_KEEP_MS) limitNotCappedSince.delete(k);
+}
+/* Forget an agent's first-seen times, all of them or all but `keepLine`'s. */
+function forgetLimitLines(agent, keepLine) {
+  const prefix = String(agent) + '\u0000';
+  const keep = typeof keepLine === 'string' ? prefix + keepLine : null;
+  for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix) && k !== keep) limitFirstSeen.delete(k);
+}
+function hasLimitLines(agent) {
+  const prefix = String(agent) + '\u0000';
+  for (const k of limitFirstSeen.keys()) if (k.startsWith(prefix)) return true;
+  return false;
+}
+/* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
+   this can read. A dated line is read as limitResetAt reads it; a dateless one from when it was first seen. */
+function claudeLimitUntil(agent, evidence, nowMs) {
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const line = String(evidence == null ? '' : evidence);
+  const dated = limitResetAt(line, now);
+  // Any other line on this agent's screen (dated, dateless, or one with no reset this reads) is another limit.
+  if (dated !== null || !LIMIT_RESET_TIME_ONLY.test(line)) { forgetLimitLines(agent, line); return dated; }
+  pruneLimitMaps(now);
+  forgetLimitLines(agent, line);
+  const key = String(agent) + '\u0000' + line;
+  let seen = limitFirstSeen.get(key);
+  if (!seen) { seen = { at: now, last: now }; limitFirstSeen.set(key, seen); }
+  seen.last = Math.max(seen.last, now);
+  return limitResetTimeOnlyAt(line, seen.at);
+}
+function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitNotCappedSince.clear(); }
+/* The card's limitUntil: only for a Claude pane read rate_limited (a Codex or Gemini limit says its own reset). */
+function claudeLimitUntilIso(pane, status) {
+  if (!pane) return null;
+  const now = Date.now();
+  pruneLimitMaps(now);
+  if (!status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') {
+    // Not capped now: its limit (if any) ended, once that has held for LIMIT_ENDED_AFTER_MS.
+    if (!hasLimitLines(pane.name)) { limitNotCappedSince.delete(pane.name); return null; }
+    const since = limitNotCappedSince.get(pane.name);
+    if (since === undefined) limitNotCappedSince.set(pane.name, now);
+    else if (now - since >= LIMIT_ENDED_AFTER_MS) { forgetLimitLines(pane.name, null); limitNotCappedSince.delete(pane.name); }
+    return null;
+  }
+  limitNotCappedSince.delete(pane.name);
+  if (pane.runner && pane.runner !== 'claude') return null;
+  if (isCodexCommand(pane.command) || isGrokCommand(pane.command) || isAntigravityCommand(pane.command)) return null;
+  const at = claudeLimitUntil(pane.name, status.evidence);
+  return at === null ? null : new Date(at).toISOString();
+}
+
 /* Anchored to the row's start (the menu draws it indented, 3 spaces observed): an agent's own sentence that contains
    the phrase, or a tool result quoting it, is not a menu (review round 4). */
 const CLAUDE_LIMIT_MENU_TITLE = /^\s*What do you want to do\?/;
@@ -6199,8 +6299,17 @@ function readGeminiSession(agentName) {
      unchanged (~/.gemini). This is the SAME helper the birth write uses, so the write
      and the read cannot target different dirs. See create.geminiStorageHome. */
   const home = create.geminiStorageHome(job.configDir);
-  try { return require('./geminisession').read(dir, home); }
+  let sess;
+  try { sess = require('./geminisession').read(dir, home); }
   catch { return { found: false }; }
+  /* #5811: the model this job is SET to, from the job already read above (every caller gets it), so the #5804
+     "(set to X)" decision (engine/geminimodelswitch.js) needs no second job read per poll. */
+  if (sess && sess.found) {
+    let planned = null;
+    try { planned = create.plannedModelOfJob(job); } catch { planned = null; }
+    return { ...sess, planned };
+  }
+  return sess;
 }
 
 /* #4039: the windows of Gemini models, for a transcript that does not state one (neither the Gemini
@@ -7978,6 +8087,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     },
     model: null,
     modelName: null,
+    geminiSeen: null,   // #5811: no pane, no session read
     neverRecorded: false,
     hasAvatar: Boolean(safeAvatar(key)),
     // #2698: the avatar version travels with hasAvatar so a changed picture
@@ -8662,6 +8772,10 @@ function snapshot() {
       /* #5805: under Claude Code's StopFailure limit report only (a blocked card), what the screen reads, so the
          usage-limit hold can release once the screen is back at its prompt (chat.limitReleased). Null otherwise. */
       screenState: typeof status.screenState === 'string' ? status.screenState : null,
+      /* #5805 slice 3: the reset a capped Claude agent is out of usage until (an ISO time, dated or dateless, see
+         claudeLimitUntil), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
+         screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */
+      limitUntil: claudeLimitUntilIso(pane, status),
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
@@ -8701,6 +8815,12 @@ function snapshot() {
       context,
       model,
       modelName: modelDisplayName(model),
+      /* #5811: what the #5804 "(set to X)" decision needs, all from this tick's ONE session read (geminiSess above), so
+         server.js decides it without reading the job or the session again. Gemini panes only; null when the session
+         was not found. server.js takes it off the row before the page gets it. */
+      geminiSeen: (tied && isGeminiPane && geminiSess && geminiSess.found)
+        ? { model: sessModel(geminiSess), modelAt: Number.isFinite(geminiSess.modelAt) ? geminiSess.modelAt : null, planned: geminiSess.planned || null }
+        : null,
       /* #149/#150: no launch file for a pane TIED to the name. The screen's
          wording branches on this rather than re-deriving it, so the card, the
          detail panel and the memory panel cannot disagree about which state
@@ -9065,7 +9185,7 @@ module.exports = {
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

@@ -209,6 +209,14 @@ const EXCUSED = {
    read the module). Keyed by FILE, like TRIAGED_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
+  // #5805 slice 3: forgets every first-seen time of a dateless usage-limit line, so each test in
+  // engine/limituntil-5805.test.js (and slice 3b's) starts clean. Production never clears them.
+  resetLimitFirstSeenForTests: 'engine/status.js',
+  // #5805 slice 2a: whether a kept message is being typed this moment, or was typed and its removal failed, so
+  // engine/limitmsg-5805.test.js can see the claim and the done record; the sweep and Send now anyway read the sets
+  // themselves (claimedNow / done), never these.
+  isTyping: 'engine/limitqueue.js',
+  isDone: 'engine/limitqueue.js',
   // #5532: the ioreg runner and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
   // pins the formula through (callers use printFor, which reads the id itself).
   _testRunner: 'engine/computerprint.js',

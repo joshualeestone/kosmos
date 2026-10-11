@@ -36,6 +36,6 @@ test('#5804: a stopped Gemini agent and a Grok agent are unchanged', () => {
 
 test('#5804: the board sends settingModelName only for a running Gemini agent of ours, decided by the engine', () => {
   const src = SERVER.replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.match(src, /const settingGeminiModel = \(a\) => \(a\.isNamedOurs && a\.runner === 'gemini' && a\.modelName && a\.state !== STATE\.STOPPED\)\s*\? require\('\.\/engine\/geminimodelswitch'\)\.settingModelName\(a\.sessionName\)\s*: null;/);
-  assert.match(src, /settingModelName: settingGeminiModel\(a\),/);
+  assert.match(src, /const settingGeminiModel = \(a, seen\) => \(a\.isNamedOurs && a\.runner === 'gemini' && a\.modelName && a\.state !== STATE\.STOPPED\)\s*\? require\('\.\/engine\/geminimodelswitch'\)\.settingModelNameOfRow\(a, seen\)\s*: null;/);   // #5811: from the row
+  assert.match(src, /settingModelName: settingGeminiModel\(a, geminiSeen\),/);
 });

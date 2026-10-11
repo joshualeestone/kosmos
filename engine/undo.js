@@ -123,6 +123,19 @@ function ownerOf(cwd, session, now) {
   for (const [name, folder] of folders) if (canon && canon === folder) return name;
   return null;
 }
+/* The agent a hook's cwd and session belong to, or null. A session that started after the last look (an agent just
+   restarted) is looked for again, at most every 5 s. */
+function agentFor(cwd, session, now = Date.now()) {
+  let who = ownerOf(String(cwd || ''), String(session || ''), now);
+  if (!who && now - sessionsCache.at > 5000) { sessionsCache.at = 0; who = ownerOf(String(cwd || ''), String(session || ''), now); }
+  return who;
+}
+/* Whether `who` is the agent a token-only caller (server.js agentTokenOnlyCaller) may act for: its exact name, or its
+   store key for an older token that carries only the key. No `onlyFor` (a board-token caller): not narrowed. */
+function ownedBy(onlyFor, who) {
+  if (!onlyFor || typeof onlyFor !== 'object') return true;
+  try { return onlyFor.byKey ? require('./store').safeKey(who) === onlyFor.key : who === onlyFor.name; } catch { return false; }
+}
 let lastSweep = 0;
 function resetForTests() {
   setCache = { at: 0, key: '', set: null }; sessionsCache = { at: 0, byAgent: new Map(), folders: new Map() }; lastSweep = 0; }
@@ -240,17 +253,9 @@ function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null }
     const sw = read();
     if (!sw.on) return { kept: false, because: 'off' };
     if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return { kept: false, because: 'not-absolute' };
-    let who = ownerOf(String(cwd || ''), String(session || ''), now);
-    /* A session that started after the last look (an agent just restarted) is looked for again, at most every 5 s. */
-    if (!who && now - sessionsCache.at > 5000) { sessionsCache.at = 0; who = ownerOf(String(cwd || ''), String(session || ''), now); }
+    const who = agentFor(cwd, session, now);
     if (!who) return { kept: false, because: 'not-an-agent' };
-    /* Baron's review: a caller on an agent token alone (server.js agentTokenOnlyCaller) keeps copies for its OWN sessions
-       only: its exact name, or its store key for an older token that carries only the key. */
-    if (onlyFor && typeof onlyFor === 'object') {
-      let mine = false;
-      try { mine = onlyFor.byKey ? require('./store').safeKey(who) === onlyFor.key : who === onlyFor.name; } catch { mine = false; }
-      if (!mine) return { kept: false, because: 'not-yours' };
-    }
+    if (!ownedBy(onlyFor, who)) return { kept: false, because: 'not-yours' };
     const abs = path.resolve(file);
     /* #4491 review: ONE open, without following a final link, and every check and the read on that open file, so the
        path cannot be swapped (for a link or another file) between the check and the read. */
@@ -557,4 +562,4 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
 }
 
 module.exports = {
-  isCredential, credentialVerdict, _setBeforeWriteForTests, read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
+  isCredential, credentialVerdict, _setBeforeWriteForTests, read, setOn, keep, agentFor, ownedBy, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };

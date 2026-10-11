@@ -1960,6 +1960,15 @@ function limitReleased(card) {
   if (card.state === status.STATE.IDLE) return true;
   return card.state === status.STATE.BLOCKED && card.screenState === status.STATE.IDLE;
 }
+/* #5805 slice 2a: the minute sweep types messages kept for a limit once this is true: released as limitReleased reads
+   it, or no longer held on the limit (the limit test a fresh send meets). The sweep then types through
+   deliverAutomaticAsync, so a question or permission menu on screen, or a quota hold, also keeps them waiting, which a
+   fresh `kosmos msg` (typed straight in) does not: decided, since a line typed into a menu answers it. A limit line
+   with no date never holds (slice 1's stated gap), so it releases the backlog too, as it lets a fresh send through. */
+function limitQueueReleased(card, roster) {
+  if (limitReleased(card)) return true;
+  try { return !!card && limitHeldVerdict(card.sessionName, roster) === null; } catch { return false; }
+}
 /* #5743/#5754: true while this agent's screen waits for an answer (question menu, permission prompt, safeguards menu), for a sweep that decides BEFORE it types
    anything (the recommender holds a whole convening on it, as it does on the quota). */
 function menuHeld(sessionName, roster) {
@@ -3760,7 +3769,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
