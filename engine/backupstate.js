@@ -30,8 +30,11 @@
  *   and REFUSES to replace an existing file that is not plainly this module's for (org, member): a link, a foreign or
  *   corrupt start, or a file it cannot read (that throw carries `retry` when the reason is passing). So a caller that
  *   falls back to a fresh state after a refused read cannot overwrite the good or set-aside-worthy file: it must
- *   discardState first (after which there is no file) or wait out the retry. The check reads the file's first bytes
- *   only (the writer puts v, org and member first), so it costs nothing at 70 MB.
+ *   discardState first (after which there is no file) or wait out the retry. "Plainly ours" is readState's own test, the
+ *   whole file (review 10: a head-only check let a body-corrupt file be overwritten, and refused a reformatted good one),
+ *   so a write costs one read first (about 250 ms at 70 MB). The window between that read and the rename is covered by
+ *   the one-run-at-a-time duty (the folder is 0700: only this user can put a file there meanwhile). A passing error
+ *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too.
  * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the stored period whose label IS `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
  *   costing a run) and, defensively, of locks already ended (uploadManifest's own floor is stricter: a chunk must
@@ -163,23 +166,13 @@ function readState(org, member) {
   return { ok: true, state: { job: cleanJob(got.job), periods } };
 }
 
-/* Whether an existing file at f may be replaced: absent, or a plain file whose first bytes are this module's for (org,
-   member). Throws otherwise (with err.retry on a passing read error). */
-function mayReplace(f, org, member) {
-  let st;
-  try { st = fs.lstatSync(f); } catch (err) { if (err && err.code === 'ENOENT') return; throw Object.assign(new Error('backupstate: the existing state file could not be checked'), { retry: TRANSIENT.has(err && err.code) }); }
-  if (!st.isFile()) throw new Error('backupstate: the existing state file is not a plain file (a link?); discardState it first');
-  const want = Buffer.from(JSON.stringify({ v: 1, org, member }).slice(0, -1) + ',');
-  const head = Buffer.alloc(want.length);
-  let fd;
-  try {
-    fd = fs.openSync(f, 'r');
-    const n = fs.readSync(fd, head, 0, head.length, 0);
-    if (n !== want.length || !head.equals(want)) throw new Error('backupstate: the existing state file is not this member\'s; discardState it first');
-  } catch (err) {
-    if (err && err.message && err.message.startsWith('backupstate:')) throw err;
-    throw Object.assign(new Error('backupstate: the existing state file could not be checked'), { retry: TRANSIENT.has(err && err.code) });
-  } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+/* Throws unless the file for (org, member) is absent or reads as this module's (readState's own test), with err.retry
+   when the read failed for a passing reason. */
+function mayReplace(org, member) {
+  const r = readState(org, member);
+  if (r.ok) return;
+  throw Object.assign(new Error(r.retry ? 'backupstate: the existing state file could not be read just now; try again'
+    : 'backupstate: the existing state file is not one this computer wrote; discardState it first'), { retry: r.retry === true });
 }
 
 function writeState(org, member, state) {
@@ -194,10 +187,11 @@ function writeState(org, member, state) {
     throw new Error('backupstate: refusing to write a period that would not read back');
   }
   const body = JSON.stringify({ v: 1, org, member, job: cleanJob(state && state.job), periods });
-  mayReplace(fileFor(org, member), org, member);
+  mayReplace(org, member);
   fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
   try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
-  require('./securewrite').writeSecret(fileFor(org, member), body, 0o600, { atomicOnly: true });
+  try { require('./securewrite').writeSecret(fileFor(org, member), body, 0o600, { atomicOnly: true }); }
+  catch (err) { throw Object.assign(new Error('backupstate: the state file could not be written'), { retry: TRANSIENT.has(err && err.code) || TRANSIENT.has(err && err.cause && err.cause.code) }); }
 }
 
 function forPeriod(state, label, opts = {}) {

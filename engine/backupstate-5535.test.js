@@ -265,24 +265,24 @@ test('review 9: writeState never replaces a file that is not plainly this member
   // A corrupt or foreign file: refused, and left exactly as it was.
   for (const junk of ['{ not ours', JSON.stringify({ v: 1, org, member: 'someone else', job: {}, periods: [] })]) {
     fs.writeFileSync(f, junk);
-    assert.throws(() => bs.writeState(org, member, fresh), /not this member's; discardState it first/);
+    assert.throws(() => bs.writeState(org, member, fresh), /not one this computer wrote; discardState it first/);
     assert.equal(fs.readFileSync(f, 'utf8'), junk);
   }
   // discardState, then the write goes through.
   bs.discardState(org, member);
   bs.writeState(org, member, fresh);
   assert.equal(bs.readState(org, member).ok, true);
-  // A file another program holds: refused with retry, untouched.
-  const realOpen = fs.openSync;
+  // A file another program holds: refused with retry, untouched (the guard reads it as readState does).
+  const realRead = fs.readFileSync;
   try {
-    fs.openSync = function (file, ...rest) {
+    fs.readFileSync = function (file, ...rest) {
       if (String(file) === f) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; }
-      return realOpen.call(fs, file, ...rest);
+      return realRead.call(fs, file, ...rest);
     };
     let caught;
     try { bs.writeState(org, member, fresh); } catch (err) { caught = err; }
-    assert.ok(caught); assert.equal(caught.retry, true);
-  } finally { fs.openSync = realOpen; }
+    assert.ok(caught); assert.equal(caught.retry, true); assert.match(caught.message, /try again/);
+  } finally { fs.readFileSync = realRead; }
   // Control: our own file is replaced normally.
   bs.writeState(org, member, { job: { waits: 2 }, periods: [] });
   assert.deepEqual(bs.readState(org, member).state.job, { waits: 2 });
@@ -294,6 +294,31 @@ test('review 9: a link in place of the file is not replaced', { skip: process.pl
   const f = bs.fileFor(org, member), elsewhere = f + '.target';
   fs.renameSync(f, elsewhere);
   fs.symlinkSync(elsewhere, f);
-  assert.throws(() => bs.writeState(org, member, { job: {}, periods: [] }), /not a plain file/);
+  assert.throws(() => bs.writeState(org, member, { job: {}, periods: [] }), /discardState it first/);
   assert.ok(fs.lstatSync(f).isSymbolicLink(), 'the link is still there');
+});
+
+test('review 10: the write guard is readState itself: a body-corrupt file is refused, a reformatted good one is replaceable, odd ids round-trip', () => {
+  const [org, member] = ids();
+  const f = bs.fileFor(org, member);
+  bs.writeState(org, member, { job: { waits: 1 }, periods: [] });
+  const good = fs.readFileSync(f, 'utf8');
+  // Our own first bytes, then garbage: readState refuses it, so writeState must not overwrite it.
+  const corrupt = good.slice(0, 40) + 'GARBAGE';
+  fs.writeFileSync(f, corrupt);
+  assert.equal(bs.readState(org, member).ok, false);
+  assert.throws(() => bs.writeState(org, member, { job: {}, periods: [] }), /discardState it first/);
+  assert.equal(fs.readFileSync(f, 'utf8'), corrupt, 'left as it was');
+  // The same good state pretty-printed (a person or a tool reformatted it): reads ok, so it may be replaced.
+  fs.writeFileSync(f, JSON.stringify(JSON.parse(good), null, 1));
+  assert.equal(bs.readState(org, member).ok, true);
+  bs.writeState(org, member, { job: { waits: 3 }, periods: [] });
+  assert.deepEqual(bs.readState(org, member).state.job, { waits: 3 });
+  // Ids with a quote, a backslash, a line separator, an emoji and a lone surrogate: written, read, replaced.
+  for (const odd of ['o"q', 'o\\b', 'o\u2028x', 'o\u{1F600}', 'o\ud800']) {
+    bs.writeState(odd, 'm', { job: {}, periods: [] });
+    assert.equal(bs.readState(odd, 'm').ok, true, JSON.stringify(odd));
+    bs.writeState(odd, 'm', { job: { waits: 2 }, periods: [] });
+    assert.deepEqual(bs.readState(odd, 'm').state.job, { waits: 2 }, JSON.stringify(odd));
+  }
 });
