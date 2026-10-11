@@ -15957,7 +15957,12 @@ const server = http.createServer(async (req, res) => {
     const before = typeof beforeRaw === 'string' && /^\d{1,9}$/.test(beforeRaw) ? Number(beforeRaw) : NaN;   // digits only
     if (!Number.isInteger(before) || before < 0) { sendJson(res, 400, { error: 'before must be a whole number, 0 or more' }); return; }
     let rows;
-    try { rows = chat.readThread(chat.DIRECT, name).messages || []; } catch (err) {
+    // kosmos#5841: the whole chain, oldest first: every rolled-over file this conversation continues, then this one.
+    try {
+      rows = chat.readThread(chat.DIRECT, name).messages || [];
+      const earlier = chat.asideChain(chat.DIRECT, name, true);
+      if (earlier.length) rows = [].concat(...earlier.map((a) => a.messages), rows);
+    } catch (err) {
       // No file can ever exist (BAD_THREAD) reads as nothing older; anything else is a read that failed, said so.
       if (err && err.code === 'BAD_THREAD') { sendJson(res, 200, { messages: [], olderCount: 0 }); return; }
       sendJson(res, 503, { error: String((err && err.message) || 'we cannot read what you have sent this agent') });
@@ -16208,9 +16213,13 @@ const server = http.createServer(async (req, res) => {
       } catch { /* no report: the line stays "Nothing back yet" */ }
     }
     const TAIL = 200;
-    const olderCount = Array.isArray(messages) && messages.length > TAIL
-      ? messages.length - TAIL : 0;
-    if (olderCount) messages = messages.slice(-TAIL);
+    /* kosmos#5841: a conversation that rolled over at the engine's cap continues earlier files; their messages are
+       older still, and counted here so "Show earlier messages" reaches them (positions run across the whole chain). */
+    let asideCount = 0;
+    if (Array.isArray(messages)) { try { for (const a of chat.asideChain(chat.DIRECT, name, false)) asideCount += a.count; } catch { /* the chain is extra; the tail stands */ } }
+    const olderCount = Array.isArray(messages)
+      ? asideCount + (messages.length > TAIL ? messages.length - TAIL : 0) : 0;
+    if (Array.isArray(messages) && messages.length > TAIL) messages = messages.slice(-TAIL);
     /**
      * ⚠️ EVERY FIELD HERE HAS A READER ON THE PAGE. The first version also
      * carried `agent`, `viewport` and `agentsUnreadable` "for parity with the

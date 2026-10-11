@@ -2817,6 +2817,8 @@ function readThread(projectId, agent, bornAt) {
     agent: String(agent),
     messages: parsed.messages,
     projectBornAt: parsed.projectBornAt || null,
+    // kosmos#5841: the name of the full file this one continues (a rollover at MAX_MESSAGES), or null.
+    continues: typeof parsed.continues === 'string' && parsed.continues ? parsed.continues : null,
   };
 }
 
@@ -3135,13 +3137,19 @@ function appendLocked(projectId, agent, entry, bornAt) {
     }
   }
   if (existing.messages.length >= MAX_MESSAGES) {
-    // See MAX_MESSAGES: refusing keeps every word the person wrote. Rotating
-    // would delete the oldest of them to make room, which nothing else in this
-    // product does to anybody's data.
-    return {
-      recorded: false,
-      because: `this conversation has reached the ${MAX_MESSAGES} messages Kosmos keeps, so we did not add to it`,
-    };
+    /* kosmos#5841: ROLL OVER rather than stop. The full file is RENAMED aside (`supersede`, kind 'full': nothing is
+       deleted, so "nothing of the user's is ever deleted" still holds) and the conversation goes on in a fresh file
+       that names it (`continues`), so the earlier messages stay reachable (asideChain, the older route). Before this,
+       a full thread refused every later send for good. If the move aside fails, it refuses as before, saying why. */
+    const moved = supersede(projectId, agent, ROLL_KIND);
+    if (!moved.ok) {
+      return {
+        recorded: false,
+        because: `this conversation has reached the ${MAX_MESSAGES} messages Kosmos keeps in one file, and ${moved.because}`,
+      };
+    }
+    existing = { messages: [], projectBornAt: existing.projectBornAt || null, continues: path.basename(moved.aside) };
+    ASIDE_META.delete(path.basename(moved.aside));
   }
   const record = {
     project: String(projectId),
@@ -3150,6 +3158,8 @@ function appendLocked(projectId, agent, entry, bornAt) {
     // messages. Carried forward when the record already had one, so an existing
     // conversation is not re-stamped by a read that happened to know the date.
     projectBornAt: existing.projectBornAt || (bornAt ? String(bornAt) : null),
+    // kosmos#5841: kept on every write, so the chain to the earlier files is never dropped.
+    ...(existing.continues ? { continues: existing.continues } : {}),
     messages: [...existing.messages, {
       at: (entry && entry.at) || new Date().toISOString(),
       // #1927: store the paragraph-preserving shape. `deliver` still flattens
@@ -3286,6 +3296,49 @@ function appendLocked(projectId, agent, entry, bornAt) {
  * the person's is lost, and clobbering the file we are rescuing would be the
  * one way to fail at that.
  */
+/** kosmos#5841: the kind a rolled-over full thread file is set aside under. */
+const ROLL_KIND = 'full';
+/* A rolled-over file's count and the name it continues, by name. A `.full` aside is never written again, so what is
+   read once stays true, and the 5 s poll's count needs no file read after the first. */
+const ASIDE_META = new Map();
+
+/**
+ * kosmos#5841: the files a conversation CONTINUES, oldest first: each is a thread file set aside full at
+ * MAX_MESSAGES (`continues` names the one before). Returns [{ name, messages }] (messages only when `withRows`; else
+ * `count`). A name is followed ONLY if it is this thread's own `.full` aside: the same directory, the thread file's
+ * own name as its prefix, no path separator, and the ROLL_KIND suffix, so a record cannot point the chain anywhere
+ * else. A cycle or a broken link ends the chain where it is (what was read is kept; nothing is invented).
+ */
+function asideChain(projectId, agent, withRows) {
+  const file = threadFile(projectId, agent);
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  const ok = (n) => typeof n === 'string' && n.startsWith(base + '.') && n.endsWith('.' + ROLL_KIND)
+    && !n.includes('/') && !n.includes('\\') && !n.includes('..' + path.sep) && n.length < 300;
+  let next = null;
+  try { next = readThread(projectId, agent).continues; } catch { return []; }
+  const out = [];
+  const seen = new Set();
+  while (ok(next) && !seen.has(next) && out.length < 1000) {
+    seen.add(next);
+    const known = ASIDE_META.get(next);
+    if (known && !withRows) {
+      out.unshift({ name: next, count: known.count });
+      next = known.continues;
+      continue;
+    }
+    let rec;
+    try { rec = JSON.parse(fs.readFileSync(path.join(dir, next), 'utf8')); } catch { break; }
+    if (!rec || rec.agent !== String(agent) || !Array.isArray(rec.messages)) break;
+    const rows = rec.messages.filter((m) => m && typeof m === 'object' && typeof m.text === 'string');
+    const cont = typeof rec.continues === 'string' ? rec.continues : null;
+    ASIDE_META.set(next, { count: rows.length, continues: cont });
+    out.unshift(withRows ? { name: next, messages: rows } : { name: next, count: rows.length });
+    next = cont;
+  }
+  return out;
+}
+
 function supersede(projectId, agent, kind) {
   let file;
   try { file = threadFile(projectId, agent); }
@@ -3344,6 +3397,7 @@ function supersede(projectId, agent, kind) {
  * they never made.
  */
 function cannotMoveAside(kind) {
+  if (kind === ROLL_KIND) return 'we could not move the full file aside to start a new one, so we did not add to it';
   return kind === 'damaged'
     ? 'we could not move the damaged file aside, so we did not add to it'
     : 'we could not move an earlier project’s messages aside, so we did not add to them';
@@ -3817,7 +3871,7 @@ module.exports = {
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
-  threadFile, readThread, appendMessage, supersede, withThreadLock,
+  threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmSummaryAll, dmUnreadAll, dmUnread, DM_SEEN,
   setRunner, setDryRun, setPauser, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
