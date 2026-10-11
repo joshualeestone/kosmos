@@ -100,6 +100,20 @@ test('#5800 engine: a room still over budget reads held after its valve row left
   assert.equal(messages.roomHeld('heldF', now).at, iso(now - 70 * MIN));
 });
 
+test('#5800 engine: the next post is charged like the latest (one arrival per member), as the valve charges it', () => {
+  const now = Date.now();
+  agentPost('heldH', now - 20 * MIN, CAP() - 5);
+  agentPost('heldH', now - 10 * MIN, 3);
+  valve('heldH', now - 9 * MIN);
+  /* CAP - 2 arrivals: a one-arrival post would fit, but this room's posts reach three members, and the valve refuses
+     when arrivals + charged exceed the budget. */
+  assert.ok(messages.roomHeld('heldH', now), 'a room the next three-member post cannot enter read open');
+  agentPost('heldI', now - 20 * MIN, CAP() - 3);
+  agentPost('heldI', now - 10 * MIN, 1);
+  valve('heldI', now - 9 * MIN);
+  assert.equal(messages.roomHeld('heldI', now), null, 'CONTROL: CAP - 2 arrivals with one-member posts leaves room for the next');
+});
+
 test('#5800 engine: a valve with the budget no longer full is not a hold (agent posts landing after it)', () => {
   const now = Date.now();
   valve('heldG', now - 5 * MIN);

@@ -2908,8 +2908,9 @@ function reopenRoom(project, at) {
    This answers it for the room page (the band and its Reopen button) and for `kosmos room` (one line at the top).
 
    Held means the limit is on, the valve has stopped this room since the person last posted or reopened it, and the
-   agent posts counted since then (sendPost's own sum: arrivals, from countFrom) still fill the room's budget, so the
-   next agent post would be refused. `until` is when enough of those posts age out of the window for one to land.
+   agent posts counted since then (sendPost's own sum: arrivals, from countFrom) leave no room for the next agent post,
+   so it would be refused. A room post is charged one arrival per member it reaches, so the next post's charge is taken
+   as the latest counted post's (at least one). `until` is when enough of those posts age out for such a post to land.
    Not counted: the #4786 allowance for work moving, which reads task and file times (too heavy for a 5 s poll), so a
    post can land sooner than `until`, never later. Returns { at, because, until } (at and because are the latest
    stopping valve row's, which the page matches its band on) or null. An unreadable record reads as not held: this is
@@ -2944,14 +2945,15 @@ function roomHeld(project, now) {
     }
   }
   if (!hold) return null;
-  let arrivals = counted.reduce((n, c) => n + c.n, 0);
-  if (arrivals < lim.roomArrivalsPerWindow) return null;
   counted.sort((a, b) => a.t - b.t);
+  const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
+  let arrivals = counted.reduce((n, c) => n + c.n, 0);
+  if (arrivals + charge <= lim.roomArrivalsPerWindow) return null;
   let freeAt = at;
   for (const c of counted) {
     arrivals -= c.n;
     freeAt = c.t + lim.windowMs;
-    if (arrivals < lim.roomArrivalsPerWindow) break;
+    if (arrivals + charge <= lim.roomArrivalsPerWindow) break;
   }
   return { at: hold.at, because: hold.because, until: new Date(freeAt).toISOString() };
 }

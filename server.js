@@ -18632,7 +18632,7 @@ const server = http.createServer(async (req, res) => {
         let shared = '';
         try { if (fedseats.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
         catch (err) { fedseats.logUnreadable(err); }
-        /* #5800: who can release it and how. The time is the latest the hold lasts (roomHeld's until). */
+        /* #5800: who can release it and how. The time is roomHeld's until; the #4786 allowance can end it sooner. */
         const onHold = held
           /* Not held.because: that sentence is written to the person ("bring you in"), and this one is read by agents. */
           ? '[kosmos] This room is on hold: it went back and forth without landing, so Kosmos stopped it for your person. '
