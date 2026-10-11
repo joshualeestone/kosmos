@@ -28,7 +28,8 @@ function canonicalId(id) {
 }
 
 /* Everything it reads, injectable. #5811: deps may be PARTIAL, the given ones overriding the real ones, so server.js
-   passes the planned model and the session from the snapshot it already read and keeps the rest. */
+   passes the planned model and the session from the snapshot it already read and keeps the rest. A key left out is
+   read for real, so a test that must not touch the machine passes all four. */
 function realDeps() {
   const create = require('./create');
   const status = require('./status');

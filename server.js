@@ -5501,8 +5501,8 @@ const server = http.createServer(async (req, res) => {
           return create.recordedRunner(a.sessionName);
         } catch { return null; }
       };
-      /* #5811: `geminiSeen` is the snapshot's input to the "(set to X)" decision, not a card field: taken off here so the
-         page row never carries it, and handed to that decision directly. */
+      /* #5811: `geminiSeen` is the snapshot's input to the "(set to X)" decision: taken off here so the page row never
+         carries it (server.gemini-seen-5811.test.js), and handed to that decision directly. */
       const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map(({ geminiSeen, ...a }) => ({
         ...a,
         runner: runnerOfCard(a),

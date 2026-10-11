@@ -7,9 +7,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const SANDBOX = path.join(os.tmpdir(), 'kosmos-gemread-5811-test-' + process.pid);
-process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+/* The whole sandbox (status.geminiseen-5811's set): snapshot() reads the job and the Gemini home, never the real ones. */
+const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gemread-5811-test-')));
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_GEMINI_HOME = path.join(SANDBOX, '.gemini');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SANDBOX, '.claude');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
+for (const d of [process.env.AGENT_WORKFORCE_DATA, process.env.AGENT_WORKFORCE_GEMINI_HOME, path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects'), process.env.AGENT_WORKFORCE_LAUNCH]) {
+  fs.mkdirSync(d, { recursive: true });
+}
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const create = require('./create');
