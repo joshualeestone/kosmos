@@ -282,7 +282,7 @@ test('#5842: a kept task line carries its task; one kept without it (an older ca
 
 test('#5842: the sweep typing a kept task line records it sent on its task, with the delivery state', async () => {
   await withFleet(AHEAD(), 'rate_limited', async (board) => {
-    messages.keepTaskLine('casey', LINE, board.agents, '', ABOUT, WHERE(12));   // the person's, from the screen
+    messages.keepTaskLine('casey', LINE, board.agents, '', ABOUT, { ...WHERE(12), person: true });   // the person's, from the screen
   });
   assert.deepEqual(outcomes(12), [], 'recorded before it was typed');
   await withFleet(undefined, 'idle', async (board) => {
@@ -290,12 +290,12 @@ test('#5842: the sweep typing a kept task line records it sent on its task, with
   });
   const ev = outcomes(12);
   assert.equal(ev.length, 1);
-  assert.deepEqual([ev[0].kind, ev[0].to, ev[0].from, ev[0].state], ['kept-sent', 'casey', '', chat.DELIVERY.PLACED]);
+  assert.deepEqual([ev[0].kind, ev[0].to, ev[0].from, ev[0].state, ev[0].person], ['kept-sent', 'casey', '', chat.DELIVERY.PLACED, true]);
 });
 
 test('#5842: a kept task line dropped a day past its reset is recorded dropped on its task, whoever sent it', async () => {
   const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
-  limitqueue.add('casey', { id: 'k5842a', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old, ...WHERE(13) });
+  limitqueue.add('casey', { id: 'k5842a', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old, ...WHERE(13), person: true });
   limitqueue.add('casey', { id: 'k5842b', kind: 'task', from: 'leo', envelope: LINE + ' b', about: ABOUT, at: old, reset: old, ...WHERE(14) });
   await withFleet(undefined, 'idle', async (board, tmux) => {
     const out = captureStdout();
@@ -305,8 +305,8 @@ test('#5842: a kept task line dropped a day past its reset is recorded dropped o
     } finally { out.restore(); }
     assert.deepEqual(tmux.pastedTo('casey'), [], 'a dropped line was typed');
   });
-  assert.deepEqual(outcomes(13).map((e) => [e.kind, e.to, e.from]), [['kept-dropped', 'casey', '']]);
-  assert.deepEqual(outcomes(14).map((e) => [e.kind, e.to, e.from]), [['kept-dropped', 'casey', 'leo']]);
+  assert.deepEqual(outcomes(13).map((e) => [e.kind, e.to, e.from, e.person]), [['kept-dropped', 'casey', '', true]]);
+  assert.deepEqual(outcomes(14).map((e) => [e.kind, e.to, e.from, e.person]), [['kept-dropped', 'casey', 'leo', undefined]]);
   assert.ok(outcomes(13).every((e) => !('behind' in e)), 'a line kept for a reset was recorded as kept behind others');
 });
 

@@ -1478,8 +1478,9 @@ async function tellHeldDropped(entry, roster) {
    kept like a `kosmos msg` and typed by the same minute sweep after the reset; so is one for an agent whose messages
    kept from then are still waiting, so it never arrives ahead of them. null: not held, type it now. Otherwise the
    outcome the route reports for that agent: held when kept, could_not when it could not be kept (and was not typed).
-   `from` is the sending agent's name, or '' for the person. `where` (#5842, optional): { projectId, task }, the task
-   the line belongs to, kept with it so its outcome is recorded in that task's conversation. Never throws: a throw before a hold is found types it
+   `from` is the sending agent's name, or '' for the person (or an agent the route could not name). `where` (#5842,
+   optional): { projectId, task, person }, the task the line belongs to and whether the person sent it from the screen,
+   kept with it so its outcome is recorded in that task's conversation. Never throws: a throw before a hold is found types it
    (as an unreadable limit verdict does for `kosmos msg`); one after a hold is found refuses it, untyped. */
 function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
@@ -1510,7 +1511,7 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
     const id = 'k' + crypto.randomBytes(6).toString('hex');
     const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind,
-      projectId: where && where.projectId, task: where && where.task });
+      projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true) });
     if (why) {
       const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
         : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
@@ -1531,7 +1532,9 @@ function keepTaskLine(toName, line, roster, from, about, where) {
 function recordTaskLineOutcome(entry, v, dropped) {
   if (!entry || typeof entry.projectId !== 'string' || !entry.projectId || !Number.isSafeInteger(entry.task) || entry.task < 1) return false;
   // `behind`: kept behind earlier messages rather than for a usage reset, so the page does not speak of a reset.
-  const behind = entry.behind === true ? { behind: true } : {};
+  // `person`: the person sent it from the screen. An empty `from` alone is not that: an agent the route could not name
+  // also arrives with none.
+  const behind = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}) };
   return require('./taskchat').record(entry.projectId, entry.task, dropped
     ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || ''), ...behind }
     : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || ''), ...behind });

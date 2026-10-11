@@ -74,7 +74,7 @@ function addOrWhy(name, entry) {
       // itself (project id and number), so its conversation records the line sent or dropped; absent on older entries.
       ...(entry.kind === TASK_KIND ? { kind: TASK_KIND, about: String(entry.about || ''),
         ...(typeof entry.projectId === 'string' && entry.projectId && Number.isSafeInteger(entry.task) && entry.task > 0
-          ? { projectId: entry.projectId, task: entry.task } : {}) } : {}) });
+          ? { projectId: entry.projectId, task: entry.task, ...(entry.person === true ? { person: true } : {}) } : {}) } : {}) });
     return write(name, now) ? '' : 'store';
   } catch { return 'store'; }
 }
