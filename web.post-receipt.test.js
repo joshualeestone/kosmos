@@ -92,7 +92,8 @@ function pageScope() {
     src[1] + `
     return { pjJoinNames, pjNameOf,
              pjReceiptSentence, pjOldEnoughToJudge, pjRoomRow, pjFoldRoomRows, PJ_SILENCE_AFTER_MS,
-             paintRoom, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; } };`,
+             paintRoom, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; },
+             setLast: (cards) => { LAST = cards; } };`,
   )(document, window, {}, () => new Promise(() => {}), () => 0, () => 0, () => {},
     function EventSource() {}, window.location, window.localStorage);
   return Object.assign(api, { written });
@@ -451,4 +452,114 @@ test('paintRoom turns the whole wall into a single refusal band on the screen', 
     'the collapsed band never reached the screen, or dropped a held agent');
   // the valve headline still stands on its own, above the collapsed band.
   assert.match(html, /asked everyone to bring you in/, 'the valve notice was lost in the fold');
+});
+
+/* kosmos#5752 slice 3: a refused task write's room row says what the agent tried and, while it is still not a member,
+   offers the person the add. Driven through the real pjRoomRow and pjFoldRoomRows. */
+/* Real cards from test-support/fleet (fixture-discipline: never a hand-built card), in a data sandbox of their own. */
+function realCards(names) {
+  const os = require('node:os');
+  const before = process.env.AGENT_WORKFORCE_DATA;
+  const dir = before ? null : fs.mkdtempSync(nodePath.join(os.tmpdir(), 'refused-add-'));
+  if (dir) process.env.AGENT_WORKFORCE_DATA = dir;
+  const fleet = require('./test-support/fleet');
+  const cards = fleet.install(names.map((n) => fleet.agent(n))).agents;
+  // The suite's leak gate (#4273) refuses a temp folder left behind: done() restores the fleet, the variable and the folder.
+  const done = () => {
+    fleet.restore();
+    if (dir) { delete process.env.AGENT_WORKFORCE_DATA; fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+  return { done, card: (n) => cards.find((c) => c.name === n) };
+}
+
+test('#5752 slice 3: a refused row says what was tried and offers the add only while the agent is not a member', () => {
+  const { done, card } = realCards(['mona', 'zed']);
+  try {
+  const row = { kind: 'refused', from: card('zed').sessionName, because: 'that agent is not on this project, so it cannot change its tasks',
+    doing: 'record a run of a task', addable: true, at: new Date().toISOString() };
+  const zedKey = card('zed').sessionName;
+  const p = { id: 'p1', agents: [card('mona')] };
+  api.setLast([card('mona'), card('zed')]);   // zed is an agent on this board
+  const html = api.pjRoomRow(row, p);
+  assert.match(html, /tried to record a run of a task here and Kosmos stopped it: /);
+  assert.ok(html.includes('<div class="pj-refused-act"><button type="button" class="pj-refused-add" data-add-member="' + zedKey + '">Add '),
+    'the add names the agent by its session: ' + html.slice(0, 400));
+  assert.ok(html.indexOf('class="msg-t"') >= 0 && html.indexOf('class="msg-t"') < html.indexOf('pj-refused-act'), 'the time stays with the sentence, before the add');
+  assert.doesNotMatch(api.pjRoomRow(row, { id: 'p1', agents: [card('zed')] }), /data-add-member/,
+    'already a member: no button');
+  const legacy = { kind: 'refused', from: zedKey, because: 'the room is held', at: new Date().toISOString() };
+  const lh = api.pjRoomRow(legacy, p);
+  assert.match(lh, /tried to post here and Kosmos stopped it/, 'a row with no doing is a room post, as before');
+  assert.doesNotMatch(lh, /data-add-member/, 'CONTROL: a refusal adding would not end offers no add');
+  api.setLast([card('mona')]);   // zed deleted from the board since
+  assert.doesNotMatch(api.pjRoomRow(row, p), /data-add-member/, 'a deleted agent is not offered: it would be added as a ghost');
+  } finally {
+    api.setLast([]);
+    done();
+  }
+});
+
+test('#5752 slice 3: an addable refusal keeps its own row (its own button); other same-reason refusals still fold', () => {
+  const at = new Date().toISOString();
+  const because = 'that agent is not on this project, so it cannot change its tasks';
+  const addable = [{ kind: 'refused', from: 'zed', because, addable: true, at }, { kind: 'refused', from: 'ann', because, addable: true, at }];
+  assert.deepEqual(api.pjFoldRoomRows(addable).map((m) => m.kind), ['refused', 'refused']);
+  const plain = [{ kind: 'refused', from: 'zed', because: 'held', at }, { kind: 'refused', from: 'ann', because: 'held', at }];
+  assert.deepEqual(api.pjFoldRoomRows(plain).map((m) => m.kind), ['refused-group'], 'CONTROL: the fold still works');
+  // Review 2: rows saying what was tried (a pane-claimed task write, no add) keep their own rows too, or the band would
+  // say "tried to post here" for both.
+  const tried = [{ kind: 'refused', from: 'zed', because, doing: 'add a task', at }, { kind: 'refused', from: 'ann', because, doing: 'add a task', at }];
+  assert.deepEqual(api.pjFoldRoomRows(tried).map((m) => m.kind), ['refused', 'refused']);
+  // Review 3: mixed runs, so each of the four checks (outer and inner, addable and doing) can fail on its own.
+  const show = (rows) => api.pjFoldRoomRows(rows).map((m) => m.kind + ':' + [].concat(m.from).join('+'));
+  const plainA = { kind: 'refused', from: 'ann', because, at };
+  const plainB = { kind: 'refused', from: 'bob', because, at };
+  assert.deepEqual(show([plainA, { kind: 'refused', from: 'zed', because, addable: true, at }]), ['refused:ann', 'refused:zed'],
+    'a plain row then an addable one: the addable keeps its own row and button');
+  assert.deepEqual(show([plainA, { kind: 'refused', from: 'zed', because, doing: 'add a task', at }]), ['refused:ann', 'refused:zed'],
+    'a plain row then one saying what was tried');
+  assert.deepEqual(show([{ kind: 'refused', from: 'zed', because, addable: true, at }, plainA, plainB]), ['refused:zed', 'refused-group:ann+bob'],
+    'an addable row then two plain ones: only the plain ones fold');
+  assert.deepEqual(show([{ kind: 'refused', from: 'zed', because, doing: 'add a task', at }, plainA, plainB]), ['refused:zed', 'refused-group:ann+bob'],
+    'a doing row then two plain ones');
+});
+
+test('#5752 slice 3: pressing Add adds that agent, repaints the room from what it last read, says so, and focuses the composer', async () => {
+  const page = require('./test-support/page');
+  const SRC = page.scriptOf(fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8'));
+  const run = async (added) => {
+    const calls = [];
+    const msg = { textContent: '', classList: { contains: (c) => c === 'pj-refused-msg' } };
+    const btn = { disabled: false, getAttribute: () => 'zed', nextElementSibling: msg };
+    const box = { __lastRoom: 'cached', __lastBody: { rows: [] } };
+    const composer = { focus: () => calls.push('focus') };
+    const document = { getElementById: (id) => (id === 'pj-room' ? box : id === 'pj-post' ? composer : null) };
+    // PJ_CURRENT is a variable the stubs can move (the person leaving the project while the add runs).
+    const made = new Function('document', 'addMemberToProject', 'pjReload', 'paintRoom', 'pjRoomAnnounce', 'pjNameOf', 'pjById',
+      'let PJ_CURRENT = "p1";\n' + page.liftAll(SRC, ['pjRefusedAddClick']) + '\nreturn { f: pjRefusedAddClick, leave: (v) => { PJ_CURRENT = v; } };');
+    let api5;
+    api5 = made(document,
+      async (who) => { calls.push('add ' + who); if (added === 'leave') api5.leave(null); return !!added; }, async () => { calls.push('reload'); },
+      (body) => calls.push('paint ' + (box.__lastRoom === undefined ? 'fresh' : 'cached')), (t) => calls.push('say ' + t),
+      () => 'Zed', () => ({ id: 'p1' }));
+    await api5.f({ target: { closest: () => btn } });
+    return { calls, btn };
+  };
+  const ok = await run(true);
+  assert.deepEqual(ok.calls, ['add zed', 'reload', 'paint fresh', 'say Added Zed to this project.', 'focus'],
+    'the room is repainted with its cache cleared (pjReload alone does not repaint it)');
+  const no = await run(false);
+  assert.deepEqual(no.calls, ['add zed'], 'a refused add: nothing repainted, the row says why');
+  assert.equal(no.btn.disabled, false, 'and the button can be pressed again');
+  const left = await run('leave');
+  assert.deepEqual(left.calls, ['add zed', 'reload'], 'review 2: the person left the project during the add: nothing repainted, said or focused there');
+  const src = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(src, /document\.getElementById\('pj-room'\)\.addEventListener\('click', pjRefusedAddClick\);/, 'wired to the room');
+  // Review 5: the add is a 44px target on a touch screen (with Try again, #5219), its status span is never hidden (a
+  // live region hidden until it gets text is often not announced), and a long agent name wraps.
+  assert.match(src, /:is\(#pj-one-view \.pj-doc, \.pnotice \.qopt, \.msg-valve \.pj-refused-add\) \{ min-height: 44px; \}/);
+  assert.doesNotMatch(src, /\.pj-refused-msg[^{]*\{[^}]*display:\s*none/);
+  const addRule = src.match(/\.msg-valve \.pj-refused-add \{[^}]*\}/);
+  assert.ok(addRule, 'the base .pj-refused-add rule exists (so the next check is not vacuous)');
+  assert.doesNotMatch(addRule[0], /nowrap/);
 });

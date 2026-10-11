@@ -81,6 +81,7 @@ async function openPlus(page, remote) {
     // ---- The sign-in wizard (state 2), keyboard only. ----
     {
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'dark' });
+      await page.addInitScript(() => { window.__kosmosRestartHoldMs = 0; });   // #5785: no K-loader hold on a register
       page.__url = BASE;
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));

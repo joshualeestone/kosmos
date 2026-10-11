@@ -2866,6 +2866,72 @@ function activeAgentsCreatedBy(creator) {
   return n;
 }
 
+/* #4475: the newest `created` or `partial` birth line for the agent `name`, or null when the birth log has none. A
+   line is matched by the board name its create acted on (`slug`, recorded since #4475), else by the slug of its typed
+   name. tokenOnlyRemoveRefusal refuses any birth that is not `created` or has no `slug`, so a newer partial line, or an
+   older-format one, ends the older one. */
+function agentBirthOf(name) {
+  let want; try { want = create.slugFor(name); } catch { return null; }
+  if (!want) return null;
+  let births;
+  try { births = create.createdLog(); } catch { return null; }
+  if (!Array.isArray(births)) return null;
+  let newest = null;
+  for (const b of births) {
+    if (!b || (b.outcome !== 'created' && b.outcome !== 'partial') || !b.name) continue;
+    let slug = (typeof b.slug === 'string' && b.slug) ? b.slug : null;
+    if (!slug) { try { slug = create.slugFor(b.name); } catch { slug = String(b.name); } }
+    if (slug === want) newest = b;
+  }
+  return newest;
+}
+/* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
+   (tokenOnlyRemoveRefusal answers null for yes, or the sentence to refuse with.)
+   Only when all of these hold, else refused:
+   - the target's newest birth is `created` and carries `createdByName` and `askedAt`: the exact token name of the
+     agent that asked for it through POST /api/team, and when it asked (engine/team.js records them only for an agent
+     that is not the setup guide). The person's paths record neither, so a fixed creator word they write ("operator",
+     "kosmos") never makes an agent its owner;
+   - the caller's token carries its name, and it is `createdByName` exactly;
+   - no token stood for the name when it was made (`tookTokens`): a live remote agent holds no folder, job or pane,
+     so create can take its name, and this keeps the asking agent from then removing that remote agent's name;
+   - no token of another name stands under the target's key now (sendertoken.keyHoldsOthers): removal revokes the
+     whole key, so it would also end that other agent (a remote "Dr.Kip" issued beside a made "drkip");
+   - neither identity has ended since (sendertoken.endedSince: the history `revoke` writes, which every path that
+     ends an agent goes through: removing it, deleting what is left of it, and creating an agent of that name). The
+     target is checked from after its birth (its own creation revokes its name before the birth is written); the
+     creator from the moment it asked, so a creator removed while its request ran is caught. A later agent under either name
+     is then never the one the birth is about, except by the two paths that mint without revoking (adopting after
+     deleting files by hand outside Kosmos, and a remote token the person issues again; engine/sendertoken.js). The
+     agent profile id does not show this: it survives a removal and is carried to a new agent of the same name.
+     Ownership does not come back on restore. */
+/* The refusals, so the agent (and the person it tells) hears the real reason, not "not yours" for every one. */
+const REMOVE_NOT_YOURS = 'an agent can remove only an agent it created; the person removes other agents from the board';
+const REMOVE_SHARED_KEY = 'removing this agent would also end another agent\'s sign-in, so the person removes it from the board';
+const REMOVE_UNCHECKED = 'Kosmos could not check who made this agent just now; the person can remove it from the board';
+/* null when allowed, else the sentence to answer with. */
+function tokenOnlyRemoveRefusal(caller, target) {
+  if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return REMOVE_NOT_YOURS;
+  const birth = agentBirthOf(target);
+  if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return REMOVE_NOT_YOURS;
+  if (birth.slug !== target) return REMOVE_NOT_YOURS;   // the create acted on exactly this board name (not a cut typed name)
+  if (birth.createdByName !== caller.name || birth.tookTokens === true) return REMOVE_NOT_YOURS;
+  // Every "not yours" comes first: the shared-key and cannot-check sentences below are said only to the agent's owner,
+  // so a non-owner learns nothing about the target from which sentence it gets. Keep this order.
+  if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return REMOVE_NOT_YOURS;
+  const others = sendertoken.keyHoldsOthers(target);
+  if (others === 'other') return REMOVE_SHARED_KEY;
+  if (others) return REMOVE_UNCHECKED;   // a token there that cannot be told whose it is
+  let creatorKey; try { creatorKey = store.safeKey(caller.name); } catch { creatorKey = null; }
+  const targetGone = sendertoken.endedSince([target], birth.at);
+  const creatorGone = sendertoken.endedSince([caller.name, creatorKey].filter(Boolean), birth.askedAt, { inclusive: true });
+  if (targetGone === null || creatorGone === null) {
+    console.error('#4475: refused a token-only removal of ' + target + ': the history of ended agents could not be read whole (' + sendertoken.endedLogFile() + ')');
+    return REMOVE_UNCHECKED;
+  }
+  return (targetGone === false && creatorGone === false) ? null : REMOVE_NOT_YOURS;
+}
+
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
    (read activeAgentsCreatedBy, then createTeam writes births).
    🔑 WHAT MAKES IT ATOMIC TODAY is NOT this lock: the route runs the count read
@@ -3424,7 +3490,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
+function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -3476,6 +3542,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
   const delivery = (asynchronousDelivery ? messages.sendPostAsync : messages.sendPost)({
     fromPane,
     sender,
+    // kosmos#5752 slice 3: only a sender the token helper resolved may have a refusal offer the room's Add.
+    senderByToken: senderByToken === true && !!(sender && sender.ok),
     project: found.id,
     // The NAME for the envelope the agent reads, the id for everything a
     // machine keys on. Both, from the same record, so they cannot drift.
@@ -4344,11 +4412,12 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
-   token is that agent, never the person. Person-only routes (removing, restarting or
-   reconfiguring agents, settings, POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and
-   keep requiring the board token. The header only, never `token` in the body: this gate runs before the body is
-   read, and the handlers resolve the header first (presentedAgentToken), so both see the same
-   caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
+   token is that agent, never the person. Person-only routes (restarting or reconfiguring agents, settings,
+   POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board
+   token. Removing an agent is in the patterns (#4475), narrowed in its handler to the caller's own creations.
+   The header only, never `token` in the body: this gate runs before the body is read, and the handlers resolve the
+   header first (presentedAgentToken), so both see the same caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT
+   network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
    does not see it: what stops an internet caller there is the tunnel itself, which forwards only
    for an admitted device and then presents the person's board token anyway (read from
@@ -4430,7 +4499,10 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    and its handler names the caller with resolveAgentSender, header token first. */
 /* #5152 slice 1: `kosmos task done-when` (POST .../task/<n>/done-when) joins on the same terms: its handler names the
    caller (processCaller) and refuses an agent that is not on the project (notOnProjectRefusal). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #4475 step 3: removing an agent (DELETE .../removal) joins, for the agents the caller created and no others: the
+   handler identifies the caller from the token (agentTokenOnlyCaller) and refuses any other target, and refuses
+   `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -4522,7 +4594,8 @@ function processCaller(req, body, roster, viaScreen, notDone) {
       card = targetCard || (byPane && byPane.ok ? byPane.card : null);
     } catch { card = null; }
   }
-  return { card: card || null, byKey: panelessCaller(tokenSender) };
+  // byToken (kosmos#5752 slice 3): the caller was named by its agent token, not by a pane claim (advisory).
+  return { card: card || null, byKey: panelessCaller(tokenSender), byToken: !!(tokenSender && tokenSender.ok) };
 }
 /* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
@@ -4541,15 +4614,24 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    let a caller into a project that has members. */
 /* kosmos#5752 slice 2: a refusal for not being on the project names its fix (engine/messages.js says where). */
 const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
-function notOnProjectRefusal(who, id, verb, notDone) {
+/* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
+   having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
+/* `addable` (the room's Add button) only for a caller its token named: a pane claim is advisory, so a button on it
+   would let one process ask, in another agent's name, to be added (review 1). Without a token the row is still kept. */
+function logNotOnProject(name, id, because, doing, byToken) {
+  messages.logRoomRefusal({ from: name, project: id, because, doing, addable: byToken === true });
+}
+function notOnProjectRefusal(who, id, verb, notDone, doing) {
   if (!who || !who.card) return null;
   let stored;
   try { stored = projects.readAll().filter((x) => x && x.id === id); }
   catch { return [503, 'we could not read the projects, so ' + notDone]; }
   if (!stored.length) return null;
   const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
-  return stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
-    : [403, 'that agent is not on this project, so it cannot ' + verb + NOT_ON_PROJECT_FIX];
+  if (stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey))) return null;
+  const because = 'that agent is not on this project, so it cannot ' + verb;
+  if (doing) logNotOnProject(who.card.sessionName, id, because, doing, who.byToken === true);
+  return [403, because + NOT_ON_PROJECT_FIX];
 }
 /* #4887, shared with #4914's `task assign`: the agent a CLI's `who` names on project `id`. For an agent caller
    (`card`), `me` is that agent unless a member is named exactly what was typed; the page sends member names, so
@@ -4588,8 +4670,8 @@ function agentTokenOk(req) {
 /* #4491 slice 4: did this request get past the board-token gate on its agent token ALONE? Returns null when it did
    not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
    terminal, every agent's CLI today), else the caller for tokenOnlyOnProject (below), or '' when the
-   token names nobody. For the READ handlers only: they have no body, and the gate has already checked the token,
-   so this is the same header read twice.
+   token names nobody. For handlers that read no body (the reads, and DELETE .../removal, #4475): the gate has already
+   checked the token, so this is the same header read twice.
    #4792: a token minted with its agent's name is matched by that exact name, as the slice-3 writes compare a
    carded caller, or by the stored key while no second name holds a named token (tokenOnlyOnProject's key arm). An older token carries only its key (store.safeKey of the name) and is matched BY KEY, as before:
    a project that lists "a.b" admits it when its key is "ab". That older path is refused when a second name has
@@ -7692,9 +7774,11 @@ const server = http.createServer(async (req, res) => {
            its pane-fallback (the thing report/reply's denyPaneFallback guards) is
            structurally unreachable on this path -- which is why this call does not
            pass denyPaneFallback (it would be inert). */
+        const askedAt = new Date().toISOString();   // #4475: once the body is read, before the caller is resolved (recorded on births)
         const presented = presentedAgentToken(req, body);
         let effectiveCreator;
         let callerKind;
+        let creatorTokenName = null;
         if (presented) {
           const authRoster = safeRoster();
           if (authRoster === null) {
@@ -7709,6 +7793,10 @@ const server = http.createServer(async (req, res) => {
           if (!sender.ok) { sendJson(res, 403, { error: sender.because }); return; }
           effectiveCreator = sender.card.sessionName;
           callerKind = 'agent';
+          /* #4475: the creator's exact name as its token carries it, recorded on each birth so the removal route can
+             match its creator exactly (the sessionName above is a slug or a store key, both lossy). A key-only token
+             (before #4792) carries none, and its births are then not removable by it. */
+          try { const named = sendertoken.resolveName(presented); creatorTokenName = (named && named.ok === true && typeof named.name === 'string' && named.name) ? named.name : null; } catch { creatorTokenName = null; }
         } else {
           // OPERATOR path: no agent token, so on an enforcing board the board token
           // is required (computed only here -- it is never read on the agent path).
@@ -7903,6 +7991,8 @@ const server = http.createServer(async (req, res) => {
           members: overCap ? members : liveMembers,
           fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
           fromGuide,
+          creatorTokenName,   // #4475: recorded on each birth (createdByName) for an agent that is not the guide
+          askedAt,            // #4475: recorded beside it (askedAt)
         };
         let result;
         if (callerKind === 'agent') {
@@ -8046,6 +8136,18 @@ const server = http.createServer(async (req, res) => {
        inert on every refusal except `untied`, so this cannot stop or hide the
        wrong thing. Absent = today's behaviour exactly. */
     const force = /[?&]force=(?:1|true)\b/i.test(req.url || '');
+    /* #4475 step 3: an agent that came through on its own token alone may remove only an agent it created, and never
+       with `?force` (the person's override). The person, and any caller holding the board token, are as before. */
+    const tokenOnly = agentTokenOnlyCaller(req);
+    if (tokenOnly !== null) {
+      /* The engine acts on the name as sent; the ownership check below matches by slug. So a token-only caller names
+         the agent exactly by its board name (the slug), and the two cannot read different agents. */
+      let board; try { board = create.slugFor(name); } catch { board = null; }
+      if (!board || board !== name) { sendJson(res, 400, { error: `name the agent by its board name${board ? ` (${board})` : ''}` }); return; }
+      if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }
+      const refused = tokenOnlyRemoveRefusal(tokenOnly, name);
+      if (refused) { sendJson(res, 403, { error: refused }); return; }
+    }
     let done;
     // ⚠️ Guarded for the reason given on the route above, and it matters most
     // here: this is the call that has already disabled a launchd job by the
@@ -8760,6 +8862,55 @@ const server = http.createServer(async (req, res) => {
         // #4373 part B: OFF ends the ON period now, so what is released while OFF never goes (the page says so).
         if (body.on === false) { try { communitysend.endOnPeriodNow(); } catch { /* the next sweep ends it */ } }
         sendJson(res, 200, communityBody());
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #5080: "The language your agents write to you in", Settings > Automation (engine/personlanguage.js).
+     GET: the choice (`auto` or a tag on the list), the list, and what Automatic reads on this computer now.
+     PUT { choice }: the person's, so an agent's token is refused. Saved, then every agent's language block is brought
+     in line at once, the boot sweep's own call, so running agents change now rather than at the next board start. */
+  const agentLanguageBody = () => {
+    const c = personlanguage.readChoice();
+    const auto = personlanguage.automatic();
+    return {
+      choice: c.ok ? c.choice : null,
+      ok: c.ok,
+      options: personlanguage.CHOICES,
+      automatic: { tag: auto.tag, name: auto.tag ? personlanguage.languageName(auto.tag) : null, sure: auto.sure },
+    };
+  };
+  if (pathname === '/api/agent-language' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, agentLanguageBody()); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/agent-language' && req.method === 'PUT') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this setting is the person\'s, not an agent\'s' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // Review 11: one PUT rewrites every agent's instructions, so an agent token in the body is refused too.
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'this setting is the person\'s, not an agent\'s' }); return; }
+        const saved = personlanguage.setChoice(body && body.choice);
+        if (!saved.ok) { sendJson(res, saved.code === 'io' ? 500 : 400, { error: saved.because }); return; }
+        let changed = 0;
+        let removed = 0;   // review 5: a removed block owes no re-read, so running agents drop it at their next start
+        let couldNot = 0;
+        try {
+          const told = personlanguage.syncEveryone(safeRoster());
+          try { instructionRereadOweEach(told, 'language'); } catch { /* the files are right; only the re-read line is lost */ }
+          changed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed).length;
+          removed = told.filter((t) => t && t.state === projects.TOLD.TOLD && t.changed && t.removed).length;
+          // The roster itself could not be read: one entry with no agent, so no count of agents is known.
+          couldNot = told.some((t) => t && t.agent === null) ? -1 : told.filter((t) => t && t.state !== projects.TOLD.TOLD).length;
+        } catch (err) {   // saved; the next board start brings the agents in line
+          couldNot = -1;
+          process.stderr.write(`Kosmos saved the agents' language but could not bring running agents in line now: ${String(err && err.message)}\n`);
+        }
+        sendJson(res, 200, { ...agentLanguageBody(), changed, removed, couldNot });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -15502,6 +15653,7 @@ const server = http.createServer(async (req, res) => {
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
           sender: senderFromAgentToken(req, body, roster),
+          senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
           project: body.project,
           text: body.text,
           replyExpected: body.reply_expected,
@@ -18337,7 +18489,9 @@ const server = http.createServer(async (req, res) => {
            an audience are matched by their frozen exact text. */
         .filter((m) => asText || !(m.kind === 'note' && (m.audience === messages.NOTE_AUDIENCE_AGENTS || projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE.includes(m.text))))
         .map((m) => (m.kind === 'refused'
-          ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
+          /* kosmos#5752 slice 3: what the agent tried, and whether adding it would end the refusal (the add button). */
+          ? Object.assign({ kind: 'refused', from: m.from, because: m.because || null, at: m.at },
+            typeof m.doing === 'string' && m.doing ? { doing: m.doing } : {}, m.addable === true ? { addable: true } : {})
           /* #3311: from outside this Kosmos; `external: true` is what the page
              and the text view key on, never the name. */
           : m.kind === 'external'
@@ -18407,7 +18561,7 @@ const server = http.createServer(async (req, res) => {
         const lines = tail.flatMap((m) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
-          if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
+          if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to ' + (m.doing || 'post') + ' here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
           if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
           /* #3311: a message from outside this Kosmos. Tagged so an agent reading
              the room knows it is someone else's words, to weigh, not an
@@ -19153,7 +19307,7 @@ const server = http.createServer(async (req, res) => {
            resolveSender), and an identified agent adds tasks only to a project it is on. Before, only a pane that
            was exactly a roster target was named, which the CLI's %N never is, so `by` was empty for a CLI caller. */
         const who = processCaller(req, body, roster, viaScreen, 'the task was not added');
-        const whoRefusal = who.refusal || notOnProjectRefusal(who, id, 'add tasks to it', 'the task was not added');
+        const whoRefusal = who.refusal || notOnProjectRefusal(who, id, 'add tasks to it', 'the task was not added', 'add a task');
         if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
         const paneCard = who.card;
         /* The runaway breaker (#327, #485, #3959): a task carries an assignee, so a
@@ -19334,7 +19488,7 @@ const server = http.createServer(async (req, res) => {
     if (presentedAgentToken(req, {})) {
       const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
       const who = processCaller(req, {}, safeRoster(), false, notDone);
-      const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone);
+      const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone, taskAct[3] + ' a task');
       if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
     }
     /* kosmos#4787 review 3: closing ends a recurring job's rule, so a process cannot close a task whose rule the person
@@ -19432,7 +19586,7 @@ const server = http.createServer(async (req, res) => {
       }
       const viaScreen = isViaScreen(req, body);
       const who = processCaller(req, body, safeRoster(), viaScreen, 'the task was not changed');
-      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed');
+      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed', 'change a task');
       if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
       try {
         const t = tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, { by: who.card ? who.card.sessionName : null, person: viaScreen });
@@ -19670,11 +19824,13 @@ const server = http.createServer(async (req, res) => {
       const viaScreen = isViaScreen(req, body);
       const roster = safeRoster();
       let name = null;
+      let roleByToken = false;   // kosmos#5752 slice 3
       if (viaScreen) {
         name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
         if (!name) { sendJson(res, 400, { error: 'say which member' }); return; }
       } else {
         const caller = processCaller(req, body, roster, false, 'the role was not set');
+        roleByToken = caller.byToken === true;
         if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
         name = (caller.card && caller.card.sessionName) || null;
         // A roster nobody could read names nobody: a 503, not "could not tell which agent you are".
@@ -19697,7 +19853,11 @@ const server = http.createServer(async (req, res) => {
         if (err && err.code === 'UNREADABLE') { sendJson(res, 503, { error: because }); return; }
         if (/no project by that name/.test(because)) { sendJson(res, 404, { error: because }); return; }
         // kosmos#5752: an agent setting its OWN role here is told how to be added; the person (the screen) is not.
-        if (/not on this project/.test(because)) { sendJson(res, viaScreen ? 400 : 403, { error: viaScreen ? because : because + NOT_ON_PROJECT_FIX }); return; }
+        if (/not on this project/.test(because)) {
+          if (!viaScreen) logNotOnProject(name, id, because, 'set its role', roleByToken);   // kosmos#5752 slice 3
+          sendJson(res, viaScreen ? 400 : 403, { error: viaScreen ? because : because + NOT_ON_PROJECT_FIX });
+          return;
+        }
         if (/^say the role in words$|^keep the role to /.test(because)) { sendJson(res, 400, { error: because }); return; }
         sendJson(res, 500, { error: 'Kosmos could not save that role just now' });
         return;
@@ -19753,6 +19913,8 @@ const server = http.createServer(async (req, res) => {
         try { proj = projects.readAll().find((x) => x && x.id === id) || null; }
         catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
+          logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot change its tasks',
+            taskRepeat[3] === 'ran' ? 'record a run of a task' : 'set how often a task repeats', !!(tokenSender && tokenSender.ok));
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -19835,6 +19997,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
+          logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot mark its tasks', 'mark a task built', !!(tokenSender && tokenSender.ok));
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -19935,6 +20098,7 @@ const server = http.createServer(async (req, res) => {
           }
           const stored = memberRecord;
           if (stored && !projectHasAgent(stored, senderCard.sessionName, byKey)) {
+            logNotOnProject(senderCard.sessionName, id, 'that agent is not on this project, so it cannot write in its tasks', 'write in a task', !!(tokenSender && tokenSender.ok));
             sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' + NOT_ON_PROJECT_FIX });
             return;
           }
@@ -20094,7 +20258,7 @@ const server = http.createServer(async (req, res) => {
       const roster = safeRoster();
       const viaScreen = isViaScreen(req, body);
       const caller = processCaller(req, body, roster, viaScreen, 'the task was not moved');
-      const callerRefusal = caller.refusal || notOnProjectRefusal(caller, id, 'move its tasks', 'the task was not moved');
+      const callerRefusal = caller.refusal || notOnProjectRefusal(caller, id, 'move its tasks', 'the task was not moved', 'move a task');
       if (callerRefusal) { sendJson(res, callerRefusal[0], { error: callerRefusal[1] }); return; }
       const asked = resolveWhoAsked(id, body.who, { viaScreen, card: caller.card, nobody: true });
       if (asked.refusal) { sendJson(res, asked.refusal[0], { error: asked.refusal[1] }); return; }
@@ -22551,7 +22715,11 @@ if (require.main === module) {
   try {
     /* Review 17: a Mac whose language could not be read changes nothing (see personlanguage.read), which would otherwise
        look exactly like an English Mac. Say it once. */
-    if (process.platform === 'darwin' && !personlanguage.read().sure) {
+    const langRead = personlanguage.read();
+    if (!langRead.sure && langRead.from === 'settings') {
+      // #5080: the choice file is there but cannot be read; the Mac's setting is not the cause.
+      process.stderr.write('Kosmos could not read the language chosen in Settings; agents\' language blocks were left as they are (choose it again in Settings to fix it)\n');
+    } else if (process.platform === 'darwin' && !langRead.sure) {
       process.stderr.write('Kosmos could not read this computer\'s language setting; agents\' language blocks were left as they are (it is read again at the next start)\n');
     }
     const told = personlanguage.syncEveryone(safeRoster());

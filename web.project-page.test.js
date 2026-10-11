@@ -31,11 +31,24 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 test('a member row derives its title the way the cards do, so a catalogue role reads as the catalogue writes it', () => {
-  assert.match(SCRIPT, /'<small class="pj-member-role">' \+ esc\(roleLine\(\{ role: m\.role \}, ROLE_TITLES\)\) \+ '<\/small>'/);
   const at = SCRIPT.indexOf('function roleLine('); const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
   // eslint-disable-next-line no-new-func
   const roleLine = new Function(fn + '\nreturn roleLine;')();
   const titles = new Map([['copywriter', 'Copywriter'], ['account manager', 'Account Manager']]);
+  /* #5300: run the member row's own role expression, so the pin is the behaviour, not one spelling of it. */
+  const line = SCRIPT.split('\n').filter((l) => l.includes('class="pj-member-role"'));
+  assert.equal(line.length, 1, 'exactly one member-row role expression');
+  const expr = line[0].trim().replace(/^\+\s*/, '');
+  const escAt = SCRIPT.indexOf('function esc('); const escFn = SCRIPT.slice(escAt, SCRIPT.indexOf('\n}\n', escAt) + 3);
+  // eslint-disable-next-line no-new-func
+  const esc = new Function(escFn + '\nreturn esc;')(); // the page's own escaper, not a stand-in
+  // eslint-disable-next-line no-new-func
+  const row = new Function('m', 'esc', 'roleLine', 'ROLE_TITLES', 'return ' + expr + ';');
+  const draw = (m) => row(m, esc, roleLine, titles);
+  assert.equal(draw({ role: 'copywriter' }), '<small class="pj-member-role">Copywriter</small>', 'no role here: the agent\'s own role, catalogue capitals');
+  assert.equal(draw({ role: 'project manager', roleHere: 'copywriter' }), '<small class="pj-member-role" title="Its role on this project">Copywriter</small>', 'a role here wins over the agent\'s own role');
+  assert.equal(draw({ role: null, roleHere: 'reviews <the> copy' }), '<small class="pj-member-role" title="Its role on this project">Reviews &lt;the&gt; copy</small>', 'a role here alone still shows, escaped');
+  assert.equal(draw({ role: null, roleHere: null }), '', 'neither: nothing, not a blank line');
   assert.equal(roleLine({ role: 'copywriter' }, titles), 'Copywriter');
   assert.equal(roleLine({ role: 'account manager' }, titles), 'Account Manager');
   // A role the catalogue has never seen gets only its first letter raised (the standing rule; it cannot invent capitals for words it has never seen).

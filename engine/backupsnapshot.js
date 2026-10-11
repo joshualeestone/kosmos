@@ -51,7 +51,7 @@ const nodeFs = require('fs');
 const path = require('path');
 const { CDC, chunkBuffer, chunkName, sealNamedChunk, sealManifest, checkBackupContext } = require('./backupformat');
 const { scanFile, pathDecision, insideWorkKosmos } = require('./backupscan');
-const { uploadChunks, uploadManifest, MAX_MANIFEST } = require('./backupupload');
+const { uploadChunks, uploadManifest, MAX_MANIFEST, isKeyEpoch } = require('./backupupload');
 const { pathProblem, collisionKey, collidingPaths } = require('./backuprestore');
 const { mask } = require('./secretmask');
 const { namingKeyId: namingKeyIdOf } = require('./backupkeys');
@@ -141,8 +141,9 @@ function periodOfKey(key) {
 
 /* Why a coordinator key cannot stand for a chunk of this context, or null: it must be <org>/<account>/<epoch>/<period>/<random>
    with the context's org and period (one under another period was named with another naming key: a manifest naming it
-   would not restore). NOT the epoch segment: the coordinator writes a constant there today (backup.rs EPOCH
-   = 1), so it says nothing about which member key sealed a chunk; that binding is the index entry's memberKeyId. */
+   would not restore). NOT the epoch segment: an index entry from an earlier run may sit under an earlier epoch and
+   still restore with that epoch's key. The uploader checks that a NEW grant names ctx.epoch (#5744); which member key
+   sealed an indexed chunk is the index entry's memberKeyId. */
 function keyProblem(key, ctx) {
   const parts = typeof key === 'string' ? key.split('/') : [];
   // Plain segments only: the manifest budget charges a key at its byte length, which JSON keeps only for these.
@@ -616,6 +617,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   // spent, with sealManifest's own rule.
   if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') return fail('the device key must be an Ed25519 private key');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
+  // #5744: ctx.epoch is passed to the uploader, which refuses an epoch it cannot check grants against.
+  if (!isKeyEpoch(ctx.epoch)) return fail(`the context's key epoch (${JSON.stringify(ctx.epoch)}) is not one a grant can name (1, 2, ...)`);
   const t = now();
   // A Date can hold only about 275,000 years either side of 1970: past that, periodOf reads "NaN-WNaN".
   // And within years -9999 to 9999, outside which the coordinator labels periods differently ("p<start>").
@@ -714,7 +717,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (!pending.size) return null;
     // No size check here: the one check before the walk already guarantees the finished manifest fits (see there).
     const batch = [...pending].map(([name, object]) => ({ name, object }));
-    const r = await putChunks(deps, batch);
+    const r = await putChunks(deps, batch, { epoch: ctx.epoch });
     const stored = (r && r.keys instanceof Map) ? r.keys : new Map();
     const lockOf = (name) => (r && r.lockedUntil instanceof Map ? r.lockedUntil.get(name) : undefined);
     const spent = r && r.grantSpent !== undefined ? { grantSpent: r.grantSpent } : {};
@@ -844,7 +847,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
   const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);
-  const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks });
+  const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch });
   if (!m || !m.ok) {
     // outlastsChunks: the named chunks lock out too soon for this manifest. Every lock was checked against this period's
     // manifest lock, so in practice Monday passed since (a FRESH reading says so; the one above cannot). Else

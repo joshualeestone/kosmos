@@ -81,6 +81,13 @@ android {
 
     testOptions {
         unitTests.includeAndroidResources = true
+        unitTests.all {
+            // Robolectric 4.16+ running at API 36 on JDK 17+ reflects into jdk.internal.access, which the
+            // module system blocks by default, so every @RunWith(RobolectricTestRunner) suite otherwise
+            // fails with "Failed to interact with raw FileDescriptor internals" (#5700). Export that
+            // package to the test JVM. It is --add-exports (read access), not --add-opens.
+            jvmArgs '--add-exports=java.base/jdk.internal.access=ALL-UNNAMED'
+        }
     }
 }
 
@@ -92,8 +99,9 @@ dependencies {
     // Plain JVM tests for the address rule (AddressChoice has no Android types).
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'androidx.test:core:1.6.1'
-    // 4.14 is the first release with Android 15 / API 35 support. It does NOT support
-    // API 36, so the unit tests are pinned to API 35 in
-    // src/test/resources/robolectric.properties (removed after the upgrade in #5700).
-    testImplementation 'org.robolectric:robolectric:4.14.1'
+    // Robolectric 4.16 was the first release with API 36 support; 4.17 is the current stable. The unit
+    // tests now run at the manifest targetSdk (36) -- the src/test/resources/robolectric.properties
+    // API-35 pin was removed in #5700 -- so they cover the forced edge-to-edge / predictive-back
+    // behaviour. API-36 Robolectric needs JDK 17+ (this box + CI use 21) and the --add-exports in testOptions.
+    testImplementation 'org.robolectric:robolectric:4.17'
 }

@@ -4405,6 +4405,16 @@ async function accountConnectable({ provider, accountDir } = {}) {
 }
 
 function createAgent(opts) {
+  /* #4475: did a token already stand for this name when we were asked? A live remote agent holds no folder, job or
+     pane, so create can take its name, and its own revoke then clears that agent's tokens. The birth says so, and the
+     removal route never lets the asking agent remove such a name. */
+  let tookTokens = false;
+  try {
+    // The name create revokes (its slug). Also the typed spelling's key, which create does not revoke: an over-refusal
+    // on purpose (a remote agent on that key makes this birth unremovable by its creator), never a gap. A typed name
+    // that cannot be keyed throws, which also reads as taken: such a birth is never removable by its creator.
+    tookTokens = Boolean(opts && opts.name) && (sendertoken.holdsTokens(slugFor(String(opts.name))) || sendertoken.holdsTokens(String(opts.name)));
+  } catch { tookTokens = true; }
   const out = createAgentInner(opts);
   /* The name as typed, because a refusal can be ABOUT the spelling; role and
      model as asked for, since a refused creation wrote no plist to read them
@@ -4432,6 +4442,15 @@ function createAgent(opts) {
        recorded, never a gate. */
     createdBy: (opts && opts.createdBy) ? String(opts.createdBy).slice(0, 120) : null,
     purpose: (opts && opts.purpose) ? String(opts.purpose).slice(0, 300) : null,
+    /* #4475: the exact token name of the agent that asked for this one on its own token, and when it asked, set only
+       by engine/team.js; the removal route lets that agent remove it. The name is not sliced, because the route
+       compares it exactly. Absent otherwise (older lines, the person's creates, the guide's). */
+    ...((opts && typeof opts.createdByName === 'string' && opts.createdByName) ? { createdByName: String(opts.createdByName) } : {}),
+    ...((opts && typeof opts.askedAt === 'string' && opts.askedAt) ? { askedAt: String(opts.askedAt).slice(0, 40) } : {}),
+    ...(tookTokens ? { tookTokens: true } : {}),
+    /* #4475: the board name this create acted on, exactly. `name` above is the typed name cut to 120 characters,
+       whose slug can differ from it (a long name padded with spaces), so the removal route matches on this. */
+    ...((out && typeof out.name === 'string' && out.name) ? { slug: out.name } : {}),
     outcome: (out && out.outcome) || 'unknown',
     because: (out && out.because) ? String(out.because).slice(0, 300) : null,
     /* #170: the same id the profile carries, on the creation line, so "was
@@ -5663,9 +5682,9 @@ function createAgentInner(opts) {
         }
       } catch { /* the sync after the session is up still does it, the old way */ }
     }
-    /* #5050: the person's language, from this computer's language setting, so the agent starts and posts in it. An
-       English Mac writes none (and removes one that came in with pasted instructions); off a Mac, or when the Mac's read
-       failed, nothing changes. Spliced last,
+    /* #5050: the person's language, from the person's choice in Settings (#5080, any platform) or else this computer's
+       language setting, so the agent starts and posts in it. English writes none (and removes one that came in with
+       pasted instructions); with no sure read (Automatic off a Mac, or a failed Mac read) nothing changes. Spliced last,
        so a new agent's file ends with it, unless pasted instructions already hold one with their own text after it
        (then it is replaced where it is). Non-gating like the blocks above. */
     {
@@ -5673,7 +5692,12 @@ function createAgentInner(opts) {
       try {
         const plMod = require('./personlanguage');
         const got = plMod.read();
-        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). */
+        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). #5080 review 9:
+           except a pasted block an earlier choice in Settings wrote, under a saved Automatic, as the sweeps do. */
+        if (!got.sure && got.auto && plMod.hasStaleSettingsBlock(text)) {
+          text = plMod.applyTo(text, null);
+          steps.push({ label: 'took out a language section from its instructions, because it came from an earlier choice in Settings', ok: true });
+        }
         if (got.sure) {
           const { MAX_BYTES } = require('./instructions');
           if (require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous) {
@@ -5682,9 +5706,10 @@ function createAgentInner(opts) {
               ? 'found two language sections in its instructions, so left them as they are; edit its instructions to keep one'
               : 'found two language sections in its instructions, so left them as they are; edit its instructions to remove them';
           } else {
-            const spliced = plMod.applyTo(text, got.tag);
+            const spliced = plMod.applyTo(text, got.tag, got.from);
             // Review 20: a sure English read removes a language section that came in with pasted instructions; say so.
-            if (!plMod.blockBody(got.tag) && spliced !== text) steps.push({ label: 'took out a language section from its instructions, because this computer\'s language is English', ok: true });
+            // #5080: naming where English came from, the person's choice in Settings or the computer's setting.
+            if (!plMod.blockBody(got.tag) && spliced !== text) steps.push({ label: got.from === 'settings' ? 'took out a language section from its instructions, because you chose English in Settings' : 'took out a language section from its instructions, because this computer\'s language is English', ok: true });
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
             else if (plMod.blockBody(got.tag)) langStep = 'could not add your language to its instructions (they are at the size limit), so it may start in English';
           }

@@ -1,8 +1,10 @@
-// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-si-done plus-flow
-// (#2518) the tokens this check asserts: where Kosmos+ device requests render on the Plus screen right after sign-in.
+// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-flow plus-chip
+// (#2518) the tokens this check asserts: where Kosmos+ device requests render on the Plus screen right after sign-in,
+// and (kosmos#5786) what each request card says about where its code is.
 /* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "these should have rendered in the same
- * spot as the login and not above everything". Right after sign-in the Plus screen shows the sign-in wizard's "You're
- * signed in to Kosmos+" step (#plus-state2, #plus-si-done), not the connected panel (#plus-flow). The request cards
+ * spot as the login and not above everything". Right after sign-in the Plus screen showed the sign-in wizard's "You're
+ * signed in to Kosmos+" step, not the connected panel (#plus-flow). #5787 (2026-10-10) removed that step: a sign-in now
+ * lands on the connected panel, whose connect block (#plus-chip) is tall, so the requests must still sit above it. The request cards
  * went into the TOP card then, a full-width band above the sidebars, because they moved into the Plus section only
  * while #plus-flow showed.
  *
@@ -35,7 +37,7 @@ const fail = [];
 function chk(ok, label, extra) { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fail.push(label); }
 const now = () => Math.floor(Date.now() / 1000);
 const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: 'you0929.kosmosplus.com' } };
-const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', first_seen: now() - 14 * 60 }, { device_id: 'd-phone', name: 'iPhone', code: 'W6-M4', first_seen: now() - 60 }];
+const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', first_seen: now() - 14 * 60 }, { device_id: 'd-phone', name: 'iPhone · Safari', code: 'W6-M4', first_seen: now() - 60 }];
 
 (async () => {
   fleet.install([fleet.agent('april', { state: 'idle', displayName: 'April', role: 'a researcher' })]);
@@ -58,11 +60,11 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.evaluate(() => { const b = document.querySelector('#s-nav button[data-go="plus"]'); if (b) b.click(); });
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
 
-      /* The state right after a sign-in: the wizard on its done step, the connected panel not yet shown. */
+      /* The state right after a sign-in (#5787): the connected panel with its connect block, the wizard gone. */
       const where = await page.evaluate(async () => {
-        document.getElementById('plus-state2').hidden = false;
-        document.getElementById('plus-flow').hidden = true;
-        plusSiShow('plus-si-done');
+        document.getElementById('plus-state2').hidden = true;
+        document.getElementById('plus-flow').hidden = false;
+        document.getElementById('plus-chip').hidden = false;
         if (typeof pollAsk === 'function') await pollAsk();
         paintAsk();
         /* Measured from the top of the page. The app header is sticky, so a page scrolled down (at 390 the wizard's
@@ -74,9 +76,10 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
         const asks = document.getElementById('plus-asks'), sec = document.getElementById('s-sec-plus'), head = document.querySelector('.apphead');
         const a = asks.getBoundingClientRect(), s = sec.getBoundingClientRect();
         return {
-          signedInShown: vis('plus-si-done'), flowShown: vis('plus-flow'),
+          wizardShown: vis('plus-state2'), flowShown: vis('plus-flow'), connectShown: vis('plus-chip'),
           inSection: vis('plus-asks') && sec.contains(asks), topCard: vis('askcard'),
           rows: document.querySelectorAll('#plus-ask-rows .askreq').length,
+          texts: [...document.querySelectorAll('#plus-ask-rows .askreq')].map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
           withinSection: a.left >= s.left - 1 && a.right <= s.right + 1,
           belowHeader: a.top >= Math.round(head.getBoundingClientRect().bottom),
           asksTop: Math.round(a.top), headBottom: Math.round(head.getBoundingClientRect().bottom), scrollY: Math.round(scrollY),
@@ -86,13 +89,18 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
             const r = b.getBoundingClientRect(), y = r.top + r.height / 2; return y > 0 && y < innerHeight ? true : Math.round(y); })(),
         };
       });
-      chk(where.signedInShown && !where.flowShown, '[' + W + '] precondition: the Plus screen shows "You\'re signed in" and not the connected panel', JSON.stringify(where));
+      chk(!where.wizardShown && where.flowShown && where.connectShown, '[' + W + '] precondition (#5787): the Plus screen shows the connected panel and its connect block, as a sign-in now ends', JSON.stringify(where));
       chk(where.inSection && where.rows === 2, '[' + W + '] #4610 right after sign-in both requests render in the Kosmos Plus section', JSON.stringify(where));
       chk(!where.topCard, '[' + W + '] #4610 and not in the top card, the band that spread above everything', JSON.stringify(where));
       chk(where.withinSection && where.belowHeader, '[' + W + '] #4610 they sit inside the settings column, below the header, not across the window', JSON.stringify(where));
-      chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the sign-in wizard', JSON.stringify(where));
+      /* kosmos#5786 (Josh 10-10, a new customer with Mac · Safari VR-D6 and nowhere to check it): a browser on a computer
+         is told its code is in that browser, in the tab where they signed in; the phone row, the CONTROL, keeps "the device in your hand". */
+      const safariRow = (where.texts || []).find((t) => /VR-D6/.test(t)) || '', phoneRow = (where.texts || []).find((t) => /W6-M4/.test(t)) || '';
+      chk(/Allow only if this code is showing in Safari, in the tab where you signed in\./.test(safariRow), '[' + W + '] #5786 the Mac \u00b7 Safari card says its code is in Safari, in the tab where they signed in', safariRow);
+      chk(/Allow only if this code is showing on the device in your hand\./.test(phoneRow) && !/tab where you signed in/.test(phoneRow), '[' + W + '] #5786 CONTROL: the iPhone · Safari card keeps "the device in your hand"', phoneRow);
+      chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the connect block (#5787)', JSON.stringify(where));
       /* State 1 (not enrolled, the marketing pane) is the tall one: placed after it, the first Allow sat at y=985 at
-         1400 wide, which the done step above is too short to show. */
+         1400 wide, which the connected pane above (#5787) sits high enough to show. */
       const s1 = await page.evaluate(async () => {
         document.getElementById('plus-state1').hidden = false;
         document.getElementById('plus-state2').hidden = true;

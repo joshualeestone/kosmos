@@ -320,3 +320,82 @@ test('#5752 slice 2: a non-member agent is told how to be added, on each of its 
   await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona);
   assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, {}, mona)).status, 200);
 });
+
+/* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it and can add the
+   agent from there. */
+test('#5752 slice 3: a non-member\'s refused task writes are room rows saying what it tried, offering the add, once each', async () => {
+  /* Its own project, so earlier tests' refusals by zed (logged in the same window) are not in its room. */
+  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('fixture', { state: 'idle' })]).agents;
+  const own = projects.create({ name: 'Gamma' });
+  projects.addAgent(own.id, 'mona', roster);
+  const projectId = own.id;
+  const n = tasks.create(projectId, { sentence: 'A scheduled check, slice 3', who: 'mona' }).number;
+  const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
+  await post(`/api/project/${projectId}/task/${n}/ran`, {}, zed);
+  await post(`/api/project/${projectId}/task/${n}/ran`, {}, zed);   // the same refusal again: still one row
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, zed);   // same sentence, another doing: its own row
+  await post(`/api/project/${projectId}/task/${n}/built`, { note: '1 met.' }, zed);
+  await post(`/api/project/${projectId}/task/${n}/message`, { text: 'hello' }, zed);
+  await post(`/api/project/${projectId}/tasks`, { sentence: 'not mine' }, zed);
+  await post(`/api/project/${projectId}/role`, { role: 'checker' }, zed);
+  const res = await fetch(base + `/api/project/${encodeURIComponent(projectId)}/room`, { headers: screen });
+  const room = await res.json();
+  const rows = (room.rows || room.messages || room).filter((m) => m && m.kind === 'refused' && m.from === 'zed');
+  assert.deepEqual(rows.map((m) => [m.doing, m.addable, m.because]), [
+    ['record a run of a task', true, 'that agent is not on this project, so it cannot change its tasks'],
+  ], 'zed (named by its token) wants in: ONE row with the add, however many writes were refused; the bare sentence, '
+    + 'never the agent-directed fix: ' + JSON.stringify(room).slice(0, 300));
+  // The agents' own view of the room says what was tried too.
+  const text = await (await fetch(base + `/api/project/${encodeURIComponent(projectId)}/room?as=text`, { headers: screen })).text();
+  assert.match(text, /zed tried to record a run of a task here and Kosmos stopped it: that agent is not on this project/);
+  // A caller named only by its pane (fake tmux ties every pane to `fixture`, not on this project): the row is kept, with
+  // no add offered, since a pane claim is advisory (review 1).
+  await post(`/api/project/${projectId}/tasks`, { sentence: 'by pane', from_pane: '%9' });
+  const pane = (await (await fetch(base + `/api/project/${encodeURIComponent(projectId)}/room`, { headers: screen })).json()).rows
+    .filter((m) => m && m.kind === 'refused' && m.from === 'fixture');
+  assert.equal(pane.length, 1, 'precondition: the pane caller\'s refusal is a row: ' + JSON.stringify(pane));
+  assert.notEqual(pane[0].addable, true, 'no add on a pane claim');
+  // Its own role, refused first on another project: "tried to set its role here" (review 1: it read "here here").
+  const delta = projects.create({ name: 'Delta' });
+  projects.addAgent(delta.id, 'mona', roster);
+  await post(`/api/project/${delta.id}/role`, { role: 'checker' }, zed);
+  const dtext = await (await fetch(base + `/api/project/${encodeURIComponent(delta.id)}/room?as=text`, { headers: screen })).text();
+  assert.match(dtext, /zed tried to set its role here and Kosmos stopped it: that agent is not on this project/);
+  assert.doesNotMatch(dtext, /here here/);
+  // CONTROL: a member's own run leaves no refused row.
+  const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona);
+  await post(`/api/project/${projectId}/task/${n}/ran`, {}, mona);
+  const again = await (await fetch(base + `/api/project/${encodeURIComponent(projectId)}/room`, { headers: screen })).json();
+  assert.equal((again.rows || again.messages || again).filter((m) => m && m.kind === 'refused' && m.from === 'mona').length, 0);
+});
+
+test('#5752 slice 3 review 2: every refused task write logs its own row (a fresh agent per verb, so the one-row rule hides none)', async () => {
+  const names = ['z1', 'z2', 'z3', 'z4', 'z5', 'z6', 'z7', 'z8', 'z9'];
+  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('fixture', { state: 'idle' }),
+    ...names.map((n) => fleet.agent(n, { state: 'idle' }))]).agents;
+  const own = projects.create({ name: 'Epsilon' });
+  projects.addAgent(own.id, 'mona', roster);
+  const n = tasks.create(own.id, { sentence: 'Per-verb check', who: 'mona' }).number;
+  const tok = (who) => ({ 'x-kosmos-agent-token': sendertoken.mint(who).token });
+  const base5 = `/api/project/${own.id}`;
+  const calls = [
+    ['z1', `${base5}/tasks`, { sentence: 'not mine' }, 'add a task'],
+    ['z2', `${base5}/task/${n}/close`, {}, 'close a task'],
+    ['z3', `${base5}/task/${n}/reopen`, {}, 'reopen a task'],
+    ['z4', `${base5}/task/${n}/done-when`, { doneWhen: 'it ran' }, 'change a task'],
+    ['z5', `${base5}/task/${n}/assign`, { who: 'mona' }, 'move a task'],
+    ['z6', `${base5}/task/${n}/repeat`, { every: 'hourly' }, 'set how often a task repeats'],
+    ['z7', `${base5}/task/${n}/built`, { note: '1 met.' }, 'mark a task built'],
+    ['z8', `${base5}/task/${n}/message`, { text: 'hello' }, 'write in a task'],
+    ['z9', `${base5}/role`, { role: 'checker' }, 'set its role'],
+  ];
+  for (const [who, path, body] of calls) await post(path, body, tok(who));
+  const rows = (await (await fetch(base + `/api/project/${encodeURIComponent(own.id)}/room`, { headers: screen })).json()).rows
+    .filter((m) => m && m.kind === 'refused');
+  for (const [who, , , doing] of calls) {
+    const r = rows.filter((m) => m.from === who);
+    assert.equal(r.length, 1, who + ' (' + doing + ') left no row: ' + JSON.stringify(rows.map((m) => [m.from, m.doing])));
+    assert.deepEqual([r[0].doing, r[0].addable], [doing, true], who);
+  }
+});

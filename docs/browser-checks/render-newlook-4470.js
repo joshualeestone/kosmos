@@ -1,4 +1,4 @@
-// Browser-check-surface: look-toggle look-row tsk-tile tsk-list d-talk-box d-dmthread pj-question
+// Browser-check-surface: look-toggle look-row tsk-tile tsk-list d-talk-box d-dmthread pj-question detail-back d-crumb-back d-crumb-root
 'use strict';
 /**
  * The new look's hidden switch (#4470, Josh 2026-09-28), on a real board in a real browser.
@@ -56,6 +56,10 @@
  *    a border under the pointer with the ground unchanged; a needs-you row's red and a could-not-read row's dash
  *    you can see (1.5:1); and against the look off, today's state wash, red and dash, and today's bordered row
  *    with a centred name (the control),
+ *  - an agent's page header in the new look (agentHeadLook, #5551): opened from a project, a round Back button and the
+ *    project's name with a slash in front of "Direct Message to <agent>" (on a phone the button and the name), the small
+ *    link above hidden, and Back returns to the project; from the Agents page the lead reads "All agents"; with the look
+ *    off, today's link, which names the project it goes back to (the control),
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -518,6 +522,51 @@ async function docsLook(page, projectId) {
     await page.waitForTimeout(400);
     out.chevBack = await page.evaluate(() => !document.getElementById('pj-one-view').hidden && document.getElementById('pj-docs-view').hidden);
   }
+  await page.evaluate(() => showTab('agents'));
+  await page.waitForTimeout(300);
+  return out;
+}
+/* #5551, the agent page's header (Josh's drawing of 2026-10-09): open Ada from the Billing project, read the way back,
+   press it, then open Ada from the Agents page. The lead must name where Back goes, in both looks. */
+async function agentHeadLook(page, projectId) {
+  await page.mouse.move(1, 1);
+  const READ = () => {
+    const vis = (el) => !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+    const back = document.getElementById('detail-back'), cb = document.getElementById('d-crumb-back'), root = document.getElementById('d-crumb-root');
+    const sep = document.querySelector('#d-talk-box .d-crumb-rootwrap > .pj-crumb-sep'), lab = document.getElementById('d-talk-label');
+    if (!back || !cb || !root || !lab || document.getElementById('panel-detail').hidden) return { found: false };
+    const c = getComputedStyle(cb), r = cb.getBoundingClientRect(), lr = lab.getBoundingClientRect();
+    const sw = document.getElementById('d-talk-search-wrap');
+    /* Review round 1: the ORDER and the rows, not only that things are shown. Back, then the lead, then the heading on
+       one line (a desktop); on a phone Back and the lead on one line and the search on its own line under them. */
+    const geo = () => { const rr = root.getBoundingClientRect(), sr = sw.getBoundingClientRect(), br = cb.getBoundingClientRect(), hr = lab.getBoundingClientRect();
+      const mid = (x) => (x.top + x.bottom) / 2;
+      return { inOrder: br.right <= rr.left + 1 && rr.right <= hr.left + 1, sameLine: Math.abs(mid(br) - mid(rr)) < 12,
+        searchBelow: sr.top >= Math.max(br.bottom, rr.bottom) - 1, searchBeside: Math.abs(mid(sr) - mid(br)) < 16, rootTrunc: rr.width < root.scrollWidth };
+    };
+    const g = geo();
+    /* A long project name is cut short on the Back row: it never pushes the search down a line or the page sideways. */
+    const was = root.textContent; root.textContent = 'The very long name of a project about the spring catalogue reprint';
+    const gl = geo(); const longWide = document.documentElement.scrollWidth > innerWidth; root.textContent = was;
+    return { found: true, backShown: vis(back), backText: back.textContent, crumbShown: vis(cb), crumbW: Math.round(r.width), crumbH: Math.round(r.height),
+      crumbRadius: c.borderTopLeftRadius, crumbAria: cb.getAttribute('aria-label'), rootShown: vis(root), rootText: root.textContent,
+      rootTab: root.tabIndex, rootHidden: root.getAttribute('aria-hidden'),
+      sepShown: vis(sep), label: lab.textContent, beforeLabel: r.right <= lr.left + 1, geo: g, long: { ...gl, wide: longWide }, wide: document.documentElement.scrollWidth > innerWidth };
+  };
+  await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); openDetail('ada', undefined, id); }, projectId);
+  await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  const out = { fromProject: await page.evaluate(READ) };
+  const target = out.fromProject.crumbShown ? '#d-crumb-back' : '#detail-back';
+  if (out.fromProject.found) {
+    await page.click(target);
+    await page.waitForTimeout(400);
+    out.returned = await page.evaluate(() => !document.getElementById('pj-one-view').hidden && document.getElementById('panel-detail').hidden);
+  }
+  await page.evaluate(() => { showTab('agents'); openDetail('ada'); });
+  await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  out.fromAgents = await page.evaluate(READ);
   await page.evaluate(() => showTab('agents'));
   await page.waitForTimeout(300);
   return out;
@@ -1048,6 +1097,20 @@ const AGENTS_LOOK = `(() => {
       }
       chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevSize === 40 && dcOn.chevGap === '14px' && dcOn.chevBack === true,
         `${tag} On, Documents: back is the round chevron at the project page's 40px (the text link hidden), and it returns to the project`, JSON.stringify(dcOn));
+      const ahOn = await agentHeadLook(page, proj.id);
+      const phoneHead = width <= 640;
+      chk(ahOn.fromProject && ahOn.fromProject.found && !ahOn.fromProject.backShown && ahOn.fromProject.crumbShown && ahOn.fromProject.crumbRadius === '50%'
+        && ahOn.fromProject.crumbW === (phoneHead ? 44 : 40) && ahOn.fromProject.crumbH === (phoneHead ? 44 : 40) && ahOn.fromProject.rootShown
+        && ahOn.fromProject.rootText === 'Billing' && ahOn.fromProject.crumbAria === 'Back to Billing' && ahOn.fromProject.sepShown === !phoneHead
+        && ahOn.fromProject.label === 'Direct Message to Ada' && !ahOn.fromProject.wide && ahOn.returned === true
+        && ahOn.fromProject.rootTab === -1 && ahOn.fromProject.rootHidden === 'true'
+        && (phoneHead ? (ahOn.fromProject.geo.sameLine && ahOn.fromProject.geo.searchBelow)
+          : (ahOn.fromProject.beforeLabel && ahOn.fromProject.geo.inOrder && ahOn.fromProject.geo.sameLine && ahOn.fromProject.geo.searchBeside))
+        && ahOn.fromProject.long.sameLine && ahOn.fromProject.long.rootTrunc && !ahOn.fromProject.long.wide
+        && (phoneHead ? ahOn.fromProject.long.searchBelow : ahOn.fromProject.long.searchBeside),
+        `${tag} On, an agent's page opened from a project: the round Back button and "Billing /" sit in front of "Direct Message to Ada" (the slash on a desktop only), in that order on one line (on a phone the search on its own line below), a long name cut short, one keyboard stop, the small link above steps aside, and Back returns to the project (#5551)`, JSON.stringify(ahOn.fromProject) + ' returned=' + ahOn.returned);
+      chk(ahOn.fromAgents && ahOn.fromAgents.found && ahOn.fromAgents.crumbShown && ahOn.fromAgents.rootText === 'All agents' && ahOn.fromAgents.crumbAria === 'Back to All agents',
+        `${tag} On, an agent's page opened from the Agents page: the lead reads "All agents" (#5551)`, JSON.stringify(ahOn.fromAgents));
       chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.divider === 'rgba(0, 0, 0, 0)' && dcOn.endRadius === '999px',
         `${tag} On, Documents: the folder / conversation switch is a pill with no edge or divider, its end segments round`, JSON.stringify(dcOn));
       const plOn = await projectsLook(page);
@@ -1144,6 +1207,13 @@ const AGENTS_LOOK = `(() => {
         `${tag} Off, Documents: today's text back link, no chevron, today's switch (the control)`, JSON.stringify(dcOff));
       chk(dcOn.found && dcOff.found && dcOn.chosen === dcOff.chosen && dcOff.chosen !== 'absent' && dcOff.chosen !== 'rgba(0, 0, 0, 0)',
         `${tag} Documents: the chosen segment is today's gold with the look on`, JSON.stringify({ on: dcOn.chosen, off: dcOff.chosen }));
+      /* Control for the agent-page header: with the look off, today's small link above the page and no Back row. It
+         names the project it goes back to (#5551 fixes the label in both looks: it said "All agents" even then). */
+      const ahOff = await agentHeadLook(page, proj.id);
+      chk(ahOff.fromProject && ahOff.fromProject.found && ahOff.fromProject.backShown && !ahOff.fromProject.crumbShown && !ahOff.fromProject.rootShown
+        && ahOff.fromProject.backText === '\u2190 Billing' && ahOff.returned === true
+        && ahOff.fromAgents && ahOff.fromAgents.backShown && ahOff.fromAgents.backText === '\u2190 All agents' && !ahOff.fromAgents.crumbShown,
+        `${tag} Off, an agent's page: today's link above the page, no Back row; it reads "\u2190 Billing" from the project and returns there, "\u2190 All agents" from the Agents page (the control)`, JSON.stringify(ahOff));
       const plOff = await projectsLook(page);
       chk(plOff.found && plOff.card !== 'rgba(0, 0, 0, 0)' && plOff.shadow !== 'none' && plOff.radius === '12px' && plOff.tile !== 'rgba(0, 0, 0, 0)' && plOff.plus.round !== '50%' && plOff.newBorder === 'dashed',
         `${tag} Off, Projects: today's bordered card with 12px corners, boxed Projects tile and dashed Add Project tile (the control)`, JSON.stringify(plOff));

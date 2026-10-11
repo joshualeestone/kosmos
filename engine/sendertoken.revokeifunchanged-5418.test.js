@@ -88,3 +88,16 @@ test('#5418: a mint since the plan keeps the file by mintedAt ALONE, the mtime p
   assert.equal(r.ok, false, 'removed though a token was minted after the plan');
   assert.equal(fs.existsSync(fileOf('minted-same-mtime')), true);
 });
+
+// #4475: a whole-file revoke ends the identity, so a creator's ownership of that name ends with it (endedSince). A file
+// that is KEPT (written since the plan) is not an end: the control that this test can tell the two apart.
+test('#4475: revokeIfUnchanged records the end when it removes the file, and not when it keeps it', () => {
+  const before = new Date(Date.now() - 1000).toISOString();
+  const m = seed('endedone');
+  assert.deepEqual(sendertoken.revokeIfUnchanged('endedone', m, OLD), { ok: true });
+  assert.equal(sendertoken.endedSince(['endedone'], before), true);
+  const k = seed('keptone');
+  fs.utimesSync(fileOf('keptone'), (OLD + 5000) / 1000, (OLD + 5000) / 1000);   // written since the plan: kept
+  assert.equal(sendertoken.revokeIfUnchanged('keptone', k, OLD).ok, false);
+  assert.equal(sendertoken.endedSince(['keptone'], before), false);
+});
