@@ -56,6 +56,14 @@ test.before(async () => {
     const r = chat.appendMessage(chat.DIRECT, AGENT, { text: 'message ' + i, at: new Date(Date.UTC(2026, 9, 1, 0, 0, i)).toISOString() });
     assert.equal(r.recorded, true, r.because);
   }
+  // The guide's and another agent's threads, for the mask arm: a key stored raw (as a row from before the write-side
+  // mask existed would be) and pushed onto an earlier page. Seeded HERE, before any request: ~400 synchronous appends
+  // between two fetches held the event loop past the server's 5 s keep-alive, and CI's fetch reused the socket the
+  // server was closing (ECONNRESET, run 38158076792).
+  for (const who of [GUIDE, OTHER]) {
+    assert.equal(chat.appendMessage(chat.DIRECT, who, { text: `The key is ${KEY}.` }).recorded, true);
+    for (let i = 0; i < 205; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'filler ' + i }).recorded, true);
+  }
 });
 test.after(() => {
   for (const undo of restore.reverse()) undo();
@@ -112,11 +120,6 @@ test('#5841 a position past the end is clamped, and a missing or bad one is refu
 });
 
 test('#5841 an earlier page of the setup guide\'s thread is masked as the latest page is; another agent\'s is kept as sent', async () => {
-  // Stored raw, as a row from before the write-side mask existed would be.
-  for (const who of [GUIDE, OTHER]) {
-    assert.equal(chat.appendMessage(chat.DIRECT, who, { text: `The key is ${KEY}.` }).recorded, true);
-    for (let i = 0; i < 205; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'filler ' + i }).recorded, true);
-  }
   const g = await get(`/api/agent/${GUIDE}/thread/older?before=1`);
   assert.equal(g.status, 200, JSON.stringify(g.json));
   assert.deepEqual(texts(g.json), [`The key is ${MASK}.`], 'the guide\'s earlier page showed the key');
