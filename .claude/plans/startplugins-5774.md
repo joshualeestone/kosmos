@@ -6,7 +6,7 @@
 
 ## How Claude Code 2.1.296 reads the variables (measured from its own bundle; details in the private notes)
 - All three are read through its environment accessor, which includes the `env` block of every settings tier, as well as the process environment.
-- `CLAUDE_CODE_PLUGIN_DIRS`: the value is split on the path delimiter, and each part is trimmed and has a leading `~` expanded. Only absolute parts are kept; a relative one is warned about and skipped.
+- `CLAUDE_CODE_PLUGIN_DIRS`: the value is split on the path delimiter, and each part is trimmed and has a leading `~` expanded (measured: only `~` alone or `~/...`; `~user` is not). Only absolute parts are kept; a relative one is warned about and skipped.
 - `CLAUDE_CODE_PLUGIN_CACHE_DIR`: one path with a leading `~` expanded. It replaces `<config home>/plugins` as the plugin cache. A relative value is read from the folder Claude Code runs in, which is the agent's folder.
 - `CLAUDE_CODE_PLUGIN_SEED_DIR`: the value is split on the path delimiter, empty parts are dropped, and each part has a leading `~` expanded.
 
@@ -18,6 +18,8 @@
 
 ## Gaps, stated
 - The shell startup files read are part 2's zsh and bash files (the home's and each ZDOTDIR's), on top-level lines only, as part 2 reads its assignments: fish (`set -x`) and nushell syntax, and an export inside an `if` or a function, are not read (review 2).
+- An agent of ANOTHER named Kosmos (world) shares the agents' folder but its job carries that world's key; readJob(name) reads this world's, so its config home is not found, and nothing names that (review 5; #5516 states the same for its account settings).
+- System startup files (/etc/zshenv, /etc/profile) and `launchctl setenv` values are not read for the plugin variables: an administrator's value is not seen (review 5).
 - The tmux server's own environment is not read (asking tmux at every refresh is a process per refresh); the shell startup files are, which is where such an export is usually set.
 - A hook's `$VAR` is expanded with every tier's agreed value, other accounts' homes included (part 1's rule, kept on purpose: a hook in a home expands with THAT home's env). The job homes add tiers, so a variable two homes set differently makes a hook that uses it named, not whole: fails closed. Expanding each home's hooks with that home's own env is the fix, a change of its own (review 1).
 - A plugin folder a variable names is denied by name and, like every guard rule, never pruned: a value that changes (a per-run temp folder, a versioned path, a link whose target moves at an upgrade) leaves its old rule behind (review 3).
@@ -29,7 +31,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 8 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
+engine/startplugins-5774.test.js, 9 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
 - each of the three variables dropped;
 - a relative CLAUDE_CODE_PLUGIN_DIRS part kept;
 - no ~ expansion;
@@ -78,4 +80,14 @@ engine/startplugins-5774.test.js, 8 tests, using the production job reader again
   - [NIT] TAKEN: a job home that is the root or the home itself is named. Tested; mutation red.
   - [NIT] TAKEN: a comment that the cache value is not trimmed, as measured.
   - [NIT] not taken: the startup files are picked from part 2's list by their standard names, which a ZDOTDIR does not change.
+- Iteration 5 (Opus), on 433a85a42:
+  - [WARNING] FIXED (reproduced by the reviewer). The "holds Kosmos's data" check read deps.dataRoot, which production never passes (every test did), so a plugin folder AT the data root was denied whole in both layers in production. It uses the function's resolved dataRoot. Tested WITHOUT deps.dataRoot, as production calls it; mutation red.
+  - [WARNING] FIXED (reproduced). The prepend idiom `${K:+:$K}` (how PATH is usually extended) was named. Both forms are dropped now. Tested; mutation red.
+  - [WARNING] STATED under Gaps: another world's agents' config homes are not found.
+  - [WARNING] STATED under Gaps: /etc startup files and launchctl setenv values.
+  - [NIT] TAKEN: the folder cap counts after the covered check. Tested (51 folders inside a covered folder); mutation red.
+  - [NIT] TAKEN: a job home reached by another spelling of one already listed is not added twice.
+  - [NIT] TAKEN: a job home that holds this agent's own folder is named. Tested; mutation red.
+  - [NIT] TAKEN: each home's real path is resolved once, not per folder above.
+  - [NIT] TAKEN (plan): the ~ rule as measured (`~` alone or `~/...`).
 

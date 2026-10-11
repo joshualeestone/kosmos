@@ -309,3 +309,27 @@ test('#5774 route 5 review 4: a quoted ~ is read; the startup files are read onc
     assert.ok(JSON.stringify(g).includes('which is the root or the home folder itself'), JSON.stringify(g));
   } finally { for (const n of ['linked-r4', 'homejob-r4']) fs.rmSync(jobfix.jobPath(n), { force: true }); fs.rmSync(linked, { force: true }); }
 });
+
+test('#5774 route 5 review 5: Kosmos\'s data is too wide as production runs (no deps.dataRoot); the prepend idiom; covered folders spend no budget; a job home holding the agent', () => {
+  const noData = { ...DEPS };
+  delete noData.dataRoot;   // as production calls it
+  const g = setup.guardTokenOnlyFolder(agentDir('pilot-datawide'), 'pilot-datawide', { ...noData, env: { CLAUDE_CODE_PLUGIN_DIRS: store.ROOT } });
+  assert.ok(JSON.stringify(g).includes('too wide'), JSON.stringify(g));
+  const zshrc = path.join(HOME, '.zshrc');
+  const K = 'CLAUDE_CODE_PLUGIN_DIRS';
+  fs.writeFileSync(zshrc, `export ${K}="$HOME/pre\${${K}:+${path.delimiter}$${K}}"\n`);
+  try {
+    const d = agentDir('pilot-prepend');
+    const g2 = setup.guardTokenOnlyFolder(d, 'pilot-prepend', { ...DEPS, env: ENV0 });
+    assert.equal(g2.ok, true, JSON.stringify(g2));
+    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, 'pre', 'x')).length > 0, 'the prepend idiom');
+  } finally { fs.rmSync(zshrc, { force: true }); }
+  // 51 folders all inside a folder already denied whole (a config home's plugins): no cap.
+  const inside = Array.from({ length: 51 }, (_, i) => path.join(HOME, '.claude', 'plugins', `c${i}`)).join(path.delimiter);
+  const g3 = setup.guardTokenOnlyFolder(agentDir('pilot-coveredplugs'), 'pilot-coveredplugs', { ...DEPS, env: { [K]: inside } });
+  assert.ok(!JSON.stringify(g3).includes('(more than 50)'), JSON.stringify(g3));
+  // A job home that holds this agent's own folder is named, never a whole-folder deny over the agent's work.
+  const d4 = agentDir('pilot-holdsme');
+  const g4 = setup.guardTokenOnlyFolder(d4, 'pilot-holdsme', { ...DEPS, env: ENV0, agentConfigDirs: [path.join(SANDBOX, 'workers')] });
+  assert.ok(JSON.stringify(g4).includes('which holds this agent\'s own folder'), JSON.stringify(g4));
+});

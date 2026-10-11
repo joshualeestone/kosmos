@@ -1715,6 +1715,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     const h = path.resolve(h0);
     // Review 4: a job home that is the root or the home itself is no config home Kosmos can place: named.
     if (h === path.parse(h).root || realOrLeaf(h) === realOrLeaf(home)) { configUnsafe.push(`${h} (a config home an agent's job names, which is the root or the home folder itself)`); continue; }
+    // Review 5: one holding this agent's own folder would have its code members denied over the agent's own work: named.
+    const hr = realOrLeaf(h), dr = realOrLeaf(dir);
+    if (dr === hr || dr.startsWith(hr + path.sep)) { configUnsafe.push(`${h} (a config home an agent's job names, which holds this agent's own folder)`); continue; }
+    // Review 5: the same home by another spelling (a linked /var) is not a second one.
+    if (concreteHomes.some((c) => realOrLeaf(c) === hr)) continue;
     if (!concreteHomes.includes(h) && ++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
     if (concreteHomes.includes(h)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (a config home an agent's job names, whose path the permission rules cannot carry)`); continue; }
@@ -1819,7 +1824,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
         /* Review 3: the append idiom refers back to the variable itself (`$K:$HOME/x`, `${K:+$K:}...`): every earlier
            value is already gathered and covered, so those parts are dropped. $HOME (balanced braces) is replaced at the
            start of each part. A backtick or any other variable is a value Kosmos cannot work out: named. */
-        const selfRef = new RegExp(`\\$\\{${k}:\\+\\$\\{?${k}\\}?${path.delimiter}\\}`, 'g');
+        // Review 5: the prepend form too, `${K:+:$K}` (as PATH is usually extended).
+        const selfRef = new RegExp(`\\$\\{${k}:\\+(?:\\$\\{?${k}\\}?${path.delimiter}|${path.delimiter}\\$\\{?${k}\\}?)\\}`, 'g');
         const plain = v === null ? null : v.replace(selfRef, '').split(path.delimiter)
           .filter((part) => part !== `$${k}` && part !== `\${${k}}`)
           .map((part) => part.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, home)).join(path.delimiter);
@@ -1849,18 +1855,18 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      folder, Kosmos's data or a config home Claude Code writes) or one the rules cannot carry is named. */
   const homeRealP = realOrLeaf(home), dirRealP = realOrLeaf(dir);
   const tmpRealP = realOrLeaf(deps.tmpDir || require('os').tmpdir());   // tests pass deps.tmpDir
-  const dataRealP = deps.dataRoot ? realOrLeaf(deps.dataRoot) : null;
+  const dataRealP = realOrLeaf(dataRoot);   // review 5: the resolved one (production passes no deps.dataRoot)
   const homesRealP = concreteHomes.map((h) => realOrLeaf(h));
   const holdsP = (r, x) => x === r || x.startsWith(r + path.sep);
   // Review 4: bounded like the job homes; past 50 the rest are named (each is a whole-folder rule, never pruned).
   const ENV_PLUGIN_MAX = 50;
   let envPluginTaken = 0;
   for (const d of new Set(startCmds.envPluginDirs || [])) {
+    if (coveredWhole(d)) continue;   // review 5: before the count, so covered folders do not spend the budget
     if (++envPluginTaken > ENV_PLUGIN_MAX) { configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); break; }
-    if (coveredWhole(d)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
     const r = realOrLeaf(d);
-    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || (dataRealP && holdsP(r, dataRealP)) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data or a config home)`); continue; }
+    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || holdsP(r, dataRealP) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data or a config home)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
     wholeDenied.push(...both);

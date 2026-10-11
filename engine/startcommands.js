@@ -684,6 +684,9 @@ function configSources(dir, homes, home, deps = {}) {
   for (const h of homes) {
     for (const f of ['settings.json', 'settings.local.json', 'remote-settings.json']) out.push({ file: path.join(h, f), pick: whole, settings: true, home: h });
   }
+  // #5774 route 5 review 5: each home's real path once (either spelling, a linked /var), not per folder above.
+  const realOfDir = (x) => { try { return fs.realpathSync.native(x); } catch { return path.resolve(x); } };
+  const homeSpellings = homes.map((h) => [path.resolve(h), realOfDir(h)]);
   for (const d of folders) {
     // The agent folder's own two settings files (by either path) are rewritten by the guard itself (an unreadable one
     // is kept as a dated copy and replaced, #4491 review 18), so their old text never loads: unreadable there is not a gap.
@@ -691,9 +694,10 @@ function configSources(dir, homes, home, deps = {}) {
     // in both (settings.json is merged; cleanLocalSettings leaves process-starting keys), so their commands still run.
     // #5774 route 5 review 3: a folder above the agent whose .claude IS a config home (the home folder's ~/.claude) is that
     // home's tier, tagged so its env is not read as this agent's when the agent runs on another account.
-    const realOf = (x) => { try { return fs.realpathSync.native(x); } catch { return path.resolve(x); } };   // either spelling (a linked /var)
-    const asHome = homes.map((h) => path.resolve(h)).find((h) => h === path.resolve(d, '.claude') || realOf(h) === realOf(path.join(d, '.claude')));
-    for (const f of ['settings.json', 'settings.local.json']) out.push({ file: path.join(d, '.claude', f), pick: whole, settings: true, rewritten: own.includes(d), ...(asHome ? { home: asHome } : {}) });
+    const dc = path.resolve(d, '.claude');
+    const dcReal = realOfDir(dc);
+    const asHome = homeSpellings.find(([h, hr]) => h === dc || hr === dcReal);
+    for (const f of ['settings.json', 'settings.local.json']) out.push({ file: path.join(d, '.claude', f), pick: whole, settings: true, rewritten: own.includes(d), ...(asHome ? { home: asHome[0] } : {}) });
     out.push({ file: path.join(d, '.mcp.json'), pick: whole });
   }
   /* The global config: its own servers, and its project entries for the agent folder and the folders above (never
