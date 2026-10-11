@@ -41,3 +41,17 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - FIXED (NITs): the chmod-after-trust comment; MAX_INDEX enforced in withRun.
 - MEASURED (NIT, read cost): 200000 entries = 34.6 MB; writeState 283 ms, readState 251 ms on this Mac, once each per
   run, blocking. Acceptable for an hourly run; the run may move it off the event loop later.
+
+## Review 2 (opus, blind, on 1c3329b80): NOT CONVERGED
+- Checked: every takeSnapshot return path through withRun leaves the right index (success, every early failure, every
+  staleIndex, overAllowance before and after batches, a batch from another bucket, grantedPeriod, a thrown uploader,
+  outlastsChunks with and without a boundary, otherBucket with and without an index; an earlier epoch's entry is always
+  another member key, so pruned).
+- FIXED (WARNING): an EARLIER label started fresh and threw away the later period's naming key and index, which
+  happens when the coordinator grants a week ahead of this Mac's clock (grantedPeriod) and a retry reads the clock.
+  Now the stored later period is returned; the caller uses the returned label. Tests (and across a year); mutant red.
+- FIXED (NIT): the lock prune is documented as defensive, not as takeSnapshot's check (that one is against the
+  manifest lock, which every kept row passed for its period).
+- FIXED (NIT): withRun returns leftOut (not persisted), so a caller passing the wrong period shows. Test; mutant red.
+- FIXED (NIT): the "would not read back" test now reaches that refusal (a 31-byte key had thrown earlier).
+- Documented: discardState's .bad files are kept for a person, never removed here.
