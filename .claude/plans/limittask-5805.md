@@ -55,11 +55,24 @@ for this reason.
 - keepTaskLine's catch typed the line on any throw: a throw after a hold is found now refuses it, untyped.
 - A sender-cap refusal did not say whose messages filled it: it now names the per-sender and per-agent caps.
 
+## Reviews 2 to 6 (opus, sonnet, opus, sonnet, opus)
+- 2: the #4588 Gemini-cap comment sat above the kept branch; it now sits on the typed-now branch it describes.
+- 3: the kept entry stored the sender name cleaned for the line text; it stores the session name, which a drop
+  notice is addressed to. The behind-a-backlog summary got a test.
+- 4: the drop comment said the person was told the line was kept, which the task page never shows (#5842); fixed.
+  The drop notice names who was out of usage; a refusal after a throw behind a backlog says so.
+- 5: nothing new to fix. A possible doubled name in the summary is not one: plain() cleans the name and the reason
+  the same way, as the could_not branch already relies on.
+- 6: a capped agent whose swarm is also paused was kept, then refused at every sweep for a day, blocking its queue.
+  keepTaskLine now leaves a line the delivery refuses anyway (not sendable, not reachable, swarm paused) to the
+  delivery, which says the true reason now. Residual, as for `kosmos msg`: a swarm paused AFTER a line is kept still
+  holds the queue until the drop. "No record an agent can read of a kept line being typed" went onto #5842.
+
 ## Tests
 - engine/limittask-5805.test.js: held and not typed; idle CONTROL not held; unreachable not held; behind a backlog;
   the real sweepHooks types it after release with the kept note and no message row; a drop tells the agent sender
   which task; a drop from the person types nothing; a full queue is refused and says why; a throw after a hold is
-  found refuses, one before it does not.
+  found refuses, one before it does not; a paused swarm or an unsendable line is not kept (red without the check).
 - server.limittask-5805.test.js: the route end to end. From the screen, a capped assignee is kept and the other is
   told; CONTROL, an idle assignee is typed into; from an agent, the line is kept under that agent's name.
 - server.task-message-summary-4540.test.js: two cases for the kept sentence.
