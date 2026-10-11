@@ -62216,14 +62216,20 @@ function tkActPhrase(ev, p) {
     case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
     /* #5842: a message kept for an agent out of usage, sent after its reset or dropped a day later. `from` is the
        agent that sent it; none means the person. */
-    case 'kept-sent': { const to = nameOf(ev.to) || 'an agent'; const by = ev.from ? (nameOf(ev.from) || 'An agent') + '\u2019s' : 'Your';
-      // Kept behind earlier messages (no usage limit of its own): no reset is spoken of.
-      const when = ev.behind === true ? 'once the messages ahead of it had gone' : 'after ' + to + '\u2019s usage reset';
+    case 'kept-sent': case 'kept-dropped': {
+      /* No reset time is named: the queue can count its day from when the message arrived, so "after the reset" could
+         describe a reset nobody saw. Kept behind earlier messages (`behind`): no usage limit is named either. */
+      const to = nameOf(ev.to) || 'an agent';
+      const whose = ev.from ? (nameOf(ev.from) || 'an agent') + '\u2019s' : 'your';
+      const Whose = !ev.from ? 'Your' : nameOf(ev.from) ? whose : 'An agent\u2019s';   // a real name is never re-cased
+      const behind = ev.behind === true;
+      if (ev.kind === 'kept-dropped') return Whose + ' message to ' + to + ' was never sent: '
+        + (behind ? 'Kosmos kept it behind earlier messages' : to + ' was out of usage, and Kosmos kept it') + ' for more than a day without being able to send it';
+      const kept = behind ? ', kept behind earlier messages, ' : ', kept while ' + to + ' was out of usage, ';
+      const when = behind ? 'once the messages ahead of it had gone' : 'once ' + to + ' was back';
       return ev.state === 'unconfirmed'
-        ? 'Kosmos tried to send ' + (ev.from ? by : 'your') + ' message to ' + to + ' ' + when + ', but could not confirm ' + to + ' got it'
-        : by + ' message to ' + to + ' was sent ' + when; }
-    case 'kept-dropped': { const to = nameOf(ev.to) || 'an agent'; const by = ev.from ? (nameOf(ev.from) || 'An agent') + '\u2019s' : 'Your';
-      return by + ' message to ' + to + ' was never sent: Kosmos kept it ' + (ev.behind === true ? 'for a day behind earlier messages' : 'until a day after ' + to + '\u2019s usage reset') + ' and could not send it in that time'; }
+        ? 'Kosmos tried to send ' + whose + ' message to ' + to + ' ' + when + ', but could not confirm ' + to + ' got it'
+        : Whose + ' message to ' + to + kept + 'was sent ' + when; }
     case 'closed': return 'Marked done';
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': return 'Put back';

@@ -8,11 +8,13 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
   the task route at the keepTaskLine call (Baron: entries kept before this lack it, and they last a day at most).
 - When the minute sweep types it after the reset, the task's conversation records `kept-sent` (to, from, delivery
   state). When it is dropped a day past its reset, it records `kept-dropped` (to, from), whoever sent it.
-- The task page's activity reads: "Your message to Mona was sent after Mona's usage reset"; unconfirmed: "Kosmos tried
-  to send your message to Mona after Mona's usage reset, but could not confirm Mona got it" (never "sent", review 1);
-  dropped: "Your message to Mona was never sent: Kosmos kept it until a day after Mona's usage reset and could not send
-  it in that time" (not "while out of usage": in that day a menu, a quota hold or a stopped agent can also block it,
-  review 1). From an agent: "Leo's message to Mona ...".
+- The task page's activity reads, never naming a reset time (the queue can count its day from arrival when the printed
+  reset is unreadable, so a reset may not have been seen; reviews 1, 3, 4):
+  sent: "Your message to Mona, kept while Mona was out of usage, was sent once Mona was back";
+  unconfirmed: "Kosmos tried to send your message to Mona once Mona was back, but could not confirm Mona got it";
+  dropped: "Your message to Mona was never sent: Mona was out of usage, and Kosmos kept it for more than a day without
+  being able to send it". Kept behind earlier messages (`behind`): "kept behind earlier messages ... once the messages
+  ahead of it had gone" / "kept it behind earlier messages for more than a day". From an agent: "Leo's message to Mona".
 - An entry kept with no task records nothing and is typed or dropped as before.
 - Tests fail without the change (engine: 4 of 4 new fail on main's engine; page: the new phrase test fails on main's page).
 
@@ -37,6 +39,11 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
 - Reading a task's conversation from the command line. No `kosmos task` command reads it today, so an agent cannot see
   these records either. That needs a new command on both the Mac and Windows CLIs; filed as #5874.
 - tellTaskLineDropped still tells an agent sender in its pane, unchanged.
+
+## Deferred
+- Review 4: a task or project deleted during the day a message was kept still gets its record written, making one small
+  orphan file under task-chats. Recording is best-effort by design, and checking the task exists would add a store read on
+  every sweep for a file nobody reads.
 
 ## Weakest premise
 - An entry typed or dropped by a board older than this change records nothing, which is honest, but the person then
