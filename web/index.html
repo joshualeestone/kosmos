@@ -63002,6 +63002,7 @@ async function tkSayPost() {
         const had = byName.get(sn);
         if (!had || rank(d.state) > rank(had.state)) byName.set(sn, d);
       }
+      // The page sends as the person, so the route lists every assignee: an empty list means none is on the task.
       if (out && Array.isArray(out.delivered) && !list.length) {
         msg.textContent = 'No agent is on this task, so nobody was told.';
       } else {
@@ -63018,8 +63019,8 @@ async function tkSayPost() {
             const at = Date.parse(d.heldUntil || '');
             const until = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
             lines.push(until ? who + ' is out of usage until ' + until + '. Kosmos sends it your message then.'
-              : /still has messages kept/.test(why) ? who + ' gets your message after the ones already waiting for it.'
-              : who + ' is out of usage. Kosmos sends it your message after the reset.');
+              : d.behind === true || /still has messages kept/.test(why) ? who + ' gets your message after the ones already waiting for it.'
+              : 'Kosmos is keeping your message for ' + who + ' and sends it later.');   // no time known: claim nothing more
           } else lines.push('Kosmos could not confirm that ' + who + ' got it' + (said ? '. ' + said : why ? ': ' + why : '') + '.');
         }
         msg.textContent = lines.join(' ');

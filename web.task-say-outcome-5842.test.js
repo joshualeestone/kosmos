@@ -75,7 +75,12 @@ test('#5842: a message kept for an agent out of usage says when, in local time, 
   const behind = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey still has messages kept from while it was out of usage; Kosmos types this one after them' }]);
   assert.equal(behind.said, 'casey gets your message after the ones already waiting for it.');
   const noTime = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey is out of usage; Kosmos types it after the reset' }]);
-  assert.equal(noTime.said, 'casey is out of usage. Kosmos sends it your message after the reset.');
+  assert.equal(noTime.said, 'Kosmos is keeping your message for casey and sends it later.');
+  // A reworded reason must not turn "kept behind earlier lines" into a usage claim: with no time, nothing more is said.
+  const reworded = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey has earlier lines queued' }]);
+  assert.equal(reworded.said, 'Kosmos is keeping your message for casey and sends it later.');
+  const flagged = await send([{ agent: 'casey', state: 'held', heldUntil: null, behind: true, because: 'held: anything' }]);
+  assert.equal(flagged.said, 'casey gets your message after the ones already waiting for it.');
   assert.doesNotMatch(r.said + behind.said + noTime.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
 });
 
