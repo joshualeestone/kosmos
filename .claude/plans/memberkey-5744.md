@@ -44,14 +44,19 @@ mac_key already is.
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests
-- engine/backupmemberkey-5744.test.js (7), against a fake coordinator with the route's rules that opens every wrap
-  with the company secret for the exact context: first key at epoch 1 (file 0600, folder 0700); a taken key answered
-  from disk with no second call; a lost key gets epoch 2 (409), the old key stays; a stale epoch-1 key past epoch 3
-  goes to 4 (wrong_epoch + currentEpoch); a rotation inside the day waits and later sends the SAME kept key; a lost
-  answer after Kosmos+ kept the key is a repeat, not a new epoch; a malformed company answer, backup_off and an
-  unreadable key file register nothing and the file is left as it was.
-- Red-capable at 1be4a071f: without writing the key before sending, 1 of 7 fails; without the 409 arm, 3 of 7 fail.
+## Tests (measured at f3dbaeb74: 14 tests, 14 pass)
+- engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
+  uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
+  the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
+  old stays; a stale key past epoch 3 goes to 4; a rotation inside the day waits (pendingEpoch) and later sends the
+  SAME key; a lost answer is a repeat; malformed company answers (one field each), backup_off and an unreadable file
+  register nothing; two calls at once agree (not a red arm for the chain); currentEpoch 0 goes to 1; member_key_reused
+  gets one fresh key at the same epoch and a code-less 429 nothing; a loose existing folder is made 0700; a kept key
+  already held at an older epoch gets a fresh key at the next; an ok answer not naming what was sent is not taken;
+  a key another process registered mid-rotation is answered, not replaced.
+- Red-capable (each measured): without writing the key before sending, 1 fails (1be4a071f); without the 409 arm, 3
+  fail (1be4a071f); without the epoch-0 arm, 1 fails (5052ecedd); without the reused refresh, 2 of 14 fail; without
+  the re-read guard, 1 of 14 fails (both f3dbaeb74).
 - Neighbours and gates at 1be4a071f: engine/backup*, engine/hpke*, engine.reachable, browser-checks-reason-grep,
   web.speech-kind-1397: 339 tests, 339 pass.
 
@@ -68,3 +73,18 @@ the API doc's missing `member` field.
 - FIXED: wrong_epoch with currentEpoch 0 (no key at all) moves a kept later-epoch key to epoch 1; tested.
 - FIXED: the fake opens the wrap before comparing keys, as the real route does; member_key_reused and a 429 with no
   code are tested not to rotate.
+
+## Review 2 (opus)
+- FIXED: a kept key moved to a new epoch after a lost answer could hit member_key_reused for good (one key is never
+  registered at two epochs); it now gets one fresh key; the fake applies the uniqueness rule; tested.
+- FIXED: two PROCESSES on one data root could replace a key the other registered. Premise stated: one board process
+  per data root (the board's own lock). Defence: a rotation re-reads the file and answers a key registered meanwhile;
+  tested. Within the rotation's other writes the race is not closed.
+- DECIDED (a deviation from the v2.1 design, recorded on #5744 and in backupkeys.js's header): the member private key
+  is kept in a 0600 file, as mac_key is; the design's wrap to an enrolled device sealing key is not built. Rejected:
+  building the sealing key here. Weakest premise: at rest it is as safe as the person's account, no more. What would
+  change it: a sealing key in the keychain or Secure Enclave that a board can read.
+- CONVENTIONs fixed: the backup-key answer is not signed (the request is); the Tests section re-measured.
+- NITs taken: the header names currentEpoch 0; an ok answer must name what was sent; the waiting answer says
+  pendingEpoch; one malformed field per case. Not taken: a pk-derives-from-sk check on read (no exported derive in
+  backupkeys.js; a bad file then fails at the coordinator with member_wrap_unopenable, not silently).
