@@ -18,18 +18,24 @@ and the room reminder is sent once only.
   Claude card (`limitable`) in rate_limited whose stateEvidence has a dated reset (status.limitResetAt): heldUntil the
   reset while it is ahead, and a minute on after it while the card still reads capped (status keeps a passed dated
   line while Claude Code's limit menu is on screen, or in its one-minute grace), for at most an hour past the reset
-  (a capped card whose line status never retires, another limit wording, is then typed as before, never held for good). deliverAutomatic and
-  deliverAutomaticAsync check it after the menu hold.
+  (a capped card whose line status never retires, another limit wording, is then typed as before, never held for good),
+  unless Claude's limit menu is still on screen (status.claudeLimitMenuUp). The verdict also carries `limitReset`, the
+  printed reset, which the day rule counts from. deliverAutomatic and deliverAutomaticAsync check it after the menu hold.
+- engine/chat.js: `limitReleased(card)`, the server's release test: a limitable card reading idle, or reading blocked
+  under Claude Code's StopFailure limit report while its screen reads idle.
+- engine/status.js: `providerLimitReport` (the StopFailure report: an automatic blocked on "provider api (rate_limit)").
+  That report does not outrank a limit screen (the #3723 rule for Codex and Gemini), and under it a blocked card carries
+  `screenState`, what its screen reads (a new pane-card field, null otherwise).
 - engine/messages.js: a room post the limit held keeps its normal mark (addressed when it names the member, plain
   otherwise), and its reset is recorded with roomhold.noteLimit. staleHeld also reports `answered`.
 - engine/roomhold.js: `<member>.limit` beside the held file records, per project, the posts a usage limit kept and the
-  reset (noteLimit, at a post's arrival and at an idle flush the limit held; entries a day past their reset are pruned;
-  forget removes it). withoutStale keeps such an ask that names the member until a day after the reset, unless the
+  reset (noteLimit, at a post's arrival, at an idle flush the limit held, and in the minute sweep for an ask held
+  before the limit while the member is limit-held; entries a day past their reset are pruned; forget removes it). withoutStale keeps such an ask that names the member until a day after the reset, unless the
   member answered it.
 - engine/roomhold.js: flushReleased takes `isLimitable` and retries a non-Antigravity member only when that predicate
   passes and it holds an ask a usage limit kept (limitKept); flushOnIdle's `askedOnly` tells only such a project and
   never takes (or rewrites) any other.
-- server.js: isLimitable = chat.limitable(card) (the hold's own test) and the card reads `idle` off its screen.
+- server.js: isLimitable = chat.limitReleased.
 - engine/replynudge.js, agentnudge.js, firstreply-nudge.js, server.js (hello route): a 'limit' hold is logged as
   limit-held, "held while it is out of usage", never as the Google quota.
 
@@ -40,8 +46,11 @@ and the room reminder is sent once only.
   so the hold lasts exactly as long as the card reads capped (looked at again every minute).
 - A limit-held room post keeps its normal mark, so the agent is told it was named. The minute retry for a Claude
   member looks only for posts that name it, and only while its card reads idle off the screen; a member holding only
-  posts that ask nothing of it waits for its next wake. This also retries an addressed #4624 hold an idle Claude member
-  never had flushed (it is idle on screen, so typing is what the idle flush would have done).
+  posts that ask nothing of it waits for its next wake. An ask needs a limit record to be retried; a #4624 hold that a
+  limit never touched waits for the next wake as on every other runner.
+- A turn that fails on the limit ends with StopFailure, not Stop, so no idle flush runs and the card reads blocked
+  after the reset. The release reads the screen under that one report instead of changing what the board shows (the
+  board keeps showing the report; changing that is broader than this card).
 - The day rule (#4926: a pause of days does not deliver days-old asks) is kept for every other hold. For a usage-limit
   hold, an unanswered ask that names the member is kept until a day after the reset, recorded beside the held file so
   it covers a post first held while the member worked and only limit-held at its turn-end flush (a post row is
@@ -52,6 +61,11 @@ and the room reminder is sent once only.
 
 ## Residuals, stated
 - Windows agents run headless; whether their cards ever read rate_limited is unmeasured (slices 2 and 3).
+- A limit-kept ask whose try keeps coming back COULD_NOT for an idle, addressable member is retried each minute while
+  its record lasts (a day past the reset). Unreachable members are skipped before the try, and an idle Claude card
+  meets none of the holds, so what remains is a transient tmux failure, the same shape the Antigravity retry accepts.
+- That StopFailure fires instead of Stop on a limit is from Claude Code's hook documentation, not measured on a live
+  capped session.
 
 ## Weakest premise
 That a capped Claude card's stateEvidence is the limit line with its reset. It is the line classify() matched; if a
@@ -66,7 +80,11 @@ behaviour), never the reverse.
   the predicate; told once when idle, with "names you"; a plain post waits; only a project with a surviving ask is told.
 - withoutStale with the real staleHeld: a limit-kept ask survives its day, an answered one or one past its grace does
   not, another member's limit does not count; the flush path records the limit; noteLimit merge, prune, forgetProject.
-- server.js wires isLimitable with chat.limitable.
+- server.js wires isLimitable with chat.limitReleased.
+- Real cards from a real self-report through the real snapshot: the fresh StopFailure report keeps the card capped and
+  held; after the reset it reads blocked with an idle screen and is released; an agent-made blocked is neither.
+- The menu keeps the hold past the hour cap (control: no menu, typed). The day counts from the printed reset, not
+  the next look. An ask held before the limit is recorded while capped and told once idle; a plain post is not.
 
 ## Review 1 (opus)
 - FIXED (BLOCKER): a limit-held ask older than a day was dropped at the flush by staleHeld's day rule; it now counts
@@ -105,3 +123,24 @@ behaviour), never the reverse.
   their #4624 behaviour (tested), and a project without one is not taken and rewritten every minute (#4797).
 - NITs not taken: a lock on the sidecar (single board process, synchronous atomic writes, as the held file itself);
   driving the server predicate against a real card (it is chat.limitable plus the state, both tested; source-asserted).
+
+## Review 5 (opus)
+- FIXED (BLOCKER): after the reset the card read blocked (the StopFailure report stands), so the idle-only release
+  never fired; chat.limitReleased reads the screen under that report (screenState).
+- FIXED: in its first five minutes that report outranked the limit screen, so nothing was held; it no longer does.
+- FIXED: the hour cap ended the hold with the limit menu up; the menu keeps it.
+- NITs taken: the past-reset test's idle is checked against the engine; an arrival records the new post only when it
+  names the member.
+
+## Review 6 (sonnet)
+- FIXED: re-looks restarted the day grace from each look; the day counts from `limitReset`, the printed reset.
+- FIXED: a failed limit record was silent; it is logged.
+- DEFERRED: a test across the hold-to-release handoff; both sides are pinned by the real-card tests above.
+
+## Review 7 (opus)
+- FIXED: an ask held while the member worked got no limit record when the turn failed on the limit and nobody posted
+  during the pause; the minute sweep records it while the member is limit-held (tested, with a plain-post control).
+- DEFERRED: per-minute retry of a limit-kept ask whose try keeps failing (stated under Residuals).
+- FIXED: this plan, which had stopped at review 4. NITs taken: the idle flush records addressed asks only; the menu
+  helper no longer splits retireResetLimits from its comment. Not taken: a shared helper for the held-by wording, and
+  one menu test for both readers (a quoted menu title past the cap would only hold lines longer, never type them).

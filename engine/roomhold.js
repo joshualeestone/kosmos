@@ -354,7 +354,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
        posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
-    if (limitUntil) noteLimit(name, projectId, ids, limitUntil);
+    if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
     out.push({ projectId, n: ids.length, state });
   }
@@ -378,8 +378,21 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          while `isLimitable` says its card reads idle off its screen (the server's predicate; never while it reads capped
          or busy) and only when it holds an ask a usage limit kept (limitKept). Every other hold on such a member waits
          for its next wake, as before. */
-      if (!agy && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
       const name = String(card.sessionName);
+      /* #5805 review 7: a turn that fails on the limit ends with StopFailure, not Stop, so no idle flush runs for the
+         asks held while it worked, and no arrival may come to record them. While the member is limit-held, record the
+         limit for each held ask that has no record yet (once per ask: noteLimit is skipped for ids already kept). */
+      if (!agy && typeof isLimitable === 'function') {
+        const v = require('./chat').limitHeldVerdict(name, roster);
+        if (v) {
+          for (const p of heldProjects(name)) {
+            const fresh = heldIn(name, p).filter((x) => isAddressed(x) && !limitKept(name, p, x));
+            if (fresh.length) noteLimit(name, p, fresh, v.limitReset);
+          }
+          continue;
+        }
+      }
+      if (!agy && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
       if (!heldProjects(name).length) continue;
       if (!agy && !heldProjects(name).some((p) => heldIn(name, p).some((x) => isAddressed(x) && limitKept(name, p, x)))) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;

@@ -2776,6 +2776,13 @@ function limitResetAt(line, nowMs) {
   } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
 }
 
+/* Anchored to the row's start (the menu draws it indented, 3 spaces observed): an agent's own sentence that contains
+   the phrase, or a tool result quoting it, is not a menu (review round 4). */
+const CLAUDE_LIMIT_MENU_TITLE = /^\s*What do you want to do\?/;
+/* #5805: true while Claude Code's limit menu (its title, as above) is on this screen. */
+function claudeLimitMenuUp(text) {
+  return String(text == null ? '' : text).split('\n').some((row) => CLAUDE_LIMIT_MENU_TITLE.test(row));
+}
 /* #5031: the screen with every Claude limit block whose own reset has PASSED taken out, so classify reads what is
    left (review round 1: relabelling the whole reading idle read only the OLDEST limit line and hid whatever else the
    screen showed). A limit line stays on screen until the agent gets a new turn, and a capped Guide gets none (the
@@ -2788,13 +2795,6 @@ function limitResetAt(line, nowMs) {
    "Stop" (usage-based billing) or "Wait for limit to reset" (the spend-limit menu), all under that one title, which
    it uses only for the limit, spend-limit and trial-ended menus (review round 3). The reset gets a minute's grace:
    the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
-/* Anchored to the row's start (the menu draws it indented, 3 spaces observed): an agent's own sentence that contains
-   the phrase, or a tool result quoting it, is not a menu (review round 4). */
-const CLAUDE_LIMIT_MENU_TITLE = /^\s*What do you want to do\?/;
-/* #5805: true while Claude Code's limit menu (its title, as above) is on this screen. */
-function claudeLimitMenuUp(text) {
-  return String(text == null ? '' : text).split('\n').some((row) => CLAUDE_LIMIT_MENU_TITLE.test(row));
-}
 function retireResetLimits(text, nowMs) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();

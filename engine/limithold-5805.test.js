@@ -372,3 +372,23 @@ test('#5805 review 5: past the hour cap, the hold stays while the limit menu is 
     }, null);   // the card is pinned to capped below; only the screen differs
   }
 });
+
+test('#5805 review 7: an ask held before the limit (no arrival during it) is recorded while capped, then told once idle', async () => {
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'idle' })]);
+  try {
+    // Held while april worked (#4624); her turn then failed on the limit, so no idle flush ran for them.
+    roomhold.hold('april', PROJECT, roomhold.addressedId('m81'));
+    roomhold.hold('april', PROJECT, 'm82');
+    let tmux = arm('');
+    const capped = roomRoster(board, true);
+    assert.deepEqual(await roomhold.flushReleased(capped, flushDeps(capped, { stale: undefined })), [], 'told while capped');
+    assert.deepEqual(tmux.typed(), []);
+    assert.equal(roomhold.limitKept('april', PROJECT, 'm81'), true, 'the earlier ask got no limit record');
+    assert.equal(roomhold.limitKept('april', PROJECT, 'm82'), false, 'a plain post was recorded');
+    tmux = arm('');
+    const idle = roomRoster(board, false);
+    const done = await roomhold.flushReleased(idle, flushDeps(idle, { stale: undefined }));
+    assert.deepEqual(done.map((d) => [d.name, d.projectId]), [['april', PROJECT]]);
+    assert.equal(tmux.pastedTo('april').length, 1);
+  } finally { chat.resetForTests(); board.restore(); }
+});
