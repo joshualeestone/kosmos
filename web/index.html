@@ -65440,6 +65440,14 @@ async function pjHeldReopenClick(e) {
     return;
   }
   if (PJ_CURRENT !== project) return;
+  /* The band comes off now, from the room as last read, so a reread that fails (loadRoom keeps the old paint then)
+     cannot leave a held band with a dead button on screen. */
+  const box = document.getElementById('pj-room');
+  if (box && box.__lastBody && typeof box.__lastBody === 'object') {
+    delete box.__lastBody.held;
+    box.__lastRoom = undefined;
+    paintRoom(box.__lastBody);
+  }
   await loadRoom();
   if (PJ_CURRENT !== project) return;
   pjRoomAnnounce('Reopened the room. Your agents can post here again.');
@@ -66218,10 +66226,10 @@ let PJ_ROOM_HELD = null;
 function pjHeldAct(m) {
   const held = typeof PJ_ROOM_HELD !== 'undefined' ? PJ_ROOM_HELD : null;
   if (!held || !m || m.kind !== 'valve' || m.at !== held.at) return '';
-  const until = new Date(held.until);
+  const until = new Date(held.until || '');
   const by = Number.isNaN(until.getTime()) ? ''
-    : ' Otherwise it opens again on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
-  return '<div class="pj-held-why">Your agents\' posts are held until you step in: post something yourself, or reopen the room.'
+    : ' Otherwise it lifts on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
+  return '<div class="pj-held-why">Your agents\' posts are on hold. To let them through now, post something yourself or reopen the room.'
     + esc(by) + '</div>'
     + '<div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="1">Reopen the room</button>'
     + '<span class="pj-refused-msg" role="status"></span></div>';

@@ -2910,7 +2910,11 @@ function reopenRoom(project, at) {
    Held means the limit is on, the valve has stopped this room since the person last posted or reopened it, and the
    agent posts counted since then (sendPost's own sum: arrivals, from countFrom) leave no room for the next agent post,
    so it would be refused. A room post is charged one arrival per member it reaches, so the next post's charge is taken
-   as the latest counted post's (at least one). `until` is when enough of those posts age out for such a post to land.
+   as the latest counted post's (at least one). `until` is when enough of those posts age out for such a post to land,
+   or null when one post alone is over the budget (only the person can end that hold).
+   An agent post that landed after the latest refusal (the valve row, or a room-held refused row) means the room took
+   it, most likely on the #4786 allowance for work moving, which this does not re-run: it then reads open until the
+   next refusal says otherwise.
    Not counted: the #4786 allowance for work moving, which reads task and file times (too heavy for a 5 s poll), so a
    post can land sooner than `until`, never later. Returns { at, because, until } (at and because are the latest
    stopping valve row's, which the page matches its band on) or null. An unreadable record reads as not held: this is
@@ -2933,6 +2937,8 @@ function roomHeld(project, now) {
   }
   const countFrom = Math.max(at - lim.windowMs, lastOperatorAt);
   let hold = null;
+  let refusedAt = 0;      // latest evidence the room refused: a stopping valve row or a room-held refused row
+  let landedAt = 0;       // latest agent post that landed
   const counted = [];
   for (const m of rec.rows) {
     if (!m || m.project !== projectId) continue;
@@ -2940,22 +2946,25 @@ function roomHeld(project, now) {
     if (!Number.isFinite(t) || t > at) continue;
     if (m.kind === 'valve' && m.stopped !== false && t > lastOperatorAt && (!hold || t >= hold.t)) {
       hold = { t, at: m.at, because: m.because || null };
-    } else if (m.kind === 'post' && !m.operator && t >= countFrom) {
-      counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
+      if (t > refusedAt) refusedAt = t;
+    } else if (m.kind === 'refused' && m.because === ROOM_HELD_REFUSAL && t > lastOperatorAt) {
+      if (t > refusedAt) refusedAt = t;
+    } else if (m.kind === 'post' && !m.operator) {
+      if (t > landedAt) landedAt = t;
+      if (t >= countFrom) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
     }
   }
-  if (!hold) return null;
+  if (!hold || landedAt > refusedAt) return null;
   counted.sort((a, b) => a.t - b.t);
   const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
   let arrivals = counted.reduce((n, c) => n + c.n, 0);
   if (arrivals + charge <= lim.roomArrivalsPerWindow) return null;
-  let freeAt = at;
+  let freeAt = null;
   for (const c of counted) {
     arrivals -= c.n;
-    freeAt = c.t + lim.windowMs;
-    if (arrivals + charge <= lim.roomArrivalsPerWindow) break;
+    if (arrivals + charge <= lim.roomArrivalsPerWindow) { freeAt = c.t + lim.windowMs; break; }
   }
-  return { at: hold.at, because: hold.because, until: new Date(freeAt).toISOString() };
+  return { at: hold.at, because: hold.because, until: freeAt === null ? null : new Date(freeAt).toISOString() };
 }
 
 /* #3224, the proactive half: a post that is NOT a reply (no in_reply_to), sent by an

@@ -1161,14 +1161,22 @@ const SCREENS = [
     data.refusedLine = null;
   } },
   /* kosmos#5800 (Angel): the loop guard is holding the room, and its band says who can end it with a Reopen button.
-     The valve row is the one sendPost writes (engine/messages.js, kind 'valve' with to = project), appended to this
-     throwaway board's log and taken out again by `after`, as the #5752 screen above does. */
+     A hold is a valve row plus agent posts filling the room's budget (engine/messages.js roomHeld), so both are
+     appended in the shapes sendPost writes, and `after` takes exactly those lines out again, as the #5752 screen
+     above does. */
   { name: 'project-room-held-5800', owner: 'Angel', go: async (page, data) => {
     const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
-    data.heldLine = JSON.stringify({ kind: 'valve', from: data.outsider || 'kosmos', to: data.projectId, project: data.projectId,
-      because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.',
-      stopped: true, at: new Date(Date.now() - 4 * 60 * 1000).toISOString() });
-    fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLine + '\n');
+    const cap = require(path.join(REPO, 'engine', 'limits')).caps().roomArrivalsPerWindow;
+    const to = Array.from({ length: cap }, (_, i) => 'member' + (i + 1));
+    const ago = (min) => new Date(Date.now() - min * 60 * 1000).toISOString();
+    data.heldLines = [
+      JSON.stringify({ kind: 'post', id: 'm5800001', from: data.chatAgent, project: data.projectId, to,
+        outcomes: Object.fromEntries(to.map((n) => [n, 'placed'])), text: 'Handing the draft back for one more pass.', at: ago(6) }),
+      JSON.stringify({ kind: 'valve', from: data.chatAgent, to: data.projectId, project: data.projectId,
+        because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.',
+        stopped: true, at: ago(4) }),
+    ];
+    fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLines.join('\n') + '\n');
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-room [data-reopen-room]', { state: 'visible', timeout: 10000 });
@@ -1176,15 +1184,15 @@ const SCREENS = [
     await page.waitForTimeout(300);
   }, verify: async (page) => {
     const t = await page.evaluate(() => { const b = document.querySelector('#pj-room [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
-    for (const want of ['Your agents cannot post here until you step in', 'Reopen the room']) {
+    for (const want of ['Your agents\' posts are on hold. To let them through now, post something yourself or reopen the room.', 'Reopen the room']) {
       if (!t.includes(want)) throw new Error('the held band does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
     }
   }, after: async (page, data) => {
-    if (!data.heldLine) return;
+    if (!data.heldLines) return;
     const file = path.join(require(path.join(REPO, 'engine', 'store')).ROOT, 'messages.jsonl');
-    const kept = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l !== data.heldLine);
+    const kept = fs.readFileSync(file, 'utf8').split('\n').filter((l) => !data.heldLines.includes(l));
     fs.writeFileSync(file, kept.join('\n'));
-    data.heldLine = null;
+    data.heldLines = null;
   } },
 ];
 

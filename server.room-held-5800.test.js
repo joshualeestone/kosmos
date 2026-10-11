@@ -5,9 +5,10 @@
  * The room loop guard (the valve) holds a room that goes back and forth without landing. Before
  * this, the hold showed only as a band in the scrollback, and an agent learned of it only by being
  * refused. This file proves:
- *   - engine messages.roomHeld: held only while the latest stopping valve row is inside the window
- *     and after the person's last post or reopen; never with the limit off or a valve that did not
- *     stop; and per project;
+ *   - engine messages.roomHeld: held while a stopping valve came after the person's last post or
+ *     reopen and the agent posts since then leave no room for the next one (charged like the
+ *     latest); open once they age out, once a post lands after the latest refusal, with the limit
+ *     off, or after a valve that did not stop; and per project;
  *   - GET /api/project/:id/room carries `held` (JSON) and one [kosmos] hold line at the top of the
  *     text view agents read, and neither when the room is open (the control);
  *   - a reopen through the real route clears both.
@@ -92,12 +93,33 @@ test('#5800 engine: a hold ends when the posts behind it age out, even while its
   assert.equal(messages.roomHeld('heldE', now + 6 * MIN), null, 'the room read held after it could take an agent post again');
 });
 
-test('#5800 engine: a room still over budget reads held after its valve row left the window', () => {
+const refusal = (project, at) => append({ kind: 'refused', from: 'bob', to: project, project, at: iso(at),
+  because: 'the room was going back and forth without landing, so Kosmos was holding it for the person' });
+
+test('#5800 engine: the refused-row text this file writes is the engine\'s own', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8');
+  assert.ok(src.includes("const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so Kosmos was holding it for the person';"),
+    'ROOM_HELD_REFUSAL changed; the refusal() fixture no longer matches what the valve writes');
+});
+
+test('#5800 engine: a post that landed after the latest refusal reads open; a refusal after it reads held again', () => {
   const now = Date.now();
   valve('heldF', now - 70 * MIN);
   agentPost('heldF', now - 20 * MIN, CAP());
-  assert.ok(messages.roomHeld('heldF', now), 'a full room whose valve fired 70 minutes ago (no person since) read open');
-  assert.equal(messages.roomHeld('heldF', now).at, iso(now - 70 * MIN));
+  assert.equal(messages.roomHeld('heldF', now), null, 'the room took a post after its last refusal (the #4786 allowance) yet read held');
+  refusal('heldF', now - 5 * MIN);
+  const h = messages.roomHeld('heldF', now);
+  assert.ok(h, 'a room-held refusal after that post, with the budget still full, read open');
+  assert.equal(h.at, iso(now - 70 * MIN), 'at stays the valve row\'s, the band the page draws Reopen on');
+});
+
+test('#5800 engine: one post over the whole budget has no until (only the person can end that hold)', () => {
+  const now = Date.now();
+  agentPost('heldJ', now - 10 * MIN, CAP() + 2);
+  valve('heldJ', now - 9 * MIN);
+  const h = messages.roomHeld('heldJ', now);
+  assert.ok(h, 'CONTROL: held');
+  assert.equal(h.until, null, 'an until was promised that the valve would not honour');
 });
 
 test('#5800 engine: the next post is charged like the latest (one arrival per member), as the valve charges it', () => {

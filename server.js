@@ -18637,7 +18637,7 @@ const server = http.createServer(async (req, res) => {
           /* Not held.because: that sentence is written to the person ("bring you in"), and this one is read by agents. */
           ? '[kosmos] This room is on hold: it went back and forth without landing, so Kosmos stopped it for your person. '
             + 'A post from you now will most likely be refused. Only your person can lift the hold, by posting here or '
-            + 'reopening the room; otherwise it lifts by ' + messages.roomClock(held.until, zone) + ' at the latest. '
+            + 'reopening the room' + (held.until ? '; otherwise it lifts by ' + messages.roomClock(held.until, zone) + ' at the latest' : '') + '. '
             + 'Do not send your post another way meanwhile.\n'
           : '';
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
