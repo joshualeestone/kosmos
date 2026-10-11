@@ -9,7 +9,7 @@ const page = require('./test-support/page');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 const NOW = Date.parse('2026-10-09T05:00:00Z');
-const lib = new Function('LAST', page.liftAll(SCRIPT, ['esc', 'agoWords', 'tkMemberName', 'tkActPhrase', 'tkActRowsHtml', 'tskAgentName', 'tskRepeatMissed', 'tskRepeatSentence'])
+const lib = new Function('LAST', page.liftAll(SCRIPT, ['esc', 'agoWords', 'tkMemberName', 'tkActPhrase', 'tkActRowsHtml', 'tskAgentName', 'tskRepeatMissed', 'tskToldSentence', 'tskRepeatSentence'])
   + '\nreturn { tkActRowsHtml, tskRepeatSentence };')([]);
 const P = { id: 'p1', agents: [] };
 const run = (minAgo, extra) => ({ kind: 'run', at: new Date(NOW - minAgo * 60000).toISOString(), by: 'mara', ...extra });

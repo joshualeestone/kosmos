@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const update = require('./update');
 
-// #2055: updateAbort() reads the durable board-would-not-pause marker setup.sh writes
+// #2055: updateAbort() reads the durable stopped-at-the-pause marker setup.sh writes (#4675: four reasons)
 // at <installedRoot>/logs/update-abort. A STUCK machine (marker with count>0) reads its
 // count; a healthy one (no marker / cleared / count 0) reads null. The null-on-healthy
 // case IS the card's required control: the surface must not claim a healthy machine is
@@ -82,4 +82,55 @@ test('updateAbort: missing optional fields default cleanly, count still drives i
     assert.equal(a.port, null);
     assert.equal(a.ts, null);
   });
+});
+
+// #4675: `same` says how many of the latest stops shared the reason. It is null only when the line is missing
+// altogether (a marker from before it existed), which the page takes as "every stop was this one" for
+// board-would-not-pause, the one reason such a marker could hold. A same line that is there but unreadable is 0.
+test('updateAbort: same is a number, null when the line is missing, and 0 when it is there but unreadable', () => {
+  withRoot((root) => {
+    writeMarker(root, 'count=5\nreason=port-still-held\nsame=2\nport=16180\nts=x\n');
+    assert.deepEqual(update.updateAbort(), { count: 5, reason: 'port-still-held', same: 2, port: '16180', ts: 'x' });
+    writeMarker(root, 'count=5\nreason=board-would-not-pause\nport=16180\n');
+    assert.equal(update.updateAbort().same, null);
+    for (const bad of ['lots', '', '08', '0', '99999999999999999999', '1e3', '-1', ' 3', '3\r', '6']) {
+      writeMarker(root, 'count=5\nreason=port-still-held\nsame=' + bad + '\n');
+      assert.equal(update.updateAbort().same, 0, 'same=' + JSON.stringify(bad) + ' was not read as unknown');
+    }
+    writeMarker(root, 'count=5\nreason=port-still-held\nsame=2\nsame=3\n');
+    assert.equal(update.updateAbort().same, 0, 'a same line written twice was taken as a number');
+    writeMarker(root, 'count=5\nreason=port-still-held\nsame=5\n');
+    assert.equal(update.updateAbort().same, 5, 'same equal to count is valid');
+  });
+});
+
+// #4675: the count is read by the same rule setup.sh uses (1 to 9 digits, no leading zero), so the board never shows
+// a number the installer would throw away at the next stop. NUMBER_CASES is also what tools/test-update-abort-2055.sh
+// runs against the installer's own function: the two lists are kept the same by the test below.
+const NUMBER_CASES = { good: ['1', '7', '999999999'], bad: ['', '0', '08', '0099', '1e3', '0x10', '-1', '+2', ' 3', '3 ', '3\r', '1000000000', '99999999999999999999', 'lots'] };
+test('updateAbort: a count the installer would treat as damaged is not shown', () => {
+  withRoot((root) => {
+    for (const good of NUMBER_CASES.good) {
+      writeMarker(root, 'count=' + good + '\nreason=port-still-held\nsame=1\n');
+      assert.equal(update.updateAbort().count, Number(good));
+    }
+    for (const bad of NUMBER_CASES.bad) {
+      writeMarker(root, 'count=' + bad + '\nreason=port-still-held\nsame=1\n');
+      assert.equal(update.updateAbort(), null, 'count=' + JSON.stringify(bad) + ' was shown');
+    }
+    writeMarker(root, 'count=3\ncount=4\nreason=port-still-held\nsame=1\n');
+    assert.equal(update.updateAbort(), null, 'a count written twice was shown');
+    writeMarker(root, 'count=3\nreason=port-still-held\nreason=board-would-not-pause\nsame=1\n');
+    assert.equal(update.updateAbort().reason, 'unknown', 'a reason written twice was taken as a reason');
+    writeMarker(root, 'count=3\nconstructor=x\ntostring=y\nreason=port-still-held\n');
+    assert.equal(update.updateAbort().count, 3, 'an unrelated key broke the read');
+  });
+});
+
+test('the installer test runs the same number cases against setup.sh (one rule, two readers)', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'tools', 'test-update-abort-2055.sh'), 'utf8');
+  const list = (name) => { const m = new RegExp('^' + name + "='([^']*)'$", 'm').exec(sh); assert.ok(m, name + ' not found in the shell test'); return m[1].split('|'); };
+  const printable = (s) => s.replace(/\r/g, '\\r');
+  assert.deepEqual(list('NUMBER_GOOD'), NUMBER_CASES.good);
+  assert.deepEqual(list('NUMBER_BAD'), NUMBER_CASES.bad.map(printable));
 });

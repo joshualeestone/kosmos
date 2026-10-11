@@ -31,6 +31,9 @@ fi
 NODE="$(command -v node || true)"
 [ -n "$NODE" ] || { echo "FAIL: node is needed for the stub listener" >&2; exit 1; }
 
+# #4675, #5849: the cases below decide for themselves whether the run is the board's; a value the caller happens to
+# carry must not turn the "pasted run records nothing" controls red.
+unset KOSMOS_UPDATE_BY_BOARD
 BLOCK="$(awk '/^if \[ "\$FRESH_INSTALL" = "no" \] && \[ -f "\$KOSMOS_HOME\/bin\/kosmos" \]/{f=1} f{print} f && /^fi$/{exit}' "$SETUP")"
 case "$BLOCK" in
   *'pausing Kosmos for the update'*'rm -f "$LOG_DIR/update-abort"'*) ;;
@@ -51,6 +54,20 @@ printf '#!/bin/sh\nif [ "$1" = start ] && [ "${STUBSTART:-ok}" = fail ]; then ex
 PUTBACK="$(awk '/^_kosmos_put_board_back\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$SETUP")"
 case "$PUTBACK" in *'could not be started again'*) ;; *) echo "FAIL: could not extract _kosmos_put_board_back (anchor drift?)" >&2; exit 1 ;; esac
 printf '%s\n' "$PUTBACK" > "$T/putback.sh"
+# #4675: the stops record through this function, defined above the block in setup.sh.
+NOTE="$(awk '/^_kosmos_note_pause_abort\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$SETUP")"
+case "$NOTE" in *'reason=%s'*) ;; *) echo "FAIL: could not extract _kosmos_note_pause_abort (anchor drift?)" >&2; exit 1 ;; esac
+printf '%s\n' "$NOTE" > "$T/note.sh"
+# setup.sh reads the board's marker once, defaults it to no, and takes it out of the environment (it goes on to start
+# the board, whose agents must not inherit it). Those lines are lifted and RUN here, not mirrored: from the default to
+# the unset.
+BYBOARD_LINES="$(awk '/^_kosmos_by_board=no$/{f=1} f{print} f && /^unset KOSMOS_UPDATE_BY_BOARD$/{exit}' "$SETUP")"
+case "$BYBOARD_LINES" in
+  '_kosmos_by_board=no'*'KOSMOS_UPDATE_BY_BOARD'*'unset KOSMOS_UPDATE_BY_BOARD') ;;
+  *) echo "FAIL: could not extract the lines that read KOSMOS_UPDATE_BY_BOARD (anchor drift?)" >&2; exit 1 ;;
+esac
+[ "$(printf '%s\n' "$BYBOARD_LINES" | wc -l | tr -d ' ')" -le 4 ] || { echo "FAIL: the KOSMOS_UPDATE_BY_BOARD lines lifted more than expected" >&2; exit 1; }
+printf '%s\n' "$BYBOARD_LINES" > "$T/byboard.sh"
 # setup.sh must initialise the flag at the top level itself (it runs under set -u); the harness mirrors that line.
 grep -q '^_kosmos_putback_unsure=no' "$SETUP" || { echo "FAIL: setup.sh does not initialise _kosmos_putback_unsure" >&2; exit 1; }
 printf '%s\n' "$BLOCK" > "$T/pause.sh"
@@ -67,6 +84,9 @@ die() {
 }
 _kosmos_board_decide() { _kosmos_board_off=no; }
 . "$T/putback.sh"
+. "$T/note.sh"
+. "$T/byboard.sh"   # setup.sh's own lines: reads KOSMOS_UPDATE_BY_BOARD from this run's environment, then unsets it
+echo "BYBOARD=$_kosmos_by_board child-sees=$(/bin/sh -c 'echo "${KOSMOS_UPDATE_BY_BOARD:-gone}"')"
 _kosmos_mode_keeps_board_off() { return 1; }
 # #4920: the block gives an old Linux unit KillMode=process before its stop; here (no systemd unit) it is a no-op.
 _kosmos_linux_unit_killmode() { :; }
@@ -163,6 +183,46 @@ chk "sandbox B, the start fails: the first stop's words never say Kosmos was pau
 # CONTROL: the third stop with a failing start keeps main's own words.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(STUBSTART=fail run_pause "" "$P")"; stop_listener
 chk "control: the third stop with a failing start keeps main's words (#4818)" '[[ "$OUT" == *"Kosmos was paused for this update and could not be started again"* ]]'
+
+# ---- #4675: when the BOARD started the run, each stop after the pause is recorded with its own reason -------------
+# The marker is read from outside any sandbox. count is the whole streak, same counts back over the latest reason; a
+# pass clears it.
+MARK="$T/logs/update-abort"
+reason_is() { grep -q "^reason=$1\$" "$MARK" 2>/dev/null; }
+count_is() { [ "$(sed -n 's/^count=//p' "$MARK" 2>/dev/null)" = "$1" ]; }
+same_is() { [ "$(sed -n 's/^same=//p' "$MARK" 2>/dev/null)" = "$1" ]; }
+rm -f "$MARK"
+# CONTROL: the same three stops from a pasted install line (no marker from the board) record nothing.
+P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
+chk "control: a pasted run stopping at a held port records nothing" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"BYBOARD=no child-sees=gone"* ]] && [ ! -e "$MARK" ]'
+P="$(free_port)"; start_listener "$P" v6; OUT="$(run_pause "" "$P")"; stop_listener
+chk "control: a pasted run stopping at an unreachable holder records nothing" '[[ "$OUT" == *"DIE:"* ]] && [ ! -e "$MARK" ]'
+P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_B" "$P")"; stop_listener
+chk "control: a pasted run in a sandbox, stopping at a failed port check, records nothing" '[[ "$OUT" == *"DIE:"* ]] && [ ! -e "$MARK" ]'
+# Only the value 1 is the board. Anything else in the variable is a pasted run, and is unset all the same.
+P="$(free_port)"; start_listener "$P" silent; OUT="$(KOSMOS_UPDATE_BY_BOARD=yes run_pause "" "$P")"; stop_listener
+chk "KOSMOS_UPDATE_BY_BOARD=yes is not the board: nothing recorded, and the variable is gone for children" '[[ "$OUT" == *"BYBOARD=no child-sees=gone"* ]] && [ ! -e "$MARK" ]'
+# The board's run: the third stop, twice, so the count is seen to run.
+P="$(free_port)"; start_listener "$P" silent; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "" "$P")"; stop_listener
+chk "the board's run: the marker is read, then gone from the environment the board will be started in" '[[ "$OUT" == *"BYBOARD=yes child-sees=gone"* ]]'
+chk "the board's run stopping at a held port records port-still-held, count 1" '[[ "$OUT" == *"is still holding port"* ]] && reason_is port-still-held && count_is 1'
+P="$(free_port)"; start_listener "$P" silent; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "" "$P")"; stop_listener
+chk "the same stop again: count 2, same 2" 'reason_is port-still-held && count_is 2 && same_is 2'
+# The second stop: a different reason. The streak goes on; same starts again.
+P="$(free_port)"; start_listener "$P" v6; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "" "$P")"; stop_listener
+chk "the board's run stopping at an unreachable holder records port-unreachable, count 3, same 1" '[[ "$OUT" == *"check of it failed"* ]] && reason_is port-unreachable && count_is 3 && same_is 1'
+# The first stop (the port check itself fails), with the same words as before.
+P="$(free_port)"; start_listener "$P" http; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "$PROFILE_B" "$P")"; stop_listener
+chk "the board's run stopping at a failed port check records port-check-failed, count 4, same 1" '[[ "$OUT" == *"the port check failed"* ]] && reason_is port-check-failed && count_is 4 && same_is 1'
+# A pasted run after that leaves the board's streak as it was.
+P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
+chk "a pasted run that stops leaves the board's streak as it was" '[[ "$OUT" == *"DIE:"* ]] && reason_is port-check-failed && count_is 4 && same_is 1'
+# C cannot write the marker at all: the stop must still stop, with its own words, and the marker is as it was.
+P="$(free_port)"; start_listener "$P" http; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "$PROFILE_C" "$P")"; stop_listener
+chk "sandbox C, the board's run: an unwritable marker does not change the stop, and is left as it was" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"the port check failed"* && "$OUT" != *"PASSED THE PAUSE"* ]] && reason_is port-check-failed && count_is 4 && same_is 1'
+# An update that gets past the pause clears the streak, whoever ran it.
+P="$(free_port)"; OUT="$(run_pause "" "$P")"
+chk "an update that passes the pause clears the streak" '[[ "$OUT" == *"PASSED THE PAUSE"* ]] && [ ! -e "$MARK" ]'
 
 echo "test-setup-pause-sandbox-4651: $FAILS failures"
 [ "$FAILS" -eq 0 ]

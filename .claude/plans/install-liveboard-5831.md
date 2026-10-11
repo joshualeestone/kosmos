@@ -1,0 +1,128 @@
+# install-liveboard-5831: the full install test must not restart the live board
+
+Card: #5831. Asked for by Liu Kang (m4954): make the fix the leg's own isolation, not "do not run it here", and
+add a control that fails if the real com.kosmos.board pid changes during the run.
+
+## What happened
+
+A full `tools/test-install.sh` run on Mortals on 2026-10-11 restarted the live board at 08:50:44Z (pid 21886 to
+23352, last exit -15). launchd had it answering again within a second. The leg that did it is the #924 control,
+"a DEFAULT KOSMOS_HOME with AGENT_WORKFORCE_DATA unset still targets Application Support".
+
+## Why
+
+- The leg unset `AGENT_WORKFORCE_LAUNCH` on purpose and pointed `HOME` at a fake folder.
+- A fake `HOME` scopes files. It does not scope the launchd domain. With `KOSMOS_HOME` at its default the label
+  is the bare `com.kosmos.board`.
+- Since the board became launchd-supervised (#2956), `kosmos start` asks launchd whether that label is loaded
+  (`_kosmos_board_supervised` in `install/kosmos`) and kickstarts it. On a Mac with Kosmos installed that is the
+  real board. With `AGENT_WORKFORCE_LAUNCH` set, that function returns 1 and a plain board is started instead.
+- The same class as #946 (the leg's uninstall half, fixed by pinning LAUNCH) and #1539.
+
+## The change (tools/test-install.sh only)
+
+1. **The leg's own isolation.** The control install pins `AGENT_WORKFORCE_LAUNCH` to the fake home's
+   LaunchAgents, as its uninstall already does. The `kosmos stop` after it gets the same pin.
+2. **The half-sandbox guard.** Pinning LAUNCH while DATA, PROJECTS and WORKERS stay unset is the shape
+   `engine/sandbox.js` refuses (#634). Those three are unset on purpose (the default data root is what the
+   control is about) and under the fake HOME their defaults resolve inside the sandbox, so the leg states the
+   guard's own override, `AGENT_WORKFORCE_HALF_SANDBOX_OK=1`, for this one install.
+3. **The control Liu Kang asked for.** The harness records the real `com.kosmos.board` job's pid and start time
+   at the start (`live_board_id`) and the closing checks fail if it differs at the end. Full run only: under
+   `KOSMOS_INSTALL_GATE=1` the run stops before the leg, and a red for somebody else's restart would block a cut.
+   It compares even when no process was running at the start: a harness that starts the real job is the same
+   fault as one that restarts it.
+4. **The stop after the control install now reaches the control's own install** (review round 1). The harness
+   still exported the previous scenario's `KOSMOS_HOME`, so `kosmos stop` read that home's pid file and stopped
+   nothing. Invisible while no sandbox board came up; with this fix one does, and the port check after it was
+   freeing the port by force after 15 seconds.
+
+## Rejected
+
+- **A sandbox KOSMOS_HOME for the leg.** The leg exists to prove the DEFAULT home's data root; moving the home
+  removes what it tests.
+- **"Do not run the full harness on a box with a live board."** Liu Kang ruled it out, and it is how the fault
+  stayed hidden.
+- **Checking the port only.** The harness already did; a restart that launchd heals in a second passes it.
+
+## Done looks like
+
+- A full run on Mortals, with the live board up, ends with the #924 control passing and the new closing check
+  passing, and my own before and after read of the live board's pid and start time agrees.
+- The new closing check can fail: with the old leg it must go red (shown by the 08:50Z run's restart; the
+  planted control is a changed `LIVE_BOARD_BEFORE`, not a second live restart).
+
+## Weakest part
+
+The "can it fail" proof for the closing check is a planted wrong value, not a real restart, because a real one
+costs every agent on this Mac a board restart. The real restart is on record once, from before the check existed.
+
+## Measured (2026-10-11, head 35ab3d540, Mortals, live board up)
+
+- Full `tools/test-install.sh`, in the fair queue: 398 passed, 0 failed, exit 0.
+- `#924 control (default KOSMOS_HOME) install exits 0`: PASS (it was the 1 failure of the run that restarted the
+  board). `control uninstall exits 0`: PASS.
+- The new closing check: PASS, "the same process as when this run began: 23352 started Sun Oct 11 03:50:44 2026".
+- My own read outside the harness, before and after: pid 23352, same start time. The board was not restarted.
+- Planted control for the closing check: `live_board_id` compared with the old pid (21886) and another start
+  time is not equal, so the check goes red on a changed process.
+
+## Review round 1 (2026-10-11)
+
+- The stop finding above: fixed, and needs its own full run (below).
+- The closing check skipped "nothing running before, something running after": now compared always.
+- "Can it fail" was shown by comparing strings by hand. Now shown with the harness's own `chk` line through its
+  `eval`: the true value passes; the old pid (21886) fails; "no process at the start" against a running board fails.
+- The gate test now reads like the file's other two (`"${KOSMOS_INSTALL_GATE:-0}" != 1`).
+- Comments corrected: where the unset folders really resolve, and why the here-doc.
+- Not changed: the reviewer found no other leg with this hazard (the #931 leg unsets LAUNCH with a sandboxed home,
+  so its label is hashed).
+
+## Review round 2 (2026-10-11)
+
+- **Four more stops read the wrong home** (the two default-home legs and the #918 scenario D, twice). Not a
+  live-board hazard, LAUNCH is pinned for them, but each left its sandbox board running until the port check
+  killed it by force. Same one-word fix as the control's stop. Every other stop in the file names its home.
+- **The closing check was green when it could see nothing.** If this shell cannot read the person's launchd
+  domain (ssh, sudo), both reads are empty. It now prints a note for that case and checks nothing.
+- **The half-sandbox override leaned on two exports nobody checked.** A check before the control install now
+  fails if tmux is not this run's fake or the agent home is outside the sandbox. Shown red both ways by hand.
+- Comment fixes.
+
+## Review round 3 (2026-10-11)
+
+- **The override check did not protect the install after it.** A failed `chk` only counts; the install still ran
+  with the guard off. The override is now given only while the two exports hold, so otherwise the install runs
+  guarded, is refused, and the leg goes red having touched nothing.
+- **"Cannot see launchd" was green and uncounted.** It now counts as a skipped block, like the file's others.
+- Dated incident history moved out of the code comments; it is in this file and on the card.
+- Left alone: the control's stop inherits the harness's data folder (nothing reads the file it touches, and the
+  older #924 stop has the same shape); the explicit LAUNCH on that stop is redundant and kept as a statement.
+
+## Review round 4 (2026-10-11)
+
+- **"The unset folders resolve inside the sandbox" was a comment with no trace.** The comment now names where
+  each resolves, and a check after the control install requires the board's pid file under the fake home: the
+  sandbox board came up from its own install, which is exactly what was missing when the real one was kicked.
+- The closing check's failure text now also names "this shell lost sight of launchd by the end".
+- The override's condition is an `if`, not an `&&` list.
+
+## Measured again (2026-10-11, head 345ae559b, Mortals, live board up)
+
+- Full `tools/test-install.sh`, in the fair queue: **400 passed, 0 failed**, exit 0, no skipped block.
+- `#5831: the control's half-sandbox override is safe`: PASS. `#924 control install exits 0`: PASS.
+  `#5831: the control's board is this sandbox's own (its pid file is there)`: PASS. `control uninstall exits 0`: PASS.
+- Closing check: PASS, same process, 23352 started 03:50:44. My own read outside the harness agrees.
+
+## Review round 5 (2026-10-11)
+
+No blockers. Comment-only changes after the run above (which file each default resolves in; a note at the first
+default-home stop that the top-level LAUNCH export is what keeps it off the real job; a rewrapped line).
+
+Deferred, with reasons:
+- **The control board's own store is under the harness's `$SB/home`, not the control's fake home.** It is inside
+  the sandbox, the comment now says so, and the leg's assertion is about the installer's uninstall sweep, which
+  follows `HOME`. Pointing AGENT_WORKFORCE_HOME elsewhere for this install would change what the leg runs.
+- **The closing check watches the board's process only, not the watchdog job or a loaded job with no process.**
+  A board job that gets loaded runs at load, so it shows as "nothing before, a process after" and fails the
+  check. Watching the watchdog label too is beyond the card; noted on #5831 as a possible follow-up.

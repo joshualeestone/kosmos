@@ -9,7 +9,7 @@ const page = require('./test-support/page');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 const { tskRepeatSentence, tskRepeatMissed } = new Function('tskAgentName',
-  page.liftAll(SCRIPT, ['agoWords', 'tskRepeatMissed', 'tskRepeatSentence']) + '\nreturn { tskRepeatSentence, tskRepeatMissed };')((s) => (s === 'ada' ? 'Ada' : s));
+  page.liftAll(SCRIPT, ['agoWords', 'tskRepeatMissed', 'tskToldSentence', 'tskRepeatSentence']) + '\nreturn { tskRepeatSentence, tskRepeatMissed };')((s) => (s === 'ada' ? 'Ada' : s));
 const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi, 0, 0).getTime();
 const NOW = at(2026, 10, 6, 8, 0);   // a Tuesday, 8am local
 

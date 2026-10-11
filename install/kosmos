@@ -1565,7 +1565,7 @@ cmd_start() {
   # #5450: a direct start is a person's, unless the watchdog (KOSMOS_START_BY=supervisor) is bringing back a board
   # nobody stopped.
   local _start_by=person; [ "${KOSMOS_START_BY:-}" = supervisor ] && _start_by=supervisor
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_UPDATE_BY_BOARD -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   local _launched="$!"   # #4636: this launch's pid, handed to the wait below (board.pid could change meanwhile)
   set +m
   printf '%s' "$_launched" > "$PIDFILE"
@@ -1679,7 +1679,7 @@ cmd_board_run() {
          fi ;;                                                # time, from the future): the timer decides, as before
     esac
   fi
-  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_UPDATE_BY_BOARD -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
 }
 
 # #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
@@ -1957,8 +1957,10 @@ cmd_version() {
 # Mac app runs this at launch and once a day on such a computer. It is the board's own look
 # (engine/update-ifnewer.js runs engine/update.js and engine/autoupdate.js, so the channel, the
 # pointer, newer() and the consent are the board's rules, not a copy), and the board's own install:
-# the same `curl <setup> | sh` beginInstall runs, with the same three variables, writing
+# the same `curl <setup> | sh` beginInstall runs, with the same three channel variables, writing
 # install.started and install.status the same way, so a board started later reads how it went.
+# Not beginInstall's fourth, KOSMOS_UPDATE_BY_BOARD (#4675): that asks setup.sh to record a stop at its pause for the
+# board to show, and this computer runs no board to pause or to show it.
 #   consent on (the Updates switch; no file is on):   installs.
 #   consent off, or a file that cannot be read:       says it is there and installs nothing,
 #                                                     unless --install (the person chose it).
@@ -4433,7 +4435,7 @@ cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran>"
+      say "Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran|told>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
@@ -4454,6 +4456,8 @@ cmd_task() {
       say "      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
       say "  kosmos task ran <project-id> <task-number> [\"what this run found\"]  record that a repeating task's job just ran"
       say "      --unchanged                                              it found nothing new (the task's page rolls such runs up)"
+      say "      --value \"<reading>\"                                      what it found, checked against what the person was last told"
+      say "  kosmos task told <project-id> <task-number> [--value \"<what you said>\"]  record what you just told the person (default: the last --value)"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order
@@ -4594,22 +4598,36 @@ cmd_task() {
       case " ${*:3} " in *" hourly "*|*" hour "*|*" daily "*|*" day "*|*" weekly "*|*" week "*|*" --clear "*) ;;
         *" --at "*|*" --on "*) say "--at and --on go with how often: hourly, daily or weekly. $_rusage"; exit 2 ;; esac ;;
     ran)
-      local _ranusage="Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]   (or --note \"...\") [--unchanged]"
+      local _ranusage="Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]   (or --note \"...\") [--unchanged] [--value \"<reading>\"]"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_ranusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _n _npast=0 _nwant=0   # #4787 review 1: --note is ran's one option; any other --word is refused
       for _n in "${@:3}"; do
+        if [ "$_nwant" = 2 ]; then case "$_n" in --*) say "--value needs the reading, not $_n. $_ranusage"; exit 2 ;; esac; _nwant=0; continue; fi   # review 1
         if [ "$_nwant" = 1 ]; then _nwant=0; continue; fi
         if [ "$_npast" = 1 ]; then break; fi
-        case "$_n" in --) _npast=1 ;; --note) _nwant=1 ;; --unchanged) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task ran" "$_ranusage" "$_n" ;; esac   # #5643: --unchanged
+        case "$_n" in --) _npast=1 ;; --note) _nwant=1 ;; --value) _nwant=2 ;; --unchanged) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task ran" "$_ranusage" "$_n" ;; esac   # #5643: --unchanged; #5836: --value
       done
-      [ "$_nwant" = 0 ] || { say "--note needs the note. $_ranusage"; exit 2; } ;;
+      [ "$_nwant" = 0 ] || { say "--note and --value each need words. $_ranusage"; exit 2; } ;;
+    told)
+      # kosmos#5836: what the person was just told about a repeating task (default: its last --value reading).
+      local _toldusage="Usage: kosmos task told <project-id> <task-number> [\"<what you told the person>\"]   (or --value \"...\")"
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_toldusage"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      local _t _twant=0 _tval=0 _tpast=0
+      for _t in "${@:3}"; do
+        if [ "$_tpast" = 1 ]; then break; fi   # review 2: after --, every word is what was told (as ran)
+        if [ "$_twant" = 1 ]; then case "$_t" in --*) say "--value needs the words, not $_t. $_toldusage"; exit 2 ;; esac; _twant=0; _tval=1; continue; fi
+        # Review 1: bare words are what was told (as ran's note); only --value is an option here.
+        case "$_t" in --) _tpast=1 ;; --value) _twant=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task told" "$_toldusage" "$_t" ;; esac
+      done
+      [ "$_twant" = 0 ] || { say "--value needs the words. $_toldusage"; exit 2; } ;;
     hold|unhold)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task $sub <project-id> <task-number>"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task $sub" 2 "Usage: kosmos task $sub <project-id> <task-number>" "$@" ;;   # kosmos#4889 review 6
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | assign | close | message | built | done-when | hold | unhold | repeat | ran"
+      say "Unknown: kosmos task $sub. Try: list | add | assign | close | message | built | done-when | hold | unhold | repeat | ran | told"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -4867,17 +4885,21 @@ cmd_task() {
         *) say "Kosmos gave an answer we could not read when changing that task."; exit 1 ;;
       esac
       ;;
-    repeat|ran)
-      # kosmos#4787: a repeating task's rule (repeat) and its runs (ran). The agent token names who ran it (the pane is the
+    repeat|ran|told)
+      # kosmos#4787: a repeating task's rule (repeat) and its runs (ran); kosmos#5836: what the person was told (told). The agent token names who ran it (the pane is the
       # fallback, as for built); the board refuses a caller it cannot name.
-      local project num every="" at="" on="" clear=false note="" reviewer="" _w _wnext="" _rpast=0 unchanged=false
+      local project num every="" at="" on="" clear=false note="" reviewer="" _w _wnext="" _rpast=0 unchanged=false value="" _hasval=false
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
       for _w in "$@"; do
         case "$_wnext" in at) at="$_w"; _wnext=""; continue ;; on) on="$_w"; _wnext=""; continue ;; reviewer) reviewer="$_w"; _wnext=""; continue ;; esac
         if [ "$sub" = repeat ]; then
           case "$_w" in --at) _wnext=at ;; --on) _wnext=on ;; --reviewer) _wnext=reviewer ;; --clear) clear=true ;; *) every="$_w" ;; esac
         else
-          case "$_wnext" in note) note="${note:+$note }$_w"; _wnext=""; continue ;; esac
+          # Review 2: told's words join in order, --value's and bare ones alike (Windows does the same); ran's --value is one word.
+          case "$_wnext" in note) note="${note:+$note }$_w"; _wnext=""; continue ;; value) if [ "$sub" = told ]; then value="${value:+$value }$_w"; else value="$_w"; fi; _hasval=true; _wnext=""; continue ;; esac
+          if [ "$_w" = "--value" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=value; continue; fi   # kosmos#5836
+          if [ "$sub" = told ] && [ "$_w" = "--" ] && [ "${_rpast:-0}" = 0 ]; then _rpast=1; continue; fi   # review 2: -- is not a word
+          if [ "$sub" = told ]; then value="${value:+$value }$_w"; _hasval=true; continue; fi   # review 1: bare words are what was told
           if [ "$_w" = "--note" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=note; continue; fi
           if [ "$_w" = "--unchanged" ] && [ "${_rpast:-0}" = 0 ]; then unchanged=true; continue; fi   # kosmos#5643
           if [ "$_w" = "--" ] && [ "${_rpast:-0}" = 0 ]; then _rpast=1; continue; fi
@@ -4897,10 +4919,15 @@ cmd_task() {
         [ -z "$on" ] || data="$data\"on\":\"$(_jesc "$on")\","
         [ -z "$reviewer" ] || data="$data\"reviewer\":\"$(_jesc "$reviewer")\","
         data="$data\"clear\":$clear,\"from_pane\":\"$esc_pane\"}"
+      elif [ "$sub" = told ]; then
+        # The optional field built with if, not `$(test && printf)`: under set -e that substitution's 1 would end the CLI.
+        local _vfield=""; if [ "$_hasval" = true ]; then _vfield="\"value\":\"$(_jesc "$value")\","; fi
+        data="{$_vfield\"from_pane\":\"$esc_pane\"}"
       else
         # kosmos#5643: one id for this command, sent on every attempt, so the board takes a retry as the same run.
         local _runid; _runid=$(LC_ALL=C od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || _runid=""   # none: time dedup only
-        data="{\"note\":\"$(_jesc "$note")\",\"unchanged\":$unchanged,\"run_id\":\"${_runid}\",\"from_pane\":\"$esc_pane\"}"
+        local _vfield=""; if [ "$_hasval" = true ]; then _vfield="\"value\":\"$(_jesc "$value")\","; fi   # kosmos#5836
+        data="{\"note\":\"$(_jesc "$note")\",\"unchanged\":$unchanged,\"run_id\":\"${_runid}\",$_vfield\"from_pane\":\"$esc_pane\"}"
       fi
       local rc=0 body _code _try=0 _maybe=0 _pause
       # kosmos#5643: a run the board did not take is asked again, twice, before the agent hears it failed. A run whose
@@ -4941,12 +4968,22 @@ cmd_task() {
       case "$body" in
         '{"task":'*)
           local words; words=$(printf '%s' "$body" | sed -n 's/.*"words":"\([^"]*\)".*/\1/p')
-          if [ "$sub" = ran ]; then
+          if [ "$sub" = told ]; then say "Recorded what the person was told about task $num on ${project:-the project}. The next run's --value is checked against it."
+          elif [ "$sub" = ran ]; then
             case "$body" in *'"duplicate":true'*) say "That run of task $num on ${project:-the project} was already recorded, so it was not recorded twice." ;;
               # kosmos#5643 review 1: from the board's answer, so a run it counted as unchanged (the same note) says so too.
               *'"lastRunUnchanged":true'*) if [ "$unchanged" = true ]; then say "Recorded a run of task $num on ${project:-the project} that found nothing new."
                 else say "Recorded a run of task $num on ${project:-the project}. It repeats the note before it."; fi ;;   # review 2: inferred, said as such
               *) say "Recorded a run of task $num on ${project:-the project}." ;; esac
+            # kosmos#5836: the reading against what the PERSON was last told, never against the last run.
+            if [ "$_hasval" = true ]; then
+              local _told; _told=$(printf '%s' "$body" | LC_ALL=C perl -ne 'if (/"vs_told":\{"state":"[a-z]+","told":\{"value":"((?:[^"\\]|\\.)*)"/) { my $v=$1; $v =~ s/\\(.)/$1/g; print $v }' 2>/dev/null || true)   # review 1: no perl must not end a CLI whose run is already recorded
+              case "$body" in
+                *'"vs_told":{"state":"never"'*) say "The person has never been told this task's reading, so this is news: tell them, then run: kosmos task told $project $num" ;;
+                *'"vs_told":{"state":"same"'*) say "It is the same as what the person was last told${_told:+ (\"$_told\")}: nothing new to tell them." ;;
+                *'"vs_told":{"state":"changed"'*) say "It CHANGED since the person was last told${_told:+ (they were told \"$_told\")}: tell them, then run: kosmos task told $project $num" ;;
+              esac
+            fi
           elif [ "$clear" = true ]; then say "Task $num on ${project:-the project} no longer repeats."
           elif [ -z "$every" ] && [ "$reviewer" = none ]; then say "Nobody is told now when task $num on ${project:-the project} misses a run."
           elif [ -z "$every" ]; then say "$reviewer will be told when task $num on ${project:-the project} misses a run."

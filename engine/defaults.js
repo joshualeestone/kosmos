@@ -475,6 +475,20 @@ const BLOCK = [
   'project, or the work belongs to none of yours, do not guess another: write the',
   'checks in your reply before you start, and say how each went when you finish.',
   '',
+  '### Report a change against what the person was told',
+  '',
+  '**When a repeating check reports a reading the person should hear about (a',
+  'price, a count, a status), compare it with what you last TOLD the person, not',
+  'with your own last run.** A change you saw but never reported is still news to',
+  'them. Give the reading with `--value`, and Kosmos says whether it changed since',
+  'the person was last told:',
+  '',
+  '`kosmos task ran <project-id> <task-number> --value "<the reading>"`',
+  '',
+  'If it changed, or they were never told, tell them, then record that you did:',
+  '',
+  '`kosmos task told <project-id> <task-number>`',
+  '',
   '### Never wait silently',
   '',
   '**If something is waiting on the person, tell them.** Never sit behind an',
@@ -1003,8 +1017,19 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that an agent which reads this will not edit the
  *     app anyway when asked to "fix Kosmos" by a person; the sentence says to
  *     describe the bug instead, which is what the person needs from it.
+ *  28. kosmos#5836. A user's monitoring agent compared a new result with its OWN
+ *     last run instead of with what the person had last been told, so a change
+ *     the person had never seen went unreported. A NEW heading, `### Report a
+ *     change against what the person was told`, so agents with an edited copy are
+ *     re-offered it too (missingFrom matches by heading). It names the two
+ *     commands the board now keeps for this: `kosmos task ran --value` (the last
+ *     verified reading, checked against what the person was told) and
+ *     `kosmos task told` (what the person was told).
+ *     WEAKEST PREMISE, NAMED: not measured with test agents (as v27 was not). That
+ *     an agent runs `told` after telling the person: if it forgets, every later
+ *     reading reads as changed, so it over-reports rather than missing a change.
  */
-const DOCTRINE_VERSION = 27;
+const DOCTRINE_VERSION = 28;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

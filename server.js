@@ -2941,7 +2941,7 @@ function tokenOnlyRemoveRefusal(caller, target) {
   const targetGone = sendertoken.endedSince([target], birth.at);
   const creatorGone = sendertoken.endedSince([caller.name, creatorKey].filter(Boolean), birth.askedAt, { inclusive: true });
   if (targetGone === null || creatorGone === null) {
-    console.error('#4475: refused a token-only removal of ' + target + ': the history of ended agents could not be read whole (' + sendertoken.endedLogFile() + ')');
+    console.error('#4475: refused a token-only removal of ' + target + ': the history of ended agents could not be read whole (' + sendertoken.endedLogFile() + ', ' + sendertoken.endedDir() + ')');
     return REMOVE_UNCHECKED;
   }
   return (targetGone === false && creatorGone === false) ? null : REMOVE_NOT_YOURS;
@@ -3418,6 +3418,27 @@ function isSetupGuide(name) {
     if (!guide || create.cleanName(guide).toLowerCase() !== create.cleanName(name).toLowerCase()) return false;
     return setupAssistant.isGuideFolder(guide);
   } catch { return false; }
+}
+
+/** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */
+const DM_OLDER_PAGE = 200;
+/* kosmos#5841: what the person sees of a direct thread's rows, decided ONCE for both readers (the thread route's
+   latest 200 and the older route's earlier pages), so the earlier pages can never show what the latest ones hide:
+   in the setup guide's thread every row is masked (#3769), the person's reactions ride as pills (#3650), and
+   previews are attached. The live question and account rows are NOT added here: they belong to the tail only. */
+function dmServeRows(rows, name, card) {
+  if (!Array.isArray(rows)) return rows;
+  const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
+  const guideName = guideThread ? ((card && card.sessionName) || name) : null;
+  const masked = guideThread
+    ? rows.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
+    : rows;
+  const reacted = masked.map((m) => {
+    if (!m || m.from !== name) return m;
+    const { reactionsTold, ...rest } = m;
+    return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
+  });
+  return withPreviews(reacted);
 }
 /* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js).
    Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
@@ -4517,12 +4538,14 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
 /* #5293 review 1: POST /api/agent/<name>/instruction-add joins: it only HOLDS a proposal the person applies on the page,
    and its handler names the caller with resolveAgentSender, header token first. */
+/* kosmos#5836: `kosmos task told` (POST .../task/<n>/told) joins with ran, on its terms: the handler names the caller
+   and refuses an agent that is not on the project. */
 /* #5152 slice 1: `kosmos task done-when` (POST .../task/<n>/done-when) joins on the same terms: its handler names the
    caller (processCaller) and refuses an agent that is not on the project (notOnProjectRefusal). */
 /* #4475 step 3: removing an agent (DELETE .../removal) joins, for the agents the caller created and no others: the
    handler identifies the caller from the token (agentTokenOnlyCaller) and refuses any other target, and refuses
    `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -4545,9 +4568,10 @@ function taskMessageSummary(delivered, assigned) {
   const list = Array.isArray(delivered) ? delivered : [];
   if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
   if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
-  /* One outcome per agent, the worst winning (not told, then may have been told, then told), so an agent listed twice
-     never gets two sentences that contradict each other. A name that cleans to nothing is still said. */
-  const rank = (st) => (st === chat.DELIVERY.COULD_NOT ? 2 : st === chat.DELIVERY.PLACED ? 0 : 1);
+  /* One outcome per agent, the worst winning (not told, then may have been told, then kept for an agent out of usage
+     (#5805), then told), so an agent listed twice never gets two sentences that contradict each other. A name that
+     cleans to nothing is still said. */
+  const rank = (st) => (st === chat.DELIVERY.COULD_NOT ? 3 : st === chat.DELIVERY.PLACED ? 0 : st === messages.HELD_STATE ? 1 : 2);
   const byName = new Map();
   for (const d of list) {
     if (!d) continue;
@@ -4560,11 +4584,18 @@ function taskMessageSummary(delivered, assigned) {
   const told = names(chat.DELIVERY.PLACED);
   /* Only a delivery the board knows failed is "not told"; one it did not hear back from (unconfirmed, or no state
      at all) may have landed, so it is never claimed either way. */
-  const maybe = one.filter((d) => d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.COULD_NOT).map((d) => d.who);
+  const maybe = one.filter((d) => d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.COULD_NOT && d.state !== messages.HELD_STATE).map((d) => d.who);
+  const kept = one.filter((d) => d.state === messages.HELD_STATE);
   const not = one.filter((d) => d.state === chat.DELIVERY.COULD_NOT);
   const parts = [];
   if (told.length) parts.push('Told ' + told.join(', ') + '.');
   if (maybe.length) parts.push(maybe.join(', ') + ' may have been told (Kosmos could not confirm it).');
+  /* #5805: the reason already names the agent ("casey is out of usage until ...; Kosmos types it after the reset"). */
+  for (const d of kept) {
+    const why = plain(d.because).replace(/^held: /, '').replace(/\.$/, '');
+    // It was accepted: a sender that read it as a failure would only add a second copy to the same queue.
+    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset')) + '. Do not send it again.');
+  }
   /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
   for (const d of not) {
     const who = d.who;
@@ -6088,7 +6119,8 @@ const server = http.createServer(async (req, res) => {
            a true sentence instead of spinning. */
         updateAttempt: updates.lastAttempt(),
         /* #2055: a machine whose update keeps aborting at the pause (the board
-           would not stop) records a durable, counted marker; the installer's own
+           would not stop; #4675: or one of the port checks after it stopped the
+           update) records a durable, counted marker; the installer's own
            message is silent on the automatic path. Surface it so the board can
            tell the user their machine has stopped receiving updates. Null when the
            machine is not stuck. */
@@ -15907,6 +15939,38 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   /**
+   * kosmos#5841: the EARLIER messages of the thread between the person and ONE agent, a page at a time. The thread
+   * route below sends only the latest 200 and says how many older ones are kept ("N older messages are still kept");
+   * this is how the person reaches them. `?before=<n>` is a position counted from the OLDEST message (the thread
+   * route's `olderCount` is exactly the first one it showed), so a message arriving meanwhile, which a thread only
+   * ever gains at the newest end, cannot shift a page. The answer is the up-to-200 messages before it, oldest first,
+   * and `olderCount`, how many remain before those. Read-only, the thread route's own gate (nameRefusal), the same
+   * file, and the same serving rules (dmServeRows: the guide mask included).
+   */
+  const dmOlder = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/older$/);
+  if (dmOlder && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(dmOlder[1]);
+    if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
+    const refusal = nameRefusal(name);
+    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal)); return; }
+    let beforeRaw = null;
+    try { beforeRaw = new URL(req.url, ROUTING_BASE).searchParams.get('before'); } catch { beforeRaw = null; }
+    const before = typeof beforeRaw === 'string' && /^\d{1,9}$/.test(beforeRaw) ? Number(beforeRaw) : NaN;   // digits only
+    if (!Number.isInteger(before) || before < 0) { sendJson(res, 400, { error: 'before must be a whole number, 0 or more' }); return; }
+    let rows;
+    try { rows = chat.readThread(chat.DIRECT, name).messages || []; } catch (err) {
+      // No file can ever exist (BAD_THREAD) reads as nothing older; anything else is a read that failed, said so.
+      if (err && err.code === 'BAD_THREAD') { sendJson(res, 200, { messages: [], olderCount: 0 }); return; }
+      sendJson(res, 503, { error: String((err && err.message) || 'we cannot read what you have sent this agent') });
+      return;
+    }
+    const end = Math.min(before, rows.length);
+    const start = Math.max(0, end - DM_OLDER_PAGE);
+    const card = ourCardByName(safeRoster(), name);
+    sendJson(res, 200, { messages: dmServeRows(rows.slice(start, end), name, card), olderCount: start });
+    return;
+  }
+  /**
    * --- the thread between the person and ONE agent -------------------------
    *
    * The project thread's sibling, and the difference is what it is FOR: that
@@ -16204,16 +16268,7 @@ const server = http.createServer(async (req, res) => {
        name, so a differently-cased URL cannot skip it. */
     const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
     const guideName = guideThread ? ((card && card.sessionName) || name) : null;
-    const maskedMessages = guideThread && Array.isArray(servedMessages)
-      ? servedMessages.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
-      : servedMessages;
-    const reactedMessages = Array.isArray(maskedMessages)
-      ? maskedMessages.map((m) => {
-        if (!m || m.from !== name) return m;
-        const { reactionsTold, ...rest } = m;
-        return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
-      })
-      : maskedMessages;
+    const servedRows = dmServeRows(servedMessages, name, card);   // kosmos#5841: shared with the older route
     /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
     const cqNow = view && view.text ? require('./engine/status').claudeQuestionMenu(view.text) : null;
     const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
@@ -16224,7 +16279,7 @@ const server = http.createServer(async (req, res) => {
       && cqNow.options.length === options.length
       && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
     sendJson(res, 200, {
-      messages: withPreviews(reactedMessages),
+      messages: servedRows,
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -19162,6 +19217,8 @@ const server = http.createServer(async (req, res) => {
           ? await fedmembers.remove(remote, body.project, body.edge_id)
           : await fedmembers.withdraw(remote, body.project, body.invite_id);
         if (out.roomLine) { try { messages.roomNote(body.project, out.roomLine); } catch { /* the note is furniture */ } }
+        // #5191: rotate the room now, not at the next edge check, so the removed member's posts are refused from now.
+        if (out.status === 200 && pathname === '/api/federation/remove') { try { fedseats.afterRemove(body.project).catch(() => {}); } catch { /* the remove itself succeeded */ } }
         sendJson(res, out.status, out.body);
       })
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
@@ -20094,7 +20151,10 @@ const server = http.createServer(async (req, res) => {
      POST .../ran { note?, unchanged? } records that its job ran (unchanged: it found nothing new, kosmos#5643). Either from the screen (the person) or from an agent on the project,
      identified the way the built mark is (its token, else its pane); an agent off the project is refused. The rule is
      checked whole in the engine (taskrepeat.repeatProblem), so a bad one is a 400 with the sentence, never stored. */
-  const taskRepeat = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(repeat|ran)$/);
+  /* kosmos#5836: POST .../ran also takes { value } (the run's reading, kept as last verified) and answers how it compares
+     with what the person was last told (`vs_told`); POST .../told { value? } records what the person was told (default:
+     the last verified reading). Same callers and checks as ran. */
+  const taskRepeat = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(repeat|ran|told)$/);
   if (taskRepeat && req.method === 'POST') {
     const id = decodeSegment(taskRepeat[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
@@ -20119,7 +20179,7 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
           logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot change its tasks',
-            taskRepeat[3] === 'ran' ? 'record a run of a task' : 'set how often a task repeats', !!(tokenSender && tokenSender.ok));
+            taskRepeat[3] === 'ran' ? 'record a run of a task' : taskRepeat[3] === 'told' ? 'record what the person was told' : 'set how often a task repeats', !!(tokenSender && tokenSender.ok));
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -20133,7 +20193,11 @@ const server = http.createServer(async (req, res) => {
           // kosmos#5643: `unchanged: true` records a run that found nothing new (it rolls up on the task's page).
           if (body.unchanged !== undefined && typeof body.unchanged !== 'boolean') throw new Error('unchanged is true or false');
           // kosmos#5643 retry review 1: run_id, one per command and sent on every attempt, so a retry is the same run.
-          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen, unchanged: body.unchanged === true, runId: typeof body.run_id === 'string' ? body.run_id : null });
+          if (body.value !== undefined && typeof body.value !== 'string') throw new Error('a reading has to be text');
+          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen, unchanged: body.unchanged === true, runId: typeof body.run_id === 'string' ? body.run_id : null, value: typeof body.value === 'string' ? guideMasked(viaScreen ? null : by, body.value) : undefined });
+        } else if (taskRepeat[3] === 'told') {
+          if (body.value !== undefined && typeof body.value !== 'string') throw new Error('what the person was told has to be text');
+          task = tasks.setTold(id, taskRepeat[2], viaScreen ? null : by, typeof body.value === 'string' ? guideMasked(viaScreen ? null : by, body.value) : undefined, Date.now(), { person: viaScreen });
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
@@ -20158,7 +20222,11 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
-      sendJson(res, 200, { task, ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
+      // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
+      // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
+      // answers for what it found.
+      const vsTold = taskRepeat[3] === 'ran' && typeof body.value === 'string' && task ? tasks.versusTold(task, guideMasked(viaScreen ? null : by, body.value)) : null;
+      sendJson(res, 200, { task, ...(vsTold ? { vs_told: vsTold } : {}), ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
@@ -20383,10 +20451,19 @@ const server = http.createServer(async (req, res) => {
         }
         for (const one of recipients) {
           let outcome;
-          // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
-          try { outcome = await chat.deliverAsync(one, line, roster); }
-          catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
-          delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
+          /* #5805: an assignee out of usage (or with messages still kept from then) is not typed into: the line is kept
+             and the minute sweep types it after the reset, as for `kosmos msg`, through the automatic gate
+             (limitqueue.sweepHooks), so a kept line also waits on that gate's menu and quota holds. */
+          // The sender's own name, not the cleaned one in the line: a drop notice is addressed to it.
+          const kept = messages.keepTaskLine(one, line, roster, viaScreen ? '' : String((senderCard && senderCard.sessionName) || ''), 'task ' + t.number + ' in ' + projName);
+          if (kept) outcome = kept;
+          else {
+            // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
+            try { outcome = await chat.deliverAsync(one, line, roster); }
+            catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
+          }
+          delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because,
+            ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}) });
         }
         if (!viaScreen) taskMessageValveRecord();
         sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) });
