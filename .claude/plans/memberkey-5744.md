@@ -73,8 +73,9 @@ the API doc's missing `member` field.
   another process registered before a fresh-key refresh is answered (red without the check, 1 of 18); a file error
   is said as a fixed sentence and its code, no path (red with the raw message, 1 of 18; both at 266cfd43f); a
   wrong_epoch whose next is the epoch just sent resends the same key (red without the guard, 1 of 20, c9c9056e0);
-  a file for another org or with an epoch past 2^53 is not read; a wrong_epoch naming the epoch just sent (a race)
-  is answered, not a move.
+  a file for another org or with an epoch past 2^53 is not read; a wrong_epoch naming the epoch just sent (an
+  impossible answer, labelled so) is answered, not a move; lostEpoch moves a stale registered key once; a pair whose
+  public half is not the private half's is not read.
 - Red-capable (each measured): without writing the key before sending, 1 fails (1be4a071f); without the 409 arm, 3
   fail (1be4a071f); without the epoch-0 arm, 1 fails (5052ecedd); without the reused refresh, 2 of 14 fail; without
   the re-read guard, 1 of 14 fails (both f3dbaeb74).
@@ -129,7 +130,8 @@ the API doc's missing `member` field.
   unread; the constructed test state is labelled as one the premise excludes.
 
 ## Review 5 (sonnet)
-- FIXED: a wrong_epoch whose next equals the epoch just sent (the current epoch moved under the send) deleted the key
+- FIXED: a wrong_epoch whose next equals the epoch just sent [CORRECTED by Review 10: the coordinator never answers
+  this; it reads the current epoch once. The guard is defensive only] deleted the key
   it had just stored and sent `undefined`; it now resends the same key; tested, red without the guard.
 - FIXED: an epoch past 2^53 in the file lost precision in Number(); such a file is not read; tested with an
   org-mismatch arm too.
@@ -164,3 +166,13 @@ the API doc's missing `member` field.
   root makes a rotation (W3, Not in this slice).
 - DEFERRED, not an issue (W4): `because` from the tunnel passes through as every macRequest caller passes it; it is
   the tunnel's own error line (it names the coordinator URL, not a home path).
+
+## Review 10 (opus)
+- FIXED: no way out once a registered key is stale (one computer per member, so a grant for another epoch means this
+  file is stale, e.g. a restored data root). `opts.lostEpoch` from the backup job treats that registered key as lost
+  and takes the move path once (its backups stay readable through escrow); tested with a control.
+- FIXED (the loop's own claims, SELF, from Reviews 5 and 8): "a race between sends" and "the current epoch moved under
+  this send" are answers the coordinator never gives (it reads the current epoch once); the comments say the guards
+  are defensive, and the two tests are labelled impossible-answer tests.
+- NITs taken: backupkeys.js exports publicKeyOf and a kept pair must be a pair (tested). Noted for a later slice: a
+  key file left from a company this computer moved out of is never removed.

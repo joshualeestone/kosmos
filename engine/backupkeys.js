@@ -186,6 +186,8 @@ module.exports = {
   unwrapNamingKey,
   // The context id rule (org, member, epoch), so a caller checks an id the same way the wrap does (kosmos#5744).
   ID_RE,
+  // The public half of a raw X25519 private key, so a kept key pair can be checked (kosmos#5744).
+  publicKeyOf,
   // The associated-data bytes, exported for any other implementation of the unwrap service to match.
   memberContextBytes: memberContext,
   namingContextBytes: namingContext,
