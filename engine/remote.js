@@ -1766,9 +1766,7 @@ function vouchTick() {
     const now = Math.floor(Date.now() / 1000);
     if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
     v.opened = true;
-    // The window restarts when the browser opens, so a request that appears late still gets its full time (the
-    // secret lives at most two windows from sign-in).
-    v.until = Date.now() + VOUCH_WINDOW_MS;
+    // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
     const url = vouchUrl(v.secret);
     if (!url) { stopVouch(); return; }
     vouchOpenedUrl = url;
@@ -1788,11 +1786,14 @@ function vouchTick() {
   const name = typeof hit.name === 'string' && hit.name.trim() ? hit.name.trim().slice(0, 60) : '';
   v.matched = id;
   v.allowing = true;
-  v.tries += 1;
+  let threw = false;
   Promise.resolve()
     .then(() => deviceAllow(id, name || undefined))
     .then((r) => {
       if (!r || !r.ok) {
+        // Only the tunnel's refusals count: a busy register or Forget, or setup not finished, is waited out.
+        const why = String((r && r.because) || '');
+        if (!busy() && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
         // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for ten minutes).
         if (vouchState === v && v.tries >= 3) {
           process.stderr.write('kosmos+: could not allow the browser this computer opened (' + String((r && r.because) || 'no answer') + '); the Allow card stays\n');
@@ -1811,10 +1812,11 @@ function vouchTick() {
       const saved = write({ vouched: Object.fromEntries(kept) });
       if (!saved.ok) process.stderr.write('kosmos+: allowed the browser this computer opened, but could not note it: ' + saved.because + '\n');
     })
-    .catch(() => null)
+    .catch(() => { threw = true; })
     .finally(() => {
       v.allowing = false;
-      // The three-try stop holds even for an allow that threw rather than answering.
+      // An allow that threw rather than answering counts as a refused try too.
+      if (threw) v.tries += 1;
       if (vouchState === v && v.tries >= 3 && !v.matchedOk) stopVouch();
     });
 }

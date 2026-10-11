@@ -14,14 +14,14 @@ as `vouch` (absent = no auto-allow).
 
 ## Change (engine/remote.js, web/index.html, one new browser check)
 - After a successful sign-in that spent the code steps (fresh register and the already-this-computer path): mint S
-  in memory (it also passes through the opener's argv and the browser's history), 10-minute window restarted when
-  the browser opens, a 3 s timer while live; Forget, Sign out, switching off and an identity change stop it.
+  in memory (it also passes through the opener's argv and the browser's history), 10-minute window from the sign-in (not restarted: Josh's ruling
+  bounds it), a 3 s timer while live; Forget, Sign out, switching off and an identity change stop it.
 - Open the default browser (runCompanyOpener) at the coordinator origin #allow=S, only once the snapshot holds an
   eligible phone or browser request from the last 30 minutes, so an app-only sign-up never gets a stray tab. https,
   or http on loopback only. An opener that fails ends S, with a log line.
 - Allow the ONE row whose vouch equals HMAC(S, its id), constant-time; never a joining computer (joining_computer or
   code_wait), never this computer's own sign-ins, never a device the person said Not me to; spend S on the first
-  allowed match; three refused tries end S (a busy register or Forget is waited out, not counted).
+  allowed match; three refused tries end S (only the tunnel's refusals count; busy or setup-not-finished is waited out).
 - Note it in remote.json `vouched` ({id: {at, name}}, newest 20): pendingDevices().connected_here (10 min) and
   devicesList on_this_computer; Remove (the Undo) drops the note unless it timed out; an identity change drops all.
 - Page: "<Browser> on this computer is connected." with why, Undo (Remove, one at a time) and Got it; other views show

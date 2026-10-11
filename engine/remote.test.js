@@ -4268,7 +4268,7 @@ test('#5786 (b): the browser this computer opened is allowed by its vouch, once,
   await new Promise((r) => setTimeout(r, 20));
   remote.vouchTickForTests();
   assert.match(remote.vouchOpenedUrlForTests(), new RegExp('^https?://[^/#]+/#allow=' + secret + '$'));
-  assert.ok(remote.vouchUntilForTests() > untilBefore, 'the window did not restart when the browser opened');
+  assert.equal(remote.vouchUntilForTests(), untilBefore, 'the window moved: Josh ruled on ~10 minutes from sign-in');
   // The page's vouch arrives on that row.
   plant([{ device_id: 'dev-safari', name: 'Mac · Safari', first_seen: nowS() - 360, code: 'VR-D6', vouch: vouchFor(secret, 'dev-safari') }]);
   const before = allowsOf().filter((x) => x === 'dev-safari').length;
