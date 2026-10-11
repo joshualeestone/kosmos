@@ -59,7 +59,7 @@ job must pass the epoch ensureMemberKey answers (a Number; sealedEpoch converts 
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at 799c42e16: 25 tests, 25 pass)
+## Tests (measured at HEAD of review 12: 26 tests, 26 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -184,3 +184,12 @@ the API doc's missing `member` field.
   the new key starts one past it; the re-read guards skip the lost epoch (red without it); tested inside the day.
 - FIXED: the "Kosmos+ took it, the note failed" branch is tested (the next call is a repeat, no second epoch).
 - Duplicate: the 409-as-lost premise (Reviews 3, 7, 8). NIT taken: the Windows ACL limit is stated.
+
+## Review 12 (opus)
+- FIXED: under lostEpoch the start was always lost + 1, so a second call inside the day made a new key and moved it
+  over the pending one (two registrations a call, and a needless rotation if the pending key had been kept). A pending
+  key above lost is now sent again. Tested with the pending key at lost + 2 (the member's current epoch ahead); the
+  first version of that test put it at lost + 1, where the old code also reused it, and passed with the fix removed;
+  rebuilt, it is red without the fix (1 of 26).
+- FIXED (doc): the job passes lostEpoch on every call until a newer key is taken.
+- NIT taken: the fake's comment says its check order is not the route's own.
