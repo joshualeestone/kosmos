@@ -50,6 +50,12 @@ function resetAt(ms) {
   for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(new Date(ms))) p[x.type] = x.value;
   return `${p.month} ${p.day} at ${p.hour}:${p.minute}${String(p.dayPeriod).toLowerCase()}`;
 }
+/* "4:35pm" for `ms` in America/Chicago: a dateless reset as Claude Code prints it (slice 3b). */
+function clockAt(ms) {
+  const p = {};
+  for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(new Date(ms))) p[x.type] = x.value;
+  return `${p.hour}:${p.minute}${String(p.dayPeriod).toLowerCase()}`;
+}
 const RULE = '─'.repeat(80) + '\n';
 const STATUS_LINE = RULE + '❯ \n' + RULE + '  casey · Opus 4.8 · 7d 100%\n' + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
 const limitScreen = (resets) => '> hello\n'
@@ -94,6 +100,7 @@ async function onScreen(screen, fn, state = 'rate_limited') {
 }
 
 test.beforeEach(() => {
+  status.resetLimitFirstSeenForTests();   // slice 3b: first-seen times are per test
   chat.resetForTests();
   messages.resetForTests();
   for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
@@ -116,12 +123,18 @@ test('#5805 a dated reset ahead: a timer\'s line is HELD until the reset, sync a
   });
 });
 
-test('#5805 not held: a limit line with no date, a reset already past, and a person\'s own message', async () => {
-  await onScreen(DATELESS(), async (board, tmux) => {
-    assert.equal(board.agents.find((c) => c.sessionName === 'casey').state, status.STATE.RATE_LIMITED, 'CONTROL: the dateless line still reads capped');
+test('#5805 not held: a dateless line the board saw too late to read, a reset already past, and a person\'s own message', async () => {
+  /* Slice 3b: a dateless line is held on its first-seen reset (limitretire-5805.test.js). One the board cannot read a
+     reset for is typed as before: a session limit printing a time more than five hours on (the board saw it late). */
+  const late = '> hello\n' + `  ⎿  You've hit your session limit · resets ${clockAt(Date.now() + 6 * 3600e3)} (America/Chicago)\n`
+    + '✻ Sautéed for 0s · done 10:35 PM\n' + STATUS_LINE;
+  await onScreen(late, async (board, tmux) => {
+    const card = board.agents.find((c) => c.sessionName === 'casey');
+    assert.equal(card.state, status.STATE.RATE_LIMITED, 'CONTROL: the dateless line still reads capped');
+    assert.equal(card.limitUntil, null, 'CONTROL: no reset read for it');
     const v = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
-    assert.ok(tmux.typed().length > 0, 'the dateless line held a timer\'s line');
+    assert.ok(tmux.typed().length > 0, 'a dateless line with no reset read held a timer\'s line');
   });
   // A reset already past: status retires the line, so the card reads idle again and the line is typed.
   await onScreen(PAST(), async (board, tmux) => {
@@ -420,13 +433,14 @@ test('#5805 review 9: the restart pickup ({ cap: false }) is held by the limit, 
   });
 });
 
-test('#5805 review 17: on a dateless limit line too, the fresh StopFailure report does not outrank the screen (decided), and nothing is held', async () => {
+test('#5805 review 17: on a dateless limit line too, the fresh StopFailure report does not outrank the screen (decided), and (slice 3b) it is held on its first-seen reset', async () => {
   await withReport(LIMIT_REPORT, DATELESS(), async (board, tmux) => {
     const card = board.agents.find((c) => c.sessionName === 'casey');
     assert.equal(card.state, status.STATE.RATE_LIMITED, 'the card reads ' + card.state + ' (before this slice: blocked)');
-    assert.equal(chat.limitHeldVerdict('casey', board.agents), null, 'a dateless limit was held');
+    assert.equal(typeof card.limitUntil, 'string', 'CONTROL: the dateless reset was read from when it was first seen');
     const v = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
-    assert.notEqual(v.held, true);
-    assert.ok(tmux.typed().length > 0, 'CONTROL: the line was typed, as before this slice');
+    assert.equal(v.held, true, JSON.stringify(v));
+    assert.equal(v.heldBy, 'limit');
+    assert.equal(tmux.typed().length, 0, 'a line was typed into a dateless limit screen ahead of its reset');
   });
 });

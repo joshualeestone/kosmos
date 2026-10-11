@@ -1931,13 +1931,21 @@ const LIMIT_RELOOK_MAX_MS = 60 * 60 * 1000;
    in its one-minute grace. Not past LIMIT_RELOOK_MAX_MS after the reset: a capped card whose line status never retires
    (another limit wording) would otherwise be held for good; after that, lines are typed as before, unless the limit
    menu is still on screen (it holds the session until a key is pressed, and a typed line would land in it). A limit
-   line with no date (the 5-hour form) is not held: it stays on screen after its reset until something is typed, and holding on
-   it would mean nothing ever wakes the agent. */
+   line with no date (the 5-hour form, a weekly limit's last day) stays on screen after its reset until something is
+   typed, so slice 1 did not hold on it (nothing would ever wake the agent). Slice 3b holds it on the card's limitUntil
+   (its reset as read from when the board first saw the line) and status retires the line at that reset, so the card
+   reads released then; a dateless line the board saw too late to read is not held, as before. */
 function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   if (!limitable(card) || card.state !== status.STATE.RATE_LIMITED) return null;
   if (addressable(sessionName, roster).ok !== true) return null;
-  const reset = status.limitResetAt(card.stateEvidence, now);
+  let reset = status.limitResetAt(card.stateEvidence, now);
+  /* #5805 slice 3b: a dateless line ("resets 4pm (zone)") holds too, on the card's limitUntil: its reset as resolved
+     from when the board first saw the line on screen (status.claudeLimitUntil). No limitUntil (seen late): not held. */
+  if (reset === null && typeof card.limitUntil === 'string') {
+    const until = Date.parse(card.limitUntil);
+    if (Number.isFinite(until)) reset = until;
+  }
   if (reset === null) return null;
   if (now - reset > LIMIT_RELOOK_MAX_MS) {
     const view = viewport(sessionName, roster);
