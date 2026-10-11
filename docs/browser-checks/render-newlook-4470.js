@@ -87,7 +87,8 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = mkroot('config-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
-/* #5551: Working's dots on Home in the new look (--nl-dot): today's green in light, the bright green in dark. */
+/* #5551: Working's dots on Home in the new look (--nl-dot): today's green in light, the bright green in dark.
+   The light value equals today's, so a light arm asserts "unchanged" and passes without the rule; only the dark arms guard it. */
 const DOT_OF = { light: 'rgb(47, 125, 90)', dark: 'rgb(48, 209, 88)' };
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');

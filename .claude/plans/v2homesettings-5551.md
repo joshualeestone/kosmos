@@ -20,4 +20,5 @@ switch off, nothing changes. render-newlook-4470.js asserts both, with look-off 
 2. Browser check arms and controls in render-newlook-4470.js. Done.
 3. Review 1: done (0f5563cc1): measured contrast in the comment, warm tint over the card's grey, stale comment, controls.
 4. Reviews 2 to 5: done (pill probes, hover tint, Question pill class, pressed Issue filter, dot contrast).
-5. Review 6, then full validation, design shots, PR.
+5. Review 6: done (Issue card's Working-now dots named and checked). Review 7: converged, 2 nits fixed.
+6. Full validation, design shots, PR.
