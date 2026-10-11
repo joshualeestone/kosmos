@@ -192,18 +192,29 @@ test('#5805 task: a full queue is said, not held: nothing kept, nothing typed', 
   await withFleet(AHEAD(), 'rate_limited', async (board, tmux) => {
     const v = messages.keepTaskLine('casey', LINE, board.agents, 'leo', ABOUT);
     assert.equal(v.state, chat.DELIVERY.COULD_NOT);
-    assert.match(v.because, /could not keep this one for it \(too many are kept for it already\), so it was not told/);
+    assert.match(v.because, /could not keep this one for it \(20 messages from this sender are kept for it already\), so it was not told/);
     assert.equal(kept().length, limitqueue.MAX_PER_SENDER);
     assert.deepEqual(tmux.pastedTo('casey'), []);
   });
 });
 
-test('#5805 task: the route keeps a line before typing it, for every assignee', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf("const taskSay = pathname.match(");
-  assert.ok(at > 0);
-  const body = src.slice(at, at + 12000);
-  const keep = body.indexOf('messages.keepTaskLine(one, line, roster');
-  const type = body.indexOf('chat.deliverAsync(one, line, roster)');
-  assert.ok(keep > 0 && type > keep, 'the task route does not keep before it types');
+test('#5805 task: a failure after a hold is found refuses the line, untyped; one before it types as before', async () => {
+  const realAdd = limitqueue.addOrWhy;
+  limitqueue.addOrWhy = () => { throw new Error('disk gone'); };
+  try {
+    await withFleet(AHEAD(), 'rate_limited', async (board, tmux) => {
+      const v = messages.keepTaskLine('casey', LINE, board.agents, 'leo', ABOUT);
+      assert.equal(v && v.state, chat.DELIVERY.COULD_NOT, 'a throw while keeping fell through to typing: ' + JSON.stringify(v));
+      assert.deepEqual(tmux.pastedTo('casey'), []);
+    });
+  } finally { limitqueue.addOrWhy = realAdd; }
+  const realVerdict = chat.limitHeldVerdict;
+  const realAddr = chat.addressable;
+  chat.limitHeldVerdict = () => null;
+  chat.addressable = () => { throw new Error('roster gone'); };
+  try {
+    await withFleet(undefined, 'idle', async (board) => {
+      assert.equal(messages.keepTaskLine('casey', LINE, board.agents, 'leo', ABOUT), null, 'CONTROL: a throw before any hold is found must not refuse');
+    });
+  } finally { chat.limitHeldVerdict = realVerdict; chat.addressable = realAddr; }
 });
