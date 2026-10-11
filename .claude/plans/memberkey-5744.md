@@ -234,6 +234,11 @@ the API doc's missing `member` field.
 - NITs taken: a symlinked key file is refused outright (tested); the 2^53 fixture is a string so it is past 2^53;
   the header says the flags ride only an answer from disk; UNREADABLE sits after the routes.
 
+## Review 19 (sonnet)
+- CONVERGED: no new finding; it repeated entries already in this ledger. Comment-wording NITs were left alone so the
+  diff stays the converged one. (Recorded here at 14:38 CDT from the session transcript; the earlier session had not
+  written this section.)
+
 ## Mortals validation 1 (13:35 CDT, at 5679227a5): FAILED on one shell test
 - node suite: 19181 tests, 0 fail, 0 cancelled. The only red was tools/test-connector-verbs.sh: its pinned list of
   macRequest callers did not name engine/backupmemberkey.js (and its pass count fell to 26 of 27 as a result).
