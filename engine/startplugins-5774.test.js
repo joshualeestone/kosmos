@@ -473,7 +473,7 @@ test('#5774 route 5 review 11: on Linux a MASKED agent unit is no job (not a fai
 });
 
 
-test('#5774 route 5 review 13: a config home that is a link to something absent has its target covered; an indented export is named; a per-run cache lists no versioned plugin', () => {
+test('#5774 route 5 review 13: a config home that is a link to something absent has its target covered; an indented export is read (review 17); a per-run cache lists no versioned plugin', () => {
   // A base under the REAL sandbox path: the temp folder is itself a link on macOS, so every path there reads as linked.
   const base = path.join(fs.realpathSync.native(SANDBOX), 'r13');
   fs.mkdirSync(base, { recursive: true });
@@ -643,3 +643,56 @@ test('#5774 route 5 review 18: a job file that does not parse as a job is read f
     assert.ok(JSON.stringify(g3).includes(`${odd} (`), JSON.stringify(g3));
   } finally { try { fs.chmodSync(plist, 0o644); } catch { /* gone */ } fs.rmSync(plist, { force: true }); }
 });
+
+test('#5774 route 5 review 19: an assignment that never enters the environment is not read; a Cellar folder is covered by one stable rule; an odd Linux unit is read for its home', () => {
+  const base = path.join(fs.realpathSync.native(SANDBOX), 'r19');
+  fs.mkdirSync(base, { recursive: true });
+  const zshrc = path.join(HOME, '.zshrc');
+  const spaced = path.join(base, 'a b dir');
+  try {
+    // A wrapper function's prefix assignment, a top-level one, and a local: none is in the environment.
+    fs.writeFileSync(zshrc, 'ccdev() {\n  CLAUDE_CODE_PLUGIN_DIRS="$1" claude\n}\nCLAUDE_CODE_PLUGIN_DIRS=$PWD/plugins claude --version\nf() { local CLAUDE_CODE_PLUGIN_DIRS=$2; }\n');
+    const g = setup.guardTokenOnlyFolder(agentDir('pilot-prefixassign'), 'pilot-prefixassign', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    // The dangerous cases: a quoted value with spaces, and an export followed by another assignment, are still read.
+    const other = path.join(base, 'exported-plug');
+    fs.writeFileSync(zshrc, `export CLAUDE_CODE_PLUGIN_DIRS="${spaced}"\nexport CLAUDE_CODE_PLUGIN_SEED_DIR=${other} FOO=1\n`);
+    const d2 = agentDir('pilot-exportstill');
+    setup.guardTokenOnlyFolder(d2, 'pilot-exportstill', { ...DEPS, env: ENV0 });
+    const s2 = readSettings(d2);
+    assert.ok(editDeniedBy(s2.permissions.deny, path.join(spaced, 'x.js')).length > 0, 'a quoted value with spaces was not read');
+    assert.ok(editDeniedBy(s2.permissions.deny, path.join(other, 'x.js')).length > 0, 'an export with a second assignment was not read');
+  } finally { fs.rmSync(zshrc, { force: true }); }
+
+  // A plugin folder reached through Homebrew's opt link into a versioned Cellar folder.
+  const brew = path.join(base, 'brew');
+  const ver = path.join(brew, 'Cellar', 'foo', '1.2.3', 'share', 'plugin');
+  fs.mkdirSync(ver, { recursive: true });
+  fs.mkdirSync(path.join(brew, 'opt'), { recursive: true });
+  fs.symlinkSync(path.join(brew, 'Cellar', 'foo', '1.2.3'), path.join(brew, 'opt', 'foo'));
+  const viaOpt = path.join(brew, 'opt', 'foo', 'share', 'plugin');
+  const d3 = agentDir('pilot-cellarplug');
+  const g3 = setup.guardTokenOnlyFolder(d3, 'pilot-cellarplug', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_DIRS: viaOpt } });
+  assert.equal(g3.ok, true, JSON.stringify(g3));
+  const s3 = readSettings(d3);
+  assert.ok(![...s3.permissions.deny, ...s3.sandbox.filesystem.denyWrite].some((r) => r.includes('1.2.3')), 'a versioned Cellar path was listed');
+  assert.ok(editDeniedBy(s3.permissions.deny, path.join(ver, 'x.js')).length > 0, 'the plugin was not covered through the Cellar rule');
+  assert.ok(sandboxDenies(s3.sandbox.filesystem.denyWrite, path.join(ver, 'x.js')), 'sandbox: the Cellar rule');
+  assert.ok(s3.permissions.deny.some((r) => r.includes(path.join('opt', 'foo'))), 'the opt link lost its file-tool rule');
+
+  // On Linux a unit with an incomplete ExecStart is read for its CLAUDE_CONFIG_DIR, not named.
+  const lj = require('./linuxjob');
+  const odd = 'sib-oddunit';
+  fs.mkdirSync(path.join(SANDBOX, 'workers', odd), { recursive: true });
+  const up = lj.unitPath(odd);
+  const uhome = path.join(base, 'unit-home');
+  fs.mkdirSync(path.dirname(up), { recursive: true });
+  fs.writeFileSync(up, `[Service]\nExecStart=/bin/bash\nEnvironment="CLAUDE_CONFIG_DIR=${uhome}"\n`);
+  try {
+    const d4 = agentDir('pilot-oddunit');
+    const g4 = setup.guardTokenOnlyFolder(d4, 'pilot-oddunit', { ...DEPS, platform: 'linux', env: ENV0 });
+    assert.ok(!JSON.stringify(g4).includes(`the job of the agent ${odd}`), JSON.stringify(g4));
+    assert.ok(editDeniedBy(readSettings(d4).permissions.deny, path.join(uhome, 'settings.json')).length > 0, 'the odd unit\'s home was not covered');
+  } finally { fs.rmSync(up, { force: true }); }
+});
+

@@ -738,18 +738,21 @@ function agentJobConfigDirs(workersRoot, platform) {   // platform: the guard's 
     try { v = create.readJobVerdict(name, undefined, platform); } catch (e) { v = { job: null, because: (e && e.message) || String(e) }; }
     const job = v && v.job;
     // Review 11: a MASKED unit (Linux, #5445) is the person's on purpose: it cannot start, so it is no job, not a failure.
-    if (!job && v && v.because && !v.absent && !v.masked) (out.failed = out.failed || []).push(`${name} (${v.because})`);
-    // On macOS the reader says only job-or-null: a job file that EXISTS there and still read as none could not be read.
-    else if (!job && v && !v.absent && !v.because && !v.win32 && !v.linux) {
-      /* Review 18: a job file there that does not parse as a job (an old or hand-edited layout) is read for its config
-         home directly, as the reader would: covered, not named, so one odd file does not stop every creation. One with no
-         CLAUDE_CONFIG_DIR carries no config home of its own. Only a file that cannot be read at all is named. */
+    /* Reviews 18 and 19: a job file that is there but does not parse as a job (an old or hand-edited layout; on macOS the
+       reader says only job-or-null, on Linux it says why) is read for its config home directly, by the reader's own
+       pattern: covered, not named, so one odd file does not stop every creation. One without the key carries no config
+       home of its own. Only a file that cannot be read at all is named. */
+    if (!job && v && !v.absent && !v.masked && !v.win32) {
+      const linux = (platform || process.platform) === 'linux';
       let text = null;
-      try { text = fs.readFileSync(create.plistPath(name), 'utf8'); } catch (e) {
-        if (!(e && e.code === 'ENOENT')) (out.failed = out.failed || []).push(`${name} (its job file is there but could not be read: ${(e && e.code) || e})`);
+      try { text = fs.readFileSync(linux ? require('./linuxjob').unitPath(name) : create.plistPath(name), 'utf8'); } catch (e) {
+        if (!(e && e.code === 'ENOENT') || v.because) (out.failed = out.failed || []).push(`${name} (${v.because || `its job file is there but could not be read: ${(e && e.code) || e}`})`);
       }
-      const m = text && /<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/.exec(text);
-      if (m) out.push(m[1]);
+      if (text !== null) {
+        const m = linux ? /^Environment="?CLAUDE_CONFIG_DIR=([^"\n]*)"?$/m.exec(text) : /<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/.exec(text);
+        // Review 19: the plist's XML escapes decoded, as the reader does (&amp; last).
+        if (m) out.push(linux ? m[1] : m[1].split('&lt;').join('<').split('&gt;').join('>').split('&apos;').join("'").split('&quot;').join('"').split('&amp;').join('&'));
+      }
     }
     if (job && job.configDir && (job.runner || 'claude') === 'claude') out.push(job.configDir);
   }
@@ -1909,9 +1912,19 @@ function tokenOnlySettingsRules(dir, deps = {}) {
            one, and naming it made every token-only creation fail over a harmless line. At worst this denies a folder the
            condition would not have set. A value it cannot work out is named as any is. A `source`d file stays a stated
            gap (the plan). */
-        const deindented = text.split('\n').filter((raw) => /^\s+[^\s#]/.test(raw)).map((raw) => raw.replace(/^\s+/, '')).join('\n');
+        /* Review 19: an assignment that never enters the shell's environment cannot reach the agent: a prefix assignment
+           (`K=$1 claude`, a wrapper function) and a `local K=`. Those lines are left out. A line where export, typeset,
+           declare or readonly comes before the K= is always read. */
+        const quotedVal = '(?:"[^"]*"|\'[^\']*\'|[^\\s"\';&|])+';
+        const prefixRe = new RegExp(`(?:^|[\\s;&|(])${k}=${quotedVal}[ \\t]+[^\\s;&|#)]`);
+        const localRe = new RegExp(`\\blocal\\s+(?:[^;&|]*\\s)?${k}=`);
+        const declaredRe = new RegExp(`\\b(?:export|typeset|declare|readonly)\\b[^;&|]*\\b${k}=`);
+        const environmental = (raw) => declaredRe.test(raw) || !(prefixRe.test(raw) || localRe.test(raw));
+        const kept = text.split('\n').filter(environmental);
+        const topText = kept.join('\n');
+        const deindented = kept.filter((raw) => /^\s+[^\s#]/.test(raw)).map((raw) => raw.replace(/^\s+/, '')).join('\n');
         // Review 4: a quoted ~ is kept literal by the shell and expanded by Claude Code, so it is read here.
-        for (let v of [...assignmentsIn(text, k, { quotedTildeOk: true }), ...assignmentsIn(deindented, k, { quotedTildeOk: true })]) {   // let: a default-if-unset wrapper is unwrapped below
+        for (let v of [...assignmentsIn(topText, k, { quotedTildeOk: true }), ...assignmentsIn(deindented, k, { quotedTildeOk: true })]) {   // let: a default-if-unset wrapper is unwrapped below
         /* Review 3: the append idiom refers back to the variable itself (`$K:$HOME/x`, `${K:+$K:}...`): every earlier
            value is already gathered and covered, so those parts are dropped. $HOME (balanced braces) is replaced at the
            start of each part. A backtick or any other variable is a value Kosmos cannot work out: named. */
@@ -1982,6 +1995,16 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || tmpRootsP.some((t) => holdsP(r, t)) || holdsP(r, dataRealP) || (projRealP && holdsP(r, projRealP)) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data, the projects folder or a config home)`); continue; }
     // Review 9: counted after the refusals, as the job homes are, so a refused folder spends none of the budget.
     if (envReadOnly(r)) { refusedEnv.push(d, r); if (r !== path.resolve(d)) envEditOnlyLinks.push(d); continue; }
+    /* Review 19: one whose real place is in a Homebrew Cellar or Caskroom, or a store (versioned: new at every upgrade), is
+       covered by that folder's ONE stable rule, as part 2 does for a startup link; the link itself keeps a file-tool
+       rule. A stable folder holding the home or the agent's own folder is named instead. */
+    const stP = stableRootOf(deps.storeRoots || STORE_ROOTS, r);
+    if (stP) {
+      if (stP === path.parse(stP).root || holdsP(stP, homeRealP) || holdsP(stP, dirRealP)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, in ${stP}, a folder too wide to deny: it holds the home or the agent's own folder)`); continue; }
+      if (r !== path.resolve(d)) envEditOnlyLinks.push(d);
+      if (!pluginDirs.includes(stP)) { pluginDirs.push(stP); wholeDenied.push(stP); }
+      continue;
+    }
     // Review 13: past the cap the loop goes on (each refused folder is recorded), and the cap is named once.
     if (++envPluginTaken > ENV_PLUGIN_MAX) { refusedEnv.push(d, r); if (envPluginTaken === ENV_PLUGIN_MAX + 1) configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); continue; }
     const both = withTarget(d, configUnsafe);
@@ -1994,7 +2017,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   for (const d of startCmds.pluginDirs) {
     if (coveredWhole(d)) continue;
     const dr = realOrLeaf(d);
-    if (refusedEnv.some((x) => d.startsWith(x + path.sep) || dr.startsWith(x + path.sep))) continue;   // review 13
+    if (refusedEnv.some((x) => d === x || dr === x || d.startsWith(x + path.sep) || dr.startsWith(x + path.sep))) continue;   // reviews 13 and 19 (the folder itself too)
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (an installed plugin's folder, whose path the permission rules cannot carry)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
