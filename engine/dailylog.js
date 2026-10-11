@@ -89,9 +89,13 @@ const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
    person renamed or restored is one chat would follow, and missing it here is the unsafe direction.
    Both signs, and where the files live, are held equal to chat.js by engine/dailylog.rollover-5855.test.js. */
 const ROLLED_OVER_SUFFIX = 'full';
-const ROLLED_OVER_FILE = new RegExp('^[^.].*\\.json\\.(.*\\.)?' + ROLLED_OVER_SUFFIX + '$');
+const THREAD_FILE_END = '.json';
 function isRolledOverFileName(filename) {
-  return typeof filename === 'string' && ROLLED_OVER_FILE.test(filename);
+  if (typeof filename !== 'string' || !filename.endsWith('.' + ROLLED_OVER_SUFFIX)) return false;
+  // A thread file's key and project id hold no dot (chat.js safeKey / PROJECT_ID), so the first ".json." ends its name.
+  const cut = filename.indexOf(THREAD_FILE_END + '.');
+  if (cut < 0) return false;
+  return parseChatFileName(filename.slice(0, cut + THREAD_FILE_END.length)) !== null;
 }
 /* What compileAll's summary says in `refused`, and the command's exit code for it (2 is a usage error). */
 const REFUSED_ROLLED_OVER = 'rolled-over';
@@ -306,7 +310,7 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
 
 /**
  * Read + parse every conversation file in a chats dir. Returns
- * `{ conversations, readable, readErrors, rolledOver }`, all of which the caller
+ * `{ conversations, readable, readErrors, rolledOver, continued }`, all of which the caller
  * needs to decide whether writing and pruning are safe:
  *   - `rolledOver` counts the `.full` files of rolled-over conversations (kosmos#5855),
  *     whose rows this function does NOT return. By name only: they are not opened.
@@ -519,10 +523,10 @@ if (require.main === module) {
   if (summary.refused === REFUSED_ROLLED_OVER) {
     // kosmos#5855: say it on stderr, print no success line, and exit non-zero, so a scheduled run cannot read as
     // "compiled, nothing new".
-    process.stderr.write('dailylog: not compiled. A conversation in the chats folder reached its message limit and '
-      + 'started a new file, and this version cannot read the earlier part of such a conversation. Nothing was '
-      + 'written or removed: the daily files already there are left as they are, and so are the conversations. '
-      + 'There is nothing to fix in the folder; it needs a version of Kosmos that reads them.\n');
+    process.stderr.write('dailylog: not compiled. A conversation in the chats folder has its earlier part kept in a '
+      + 'separate file, as happens when one reaches its message limit, and this version cannot read a conversation '
+      + 'kept that way. Nothing was written or removed: the daily files already there are left as they are, and so '
+      + 'are the conversations. There is nothing to fix in the folder; it needs a version of Kosmos that can.\n');
     process.exit(EXIT_REFUSED);
   }
   process.stdout.write(

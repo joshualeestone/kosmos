@@ -3,8 +3,9 @@
  * kosmos#5855: kosmos#5841's rollover. When a conversation rolls over at its message cap, the full file is set aside
  * as `<thread file>.<stamp>.<pid>.<ms>[.<n>].full` and a fresh file carries a copy of its newest rows and names the
  * file it continues. The daily-log compiler does not read that chain. Compiling from the current files alone would rewrite a day that straddles
- * the rollover with fewer rows and prune every day whose rows live only in a `.full` file, so with such a file
- * present the compiler refuses the run: nothing written, nothing pruned, and it says why.
+ * the rollover with fewer rows and prune every day whose rows live only in a `.full` file, so on either sign of a
+ * rollover (such a file in the folder, or a current file that names one) the compiler refuses the run: nothing
+ * written, nothing pruned, and it says why.
  *
  *   node --test engine/dailylog.rollover-5855.test.js
  */
@@ -56,14 +57,14 @@ function rolledOver(label, asideName, opts = {}) {
 }
 const dayFiles = (outDir) => fs.readdirSync(outDir).filter((n) => n.endsWith('.md')).sort();
 
-test('isRolledOverFileName: a thread file moved aside at the cap, and nothing else', () => {
-  // the last one is a name chat.js never writes but WOULD follow (its rule is "starts with the thread file's name and
-  // a dot, ends with .full"), so a renamed or restored file must count here too
-  for (const yes of [ASIDE, 'proj1.3-slug.json.20261011T180000Z.1.2.full', 'direct..a.b.json.x.full', 'direct..p.json.20261011T180000Z.4242.1791741600000.2.full', 'direct..p.json.full']) {
+test('isRolledOverFileName: a thread file\'s name, a dot, and .full at the end (chat.js\'s rule for following one)', () => {
+  // the last two are names chat.js never writes but WOULD follow, so a renamed or restored file must count here too
+  for (const yes of [ASIDE, 'proj1.3-slug.json.20261011T180000Z.1.2.full', 'direct..p.json.20261011T180000Z.4242.1791741600000.2.full', 'direct..p.json.full', 'direct..p.json.x.superseded.full']) {
     assert.equal(dl.isRolledOverFileName(yes), true, yes);
     assert.equal(dl.parseChatFileName(yes), null, yes + ' must not also read as a current conversation file');
   }
-  for (const no of ['direct..p.json', 'proj1.3-slug.json', 'room-seen.json', '.direct..p.json.x.full', 'direct..p.jsonfull', 'direct..p.full', 'direct..p.json.x.superseded', 'direct..p.json.x.damaged', 'notes.full', 'direct..p.json.x.fullish', '', null, undefined, 7]) {
+  // not a thread file's name in front (a stray file must not turn the daily log off), or not .full at the end
+  for (const no of ['direct..p.json', 'proj1.3-slug.json', 'room-seen.json', 'notes.json.full', 'a.json.full', 'room-seen.json.bak.full', '.direct..p.json.x.full', 'direct..p.jsonfull', 'direct..p.full', 'notes.full', 'direct..p.json.x.superseded', 'direct..p.json.x.damaged', 'direct..p.json.x.fullish', '', null, undefined, 7]) {
     assert.equal(dl.isRolledOverFileName(no), false, String(no));
   }
 });
@@ -92,8 +93,9 @@ test('without a rolled-over file the summary says so: not refused, none counted'
   assert.equal(s.rolledOver, 0);
   const missing = dl.compileAll({ chatsDir: path.join(SANDBOX, 'no-such-folder'), outDir, dayOf, timeOf });
   assert.equal(missing.refused, null);
-  assert.equal(missing.rolledOver, 0);
-  assert.deepEqual(Object.keys(missing).sort(), Object.keys(s).sort(), 'the summary has the same keys on every path');
+  assert.deepEqual([missing.rolledOver, missing.continued], [0, 0]);
+  // readConversations has two returns of its own (the listing failed, the listing worked): the same keys from both
+  assert.deepEqual(Object.keys(dl.readConversations(path.join(SANDBOX, 'no-such-folder'))).sort(), Object.keys(dl.readConversations(chatsDir)).sort());
 });
 
 test('a FOLDER with such a name is not a rolled-over file (chat.js could not follow it), and does not refuse the run', () => {
@@ -147,7 +149,8 @@ test('the states an interrupted rollover can leave are refused too', () => {
   // (1) the rollover hard-links the full file aside and stopped before writing the fresh one: both names, same bytes
   const a = rolledOver('linked', null, { names: false });
   fs.writeFileSync(a.file, JSON.stringify({ messages: WHOLE }));
-  fs.linkSync(a.file, path.join(a.chatsDir, ASIDE));
+  // a filesystem that cannot hard-link gets a copy: to this compiler the two are the same state, two names, same bytes
+  try { fs.linkSync(a.file, path.join(a.chatsDir, ASIDE)); } catch { fs.copyFileSync(a.file, path.join(a.chatsDir, ASIDE)); }
   const s1 = dl.compileAll({ chatsDir: a.chatsDir, outDir: a.outDir, dayOf, timeOf });
   assert.equal(s1.refused, 'rolled-over');
   assert.deepEqual([s1.rolledOver, s1.continued], [1, 0]);
@@ -192,7 +195,7 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  assert.match(no.stderr, /dailylog: not compiled\. A conversation in the chats folder reached its message limit and started a new file/);
+  assert.match(no.stderr, /dailylog: not compiled\. A conversation in the chats folder has its earlier part kept in a separate file/);
   assert.match(no.stderr, /Nothing was written or removed/);
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
@@ -200,11 +203,12 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   const day = spawnSync(process.execPath, [path.join(__dirname, 'dailylog.js'), '--day', '2026-09-15', '--out', other], { env: process.env, encoding: 'utf8' });
   assert.equal(day.status, 3);
   assert.equal(day.stdout, '');
+  assert.equal(day.stderr, no.stderr, 'a targeted run was refused in different words');
   assert.ok(!fs.existsSync(other), 'a refused run created its output folder');
   assert.match(no.stderr, /There is nothing to fix in the folder/);
 });
 
-test('pin (convention 5): what this compiler takes as the signs of a rollover is what engine/chat.js writes', () => {
+test('pin (convention 5): what this compiler takes as the signs of a rollover is what engine/chat.js writes and follows', () => {
   const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
   // WHERE and HOW an aside is named, for every kind: beside the thread file, the file's own name first, the kind last.
   // This holds before and after the rollover lands (supersede builds every aside), so it is asserted either way.
@@ -218,6 +222,8 @@ test('pin (convention 5): what this compiler takes as the signs of a rollover is
     assert.equal(dl.isRolledOverFileName('direct..p.json.x.' + kind[1]), true);
     assert.ok(src.includes("n.startsWith(base + '.') && n.endsWith('.' + ROLL_KIND)"), 'engine/chat.js follows a rolled-over file by a different rule now');
     assert.ok(src.includes("continues: typeof parsed.continues === 'string' && parsed.continues ? parsed.continues : null"), 'engine/chat.js reads `continues` differently now');
+    assert.ok(src.includes('continues: path.basename(moved.aside)'), 'engine/chat.js no longer writes the file it rolled over from into `continues`');
+    assert.ok(src.includes("if (!n.startsWith(base + '.') || !n.endsWith('.' + ROLL_KIND)) continue;"), 'engine/chat.js finds a thread\'s own newest rolled-over file by a different rule now');
   } else {
     // it is not in this tree yet: chat.js must still be refusing at the cap, or this pin has gone blind
     assert.match(src, /this conversation has reached the \$\{MAX_MESSAGES\} messages Kosmos keeps, so we did not add to it/,
