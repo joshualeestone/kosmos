@@ -1,0 +1,89 @@
+'use strict';
+/**
+ * kosmos#5744 slice 3: the member-key duties of one backup run, between ensureMemberKey (engine/backupmemberkey.js)
+ * and takeSnapshot (engine/backupsnapshot.js). Nothing schedules a run yet (production backup is off); a scheduler
+ * calls runOnce and keeps the returned state between runs.
+ *
+ * The duties, each from slice 2b's review:
+ *   - seal only under a key ensureMemberKey answered ok: runOnce never calls the snapshot otherwise;
+ *   - pass the epoch: the snapshot gets the key's epoch as a context id ('1') beside its public key, and takeSnapshot
+ *     passes it to both uploaders, which refuse a grant for another epoch;
+ *   - compare epochs: a refused grant naming a LATER epoch than the key's (the snapshot's otherEpoch) means the member's
+ *     key moved on without this computer (one computer per member, so its file is stale, e.g. a restored data root).
+ *     The key's epoch is then kept as lostEpoch;
+ *   - pass lostEpoch: every key step sends it until a key above it is answered. An EARLIER epoch is never a reason to
+ *     move on (a coordinator answering one is a rollback): it is reported, nothing changes;
+ *   - back off on waiting: Kosmos+ takes a new key at most once a day and its refusal carries no retry time, so the
+ *     job waits 1 hour, doubling to 24, without asking Kosmos+ meanwhile (each early send is a round trip, and after the
+ *     day each counts toward the registration cap, kosmos#5736).
+ *
+ * state (plain, the caller persists it): { lostEpoch?, waitUntilMs?, waits? }. Every function returns a NEW state.
+ */
+
+const BACKOFF_MIN_MS = 60 * 60 * 1000;
+const BACKOFF_MAX_MS = 24 * 60 * 60 * 1000;
+const isEpoch = (e) => Number.isSafeInteger(e) && e >= 1;
+
+function cleanState(state) {
+  const s = state && typeof state === 'object' ? state : {};
+  const out = {};
+  if (isEpoch(s.lostEpoch)) out.lostEpoch = s.lostEpoch;
+  if (Number.isSafeInteger(s.waitUntilMs) && s.waitUntilMs > 0) out.waitUntilMs = s.waitUntilMs;
+  if (Number.isSafeInteger(s.waits) && s.waits > 0) out.waits = s.waits;
+  return out;
+}
+function backoffMs(waits) {
+  return Math.min(BACKOFF_MIN_MS * 2 ** Math.min(Math.max(waits - 1, 0), 10), BACKOFF_MAX_MS);
+}
+
+/* The key step. deps: { ensureMemberKey, now? }. Resolves { ok: true, key: { epoch, publicKey }, state } or
+   { ok: false, because, waiting?, state }. Never throws. */
+async function memberKeyFor(state, deps) {
+  const st = cleanState(state);
+  const now = (deps && deps.now) || Date.now;
+  const ensure = deps && deps.ensureMemberKey;
+  if (typeof ensure !== 'function') return { ok: false, because: 'no member key step', state: st };
+  if (st.waitUntilMs && now() < st.waitUntilMs) {
+    return { ok: false, waiting: true, because: 'Kosmos+ takes a new backup key at most once a day; this computer tries again later', state: st };
+  }
+  let r;
+  try { r = await ensure(st.lostEpoch ? { lostEpoch: st.lostEpoch } : {}); } catch { r = null; }
+  if (r && r.ok && isEpoch(r.epoch) && Buffer.isBuffer(r.publicKey) && r.publicKey.length === 32) {
+    // The answer is still at or below the lost epoch only when ensureMemberKey ignored lostEpoch (it is not the file's
+    // newest registered key): that key is older still, so it is the one to replace next run. Never sealed under.
+    if (st.lostEpoch && r.epoch <= st.lostEpoch) {
+      return { ok: false, because: 'the backup key this computer holds is older than the member\'s current one; it registers a new one next time', state: { lostEpoch: r.epoch } };
+    }
+    return { ok: true, key: { epoch: r.epoch, publicKey: r.publicKey }, state: {} };
+  }
+  const keep = st.lostEpoch ? { lostEpoch: st.lostEpoch } : {};
+  if (r && r.waiting) {
+    const waits = (st.waits || 0) + 1;
+    return { ok: false, waiting: true, because: r.because, state: Object.assign(keep, { waitUntilMs: now() + backoffMs(waits), waits }) };
+  }
+  return { ok: false, because: (r && typeof r.because === 'string' && r.because) || 'the backup key could not be set up on this computer', state: keep };
+}
+
+/* The state after a snapshot taken under `key`. A refusal naming a later epoch marks the key lost; anything else
+   leaves the state as it was. Never throws. */
+function afterSnapshot(state, key, result) {
+  const st = cleanState(state);
+  const other = result && !result.ok ? result.otherEpoch : undefined;
+  if (key && isEpoch(key.epoch) && isEpoch(other) && other > key.epoch) return Object.assign(st, { lostEpoch: key.epoch });
+  return st;
+}
+
+/* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch }), where epoch is the key's
+   context id. deps: { ensureMemberKey, snapshot, now? }. Resolves { state, key?, result }: result is the key step's
+   refusal when no snapshot was taken, else the snapshot's own result. Never throws. */
+async function runOnce(state, deps) {
+  const k = await memberKeyFor(state, deps);
+  if (!k.ok) return { state: k.state, result: { ok: false, because: k.because, ...(k.waiting ? { waiting: true } : {}) } };
+  if (!deps || typeof deps.snapshot !== 'function') return { state: k.state, key: k.key, result: { ok: false, because: 'no snapshot step' } };
+  let result;
+  try { result = await deps.snapshot({ memberPk: k.key.publicKey, epoch: String(k.key.epoch) }); } catch { result = null; }
+  if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
+  return { state: afterSnapshot(k.state, k.key, result), key: k.key, result };
+}
+
+module.exports = { BACKOFF_MIN_MS, BACKOFF_MAX_MS, backoffMs, memberKeyFor, afterSnapshot, runOnce };
