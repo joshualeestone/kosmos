@@ -722,7 +722,9 @@ function accountConfigHomes(home) {
 
 /* #5774 route 5: the config homes OTHER Kosmos agents run with (a job's CLAUDE_CONFIG_DIR), from each job file named
    after an agent in the agents' folder. Read from the files (create.readJob), never by asking launchd: the guard runs at
-   every refresh. Claude agents only (another runner's account folder is not a Claude config home). */
+   every refresh. Claude agents only (another runner's account folder is not a Claude config home). Review 6: on Windows
+   readJob reads the task through win32job's cache, so the first pass of a process may ask schtasks once per agent; the
+   pass's launchCache keeps it to once per pass after that. */
 function agentJobConfigDirs(workersRoot) {
   const out = [];
   let names = [];
@@ -1710,19 +1712,24 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   if (jobHomes.unreadable) configUnsafe.push(`the agents' folder (it could not be read: ${jobHomes.unreadable}), so other agents' config homes are not found`);
   const JOB_HOMES_MAX = 50;
   let jobHomesTaken = 0;
+  // Review 6: each real path once (this agent's folder, the homes listed so far), not per job home.
+  const dirRealJ = realOrLeaf(dir);
+  const homeRealJ = realOrLeaf(home);
+  const listedReal = new Set(concreteHomes.map((c) => realOrLeaf(c)));
   for (const h0 of jobHomes) {
     if (typeof h0 !== 'string' || !path.isAbsolute(h0)) continue;   // review 2: a relative configDir names no folder Kosmos can place
     const h = path.resolve(h0);
     // Review 4: a job home that is the root or the home itself is no config home Kosmos can place: named.
-    if (h === path.parse(h).root || realOrLeaf(h) === realOrLeaf(home)) { configUnsafe.push(`${h} (a config home an agent's job names, which is the root or the home folder itself)`); continue; }
+    const hr = realOrLeaf(h);
+    if (h === path.parse(h).root || hr === homeRealJ) { configUnsafe.push(`${h} (a config home an agent's job names, which is the root or the home folder itself)`); continue; }
     // Review 5: one holding this agent's own folder would have its code members denied over the agent's own work: named.
-    const hr = realOrLeaf(h), dr = realOrLeaf(dir);
-    if (dr === hr || dr.startsWith(hr + path.sep)) { configUnsafe.push(`${h} (a config home an agent's job names, which holds this agent's own folder)`); continue; }
+    if (dirRealJ === hr || dirRealJ.startsWith(hr + path.sep)) { configUnsafe.push(`${h} (a config home an agent's job names, which holds this agent's own folder)`); continue; }
     // Review 5: the same home by another spelling (a linked /var) is not a second one.
-    if (concreteHomes.some((c) => realOrLeaf(c) === hr)) continue;
+    if (listedReal.has(hr)) continue;
     if (!concreteHomes.includes(h) && ++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
     if (concreteHomes.includes(h)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (a config home an agent's job names, whose path the permission rules cannot carry)`); continue; }
+    listedReal.add(hr);
     concreteHomes.push(h);
   }
   const settingsFileDirs = [settingsDir, ...concreteHomes];

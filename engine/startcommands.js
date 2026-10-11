@@ -800,12 +800,13 @@ function pluginConfigFiles(dir) {
    Claude Code runs in (the agent's), so `relativeOk` is false for values from another account's home, whose agent
    folder is not known here: only their absolute folders count. */
 const PLUGIN_VARS = ['CLAUDE_CODE_PLUGIN_DIRS', 'CLAUDE_CODE_PLUGIN_CACHE_DIR', 'CLAUDE_CODE_PLUGIN_SEED_DIR'];
-function pluginVarDirs(values, agentDir, home, relativeOk) {
+function pluginVarDirs(values, agentDir, home, relativeOk, skipped = []) {
   const sep = path.sep;
   const tilde = (v) => (v === '~' || v.startsWith('~/') || (sep === '\\' && v.startsWith('~\\')) ? path.join(home, v.slice(1)) : v);   // ~\ on Windows: not measured
   const out = [];
   for (const v of values.CLAUDE_CODE_PLUGIN_DIRS || []) for (const part of v.split(path.delimiter)) { const t = tilde(part.trim()); if (t && path.isAbsolute(t)) out.push(path.resolve(t)); }
-  const cacheOrSeed = (t) => { if (t && (relativeOk || path.isAbsolute(t))) out.push(path.resolve(agentDir, t)); };
+  // Review 6: a relative value that cannot be placed (another account's, read from ITS agent's folder) is reported, not dropped.
+  const cacheOrSeed = (t) => { if (!t) return; if (relativeOk || path.isAbsolute(t)) out.push(path.resolve(agentDir, t)); else skipped.push(t); };
   for (const v of values.CLAUDE_CODE_PLUGIN_CACHE_DIR || []) cacheOrSeed(tilde(v));   // not trimmed: 2.1.296 does not trim it (measured)
   for (const v of values.CLAUDE_CODE_PLUGIN_SEED_DIR || []) for (const part of v.split(path.delimiter)) if (part) cacheOrSeed(tilde(part));
   return out;
@@ -860,7 +861,9 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     ownVals[k] = [...new Set([...(pluginVars[k] || []), ...(settingsEnvOwn[k] || [])])];
     otherVals[k] = (settingsEnvOther[k] || []).filter((v) => !ownVals[k].includes(v));
   }
-  const envPluginDirs = [...new Set([...pluginVarDirs(ownVals, agentDir, homeDir, true), ...pluginVarDirs(otherVals, agentDir, homeDir, false)])];
+  const otherRelative = [];
+  const envPluginDirs = [...new Set([...pluginVarDirs(ownVals, agentDir, homeDir, true), ...pluginVarDirs(otherVals, agentDir, homeDir, false, otherRelative)])];
+  for (const t of new Set(otherRelative)) unsafe.push(`${t} (a relative plugin folder another account's settings name, read from that account's agent folder, which Kosmos does not know)`);
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
   // Review 11: no PWD: a hook runs in the session's current folder, which the agent moves.
   // Review 9: the login's own name and temp folder, which hooks see unchanged.
@@ -941,6 +944,8 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
      plugin's own folder, a config home's code folders): then the code it reads there is covered. */
   // Each as written and where it really is (review 27: the real path of a runner's folder is compared below).
   const realDir = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };
+  // envPluginDirs: every one is either denied whole by the caller or named there (too wide, uncarriable, past the cap),
+  // so a runner inside one is never a silent miss, though "covered" means denied only for the first kind (review 6).
   const coveredDirs = [...new Set([...covered, ...plugins.map((p) => p.dir), ...envPluginDirs].map((d) => path.resolve(d)).flatMap((d) => [d, realDir(d)]))];
   const inCovered = (w) => coveredDirs.some((d) => w === d || w.startsWith(d + path.sep));
   // Review 27: and where it really is, so a linked folder inside a covered one that points out is not covered by it.

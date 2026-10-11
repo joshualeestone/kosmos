@@ -144,7 +144,10 @@ test('#5774 route 5 review 1: the startup files, other accounts\' homes, the run
   writeJson(acct, { env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: 'rel-other', CLAUDE_CODE_PLUGIN_SEED_DIR: path.join(SANDBOX, 'abs-other') } });
   try {
     const d = agentDir('pilot-plugother');
-    assert.equal(setup.guardTokenOnlyFolder(d, 'pilot-plugother', { ...DEPS, env: ENV0 }).ok, true);
+    // Review 6: the relative one is NAMED (not silently dropped), so the guard is not whole; the rest is written.
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-plugother', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false);
+    assert.ok(JSON.stringify(g).includes('rel-other (a relative plugin folder another account'), JSON.stringify(g));
     const deny = readSettings(d).permissions.deny;
     assert.ok(!editDeniedBy(deny, path.join(d, 'rel-other', 'x')).length, 'another account\'s relative value read as this agent\'s');
     assert.ok(editDeniedBy(deny, path.join(SANDBOX, 'abs-other', 'x')).length > 0, 'another account\'s absolute value');

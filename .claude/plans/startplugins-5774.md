@@ -31,14 +31,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 9 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
-- each of the three variables dropped;
-- a relative CLAUDE_CODE_PLUGIN_DIRS part kept;
-- no ~ expansion;
-- the environment only (no settings tiers);
-- only the tiers' agreed value;
-- a too-wide folder denied;
-- the job homes dropped.
+engine/startplugins-5774.test.js, 9 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on b7d167941:
@@ -90,4 +83,12 @@ engine/startplugins-5774.test.js, 9 tests, using the production job reader again
   - [NIT] TAKEN: a job home that holds this agent's own folder is named. Tested; mutation red.
   - [NIT] TAKEN: each home's real path is resolved once, not per folder above.
   - [NIT] TAKEN (plan): the ~ rule as measured (`~` alone or `~/...`).
+- Iteration 6 (Sonnet), on 1f46078da: no BLOCKER.
+  - [WARNING] FIXED. The job-home loop resolved real paths per job home per listed home; each is now resolved once (this agent's folder, the home, a set of the listed homes' real paths).
+  - [WARNING] FIXED. Another account's RELATIVE cache or seed value was dropped silently (the guard reported whole); it is now named, so the guard fails closed. Tested; mutation red.
+  - [WARNING] TAKEN as a comment: a folder the variables name counts as covered for the scan's runners even when the caller then refuses it (too wide, uncarriable, past the cap); every such one is named there, so nothing is silent, but "covered" means denied only for the rest.
+  - [WARNING] TAKEN as a comment: on Windows the first pass of a process may ask schtasks once per agent (readJob reads through win32job's cache); once per pass after that.
+  - [NIT] TAKEN: the Tests section no longer carries a stale mutation count.
+  - [NIT] not taken: a single-quoted `$HOME/x` is named as "a quoted value" (rare; fails closed).
+  - [NIT] not taken: the temp folder compared is os.tmpdir() (or the injected one); the shell's own temp folder is the same on this fleet.
 
