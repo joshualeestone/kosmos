@@ -4,7 +4,7 @@
     {
       "icon": "chat",
       "title": "Messages wait for an agent out of usage",
-      "line": "When a Claude agent is out of usage, Kosmos holds messages sent to it until the limit resets, and its card says when that should be.",
+      "line": "When a Claude agent runs out of usage, Kosmos usually holds messages from its chat and from other agents until the limit resets.",
       "platforms": [
         "mac"
       ]
