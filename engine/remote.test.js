@@ -4670,3 +4670,23 @@ test('#5786 (b): the on-this-computer label holds only for the allow it was note
   assert.equal(r.data.devices.find((d) => d.device_id === 'dev-1').on_this_computer, false, 'an old note labelled a later, hand-made allow');
   remote.setOn(false);
 });
+
+test('#5786 (b): a Not me pressed after the secret stopped, while its allow is still out, still wins', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchnmlate');
+  plant([{ device_id: 'dev-nl', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-allow,deny-fails';
+  try {
+    plant([{ device_id: 'dev-nl', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-nl') }]);
+    remote.vouchTickForTests();
+    await until(() => allowsOf().includes('dev-nl'), 'the allow to start');
+    remote.signinCancel();   // stops the secret, not the allow already out
+    assert.equal(remote.vouchSecretForTests(), null, 'premise: the secret is stopped');
+    const den = await remote.deviceDeny('dev-nl');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+    const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-nl')).length;
+    await until(() => removes() >= 1, 'the device to be taken back out once the allow answered');
+    assert.equal(remote.read().vouched['dev-nl'], undefined, 'a device the person said Not me to was noted');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});

@@ -1724,6 +1724,9 @@ let lastVouched = null;   // { id, at }
 // Every Not me pressed during the current secret, whatever the tunnel answered: a deny the tunnel refuses (the allow
 // already landed there) writes no `denied`, and the allow's answer must still lose to it.
 const notMeDuringVouch = new Set();
+// The device an automatic allow is out for right now. It outlives the secret (a window end, Sign out or switch-off stops
+// S, not an allow already out), so a Not me pressed then is still remembered.
+let vouchAllowingId = '';
 let vouchState = null;   // { secret, until, epoch, opened, matched, allowing, tries, matchedOk }
 let vouchTimer = null;
 let vouchOpenedUrl = '';   // the last address opened, for tests (the opener's own argv drops it under a test command)
@@ -1809,6 +1812,7 @@ function vouchTick() {
   const name = typeof hit.name === 'string' && DEVICE_NAME.test(hit.name.trim()) ? hit.name.trim() : '';
   v.matched = id;
   v.allowing = true;
+  vouchAllowingId = id;
   let threw = false;
   Promise.resolve()
     .then(() => deviceAllow(id, name || undefined))
@@ -1835,14 +1839,13 @@ function vouchTick() {
       // An allow that lands after a sign-in under ANOTHER identity is not ours to note. A re-register of the same identity
       // also moves the epoch, but the device is in all the same, so it is still noted (and Not me can still take it out).
       if (forgetting || (v.epoch !== selfEpoch && !(v.ident && macIdHere() === v.ident))) return;
-      lastVouched = { id, at: Math.floor(Date.now() / 1000) };
       // The person pressed Not me while this allow ran: their answer wins. Take the device back out, note nothing.
       if (notMeDuringVouch.has(id) || Object.prototype.hasOwnProperty.call(read().denied || {}, id)) {
-        lastVouched = null;
         return deviceRemove(id).then((rr) => {
           if (!rr || !rr.ok) process.stderr.write('kosmos+: a device refused while it was being allowed automatically could not be removed again (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
         });
       }
+      lastVouched = { id, at: Math.floor(Date.now() / 1000) };
       const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
         .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
       const saved = write({ vouched: Object.fromEntries(kept) });
@@ -1851,6 +1854,7 @@ function vouchTick() {
     .catch(() => { threw = true; })
     .finally(() => {
       v.allowing = false;
+      if (vouchAllowingId === id) vouchAllowingId = '';
       // An allow that threw rather than answering counts as a refused try too.
       if (threw) v.tries += 1;
       if (vouchState === v && v.tries >= 3 && !v.matchedOk) stopVouch();
@@ -2015,7 +2019,7 @@ async function deviceDeny(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
-  if (vouchState) notMeDuringVouch.add(id);   // kosmos#5786 (b)
+  if (vouchState || vouchAllowingId === id) notMeDuringVouch.add(id);   // kosmos#5786 (b)
   const r = parseSaid(await tracked(setupRun(deviceArgs('deny', id, true), null, retireTimeoutMs())));
   if (r.ok) {
     const denied = { ...read().denied, [id]: Math.floor(Date.now() / 1000) };
@@ -3131,7 +3135,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  resetForTests: () => { vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
