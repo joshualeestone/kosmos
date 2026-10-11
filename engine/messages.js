@@ -1369,6 +1369,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   try { limitHold = chat.limitHeldVerdict(toName, roster); } catch { limitHold = null; }
   /* Released, but messages kept while it was out of usage are still waiting for the minute sweep: this one goes
      behind them, so nothing it says arrives ahead of what was sent before it. */
+  // One small file read per send to an agent not held (a missing file is a failed open): the price of keeping order.
   const waiting = limitHold || chat.addressable(toName, roster).ok !== true ? [] : require('./limitqueue').list(toName);
   // Its own day counts from now (limitReset is the drop clock): a reset inherited from the backlog could drop it at once.
   if (!limitHold && waiting.length) limitHold = { limitReset: at, behind: true };

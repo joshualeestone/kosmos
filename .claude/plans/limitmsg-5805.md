@@ -40,6 +40,10 @@ That holding a message until the reset beats typing it now into a session that c
 reply sooner must send it elsewhere; the held answer tells it when, so it can.
 
 ## Residuals, stated
+- A board restart between a kept message being typed and its removal from the file types it once more: the in-memory
+  record of a failed removal does not survive a restart. The window is one paste.
+- A message queued behind a backlog that never clears (a menu or quota hold that stays up) is dropped a day after it
+  was sent, and its sender is told so in its own pane.
 - The pair valve counts a held message when it is sent, as it counts any message.
 - A held message whose recipient's card never reads released (a limit wording status never retires) is dropped a day
   past the reset, logged as held-dropped.
@@ -145,3 +149,9 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   the same time types nothing).
 - NITs taken: the store-key test's title; the plan's entry shape. Not taken: heldUntil as UTC ISO (the agent parses
   it); the double names() read.
+
+## Review 10 (sonnet)
+- STATED (residuals): a restart between paste and removal can type a kept message once more; a message behind a
+  backlog that never clears is dropped a day after it was sent, its sender told.
+- Verified covered: a repeat of a typed held message after the two have spoken since goes as new (review 5's test).
+- CONVENTION taken: the per-send queue read is commented where it happens. NITs not taken.
