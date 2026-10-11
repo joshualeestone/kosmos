@@ -70,7 +70,8 @@ test('#5805 slice 3: claudeLimitUntil keeps the first-seen time, so the reset do
   const line = `You've hit your session limit · resets 4pm ${Z}`;
   const t0 = at('2026-10-10T16:00:00Z');
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0)), '2026-10-10T21:00:00.000Z');
-  assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 3 * 3600e3)), '2026-10-10T21:00:00.000Z', 'the reset moved with the clock');
+  // Read again at 16:30 CDT, after the printed 4pm (the line stays on screen): still today's 4pm, not tomorrow's.
+  assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.5 * 3600e3)), '2026-10-10T21:00:00.000Z', 'the reset moved with the clock');
   // CONTROL: the same line first seen by another agent at the later time reads differently (the key is the agent).
   assert.equal(status.claudeLimitUntil('leo', line, t0 + 7 * 3600e3), null);
   // A dated line needs no first-seen time.
