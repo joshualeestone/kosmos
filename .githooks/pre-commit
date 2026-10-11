@@ -42,6 +42,11 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
       pre = substr(l, 1, i - 1)
       if (pre ~ /\$\?/) return 0
       t = pre; gsub(/\|\|/, "", t); if (t ~ /\|/) return 0   # a pipe of its own before the ";" (any filter)
+      # Assignments alone ("x=1; rc=...") run no command, so the status read after them is a constant 0. An assignment
+      # FROM a command ("out=$(cmd)") or before one ("V=1 cmd") is that command'"'"'s, and stays owned.
+      t = pre
+      while (sub(/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]"'"'"']*)/, "", t)) { }
+      if (t ~ /^[[:space:]]*$/ && pre !~ /\$\(|`/) return 0
       t = pre; if (gsub(/"/, "", t) % 2) return 0
       t = pre; if (gsub(/'"'"'/, "", t) % 2) return 0
       return 1
@@ -60,8 +65,10 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
     # A line ending in a backslash, or in a lone pipe, continues onto the next, so the next line is still the pipeline.
+    # Blank and comment-only lines are skipped by both, since a pipeline continues across them.
+    /^[[:space:]]*(#.*)?$/ { next }
     { cont = ($0 ~ /\\$/ || s ~ /\|[[:space:]]*$/) }
-    /[^[:space:]]/ { shut = ($0 ~ /^[[:space:]]*[})]/ || $0 ~ /\(\)[[:space:]]*[{(]/ || $0 ~ /^[[:space:]]*function[[:space:]]/) }
+    { shut = ($0 ~ /^[[:space:]]*[})]/ || $0 ~ /;[[:space:]]*[})][[:space:]]*$/ || $0 ~ /\(\)[[:space:]]*[{(]/ || $0 ~ /^[[:space:]]*function[[:space:]]/) }
   ')"
   # PIPE-LINT-END
   if [ -n "$hits" ]; then

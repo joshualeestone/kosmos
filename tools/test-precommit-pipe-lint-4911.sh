@@ -41,6 +41,9 @@ printf '%s\n' "sed -i '' '6d' f 2>/dev/null || sed -i '6d' f" "rc=$Q" > "$T/oror
 printf '%s\n' "echo \"calls=\$(grep -c . f $P tr -d x)\"" 'true' "run_it --flag 2> err; rc=$Q" > "$T/ownstatus.sh"
 [ -z "$(lint "$T/ownstatus.sh")" ] && ok "'cmd; rc=\$?' reads cmd's own status, whatever pipe came before" || bad "'cmd; rc=\$?' after an unrelated pipe was refused"
 
+printf '%s\n' "x $P grep y" 'true' "out=\"\$(run_it 2>&1)\"; rc=$Q" "V=1 run_it; rc=$Q" > "$T/assigncmd.sh"
+[ -z "$(lint "$T/assigncmd.sh")" ] && ok "an assignment from a command, or before one, still owns its status" || bad "an assignment from or before a command was refused: $(lint "$T/assigncmd.sh")"
+
 printf '%s\n' 'set -o pipefail' "yarn test $P tail -5" "[ $Q -eq 0 ]" > "$T/pipefail.sh"
 [ -z "$(lint "$T/pipefail.sh")" ] && ok "CONTROL: under pipefail the shape is accepted, as before" || bad "pipefail no longer accepted"
 
@@ -71,6 +74,11 @@ mustflag "a decorated function closer, then its call" 'run() {' "  yarn test $P 
 mustflag "a subshell-bodied function, then its call" 'run() (' "  yarn test $P tail -5" ')' "run; rc=$Q"
 mustflag "a builtin that always succeeds owns no status" "yarn test $P tail -5" "local rc; rc=$Q"
 mustflag "a pipe of its own before the semicolon" "x $P grep y" "foo $P jq .; rc=$Q"
+mustflag "a trailing-pipe pipeline across a blank line" "make $P grep x $P" '' "tail -5; rc=$Q"
+mustflag "a trailing-pipe pipeline across a comment" "make $P grep x $P" '# c' "tail -5; rc=$Q"
+mustflag "a function closed on the pipe's own line" 'f() {' "  make $P tail -1; }" "f; rc=$Q"
+mustflag "a subshell function closed on the pipe's own line" 'f() (' "  make $P tail -1; )" "f; rc=$Q"
+mustflag "assignments alone own no status" "yarn test $P tail -5" "x=1; rc=$Q"
 
 # The file the finding was about, as it is in this tree.
 if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then

@@ -63,3 +63,12 @@ kind refuses a correct line: a false positive, the safe direction for a guard.
 - FIXED (WARNING): a builtin that always succeeds ("local rc; rc=") owned the status; refused by list. Fixture; mutation red.
 - FIXED (WARNING): a pipe of its own before the ";" (any filter, e.g. jq) was cleared; refused. Fixture; mutation red.
 - FIXED (NITs): the residuals named above (functions defined elsewhere; quote-parity false positives); fixtures added.
+
+## Review 4 (sonnet, blind, on 55f1454cf): no BLOCKER
+- FIXED (WARNING): a trailing-pipe pipeline continued across a blank or comment line lost its continuation; blank and
+  comment-only lines now leave cont and shut as they were. Two fixtures; mutation red.
+- FIXED (WARNING): a function closed on the pipe's own line ("... | tail -1; }" or "; )") did not set the function
+  end. Two fixtures; mutation red.
+- FIXED (NIT): an assignments-only line ("x=1; rc=") owns no status (constant 0). An assignment FROM or BEFORE a
+  command still does (the original false positives); a fixture holds that, and a mutant ignoring the command
+  substitution turns it BAD.
