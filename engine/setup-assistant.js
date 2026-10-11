@@ -1927,6 +1927,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const outsideAgents = (f) => {
     if (coveredWhole(f)) return;
     if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) { uncarriedImport(f); return; }
+    // Review 4: every replaceable link on the way (part 2's chainHops), file tools only; one in a store or Cellar by its rule.
+    for (const h of chainHops(f)) {
+      const r = stableRootOf(deps.storeRoots || STORE_ROOTS, h);
+      if (r && !tooWide(r) && !ruleHasPatternChar(`Edit(${ruleAbs(r)}/**)`)) importStableDirs.add(r); else importLinks.push(h);
+    }
     let real;
     try { real = fs.realpathSync.native(f); } catch { real = realOrLeaf(danglingTarget(f)); }
     // Only a link at the LEAF can be replaced by a file; a path under a linked folder is the same file as its real one.

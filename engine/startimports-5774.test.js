@@ -328,3 +328,29 @@ test('#5774 route 3 review 3: a connected agent\'s own .claude rules, the manage
     assert.ok(JSON.stringify(g).includes('rules folders'), JSON.stringify(g));
   } finally { fs.rmSync(path.join(HOME, '.claude', 'rules'), { recursive: true, force: true }); }
 });
+
+test('#5774 route 3 review 4: a link in the middle of an import\'s chain is denied; a store root the rules cannot carry is named; the text extensions are 2.1.296\'s', () => {
+  assert.equal(si.TEXT_EXTS.size, 106, '2.1.296 lists 107, one of them ".R", which the lowercased lookup makes the same as ".r"');
+  const base = fs.realpathSync.native(SANDBOX);
+  const dots = path.join(base, 'dots-r4');
+  fs.mkdirSync(dots, { recursive: true });
+  fs.writeFileSync(path.join(dots, 'c.md'), 'end\n');
+  for (const [l, t] of [[path.join(dots, 'b.md'), path.join(dots, 'c.md')], [path.join(base, 'notes-r4', 'a.md'), path.join(dots, 'b.md')]]) {
+    fs.mkdirSync(path.dirname(l), { recursive: true }); fs.rmSync(l, { force: true }); fs.symlinkSync(t, l);
+  }
+  const homeMd = path.join(HOME, '.claude', 'CLAUDE.md');
+  // A store root the rules cannot carry: every path under it carries the same character, so the target's own check
+  // names it (present) or skips it (absent) before any store rule is built. Present here.
+  touch(path.join(base, 'st (r4)', 'h1-x.md'));
+  fs.writeFileSync(homeMd, `@${path.join(base, 'notes-r4', 'a.md')}\n@${path.join(base, 'st\\ (r4)', 'h1-x.md')}\n`);   // a space in an import is written \\ 
+  try {
+    const d = agentDir('pilot-hops-r4');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-hops-r4', { ...DEPS, env: ENV0, storeRoots: [path.join(base, 'st (r4)')] });
+    const said = JSON.stringify(g);
+    assert.ok(said.includes('h1-x.md (a file an instruction file imports, whose path the permission rules cannot carry)'), said);
+    assert.ok(!readSettings(d).permissions.deny.some((r) => r.includes('st (r4)')), 'a rule the syntax cannot carry was written');
+    const deny = readSettings(d).permissions.deny;
+    assert.ok(editDeniedBy(deny, path.join(dots, 'b.md')).length > 0, 'the middle link');
+    assert.ok(editDeniedBy(deny, path.join(dots, 'c.md')).length > 0, 'the end');
+  } finally { fs.rmSync(homeMd, { force: true }); }
+});

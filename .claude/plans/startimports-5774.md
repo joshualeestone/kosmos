@@ -32,8 +32,8 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - A target, or where it leads, that is read-only is not listed (nothing can write it, and a store's hashed name would pile up); a link at the leaf to one is still denied to the file tools. One in a store or a Homebrew Cellar gets that folder's one stable rule, both layers, as part 2's shell startup files do.
 - A target inside an agent's folder that leads elsewhere (a link, a dangling link, a linked folder) has that place denied too, as any target is.
 - A rules file is any name ending in `.md`, matched case-sensitively, as 2.1.296's own walk does (`name.endsWith(".md")`).
-- A target under a linked FOLDER is listed by both spellings (for a linked FILE only the real folder is used, review 3: the folder as given is then a different file nobody loads, and inside the agents' folder it would be a glob over every agent). A target under a linked folder is listed by both spellings (the real folder, which Claude Code loads, and the folder as given), since the agent's tools can write it by either.
-- Import-derived rules are not pruned when an import goes away (only launch rules are, #5663), as #5516 decided for a repointed link target. The import set changes only when someone adds a new `@word` to an instruction file, and names inside the agents' folder are one glob per name, not per agent. DECIDED, not built: a record for pruning these, like the launch record, is a change of its own if the profile size ever needs it.
+- A target under a linked FOLDER is listed by both spellings (the real folder, which Claude Code loads, and the folder as given), since the agent's tools can write it by either. For a linked FILE only the real folder is used (review 3): the folder as given is then a different file nobody loads, and inside the agents' folder it would be a glob over every agent.
+- Import-derived rules are not pruned when an import goes away. Review 4 noted the raw-text scan widens what is listed outside the agents' folder (an `@types/node` in a code block of a folder-above instruction file is one more rule); measured on this fleet it adds nothing, and the profile size check still bounds it. A pruning record stays a follow-up on the card. (only launch rules are, #5663), as #5516 decided for a repointed link target. The import set changes only when someone adds a new `@word` to an instruction file, and names inside the agents' folder are one glob per name, not per agent. DECIDED, not built: a record for pruning these, like the launch record, is a change of its own if the profile size ever needs it.
 - A directory target is skipped, since Claude Code reads files only.
 
 ## Gaps, stated
@@ -41,7 +41,7 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - The auto-memory index (MEMORY.md) is not followed for imports. Not measured whether Claude Code reads imports there.
 - An import that only appears once the agent edits an instruction file it can write is not followed until the next guard refresh (route 4's class).
 - A token-only agent working in a SUBFOLDER of a repo cannot edit what the repo's top-level instruction files import (they are ancestors, read at its start), as #5516 decided for those files themselves.
-- A link in the MIDDLE of a chain to an import (link to link to file) is not denied; withTarget names the chain's end only. Part 2 covers this for shell startup files (chainHops); part 1's command scripts share this gap.
+- Part 1's command scripts still do not deny a link in the middle of a chain (imports do since review 4, by part 2's chainHops).
 - An import that names an existing FOLDER is skipped (Claude Code reads files only). Where the shell can write, the agent could replace the folder with a file of that name; denying the folder whole instead would refuse the agent's own work there.
 - Claude Code skips an external include (outside the folder it runs in) unless the person approved external includes, and a User-type root that is a link; the guard denies them regardless (the safe direction; the approval can change later).
 
@@ -49,7 +49,7 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 On this host, the real roots for this agent's folder (two config homes, the folders above it, 23 siblings: 149 root files) read in 11 ms and give 5 import targets outside the agents' folder (the global CLAUDE.md's four imports plus `-addresses` from prose) and 3 names inside it. The size probe: 1017 deny rules and 145 denyWrite entries (9.2 KB), against 1012 and 140 before; the size check passes.
 
 ## Tests
-engine/startimports-5774.test.js, 10 tests. Thirteen mutations, each red: the config-home, ancestor and managed roots; the agents'-folder glob; the whole-folder skip; the absent-uncarriable skip; the sandbox layer; the depth limit; fenced code, inline code, comments, the # cut and the escaped space. The inline-code mutation stayed GREEN at first: the fixture's @ followed a backtick, which the import pattern never matches anyway; the fixture now puts a space before it inside the code span.
+engine/startimports-5774.test.js, 11 tests. Thirteen mutations, each red: the config-home, ancestor and managed roots; the agents'-folder glob; the whole-folder skip; the absent-uncarriable skip; the sandbox layer; the depth limit; fenced code, inline code, comments, the # cut and the escaped space. The inline-code mutation stayed GREEN at first: the fixture's @ followed a backtick, which the import pattern never matches anyway; the fixture now puts a space before it inside the code span.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on c5be2d57d:
@@ -82,4 +82,11 @@ engine/startimports-5774.test.js, 10 tests. Thirteen mutations, each red: the co
   - [NIT] STATED under Gaps: a middle link in an import's chain; an existing folder as an import.
   - [NIT] TAKEN. An agent folder whose name starts with ".." is still recognised (`..` alone or `../` only). Mutation red.
   - [NIT] TAKEN. For a linked FILE, the folder as given is not used. Mutation red.
+- Iteration 4 (Sonnet), on e7f7e6b49:
+  - [WARNING] FIXED. A link in the middle of an import's chain was not denied (withTarget names the end only); part 2's chainHops now runs on every import outside the agents' folder (file tools only; a hop in a store or Cellar by its stable rule). Tested; mutation red.
+  - [WARNING] NOT A DEFECT, shown by test. A store root the rules cannot carry: every path under it carries the same character, so the target's own check names it (present) or skips it (absent) before a store rule is built. I first added a branch for it; the test showed it unreachable, and it was removed. My first fixture also failed for a reason of its own: an unescaped space in an import ends the path there, as in Claude Code.
+  - [WARNING] DECIDED (stated above): import rules are not pruned; the raw scan's extra cost measured as none on this fleet.
+  - [NIT] TAKEN: the plan's duplicate sentence on linked folders and files.
+  - [NIT] not taken: `_` as an edge may trim a path differently from Claude Code; the raw-text union reads the untrimmed one too, so nothing is missed.
+  - [NIT] TAKEN: the extension set's size is asserted (106; 2.1.296's 107 include ".R", which the lowercased lookup folds into ".r").
 
