@@ -77,8 +77,9 @@ test('#5805 slice 3: claudeLimitUntil keeps the first-seen time, so the reset do
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.5 * 3600e3)), '2026-10-10T21:00:00.000Z', 'the reset moved with the clock');
   // A weekly last-day line across a sleep through its reset: still today's time, never tomorrow's.
   const weekly = `You've hit your weekly limit · resets 3pm ${Z}`;
-  assert.equal(iso(status.claudeLimitUntil('casey', weekly, at('2026-10-10T19:00:00Z'))), '2026-10-10T20:00:00.000Z');
-  assert.equal(iso(status.claudeLimitUntil('casey', weekly, at('2026-10-10T20:30:00Z'))), '2026-10-10T20:00:00.000Z', 'a sleep through the reset named tomorrow');
+  // (Another agent: a second line on casey's screen would itself end casey's first limit.)
+  assert.equal(iso(status.claudeLimitUntil('april', weekly, at('2026-10-10T19:00:00Z'))), '2026-10-10T20:00:00.000Z');
+  assert.equal(iso(status.claudeLimitUntil('april', weekly, at('2026-10-10T20:30:00Z'))), '2026-10-10T20:00:00.000Z', 'a sleep through the reset named tomorrow');
   // CONTROL: the same line first seen by another agent at the later time reads differently (the key is the agent).
   assert.equal(status.claudeLimitUntil('leo', line, t0 + 7 * 3600e3), null);
   // The same words after the card was read not capped (the limit ended; a new one the next day) are a new limit,
