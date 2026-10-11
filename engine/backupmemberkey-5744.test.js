@@ -38,15 +38,17 @@ function fakeCoordinator({ day = true } = {}) {
     const opened = backupkeys.unwrapMemberKey(company.sk, Buffer.from(body.wrap, 'base64url'), { org: ORG, member: MEMBER, epoch: String(body.epoch) }, pk);
     // The real route opens the wrap before it compares keys.
     if (body.epoch === current && !opened) return refuse(400, 'member_wrap_unopenable', 'no');
-    if (body.epoch === current && kept.get(current) === body.member_public) return { ok: true, data: { epoch: current } };
+    if (body.epoch === current && kept.get(current) === body.member_public) return { ok: true, data: { epoch: current, member_public: body.member_public } };
     if (body.epoch === current) return refuse(409, 'member_key_exists', 'another key holds this epoch');
     if (body.epoch !== current + 1) return refuse(400, 'member_key_wrong_epoch', 'not current or next', current);
     if (current >= 1 && !day) return refuse(429, 'member_key_rotation_wait', 'wait a day');
     if (!opened) return refuse(400, 'member_wrap_unopenable', 'the wrap did not open');
+    // The route's unique index: one key is never registered at two epochs.
+    if ([...kept.values()].includes(body.member_public)) return refuse(409, 'member_key_reused', 'make a new key');
     kept.set(body.epoch, body.member_public);
-    return { ok: true, data: { epoch: body.epoch } };
+    return { ok: true, data: { epoch: body.epoch, member_public: body.member_public } };
   };
-  return { macRequest, kept, calls, company, setDay: (d) => { day = d; } };
+  return { macRequest, kept, calls, company, setDay: (d) => { day = d; }, setCurrent: (e, pk) => kept.set(e, pk) };
 }
 const keyFile = () => path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys'))[0]);
 const loseTheKey = () => fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
@@ -104,7 +106,7 @@ test('#5744 2b: inside the day a new epoch waits, keeps its key, and registers i
   loseTheKey();
   const wait = await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.equal(wait.ok, false);
-  assert.equal(wait.waiting, true, JSON.stringify(wait));
+  assert.deepEqual([wait.waiting, wait.pendingEpoch, 'epoch' in wait], [true, 2, false], JSON.stringify(wait));
   const keptPk = JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['2'].pk;
   c.setDay(true);
   const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
@@ -124,8 +126,11 @@ test('#5744 2b: the key is on disk before it is sent, so an answer lost after Ko
 
 test('#5744 2b: a malformed company answer, an unreadable key file and a failed backup-key call register nothing', async () => {
   const c = fakeCoordinator();
-  const bad = async (m, route, b) => (route === mk.BACKUP_KEY_ROUTE ? { ok: true, data: { org: 'o\nx', member: MEMBER, public_key: 'AA' } } : c.macRequest(m, route, b));
-  assert.equal((await mk.ensureMemberKey({ macRequest: bad })).ok, false);
+  const good = { org: ORG, member: MEMBER, public_key: c.company.pk.toString('base64url') };
+  for (const broken of [{ org: 'o\nx' }, { member: '' }, { public_key: 'AA' }]) {
+    const bad = async (m, route, b) => (route === mk.BACKUP_KEY_ROUTE ? { ok: true, data: { ...good, ...broken } } : c.macRequest(m, route, b));
+    assert.equal((await mk.ensureMemberKey({ macRequest: bad })).ok, false, JSON.stringify(broken));
+  }
   const off = async () => ({ ok: false, because: 'backups are off', refusal: { status: 404, code: 'backup_off', currentEpoch: null } });
   const r = await mk.ensureMemberKey({ macRequest: off });
   assert.deepEqual([r.ok, r.refusal.code], [false, 'backup_off']);
@@ -162,19 +167,25 @@ test('#5744 2b: currentEpoch 0 (no key at all) moves a kept later-epoch key to e
   assert.equal(c.kept.get(1), k.pk.toString('base64url'));
 });
 
-test('#5744 2b: member_key_reused and a 429 with no code fail without starting an epoch', async () => {
+test('#5744 2b: member_key_reused gets one fresh key at the same epoch; a 429 with no code starts nothing', async () => {
   const c = fakeCoordinator();
-  for (const refusal of [{ status: 409, code: 'member_key_reused', currentEpoch: null }, { status: 429, code: null, currentEpoch: null }]) {
+  const run = async (refusal) => {
     loseTheKey();
     const sent = [];
     const r = await mk.ensureMemberKey({ macRequest: async (m, route, b) => {
       if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
-      sent.push(b.epoch);
+      sent.push(b);
       return { ok: false, because: 'no', refusal };
     } });
-    assert.equal(r.ok, false, JSON.stringify(refusal));
-    assert.deepEqual(sent, [1], 'it tried another epoch on ' + JSON.stringify(refusal));
-  }
+    return { r, sent };
+  };
+  const reused = await run({ status: 409, code: 'member_key_reused', currentEpoch: null });
+  assert.equal(reused.r.ok, false);
+  assert.deepEqual(reused.sent.map((b) => b.epoch), [1, 1], 'a new epoch, or more than one fresh key');
+  assert.notEqual(reused.sent[0].member_public, reused.sent[1].member_public, 'the reused key was sent again');
+  const limited = await run({ status: 429, code: null, currentEpoch: null });
+  assert.equal(limited.r.ok, false);
+  assert.deepEqual(limited.sent.map((b) => b.epoch), [1]);
 });
 
 test('#5744 2b: a key folder that already exists with looser permissions is made owner-only', async () => {
@@ -183,4 +194,39 @@ test('#5744 2b: a key folder that already exists with looser permissions is made
   const c = fakeCoordinator();
   assert.equal((await mk.ensureMemberKey({ macRequest: c.macRequest })).ok, true);
   assert.equal(fs.statSync(path.join(store.ROOT, 'backupkeys')).mode & 0o777, 0o700);
+});
+
+test('#5744 2b: a kept key Kosmos+ already holds at an older epoch (answer lost, then the epoch moved) gets a fresh key', async () => {
+  const c = fakeCoordinator();
+  // The answer to epoch 1 is lost after Kosmos+ kept the key; then another computer of the member moves to epoch 2.
+  const lost = async (m, route, b) => { const r = await c.macRequest(m, route, b); return route === mk.MEMBER_KEY_ROUTE ? { ok: false, because: 'the answer was lost' } : r; };
+  await mk.ensureMemberKey({ macRequest: lost });
+  c.setCurrent(2, backupkeys.newMemberKey().pk.toString('base64url'));
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  // epoch 1: wrong epoch, current 2 -> 3 with the kept key -> member_key_reused (it is epoch 1's) -> a fresh key at 3.
+  assert.deepEqual([r.ok, r.epoch], [true, 3], JSON.stringify(r));
+  assert.notEqual(c.kept.get(3), c.kept.get(1), 'one key at two epochs');
+});
+
+test('#5744 2b: an ok answer that does not name what was sent is not taken as registered', async () => {
+  const c = fakeCoordinator();
+  const odd = async (m, route, b) => (route === mk.MEMBER_KEY_ROUTE ? { ok: true, data: { epoch: 7 } } : c.macRequest(m, route, b));
+  const r = await mk.ensureMemberKey({ macRequest: odd });
+  assert.equal(r.ok, false);
+  assert.equal(JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['1'].registered, false);
+});
+
+test('#5744 2b: a key another process registered during a rotation is answered, not replaced', async () => {
+  const c = fakeCoordinator();
+  const theirs = backupkeys.newMemberKey();
+  const r = await mk.ensureMemberKey({ macRequest: async (m, route, b) => {
+    if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
+    // Meanwhile another process on this data root registered its own key at epoch 1 and wrote the file.
+    const file = keyFile();
+    fs.writeFileSync(file, JSON.stringify({ org: ORG, member: MEMBER, keys: { 1: { sk: theirs.sk.toString('base64url'), pk: theirs.pk.toString('base64url'), registered: true } } }));
+    return { ok: false, because: 'another key holds this epoch', refusal: { status: 409, code: 'member_key_exists', currentEpoch: null } };
+  } });
+  assert.deepEqual([r.ok, r.epoch], [true, 1], JSON.stringify(r));
+  assert.equal(r.publicKey.equals(theirs.pk), true);
+  assert.equal(JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['1'].pk, theirs.pk.toString('base64url'), 'their key was replaced');
 });

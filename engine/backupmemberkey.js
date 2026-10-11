@@ -10,16 +10,21 @@
  *
  * ensureMemberKey():
  *   1. asks POST /v1/org/backup-key for the company (org), this computer's account as the coordinator names it
- *      (member), and the company's public key, all from one signed answer;
+ *      (member), and the company's public key, all from one answer to a device-signed request (the answer itself is
+ *      not signed; it rests on the tunnel's TLS to Kosmos+);
  *   2. with a key here that Kosmos+ already took, answers it;
  *   3. otherwise keeps a key on disk BEFORE sending it (an answer lost after Kosmos+ kept it must not lose the key),
  *      wraps it to the company's key for (org, member, epoch), and registers it: epoch 1 first; a different key
  *      already at that epoch (409 member_key_exists) or a later current epoch (400 member_key_wrong_epoch with
- *      currentEpoch) means this computer lost its key, so it tries the next epoch once.
+ *      currentEpoch) means this computer lost its key, so it tries the next epoch once; currentEpoch 0 (no key at
+ *      all) means epoch 1. A kept key Kosmos+ already holds for another epoch (409 member_key_reused) is replaced
+ *      by a fresh one, once.
  * A 429 member_key_rotation_wait keeps the new key and answers `waiting`; the next call sends the same key.
  * It does NOT ask whether a key Kosmos+ took is still the member's current one: the backup job compares the epoch
  * it answers with each grant's `epoch` (the uploader refuses a grant for another epoch), and a mismatch is the sign
- * the member moved on elsewhere. Calls run one at a time in this process, so two at once cannot each make a key.
+ * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
+ * assumed (the board's own lock), and a rotation re-reads the file first, so a key another process registered
+ * meanwhile is answered, never replaced.
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
  * base64url. Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
@@ -70,7 +75,7 @@ function writeKeys(org, member, keys) {
   require('./securewrite').writeSecret(fileFor(org, member), JSON.stringify({ org, member, keys: out }), 0o600, { atomicOnly: true });
 }
 
-/* The signed backup-key answer, checked: { org, member, orgPublic } or null. */
+/* The backup-key answer, checked: { org, member, orgPublic } or null. */
 function companyOf(data) {
   if (!data || typeof data !== 'object') return null;
   const orgPublic = unb64(data.public_key);
@@ -110,8 +115,14 @@ async function ensureNow(opts) {
       keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
       writeKeys(company.org, company.member, keys);
     }
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    // At most one move to a next epoch and one fresh key: each new epoch is audited and limited to one a day.
+    let moved = false, refreshed = false;
+    for (;;) {
       const r = await register(macRequest, company, epoch, keys[epoch]);
+      // The answer must name what was sent, so a changed coordinator or tunnel shape is not taken as registered.
+      if (r && r.ok && !(r.data && r.data.epoch === epoch && r.data.member_public === b64(keys[epoch].pk))) {
+        return { ok: false, because: 'Kosmos+ answered the backup key registration in a shape this computer does not know' };
+      }
       if (r && r.ok) {
         keys[epoch].registered = true;
         try { writeKeys(company.org, company.member, keys); } catch {
@@ -122,7 +133,14 @@ async function ensureNow(opts) {
       }
       const code = r && r.refusal && r.refusal.code;
       if (code === 'member_key_rotation_wait') {
-        return { ok: false, waiting: true, epoch, because: 'Kosmos+ takes a new backup key at most once a day; this computer tries again later' };
+        return { ok: false, waiting: true, pendingEpoch: epoch, because: 'Kosmos+ takes a new backup key at most once a day; this computer tries again later' };
+      }
+      // A kept key Kosmos+ already holds for another epoch (an answer lost, then the epoch moved): a fresh key, once.
+      if (code === 'member_key_reused' && !refreshed) {
+        refreshed = true;
+        keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
+        writeKeys(company.org, company.member, keys);
+        continue;
       }
       // This computer lost its key: another key holds this epoch, or a later one is current. Try the next, once.
       let next = null;
@@ -131,16 +149,20 @@ async function ensureNow(opts) {
         // 0: no key is registered for this member at all (a kept key from an earlier epoch), so start at 1.
         next = r.refusal.currentEpoch === 0 ? (epoch === 1 ? null : 1) : r.refusal.currentEpoch + 1;
       }
-      if (attempt === 1 || next === null || next > EPOCH_MAX) {
+      if (moved || next === null || next > EPOCH_MAX) {
         return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer', ...(r && r.refusal ? { refusal: r.refusal } : {}) };
       }
-      // The lost epoch's key is not this computer's; the new epoch gets the same new key, kept before it is sent.
+      // Another process may have registered a key meanwhile: re-read, and answer that one rather than replace it.
+      const fresh = readKeys(company.org, company.member);
+      const theirs = fresh.ok && Object.keys(fresh.keys).map(Number).sort((a, b) => b - a).find((e) => fresh.keys[e].registered);
+      if (theirs !== undefined && theirs !== false) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
+      // The lost epoch's key is not this computer's; the new epoch gets the same unregistered key, kept before it is sent.
       keys[next] = { sk: keys[epoch].sk, pk: keys[epoch].pk, registered: false };
       delete keys[epoch];
       writeKeys(company.org, company.member, keys);
       epoch = next;
+      moved = true;
     }
-    return { ok: false, because: 'the backup key could not be registered' };
   } catch (err) {
     return { ok: false, because: 'the backup key could not be set up: ' + String((err && err.message) || err) };
   }
