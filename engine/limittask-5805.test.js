@@ -230,3 +230,16 @@ test('#5805 task: a failure after a hold is found refuses the line, untyped; one
     });
   } finally { chat.limitHeldVerdict = realVerdict; chat.addressable = realAddr; }
 });
+
+test('#5805 task: a line the delivery refuses anyway (swarm paused, or not sendable) is not kept, so its true reason is said now', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board, tmux) => {
+    const paused = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, swarm: { active: false } } : c));
+    assert.ok(chat.limitHeldVerdict('casey', paused), 'CONTROL: the paused card is still limit-held, so a keep was possible');
+    assert.equal(messages.keepTaskLine('casey', LINE, paused, 'leo', ABOUT), null, 'a paused agent\'s line was kept');
+    const v = await chat.deliverAsync('casey', LINE, paused);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT, 'the delivery no longer refuses a paused swarm: ' + JSON.stringify(v));
+    assert.equal(messages.keepTaskLine('casey', 'x'.repeat(100000), board.agents, 'leo', ABOUT), null, 'an unsendable line was kept');
+    assert.deepEqual(kept(), []);
+    assert.deepEqual(tmux.pastedTo('casey'), []);
+  });
+});

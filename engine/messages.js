@@ -1485,12 +1485,18 @@ function keepTaskLine(toName, line, roster, from, about) {
   let behindNow = false;
   try {
     const limitqueue = require('./limitqueue');
+    /* The delivery's free refusals first: a line it refuses whenever it is typed (not sendable, the agent not
+       reachable, its swarm paused) is left to it, so the sender gets that reason now. Kept, it would be refused at
+       every sweep and hold the queue behind it for a day. */
+    if (chat.messageProblem(line)) return null;
+    const can = chat.addressable(toName, roster);
+    if (can.ok !== true) return null;
+    if (can.card && can.card.swarm && can.card.swarm.active === false) return null;
     let hold = null;
     try { hold = chat.limitHeldVerdict(toName, roster); } catch { hold = null; }
     const qName = limitQueueName(toName, roster);
     const at = new Date().toISOString();
     if (!hold) {
-      if (chat.addressable(toName, roster).ok !== true) return null;   // refused as before, by the delivery itself
       const queued = limitqueue.readEntries(qName);
       // A queue that cannot be read now may hold a backlog: never typed ahead of it (keeping it then fails, and says so).
       if (queued.ok && !queued.entries.some((e) => !limitqueue.isDone(e.id))) return null;
