@@ -373,6 +373,25 @@ test('#5805 review 5: past the hour cap, the hold stays while the limit menu is 
   }
 });
 
+test('#5805 review 11: the sweep does not record an ask already a day old (the day rule is kept), and records a fresh one', async () => {
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'idle' })]);
+  try {
+    const now = Date.now();
+    const log = [
+      { kind: 'post', id: 'm91', project: PROJECT, from: 'leo', text: '@april old', at: new Date(now - 3 * DAY).toISOString() },
+      { kind: 'post', id: 'm92', project: PROJECT, from: 'leo', text: '@april new', at: new Date(now - 600e3).toISOString() },
+    ];
+    roomhold.hold('april', PROJECT, roomhold.addressedId('m91'));
+    roomhold.hold('april', PROJECT, roomhold.addressedId('m92'));
+    arm('');
+    const capped = roomRoster(board, true);
+    const stale = (p, ids, who) => messages.staleHeld(p, ids, log, now, who);
+    assert.deepEqual(await roomhold.flushReleased(capped, flushDeps(capped, { stale })), []);
+    assert.equal(roomhold.limitKept('april', PROJECT, 'm91'), false, 'a three-day-old ask was revived by the limit record');
+    assert.equal(roomhold.limitKept('april', PROJECT, 'm92'), true, 'CONTROL: a fresh ask was not recorded');
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
 test('#5805 review 7: an ask held before the limit (no arrival during it) is recorded while capped, then told once idle', async () => {
   const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: 'idle' })]);
   try {

@@ -382,12 +382,20 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
       if (!heldProjects(name).length) continue;
       /* #5805 review 7: a turn that fails on the limit ends with StopFailure, not Stop, so no idle flush runs for the
          asks held while it worked, and no arrival may come to record them. While the member is limit-held, record the
-         limit for each held ask that has no record yet (once per ask: noteLimit is skipped for ids already kept). */
+         limit for each held ask that has no record yet (once per ask: noteLimit is skipped for ids already kept). An ask
+         `stale` already drops even when asked (answered, or a day old) is not recorded, so the day rule is not undone;
+         it is only left alone here, not dropped, so nothing is logged for it. */
       if (!agy && typeof isLimitable === 'function') {
         const v = require('./chat').limitHeldVerdict(name, roster);
         if (v) {
           for (const p of heldProjects(name)) {
-            const fresh = heldIn(name, p).filter((x) => isAddressed(x) && !limitKept(name, p, x));
+            let fresh = heldIn(name, p).filter((x) => isAddressed(x) && !limitKept(name, p, x));
+            if (fresh.length && typeof stale === 'function') {
+              let gone = null;
+              try { gone = stale(p, fresh.map(plainId), name); } catch { gone = null; }
+              const asked = gone && gone.evenIfAsked instanceof Set ? gone.evenIfAsked : new Set();
+              fresh = fresh.filter((x) => !asked.has(plainId(x)));
+            }
             if (fresh.length) noteLimit(name, p, fresh, v.limitReset);
           }
           continue;

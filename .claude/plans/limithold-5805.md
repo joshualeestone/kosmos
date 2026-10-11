@@ -160,3 +160,16 @@ behaviour), never the reverse.
   Pinned by a test.
 - NIT taken: the staleHeld comment's broken wrap. Not taken: an injected clock for withoutStale's limitKept (tests
   pass explicit times to limitKept directly); the shared held-by wording helper (as before).
+
+## After review 10 (found by the slice-2 survey, not a reviewer)
+- FIXED: the page's wakeHeldLine had arms for cap and menu only, so a wake or handoff pickup held on a usage limit
+  told the person "This computer's shared Google quota is out". It now says the agent is out of usage, until the
+  printed reset while that is ahead (web.wake-hello-automatic-4959.test.js; Browser-check trailer on 72e4f5aff).
+
+## Review 11 (opus)
+- FIXED: the minute sweep's limit record (review 7) skipped the day rule, so an @ask held for days could be stamped
+  with a fresh reset and delivered after it. It now records only asks `stale` would not already drop even when asked
+  (answered, or a day old), without logging them as dropped (tested: a three-day-old ask is not recorded, a fresh
+  one is).
+- Not taken: one read of the limit file per sweep (a small JSON file; correctness unaffected); the shared held-by
+  wording helper (as before); a long comment line.
