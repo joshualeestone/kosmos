@@ -2941,7 +2941,7 @@ function tokenOnlyRemoveRefusal(caller, target) {
   const targetGone = sendertoken.endedSince([target], birth.at);
   const creatorGone = sendertoken.endedSince([caller.name, creatorKey].filter(Boolean), birth.askedAt, { inclusive: true });
   if (targetGone === null || creatorGone === null) {
-    console.error('#4475: refused a token-only removal of ' + target + ': the history of ended agents could not be read whole (' + sendertoken.endedLogFile() + ')');
+    console.error('#4475: refused a token-only removal of ' + target + ': the history of ended agents could not be read whole (' + sendertoken.endedLogFile() + ', ' + sendertoken.endedDir() + ')');
     return REMOVE_UNCHECKED;
   }
   return (targetGone === false && creatorGone === false) ? null : REMOVE_NOT_YOURS;

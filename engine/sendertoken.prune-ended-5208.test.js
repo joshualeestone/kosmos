@@ -60,9 +60,9 @@ test('kosmos#5208: a compaction changes no answer of endedSince (strict and incl
   writeLive(lines);
   const before = answers(names, times);
   assert.ok(before.some((a) => a[2] === true) && before.some((a) => a[2] === false), 'fixture: both answers must occur');
-  const r = sendertoken.compactEnded({ atBytes: 0 });
+  const r = sendertoken.compactEnded({ force: true });
   assert.equal(r.compacted, true, 'nothing was compacted, so the arm below proves nothing');
-  assert.equal(fs.existsSync(LIVE()), false, 'the live file was not sealed');
+  assert.equal(fs.readFileSync(LIVE(), 'utf8'), fs.readFileSync(COMPACT(), 'utf8'), 'the live file was not re-started from compact.jsonl');
   assert.deepEqual(answers(names, times), before, 'a compaction changed an answer');
   assert.equal(fs.readFileSync(COMPACT(), 'utf8').split('\n').filter(Boolean).length, 3, 'compact.jsonl is not one line per slug (mom, kid, dad)');
 });
@@ -70,7 +70,7 @@ test('kosmos#5208: a compaction changes no answer of endedSince (strict and incl
 test('kosmos#5208: a stale compaction overwriting compact.jsonl cannot drop an end (its sealed file is still read)', () => {
   reset();
   writeLive([line('creator', T0 + 50)]);
-  assert.equal(sendertoken.compactEnded({ atBytes: 0 }).compacted, true);
+  assert.equal(sendertoken.compactEnded({ force: true }).compacted, true);
   assert.equal(sealed().length, 1, 'the sealed file was deleted while it was new');
   fs.writeFileSync(COMPACT(), '');   // a compaction that woke late, after its lock was stolen, writes older content
   assert.equal(sendertoken.endedSince(['creator'], iso(T0)), true, 'the end was lost: only compact.jsonl was read');
@@ -83,13 +83,13 @@ test('kosmos#5208: a stale compaction overwriting compact.jsonl cannot drop an e
 test('kosmos#5208: a sealed file is deleted only once old and unchanged, and its ends stay answered from compact.jsonl', () => {
   reset();
   writeLive([line('gone', T0 + 10)]);
-  sendertoken.compactEnded({ atBytes: 0 });
+  sendertoken.compactEnded({ force: true });
   assert.equal(sealed().length, 1);
   writeLive([line('x', T0)]);
-  sendertoken.compactEnded({ atBytes: 0 });
+  sendertoken.compactEnded({ force: true });
   assert.equal(sealed().length, 2, 'a new sealed file was deleted');
   writeLive([line('y', T0)]);
-  const r = sendertoken.compactEnded({ atBytes: 0, now: Date.now() + sendertoken.SEALED_KEEP_MS + 60000 });
+  const r = sendertoken.compactEnded({ force: true, now: Date.now() + sendertoken.SEALED_KEEP_MS + 60000 });
   assert.equal(r.removed, 3, 'old sealed files were not deleted');
   assert.deepEqual(sealed(), []);
   assert.equal(sendertoken.endedSince(['gone'], iso(T0)), true, 'an end was lost with its sealed file');
@@ -107,9 +107,9 @@ test('kosmos#5208: nothing is compacted under the size bound, and a torn line st
   console.error = (m) => said.push(String(m));
   let stuck;
   try {
-    stuck = sendertoken.compactEnded({ atBytes: 0 });
+    stuck = sendertoken.compactEnded({ force: true });
     writeLive([line('b', T0)]);   // a second try that reaches the torn line again
-    assert.equal(sendertoken.compactEnded({ atBytes: 0 }).stuck, true, 'the second try did not reach the stuck path');
+    assert.equal(sendertoken.compactEnded({ force: true }).stuck, true, 'the second try did not reach the stuck path');
   } finally { console.error = realErr; }
   assert.equal(stuck.compacted, false, 'compacted past a torn line');
   assert.equal(stuck.stuck, true);
@@ -153,7 +153,7 @@ test('kosmos#5208: an end is appended even when the lock cannot be had', () => {
 test('kosmos#5208: a sealed file changed since it was read is not deleted, however old', () => {
   reset();
   writeLive([line('kept', T0)]);
-  sendertoken.compactEnded({ atBytes: 0 });
+  sendertoken.compactEnded({ force: true });
   const [name] = sealed();
   const f = path.join(sendertoken.endedDir(), name);
   const realRead = fs.readFileSync;
@@ -161,7 +161,7 @@ test('kosmos#5208: a sealed file changed since it was read is not deleted, howev
   fs.readFileSync = function (p, ...rest) { const out = realRead.call(this, p, ...rest); if (p === f) { fs.appendFileSync(f, line('straggler', T0 + 1) + '\n'); fs.readFileSync = realRead; } return out; };
   try {
     writeLive([line('y', T0)]);
-    sendertoken.compactEnded({ atBytes: 0, now: Date.now() + sendertoken.SEALED_KEEP_MS + 60000 });
+    sendertoken.compactEnded({ force: true, now: Date.now() + sendertoken.SEALED_KEEP_MS + 60000 });
   } finally { fs.readFileSync = realRead; }
   assert.ok(fs.existsSync(f), 'a sealed file written to after it was read was deleted: its new line is lost');
   assert.equal(sendertoken.endedSince(['straggler'], iso(T0)), true, 'the straggler line is not read');
@@ -181,7 +181,7 @@ test('kosmos#5208: endedSince refuses (null) when a sealed file or compact.jsonl
 test('kosmos#5208: a sealed file deleted between the listing and its read is answered from compact.jsonl', () => {
   reset();
   writeLive([line('moved', T0 + 5)]);
-  sendertoken.compactEnded({ atBytes: 0 });   // compact.jsonl now holds it, and so does a sealed file
+  sendertoken.compactEnded({ force: true });   // compact.jsonl now holds it, and so does a sealed file
   const [name] = sealed();
   const f = path.join(sendertoken.endedDir(), name);
   const realRead = fs.readFileSync;
@@ -208,7 +208,7 @@ test('kosmos#5208: the read order (live, sealed, then compact.jsonl) keeps an en
   let ran = false;
   fs.readFileSync = function (p, ...rest) {
     const out = realRead.call(this, p, ...rest);
-    if (p === sendertoken.endedCompactFile() && !ran) { ran = true; fs.readFileSync = realRead; sendertoken.compactEnded({ atBytes: 0 }); }
+    if (p === sendertoken.endedCompactFile() && !ran) { ran = true; fs.readFileSync = realRead; sendertoken.compactEnded({ force: true }); }
     return out;
   };
   let answer;
@@ -216,4 +216,47 @@ test('kosmos#5208: the read order (live, sealed, then compact.jsonl) keeps an en
   assert.equal(ran, true, 'fixture: the compaction never ran mid-read');
   assert.equal(fs.existsSync(s), false, 'fixture: the sealed file was not deleted, so the race was not staged');
   assert.equal(answer, true, 'an end folded in and deleted mid-read was lost: compact.jsonl was read before the sealed file');
+});
+
+// How a build from before kosmos#5208 answers: it reads the live file only (main's endedSince before this change).
+function oldEndedSince(name, sinceIso, inclusive) {
+  let raw; try { raw = fs.readFileSync(LIVE(), 'utf8'); } catch { return false; }
+  for (const l of raw.split('\n')) {
+    if (!l) continue;
+    const r = JSON.parse(l);
+    if (r.name.toLowerCase() !== name.toLowerCase()) continue;
+    if (r.at > sinceIso || (inclusive && r.at === sinceIso)) return true;
+  }
+  return false;
+}
+
+test('kosmos#5208: after a compaction, a build from before this change (it reads the live file only) answers the same', () => {
+  reset();
+  const lines = [];
+  for (let i = 0; i < 120; i++) lines.push(line(['mom', 'kid', 'dad'][i % 3], T0 + i * 1000));
+  writeLive(lines);
+  const probe = [];
+  for (const n of ['mom', 'kid', 'dad', 'never']) for (const t of [T0 - 1, T0 + 50000, T0 + 119000, T0 + 200000]) probe.push([n, iso(t)]);
+  const before = probe.map(([n, t]) => [oldEndedSince(n, t, false), oldEndedSince(n, t, true)]);
+  assert.ok(before.some((a) => a[0]) && before.some((a) => !a[0]), 'fixture: both answers must occur');
+  assert.equal(sendertoken.compactEnded({ force: true }).compacted, true);
+  assert.deepEqual(probe.map(([n, t]) => [oldEndedSince(n, t, false), oldEndedSince(n, t, true)]), before, 'a rolled-back build answers differently after a compaction');
+});
+
+test('kosmos#5208: a compaction does not write over a compact.jsonl that changed after it read it (one that slept)', () => {
+  reset();
+  writeLive([line('first', T0)]);
+  sendertoken.compactEnded({ force: true });
+  writeLive([line('second', T0 + 1)]);
+  const realRead = fs.readFileSync;
+  fs.readFileSync = function (p, ...rest) {
+    const out = realRead.call(this, p, ...rest);
+    if (p === COMPACT()) { fs.readFileSync = realRead; fs.writeFileSync(COMPACT(), '\n' + line('newer', T0 + 9) + '\n'); }   // another compaction landed
+    return out;
+  };
+  let r;
+  try { r = sendertoken.compactEnded({ force: true }); } finally { fs.readFileSync = realRead; }
+  assert.equal(r.compacted, false, 'it wrote over a compact.jsonl that changed under it');
+  assert.match(fs.readFileSync(COMPACT(), 'utf8'), /"newer"/, 'the newer compact.jsonl was overwritten');
+  assert.equal(sendertoken.endedSince(['second'], iso(T0)), true, 'CONTROL: the end it was folding is still read from its sealed file');
 });

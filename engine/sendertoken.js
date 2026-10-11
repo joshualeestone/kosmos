@@ -276,7 +276,7 @@ function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 /* kosmos#5208: the history is three kinds of file, all read by endedSince. The LIVE file above is the only one appended
    to. endedDir() (ENDED_DIRNAME) holds `compact.jsonl`, the newest line per name from everything compacted so far, and `sealed.*.jsonl`,
    former live files waiting to be folded in. Nothing that is appended to is ever rewritten or deleted promptly, so no
-   end can be lost to a compaction: see compactEnded. setup-assistant.js denies token-only agents writes to ENDED_DIR. */
+   end can be lost to a compaction: see compactEnded. setup-assistant.js denies token-only agents writes to that folder. */
 const ENDED_DIRNAME = 'ended-agents.d';
 function endedDir() { return path.join(store.ROOT, ENDED_DIRNAME); }
 function endedCompactFile() { return path.join(endedDir(), 'compact.jsonl'); }
@@ -312,7 +312,9 @@ function noteEnded(sessionName) {
    HOW, so that no end is ever lost, even to an unlocked append or a compaction that wakes after its lock was stolen:
    1. the live file is RENAMED to a new sealed file (atomic: later appends start a fresh live file, and an append that
       opened the old one lands in the sealed file);
-   2. compact.jsonl is rewritten (temp file and rename) from itself plus every sealed file;
+   2. compact.jsonl is rewritten (temp file and rename) from itself plus every sealed file, unless it changed since it
+      was read (a compaction that slept after its lock was stolen); the compacted lines are then appended to the live
+      file as well, so a build from before this change (which reads only the live file) still answers the same;
    3. a sealed file is deleted only once it was read in this run and has not changed for SEALED_KEEP_MS. Until then it is
       still read, so a stale compaction that overwrites compact.jsonl with older content cannot drop it.
    Anything it cannot read whole stops it before step 2 (the sealed files stay, and are read). */
@@ -345,15 +347,19 @@ function sealedFiles() {
   try { names = fs.readdirSync(endedDir()); } catch (e) { if (e && e.code === 'ENOENT') return []; throw e; }
   return names.filter((n) => SEALED_RE.test(n)).sort().map((n) => path.join(endedDir(), n));
 }
-/* Compact when the live file has grown past `atBytes`. Called under the live file's lock (noteEnded). Returns
-   { compacted, removed } (removed: sealed files deleted), or { compacted: false } when it did nothing. Never throws. */
+/* Compact when the live file has grown `atBytes` past compact.jsonl (the live file starts each round with a copy of it,
+   below). Called under the live file's lock (noteEnded). Returns { compacted: true, removed } (removed: sealed files
+   deleted), { compacted: false, stuck: true } when a line it cannot read whole stops it, or { compacted: false } when
+   it did nothing. Never throws. */
 function compactEnded(opts = {}) {
   try {
     const live = endedLogFile();
     const atBytes = Number.isFinite(opts.atBytes) ? opts.atBytes : ENDED_COMPACT_AT_BYTES;
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     let st; try { st = fs.statSync(live); } catch { return { compacted: false }; }
-    if (st.size <= atBytes) return { compacted: false };
+    const compactStat = () => { try { const c = fs.statSync(endedCompactFile()); return c.ino + ':' + c.size + ':' + c.mtimeMs; } catch (e) { return (e && e.code === 'ENOENT') ? 'none' : null; } };
+    let carried = 0; try { carried = fs.statSync(endedCompactFile()).size; } catch { carried = 0; }
+    if (opts.force !== true && st.size <= atBytes + carried) return { compacted: false };
     fs.mkdirSync(endedDir(), { recursive: true });
     const sealedName = 'sealed.' + Date.now() + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.jsonl';
     fs.renameSync(live, path.join(endedDir(), sealedName));
@@ -362,6 +368,8 @@ function compactEnded(opts = {}) {
       let fst; try { fst = fs.statSync(f); } catch { continue; }
       read.push({ f, mtimeMs: fst.mtimeMs, text: fs.readFileSync(f, 'utf8') });
     }
+    const before = compactStat();
+    if (before === null) return { compacted: false };
     let compact = '';
     try { compact = fs.readFileSync(endedCompactFile(), 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') return { compacted: false }; }
     const next = newestPerName([compact, ...read.map((r) => r.text)]);
@@ -376,8 +384,17 @@ function compactEnded(opts = {}) {
       return { compacted: false, stuck: true };
     }
     const tmp = path.join(endedDir(), 'compact.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp');
-    try { fs.writeFileSync(tmp, next, 'utf8'); fs.renameSync(tmp, endedCompactFile()); }
-    catch { try { fs.unlinkSync(tmp); } catch { /* nothing to tidy */ } return { compacted: false }; }
+    try {
+      fs.writeFileSync(tmp, next, 'utf8');
+      /* A compaction that slept (its lock stolen meanwhile) must not write over a newer compact.jsonl: if it changed since
+         this one read it, stop. The sealed files stay and are read either way. */
+      if (compactStat() !== before) { fs.unlinkSync(tmp); return { compacted: false }; }
+      fs.renameSync(tmp, endedCompactFile());
+    } catch { try { fs.unlinkSync(tmp); } catch { /* nothing to tidy */ } return { compacted: false }; }
+    /* A build from before kosmos#5208 reads only the live file, and the Windows app can roll back to one (update.js). So
+       the compacted lines go back into the live file too: by the newest-per-name rule that build then answers exactly as
+       this one does. A failure here costs only that older build's view, never this one's. */
+    try { fs.appendFileSync(live, next, 'utf8'); } catch { /* the live file is re-created by the next end */ }
     let removed = 0;
     // A compaction that died between writing its temp file and renaming it left the temp behind; clear old ones.
     try {

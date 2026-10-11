@@ -77,3 +77,16 @@ after its lock was stolen could drop the lines of a sealed file deleted meanwhil
   compaction folding in and deleting an old sealed file just after the reader read compact.jsonl).
 - FIXED (NIT): a comment named ENDED_DIR; stale compact temp files are cleared after an hour; one sentence on slugFor
   stability.
+
+## Review 3 (opus, blind, on 5239198e2)
+- FIXED (WARNING): a rollback to a build from before this change (the Windows app's Roll back) read only the live
+  file and answered "nothing ended" for ends compacted into ended-agents.d: fail open. After a compaction the compacted
+  lines are appended to the live file too, so that build answers exactly as this one (test: a reader of the live file
+  alone answers the same before and after; mutation red). The trigger is now "the live file has grown 64 KiB past
+  compact.jsonl", so the carried copy does not re-trigger it.
+- FIXED (WARNING): a compaction that slept after its lock was stolen could write over a newer compact.jsonl. It now
+  re-checks compact.jsonl (inode, size, mtime) just before the rename and stops if it changed (test; mutation red).
+- FIXED (CONVENTION): the second ENDED_DIR in a comment.
+- FIXED (NIT): compactEnded's return shapes documented; server.js's refusal log names ended-agents.d too; the new test
+  file runs in the Windows job (tools/windows-tests.js).
+- Tests force a compaction with `force: true` (the size test still runs without it).
