@@ -9,33 +9,35 @@ member's old-key post in flight still shows inside the 90 s grace, and a re-invi
 new-key posts show.
 
 ## Change (engine/fedseats.js, server.js; owner side only)
-1. A per-room map of revoked member accounts: account -> the newest epoch it held. Written ONLY by
-   a rotation that saved, from the pinned peers it dropped: each peer is bound to its own edge id
-   at pin time, and the account is read from the same edges answer by that edge id. Never deleted
-   or written by any other edges answer, so a stale answer (the 60 s pass, the 15 s shared cache)
-   can neither note a member pinned now nor un-note a revoked one. (Challenge iteration 1 found
-   the first design, which re-read every answer, did both.)
-2. An account that a KEPT peer also has (one account on two edges, a person and their agent) is
-   not noted.
-3. handleEvent (owner, sealed, opened): a post whose relay stamp `ev.member` equals a noted account
-   and whose authenticated epoch is <= the noted epoch is refused with one note. Exact match.
-4. server.js /api/federation/remove: on success, `fedseats.afterRemove(project)` runs the revoke
-   check at once with a fresh answer, so the room rotates (and notes) now, not at the next check.
-5. stop(projectId) clears the room's notes (a recreated room starts its epochs at 0).
+1. The owner room's record (rooms file) gains `revokedAccounts`: account -> the newest epoch it
+   held. Written ONLY in the same save as a rotation, from the pinned peers it dropped. So no edges
+   answer, however old (the 60 s pass, the 15 s shared cache), can add or remove one (challenge
+   iteration 1 found the first design, which re-read every answer, did both); it survives a
+   restart; and a forgotten or recreated room starts without it (iteration 2: in-memory notes
+   could be re-written by a check queued before a stop).
+2. The member's account is recorded on its peer at the pin (ownerHello already holds it), so the
+   rotation names it without relying on the revoke's answer; a peer pinned before this change
+   falls back to that answer by its edge id.
+3. An account that a KEPT peer also has (one account on two edges) is not recorded.
+4. handleEvent (owner, sealed, opened): a post whose relay stamp `ev.member` equals a recorded
+   account and whose authenticated epoch is <= the recorded epoch is refused with one note.
+5. server.js /api/federation/remove: on success, `fedseats.afterRemove(project)` runs the revoke
+   check at once with a fresh answer, so the room rotates (and records) now.
 
 ## Not covered (stated)
 - An older relay sends no stamp: unchanged, #5228's grace is the bound.
 - A revoke made from the owner's OTHER computer is known here only at this board's next edge check.
 - Unsealed rooms: the relay's ticket is the bound, as today.
-- The notes are memory only: a board restarted inside a grace shows the revoked member's old-key
-  posts for the rest of it, as before this change.
+- A room pinned before this change, whose revoke answer also lacks the account, cannot name the
+  member: the 90 s grace stays the bound there.
 - Between the remove and its own check answering (one request), the revoked member is still
   pinned and nothing is noted yet.
 
 ## Tests (engine/fedseats.test.js, server.fedmembers-4649.test.js)
-Each run against a perturbation that turns it red (recorded in the commit message):
+Each run against a perturbation that turns it red (recorded in the commit messages):
 - the card's control in a room of TWO, with a no-stamp control arm;
 - remove-from-screen vs a post whose check reuses a pre-remove cached answer (both arms);
-- stale answers before a re-invite / before a revoke change nothing (red on the first design);
+- stale answers before a re-invite / before a revoke change nothing;
 - one account on two edges; exact stamp and epoch rule;
+- the account from the pin vs from the answer (both arms); a restarted board still refuses;
 - the route calls afterRemove(project).
