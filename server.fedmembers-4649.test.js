@@ -106,14 +106,16 @@ test('#4649: from the screen: invite from an existing project, see it in Members
   const afterRemoved = [];
   const realAfterRemove = fedseats.afterRemove;
   fedseats.afterRemove = (...args) => { afterRemoved.push(args); return Promise.resolve(false); };
-  let rm;
-  try { rm = await call('POST', '/api/federation/remove', { project: pid, edge_id: 'e-dana' }, SCREEN); } finally { fedseats.afterRemove = realAfterRemove; }
-  assert.equal(rm.status, 200, JSON.stringify(rm.json));
-  assert.deepEqual(signedCalls.filter((c) => c.route === '/v1/mac/federation/revoke').at(-1).body, { edge_id: 'e-dana' });
-  assert.deepEqual(afterRemoved, [[pid]], 'the remove route did not have the owner\'s seat rotate the room');
-
-  const second = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'agent', label: 'Scout' }, SCREEN);
-  const wd = await call('POST', '/api/federation/withdraw', { project: pid, invite_id: second.json.invite_id }, SCREEN);
+  let rm, wd;
+  try {
+    rm = await call('POST', '/api/federation/remove', { project: pid, edge_id: 'e-dana' }, SCREEN);
+    assert.equal(rm.status, 200, JSON.stringify(rm.json));
+    assert.deepEqual(signedCalls.filter((c) => c.route === '/v1/mac/federation/revoke').at(-1).body, { edge_id: 'e-dana' });
+    assert.deepEqual(afterRemoved, [[pid]], 'the remove route did not have the owner\'s seat rotate the room');
+    const second = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'agent', label: 'Scout' }, SCREEN);
+    wd = await call('POST', '/api/federation/withdraw', { project: pid, invite_id: second.json.invite_id }, SCREEN);
+    assert.deepEqual(afterRemoved, [[pid]], 'withdrawing an invite had the owner\'s seat check the room as for a remove');
+  } finally { fedseats.afterRemove = realAfterRemove; }
   assert.equal(wd.status, 200, JSON.stringify(wd.json));
   m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid), undefined, SCREEN);
   assert.equal(m.json.invites.find((r) => r.label === 'Scout').state, 'withdrawn');

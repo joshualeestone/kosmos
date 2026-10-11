@@ -636,7 +636,8 @@ function afterRemove(projectId) {
   try { link = linkFor(projectId); } catch { link = null; }
   if (!link || link.role !== 'owner') return Promise.resolve(false);
   // This check is asked after the remove in program order, whatever a coarse timer reads.
-  const after = s ? () => s.removedMono + 1n : undefined;
+  const removedMono = s ? s.removedMono : undefined;   // this remove's moment, not a later remove's
+  const after = s ? () => removedMono + 1n : undefined;
   return checkRoom(projectId, link, null, false, null, s, after).then((r) => !!(r && r.rotated), () => false);
 }
 function hasKey(st) {
