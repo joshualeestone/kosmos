@@ -13,7 +13,7 @@
   - Links inside the whole folders are followed (3 levels deep; one budget of 500 links and 50,000 entries read, which names itself when spent), and every file goes through withTarget, so each target is denied too: a linked folder gets a whole-folder rule. Targets in a Homebrew Cellar or Caskroom are covered by one stable rule for that folder, only for the one a target is in.
   - Files are read as regular files only, up to 256 KB.
   - ${XDG_CONFIG_HOME:-default}, ${HOME:-default} and ${ZDOTDIR:-default} (and the :=, - and = forms) are read as both arms, with a plain ${HOME} or ${XDG_CONFIG_HOME} inside the default unbraced first; a brace left over is named.
-  - A target that is truly read-only (not writable now, not owned by this user, in a folder this user cannot write: a read-only store such as /nix/store) is not listed: it protects nothing and its hashed name would pile up. The LINK to it is kept, for the file tools only (review 10).
+  - A target that is truly read-only (not writable now, and in a folder this user cannot write: a read-only store such as /nix/store; review 15 dropped the owner test, since a single-user store is the user's own) is not listed: it protects nothing and its hashed name would pile up. The LINK to it is kept, for the file tools only (review 10).
   - A Homebrew Cellar or Caskroom under any prefix is found from a target's <prefix>/Cellar/<name>/<version>/ shape (Linuxbrew, ~/homebrew), not only under /opt/homebrew and /usr/local.
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
@@ -21,7 +21,7 @@
 - Tests: engine/startupfiles-5774.test.js, 30 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
-- Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
+- Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, re-measured after review 20 at 04a615925 against origin/main d9ce32be3 (both from the same probe on this host, with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV): 59 more denyWrite entries (140 against 81; 9.0 KB against 5.2 KB as JSON) and 63 more deny rules (1012 against 949). The guard's own profile-size check (#5663) still passes.
 - Homebrew's links point into its Cellar by VERSION (review 5). The deny lists only grow, and only launch rules are pruned, so following each target would add new versioned paths at every upgrade, for good. Each prefix's Cellar is denied whole instead: one stable rule, in both layers, which covers every version. Neither the agent's file tools nor its shell has any business writing there, and brew's own writes are not governed by deny rules (the sandboxed shell cannot write /opt/homebrew anyway).
 - Link scanning shares one budget: 500 links (links into a Cellar or Caskroom do not count) and 50,000 entries read. When it runs out, the guard says it is not whole.
 - The environment read is the board's own (deps.env or process.env): agents are launched from it, so it is what their shells see. Weakest premise: a launch that sets ZDOTDIR or BASH_ENV differently for one agent is not seen.
@@ -162,4 +162,10 @@
   - [WARNING] FIXED: the missing test above.
   - [NIT] TAKEN: links inside a linked folder (Stow folding a whole functions/ folder) are now followed, both layers. Mutation red.
   - [NIT] NOT A DEFECT: duplicate denyWrite entries. The list is already a Set where settings are written (`denyWrite: [...new Set([...dw, ...denyWritePaths])]`), which is what the size check reads.
+- Iteration 20 (Sonnet), on 04a615925: no BLOCKER, no WARNING (CONVERGED). The reviewer probed 15 common ZDOTDIR and XDG spellings in a scratch home (all whole) and ran shellStartPaths read-only on this host's real home (unsafe [], the Cellar as one stable rule).
+  - [NIT] TAKEN (plan only): the Decided line still said "not owned by this user" after review 15; corrected.
+  - [NIT] TAKEN (plan only): the cost line was measured at 618fdb5e6, before reviews 10 to 19; re-measured (above).
+  - [NIT] not taken: the named message for `XDG_DATA_HOME=$(brew --prefix)/share` shows the value cut at its first space (fails closed; the setting name is in it).
+  - [NIT] not taken: an absolute ENV or BASH_ENV of /dev/null lands in denyWrite (harmless, very rare). The Cellar shape is POSIX only (Homebrew is too).
+  - [NIT] DUPLICATE: PowerShell, ksh, xonsh and ~/.inputrc are stated under Gaps and stay on the card.
 
