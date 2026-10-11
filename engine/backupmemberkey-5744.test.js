@@ -95,7 +95,7 @@ test('#5744 2b: a lost key when the current epoch is later reads currentEpoch an
   loseTheKey();
   const before = await mk.ensureMemberKey({ macRequest: async (m, r2, b) => (r2 === mk.BACKUP_KEY_ROUTE ? c.macRequest(m, r2, b) : { ok: false, because: 'offline' }) });
   assert.equal(before.ok, false);
-  assert.equal(JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['1'].registered, false, 'no key was kept for epoch 1 while offline');
+  assert.equal(JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['1'].registered, false, 'the key was marked registered while offline');
   const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.epoch, 4);
@@ -168,7 +168,7 @@ test('#5744 2b: currentEpoch 0 (no key at all) moves a kept later-epoch key to e
   assert.equal(c.kept.get(1), k.pk.toString('base64url'));
 });
 
-test('#5744 2b: member_key_reused gets one fresh key at the same epoch; a 429 with no code starts nothing', async () => {
+test('#5744 2b: member_key_reused gets one fresh key at the same epoch; the registration cap starts nothing', async () => {
   const c = fakeCoordinator();
   const run = async (refusal) => {
     loseTheKey();
@@ -184,7 +184,7 @@ test('#5744 2b: member_key_reused gets one fresh key at the same epoch; a 429 wi
   assert.equal(reused.r.ok, false);
   assert.deepEqual(reused.sent.map((b) => b.epoch), [1, 1], 'a new epoch, or more than one fresh key');
   assert.notEqual(reused.sent[0].member_public, reused.sent[1].member_public, 'the reused key was sent again');
-  const limited = await run({ status: 429, code: null, currentEpoch: null });
+  const limited = await run({ status: 429, code: 'rate_limited', currentEpoch: null });   // the registration cap
   assert.equal(limited.r.ok, false);
   assert.deepEqual(limited.sent.map((b) => b.epoch), [1]);
 });
