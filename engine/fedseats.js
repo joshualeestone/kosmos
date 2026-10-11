@@ -637,7 +637,14 @@ function afterRemove(projectId) {
   const s = seats.get(projectId);
   // Kept until the next remove: once a later check succeeds, checkedBeforeRemove is false again. With no
   // seat there is nowhere to keep it; the check below still runs (plan: Not covered).
-  if (s) { s.removedAt = Date.now(); s.removedMono = mono(); s.edgeAskedAt = 0; }
+  // Strictly after the previous remove's token, so an earlier remove's own check (token + 1) never
+  // counts as after this one on a timer too coarse to separate them.
+  if (s) {
+    const m = mono();
+    s.removedMono = typeof s.removedMono === 'bigint' && m <= s.removedMono + 1n ? s.removedMono + 1n : m;
+    s.removedAt = Date.now();
+    s.edgeAskedAt = 0;
+  }
   // An ordering token, not a measured time: this check is asked after the remove in program order,
   // whatever a coarse timer reads.
   const removedMono = s ? s.removedMono : undefined;   // this remove's moment, not a later remove's
