@@ -37894,8 +37894,18 @@ async function earlierMore() {
   if (EARLIER.session !== session || EARLIER.opening !== opening) return;
   EARLIER.loading = false;
   if (!r.ok) EARLIER.because = r.because;
-  else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; }
+  else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; convPause(); }   // old rows are not news to read aloud
   earlierRepaint();
+  if (!r.ok || !r.rows.length) return;
+  /* The person asked to see them: bring the first new row into view (a reader at the floor would otherwise stay
+     pinned to the newest, with the new rows off-screen above), and stop pinning until they scroll back down. */
+  const thread = document.getElementById('d-dmthread');
+  const first = thread && thread.querySelector('[data-at="' + CSS.escape(String(r.rows[0].at || '')) + '"]');
+  const rowEl = first && (first.closest('.msg') || first);
+  if (rowEl) { thread.__heldAtBottom = false; rowEl.scrollIntoView({ block: 'start' }); }
+  /* On the last page "Show earlier" goes: keep focus in the line, on Hide. */
+  const show = document.getElementById('d-talk-older-show');
+  if (show.hidden && (document.activeElement === show || document.activeElement === document.body)) document.getElementById('d-talk-older-hide').focus();
 }
 /* Messages at [end, olderCount) left the latest 200 while this was open: fetch them, newest pages first, and append. */
 async function earlierFillGap(session, olderCount) {
@@ -37908,12 +37918,13 @@ async function earlierFillGap(session, olderCount) {
     const r = await earlierFetch(session, before);
     if (EARLIER.session !== session || EARLIER.opening !== opening) return;
     if (!r.ok) { EARLIER.filling = false; return; }   // the next poll tries again
+    if (!r.rows.length) { EARLIER.filling = false; return; }   // nothing came back: leave `end`, the next poll retries
     const want = Math.min(before - from, r.rows.length);
     got.unshift(...r.rows.slice(r.rows.length - want));
-    if (!r.rows.length) break;
     before -= want;
   }
   EARLIER.rows = EARLIER.rows.concat(got); EARLIER.end = olderCount; EARLIER.filling = false;
+  convPause();
   earlierRepaint();
 }
 /* The line under the thread: how many older messages are kept, and the way to them. Two STATIC buttons, toggled and
@@ -37955,6 +37966,7 @@ document.addEventListener('click', (e) => {
   if (!session || !thread.__lastBody) return;
   if (t.id === 'd-talk-older-hide') {
     earlierReset(session);
+    convPause();
     earlierRepaint();
     const show = document.getElementById('d-talk-older-show');
     if (!show.hidden) show.focus();   // the pressed button went: focus the way back in
@@ -37972,10 +37984,11 @@ document.addEventListener('click', (e) => {
 
 function paintTalkThread(body, name) {
   /* kosmos#5841: the earlier rows, when open for the agent on screen, come first, in the same paint. */
-  const earlierRows = CURRENT && earlierOn(CURRENT.sessionName) ? EARLIER.rows : [];
-  const allRows = earlierRows.length
-    ? earlierRows.concat(Array.isArray(body.messages) ? body.messages : [])
-    : (Array.isArray(body.messages) ? body.messages : []);
+  /* Only over a READABLE tail: when the latest read failed, the thread says so (the branches below key on an empty
+     allRows), rather than showing old rows over a failure it hides (review 4). */
+  const tailRows = Array.isArray(body.messages) ? body.messages : [];
+  const earlierRows = CURRENT && earlierOn(CURRENT.sessionName) && Array.isArray(body.messages) ? EARLIER.rows : [];
+  const allRows = earlierRows.length ? earlierRows.concat(tailRows) : tailRows;
   /* #4256: the rows by `at` and the reply strip, for the agent this paint is for, before any branch below can
      return: an empty or unreadable thread must not keep another agent's "Replying to" strip. The first row
      with an `at` wins, as the server's lookup does. */
@@ -38005,7 +38018,7 @@ function paintTalkThread(body, name) {
      that is genuinely mid-task the moment you open its dialog. */
   const dmSession = CURRENT && CURRENT.sessionName;
   const seededThread = dmSession ? DM_SPOKE_SEEDED.has(dmSession) : false;
-  for (const m of dmSession ? allRows : []) {
+  for (const m of dmSession ? tailRows : []) {   // kosmos#5841: the latest only; an old earlier row is not a reply learned now
     if (!m || m.from !== dmSession || !m.at) continue;
     if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
     const at = Date.parse(m.at);
@@ -38585,6 +38598,8 @@ async function paintTalk(sessionName, agentName) {
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
   thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
+  /* kosmos#5841: a thread that SHRANK below the earlier rows' end (a file set aside) would duplicate them: close. */
+  if (earlierOn(sessionName) && (Number(body.olderCount) || 0) < EARLIER.end) earlierReset(sessionName);
   paintTalkThread(body, name);
 
   paintOlderLine(body, sessionName);
@@ -65892,6 +65907,9 @@ async function dmRxnToggle(forAgent, box, emoji) {
     if (!CURRENT || CURRENT.sessionName !== forAgent || !res.ok) return;
     const body = await res.json();
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
+    /* kosmos#5841: an earlier row is a kept snapshot (the poll refreshes only the latest), so the answer goes there too,
+       or the next rewrite would draw the row from before this reaction. */
+    if (earlierOn(forAgent)) { const er = EARLIER.rows.find((r) => r && r.at === at); if (er) er.reactions = Array.isArray(body.reactions) ? body.reactions : []; }
   } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
 }
 document.getElementById('d-dmthread').addEventListener('click', async (e) => {

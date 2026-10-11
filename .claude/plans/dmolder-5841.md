@@ -75,3 +75,27 @@ search, styling. Gone: the separate box, its CSS extensions, the read-only conve
   read fails), and the `opening` counter (a stale answer is dropped).
 - Review 1's "search does not filter the earlier section" is moot: they are thread rows now.
 - Browser check rewritten for the new shape: 16 PASS, with a CONTROL, the gap arm, a failing-read switch and focus.
+
+## Review 4 (sonnet)
+- **BLOCKER (mine):** the redesign restored `web/index.html` from a NEWER main than the branch base, so it carried
+  #5836's task wording as if it were mine. I merged origin/main, and the diff against main now holds only this card's
+  files.
+- **Fixed:**
+  - Read-aloud no longer speaks an old message when earlier rows arrive: `convPause` runs in More, the gap fill and
+    Hide.
+  - A reaction on an earlier row is written into `EARLIER.rows`, so a rewrite keeps it.
+  - "Show earlier" scrolls the first new row into view and stops pinning to the bottom.
+  - When the LATEST read fails, the earlier rows are not drawn, so the failure note shows.
+  - A gap fill that gets nothing back leaves `end` alone.
+  - A thread that shrinks below `end` closes the earlier rows, so nothing doubles.
+  - On the last page focus goes to Hide.
+  - "Agent spoke" now reads the latest rows only.
+- **Mutants run against the redesign:**
+  - With no gap fill, the gap arm went red.
+  - With no reset at the top of paintTalk, only the come-back arm went red. Isolation is STRUCTURAL now: `earlierOn`
+    draws earlier rows only for their own agent.
+  - With both `earlierOn`'s session check and the reset removed, the "another agent ... only its own rows" arm went
+    red. So the browser check does catch a cross-agent leak.
+- **Not covered by the browser check, said plainly:** the read-aloud pause, the scroll into view, and the reaction
+  kept in a snapshot. The harness's 5-row thread does not scroll, and read-aloud needs the conversation feature on.
+  Each is a few lines and was read by review, not measured.

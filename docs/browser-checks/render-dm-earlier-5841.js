@@ -144,11 +144,31 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' }
     await open('april', 'April'); await settle();
     await page.click('#d-talk-older-show'); await settle();
     s = await state();
-    chk(s.rows.length === 5, 'premise: april\'s earlier rows are showing', JSON.stringify(s));
+    chk(s.rows.length === 5, 'coming back to an agent starts it closed, so one press shows one page (2 earlier + the latest 3)', JSON.stringify(s));
     await page.evaluate(() => { window.__failThread = 'mona'; });
     await open('mona', 'Mona'); await settle();
     s = await state();
     chk(!s.rows.some((r) => /^m\d+$/.test(r)) && !s.hide, 'switching to an agent whose read fails shows none of the other agent\'s rows', JSON.stringify(s));
+
+    // April's OWN latest read fails while her earlier rows are open: the failure shows, not old rows over it.
+    await page.evaluate(() => { window.__failThread = null; });
+    await open('april', 'April'); await settle();
+    await page.click('#d-talk-older-show'); await settle();
+    await page.evaluate(() => { window.__failThread = 'april'; });
+    await open('april', 'April'); await settle();
+    s = await state();
+    const note = await page.evaluate(() => document.getElementById('d-dmthread').textContent.trim());
+    chk(s.rows.length === 0 && note.length > 0, 'when the latest read fails while earlier rows are open, the thread shows the failure, not old rows', JSON.stringify({ rows: s.rows, note: note.slice(0, 80) }));
+    await page.evaluate(() => { window.__failThread = null; });
+
+    // The thread SHRINKS below the earlier rows' end (a file set aside): the earlier rows close, nothing doubles.
+    await open('april', 'April'); await settle();
+    await page.click('#d-talk-older-show'); await settle();
+    await setAll('april', 4);
+    await open('april', 'April'); await settle();
+    s = await state();
+    chk(s.rows.join(',') === 'm1,m2,m3' && !s.hide, 'a thread that shrinks below the earlier rows closes them (no duplicate rows)', JSON.stringify(s));
+    await setAll('april', 10, { 4: { replyTo: at(3) } });
 
     // Hide then Show while a page loads draws it once.
     await page.evaluate(() => { window.__failThread = null; window.__olderDelay = 400; });
