@@ -566,22 +566,27 @@ test('#5752 slice 3: pressing Add adds that agent, repaints the room from what i
   assert.doesNotMatch(addRule[0], /nowrap/);
 });
 
-test('#5800: the CURRENT hold\'s band says who can end it and offers Reopen; an older band and an open room do not', () => {
+test('#5800: a held room ends with one notice beside the composer (why, who can end it, Reopen); an open room has none', () => {
   const scope = pageScope();
   scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
   const because = 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.';
-  const old = { kind: 'valve', project: 'proj-1', because, at: ago(240) };
-  const now = { kind: 'valve', project: 'proj-1', because, at: ago(3) };
-  const until = new Date(Date.parse(now.at) + 60 * 60 * 1000).toISOString();
-  scope.paintRoom({ ok: true, rows: [old, now], held: { at: now.at, because, until } });
+  const band = { kind: 'valve', project: 'proj-1', because, at: ago(90) };
+  const later = { kind: 'post', operator: false, from: 'rick', at: ago(2), outcomes: {}, text: 'still going' };
+  const until = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+  scope.paintRoom({ ok: true, rows: [band, later], held: { at: band.at, because, until } });
   const html = scope.written['pj-room'];
-  assert.equal((html.match(/data-reopen-room/g) || []).length, 1, 'exactly the current band offers Reopen: ' + html);
-  assert.ok(html.lastIndexOf('bring you in') < html.indexOf('data-reopen-room'), 'the button sits on the newer band, not the older one');
-  assert.match(html, /Your agents' posts are on hold\. To let them through now, post something yourself or reopen the room\. Otherwise it should lift on its own by /);
+  assert.equal((html.match(/data-reopen-room/g) || []).length, 1, 'exactly one Reopen: ' + html);
+  assert.ok(html.indexOf('still going') < html.indexOf('data-reopen-room'), 'the notice is not below the newest post, where the person is');
+  assert.ok(html.indexOf('bring you in') < html.indexOf('still going'), 'the old band moved: it stays a record in its place');
+  assert.match(html, /This room is on hold because it went back and forth without landing\. Your agents' posts are on hold\. To let them through now, post something yourself or reopen the room\. Otherwise it should lift on its own by /);
   assert.match(html, />Reopen the room<\/button>/);
 
-  scope.paintRoom({ ok: true, rows: [old, now] });
-  assert.doesNotMatch(scope.written['pj-room'], /data-reopen-room|step in/, 'CONTROL: with no held in the read, no band offers Reopen');
+  scope.paintRoom({ ok: true, rows: [band, later], held: { at: band.at, because, until: null } });
+  assert.doesNotMatch(scope.written['pj-room'], /should lift/, 'no until: no time promised');
+  assert.match(scope.written['pj-room'], /data-reopen-room/, 'CONTROL: still held, still the button');
+
+  scope.paintRoom({ ok: true, rows: [band, later] });
+  assert.doesNotMatch(scope.written['pj-room'], /data-reopen-room|on hold/, 'CONTROL: with no held in the read, no notice');
 });
 
 test('#5800: Reopen posts the release for the room it was pressed in, then rereads it; a refusal says why and re-arms', async () => {

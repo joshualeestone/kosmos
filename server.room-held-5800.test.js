@@ -176,6 +176,8 @@ test('#5800 engine: a valve that did not stop the room (limit off when it fired)
   assert.equal(messages.roomHeld('heldD', now), null);
   valve('heldD', now - 5 * MIN, true);
   assert.ok(messages.roomHeld('heldD', now), 'CONTROL: a stopping valve in the same room reads held');
+  valve('heldD', now - 2 * MIN, false);
+  assert.equal(messages.roomHeld('heldD', now), null, 'a later row saying the valve did not stop the room was ignored');
 });
 
 async function room(id, asText) {
@@ -199,7 +201,7 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
   assert.ok(j.json.held && typeof j.json.held.until === 'string', 'the held room\'s JSON has no held: ' + j.text.slice(0, 300));
   const t = await room(p.id, true);
   const first = t.text.split('\n')[0];
-  assert.match(first, /^\[kosmos\] This room is on hold: .* A post from you now will most likely be refused\. Only your person can lift the hold, by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\.$/,
+  assert.match(first, /^\[kosmos\] This room is on hold: .* A post from you now will most likely be refused\. Your person can lift the hold now by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\.$/,
     'the hold line is not the first line of the text view: ' + t.text.slice(0, 400));
   assert.doesNotMatch(first, /bring you in/, 'the agents\' line reused the sentence written to the person');
 

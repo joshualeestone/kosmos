@@ -2911,8 +2911,7 @@ function reopenRoom(project, at) {
    arrival per member it reaches); a member switched off or added since changes it. `until` is when enough of the
    counted posts age out for such a post to land, counting only steps already taken, so further work moving can end
    the hold sooner; null when one post alone is over the budget (only the person can end that hold).
-   Returns { at, because, until } (at and because are the latest stopping valve row's, which the page matches its band
-   on) or null. The allowance reads task and file times, so it is read only for a room already over its plain budget.
+   Returns { at, because, until } (at and because are the latest valve row's, which must be a stopping one) or null. The allowance reads task and file times, so it is read only for a room already over its plain budget.
    An unreadable record reads as not held: this is a screen hint, never a gate. */
 function roomHeld(project, now) {
   const projectId = String(project == null ? '' : project);
@@ -2931,19 +2930,19 @@ function roomHeld(project, now) {
     }
   }
   const countFrom = Math.max(at - lim.windowMs, lastOperatorAt);
-  let hold = null;
+  let hold = null;          // the latest valve row since the person's last post or reopen, stopping or not
   const counted = [];
   for (const m of rec.rows) {
     if (!m || m.project !== projectId) continue;
     const t = Date.parse(m.at);
     if (!Number.isFinite(t) || t > at) continue;
-    if (m.kind === 'valve' && m.stopped !== false && t > lastOperatorAt && (!hold || t >= hold.t)) {
-      hold = { t, at: m.at, because: m.because || null };
+    if (m.kind === 'valve' && t > lastOperatorAt && (!hold || t >= hold.t)) {
+      hold = { t, at: m.at, because: m.because || null, stopped: m.stopped !== false };
     } else if (m.kind === 'post' && !m.operator && t >= countFrom) {
       counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
     }
   }
-  if (!hold) return null;
+  if (!hold || !hold.stopped) return null;   // a later row the limit-off valve wrote says it did not stop the room
   counted.sort((a, b) => a.t - b.t);
   const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
   let arrivals = counted.reduce((n, c) => n + c.n, 0);

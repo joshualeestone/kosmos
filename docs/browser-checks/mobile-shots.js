@@ -1160,7 +1160,8 @@ const SCREENS = [
     fs.writeFileSync(file, kept.join('\n'));
     data.refusedLine = null;
   } },
-  /* kosmos#5800 (Angel): the loop guard is holding the room, and its band says who can end it with a Reopen button.
+  /* kosmos#5800 (Angel): the loop guard is holding the room, and the notice at the foot of the room says who can end it,
+     with a Reopen button.
      A hold is a valve row plus agent posts filling the room's budget (engine/messages.js roomHeld), so both are
      appended in the shapes sendPost writes, and `after` takes exactly those lines out again, as the #5752 screen
      above does. */

@@ -7722,7 +7722,6 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    it ("…bring you in.2 minutes ago"). Pack value, measured (FROZEN-2026-08-18c). */
 .msg-valve .msg-t { margin-left: .5em; }
 /* kosmos#5752 slice 3: the add on a refused band, on its own line, dressed as the room notice's Try again (.pnotice .qopt). */
-.msg-valve .pj-held-why { margin-top: 6px; }   /* #5800: who can end the hold, under the band's sentence */
 .msg-valve .pj-refused-act { display: flex; align-items: center; gap: .6em; flex-wrap: wrap; margin-top: 6px; }
 .msg-valve .pj-refused-add { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
   border: 1px solid var(--k-rule); border-radius: 8px; padding: .4em .9em; cursor: pointer; max-width: 100%; text-align: left; }
@@ -66219,20 +66218,19 @@ let PJ_ROOM_POSTS_OF = null;   // which project PJ_ROOM_POSTS was painted for
 let PJ_ROOM_PARTIAL = false;   // the last room read could not read everything (ok:false)
 /* #5800: the hold the last room read reported (body.held: { at, because, until }), or null when the room is open. */
 let PJ_ROOM_HELD = null;
-/* #5800: on the band of the hold that is still on, say who can end it and how, and give the person the button. A
-   room hold used to be a sentence in the scrollback with no way out on the screen: the release (#2710) was only on
-   the command line, and the band did not say that posting here also ends it. Only the CURRENT hold's band gets
-   this (matched on its time); an older band in the scrollback stays a record. */
-function pjHeldAct(m) {
-  const held = typeof PJ_ROOM_HELD !== 'undefined' ? PJ_ROOM_HELD : null;
-  if (!held || !m || m.kind !== 'valve' || m.at !== held.at) return '';
+/* #5800: while the room is held, one notice at the foot of the room, beside the composer: why, who can end it and
+   how, and the Reopen button. A room hold used to be only a sentence in the scrollback (its band can be an hour up the
+   room) with no way out on the screen: the release (#2710) was only on the command line, and nothing said that
+   posting here also ends it. The bands in the scrollback stay a record. */
+function pjHeldNotice(held) {
+  if (!held) return '';
   const until = new Date(held.until || '');
   const by = Number.isNaN(until.getTime()) ? ''
     : ' Otherwise it should lift on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
-  return '<div class="pj-held-why">Your agents\' posts are on hold. To let them through now, post something yourself or reopen the room.'
-    + esc(by) + '</div>'
+  return '<div class="msg-valve pj-held">This room is on hold because it went back and forth without landing. '
+    + 'Your agents\' posts are on hold. To let them through now, post something yourself or reopen the room.' + esc(by)
     + '<div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="1">Reopen the room</button>'
-    + '<span class="pj-refused-msg" role="status"></span></div>';
+    + '<span class="pj-refused-msg" role="status"></span></div></div>';
 }
 let PJ_JUMP_FOCUS = null;      // the post a jump focused, so a repaint can put focus back on it
 const PJ_HIDDEN_BY_SEARCH = 'That message is hidden by your search.';   // said by the jump, cleared by the search
@@ -68054,7 +68052,7 @@ function pjRoomRow(m, p, hideHeader) {
        margin never hangs as a trailing gap on an empty inline. */
     const when = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(m.because || PJ_VALVE_FALLBACK)
-      + (when ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + pjHeldAct(m) + '</div>';
+      + (when ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   const isOp = m.operator === true;
   /* #4423: a former member (a post from before it left) is found on the board's cards too, so its photo shows
@@ -68477,7 +68475,7 @@ function paintRoom(body) {
         : (p.sharedRoom === true
           ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and it shows in this room on the other computer too, where its agents read it.</p>'
           : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>')));
-  const html = note + (rows || empty);
+  const html = note + (rows || empty) + pjHeldNotice(PJ_ROOM_HELD);   // #5800
   /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
      the floor is a fact about the DOM as it stands right now, and the markup is
      about to be replaced. holdFloorOnResize keeps a flag for the resize case,
