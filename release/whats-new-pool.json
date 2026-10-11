@@ -227,6 +227,44 @@
       "rank": 12.5,
       "since": "0.7.39",
       "status": "pending"
+    },
+    {
+      "title": "Messages wait for an agent out of usage",
+      "line": "When a Claude agent is out of usage, Kosmos holds messages sent to it until the limit resets, and its card says when that should be.",
+      "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 2,
+      "since": "0.7.40",
+      "status": "pending"
+    },
+    {
+      "title": "See which agent changed a file",
+      "line": "A project's Files page shows which Claude agent changed a file last.",
+      "icon": "list",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 11.6,
+      "since": "0.7.40",
+      "status": "pending"
+    },
+    {
+      "title": "A paused room says why",
+      "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen.",
+      "icon": "swarm",
+      "rank": 11.8,
+      "since": "0.7.40",
+      "status": "pending"
+    },
+    {
+      "title": "Join a company with its code",
+      "line": "Settings, Kosmos+, Join Corporate Account takes your company's code and connects in one step.",
+      "icon": "shield",
+      "rank": 13.5,
+      "since": "0.7.40",
+      "status": "pending"
     }
   ]
 }

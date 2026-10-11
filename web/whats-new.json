@@ -1,6 +1,14 @@
 {
-  "version": "0.7.39",
+  "version": "0.7.40",
   "highlights": [
+    {
+      "icon": "chat",
+      "title": "Messages wait for an agent out of usage",
+      "line": "When a Claude agent is out of usage, Kosmos holds messages sent to it until the limit resets, and its card says when that should be.",
+      "platforms": [
+        "mac"
+      ]
+    },
     {
       "icon": "chat",
       "title": "Pick the language your agents write in",
@@ -23,11 +31,6 @@
       "icon": "list",
       "title": "A project shows an agent it stopped",
       "line": "When an agent not on a project tries to change its tasks, the project's room says so, with a button to add that agent when it can."
-    },
-    {
-      "icon": "list",
-      "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed."
     }
   ]
 }
