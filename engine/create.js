@@ -4045,6 +4045,22 @@ function createdLog() {
   }).filter((e) => e && typeof e === 'object');
 }
 
+/* #4475 / kosmos#5208: the newest `created` or `partial` birth line per board name, from a birth log as createdLog reads
+   it. A line is keyed by the board name its create acted on (`slug`, recorded since #4475), else by the slug of its
+   typed name; a later line for the same name replaces an earlier one. ONE rule, read by server.js agentBirthOf (the
+   token-only removal check) and by sendertoken's prune of ended-agents.jsonl, so the prune can never keep less than
+   the check reads. */
+function newestBirthBySlug(births) {
+  const out = new Map();
+  for (const b of Array.isArray(births) ? births : []) {
+    if (!b || (b.outcome !== 'created' && b.outcome !== 'partial') || !b.name) continue;
+    let slug = (typeof b.slug === 'string' && b.slug) ? b.slug : null;
+    if (!slug) { try { slug = slugFor(b.name); } catch { slug = String(b.name); } }
+    out.set(slug, b);
+  }
+  return out;
+}
+
 /* #3038: the MONOTONIC count of agents this install has ever CREATED, for the
    created beacon. The homepage "agents created" number must grow with CREATIONS,
    not track the live RUNNING roster (safeRoster) -- the old beacon sent the
@@ -6392,7 +6408,7 @@ module.exports = {
   setProbePlatformForTests,
   probePlatform,
   selfStartsSentence,
-  createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
+  createdLog, createdLogFile, newestBirthBySlug, createdCount, disabledJobs, disabledJobsResult, runningJobs,
 
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
      whitespace and periods to hyphens — it is a converter, not a gate — so

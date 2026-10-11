@@ -273,16 +273,96 @@ function othersTokens(held, sessionName) {
    creator re-issued its name keeps what it made. The births it is compared with record the board name each create
    acted on (`slug`), so a name here and a birth there are the same spelling. */
 function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
+function appendEnded(sessionName) {
+  fs.mkdirSync(path.dirname(endedLogFile()), { recursive: true });
+  // A leading newline too, so a line torn by an earlier failed write ends there and does not swallow this one.
+  fs.appendFileSync(endedLogFile(), '\n' + JSON.stringify({ name: String(sessionName), at: new Date().toISOString() }) + '\n', 'utf8');
+}
+/* kosmos#5208: the append runs under a lock on the file, and so does pruneEnded, so a prune never rewrites the file
+   from a read that misses a line appended meanwhile. If the lock cannot be had, the line is appended anyway, unlocked,
+   and nothing is pruned: losing an end is the dangerous direction (the removal check would then allow), an unpruned
+   file is not. */
 function noteEnded(sessionName) {
   try {
-    fs.mkdirSync(path.dirname(endedLogFile()), { recursive: true });
-    // A leading newline too, so a line torn by an earlier failed write ends there and does not swallow this one.
-    fs.appendFileSync(endedLogFile(), '\n' + JSON.stringify({ name: String(sessionName), at: new Date().toISOString() }) + '\n', 'utf8');
+    const held = withFileLock(endedLogFile(), () => { appendEnded(sessionName); pruneEnded(); }, {
+      busy: 'the history of ended agents is busy', cannotAccess: 'we could not lock the history of ended agents',
+    });
+    if (!held.ok) appendEnded(sessionName);
     return true;
   } catch (e) {
     console.error('#4475: could not add ' + sessionName + ' to the history of ended agents (' + ((e && e.message) || 'threw') + ')');
     return false;
   }
+}
+
+/* kosmos#5208: bound ended-agents.jsonl. endedSince's only caller, the token-only removal check (server.js
+   tokenOnlyRemoveRefusal), compares a line with the NEWEST birth of the target's name, and only when that birth was
+   made by an agent (`created` with `createdByName`): the target from after its `at`, the creator from its `askedAt`
+   on (inclusive). A birth written later is stamped later than every line already here. So a line strictly older than
+   every such newest birth's `askedAt` and `at` can never change an answer, and it is dropped once it is also older
+   than ENDED_KEEP_MS (the floor covers a clock that went back and a create still in flight, whose `askedAt` predates
+   its birth line). A removed agent's birth still counts: its removal line is what keeps ownership from coming back
+   on restore. Anything it cannot read whole makes it prune nothing. */
+const ENDED_PRUNE_AT_BYTES = 256 * 1024;
+const ENDED_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+/* The cutoff (an ISO time; lines strictly older are droppable), or null to prune nothing. birthsRaw: the birth log's
+   text, '' when it does not exist. */
+function endedPruneCutoff(birthsRaw, nowMs) {
+  if (typeof birthsRaw !== 'string' || !Number.isFinite(nowMs)) return null;
+  const create = require('./create');   // lazy: create.js requires this file
+  // Read as createdLog reads it (a line that does not parse is skipped), so this sees exactly the births the check does.
+  const births = birthsRaw.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter((e) => e && typeof e === 'object');
+  let cutoff = new Date(nowMs - ENDED_KEEP_MS).toISOString();
+  for (const b of create.newestBirthBySlug(births).values()) {
+    if (b.outcome !== 'created' || typeof b.createdByName !== 'string' || !b.createdByName) continue;   // never compared
+    for (const t of [b.askedAt, b.at]) {
+      if (typeof t !== 'string' || !ISO_MS.test(t)) return null;   // a time we cannot order: keep everything
+      if (t < cutoff) cutoff = t;
+    }
+  }
+  return cutoff;
+}
+/* The history with the lines older than `cutoff` dropped, or null when any line cannot be read whole (endedSince
+   refuses on such a line, and dropping it would turn that refusal into an answer). */
+function pruneEndedText(raw, cutoff) {
+  if (typeof raw !== 'string' || typeof cutoff !== 'string' || !ISO_MS.test(cutoff)) return null;
+  const kept = [];
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    let r; try { r = JSON.parse(line); } catch { return null; }
+    if (!r || typeof r.name !== 'string' || typeof r.at !== 'string' || !ISO_MS.test(r.at)) return null;
+    if (r.at >= cutoff) kept.push(line);   // at the cutoff is kept: the creator check counts an end AT askedAt
+  }
+  return kept.length ? '\n' + kept.join('\n') + '\n' : '';
+}
+/* Prune when the file has grown past `atBytes`. Called under the file's lock (noteEnded). The new text is written to a
+   temp file beside it and renamed over it, so endedSince, which reads without the lock, sees the old file or the new
+   one whole, never a truncated or missing one. Returns how many bytes it dropped, 0 when it pruned nothing. */
+function pruneEnded(opts = {}) {
+  try {
+    const file = endedLogFile();
+    const atBytes = Number.isFinite(opts.atBytes) ? opts.atBytes : ENDED_PRUNE_AT_BYTES;
+    let st; try { st = fs.statSync(file); } catch { return 0; }
+    if (st.size <= atBytes) return 0;
+    let births;
+    try { births = fs.readFileSync(require('./create').createdLogFile(), 'utf8'); }
+    catch (e) { if (e && e.code === 'ENOENT') births = ''; else return 0; }
+    const cutoff = endedPruneCutoff(births, Number.isFinite(opts.now) ? opts.now : Date.now());
+    if (!cutoff) return 0;
+    const raw = fs.readFileSync(file, 'utf8');
+    const next = pruneEndedText(raw, cutoff);
+    if (next === null || next.length >= raw.length) return 0;
+    const tmp = file + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
+    try {
+      fs.writeFileSync(tmp, next, { encoding: 'utf8', mode: st.mode & 0o777 });
+      fs.renameSync(tmp, file);
+    } catch (e) {
+      try { fs.unlinkSync(tmp); } catch { /* nothing to tidy */ }
+      return 0;
+    }
+    return raw.length - next.length;
+  } catch { return 0; }
 }
 /* Did an agent whose name matches any of `names` (by slug, both sides) end AFTER `sinceIso` (or at it, when
    `inclusive`)? true, false, or null when the history cannot be read (a missing file is none). Loose on purpose: a
@@ -716,5 +796,6 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, revokeIfUnchanged, retire, endedSince, endedLogFile, holdsTokens, keyHoldsOthers, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
+  mint, revoke, revokeIfUnchanged, retire, endedSince, endedLogFile, pruneEnded, endedPruneCutoff, pruneEndedText,
+  ENDED_PRUNE_AT_BYTES, ENDED_KEEP_MS, holdsTokens, keyHoldsOthers, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
   NO_MATCH };   // #5333: exported so the CLIs' recovery hint is pinned to the one sentence (cli.token-refused-5333.test.js)
