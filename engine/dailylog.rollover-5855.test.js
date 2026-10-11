@@ -4,7 +4,7 @@
  * the thread file; the fresh thread file names it in `continues`). On either sign it refuses the run: nothing
  * written, nothing pruned, and it says why.
  *
- *   node --test engine/dailylog.rollover-5855.test.js
+ *   tools/run-tests.sh --only engine/dailylog.rollover-5855.test.js
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -54,7 +54,7 @@ function rolledOver(label, asideName, opts = {}) {
 }
 const dayFiles = (outDir) => fs.readdirSync(outDir).filter((n) => n.endsWith('.md')).sort();
 
-test('isRolledOverFileName: any thread file\'s name, a dot, and .full at the end (a superset of what chat.js follows)', () => {
+test('isRolledOverFileName: any thread file\'s name, a dot, and .full at the end', () => {
   // the last two are names chat.js never writes but WOULD follow, so a renamed or restored file must count here too
   for (const yes of [ASIDE, 'proj1.3-slug.json.20261011T180000Z.1.2.full', 'direct..p.json.20261011T180000Z.4242.1791741600000.2.full', 'direct..p.json.full', 'direct..p.json.x.superseded.full']) {
     assert.equal(dl.isRolledOverFileName(yes), true, yes);
@@ -103,7 +103,7 @@ test('without a rolled-over file the summary says so: not refused, none counted'
   assert.deepEqual(Object.keys(dl.readConversations(path.join(SANDBOX, 'no-such-folder'))).sort(), Object.keys(dl.readConversations(chatsDir)).sort());
 });
 
-test('a FOLDER with such a name is not a rolled-over file (chat.js could not follow it), and does not refuse the run', () => {
+test('a FOLDER with such a name is not a rolled-over file, and does not refuse the run', () => {
   const chatsDir = path.join(SANDBOX, 'chats-folder');
   const outDir = path.join(SANDBOX, 'daily-folder');
   fs.mkdirSync(path.join(chatsDir, 'direct..q.json.a.full'), { recursive: true });
@@ -120,6 +120,7 @@ test('with a rolled-over file present the run is refused: nothing written, nothi
   assert.equal(s.refused, 'rolled-over');
   assert.equal(s.rolledOver, 1);
   assert.equal(s.continued, 1);
+  assert.deepEqual(s.signs.slice().sort(), [ASIDE, 'direct..p.json'].sort(), 'the files behind the two counts are named');
   assert.deepEqual(s.written, []);
   assert.deepEqual(s.pruned, []);
   assert.equal(s.days, 0);
@@ -171,13 +172,13 @@ test('a fresh file that names an earlier one but is itself damaged still refuses
   }
 });
 
-test('a rolled-over name this compiler cannot look at (a link to nowhere) is counted, the safe way', () => {
+test('a rolled-over name this compiler cannot look at (a link to nowhere) is counted, the safe way', (t) => {
   const chatsDir = path.join(SANDBOX, 'chats-dangling');
   fs.mkdirSync(chatsDir, { recursive: true });
   fs.writeFileSync(path.join(chatsDir, 'direct..p.json'), JSON.stringify({ messages: [WHOLE[0]] }));
   let linked = true;
   try { fs.symlinkSync(path.join(chatsDir, 'no-such-target'), path.join(chatsDir, ASIDE)); } catch { linked = false; }
-  if (!linked) return;   // a filesystem or account that cannot make a symlink has no such state to test
+  if (!linked) { t.skip('this filesystem or account cannot make a symlink, so there is no such state to test'); return; }
   const s = dl.compileAll({ chatsDir, outDir: path.join(SANDBOX, 'daily-dangling'), dayOf, timeOf });
   assert.equal(s.refused, 'rolled-over');
   assert.equal(s.rolledOver, 1);
@@ -234,8 +235,10 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  assert.match(no.stderr, /dailylog: not compiled\. A conversation in the chats folder has its earlier part kept in a separate file/);
-  assert.match(no.stderr, /Nothing was written or removed/);
+  assert.match(no.stderr, /^dailylog: not compiled\. Nothing was written or removed/);
+  assert.match(no.stderr, /no\s+version of it can yet/, 'the message promises a version that does not exist');
+  assert.ok(no.stderr.includes('The files it stopped at:\n  ' + ASIDE + '\n'), 'the file that caused the refusal is not named: ' + no.stderr);
+  assert.match(no.stderr, /move it out of the chats folder and run this again/);
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
   const other = path.join(SANDBOX, 'elsewhere');
@@ -243,9 +246,12 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.equal(day.status, 3);
   assert.equal(day.stdout, '');
   assert.equal(day.stderr, no.stderr, 'a targeted run was refused in different words');
-  assert.ok(!fs.existsSync(other), 'a refused run created its output folder');
-  assert.match(no.stderr, /It needs a version of Kosmos that can read it\./);
-  assert.match(no.stderr, /what was seen: 1 file\(s\) named as an earlier part \(ending \.full\), 0 conversation file\(s\) that name one\./);
+  // more files than the message lists: the rest are counted, not dropped silently
+  for (let i = 0; i < 12; i += 1) fs.writeFileSync(path.join(chatsDir, 'proj1.k' + i + '.json.x.full'), '{}');
+  const many = run();
+  assert.equal(many.status, 3);
+  assert.equal(many.stderr.split('\n').filter((l) => /^  \S+\.full$/.test(l)).length, 10);
+  assert.match(many.stderr, /^  and 3 more$/m);
 });
 
 test('pin (convention 5): where chat.js puts an aside, and, once the rollover is in the tree, the signs it writes and follows', () => {
