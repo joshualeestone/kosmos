@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomhold-5800
-diff_hash: 713801786c53ea12f6c4a170c7dd6f27a93b1b36ea35a373ead4e7b6f980e48f
-validation: pending (PR CI green on the node suite at b59f2b044, rerunning on later heads; focused runs after iterations 10-12: tools.mobile-shots-desktop, browser-checks-reason-grep, cli.sandbox-data-4796, fixture-discipline, no-brand-refs-1881, no-name-refs-3071: 50 pass, 0 fail. Earlier: full suite not run locally: Agent1s busy and Splinter asked for no new suites there at 20:32; the Mortals run gave up after 2700 s waiting behind release 0.7.39 and ran no tests. The PR's GitHub CI runs the full suite and the merge waits on it. Focused: 641 pass, 0 fail.)
+diff_hash: 23e71adadec746a150de0261883edebbb7afe7325acd35a56710c136386a2c70
+validation: pending (focused after iteration 15: web.theme, web.post-receipt, server.room-held-5800, tools.mobile-shots-desktop, no-brand-refs-1881, no-name-refs-3071, fixture-discipline: 90 pass, 0 fail; surface gate passes locally. Before that: PR CI green on the node suite at b59f2b044, rerunning on later heads; focused runs after iterations 10-12: tools.mobile-shots-desktop, browser-checks-reason-grep, cli.sandbox-data-4796, fixture-discipline, no-brand-refs-1881, no-name-refs-3071: 50 pass, 0 fail. Earlier: full suite not run locally: Agent1s busy and Splinter asked for no new suites there at 20:32; the Mortals run gave up after 2700 s waiting behind release 0.7.39 and ran no tests. The PR's GitHub CI runs the full suite and the merge waits on it. Focused: 641 pass, 0 fail.)
 subdir_audit: passed
-timestamp: 2026-10-11T03:11:10Z
-iterations: 12
+timestamp: 2026-10-11T04:18:28Z
+iterations: 15
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 12
+**Iterations:** 15 (iteration 15 found nits only: converged)
 **Converged:** Yes, with a stated judgement: iteration 9 converged the product code; iterations 10 to 12 reviewed only the screenshot screen added after the first shots failed to show the strip (see below). Iteration 12's one WARNING was a stale README line, fixed in prose only (55def5e7c) with a comment wording NIT, and no fourth round was run on those two prose edits.
 **Total findings:** iterations 1-8: see their commits (the per-finding ledger for 1-8 was held in a session that was restarted at 20:08 CDT and is not recoverable in detail); iteration 9: 0 BLOCKERs, 3 WARNINGs (all DEFERRED, see below), 0 CONVENTIONs, 3 NITs
 **Fixed:** iterations 1-8, in the commits listed below | **Deferred (iteration 9):** 3 | **Asked (awaiting user):** 0
@@ -67,6 +67,35 @@ The plan's Decision section records the design changes those rounds forced: held
 - [NIT] no accept-path test for overlay on this screen --> DEFERRED: the accept path boots a board; the by-hand control run is the evidence
 - [NIT] under the overlay, go throws and verify never runs, so verify's half is never seen red --> DEFERRED: verify calls the same function and throws on any non-empty answer
 - [NIT] heldReopenAt duplicates allow-card's inline whatIsAt --> DEFERRED: allow-card's is in a different screen's go; merging them changes a gate-run check outside this card
+
+#### Iteration 13 (product: the strip moves into the sticky composer, 2aaf14ee8)
+**Context:** the 23:07 re-shoot proved the strip renders, and comparing it with the first run showed the real defect: at the scroll a held room opens at, the sticky composer covered the strip. 2aaf14ee8 moved #pj-held inside .composer and made the screen shoot without scrolling.
+**Reviewer model:** opus (blind subagent)
+**New findings:** 0 BLOCKERs, 1 WARNING, 5 NITs
+- [WARNING] on a short window the full reason in the sticky composer leaves almost no thread --> FIXED 7407f76f7 (reason capped below 700px, scrolls inside itself; Reopen outside the scroll)
+- [NIT] dark themes: notice not aligned with the box's 12px margins --> FIXED 7407f76f7
+- [NIT] two stale comments on the old position --> FIXED 7407f76f7
+- [NIT] emoji panel also opens above the notice while held --> ACCEPTED (as the @ picker)
+- [NIT] "Replying to" strip stays outside the composer --> ACCEPTED (as before this branch)
+- [NIT] seen-check tests the button centre, not the notice's top --> ACCEPTED (sibling shape)
+
+#### Iteration 14
+**Reviewer model:** opus (blind subagent)
+**New findings:** 1 BLOCKER, 2 WARNINGs, 2 NITs
+- [BLOCKER] the dark margin was hand-edited into the generated forced-theme block in a shape tools/sync-forced-theme.js never writes; web.theme.test.js would fail --> FIXED 27b8cafe8 (source rule in generator shape, mirror regenerated, --check clean, web.theme passes)
+- [WARNING] max-height ignores a phone keyboard --> FIXED (also keyed on html.kosmos-keyboard-up)
+- [WARNING] scroll region not keyboard-scrollable in Safari --> FIXED (tabindex 0, role region, named)
+- [NIT] "three lines" is three and a half --> FIXED (comment)
+- [NIT] no test asserts the span or cap --> DEFERRED, see iteration 15
+- Surface gate trailers added for render-shell-noscroll-4872, render-plus-gutter-4542, render-plus-blue-1615, render-dm-chatfirst-718 (each: the rule touches only .pj-held-strip/.pj-held-why, which exist only in a held room)
+
+#### Iteration 15
+**Reviewer model:** opus (blind subagent)
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 3 NITs
+- [NIT] the keyboard-up cap also fires on a desktop window shrunk in height by 150px+ --> DEFERRED: harmless (a scrollable reason); the DM rules reading the same class are not width-gated either
+- [NIT] tabindex applies even when the reason is not capped (a tab stop that does nothing, inline outline) --> DEFERRED: one extra stop before Reopen; worth a follow-up with a :focus-visible rule
+- [NIT] no test asserts the cap, the keyboard-up rule or the region attributes --> DEFERRED: the cap is CSS that only a rendered check can see; the design shots at a short size are the place for it
+**Converged** - no new actionable findings.
 
 ### Final Ledger (iteration 9)
 
