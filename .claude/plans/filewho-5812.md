@@ -15,12 +15,13 @@ and neither knew. Ask: show who changed a project file last, and when.
 - engine/filewriters.js: `noteWrite(file, who, now)` records `{ agent, at }` for a file inside a project's folder, per
   project, keyed by the project-relative name (the listFiles name). Only project files are recorded; anything else an
   agent edits is not. One small JSON file per project under the store; entries older than 30 days pruned on write.
-- server.js `/api/undo/keep`: before undo.keep, resolve the agent with undo.ownerOf (exported) and note the write. A
-  token-only caller notes only for itself (the same narrowing undo.keep applies). It never changes the route's answer.
+- server.js `/api/undo/keep`: before undo.keep, note the write; for a file inside a project the agent is resolved with
+  undo.agentFor and a token-only caller is narrowed with undo.ownedBy (the two steps undo.keep now shares). It never
+  changes the route's answer.
 - `writerOf(record, modifiedIso)`: the agent is shown only when its record is at most 2 minutes before the file's last
   change and not more than 2 seconds after it. A change with no record that recent shows nobody.
-- The documents route annotates each row with `changedBy` (the agent's display name from the roster, or its session
-  name when the roster has no card for it).
+- The documents route annotates each row with `changedBy`: the agent's display name (status.readIdentity, read once
+  per agent per request; no roster snapshot on this per-poll route), or its session name.
 - The project's Files page shows "changed by <agent>" after the date when a row has one.
 
 ## Rejected
