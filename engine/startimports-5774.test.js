@@ -366,6 +366,7 @@ test('#5774 route 3 review 5: an @ just after any token edge is an import, cut w
     assert.ok(si.importsIn(line, f, '/h').includes(path.join(dir, want)), `${line}: ${JSON.stringify(si.importsIn(line, f, '/h'))}`);
   }
   assert.deepStrictEqual(si.importsIn('mail me@f.io or x@e.md', f, '/h'), [], 'a letter before the @ is not an edge');
+  assert.deepStrictEqual(si.importsIn('install `@playwright/mcp` first', f, '/h'), [], 'a backtick before the @ is never an edge');
   // Agent-written text cannot stall the guard: an unclosed comment opener repeated, and backtick runs of many lengths.
   let t0 = Date.now();
   si.proseOf('<!--'.repeat(40000));

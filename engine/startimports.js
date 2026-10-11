@@ -114,8 +114,10 @@ function importsIn(text, file, home) {
   const out = new Set();
   /* Review 5: Claude Code runs (?:^|\s)@ on each marked TEXT token, so an @ just after any token edge (inline HTML, a
      link's closing ), an image, an escape, an autolink) starts an import. Any character that is not a letter or digit
-     is taken as a possible edge: a superset, and an e-mail address (a letter before the @) still is not one. */
-  const re = /(?:^|[^A-Za-z0-9])@((?:[^\s\\]|\\ )+)/g;
+     is taken as a possible edge: a superset, and an e-mail address (a letter before the @) still is not one. A BACKTICK
+     never is: inside a code span in a paragraph the span is skipped, and in a list item's raw text the @ follows the
+     backtick, not a space (measured on this fleet: `@playwright/mcp` in a code span would otherwise be denied). */
+  const re = /(?:^|[^A-Za-z0-9`])@((?:[^\s\\]|\\ )+)/g;
   /* Review 3: the subset does not model list items, where Claude Code scans an item's RAW text (code spans and comments
      included), nor a fence that an item's end closes. So the raw text is scanned too, nothing stripped, and the union
      kept: any difference from the lexer now errs toward denying more, never less. */
