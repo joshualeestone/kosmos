@@ -61,14 +61,20 @@ function proseOf(text) {
 function importsIn(text, file, home) {
   const out = new Set();
   const re = /(?:^|[\s_])@((?:[^\s\\]|\\ )+)/g;
-  const prose = proseOf(text);
+  /* Review 3: the subset does not model list items, where Claude Code scans an item's RAW text (code spans and comments
+     included), nor a fence that an item's end closes. So the raw text is scanned too, nothing stripped, and the union
+     kept: any difference from the lexer now errs toward denying more, never less. */
+  const prose = proseOf(text) + '\n' + String(text);
   /* Review 1: resolved from the folder the file REALLY is in, as Claude Code does (it parses with the resolved path).
      The folder as given too, when it differs: under a linked folder both name one file, which the agent's tools can
      write by either spelling; for a linked FILE the given one is a different file nobody loads, a harmless extra. */
   const given = path.dirname(path.resolve(file));
   let real = given;
   try { real = path.dirname(fs.realpathSync.native(file)); } catch { /* as given */ }
-  const bases = real === given ? [real] : [real, given];
+  // Review 3: the folder as given only when the FILE is not itself a link (then it is a different file nobody loads).
+  let fileIsLink = false;
+  try { fileIsLink = fs.lstatSync(file).isSymbolicLink(); } catch { fileIsLink = false; }
+  const bases = real === given || fileIsLink ? [real] : [real, given];
   let m;
   while ((m = re.exec(prose)) !== null) {
     let p = m[1];

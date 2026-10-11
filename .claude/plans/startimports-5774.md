@@ -19,18 +19,20 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
   - each folder above the agent: CLAUDE.md, CLAUDE.local.md, AGENTS.md, .claude/CLAUDE.md, .claude/AGENTS.md and .claude/rules;
   - the agent's own folder, when it is in the agents' folder (its instruction files are then denied to it by the sibling globs, so what they import is too). A connected agent's folder is its own repo: its CLAUDE.md is its own to edit, so what it imports is not denied (`@README.md` is the common case).
   - sibling agents' folders, when the agent is in the agents' folder;
-  - the managed CLAUDE.md.
+  - the agent's own .claude/CLAUDE.md, .claude/AGENTS.md and .claude/rules in every case (they are denied to it, connected or not);
+  - the managed CLAUDE.md and the managed rules (`<managed>/.claude/rules`, as 2.1.296 builds it).
 - Each target goes through withTarget (links followed) and is denied in both layers, as part 1's command scripts are. A target inside a folder already denied whole is left to that rule.
 - A target inside an agent's folder in the agents' folder gets ONE mid-path glob per name (`<agents>/*/<name>`), file tools only, as the sibling members already do. Measured on this fleet: Kosmos's own agent instruction files say "@-mention" and "@-mentioned." in prose, which Claude Code reads as imports of `<agent>/-mention`. It would load such a file as instructions if one were created, so it is denied, but by name it would be one rule per agent (26 on this machine), growing with every agent. The glob also matches the agent's own folder, the safe direction.
 - A target the rule syntax cannot carry is named when it exists. An absent one is skipped, as part 1 decided for a word that only looks like a path.
 
 ## Decided
 - Every reachable import is denied, whether or not the person approved external imports. The approval can be granted later, and the guard would not know, so the deny is the safe direction.
+- REVIEW 3 CHANGED THIS: the raw text is scanned as well as the subset, and the union kept. Claude Code scans a list item's RAW text (code spans and comments included; measured in the bundle), and the subset does not model lists, so the subset alone missed the commonest shape there is (a bullet with a command in backticks). With the union, any difference from the lexer errs toward denying more. Measured on this fleet: the union adds nothing to what the subset found (5 targets outside the agents' folder, 2 names inside). Cost elsewhere: an `@word` inside code in a paragraph is denied too; an absent one is harmless, and an existing one whose path the rules cannot carry would make the guard not whole (rare).
 - Markdown is read by a small subset rather than a full lexer (the repo has no dependencies): fenced code, inline code (never across a blank line) and HTML comments are stripped, in that order; emphasis and link marks (* [ ], and a _ before the @) are token edges. Indented code is NOT stripped, so an import-like word in an indented example is denied too: the safe direction, and an absent uncarriable one is skipped, so it cannot make the guard not whole. Review 1 showed my first subset also erred the OTHER way (a stray backtick, a comment mark inside code, `**@a.md**`); each is fixed and tested, but a subset of a lexer can still differ from it in shapes nobody has tried.
 - A target, or where it leads, that is read-only is not listed (nothing can write it, and a store's hashed name would pile up); a link at the leaf to one is still denied to the file tools. One in a store or a Homebrew Cellar gets that folder's one stable rule, both layers, as part 2's shell startup files do.
 - A target inside an agent's folder that leads elsewhere (a link, a dangling link, a linked folder) has that place denied too, as any target is.
 - A rules file is any name ending in `.md`, matched case-sensitively, as 2.1.296's own walk does (`name.endsWith(".md")`).
-- A target under a linked folder is listed by both spellings (the real folder, which Claude Code loads, and the folder as given), since the agent's tools can write it by either.
+- A target under a linked FOLDER is listed by both spellings (for a linked FILE only the real folder is used, review 3: the folder as given is then a different file nobody loads, and inside the agents' folder it would be a glob over every agent). A target under a linked folder is listed by both spellings (the real folder, which Claude Code loads, and the folder as given), since the agent's tools can write it by either.
 - Import-derived rules are not pruned when an import goes away (only launch rules are, #5663), as #5516 decided for a repointed link target. The import set changes only when someone adds a new `@word` to an instruction file, and names inside the agents' folder are one glob per name, not per agent. DECIDED, not built: a record for pruning these, like the launch record, is a change of its own if the profile size ever needs it.
 - A directory target is skipped, since Claude Code reads files only.
 
@@ -39,13 +41,15 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - The auto-memory index (MEMORY.md) is not followed for imports. Not measured whether Claude Code reads imports there.
 - An import that only appears once the agent edits an instruction file it can write is not followed until the next guard refresh (route 4's class).
 - A token-only agent working in a SUBFOLDER of a repo cannot edit what the repo's top-level instruction files import (they are ancestors, read at its start), as #5516 decided for those files themselves.
+- A link in the MIDDLE of a chain to an import (link to link to file) is not denied; withTarget names the chain's end only. Part 2 covers this for shell startup files (chainHops); part 1's command scripts share this gap.
+- An import that names an existing FOLDER is skipped (Claude Code reads files only). Where the shell can write, the agent could replace the folder with a file of that name; denying the folder whole instead would refuse the agent's own work there.
 - Claude Code skips an external include (outside the folder it runs in) unless the person approved external includes, and a User-type root that is a link; the guard denies them regardless (the safe direction; the approval can change later).
 
 ## Cost
 On this host, the real roots for this agent's folder (two config homes, the folders above it, 23 siblings: 149 root files) read in 11 ms and give 5 import targets outside the agents' folder (the global CLAUDE.md's four imports plus `-addresses` from prose) and 3 names inside it. The size probe: 1017 deny rules and 145 denyWrite entries (9.2 KB), against 1012 and 140 before; the size check passes.
 
 ## Tests
-engine/startimports-5774.test.js, 9 tests. Thirteen mutations, each red: the config-home, ancestor and managed roots; the agents'-folder glob; the whole-folder skip; the absent-uncarriable skip; the sandbox layer; the depth limit; fenced code, inline code, comments, the # cut and the escaped space. The inline-code mutation stayed GREEN at first: the fixture's @ followed a backtick, which the import pattern never matches anyway; the fixture now puts a space before it inside the code span.
+engine/startimports-5774.test.js, 10 tests. Thirteen mutations, each red: the config-home, ancestor and managed roots; the agents'-folder glob; the whole-folder skip; the absent-uncarriable skip; the sandbox layer; the depth limit; fenced code, inline code, comments, the # cut and the escaped space. The inline-code mutation stayed GREEN at first: the fixture's @ followed a backtick, which the import pattern never matches anyway; the fixture now puts a space before it inside the code span.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on c5be2d57d:
@@ -68,4 +72,14 @@ engine/startimports-5774.test.js, 9 tests. Thirteen mutations, each red: the con
   - [NIT] TAKEN. A code span closes only on a backtick run of the same length (CommonMark); a lone backtick before a double one no longer hides an import. Mutation red (its first try stayed GREEN: no fixture had a lone backtick before a double; one does now).
   - [NIT] not taken: the `^[#%^&*()]+` test mirrors Claude Code's own line, kept for fidelity.
   - [NIT] DUPLICATE: import rules are not pruned (decided in iteration 1).
+- Iteration 3 (Opus), on 8305cb0bb:
+  - [BLOCKER] FIXED (measured by the reviewer in the bundle). In a list item Claude Code scans the item's RAW text, code spans and comments included; the subset stripped them, so `- run \`claude @notes.md\`` (the commonest shape in an instruction file) was a silent miss. The raw text is now scanned too and the union kept (see Decided). Tested with the reviewer's three list shapes; mutation red.
+  - [WARNING] FIXED by the same change: an unclosed fence inside a list item no longer hides the rest of the file. Tested.
+  - [WARNING] FIXED. A connected agent's own .claude/CLAUDE.md, AGENTS.md and rules are denied to it, but what they import was not (iteration 1's carve-out dropped them with the top-level CLAUDE.md). They are now roots in every case; the top-level files stay the connected agent's own. Tested; mutation red.
+  - [WARNING] FIXED. The managed rules folder is a root. Tested; mutation red.
+  - [WARNING] FIXED. The rules walk is bounded (5000 folders across all rules folders); one cut short is named. Tested with a small budget; mutation red.
+  - [NIT] TAKEN. A store root too wide to deny is named, as linkAware does. Mutation red (its first try stayed GREEN: part 2's shell files named the same store in that test; the assertion now matches the import's own reason).
+  - [NIT] STATED under Gaps: a middle link in an import's chain; an existing folder as an import.
+  - [NIT] TAKEN. An agent folder whose name starts with ".." is still recognised (`..` alone or `../` only). Mutation red.
+  - [NIT] TAKEN. For a linked FILE, the folder as given is not used. Mutation red.
 

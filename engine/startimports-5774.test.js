@@ -68,7 +68,7 @@ DEPS.userShellDirs = USERDIRS;
 DEPS.homebrewPrefixes = [];   // review 12: this host's own Homebrew is not read either (tests that need one pass theirs)
 const si = require('./startimports');
 
-test('#5774 route 3: imports are read as Claude Code reads them (code, comments, #, escaped spaces, the path shapes)', () => {
+test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spaces, the path shapes), and code and comments are read too (review 3: the union errs toward more)', () => {
   const f = path.join(SANDBOX, 'p', 'CLAUDE.md');
   const home = '/h';
   const got = si.importsIn([
@@ -86,8 +86,17 @@ test('#5774 route 3: imports are read as Claude Code reads them (code, comments,
   ].join('\n'), f, home);
   const dir = path.dirname(f);
   // Every non-space character is part of the path, punctuation too: Claude Code reads `@./b.md,` as an import of "b.md,".
+  // Review 3: a list item's raw text (its code spans and comments) is scanned by Claude Code, and this does not model
+  // lists, so code and comments are scanned everywhere: the result is a superset, never a subset.
   assert.deepStrictEqual(got.sort(), [path.join(dir, 'a.md'), path.join(dir, 'b.md,'), '/h/c.md,', '/abs/d.md', path.join(dir, 'j.md'),
-    path.join(dir, 'my file.md'), path.join(dir, 'indented.md')].sort());
+    path.join(dir, 'my file.md'), path.join(dir, 'indented.md'), path.join(dir, 'inline.md`'), path.join(dir, 'comment.md'),   // raw: the closing backtick is part of it, as in a list item
+    path.join(dir, 'fenced.md'), path.join(dir, 'tilde-fenced.md')].sort());
+  // The cases review 3 measured in 2.1.296: list items scan code spans and comments.
+  for (const [line, want] of [['- run `claude @notes.md --x` first', 'notes.md'], ['- see <!-- @hidden.md --> here', 'hidden.md'], ['1. step `cat @one.md | x`', 'one.md']]) {
+    assert.ok(si.importsIn(line, f, home).includes(path.join(dir, want)), line);
+  }
+  // A fence opened inside a list item and never closed does not hide what follows.
+  assert.ok(si.importsIn('- step one:\n  ```bash\n  run x\n- step two\n\n@./important.md\n', f, home).includes(path.join(dir, 'important.md')));
 });
 
 test('#5774 route 3: imports nest to the depth Claude Code loads (the root is 0, depth 5 is refused); a cycle ends', () => {
@@ -243,7 +252,8 @@ test('#5774 route 3 review 2: a target in a store gets the store\'s one rule, ne
     assert.ok(![...deny, ...dw].some((r) => r.includes(path.join('store-r2', 'x.md'))), 'a hashed store path was listed by name');
     assert.ok(editDeniedBy(deny, path.join(store, 'h9-new.md')).length > 0, 'the store, file tools');
     assert.ok(sandboxDenies(dw, path.join(store, 'h9-new.md')), 'the store, sandbox');
-    assert.ok(editDeniedBy(deny, path.join(HOME, '.claude-acct', 'x.md')).length > 0, 'the import by the folder as given');
+    // Review 3: for a CLAUDE.md that is itself a link, the folder as given is a different file nobody loads: not named.
+    assert.ok(!deny.includes(`Edit(${'/' + path.join(HOME, '.claude-acct', 'x.md')})`), 'the linked file\'s folder as given was named');
     assert.ok(![...deny, ...dw].some((r) => r.includes('ro-r2')), 'a read-only target was listed');
     assert.ok(editDeniedBy(deny, linkRo).length > 0, 'the link to a read-only target, which can be replaced');
   } finally { for (const f of [homeMd, anc, linkRo]) fs.rmSync(f, { force: true }); }
@@ -271,4 +281,50 @@ test('#5774 route 3 review 2: an import inside an agent folder that is a link (o
       assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, t), `${t}: sandbox`);
     }
   } finally { for (const f of made) fs.rmSync(f, { force: true }); }
+});
+
+test('#5774 route 3 review 3: a connected agent\'s own .claude rules, the managed rules and a sibling named ..x are roots; a too-wide store is named; a rules walk past its budget is named', () => {
+  const write = (f, body) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); };
+  const elsewhere = path.join(SANDBOX, 'elsewhere-r3');
+  const repo = path.join(SANDBOX, 'repo-r3');
+  write(path.join(repo, '.claude', 'rules', 'style.md'), `@${path.join(elsewhere, 'style.md')}\n`);
+  write(path.join(repo, 'CLAUDE.md'), '@README.md\n');
+  const managedRule = path.join(MANAGED, '.claude', 'rules', 'm.md');
+  write(managedRule, `@${path.join(elsewhere, 'managed-rule.md')}\n`);
+  try {
+    const g = setup.guardTokenOnlyFolder(repo, 'pilot-connected-r3', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(repo);
+    const er = fs.realpathSync.native(SANDBOX);
+    for (const n of ['style.md', 'managed-rule.md']) assert.ok(editDeniedBy(s.permissions.deny, path.join(er, 'elsewhere-r3', n)).length > 0, `${n}: what a denied rules file imports`);
+    assert.ok(!editDeniedBy(s.permissions.deny, path.join(repo, 'README.md')).length, 'the connected agent\'s own CLAUDE.md import was denied');
+  } finally { fs.rmSync(managedRule, { force: true }); }
+  // A sibling whose folder name starts with ".." is still an agent folder: one glob, not a name.
+  const odd = path.join(SANDBOX, 'workers', '..odd-r3');
+  write(path.join(odd, 'CLAUDE.md'), 'ask @-pinged here\n');
+  try {
+    const d = agentDir('pilot-dotdot-r3');
+    setup.guardTokenOnlyFolder(d, 'pilot-dotdot-r3', { ...DEPS, env: ENV0 });
+    const deny = readSettings(d).permissions.deny;
+    assert.ok(editDeniedBy(deny, path.join(SANDBOX, 'workers', 'any', '-pinged')).length > 0, 'the glob');
+    assert.ok(!deny.some((r) => r.includes(path.join('..odd-r3', '-pinged'))), 'named per agent');
+  } finally { fs.rmSync(path.join(odd, 'CLAUDE.md'), { force: true }); }
+  // A store root that holds the agent's own folder is too wide to deny whole: named.
+  const homeMd = path.join(HOME, '.claude', 'CLAUDE.md');
+  write(homeMd, `@${path.join(SANDBOX, 'wide-r3', 'x.md')}\n`);
+  try {
+    const d = agentDir('pilot-widestore-r3');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-widestore-r3', { ...DEPS, env: ENV0, storeRoots: [fs.realpathSync.native(SANDBOX)] });
+    assert.equal(g.ok, false);
+    // The import's own reason (part 2's shell files can name the same store too, so match this one by its path).
+    assert.ok(JSON.stringify(g).includes(path.join('wide-r3', 'x.md') + ' (an import that leads into'), JSON.stringify(g));
+  } finally { fs.rmSync(homeMd, { force: true }); }
+  // A rules walk past its budget is named, never silently short.
+  for (let i = 0; i < 4; i++) fs.mkdirSync(path.join(HOME, '.claude', 'rules', `sub${i}`), { recursive: true });
+  try {
+    const d = agentDir('pilot-rulesbudget-r3');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-rulesbudget-r3', { ...DEPS, env: ENV0, rulesWalkBudget: 2 });
+    assert.equal(g.ok, false);
+    assert.ok(JSON.stringify(g).includes('rules folders'), JSON.stringify(g));
+  } finally { fs.rmSync(path.join(HOME, '.claude', 'rules'), { recursive: true, force: true }); }
 });

@@ -1857,12 +1857,15 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      exists and skipped when absent (a word that only looks like an import is far likelier). See engine/startimports.js. */
   // Review 1: every .md under a rules folder, at any depth (Claude Code's walk has no cap); each folder once, so a link
   // cycle ends.
+  // Review 3: a walk bounded in folders visited, across all rules folders; one cut short is named.
+  const mdBudget = { n: deps.rulesWalkBudget || 5000, out: false };   // tests pass a small one
   const mdUnder = (d, seen = new Set()) => {
     let out = [];
     let key = d;
     try { key = fs.realpathSync.native(d); } catch { return out; }
     if (seen.has(key)) return out;
     seen.add(key);
+    if (--mdBudget.n < 0) { mdBudget.out = true; return out; }
     let names = [];
     try { names = fs.readdirSync(d, { withFileTypes: true }); } catch { return out; }
     for (const n of names) {
@@ -1874,8 +1877,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     }
     return out;
   };
-  const projectRoots = (d) => [...['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md'].map((f) => path.join(d, f)),
-    ...['CLAUDE.md', 'AGENTS.md'].map((f) => path.join(d, '.claude', f)), ...mdUnder(path.join(d, '.claude', 'rules'))];
+  const topRoots = (d) => ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md'].map((f) => path.join(d, f));
+  const dotClaudeRoots = (d) => [...['CLAUDE.md', 'AGENTS.md'].map((f) => path.join(d, '.claude', f)), ...mdUnder(path.join(d, '.claude', 'rules'))];
+  const projectRoots = (d) => [...topRoots(d), ...dotClaudeRoots(d)];
   let siblings = [];
   if (siblingRules.length) { try { siblings = fs.readdirSync(siblingBase, { withFileTypes: true }).filter((n) => n.isDirectory()).map((n) => path.join(siblingBase, n.name)); } catch { siblings = []; } }
   const md0 = deps.managedDir !== undefined ? deps.managedDir : startcommands.managedDir(deps.platform);
@@ -1885,9 +1889,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
        agents' folder (the sibling globs match it). A connected agent's folder is its own repo: its CLAUDE.md is its
        own to edit, so denying what it imports (@README.md) would refuse ordinary work and protect nothing. */
     ...ancestorsOf(dir).filter((d) => siblingRules.length || (d !== path.resolve(dir) && d !== ownReal)).flatMap(projectRoots),
+    // Review 3: the agent's own .claude members (CLAUDE.md, AGENTS.md, rules) are denied to it in every case, so what they import is too.
+    ...dotClaudeRoots(dir),
     ...siblings.flatMap(projectRoots),
-    ...(md0 ? [path.join(md0, 'CLAUDE.md')] : []),
+    ...(md0 ? [path.join(md0, 'CLAUDE.md'), ...mdUnder(path.join(md0, '.claude', 'rules'))] : []),   // review 3: the managed rules too
   ];
+  if (mdBudget.out) configUnsafe.push('the rules folders Claude Code reads (more folders than Kosmos follows), so some imports are not denied');
   const imported = startimports.importTargets(importRoots, { home });
   configUnsafe.push(...imported.unsafe);
   const importFiles = [];
@@ -1902,7 +1909,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     for (const base of [siblingBase, siblingReal]) {
       const rel = path.relative(base, f);
       const parts = rel.split(path.sep);
-      if (!rel.startsWith('..') && !path.isAbsolute(rel) && parts.length >= 2) return path.join(...parts.slice(1));
+      if (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel) && parts.length >= 2) return path.join(...parts.slice(1));
     }
     return null;
   };
@@ -1928,6 +1935,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (readOnlyTarget(real)) { if (linked) importLinks.push(f); return; }   // the link itself can still be replaced
     const st = stableRootOf(deps.storeRoots || STORE_ROOTS, real);
     if (st && !tooWide(st)) { importStableDirs.add(st); if (linked) importLinks.push(f); return; }
+    // Review 3: a store-shaped folder too wide to deny (it holds the home or the agent) is named, as linkAware does.
+    if (st) { configUnsafe.push(`${f} (an import that leads into ${st}, a folder too wide to deny: it holds the home or the agent's own folder)`); if (linked) importLinks.push(f); return; }
     importFiles.push(...withTarget(f, configUnsafe));
   };
   for (const f of imported.files) {
