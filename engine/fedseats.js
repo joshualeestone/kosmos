@@ -886,9 +886,12 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat, askedMono)
     // release (Kosmos+ cannot answer) shows them all, as before.
     let coversUntil = r && r.checked ? s.edgesCheckedAt + EDGE_FRESH_MS : Infinity;
     // An answer asked before this screen removed someone covers only posts that arrived before it.
-    if (r && r.checked && checkedBeforeRemove(s)) coversUntil = Math.min(coversUntil, s.removedAt - 1);
-    const held = s.held.filter((h) => h.at <= coversUntil);
-    s.held = s.held.filter((h) => h.at > coversUntil);
+    // Posts that arrived after the remove, judged on the monotonic clock where the post has it.
+    const capped = !!(r && r.checked && checkedBeforeRemove(s));
+    const after = (h) => (typeof h.mono === 'bigint' ? h.mono > s.removedMono : h.at >= s.removedAt);
+    const keep = (h) => h.at > coversUntil || (capped && after(h));
+    const held = s.held.filter((h) => !keep(h));
+    s.held = s.held.filter(keep);
     s.heldIds = new Set(s.held.map((h) => h.id));
     for (const { line, at } of held) {
       try { handleEvent(projectId, line, at); } catch (err) {
@@ -935,7 +938,7 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
     return true;
   }
   s.heldIds.add(opened.id);
-  s.held.push({ line, at: now, id: opened.id });
+  s.held.push({ line, at: now, mono: mono(), id: opened.id });
   if (link && !s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
     const ask = sharedEdges(now, s.removedMono);
     // The answer's own ask time: one joined from another room may be older than this post.

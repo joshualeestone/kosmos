@@ -4062,3 +4062,44 @@ test('#5191: a pass answer asked before a remove does not count as after it when
   assert.deepStrictEqual(recorded, [], 'the revoked member\'s post was shown');
 });
 
+test('#5191: a post that arrives after a remove stays held under an older answer though the clock steps back in between', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  t.after(() => harness());
+  let edges = [];
+  const calls = [];
+  const recorded = [];
+  let seat = null;
+  fedseats.stopAll();
+  fedseats.configure({
+    spawnSeat: () => { seat = fakeChild(); return seat; },
+    macRequest: () => { const snap = JSON.parse(JSON.stringify(edges)); let res; const p = new Promise((r) => { res = r; }); calls.push({ go: () => res({ ok: true, data: { as_owner: snap, as_member: [] } }) }); return p; },
+    recordExternal: (pid, m) => recorded.push(m.text), onStatus: () => {}, enrolled: () => true, projectExists: () => true,
+    projectCreatedAt: () => undefined, note: () => {},
+  });
+  const answerAll = async () => { while (calls.length) { calls.shift().go(); await settle(); } };
+  const id = 'proj-5191-postback'; const ref = 'ref-pb'; const room = 'room-pb';
+  federation.recordLink(id, { role: 'owner', ref });
+  const invs = [newInvite('pb-0'), newInvite('pb-1')];
+  for (const [j, inv] of invs.entries()) {
+    fedseal.stashInvite(ref, inv);
+    edges.push({ id: 'edge-' + inv.invite, project_ref: ref, status: 'active', invite_id: inv.invite, member_account_id: 'acct-pb-' + j });
+  }
+  const p = fedseats.ensure(id); await settle(); await answerAll(); await p; await settle();
+  say(seat, { event: 'connected', room, expires_at: 9 }); await settle();
+  for (const inv of invs) { say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), room) }); await settle(); await answerAll(); }
+  const post = (member, text) => say(seat, { event: 'message', member, data: fedseal.seal(fedseal.roomState(id).keys[0], 0, room, { from: 'G', kind: 'person', text }, Date.now()) });
+  t.mock.timers.tick(20 * 1000);
+  post('acct-pb-1', 'before the remove');   // held; its check is asked now and stays out
+  await settle();
+  const before = calls.shift(); assert.ok(before, 'fixture: the post asked a check');
+  edges = edges.map((e, j) => j === 0 ? Object.assign({}, e, { status: 'revoked' }) : e);
+  const removed = fedseats.afterRemove(id); await settle();
+  t.mock.timers.setTime(Date.now() - 60 * 1000);   // the clock is corrected backwards after the remove
+  post('acct-pb-0', 'revoked, after the remove');
+  await settle();
+  before.go(); await settle(); await settle();   // the answer from before the remove arrives
+  assert.deepStrictEqual(recorded, ['before the remove'], 'an answer asked before the remove released a post that arrived after it');
+  await answerAll(); await removed; await settle();
+  assert.deepStrictEqual(recorded, ['before the remove'], 'the revoked member\'s post was shown');
+});
+
