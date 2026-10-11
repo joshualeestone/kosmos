@@ -245,3 +245,13 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
   then appends unlocked (safe).
 - NO CHANGE (NITs): line widths in one comment; compacted-bytes cannot be written if the folder cannot be made (each end
   then refolds, bounded by the file size).
+
+## Review 15 (opus, blind, on 950744100): no BLOCKER
+- FIXED (WARNING): the budgets counted from a time taken inside the locked section, later than the lock folder's own
+  mtime that other processes judge staleness by; they count from the earlier of the two now (test with an 8 s old lock
+  folder; mutation red).
+- FIXED (NITs): identity from bigint stats (an NTFS file ID can exceed 2^53); the folder-flush comment says Windows
+  relies on NTFS ordering (syncDir is a no-op there); the put-back comment says a short append fails closed; an
+  unexpected throw past the size check backs off like every other stop; deletion and the temp sweep use lstat.
+- My own slip, caught by the tests at once: the new identity line first sat above the declarations it used (a temporal
+  dead zone its own catch turned into a quiet "not compacted"); moved below them.

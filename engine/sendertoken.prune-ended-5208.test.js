@@ -525,3 +525,20 @@ test('kosmos#5208: a replaced file edited in place with a torn line mid-way is n
   try { sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; }
   assert.equal(oldEndedSince('nobody', iso(T0), false), false, 'a torn line was put into the live file: every removal would refuse for good');
 });
+
+test('kosmos#5208: the budget counts from the lock folder\'s own time, which other processes judge it stale by', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  const lock = LIVE() + '.lock';
+  fs.mkdirSync(lock);
+  const old = (Date.now() - 8000) / 1000;   // taken 8 s ago by the lock folder's clock
+  fs.utimesSync(lock, old, old);
+  const inoBefore = ino();
+  const realErr = console.error;
+  console.error = () => {};
+  let r;
+  try { r = sendertoken.compactEnded({ force: true, lockedAt: Date.now() }); } finally { console.error = realErr; fs.rmSync(lock, { recursive: true, force: true }); }
+  assert.equal(r.compacted, false, 'it trusted the late in-section clock over the lock folder\'s');
+  assert.equal(ino(), inoBefore, 'the live file was replaced');
+  assert.deepEqual(sealed(), [], 'a link was left');
+});

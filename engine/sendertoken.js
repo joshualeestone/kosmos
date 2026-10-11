@@ -382,6 +382,7 @@ function writeFlushed(file, text, mode) {
    Called under the live file's lock (noteEnded). Returns { compacted: true, removed } (removed: sealed files deleted),
    { compacted: false, stuck: true } when a line it cannot read whole stops it, or { compacted: false }. Never throws. */
 function compactEnded(opts = {}) {
+  let backOff = null;   // set once past the size check, so an unexpected throw backs off like every other stop
   try {
     const live = endedLogFile();
     const atBytes = Number.isFinite(opts.atBytes) ? opts.atBytes : ENDED_COMPACT_AT_BYTES;
@@ -392,16 +393,21 @@ function compactEnded(opts = {}) {
        and birth time go with it. Best effort: NTFS can carry a name's old birth time over to a file renamed onto it.
        A false "same file" loses nothing, since step 4 then puts the whole replaced file back (it no longer starts with
        what was read). */
-    const idOf = (x) => x.dev + ':' + x.ino + ':' + x.birthtimeMs;
+    const idOf = (x) => x.dev + ':' + x.ino + ':' + x.birthtimeMs;   // bigint stats: an NTFS file ID can exceed 2^53
+    const statId = (f) => fs.statSync(f, { bigint: true });
+    let stId; try { stId = idOf(statId(live)); } catch { return { compacted: false }; }
     let base = 0; try { base = Number(fs.readFileSync(compactedBytesFile(), 'utf8')) || 0; } catch { base = 0; }
     if (base > st.size) base = 0;   // the live file shrank outside this code (a hand cleanup): measure from nothing
     if (opts.force !== true && st.size <= atBytes + base) return { compacted: false };
     /* A try that stops after the size check records the size it saw (where it can write that), so the next try waits
        for another `atBytes` of growth instead of folding the whole history on every end (a torn line, an unreadable
        file, a flush or a rename that keeps failing, no hard links). */
-    const gaveUp = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
+    const gaveUp = backOff = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
     // 1. Read and fold. Any failure leaves every file as it was. Budgets count from when the lock was taken, if known.
-    const startedAt = Number.isFinite(opts.lockedAt) ? opts.lockedAt : Date.now();
+    /* Other processes judge the lock stale by the lock folder's own mtime, which is set before this code runs, so the
+       budgets count from the earlier of that and the time the lock was taken here. */
+    let lockMtime = NaN; try { lockMtime = fs.statSync(live + '.lock').mtimeMs; } catch { lockMtime = NaN; }
+    const startedAt = Math.min(Number.isFinite(opts.lockedAt) ? opts.lockedAt : Date.now(), Number.isFinite(lockMtime) ? lockMtime : Infinity);
     const read = [];
     let liveText;
     try {
@@ -448,8 +454,8 @@ function compactEnded(opts = {}) {
       return gaveUp({ compacted: false });
     }
     // 3. Only over the file that was read (a compaction that slept after its lock was stolen finds a newer one: stop).
-    let cur; try { cur = fs.statSync(live); } catch { cur = null; }
-    if (!cur || idOf(cur) !== idOf(st)) { try { fs.unlinkSync(tmp); } catch { /* none */ } return gaveUp({ compacted: false }); }
+    let cur; try { cur = idOf(statId(live)); } catch { cur = null; }
+    if (!cur || cur !== stId) { try { fs.unlinkSync(tmp); } catch { /* none */ } return gaveUp({ compacted: false }); }
     const sealedPath = path.join(endedDir(), 'sealed.' + Date.now() + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.jsonl');
     try { fs.linkSync(live, sealedPath); } catch (e) {
       try { fs.unlinkSync(tmp); } catch { /* none */ }
@@ -464,9 +470,9 @@ function compactEnded(opts = {}) {
        live file was a compaction, which links the file it replaces under its own sealed name first. Any new way of
        replacing the live file must keep that true. What remains is the gap between this check and the rename, which
        only an atomic compare-and-rename could close; the plan names it. */
-    securewrite.syncDir(endedDir());   // the link survives a crash before the rename makes it matter
-    let after; try { after = fs.statSync(live); } catch { after = null; }
-    if (!after || idOf(after) !== idOf(st)) {
+    securewrite.syncDir(endedDir());   // the link survives a crash before the rename (POSIX; on Windows syncDir is a no-op and NTFS's journal orders it)
+    let after; try { after = idOf(statId(live)); } catch { after = null; }
+    if (!after || after !== stId) {
       try { fs.unlinkSync(sealedPath); } catch { /* still read; harmless */ }
       try { fs.unlinkSync(tmp); } catch { /* none */ }
       return gaveUp({ compacted: false });
@@ -500,7 +506,8 @@ function compactEnded(opts = {}) {
     // in the sealed file alone, which this build reads.
     if (extra && newestPerName([extra]) === null) extra = '';
     if (extra) {
-      // The live file is already replaced; a failure here leaves the line in the sealed file, which this build reads.
+      // The live file is already replaced. A failure here leaves the line in the sealed file, which this build reads; an
+      // append cut short (a disk filling partway) can leave a torn line, which fails closed (removals refuse) until cleaned.
       try {
         fs.appendFileSync(live, '\n' + extra, 'utf8');
         const fd = fs.openSync(live, 'r+');
@@ -511,7 +518,7 @@ function compactEnded(opts = {}) {
     // 5. Old sealed files, now folded into the flushed live file. Stray temps from a compaction that died, too.
     let removed = 0;
     for (const r of read) {
-      let fst; try { fst = fs.statSync(r.f); } catch { continue; }
+      let fst; try { fst = fs.lstatSync(r.f); } catch { continue; }
       // Changed since read (size too: a coarse or same-millisecond mtime can hide an append), or too new.
       if (fst.mtimeMs !== r.mtimeMs || fst.size !== r.size || now - fst.mtimeMs <= SEALED_KEEP_MS) continue;
       try { fs.unlinkSync(r.f); removed++; } catch { /* still read; tried again next time */ }
@@ -520,12 +527,12 @@ function compactEnded(opts = {}) {
       for (const n of fs.readdirSync(endedDir())) {
         if (!/^live\.[0-9]+\.[0-9a-f]+\.tmp$/.test(n)) continue;
         const f = path.join(endedDir(), n);
-        try { if (now - fs.statSync(f).mtimeMs > SEALED_KEEP_MS) fs.unlinkSync(f); } catch { /* not ours to fail on */ }
+        try { if (now - fs.lstatSync(f).mtimeMs > SEALED_KEEP_MS) fs.unlinkSync(f); } catch { /* not ours to fail on */ }
       }
     } catch { /* tidying only */ }
     if (removed) securewrite.syncDir(endedDir());
     return { compacted: true, removed };
-  } catch { return { compacted: false }; }
+  } catch { return backOff ? backOff({ compacted: false }) : { compacted: false }; }
 }
 /* Did an agent whose name matches any of `names` (by slug, both sides) end AFTER `sinceIso` (or at it, when
    `inclusive`)? true, false, or null when the history cannot be read (a missing file is none; kosmos#5208: the history
