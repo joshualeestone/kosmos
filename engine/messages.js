@@ -1383,10 +1383,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* Released, but messages kept while it was out of usage are still waiting for the minute sweep: this one goes
      behind them, so nothing it says arrives ahead of what was sent before it. */
   // One small file read per send to an agent not held (a missing file is a failed open): the price of keeping order.
-  const waiting = limitHold || chat.addressable(toName, roster).ok !== true ? []
-    : require('./limitqueue').list(qName).filter((e) => !require('./limitqueue').isDone(e.id));
+  const queued = limitHold || chat.addressable(toName, roster).ok !== true ? { ok: true, entries: [] } : require('./limitqueue').readEntries(qName);
+  const waiting = queued.entries.filter((e) => !require('./limitqueue').isDone(e.id));
   // Its own day counts from now (limitReset is the drop clock): a reset inherited from the backlog could drop it at once.
-  if (!limitHold && waiting.length) limitHold = { limitReset: at, behind: true };
+  // A queue that cannot be read now may hold a backlog: never typed ahead of it (keeping it then fails, and says so).
+  if (!limitHold && (waiting.length || !queued.ok)) limitHold = { limitReset: at, behind: true };
   if (limitHold) {
     const limitqueue = require('./limitqueue');
     /* The drop clock: the printed reset, or now when that is already past (a limit menu left up overnight would
@@ -1399,7 +1400,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
       return refuse(toName, toName + ' ' + situation + ', and Kosmos ' + (why === 'sender-cap'
         ? 'is already keeping ' + limitqueue.MAX_PER_SENDER + ' messages from you for it; wait for those to arrive before sending more'
         : why === 'agent-cap' ? 'is already keeping ' + limitqueue.MAX_KEPT + ' messages for it; try again after its reset'
-          : 'could not keep this one for it (its queue could not be written); try again in a minute'));
+          : 'could not keep this one for it (its queue could not be read or written); try again in a minute'));
     }
     // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;

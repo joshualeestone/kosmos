@@ -221,3 +221,11 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   is noted "kept behind earlier messages" (tested).
 - NIT taken: the behind decision ignores entries already typed or dropped (their removal failed). Not taken: the
   board log line's wording for behind entries; a pointer comment at readEntries.
+
+## Review 18 (sonnet)
+- FIXED: the behind decision read an unreadable queue as empty, so a new message could be typed ahead of a backlog;
+  an unreadable queue is treated as possibly holding one, and the send is refused with "try again in a minute"
+  (tested).
+- DEFERRED (checked): no reader treats a held message row as one awaiting a reply; every reader of message rows (the
+  read rule, the pair valve, reply citation, the repeat fold, sender activity) counts what the sender did.
+- Covered by a stated residual: a hung paste holds its agent up to an hour.

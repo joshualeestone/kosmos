@@ -623,3 +623,14 @@ test('#5805 2a review 17: a message queued behind a backlog is noted as kept beh
   assert.equal(limitqueue.keptNote({ at: 'T', behind: true }), ' [kept behind earlier messages; sent T]');
   assert.equal(limitqueue.keptNote({ at: 'T' }), ' [kept for you while you were out of usage; sent T]');
 });
+
+test('#5805 2a review 18: a send to a released agent whose queue cannot be read is refused, never typed ahead of a backlog', async () => {
+  fs.mkdirSync(limitqueue.dir(), { recursive: true });
+  fs.writeFileSync(limitqueue.fileFor('casey'), '[{"cut');
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    const v = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'not ahead' }, board.agents);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
+    assert.match(v.because, /could not be read or written\); try again in a minute/);
+    assert.deepEqual(tmux.pastedTo('casey'), [], 'typed ahead of a queue it could not read');
+  });
+});
