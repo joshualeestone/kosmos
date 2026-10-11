@@ -257,8 +257,9 @@ KOSMOS_DEFAULT_PORT="$(sed -n 's/^  _kosmos_default_port=\([0-9][0-9]*\)$/\1/p' 
 DEFAULT_PORT_BEFORE=free
 curl -s -m 1 -o /dev/null "http://127.0.0.1:$KOSMOS_DEFAULT_PORT/" 2>/dev/null && DEFAULT_PORT_BEFORE=busy
 # #5831: the port check above cannot see a RESTART: launchd has a kicked board answering again within a second,
-# so "busy before, busy after" passes. The process is what changes, so that is what is recorded: the pid and start time of the real com.kosmos.board job, or empty
-# when the job has no running process (not loaded, or loaded and stopped). The first `pid = ` line is the
+# so "busy before, busy after" passes. The process is what changes, so that is what is recorded: the pid and
+# start time of the real com.kosmos.board job, or empty when the job has no running process (not loaded, or
+# loaded and stopped). The first `pid = ` line is the
 # service's own. The here-doc instead of a pipe keeps awk's early exit from becoming a SIGPIPE failure under this
 # file's pipefail.
 live_board_id() {
@@ -1901,6 +1902,9 @@ chk "default install's plist keeps the literal, unsuffixed label" "[ -f \"$DEF_P
 chk "default install's plist adds no AGENT_WORKFORCE_DATA key" "! grep -q AGENT_WORKFORCE_DATA \"$DEF_PLIST\""
 chk "default install's plist adds no AGENT_WORKFORCE_PROJECTS key" "! grep -q AGENT_WORKFORCE_PROJECTS \"$DEF_PLIST\""
 chk "default install's plist adds no AGENT_WORKFORCE_WORKERS key" "! grep -q AGENT_WORKFORCE_WORKERS \"$DEF_PLIST\""
+# KOSMOS_HOME is dropped so the stop reads THIS install's pid file, not the previous scenario's (#5831). This
+# board's label is the bare com.kosmos.board; the AGENT_WORKFORCE_LAUNCH exported at the top is what keeps
+# `kosmos` off the real job. The same holds for the default-home stops further down.
 env -u KOSMOS_HOME HOME="$SBH_DEF" "$SBH_DEF/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before the trailing-slash default scenario starts" "wait_port_free"
 
@@ -2136,8 +2140,9 @@ printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Supp
 # Pinning LAUNCH while DATA, PROJECTS and WORKERS stay unset is the shape engine/sandbox.js refuses as
 # half-sandboxed (#634). Those three are unset ON PURPOSE here (the default data root is what this control is
 # about). Their defaults resolve inside the sandbox: engine/store.js and engine/create.js take
-# AGENT_WORKFORCE_HOME (exported at the top) before the home folder, and engine/status.js takes os.homedir(),
-# which follows this fake HOME. tmux is this run's own (AGENT_WORKFORCE_TMUX_BIN). So the guard's own override is
+# AGENT_WORKFORCE_HOME (exported at the top, so the board's own store is under "$SB/home") before the home
+# folder, and engine/status.js and engine/projects.js take os.homedir(), which follows this fake HOME. tmux is
+# this run's own (AGENT_WORKFORCE_TMUX_BIN). So the guard's own override is
 # stated for this one install. The override leans on those two exports, so it is GIVEN only while they hold:
 # without them the install below runs with the guard on, is refused, and this leg goes red having touched nothing.
 D924_OVERRIDE=0

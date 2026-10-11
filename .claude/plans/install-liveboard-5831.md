@@ -106,3 +106,23 @@ costs every agent on this Mac a board restart. The real restart is on record onc
   sandbox board came up from its own install, which is exactly what was missing when the real one was kicked.
 - The closing check's failure text now also names "this shell lost sight of launchd by the end".
 - The override's condition is an `if`, not an `&&` list.
+
+## Measured again (2026-10-11, head 345ae559b, Mortals, live board up)
+
+- Full `tools/test-install.sh`, in the fair queue: **400 passed, 0 failed**, exit 0, no skipped block.
+- `#5831: the control's half-sandbox override is safe`: PASS. `#924 control install exits 0`: PASS.
+  `#5831: the control's board is this sandbox's own (its pid file is there)`: PASS. `control uninstall exits 0`: PASS.
+- Closing check: PASS, same process, 23352 started 03:50:44. My own read outside the harness agrees.
+
+## Review round 5 (2026-10-11)
+
+No blockers. Comment-only changes after the run above (which file each default resolves in; a note at the first
+default-home stop that the top-level LAUNCH export is what keeps it off the real job; a rewrapped line).
+
+Deferred, with reasons:
+- **The control board's own store is under the harness's `$SB/home`, not the control's fake home.** It is inside
+  the sandbox, the comment now says so, and the leg's assertion is about the installer's uninstall sweep, which
+  follows `HOME`. Pointing AGENT_WORKFORCE_HOME elsewhere for this install would change what the leg runs.
+- **The closing check watches the board's process only, not the watchdog job or a loaded job with no process.**
+  A board job that gets loaded runs at load, so it shows as "nothing before, a process after" and fails the
+  check. Watching the watchdog label too is beyond the card; noted on #5831 as a possible follow-up.
