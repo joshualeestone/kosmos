@@ -22,7 +22,10 @@ still typed straight in.
   heldUntil, id, at, because }`. Nothing is typed. Could not keep it: refused, as before.
 - The same send again while it is held (the #4580 fold) answers with the same held receipt, not a second copy.
 - The minute sweep (server.js, beside roomhold.flushReleased): for each agent with kept messages whose card reads
-  released (chat.limitReleased, slice 1's test), types them in order with chat.deliverAsync. Each one typed is removed
+  released (chat.limitQueueReleased: slice 1's test, or no longer held at all), types them in order through the
+  automatic gate (chat.deliverAutomaticAsync), at most 5 per agent per minute, each with a note that it was kept and
+  when it was sent. A message sent while an agent still has kept messages goes behind them. The queue is filed under
+  the card's own name. Each one typed is removed
   and logged as `{ kind: 'held-delivered', of: id, from, to, at, state }`. The first that comes back could_not stops
   that agent's run (order is kept) and stays for the next minute. A message still kept a day past its reset is dropped
   and logged as `{ kind: 'held-dropped', of: id, from, to, at }`.
@@ -170,3 +173,13 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   (searched engine/ and server.js), and the spill is removed on refuse and drop.
 - Covered by a stated residual: the in-memory record of failed removals.
 - NIT taken: MAX_PER_SENDER's comment was on PER_RUN's line.
+
+## Review 13 (opus)
+- FIXED: a kept message typed a day late read as new; the sweep adds "[kept for you while you were out of usage;
+  sent <time>]" (tested).
+- FIXED: a late retry of a kept message met the pair valve first and could be refused while its copy was kept; the
+  kept-copy check runs before the valve and before an id or spill is made (tested).
+- FIXED: the queue used the name as written while the router folds case, so two spellings of one agent had two
+  queues; it is filed under the resolved card's name (tested).
+- CONVENTIONS taken: the held-row read rule no longer sits between the reaction rule and its comment; "The call"
+  matches the code.

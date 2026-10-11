@@ -87,7 +87,10 @@ const done = new Set();
 /* Ids being typed this moment: claimed before the await, so no other flush run (one that outlived the guard below)
    types the same message alongside it, or ahead of it. */
 const typing = new Set();
-function isTyping(id) { return typing.has(id); }
+function isTyping(id) { return typing.has(id); }   // read by the tests; the sweep reads `typing` itself
+/* What the recipient is told about a kept message as it is typed: kept, and when it was sent, so a day-old go-ahead
+   does not read as new. */
+function keptNote(e) { return ' [kept for you while you were out of usage; sent ' + e.at + ']'; }
 let flushingSince = 0;
 let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
@@ -135,7 +138,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         typedNow += 1;
         typing.add(e.id);
         let v;
-        try { v = await deliver(name, e.envelope, roster); } catch { v = null; } finally { typing.delete(e.id); }
+        try { v = await deliver(name, e.envelope + keptNote(e), roster); } catch { v = null; } finally { typing.delete(e.id); }
         const state = v && v.state;
         if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) break;
         if (!remove(name, e.id)) done.add(e.id);
@@ -151,4 +154,4 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
 
 function resetForTests() { done.clear(); typing.clear(); flushingSince = 0; }
 
-module.exports = { isTyping, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN };
+module.exports = { keptNote, isTyping, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN };
