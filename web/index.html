@@ -62998,20 +62998,32 @@ async function tkSayPost() {
       const byName = new Map();
       for (const d of list) {
         if (!d || typeof d !== 'object') continue;
-        const who = String(d.agent == null ? '' : d.agent).trim() || 'an agent';
-        const had = byName.get(who);
-        if (!had || rank(d.state) > rank(had.state)) byName.set(who, d);
+        const sn = String(d.agent == null ? '' : d.agent).trim() || 'an agent';
+        const had = byName.get(sn);
+        if (!had || rank(d.state) > rank(had.state)) byName.set(sn, d);
       }
-      const lines = [];
-      for (const [who, d] of byName) {
-        if (d.state === 'placed') continue;
-        const why = String(d.because == null ? '' : d.because).replace(/^held: /, '').trim().replace(/\.+$/, '');
-        const own = why.startsWith(who + ' ');   // the board's reason already names the agent
-        if (d.state === 'could_not') lines.push(own ? why + '.' : who + ' was not told' + (why ? ': ' + why : '') + '.');
-        else if (d.state === 'held') lines.push(own ? why + '.' : who + ' gets it later' + (why ? ': ' + why : '') + '.');
-        else lines.push('Kosmos could not confirm that ' + who + ' got it.');
+      if (out && Array.isArray(out.delivered) && !list.length) {
+        msg.textContent = 'No agent is on this task, so nobody was told.';
+      } else {
+        const lines = [];
+        for (const [sn, d] of byName) {
+          if (d.state === 'placed') continue;
+          // The page's name for the agent (its card name), as the activity above uses; the board speaks in session names.
+          const who = typeof tkMemberName === 'function' && p ? tkMemberName(p, sn) : sn;
+          const why = String(d.because == null ? '' : d.because).replace(/^held: /, '').trim().replace(/\.+$/, '');
+          const said = why.startsWith(sn + ' ') ? who + why.slice(sn.length) : '';   // the board's reason names the agent itself
+          if (d.state === 'could_not') lines.push(said ? said + '.' : who + ' was not told' + (why ? ': ' + why : '') + '.');
+          else if (d.state === 'held') {
+            // Built here, never from the reason: the board's reason carries the reset as a raw UTC time.
+            const at = Date.parse(d.heldUntil || '');
+            const until = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
+            lines.push(until ? who + ' is out of usage until ' + until + '. Kosmos sends it your message then.'
+              : /still has messages kept/.test(why) ? who + ' gets your message after the ones already waiting for it.'
+              : who + ' is out of usage. Kosmos sends it your message after the reset.');
+          } else lines.push('Kosmos could not confirm that ' + who + ' got it' + (said ? '. ' + said : why ? ': ' + why : '') + '.');
+        }
+        msg.textContent = lines.join(' ');
       }
-      msg.textContent = lines.join(' ');
     }
     paintTaskActivity(n);
   } catch {

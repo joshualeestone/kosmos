@@ -25,18 +25,18 @@ function fnSource(name) {
 }
 
 /* Send one message whose answer carries `delivered`; return what the line under the box says. */
-async function send(delivered, { ok = true } = {}) {
+async function send(delivered, { ok = true, agents = [] } = {}) {
   const input = { value: 'the price moved' };
   const msg = { textContent: 'left over from before' };
   const go = { disabled: false };
   const els = { 'tk-say': input, 'tk-say-msg': msg, 'tk-say-go': go };
-  const project = { id: 'p1' };
+  const project = { id: 'p1', agents };
   let painted = 0;
   globalThis.TK_OPEN = 7;
   const body = ok ? { ok: true, delivered, summary: 'for agents' } : { error: 'refused' };
   const tkSayPost = new Function(
     'document', 'pjById', 'PJ_CURRENT', 'fetch', 'paintTaskActivity', 'encodeURIComponent',
-    fnSource('tkSayPost') + '\n; return tkSayPost;',
+    fnSource('tkMemberName') + '\n' + fnSource('quotaResetWords') + '\n' + fnSource('tkSayPost') + '\n; return tkSayPost;',
   )({ getElementById: (id) => els[id] || null }, () => project, project.id,
     async () => ({ ok, json: async () => body }), () => { painted += 1; }, encodeURIComponent);
   await tkSayPost();
@@ -66,22 +66,42 @@ test('#5842: a reason that does not name the agent gets the name in front', asyn
   assert.equal(bare.said, 'casey was not told.');
 });
 
-test('#5842: a message kept for an agent out of usage says it comes later, not that it failed', async () => {
-  const r = await send([{ agent: 'casey', state: 'held', because: 'held: casey is out of usage until 3pm; Kosmos types it after the reset' }]);
-  assert.equal(r.said, 'casey is out of usage until 3pm; Kosmos types it after the reset.');
-  const plain = await send([{ agent: 'casey', state: 'held' }]);
-  assert.equal(plain.said, 'casey gets it later.');
-  assert.doesNotMatch(r.said + plain.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
+test('#5842: a message kept for an agent out of usage says when, in local time, never the board\'s UTC stamp', async () => {
+  // The route's real shape on limittask-5805: state 'held', heldUntil an ISO time, because carrying that same raw time.
+  const until = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
+  const r = await send([{ agent: 'casey', state: 'held', heldUntil: until, because: 'held: casey is out of usage until ' + until + '; Kosmos types it after the reset' }]);
+  assert.match(r.said, /^casey is out of usage until .+\. Kosmos sends it your message then\.$/);
+  assert.ok(!r.said.includes(until) && !/\dT\d/.test(r.said), 'the raw UTC time reached the screen: ' + r.said);
+  const behind = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey still has messages kept from while it was out of usage; Kosmos types this one after them' }]);
+  assert.equal(behind.said, 'casey gets your message after the ones already waiting for it.');
+  const noTime = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey is out of usage; Kosmos types it after the reset' }]);
+  assert.equal(noTime.said, 'casey is out of usage. Kosmos sends it your message after the reset.');
+  assert.doesNotMatch(r.said + behind.said + noTime.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
 });
 
 test('#5842: a delivery Kosmos could not confirm is never claimed either way', async () => {
   const r = await send([{ agent: 'casey', state: 'unconfirmed' }, { agent: 'dana' }]);
   assert.equal(r.said, 'Kosmos could not confirm that casey got it. Kosmos could not confirm that dana got it.');
+  const why = await send([{ agent: 'casey', state: 'unconfirmed', because: 'part of it reached its window before the send failed, so it may be sitting there half-typed' }]);
+  assert.equal(why.said, 'Kosmos could not confirm that casey got it: part of it reached its window before the send failed, so it may be sitting there half-typed.');
 });
 
 test('#5842: an agent listed twice gets one line, the worst outcome', async () => {
   const r = await send([{ agent: 'casey', state: 'placed' }, { agent: 'casey', state: 'could_not', because: 'casey is not on this project any more, so it was not told' }]);
   assert.equal(r.said, 'casey is not on this project any more, so it was not told.');
+});
+
+test('#5842: the page names an agent by its card name, as the activity does, also inside the board\'s reason', async () => {
+  const agents = [{ sessionName: 'casey-bot', name: 'Casey Rivera' }];
+  const r = await send([{ agent: 'casey-bot', state: 'could_not', because: 'casey-bot is not on this project any more, so it was not told' }], { agents });
+  assert.equal(r.said, 'Casey Rivera is not on this project any more, so it was not told.');
+  const other = await send([{ agent: 'casey-bot', state: 'could_not', because: 'its window is scrolled back right now' }], { agents });
+  assert.equal(other.said, 'Casey Rivera was not told: its window is scrolled back right now.');
+});
+
+test('#5842: a task with no agent on it says nobody was told', async () => {
+  const r = await send([]);
+  assert.equal(r.said, 'No agent is on this task, so nobody was told.');
 });
 
 test('#5842: CONTROL: no delivered list (an older board) and a refused send behave as before', async () => {
