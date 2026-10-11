@@ -3227,6 +3227,8 @@ function appendLocked(projectId, agent, entry, bornAt) {
          */
         paneState: (entry && entry.delivery && entry.delivery.paneState) || null,
         paneNote: (entry && entry.delivery && entry.delivery.paneNote) || null,
+        // #5805 slice 2b: a held row keeps when it is to be sent (null when no time is known).
+        ...(entry && entry.delivery && entry.delivery.state === 'held' ? { heldUntil: typeof entry.delivery.heldUntil === 'string' ? entry.delivery.heldUntil : null } : {}),
       },
     }],
   };
@@ -3763,7 +3765,31 @@ function markDmReactionsTold(agent, named) {
   } catch { return false; }
 }
 
+/* #5805 slice 2b: a person's held message was typed later (the minute sweep, or Send now anyway), or dropped: its row,
+   found by `at`, takes the new delivery. Only a row that is still held changes. Never throws; true when written. */
+function updateDmDelivery(agent, at, delivery) {
+  const name = String(agent);
+  if (typeof at !== 'string' || !delivery || typeof delivery.state !== 'string') return false;
+  let file;
+  try { file = threadFile(DIRECT, name); } catch { return false; }
+  try {
+    let wrote = false;
+    const held = withThreadLock(file, () => {
+      const thread = readThread(DIRECT, name);
+      const messages = thread.messages.map((m) => {
+        if (!m || m.at !== at || m.from || !m.delivery || m.delivery.state !== 'held') return m;
+        wrote = true;
+        return { ...m, delivery: { state: delivery.state, because: delivery.because || null, paneState: delivery.paneState || null, paneNote: delivery.paneNote || null } };
+      });
+      if (wrote) store.saveFlushed(file, JSON.stringify({ ...thread, messages }, null, 2));
+      return true;
+    });
+    return !!(held && held.ok) && wrote;
+  } catch { return false; }
+}
+
 module.exports = {
+  updateDmDelivery,   // #5805 slice 2b
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,

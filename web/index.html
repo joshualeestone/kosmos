@@ -7332,6 +7332,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .delivery.placed { border-color: rgba(47,125,90,.5); }
 .delivery.failed { border-color: rgba(179,38,30,.5); }
 .delivery.unsure { border-style: dashed; }
+.delivery.held { border-style: dashed; border-color: var(--k-rule); }   /* #5805: kept, not yet sent */
+.dm-held-send { margin-left: .4rem; font: inherit; font-size: .85em; padding: .1rem .55rem; border-radius: 100px;
+                border: 1px solid var(--k-rule); background: transparent; color: inherit; cursor: pointer; }
+.dm-held-send:disabled { opacity: .6; cursor: default; }
 
 /* ---- the person's own thread with one agent (pack FROZEN-2026-08-19) ----
    Ported from the freeze's `.dbox` chat, values verbatim. The composer is the
@@ -37468,7 +37472,33 @@ function dmRow(m, name, replyAdjacent) {
     + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
     + '<span class="msg-t">' + whenStr + wire
     + (v.said ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
+    + (m.delivery && m.delivery.state === 'held' && typeof m.at === 'string'
+      ? '<button type="button" class="dm-held-send" data-held-at="' + esc(m.at) + '">Send now anyway</button>' : '')   // #5805
     + '</span></div></div></div>';
+}
+
+/* #5805 slice 2b: Send now anyway. Types the message Kosmos is holding for this agent, now, then repaints the thread
+   (its row then reads as any sent message). */
+async function dmHeldSend(btn) {
+  if (!btn || btn.disabled || !CURRENT) return;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  const session = CURRENT.sessionName;
+  let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread/held', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: btn.dataset.heldAt }),
+    });
+    ok = res.ok || res.status === 409;   // 409: it was sent or dropped meanwhile; the repaint shows which
+  } catch { ok = false; }
+  if (!ok) { btn.disabled = false; btn.textContent = 'Send now anyway'; return; }
+  if (CURRENT && CURRENT.sessionName === session) await paintTalk(session, CURRENT.name);
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target && ev.target.closest ? ev.target.closest('.dm-held-send') : null;
+    if (btn) { ev.preventDefault(); dmHeldSend(btn); }
+  });
 }
 
 
@@ -38766,6 +38796,10 @@ async function sendTalk(text, attachment) {
          the agent's name still rides the unconfirmed/failed arms below, where
          something actually went wrong. */
       line = placedWords(d);
+    } else if (d.state === 'held' && inThread) {
+      /* #5805 slice 2b: kept for after the agent's usage resets; the row above says so and offers Send now anyway. */
+      clearSent();
+      line = dmHeldWords(name, d) + ' To send it now, use Send now anyway on the message.';
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
       /* #4944: not kept, so the box is its only sure copy again: the words go back into it. */
@@ -69650,6 +69684,13 @@ function pjWhen(at) {
 function placedWords(d) {
   return '';
 }
+/* #5805 slice 2b: what a person's held message says, on its row and under the box: why it is held and when it goes. */
+function dmHeldWords(name, d) {
+  if (/still has messages kept/.test(String((d && d.because) || ''))) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.';
+  const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
+  const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
+  return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.';
+}
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};
   // The pane's state when we typed, and what it means for what happens next.
@@ -69660,7 +69701,11 @@ function pjVerdict(m, name) {
   /* #3966: a live time, so the member panel can refresh it in place (see setLive). */
   const whenLive = pjWhenLive(m.at);
   const when = whenLive ? ' ' + whenLive : '';
-  if (d.state === 'placed') {
+  if (d.state === 'held') {
+    // #5805 slice 2b: kept while the agent is out of usage; dmRow puts Send now anyway beside it.
+    mark = ' held';
+    said = esc(dmHeldWords(name, d));
+  } else if (d.state === 'placed') {
     mark = '';
     /* #3419: a placed message's thread row carries NO delivery-status copy --
        placedWords returns '' now (Josh: no play-by-play about the agent's

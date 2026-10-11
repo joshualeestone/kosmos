@@ -64,7 +64,9 @@ function addOrWhy(name, entry) {
     if (now.filter((e) => e.from === String(entry.from || '')).length >= MAX_PER_SENDER) return 'sender-cap';
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
       key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null,
-      ...(entry.behind === true ? { behind: true } : {}) });
+      ...(entry.behind === true ? { behind: true } : {}),
+      // #5805 slice 2b: a person's own message: its text and trailer are typed with the envelope, as the route types them.
+      ...(entry.kind === 'dm' ? { kind: 'dm', text: String(entry.text || ''), trailer: String(entry.trailer || '') } : {}) });
     return write(name, now) ? '' : 'store';
   } catch { return 'store'; }
 }
@@ -171,7 +173,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         typedNow += 1;
         typing.set(e.id, Date.now());
         let v;
-        try { v = await deliver(name, e.envelope + keptNote(e), roster); } catch { v = null; } finally { typing.delete(e.id); }
+        try { v = await deliver(name, e.envelope + keptNote(e), roster, e); } catch { v = null; } finally { typing.delete(e.id); }
         const state = v && v.state;
         if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) break;
         if (!remove(name, e.id)) done.add(e.id);
@@ -185,6 +187,22 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
   return out;
 }
 
+/* The board's minute sweep, wired: `kosmos msg` messages (slice 2a) and a person's own messages (slice 2b, kind 'dm')
+   are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
+   dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
+   conversation row). */
+function sweepHooks({ chat, messages }) {
+  return {
+    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
+    resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, isReleased: chat.limitQueueReleased,
+    onDelivered: (e, v) => (e.kind === 'dm' ? chat.updateDmDelivery(e.to, e.at, v) : messages.logHeldDelivered(e, v)),
+    onDropped: (e, r) => {
+      if (e.kind === 'dm') { chat.updateDmDelivery(e.to, e.at, { state: chat.DELIVERY.COULD_NOT, because: 'Kosmos kept it for a day and could not type it' }); return; }
+      messages.tellHeldDropped(e, r).catch(() => { /* recorded */ });
+    },
+  };
+}
+
 function resetForTests() { done.clear(); typing.clear(); flushingSince = 0; }
 
-module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS };
+module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks };
