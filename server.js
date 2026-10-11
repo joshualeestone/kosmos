@@ -15836,6 +15836,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5805 slice 2b: Send now anyway. The person types a message Kosmos is holding for an agent out of usage, now, and
+     its row takes the delivery. The person's action only. A message no longer kept (typed or dropped), or one the
+     minute sweep is typing this moment, answers 409. */
+  const dmHeld = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/held$/);
+  if (dmHeld && req.method === 'POST') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this is the person\'s to send, not an agent\'s' }); return; }
+    const name = decodeSegment(dmHeld[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.at !== 'string' || !body.at) { sendJson(res, 400, { error: 'say which held message (its at)' }); return; }
+        const limitqueue = require('./engine/limitqueue');
+        const entry = limitqueue.list(name).find((e) => e.kind === 'dm' && e.at === body.at);
+        if (!entry || limitqueue.isTyping(entry.id)) { sendJson(res, 409, { error: 'that message is no longer held: it was sent or dropped, or is being sent now' }); return; }
+        if (!limitqueue.remove(name, entry.id)) { sendJson(res, 503, { error: 'we could not take that message out of the held list; try again' }); return; }
+        let delivery;
+        try { delivery = await chat.deliverAsync(name, entry.text, safeRoster(), entry.envelope, entry.trailer); }
+        catch (err) { delivery = { state: chat.DELIVERY.COULD_NOT, because: 'it could not be typed: ' + String((err && err.message) || err) }; }
+        limitqueue.setRow(name, entry.at, delivery, chat);   // retried by the sweep when the thread cannot be written now
+        sendJson(res, 200, { delivery });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
   /**
    * --- the thread between the person and ONE agent -------------------------
    *
@@ -15856,29 +15882,6 @@ const server = http.createServer(async (req, res) => {
    * with. (The PLAN for this branch said 404-unknown; that would have hidden a
    * stopped agent's own conversation, which is the thing the file exists for.)
    */
-  /* #5805 slice 2b: Send now anyway. The person types a message Kosmos is holding for an agent out of usage, now, and
-     its row takes the delivery. The person's action only; a message no longer kept (typed or dropped) answers 409. */
-  const dmHeld = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/held$/);
-  if (dmHeld && req.method === 'POST') {
-    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this is the person\'s to send, not an agent\'s' }); return; }
-    const name = decodeSegment(dmHeld[1]);
-    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req)
-      .then(async (buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        if (typeof body.at !== 'string' || !body.at) { sendJson(res, 400, { error: 'say which held message (its at)' }); return; }
-        const limitqueue = require('./engine/limitqueue');
-        const entry = limitqueue.list(name).find((e) => e.kind === 'dm' && e.at === body.at);
-        if (!entry) { sendJson(res, 409, { error: 'that message is no longer held: it was sent or dropped' }); return; }
-        if (!limitqueue.remove(name, entry.id)) { sendJson(res, 503, { error: 'we could not take that message out of the held list; try again' }); return; }
-        const delivery = await chat.deliverAsync(name, entry.text, safeRoster(), entry.envelope, entry.trailer);
-        chat.updateDmDelivery(name, entry.at, delivery);
-        sendJson(res, 200, { delivery });
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
-    return;
-  }
   const dm = pathname.match(/^\/api\/agent\/([^/]+)\/thread$/);
   if (dm && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(dm[1]);
@@ -16599,9 +16602,10 @@ const server = http.createServer(async (req, res) => {
             const at = new Date().toISOString();
             const until = hold && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
             const trailer = (attachments.wireNote(files.recs) || '') + reactionNote;
-            if (limitqueue.add(name, { id: 'dm-' + at, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at })) {
+            const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
+            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at })) {
               const heldDelivery = {
-                state: 'held', held: true, heldBy: 'limit', heldUntil: until, at,
+                state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}),
                 because: behind ? 'held: it still has messages kept from while it was out of usage; Kosmos sends this one after them'
                   : 'held: it is out of usage' + (until ? ' until ' + until : '') + '; Kosmos sends it after the reset',
               };
@@ -16609,8 +16613,13 @@ const server = http.createServer(async (req, res) => {
                 ...attachments.rowFields(files.recs), text: body.text, wire: null, at, delivery: heldDelivery,
                 ...(answered ? { replyTo: answered.at } : {}),
               });
-              sendJson(res, 200, { delivery: heldDelivery, recorded: keptRow.recorded === true, recordedBecause: keptRow.because || null });
-              return;
+              if (keptRow.recorded === true) {
+                sendJson(res, 200, { delivery: heldDelivery, recorded: true, recordedBecause: null });
+                return;
+              }
+              /* No row to show it held (or to offer Send now anyway): taken back out and typed now, as before, rather
+                 than kept where the person cannot see it and typed later behind a "not sent" they may resend. */
+              limitqueue.remove(name, heldId);
             }
           }
         }
