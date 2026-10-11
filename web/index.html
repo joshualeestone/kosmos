@@ -37538,7 +37538,7 @@ async function dmHeldSend(btn) {
     ok = res.ok || res.status === 409;   // 409: it was sent or dropped meanwhile; the repaint shows which
     if (!ok) {
       const out = await res.json().catch(() => null);
-      because = out && typeof out.error === 'string' && out.error ? 'Not sent: ' + out.error.replace(/[.\s]+$/, '') + '.' : 'Not sent (the board answered ' + res.status + '). Try again.';
+      because = out && typeof out.error === 'string' && out.error ? 'Not sent: ' + out.error.replace(/[.\s]+$/, '') + '.' : 'Kosmos could not send it. Try again.';   // never a bare status number on screen
     }
   } catch { ok = false; }
   if (!ok) {
