@@ -43,16 +43,20 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
       t = pre; if (gsub(/'"'"'/, "", t) % 2) return 0
       return 1
     }
+    # A file saved with CRLF endings: read each line without its CR, so a trailing backslash still reads as one.
+    { sub(/\r$/, "") }
     /^[^#]*set -o pipefail|^[^#]*set -[a-zA-Z]*o pipefail/ { pf = 1 }
     # "a || b" is not a pipe: drop every || before looking for one (a "cmd || sed" fallback was read as "| sed").
     { s = $0; gsub(/\|\|/, "  ", s) }
     s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
     # A "$?" straight after a plain command on its own line is that command'"'"'s status, so a pipe on an EARLIER line
     # cannot reach it (own() above). A pipe on the same line, or a line continued from the pipe'"'"'s, still counts.
-    p && p != NR && !cont && own($0) { p = 0 }
+    # Nor after a lone "}": a function whose last line is the pipe returns the filter'"'"'s status, so "fn; rc=..." reads it.
+    p && p != NR && !cont && !shut && own($0) { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
     { cont = ($0 ~ /\\$/) }
+    /[^[:space:]]/ { shut = ($0 ~ /^[[:space:]]*}[[:space:]]*$/) }
   ')"
   # PIPE-LINT-END
   if [ -n "$hits" ]; then

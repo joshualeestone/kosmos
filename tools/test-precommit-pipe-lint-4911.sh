@@ -63,6 +63,8 @@ mustflag "a semicolon inside quotes" "yarn test $P tail -5" "echo \"suite finish
 # The continued line starts with a plain word (an argument of grep), so only the continuation rule can catch it.
 mustflag "a continued pipe line" "yarn test $P grep \\" "  failed; rc=$Q"
 mustflag "a comment between the pipe and the read" "yarn test $P tail -5" "# read it below; rc=$Q" "[ $Q -eq 0 ] || exit 1"
+mustflag "a function ending in the pipe, then its own call" 'run() {' "  yarn test $P tail -5" '}' "run; rc=$Q"
+mustflag "a continued pipe line in a CRLF file" "yarn test $P grep \\"$'\r' "  failed; rc=$Q"$'\r'
 
 # The file the finding was about, as it is in this tree.
 if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then

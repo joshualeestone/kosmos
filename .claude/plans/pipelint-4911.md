@@ -38,3 +38,13 @@ heuristic over lines, not a parser.
 - Found while fixing: the new comment wrote the status variable within two lines of the hook's own pipe, so the
   hook refused itself; the comments now never write it. Whole-repo sweep: old 14 flagged lines (all false positives),
   new 0, under BSD awk and mawk, with a hazard/clean control in each.
+
+## Review 2 (sonnet, blind, on a620478a2): no BLOCKER
+- FIXED (WARNING): a function whose last line is the pipe, then "fn; rc=<status>", was accepted (the old lint caught
+  it within two lines). The pipe now stays live after a lone "}" line. That refuses some correct code (a function
+  ending in a pipe, then an unrelated command and a status read within two lines); acceptable for a guard. Fixture;
+  mutation red.
+- FIXED (NIT): CRLF files lost the continuation rule; each line's CR is dropped first. Fixture; mutation red.
+- NO CHANGE (NIT): pipefail is never unset by "set +o pipefail" (predates this change; scope is #632's).
+- NO CHANGE (NIT): the test runs one awk per run; BSD awk and mawk were both run by hand on every fixture and the
+  whole-repo sweep (identical). CI's awk is whatever its runner has.
