@@ -41,3 +41,26 @@ engine writes one, but a person could.
   - a forged `continues` is not followed;
   - a failed move aside refuses.
 - `engine/chat.test.js`: its cap test now asserts the rollover.
+
+## Review 1 (opus): rollover CARRIES the last 200 rows (decision on the card)
+- **Why:** a fresh file holding only the new message broke every reader that looks at recent rows in the current
+  file: the first-reply nudge (it would tell the agent nothing had reached the person), reactions, replies, held
+  deliveries, `kosmos inbox`, and the project panel's history.
+- **Change:** the full file is still set aside whole. The new file starts with a COPY of its last 200 rows, plus
+  `carried: 200`. Position of row i = (earlier files' own rows) - carried + i, and the chain skips each file's carried
+  overlap, so nothing doubles or shifts.
+- **Also fixed:**
+  - the chain is read off the SAME read of the current file, so a rollover between two reads cannot double the rows;
+  - an EMPTY current file with this thread's own `.full` files on disk (a crash after the rename, or a damaged file
+    set aside) continues from the newest one;
+  - the project route counts the chain;
+  - a reply to a row that lives only in an earlier file is found read-only;
+  - a reaction on such a row says it is in an earlier part, kept as it was (earlier files are never written);
+  - forget's count skips `.full` files;
+  - the comment placement and the "no file read" overclaim are corrected;
+  - the traversal test now points at a real file, so the name check is the only guard.
+- **Not taken:**
+  - `engine/dailylog.js` skips `.full` files and would prune days whose rows moved aside. Nothing calls it today; it
+    needs care the day it is wired.
+  - the unread count covers the current file only, and the carried rows cover the recent ones.
+  - the older route re-reads every earlier file per page (a rare, explicit action).

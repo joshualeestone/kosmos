@@ -1058,7 +1058,10 @@ test('a full thread ROLLS OVER (kosmos#5841): the next message is kept, and noth
   const kept = chat.appendMessage('full', 'casey', { text: 'one more', delivery: { state: chat.DELIVERY.PLACED } });
   assert.equal(kept.recorded, true, 'a full thread refused the next message: ' + kept.because);
   const now = chat.readThread('full', 'casey');
-  assert.deepEqual(now.messages.map((m) => m.text), ['one more'], 'the new file holds the new message');
+  // The new file carries a COPY of the full file's last 200 rows (`carried`), then the new message.
+  assert.equal(now.carried, 200, 'the new file does not say how many rows it carried');
+  assert.deepEqual([now.messages.length, now.messages[0].text, now.messages[199].text, now.messages[200].text],
+    [201, 'm' + (chat.MAX_MESSAGES - 200), 'm' + (chat.MAX_MESSAGES - 1), 'one more'], 'the carried rows, then the new message');
   assert.ok(now.continues, 'the new file does not name the full one it continues');
   // Nothing of the person's was deleted to make room: the full file is set aside whole, oldest first.
   const aside = JSON.parse(fs.readFileSync(path.join(path.dirname(file), now.continues), 'utf8'));

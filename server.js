@@ -15959,9 +15959,11 @@ const server = http.createServer(async (req, res) => {
     let rows;
     // kosmos#5841: the whole chain, oldest first: every rolled-over file this conversation continues, then this one.
     try {
-      rows = chat.readThread(chat.DIRECT, name).messages || [];
-      const earlier = chat.asideChain(chat.DIRECT, name, true);
-      if (earlier.length) rows = [].concat(...earlier.map((a) => a.messages), rows);
+      const rec = chat.readThread(chat.DIRECT, name);
+      rows = rec.messages || [];
+      const earlier = rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues) : [];
+      // The current file's first `carried` rows are already the earlier file's last: served once, from there.
+      if (earlier.length) rows = [].concat(...earlier.map((a) => a.messages), rows.slice(rec.carried || 0));
     } catch (err) {
       // No file can ever exist (BAD_THREAD) reads as nothing older; anything else is a read that failed, said so.
       if (err && err.code === 'BAD_THREAD') { sendJson(res, 200, { messages: [], olderCount: 0 }); return; }
@@ -16067,10 +16069,12 @@ const server = http.createServer(async (req, res) => {
     let messages = null;
     let historyBecause = null;
     let historyUnfilable = false;
+    let threadRec = null;
     try {
       // No `bornAt`: a direct thread outlives every project, so there is no
       // birth date for it to be refused against.
-      messages = chat.readThread(chat.DIRECT, name).messages;
+      threadRec = chat.readThread(chat.DIRECT, name);   // kosmos#5841: kept, so the chain is read off this same read
+      messages = threadRec.messages;
     } catch (err) {
       if (err && err.code === 'BAD_THREAD') {
         // There is no file and there never will be one — the agent's name
@@ -16215,10 +16219,15 @@ const server = http.createServer(async (req, res) => {
     const TAIL = 200;
     /* kosmos#5841: a conversation that rolled over at the engine's cap continues earlier files; their messages are
        older still, and counted here so "Show earlier messages" reaches them (positions run across the whole chain). */
+    /* The current file's first `carried` rows copy the end of the file it continues, so the position of its row i is
+       (earlier files' own rows) - carried + i: the first row shown here is at that position for i = its index. */
     let asideCount = 0;
-    if (Array.isArray(messages)) { try { for (const a of chat.asideChain(chat.DIRECT, name, false)) asideCount += a.count; } catch { /* the chain is extra; the tail stands */ } }
+    if (Array.isArray(messages) && threadRec && threadRec.continues) {
+      try { for (const a of chat.asideChain(chat.DIRECT, name, false, threadRec.continues)) asideCount += a.count; } catch { /* the chain is extra; the tail stands */ }
+    }
+    const firstShown = Array.isArray(messages) && messages.length > TAIL ? messages.length - TAIL : 0;
     const olderCount = Array.isArray(messages)
-      ? asideCount + (messages.length > TAIL ? messages.length - TAIL : 0) : 0;
+      ? Math.max(0, asideCount - (asideCount ? (threadRec.carried || 0) : 0) + firstShown) : 0;
     if (Array.isArray(messages) && messages.length > TAIL) messages = messages.slice(-TAIL);
     /**
      * ⚠️ EVERY FIELD HERE HAS A READER ON THE PAGE. The first version also
@@ -16634,6 +16643,16 @@ const server = http.createServer(async (req, res) => {
           // Only the agent's own messages and the person's: the tag inside the operator's bracket names one of the two.
           answered = kept.find((r) => r && r.at === body.reply_to && typeof r.text === 'string'
             && r.kind !== 'kosmos' && r.kind !== 'question' && (!r.from || r.from === name)) || null;
+          if (!answered) {
+            // kosmos#5841: older than the latest carried rows, it lives in an earlier file: read-only is enough to answer it.
+            try {
+              const rec = chat.readThread(chat.DIRECT, name);
+              for (const a of rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues) : []) {
+                answered = a.messages.find((r) => r && r.at === body.reply_to && typeof r.text === 'string'
+                  && r.kind !== 'kosmos' && r.kind !== 'question' && (!r.from || r.from === name)) || answered;
+              }
+            } catch { /* not found stays not found */ }
+          }
           if (!answered) {
             const gone = new Error('That message is no longer in this conversation. Press \u00d7 to send this as a new message.');
             gone.status = 409; throw gone;
@@ -20850,11 +20869,13 @@ const server = http.createServer(async (req, res) => {
      * and nothing will be.
      */
     let historyUnfilable = false;
+    let projRec = null;
     try {
       // ⚠️ The project's own birth date goes in, so a thread written for an
       // EARLIER project that had this name is refused rather than shown under
       // this one. Ids are derived from names and a removal frees the id.
-      messages = chat.readThread(id, member.sessionName, project.createdAt).messages;
+      projRec = chat.readThread(id, member.sessionName, project.createdAt);   // kosmos#5841: kept for the chain count
+      messages = projRec.messages;
     } catch (err) {
       if (err && err.code === 'OTHER_PROJECT') {
         historyOther = true;
@@ -20957,9 +20978,15 @@ const server = http.createServer(async (req, res) => {
        many the file still keeps, so the page can state the truth instead
        of implying the visible list is everything. */
     const TAIL = 200;
-    const olderCount = Array.isArray(messages) && messages.length > TAIL
-      ? messages.length - TAIL : 0;
-    if (olderCount) messages = messages.slice(-TAIL);
+    /* kosmos#5841: a project thread rolls over at the cap too; its earlier files are counted so the panel still says
+       how many messages are kept (it has no earlier reader yet; the count is the truth about what is kept). */
+    let projAside = 0;
+    if (Array.isArray(messages) && projRec && projRec.continues) {
+      try { for (const a of chat.asideChain(id, member.sessionName, false, projRec.continues)) projAside += a.count; } catch { /* the tail stands */ }
+    }
+    const projFirst = Array.isArray(messages) && messages.length > TAIL ? messages.length - TAIL : 0;
+    const olderCount = Array.isArray(messages) ? Math.max(0, projAside - (projAside ? (projRec.carried || 0) : 0) + projFirst) : 0;
+    if (Array.isArray(messages) && messages.length > TAIL) messages = messages.slice(-TAIL);
     /* #3769: a project thread with the setup guide is its words throughout, as in its direct thread. */
     const guideMember = member && isSetupGuide(member.sessionName) ? member.sessionName : null;
     sendJson(res, 200, {
