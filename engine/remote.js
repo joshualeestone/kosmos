@@ -1879,7 +1879,10 @@ function pendingDevices() {
          fixed list so the page words each one; null while the code is shown or being worked out. */
       code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null,
     }));
-  return { devices, snapshot: raw !== null, email: settings.email || '', connected_here: recentlyVouched(settings) };
+  // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
+  // still lists it (until its next poll).
+  const here = recentlyVouched(settings);
+  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
    of JSON. Other lines

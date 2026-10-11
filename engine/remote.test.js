@@ -4516,3 +4516,39 @@ test('#5786 (b): Not me arriving just AFTER an automatic allow still takes the d
   assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-plain')).length, 0);
   remote.setOn(false);
 });
+
+test('#5786 (b): one device per secret, the code_wait and invalid-joining arms, and no double display', async () => {
+  // A matched device that was refused once pins the secret: a SECOND row with its own valid vouch is never allowed.
+  process.env.FAKE_TUNNEL_MODE = 'allow-fails';
+  const { secret, plant } = await vouchSignedIn('vouchpin');
+  plant([{ device_id: 'dev-a', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-a', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-a') }]);
+  remote.vouchTickForTests();
+  await until(() => allowsOf().includes('dev-a'), 'the first try at dev-a');
+  await new Promise((r) => setTimeout(r, 60));
+  delete process.env.FAKE_TUNNEL_MODE;
+  plant([{ device_id: 'dev-b', name: 'iPhone', first_seen: nowS(), code: 'K7-3M', vouch: vouchFor(secret, 'dev-b') },
+    { device_id: 'dev-a', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-a') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-a'], 'the pinned device to be allowed');
+  assert.ok(!allowsOf().includes('dev-b'), 'a second device was allowed under the same secret');
+  // Not shown as waiting once noted, even while the snapshot still lists it.
+  assert.ok(!remote.pendingDevices().devices.some((d) => d.device_id === 'dev-a'), 'the device shows as waiting AND connected');
+  assert.ok(remote.pendingDevices().devices.some((d) => d.device_id === 'dev-b'), 'CONTROL: another waiting device still shows');
+  remote.setOn(false);
+  // code_wait alone, and a joining_computer the display would null out, are never allowed.
+  const r2 = await vouchSignedIn('vouchwait');
+  r2.plant([{ device_id: 'dev-cw', name: 'computer', first_seen: nowS(), code: '', code_wait: 'was_a_computer' }]);
+  r2.plant([{ device_id: 'dev-cw', name: 'computer', first_seen: nowS(), code: '', code_wait: 'was_a_computer' },
+    { device_id: 'dev-ok', name: 'iPhone', first_seen: nowS(), code: 'K7-3M' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: opened');
+  const before = allowsOf().length;
+  r2.plant([{ device_id: 'dev-cw', name: 'computer', first_seen: nowS(), code: '', code_wait: 'was_a_computer', vouch: vouchFor(r2.secret, 'dev-cw') },
+    { device_id: 'dev-bad', name: 'computer', first_seen: nowS(), code: '', joining_computer: 'NOT A NAME!', vouch: vouchFor(r2.secret, 'dev-bad') }]);
+  remote.vouchTickForTests();
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual(allowsOf().slice(before).filter((x) => x === 'dev-cw' || x === 'dev-bad'), [], 'a computer-shaped row was allowed');
+  remote.setOn(false);
+});
