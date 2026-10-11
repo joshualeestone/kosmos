@@ -44,3 +44,26 @@ reach, telling a person on a server to use a window or a folder it does not have
 ## Not covered
 - None of these has been seen on a real Linux board (the card says so too). The browser check stamps the platform
   meta, which is what the server writes on Linux (`stampServedPlatform`).
+
+## Review 1 (opus)
+- **No blocker.**
+- **SHOULD-FIX, taken.** The world-switch fallback named `kosmos restart`, but on Linux this line is reached only by
+  a board that is NOT installed: an installed board restarts itself (engine/boardrestart.js linuxCanRestart, which
+  I verified). There, `kosmos restart` is missing or restarts a different board. It now says "stop Kosmos and start it
+  again the way you started it". I first wrote a cause ("not started by the installer") and took it out: a
+  linuxboard require failure also reaches this line, on an installed board.
+- **SHOULD-FIX, taken in part.** The two `worldswReconnect` lines (a self-restart slow to come back) said "quit and
+  reopen" on every platform. Linux reaches them only through an installed board's self-restart, so `kosmos restart`
+  is right there (`worldswStuckStep`). Tested by function and by source (both lines call it; a hard-coded-line mutant
+  is red).
+- **The rest of the class is on #5865:** the remote view's "Your Mac", the Dock lines, the first-run success
+  screen, and Windows still getting "quit and reopen" in the reconnect lines.
+- **NIT, taken:** the unit test now pins Windows' `restartHowText` (the reviewer's mutant passed before).
+- **NIT, decided and kept:** the offline note's `kosmos restart` also restarts a HEALTHY board when only the path
+  failed (a dropped SSH tunnel). Kept, because it is the one command that also clears a hung board, and agents survive
+  it (KillMode=process, tmux). `kosmos start` would not clear a hang. What would change my mind: data showing tunnel
+  drops are the common case.
+- **NIT, not taken:** over an SSH tunnel the note's heading says "on this computer" (an older line) above the new
+  "On the computer running Kosmos". They contradict only when the page is reached through a tunnel. Left for #5865's
+  wording pass.
+- **Mutants red:** worldswStuckStep's Linux arm off; the world-switch arm back to the command; a reconnect line hard-coded.

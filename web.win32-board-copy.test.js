@@ -502,6 +502,10 @@ test('#5862: on a Linux server the offline note, the restart screen and the worl
   assert.doesNotMatch(said('linux'), /kosmos restart/, 'the fallback for a board that is not installed named the installed command');
   // After a self-restart that is slow to come back (an installed board on Linux), the step IS the command.
   const stuck = (platform) => runPage(platform, ['worldswStuckStep'], 'worldswStuckStep()');
+  // Both of worldswReconnect's slow-restart lines take their step from it (a literal there would skip the Linux arm).
+  const rc = page.lift(SCRIPT, 'worldswReconnect');
+  assert.equal((rc.match(/worldswStuckStep\(\)/g) || []).length, 2, 'a reconnect line does not take its step from worldswStuckStep');
+  assert.doesNotMatch(rc, /quit and reopen Kosmos/i, 'a reconnect line still hard-codes the Mac step');
   assert.equal(stuck('linux'), 'run kosmos restart in a terminal on the computer running Kosmos (over SSH on a headless server).');
   for (const text of [offline, how, said('linux'), stuck('linux')]) {
     assert.doesNotMatch(text, /Applications folder|Quit|reopen|Command-Q|Kosmos\.exe|Start menu/i, 'a Linux server was given a Mac or Windows step: ' + text);
