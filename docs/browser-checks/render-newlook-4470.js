@@ -1060,8 +1060,8 @@ const AGENTS_LOOK = `(() => {
         for (const c of ['attn', 'question', 'unk', '', 'restarting']) {
           const d = document.createElement('div'); d.className = ('acard ' + c).trim();   // boardMods gives restarting its own class too (review 5)
           const pl = document.createElement('div'); pl.className = 'astate ' + PILL[c]; pl.innerHTML = '<b>x</b>'; d.append(pl);
-          /* Review 5: a Question card whose agent keeps working shows a "Working now" line with the same dots. */
-          if (c === 'question') { const aw = document.createElement('div'); aw.className = 'alsowork'; aw.innerHTML = '<span class="act"><i></i><i></i><i></i></span>Working now'; d.append(aw); }
+          /* Reviews 5 and 6: a Question or Issue card whose agent keeps working shows a "Working now" line with the same dots. */
+          if (c === 'question' || c === 'attn') { const aw = document.createElement('div'); aw.className = 'alsowork'; aw.innerHTML = '<span class="act"><i></i><i></i><i></i></span>Working now'; d.append(aw); }
           g.append(d);
           const cs = getComputedStyle(d), ps = getComputedStyle(pl), awDot = d.querySelector('.alsowork .act i');
           out[c || 'idle'] = { color: cs.borderTopColor, style: cs.borderTopStyle, img: cs.backgroundImage, ratio: new Function(`return (${ratioFn})`)()(d),
@@ -1071,8 +1071,8 @@ const AGENTS_LOOK = `(() => {
       }, EDGE_RATIO);
       chk(strokes.found && ['attn', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed' && strokes.unk.ratio >= 1.5,
         `${tag} On, Agents page: Issue and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
-      chk(strokes.found && strokes.question.awDot === DOT_OF[theme],
-        `${tag} On, Home: a Question card's "Working now" dots are the same green as Working's, 3:1 or more on the warm card`, JSON.stringify(strokes.question));
+      chk(strokes.found && strokes.question.awDot === DOT_OF[theme] && strokes.attn.awDot === DOT_OF[theme],
+        `${tag} On, Home: a Question or Issue card's "Working now" dots are the same green as Working's`, JSON.stringify({ question: strokes.question.awDot, attn: strokes.attn.awDot }));
       chk(strokes.found && strokes.attn.pill.bg !== 'rgba(0, 0, 0, 0)' && strokes.unk.pill.style === 'dashed' && strokes.unk.pill.edge !== 'rgba(0, 0, 0, 0)'
         && ['question', 'idle', 'restarting'].every((c) => strokes[c].pill.edge === 'rgba(0, 0, 0, 0)' && strokes[c].pill.bg === 'rgba(0, 0, 0, 0)'),
         `${tag} On, Home: the Issue pill keeps its fill and the could-not-read pill its dash; Question, idle and restarting are a mark and a word, no pill`, JSON.stringify(strokes));
