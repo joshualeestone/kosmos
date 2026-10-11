@@ -419,3 +419,14 @@ test('#5805 review 9: the restart pickup ({ cap: false }) is held by the limit, 
     assert.deepEqual(tmux.typed(), []);
   });
 });
+
+test('#5805 review 17: on a dateless limit line too, the fresh StopFailure report does not outrank the screen (decided), and nothing is held', async () => {
+  await withReport(LIMIT_REPORT, DATELESS(), async (board, tmux) => {
+    const card = board.agents.find((c) => c.sessionName === 'casey');
+    assert.equal(card.state, status.STATE.RATE_LIMITED, 'the card reads ' + card.state + ' (before this slice: blocked)');
+    assert.equal(chat.limitHeldVerdict('casey', board.agents), null, 'a dateless limit was held');
+    const v = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
+    assert.notEqual(v.held, true);
+    assert.ok(tmux.typed().length > 0, 'CONTROL: the line was typed, as before this slice');
+  });
+});

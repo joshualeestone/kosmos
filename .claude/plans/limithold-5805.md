@@ -60,8 +60,13 @@ and the room reminder is sent once only.
 - The retry for Claude members runs only while the card reads idle off the screen, never while it reads capped or
   busy, so it does not rewrite the held file every minute of a pause (#4797) and never types into a working agent.
 - A person's own message is not held here (slice 2).
+- The StopFailure limit report never outranks a limit screen, dated or dateless: on the dateless form (not held) a
+  fresh report used to make the card read blocked, and now it reads rate_limited with the screen's conflict note. The
+  screen is the better witness there too; tested.
 
 ## Residuals, stated
+- An ask's limit record is not removed when the ask is told; it lapses a day after the reset (or with the next write
+  for that member). Until then a restored id keeps the day rule from the reset, which is the record's meaning.
 - A limit menu nobody dismisses keeps the hold (typing would land in it) and the card capped, so its kept asks are
   dropped a day after the printed reset, logged by the board; nothing in this slice keeps them longer.
 - Windows agents run headless; whether their cards ever read rate_limited is unmeasured (slices 2 and 3).
@@ -210,3 +215,10 @@ behaviour), never the reverse.
 - FIXED: flushReleased's pre-filter spelled the state as a literal; it reads status.STATE.RATE_LIMITED, and the lazy
   requires say why they are lazy.
 - Duplicates of stated premises: the limit wording (weakest premise) and StopFailure not measured live (residual).
+
+## Review 17 (opus)
+- DECIDED and pinned: the report-under-screen rule applies to the dateless form as well (the card reads rate_limited,
+  not blocked; nothing held; tested).
+- STATED (residual): a told ask's limit record lapses rather than being removed.
+- Not taken: hoisting the lazy requires; an injected clock for withoutStale; the held-by wording helper; the pane read
+  past the cap (review 8).
