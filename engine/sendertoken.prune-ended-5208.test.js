@@ -392,11 +392,14 @@ test('kosmos#5208: a compaction that stole the lock and put a newer file in plac
   fs.linkSync = function (from, to) {
     fs.linkSync = realLink;
     const t = LIVE() + '.other';
-    fs.writeFileSync(t, '\n' + line('newer', T0 + 20) + '\n');
+    fs.writeFileSync(t, '\n' + line('a', T0) + '\n' + line('newer', T0 + 20) + '\n');   // its fold carries what it read
     fs.renameSync(t, LIVE());   // another compaction's file, a different inode
     return realLink.call(this, from, to);
   };
-  try { sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; }
+  let r;
+  try { r = sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; }
+  assert.equal(r.compacted, false, 'it went on over a file it did not read');
+  assert.deepEqual(sealed(), [], 'its link to a file it did not read was left');
   assert.equal(sendertoken.endedSince(['newer'], iso(T0)), true, 'this build lost the newer file\'s line');
   assert.equal(oldEndedSince('newer', iso(T0), false), true, 'a rolled-back build lost the newer file\'s line');
   assert.equal(sendertoken.endedSince(['a'], iso(T0 - 1)), true, 'the line this compaction folded was lost');
@@ -418,7 +421,7 @@ test('kosmos#5208: a sealed file that grew with its mtime unchanged is not delet
   assert.equal(sendertoken.endedSince(['same-ms'], iso(T0)), true);
 });
 
-test('kosmos#5208: a sealed name that is not a regular file (a pipe, a link to a device) refuses at once, never hangs', () => {
+test('kosmos#5208: a sealed name that is not a regular file (a pipe, a link to a device) refuses at once, never hangs', { skip: process.platform === 'win32' ? 'no mkfifo or /dev/zero on Windows' : false }, () => {
   for (const make of [
     (f) => require('node:child_process').execFileSync('mkfifo', [f]),
     (f) => fs.symlinkSync('/dev/zero', f),
@@ -449,4 +452,28 @@ test('kosmos#5208: revokeIfUnchanged records the end without compacting under it
   assert.ok(fs.statSync(LIVE()).size > sendertoken.ENDED_COMPACT_AT_BYTES, 'it compacted under the session lock');
   sendertoken.revoke('next-end');   // CONTROL: the next ordinary end compacts
   assert.ok(fs.statSync(LIVE()).size < sendertoken.ENDED_COMPACT_AT_BYTES, 'CONTROL: the next end did not compact');
+});
+
+test('kosmos#5208: a compaction that stole the lock and replaced the live file between the link and the rename is not overwritten', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  const realLink = fs.linkSync;
+  // Another compaction's fold (what it read, plus a line that reached its file) lands right after this one's link.
+  fs.linkSync = function (from, to) {
+    fs.linkSync = realLink;
+    const out = realLink.call(this, from, to);
+    const t = LIVE() + '.other';
+    fs.writeFileSync(t, '\n' + line('a', T0) + '\n' + line('newer', T0 + 20) + '\n');
+    fs.renameSync(t, LIVE());
+    return out;
+  };
+  let r;
+  try { r = sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; }
+  assert.equal(r.compacted, false, 'it renamed over a live file another compaction had just put in place');
+  assert.deepEqual(sealed(), [], 'its link to a file it did not read was left');
+  assert.deepEqual(temps(), [], 'a temp file was left behind');
+  for (const n of ['a', 'newer']) {
+    assert.equal(sendertoken.endedSince([n], iso(T0 - 1)), true, 'this build lost ' + n);
+    assert.equal(oldEndedSince(n, iso(T0 - 1), false), true, 'a rolled-back build lost ' + n);
+  }
 });

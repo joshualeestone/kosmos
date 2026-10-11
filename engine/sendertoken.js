@@ -323,8 +323,9 @@ let compactStuckSaid = false;
 let compactReplaceSaid = false;
 let compactLinkSaid = false;
 let compactFlushSaid = false;
+let compactSlowSaid = false;
 /* Tests only: the once-per-process notes start unsaid again. */
-function resetCompactNotesForTests() { compactStuckSaid = false; compactReplaceSaid = false; compactLinkSaid = false; compactFlushSaid = false; }
+function resetCompactNotesForTests() { compactStuckSaid = false; compactReplaceSaid = false; compactLinkSaid = false; compactFlushSaid = false; compactSlowSaid = false; }
 /* The newest line per exact name across `texts`, as the text of a history file, or null when any line cannot be read
    whole (endedSince refuses on such a line; dropping it would turn that refusal into an answer). */
 function newestPerName(texts) {
@@ -387,7 +388,7 @@ function compactEnded(opts = {}) {
     /* A try that stops after the size check records the size it saw (where it can write that), so the next try waits
        for another `atBytes` of growth instead of folding the whole history on every end (a torn line, an unreadable
        file, a flush or a rename that keeps failing, no hard links). */
-    const gaveUp = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
+    const gaveUp = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
     // 1. Read and fold. Any failure leaves every file as it was.
     const startedAt = Date.now();
     const read = [];
@@ -401,7 +402,10 @@ function compactEnded(opts = {}) {
     } catch { return gaveUp({ compacted: false }); }
     /* The lock this runs under is stolen after filelock's LOCK_STALE_MS (10 s). A read that alone took a good part of
        that (a slow disk, a scanner) stops here and backs off, rather than run the rest past the bound. */
-    if (Date.now() - startedAt > COMPACT_READ_BUDGET_MS) return gaveUp({ compacted: false });
+    if (Date.now() - startedAt > COMPACT_READ_BUDGET_MS) {
+      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: reading the history of ended agents took over ' + COMPACT_READ_BUDGET_MS + ' ms, so it is not compacted this time (' + endedDir() + ')'); }
+      return gaveUp({ compacted: false });
+    }
     const next = newestPerName([...read.map((r) => r.text), liveText]);
     if (next === null) {
       /* A line it cannot read whole stops every compaction from now on, so the history grows again; say so once per
@@ -419,9 +423,9 @@ function compactEnded(opts = {}) {
     }
     // 2. The fold, flushed, in ended-agents.d: a token-only agent is denied that folder, so it can never hold the file
     //    that becomes the live one. (The hard link in step 3 already needs that folder on the live file's device.)
-    fs.mkdirSync(endedDir(), { recursive: true });
+    fs.mkdirSync(endedDir(), { recursive: true, mode: 0o700 });
     const tmp = path.join(endedDir(), 'live.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp');
-    try { writeFlushed(tmp, next, st.mode & 0o777); } catch (e) {
+    try { writeFlushed(tmp, next, (st.mode & 0o777) | 0o600); } catch (e) {
       try { fs.unlinkSync(tmp); } catch { /* none */ }
       if (!compactFlushSaid) { compactFlushSaid = true; console.error('kosmos#5208: the history of ended agents could not be written to disk (' + ((e && e.code) || 'failed') + '), so it is not compacted (' + endedDir() + ')'); }
       return gaveUp({ compacted: false });
@@ -434,6 +438,16 @@ function compactEnded(opts = {}) {
       try { fs.unlinkSync(tmp); } catch { /* none */ }
       // A file system without hard links (or a linked folder on another device) can never compact: say so once.
       if (!compactLinkSaid) { compactLinkSaid = true; console.error('kosmos#5208: the history of ended agents cannot be compacted here (no hard link: ' + ((e && e.code) || 'failed') + '), so it will keep growing (' + endedDir() + ')'); }
+      return gaveUp({ compacted: false });
+    }
+    /* Again after the link: a compaction that stole the lock may have renamed its file over the live path between the
+       check and the link, and renaming over that would orphan whatever reached its file. Stop instead (the link named
+       a file this run did not read). What remains is the gap between this check and the rename, which only an atomic
+       compare-and-rename could close; the plan names it. */
+    let after; try { after = fs.statSync(live); } catch { after = null; }
+    if (!after || idOf(after) !== idOf(st)) {
+      try { fs.unlinkSync(sealedPath); } catch { /* still read; harmless */ }
+      try { fs.unlinkSync(tmp); } catch { /* none */ }
       return gaveUp({ compacted: false });
     }
     try { fs.renameSync(tmp, live); } catch {

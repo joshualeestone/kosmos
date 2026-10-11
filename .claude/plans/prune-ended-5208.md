@@ -208,3 +208,16 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
   put-back; the backoff comment says "where it can write that".
 - Residual named: if the put-back of a late line fails, that line is in the sealed file only until the next compaction,
   so an older build misses it meanwhile (this build reads the sealed file).
+
+## Review 12 (sonnet, blind, on a0c068f74): no BLOCKER
+- FIXED (WARNING): the FIFO/symlink test cannot run on the Windows job (no mkfifo, symlink privilege); skipped there.
+- FIXED (WARNING, narrowed): a lock-stealing compaction that renamed its file over the live path between this one's
+  link and rename would be overwritten. The identity is checked again after the link; if it moved, this one stops and
+  drops its link (test). Residual: the gap between that check and the rename (no atomic compare-and-rename exists).
+- FIXED (WARNING): a read phase over the 3 s budget (many sealed files under churn) is said once.
+- FIXED (WARNING): ended-agents.d is created 0o700. Running agents keep their old sandbox until their next session
+  (already recorded): the worst meanwhile is refusals.
+- FIXED (NIT): the temp's mode keeps an owner floor (| 0o600).
+- NO CHANGE (NITs): a power loss between the rename and the put-back hides an unlocked append from an older build until
+  the next compaction (named above); compacted-bytes is written plainly (a torn read gives 0, only an earlier compaction);
+  the stuck path re-folds files to name the bad one (rare path).
