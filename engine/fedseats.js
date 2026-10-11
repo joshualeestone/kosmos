@@ -631,13 +631,13 @@ function isRevokedPost(st, member, epoch) {
     until a check like that succeeds, no check or shared answer asked before the remove lets a post
     through (holdForCheck, checkRoom). Resolves true when the room rotated; never rejects. */
 function afterRemove(projectId) {
+  let link = null;
+  try { link = linkFor(projectId); } catch { link = null; }
+  if (!link || link.role !== 'owner') return Promise.resolve(false);
   const s = seats.get(projectId);
   // Kept until the next remove: once a later check succeeds, checkedBeforeRemove is false again. With no
   // seat there is nowhere to keep it; the check below still runs (plan: Not covered).
   if (s) { s.removedAt = Date.now(); s.removedMono = mono(); s.edgeAskedAt = 0; }
-  let link = null;
-  try { link = linkFor(projectId); } catch { link = null; }
-  if (!link || link.role !== 'owner') return Promise.resolve(false);
   // An ordering token, not a measured time: this check is asked after the remove in program order,
   // whatever a coarse timer reads.
   const removedMono = s ? s.removedMono : undefined;   // this remove's moment, not a later remove's
