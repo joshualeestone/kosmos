@@ -51,7 +51,7 @@ function fakeCoordinator({ day = true } = {}) {
   };
   return { macRequest, kept, calls, company, setDay: (d) => { day = d; }, setCurrent: (e, pk) => kept.set(e, pk) };
 }
-const keyFile = () => path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys'))[0]);
+const keyFile = () => path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys')).find((f) => f.endsWith('.json')));
 const loseTheKey = () => fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
 
 test.beforeEach(loseTheKey);
@@ -473,4 +473,25 @@ test('#5744 2b: a stale key answered from disk names a newer key still pending',
   await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 }); // a new key at 2, waiting out the day
   const forgot = await mk.ensureMemberKey({ macRequest: c.macRequest }); // the job forgot lostEpoch
   assert.deepEqual([forgot.ok, forgot.epoch, forgot.pendingEpoch], [true, 1, 2], JSON.stringify(forgot));
+});
+
+test('#5744 2b: a file with an older unregistered entry, or two, breaks the invariant and is not read', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
+  const file = keyFile();
+  const good = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const extra = backupkeys.newMemberKey();
+  const entry = { sk: extra.sk.toString('base64url'), pk: extra.pk.toString('base64url'), registered: false };
+  for (const keys of [{ ...good.keys, 2: { ...good.keys['1'], registered: true }, 1: entry }, { 2: entry, 3: { ...entry } }]) {
+    fs.writeFileSync(file, JSON.stringify({ ...good, keys }));
+    const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+    assert.equal(r.unreadableKeyFile, true, JSON.stringify(Object.keys(keys)));
+  }
+});
+
+test('#5744 2b: the company key\'s epoch in the backup-key answer is not read as the member\'s', async () => {
+  const c = fakeCoordinator();
+  const two = async (m, route, b) => { const r = await c.macRequest(m, route, b); return route === mk.BACKUP_KEY_ROUTE ? { ok: true, data: { ...r.data, epoch: 2 } } : r; };
+  const r = await mk.ensureMemberKey({ macRequest: two });
+  assert.deepEqual([r.ok, r.epoch], [true, 1], JSON.stringify(r));
 });
