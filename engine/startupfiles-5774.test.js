@@ -413,3 +413,51 @@ test('#5774 part 2 review 6: a link to the home or to a folder holding the agent
     assert.deepEqual(editDeniedBy(readSettings(dir3).permissions.deny, '/somewhere/odd/.zshrc'), []);
   } finally { fs.rmSync(zshenv, { force: true }); }
 });
+
+test('#5774 part 2 review 7: ${ZDOTDIR:-...} is understood; a busy folder with no links stays whole; home dumps are not named one by one', () => {
+  const zshenv = path.join(HOME, '.zshenv');
+  const envZd = path.join(SANDBOX, 'zd-env7');
+  fs.writeFileSync(zshenv, 'export ZDOTDIR="${ZDOTDIR:-$HOME/.config/zsh}"\n');
+  try {
+    const dir = agentDir('pilot-zdflt');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-zdflt', { ...DEPS, env: { ZDOTDIR: envZd } });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(dir).permissions.deny;
+    for (const p of [path.join(envZd, '.zshrc'), path.join(HOME, '.config', 'zsh', '.zshrc')]) assert.ok(editDeniedBy(deny, p).length > 0, `${p} (one arm) not denied`);
+  } finally { fs.rmSync(zshenv, { force: true }); }
+  // Hundreds of plain files (a fish plugin manager's functions) and no links: the scan budget counts links, so whole.
+  const busy = path.join(SANDBOX, 'busy', 'fish', 'functions');
+  fs.mkdirSync(busy, { recursive: true });
+  for (let i = 0; i < 600; i++) { const f = path.join(busy, `f${i}.fish`); if (!fs.existsSync(f)) fs.writeFileSync(f, ''); }
+  const gb = setup.guardTokenOnlyFolder(agentDir('pilot-busy'), 'pilot-busy', { ...DEPS, env: ENV0, userShellDirs: [path.dirname(busy)] });
+  assert.equal(gb.ok, true, JSON.stringify(gb));
+  // A dump in the home folder: covered by the glob for the file tools, never listed by name (no pile-up over upgrades).
+  const dump = path.join(HOME, '.zcompdump-myhost-5.9');
+  fs.writeFileSync(dump, '');
+  try {
+    const dir = agentDir('pilot-homedump');
+    setup.guardTokenOnlyFolder(dir, 'pilot-homedump', { ...DEPS, env: ENV0 });
+    const s = readSettings(dir);
+    assert.ok(editDeniedBy(s.permissions.deny, dump).length > 0, 'the glob covers it');
+    assert.ok(!s.permissions.deny.some((r) => r.includes('zcompdump-myhost')), 'listed by name in the rules');
+    assert.ok(!s.sandbox.filesystem.denyWrite.some((r) => r.includes('zcompdump-myhost')), 'listed by name in denyWrite');
+  } finally { fs.rmSync(dump, { force: true }); }
+});
+
+test('#5774 part 2 review 7: a Caskroom target gives one stable Caskroom rule; only the Cellar or Caskroom hit is denied', () => {
+  const pre = path.join(SANDBOX, 'hb7');
+  const other = path.join(SANDBOX, 'hb7other');
+  fs.mkdirSync(path.join(other, 'Cellar'), { recursive: true });
+  const sf = path.join(pre, 'share', 'zsh', 'site-functions');
+  fs.mkdirSync(sf, { recursive: true });
+  const v = path.join(pre, 'Caskroom', 'cask', '9.1', 'completion.zsh');
+  touch(v);
+  fs.rmSync(path.join(sf, '_cask'), { force: true });
+  fs.symlinkSync(v, path.join(sf, '_cask'));
+  const dir = agentDir('pilot-cask');
+  setup.guardTokenOnlyFolder(dir, 'pilot-cask', { ...DEPS, env: ENV0, userShellDirs: [sf], homebrewPrefixes: [pre, other] });
+  const s = readSettings(dir);
+  assert.deepEqual(s.permissions.deny.filter((r) => r.includes('/9.1/')), [], 'a versioned Caskroom path became a rule');
+  assert.ok(editDeniedBy(s.permissions.deny, fs.realpathSync.native(v)).length > 0, 'the cask target is covered');
+  assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(fs.realpathSync.native(path.join(other, 'Cellar')), 'x')), [], "a Cellar nothing points into was denied");
+});

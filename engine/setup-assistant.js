@@ -1226,16 +1226,17 @@ const zshFilesIn = (d) => ZSH_START_FILES.flatMap((f) => [path.join(d, f), path.
 /* A ZDOTDIR or XDG_CONFIG_HOME value, as the folders it can mean: absolute, or through ~, $HOME/${HOME}, or
    $XDG_CONFIG_HOME (each folder that variable can be, review 3). Anything else (relative, another variable) is null:
    Kosmos cannot say which folder it is, so the caller names it. An empty value is [] (unset: the default applies). */
-function foldersOf(value, home, xdgs) {
+function foldersOf(value, home, xdgs, zdotNow = []) {
   let v = String(value).trim();
   if (!v) return [];
   /* Review 5: ${XDG_CONFIG_HOME:-default} and ${HOME:-...}, the common way to write these, are both arms: each folder
-     the variable can be, and the default resolved the same way. */
-  const dflt = /^\$\{(XDG_CONFIG_HOME|HOME):-([^}]*)\}(.*)$/.exec(v);
+     the variable can be, and the default resolved the same way. Review 7: ${ZDOTDIR:-default} too (the usual
+     `export ZDOTDIR="${ZDOTDIR:-$HOME/.config/zsh}"`), whose first arm is each ZDOTDIR already known. */
+  const dflt = /^\$\{(XDG_CONFIG_HOME|HOME|ZDOTDIR):-([^}]*)\}(.*)$/.exec(v);
   if (dflt) {
     const rest = dflt[3];
-    const set = dflt[1] === 'HOME' ? [home] : xdgs;
-    const viaDefault = foldersOf(dflt[2] + rest, home, xdgs);
+    const set = dflt[1] === 'HOME' ? [home] : dflt[1] === 'ZDOTDIR' ? zdotNow : xdgs;
+    const viaDefault = foldersOf(dflt[2] + rest, home, xdgs, zdotNow);
     if (viaDefault === null) return null;
     const viaSet = set.map((x) => x + rest).map((o) => (path.isAbsolute(o) && !o.includes('$') ? path.resolve(o) : null));
     return viaSet.includes(null) ? null : [...new Set([...viaSet, ...viaDefault])];
@@ -1260,14 +1261,17 @@ function assignmentsIn(text, name) {
 }
 /* Links inside a folder denied whole point somewhere its rule does not reach (review 3: GNU Stow links each file, as
    ~/.config/fish/config.fish -> ~/dotfiles/config.fish): each target is returned, a few levels deep and bounded. */
-function linkTargetsIn(dir, depth = 3, budget = { n: 500, out: false }) {
+function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: false }) {
   const res = { files: [], dirs: [] };
   let names = [];
   try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return res; }
   for (const d of names) {
-    if (--budget.n < 0) { budget.out = true; break; }   // review 5: the caller names a scan cut short
+    // Review 5: the caller names a scan cut short. Review 7: the budget counts LINKS (what gets denied); entries read
+    // have their own far larger cap, so a busy plugin folder with no links does not make the guard not whole.
+    if (--budget.seen < 0) { budget.out = true; break; }
     const p = path.join(dir, d.name);
     if (d.isSymbolicLink()) {
+      if (--budget.n < 0) { budget.out = true; break; }
       try {
         const real = fs.realpathSync.native(p);
         // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
@@ -1319,11 +1323,13 @@ function shellStartPaths(home, env, opts = {}) {
   const globs = [path.join(home, '.zcompdump*')];
   const zdots = new Set([...xdgs].map((x) => path.join(x, 'zsh')));   // the conventional folder, whatever names it
   const readZshenvs = new Set();
+  const explicitZdots = new Set();   // the ZDOTDIRs something set, for ${ZDOTDIR:-...} (review 7)
   const zdotFrom = (v, from) => {
-    const f = v === null ? null : foldersOf(v, home, [...xdgs]);
+    const f = v === null ? null : foldersOf(v, home, [...xdgs], [...explicitZdots]);
     if (f === null) { unsafe.push(`ZDOTDIR (${v === null ? 'a quoted value' : v}, ${from}), a folder of zsh startup files Kosmos cannot work out`); return []; }
     // Review 5: one that something SETS has its own .zshenv read, even when it is already listed (the conventional one).
     const fresh = f.filter((d) => d !== path.resolve(home) && !readZshenvs.has(d));
+    f.forEach((d) => explicitZdots.add(d));
     fresh.forEach((d) => { zdots.add(d); readZshenvs.add(d); });
     return fresh;
   };
@@ -1339,7 +1345,10 @@ function shellStartPaths(home, env, opts = {}) {
   /* Each folder's completion dumps: a glob for the file tools, and those that exist by name for both layers too (review
      4: a ZDOTDIR outside the home folder can be inside the shell's write scope, where a glob does not reach). */
   const dumpsIn = (d) => { try { return fs.readdirSync(d).filter((n) => n.startsWith('.zcompdump')).map((n) => path.join(d, n)); } catch { return []; } };
-  for (const d of [path.resolve(home), ...zdots]) { files.push(...dumpsIn(d)); if (d !== path.resolve(home)) { files.push(...zshFilesIn(d)); globs.push(path.join(d, '.zcompdump*')); } }
+  /* Review 7: by name only in a ZDOTDIR outside the home folder. In the home folder the glob already covers the file
+     tools and the shell cannot write there, and names there (oh-my-zsh's .zcompdump-<host>-<version>) would add
+     entries at every zsh upgrade that are never pruned. */
+  for (const d of zdots) { if (d !== path.resolve(home)) { files.push(...dumpsIn(d), ...zshFilesIn(d)); globs.push(path.join(d, '.zcompdump*')); } }
   for (const k of ['BASH_ENV', 'ENV']) {
     if (typeof e[k] !== 'string' || !e[k]) continue;
     if (path.isAbsolute(e[k])) files.push(path.resolve(e[k]));
@@ -1353,30 +1362,34 @@ function shellStartPaths(home, env, opts = {}) {
   const dirs = [...[...xdgs].flatMap((x) => [path.join(x, 'fish'), path.join(x, 'nushell')]), path.join(home, 'Library', 'Application Support', 'nushell')];
   const userDirs = (opts.userShellDirs || USER_WRITABLE_SHELL_DIRS).filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
   dirs.push(...userDirs);
-  const budget = { n: 500, out: false };
+  const budget = { n: 500, seen: 50000, out: false };
   const linked = dirs.map((d) => linkTargetsIn(d, 3, budget));
   if (budget.out) unsafe.push('the links inside the shell startup folders (more than Kosmos follows), so some of their targets are not denied');
   /* Review 5: Homebrew's links point into its Cellar by VERSION, and the deny lists only grow (only launch rules are
      pruned, #5663), so each upgrade would add new versioned paths for good. Each prefix's Cellar is denied whole
      instead, one stable rule; targets elsewhere are kept one by one. */
-  const cellars = (opts.homebrewPrefixes || HOMEBREW_PREFIXES).map((pre) => path.join(pre, 'Cellar')).filter((c) => { try { return fs.statSync(c).isDirectory(); } catch { return false; } });
+  // Review 7: the Caskroom keeps casks by version too.
+  const cellars = (opts.homebrewPrefixes || HOMEBREW_PREFIXES).flatMap((pre) => [path.join(pre, 'Cellar'), path.join(pre, 'Caskroom')])
+    .filter((c) => { try { return fs.statSync(c).isDirectory(); } catch { return false; } });
   const realCellars = cellars.map((c) => { try { return fs.realpathSync.native(c); } catch { return c; } });
-  const outsideCellar = (t) => !realCellars.some((c) => t === c || t.startsWith(c + path.sep));
+  const inCellar = (t, c) => t === c || t.startsWith(c + path.sep);
+  const outsideCellar = (t) => !realCellars.some((c) => inCellar(t, c));
   const linkedFiles = linked.flatMap((l) => l.files);
   const linkedDirs = linked.flatMap((l) => l.dirs);
-  const hitsCellar = [...linkedFiles, ...linkedDirs].some((t) => !outsideCellar(t));
+  // Review 7: only the Cellar or Caskroom a target is in, not every one that exists.
+  const hitCellars = realCellars.filter((c) => [...linkedFiles, ...linkedDirs].some((t) => inCellar(t, c)));
   /* Review 6: a folder that is the root, the home folder, or contains the agent's folder would get a rule over the
      agent's own work (Edit(<home>/**)); it is named instead, so the guard is not whole rather than over-broad. Applied
      below to every folder denied whole, linked ones and the startup folders alike. */
+  const inside = (a, b) => a === b || b.startsWith(a + path.sep);
+  const homeReal = (() => { try { return fs.realpathSync.native(home); } catch { return path.resolve(home); } })();
+  const agent = opts.agentDir ? (() => { try { return fs.realpathSync.native(opts.agentDir); } catch { return path.resolve(opts.agentDir); } })() : null;
   const tooBroad = (t) => {
-    const inside = (a, b) => a === b || b.startsWith(a + path.sep);
-    const homeReal = (() => { try { return fs.realpathSync.native(home); } catch { return path.resolve(home); } })();
-    const agent = opts.agentDir ? (() => { try { return fs.realpathSync.native(opts.agentDir); } catch { return path.resolve(opts.agentDir); } })() : null;
     return t === path.parse(t).root || inside(t, homeReal) || (agent !== null && inside(t, agent));
   };
   files.push(...linkedFiles.filter(outsideCellar));
   dirs.push(...linkedDirs.filter(outsideCellar));   // each checked below with the startup folders themselves
-  if (hitsCellar) dirs.push(...realCellars);
+  dirs.push(...hitCellars);
   // The startup folders themselves too: a linked ~/.config/fish pointing at the home would otherwise become <home>/**.
   const keptDirs = [];
   for (const d of new Set(dirs)) {

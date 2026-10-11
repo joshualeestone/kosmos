@@ -5,17 +5,17 @@
 
 ## The change
 - `shellStartPaths(home, env, opts)` in engine/setup-assistant.js returns the files, the folders read whole, the permission-layer globs, and what it cannot work out:
-  - zsh: .zshenv .zprofile .zshrc .zlogin .zlogout, each with its compiled .zwc, in the home folder and in every ZDOTDIR found. ZDOTDIR comes from the environment, from ~/.zshenv, and from each ZDOTDIR's own .zshenv (bounded to 8 rounds), and the conventional <XDG>/zsh is always included. Completion dumps (.zcompdump*): a glob in the home and each ZDOTDIR, plus existing dumps by name.
+  - zsh: .zshenv .zprofile .zshrc .zlogin .zlogout, each with its compiled .zwc, in the home folder and in every ZDOTDIR found. ZDOTDIR comes from the environment, from ~/.zshenv, and from each ZDOTDIR's own .zshenv (bounded to 8 rounds), and the conventional <XDG>/zsh is always included. Completion dumps (.zcompdump*): a glob in the home and each ZDOTDIR (the file tools), plus existing dumps by name in a ZDOTDIR outside the home (both layers).
   - bash and sh: .bashrc .bash_profile .bash_login .profile .bash_logout .bash_aliases, and the file $BASH_ENV or $ENV names. csh and tcsh: .cshrc .tcshrc .login .logout.
   - XDG_CONFIG_HOME: ~/.config always, plus the environment's, plus one ~/.zshenv sets. fish's and nushell's folders are denied whole under each, with nushell's macOS default (~/Library/Application Support/nushell).
   - User-writable startup folders outside the home, where they exist: Homebrew's zsh site-functions and fish vendor_conf.d, vendor_functions.d and vendor_completions.d, under /opt/homebrew and /usr/local.
-  - Links inside the whole folders are followed (3 levels deep; one 500-entry budget, which names itself when spent), and every file goes through withTarget, so each target is denied too: a linked folder gets a whole-folder rule. Targets in a Homebrew Cellar are covered by one stable rule for that Cellar.
+  - Links inside the whole folders are followed (3 levels deep; one budget of 500 links and 50,000 entries read, which names itself when spent), and every file goes through withTarget, so each target is denied too: a linked folder gets a whole-folder rule. Targets in a Homebrew Cellar or Caskroom are covered by one stable rule for that folder, only for the one a target is in.
   - Files are read as regular files only, up to 256 KB.
-  - ${XDG_CONFIG_HOME:-default} and ${HOME:-default} are read as both arms.
+  - ${XDG_CONFIG_HOME:-default}, ${HOME:-default} and ${ZDOTDIR:-default} are read as both arms.
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 11 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 17 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host with its real Homebrew folders (17 zsh completion links, and fish's vendor_completions.d), a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 57 more denyWrite entries (131 against 74; 8.3 KB against 4.6 KB as JSON) and 65 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -78,4 +78,10 @@
   - [WARNING] DECIDED. The Cellar rule's effect on `brew upgrade` from an agent's sandboxed shell: that shell cannot write /opt/homebrew already (its write scope), so the rule changes nothing there; brew run by the person is not governed by deny rules.
   - [WARNING] DUPLICATE of iteration 5: other guard tests read the host's environment and Homebrew folders.
   - [WARNING] NOT A DEFECT. A ZDOTDIR or XDG path with a pattern character makes rules the deny filter drops. That sets tokenRuleDropped, so the guard says it is not whole (the generic message, not a named one).
+- Iteration 7 (Opus), on c89b5982f. Context it raised, which raises the stakes of every "not whole": engine/create.js throws when the guard is not whole, so a value named here blocks creating a token-only agent. Each fix below keeps a common, harmless setup whole.
+  - [WARNING] FIXED. `export ZDOTDIR="${ZDOTDIR:-$HOME/.config/zsh}"`, the usual line, was named (the reviewer reproduced it), so creation would fail. ${ZDOTDIR:-...} is now read as both arms (each ZDOTDIR already known, and the default). Tested; mutation red.
+  - [WARNING] FIXED. The scan budget counted every entry, so a fish plugin manager's hundreds of files would make the guard not whole. It now counts links (what gets denied), with a separate cap of 50,000 entries read. Tested with 600 plain files; mutation red.
+  - [WARNING] FIXED. Existing dumps in the home folder were listed by name, so each zsh upgrade or host change (oh-my-zsh's .zcompdump-<host>-<version>) would add entries that are never pruned. The home glob already covers the file tools, and the shell cannot write the home folder. Names are now kept only for a ZDOTDIR outside the home. Tested; mutation red.
+  - [WARNING] FIXED. Homebrew's Caskroom keeps casks by version, as the Cellar does, so it gets the same stable rule. Tested; mutation red.
+  - NITs taken: only the Cellar or Caskroom a target is in is denied (tested; mutation red); the real paths in tooBroad are computed once; the plan's test count is corrected.
 
