@@ -37499,8 +37499,8 @@ async function dmHeldSend(btn) {
   if (!ok) {
     btn.disabled = false; btn.textContent = 'Send now anyway';
     // Said under the box, where the page says what happened to a send: a button that only re-enables says nothing.
-    const msg = document.getElementById('d-say-msg');
-    if (msg && CURRENT && CURRENT.sessionName === session) msg.textContent = because;
+    const under = document.getElementById('d-say-msg');
+    if (under && CURRENT && CURRENT.sessionName === session) under.textContent = because;
     return;
   }
   if (CURRENT && CURRENT.sessionName === session) await paintTalk(session, CURRENT.name);
