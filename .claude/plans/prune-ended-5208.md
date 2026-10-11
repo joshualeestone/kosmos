@@ -6,28 +6,38 @@ that got past its name checks, and every token-only removal reads it whole (ende
 file does not exist yet on Agent1s or on Mortals (the #5809 removal check is new), so this is a preventive bound.
 
 ## The rule
-endedSince(names, since) is true when ANY line for those names (matched by slug) is after `since` (or at it,
-inclusive). So for each slug only its NEWEST line (largest `at`) can decide an answer, for every `since`, strict or
-inclusive. A compaction keeps that line per slug and changes no answer. No reference to births, clocks, a floor or
-which agents exist: the history grows with distinct names, not with events. endedSince's only reader is the token-only
-removal check (Angel confirmed).
+endedSince(names, since) is true when ANY line for those names is after `since` (or at it, inclusive). So for each
+name only its NEWEST line (largest `at`) can decide an answer, for every `since`, strict or inclusive. A compaction
+keeps the newest line per EXACT name (one exact name always has one slug, so this holds under any slug rule) and
+changes no answer. No births, clocks or floor; the history grows with distinct names (not capped), not with events.
+endedSince's only reader is the token-only removal check (Angel confirmed).
 
-## How no end is lost
-- The LIVE file is the only file appended to. noteEnded appends under a lock on it; if the lock cannot be had it still
-  appends, unlocked.
-- Compaction (inside noteEnded's lock, once the live file passes 64 KiB):
-  1. renames the live file to `ended-agents.d/sealed.<ms>.<pid>.<hex>.jsonl` (atomic; a later append starts a new
-     live file; an append that opened the old one lands in the sealed file);
-  2. rewrites `ended-agents.d/compact.jsonl` (temp file and rename) from itself plus every sealed file;
-  3. deletes a sealed file only once read in this run AND unchanged for an hour (SEALED_KEEP_MS).
-  Anything it cannot read whole (a torn line, a bad `at`) stops it before step 2; the sealed files stay and are read.
-- endedSince reads the live file, then every sealed file, then compact.jsonl. A compaction running meanwhile cannot
-  slip a line past that order: a live file sealed after the read was read; one sealed before is listed next; a sealed
-  file deleted before it is read was already in compact.jsonl, which is written before any deletion.
-- A compaction that wakes late after its lock was stolen may overwrite compact.jsonl with older content, but every
-  sealed file under an hour old is still read, so nothing is lost unless it slept for more than an hour.
-- setup-assistant.js denies token-only agents writes to `ended-agents.d` (permission rule and sandbox denyWrite), as
-  it already does for the live file: an agent that could delete a sealed file could erase its own end.
+## How no end is lost (to this build, or to an older one that reads only ended-agents.jsonl)
+- The live file `ended-agents.jsonl` is the history every build reads, and the only file appended to. noteEnded appends
+  under a lock on it; if the lock cannot be had it still appends, unlocked, and does not compact.
+- compactEnded, inside that lock, when the live file has grown 64 KiB past its size after the last compaction
+  (recorded in `ended-agents.d/compacted-bytes`):
+  1. reads the sealed files and the live file and folds them; a line it cannot read whole stops it here (said once,
+     naming the file), with every file as it was;
+  2. writes the fold to a temp file beside the live file and FLUSHES it (securewrite.flushOrThrow); a failed flush
+     stops it;
+  3. if the live file is still the file it read (inode), hard-links it to `ended-agents.d/sealed.<ms>.<pid>.<hex>.jsonl`
+     (the file about to be replaced, and anything appended to it even later, stays readable), RENAMES the temp over the
+     live file and flushes both folders. A failed rename drops the link and the temp, says so once, and leaves the
+     live file as it was. The live path is never absent: it holds the whole old history or the whole fold;
+  4. appends back (and flushes) any line that reached the replaced file after the read (only an unlocked append can);
+  5. only then deletes a sealed file read in this run and unchanged for an hour.
+- endedSince reads the live file, the sealed files, then the live file again: a live file replaced after the first
+  read was linked as a sealed file first (listed next if the replace came first, else its lines were read); a sealed
+  file deleted before it is read was folded into the live file that replaced it before the deletion.
+- setup-assistant.js denies token-only agents writes to `ended-agents.d` and to the lock `ended-agents.jsonl.lock`
+  (permission rule and sandbox denyWrite), as it already does for the live file.
+
+## Weakest premise
+That endedSince stays the only reader and keeps "any line after since" semantics. Residuals, all needing an unlocked
+append or a stolen lock at the same instant: a line appended to the replaced file after step 4's read reaches only the
+sealed file (this build reads it for an hour; an older build does not); and a compaction that slept between its inode
+check and its rename can replace a newer live file (the replaced file is still linked, so this build reads it).
 
 ## Decided after review 1 (opus), which found the first design unsafe
 The first design (decided on the card) pruned by a cutoff from the births log and rewrote the live file. Review 1
@@ -36,26 +46,25 @@ stolen lock: fail open), and that the births-based cutoff barely bounds (one nev
 and trusts a births log that can go missing. The newest-per-name rule needs neither; the seal-then-compact files remove
 the rewrite of anything appended to. The create.js/server.js refactor that design needed is reverted.
 
-## Weakest premise
-That endedSince stays the only reader and keeps "any line after since" semantics; a reader that counted lines, or
-needed an older line for a name, would break on a compacted history. Second: a compaction asleep for over an hour
-after its lock was stolen could drop the lines of a sealed file deleted meanwhile.
-
 ## Tests (engine/sendertoken.prune-ended-5208.test.js, plus boardkeychain-4491 for the deny rules)
-- newestPerName keeps the newest per slug (case variants fold) and refuses on three unreadable shapes.
-- a compaction changes no endedSince answer: 300 lines over four names (two share a slug), every boundary time,
-  strict and inclusive.
-- a stale compaction overwriting compact.jsonl drops nothing; a sealed file is read.
-- a sealed file is deleted only when old and unchanged, and its ends are answered from compact.jsonl after.
-- nothing under the bound; a torn line stops it and still refuses.
-- noteEnded compacts past the bound, keeping the end that triggered it.
-- an end is appended while the lock is held elsewhere.
-- the deny rules cover ended-agents.d in permissions and sandbox, with a control on the module's own paths.
-- a stuck compaction (an unreadable line) is said once per process, naming the folder (Angel's review).
-- Mutations, each red (restored and byte-compared): sealed files not read; a young sealed file deleted; the live file
-  copied instead of renamed; the oldest line kept; a bad line skipped; no unlocked fallback; the size bound ignored;
-  compact.jsonl not read; the stuck note said every time; ended-agents.d not denied (permission); not denied (sandbox).
-- 58 existing test files around removal, revoke, the birth log and the setup-assistant guard: 1546 tests, 0 fail.
+- newestPerName keeps the newest per exact name and refuses on three unreadable shapes.
+- a compaction changes no answer of this build or of a rolled-back one (it reads the live file only): 300 lines over
+  four names, every boundary time, strict and inclusive; the live file is replaced (new inode), a sealed link holds the
+  old one, no temp is left.
+- every way to stop (a torn line, a failed flush, a failed rename, a live file replaced meanwhile) leaves the live file
+  as it was, no sealed name and no temp, and both builds answer the same.
+- a line appended between the read and the rename is kept, for both builds.
+- a sealed file is kept while young and while changed since read, and deleted when old and unchanged, its ends still
+  answered by both builds.
+- the read order (live, sealed, live again) keeps an end a compaction folds in and deletes mid-read (staged race).
+- an unreadable sealed file refuses; an empty history answers false.
+- the size bound counts from the last compaction; a torn line stops it, said once, naming the file, and still refuses.
+- noteEnded compacts past the bound; an end is appended even when the lock is held elsewhere.
+- the deny rules cover ended-agents.d and the lock, in permissions and sandbox (boardkeychain-4491).
+- Mutations, each red (restored and byte-compared): the temp not flushed; no same-file check; no sealed link; the link
+  kept on a failed rename; the tail not put back; no second live read; the oldest line kept; a young sealed file
+  deleted; the bound not counted from the last compaction; a changed sealed file deleted; a bad line skipped; no
+  unlocked fallback; the folder or the lock not denied.
 
 ## Review 1 (opus, blind, on ee0b19003): led to the redesign above
 - FIXED (BLOCKER): a rewrite lost an end appended mid-prune (unlocked fallback; stolen lock). Seal-then-compact.
@@ -107,3 +116,16 @@ after its lock was stolen could drop the lines of a sealed file deleted meanwhil
   the file). Plan file name: this repo's other plans are <branch>.md as well.
 - One consequence of the reorder: the file sealed in a run is not among those read in it, so it is deleted at the
   earliest one run later (test updated).
+
+## Review 5 (opus, blind, on 565c2f66a): led to the second redesign
+- FIXED (BLOCKER): nothing was flushed before files were deleted; a power loss after a compaction could leave a
+  zero-length compact.jsonl with its sources gone (fail open). Now the fold is flushed before it replaces the live
+  file, the folders after, the put-back tail too, and sealed files are deleted only after all of that.
+- FIXED (WARNING): between sealing and carrying back, the live file did not exist, so an older build saw no history.
+  The second redesign never removes the live path: it is replaced by an atomic rename, and the file it replaces is
+  hard-linked first. compact.jsonl and the carry-back are gone.
+- FIXED (WARNING): folding by slug tied the argument to slugFor never splitting a key; it folds by exact name now.
+- FIXED (WARNING): a rename that always fails (antivirus) grew the history faster than no compaction, silently. Now a
+  failed rename leaves everything as it was (drops its link and temp) and is said once.
+- FIXED (CONVENTION): the plan described the old order; rewritten to the code.
+- GONE (NITs): the always-true ternary (test rewritten); revoke's possible wait is stated at noteEnded.

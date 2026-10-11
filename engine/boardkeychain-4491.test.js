@@ -295,7 +295,6 @@ test('#4475: the records the board trusts, and the sender-token folder, are writ
   assert.equal(require('./create').createdLogFile(), path.join(store.ROOT, 'created.jsonl'));
   assert.equal(sendertoken.endedLogFile(), path.join(store.ROOT, 'ended-agents.jsonl'));
   assert.equal(sendertoken.endedDir(), path.join(store.ROOT, 'ended-agents.d'));
-  assert.equal(path.dirname(sendertoken.endedCompactFile()), sendertoken.endedDir(), 'CONTROL: compact.jsonl moved out of the denied folder');
   assert.equal(sendertoken.tokenOnlyFile(), path.join(store.ROOT, 'agent-token-only.json'));
 });
 
