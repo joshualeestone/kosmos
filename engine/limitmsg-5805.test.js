@@ -95,6 +95,12 @@ async function withFleet(caseyScreen, caseyState, fn) {
   try { return await fn(board, arm(caseyScreen)); } finally { chat.resetForTests(); board.restore(); }
 }
 const rows = () => messages.list('casey');
+/* A real card for casey (fixture discipline: never a hand-built roster row), for the sweep tests that stub everything
+   but who the agent is. */
+function caseyRoster() {
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
+  try { return board.agents; } finally { board.restore(); }
+}
 
 test('#5805 2a: a message to an agent out of usage is kept, not typed; the sender is told it is held and until when', async () => {
   await withFleet(AHEAD(), 'rate_limited', async (board, tmux) => {
@@ -152,9 +158,9 @@ test('#5805 2a: a kept message whose try comes back could-not stays, and so does
   limitqueue.add('casey', { id: 'm902', from: 'leo', envelope: '[message from your colleague leo · m902] b', at: new Date().toISOString(), reset: new Date().toISOString() });
   const tried = [];
   // The first one cannot be typed this minute; the second could be, and must still wait behind it.
-  const done = await limitqueue.flush([{ sessionName: 'casey' }], {
+  const done = await limitqueue.flush(caseyRoster(), {
     deliver: async (n, env) => { tried.push(env); return { state: /m901/.test(env) ? chat.DELIVERY.COULD_NOT : chat.DELIVERY.PLACED }; },
-    isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY,
+    isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
   });
   assert.deepEqual(done, []);
   assert.equal(tried.length, 1, 'a later message was typed ahead of an earlier one');
@@ -166,9 +172,9 @@ test('#5805 2a: a message still kept a day past its reset is dropped and logged,
   limitqueue.add('casey', { id: 'm903', from: 'leo', envelope: 'x', at: old, reset: old });
   let typed = 0;
   const dropped = [];
-  await limitqueue.flush([{ sessionName: 'casey' }], {
+  await limitqueue.flush(caseyRoster(), {
     deliver: async () => { typed += 1; return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true,
-    resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id),
+    resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id),
   });
   assert.equal(typed, 0);
   assert.deepEqual(dropped, ['m903']);
@@ -192,7 +198,7 @@ test('#5805 2a review 1: a name whose store key differs is not kept; an entry fo
   const now = new Date().toISOString();
   fs.writeFileSync(limitqueue.fileFor('casey'), JSON.stringify([{ id: 'm951', from: 'leo', to: 'casey', envelope: 'mine', at: now, reset: now }, { id: 'm952', from: 'leo', to: 'mallory', envelope: 'not hers', at: now, reset: now }]));
   const typed = [];
-  await limitqueue.flush([{ sessionName: 'casey' }], { deliver: async (n, env) => { typed.push(env); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY });
+  await limitqueue.flush(caseyRoster(), { deliver: async (n, env) => { typed.push(env); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY });
   assert.deepEqual(typed, ['mine'], 'another agent\'s message was typed into this one');
 });
 
@@ -200,8 +206,8 @@ test('#5805 2a review 1: two sweeps at once type each kept message once', async 
   const now = new Date().toISOString();
   for (const id of ['m961', 'm962']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: now, reset: now });
   const typed = [];
-  const o = { deliver: async (n, env) => { typed.push(env); await new Promise((r) => setTimeout(r, 30)); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY };
-  await Promise.all([limitqueue.flush([{ sessionName: 'casey' }], o), limitqueue.flush([{ sessionName: 'casey' }], o)]);
+  const o = { deliver: async (n, env) => { typed.push(env); await new Promise((r) => setTimeout(r, 30)); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY };
+  await Promise.all([limitqueue.flush(caseyRoster(), o), limitqueue.flush(caseyRoster(), o)]);
   assert.deepEqual(typed, ['m961', 'm962']);
 });
 
@@ -276,7 +282,7 @@ test('#5805 2a review 2: after an unconfirmed delivery the next kept message wai
   const now = new Date().toISOString();
   for (const id of ['m991', 'm992']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: now, reset: now });
   const typed = [];
-  await limitqueue.flush([{ sessionName: 'casey' }], { deliver: async (n, env) => { typed.push(env); return { state: chat.DELIVERY.UNCONFIRMED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY });
+  await limitqueue.flush(caseyRoster(), { deliver: async (n, env) => { typed.push(env); return { state: chat.DELIVERY.UNCONFIRMED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY });
   assert.deepEqual(typed, ['m991'], 'typed on top of a message that may still be in the composer');
   assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m992'], 'the unconfirmed one was kept (it would be typed twice)');
 });
@@ -363,14 +369,14 @@ test('#5805 2a review 6: a typed message whose removal from the file fails is no
   limitqueue.add('casey', { id: 'm1020', from: 'leo', envelope: 'once', at: t, reset: t });
   const file = limitqueue.fileFor('casey');
   const typed = [];
-  const o = { deliver: async (n, env) => { typed.push(env); fs.chmodSync(path.dirname(file), 0o500); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY };
+  const o = { deliver: async (n, env) => { typed.push(env); fs.chmodSync(path.dirname(file), 0o500); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY };
   try {
-    await limitqueue.flush([{ sessionName: 'casey' }], o);
+    await limitqueue.flush(caseyRoster(), o);
     assert.equal(limitqueue.list('casey').length, 1, 'CONTROL: the removal did fail (the file still holds it)');
-    await limitqueue.flush([{ sessionName: 'casey' }], o);
+    await limitqueue.flush(caseyRoster(), o);
     assert.deepEqual(typed, ['once'], 'typed twice after a failed removal');
   } finally { fs.chmodSync(path.dirname(file), 0o700); }
-  await limitqueue.flush([{ sessionName: 'casey' }], o);
+  await limitqueue.flush(caseyRoster(), o);
   assert.deepEqual(limitqueue.list('casey'), [], 'the removal was not tried again once it could succeed');
   assert.deepEqual(typed, ['once']);
 });
@@ -386,7 +392,7 @@ test('#5805 2a review 7: a message queued behind an old backlog has its own day,
   assert.doesNotMatch(v.because, /minute/, 'promised a time the sweep cannot keep');
   const dropped = [];
   // Fifteen minutes on, the sweep still cannot type (a menu on screen): the old one is a day old, the new one is not.
-  await limitqueue.flush([{ sessionName: 'casey' }], { now: Date.now() + 15 * 60e3, deliver: async () => ({ state: chat.DELIVERY.COULD_NOT }), isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id) });
+  await limitqueue.flush(caseyRoster(), { now: Date.now() + 15 * 60e3, deliver: async () => ({ state: chat.DELIVERY.COULD_NOT }), isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id) });
   assert.deepEqual(dropped, ['m1030']);
   assert.deepEqual(limitqueue.list('casey').map((e) => e.id), [v.id], 'the new message was dropped on the backlog\'s clock');
 });
