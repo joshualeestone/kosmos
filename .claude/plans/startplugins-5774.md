@@ -32,6 +32,9 @@
 - `~\` is expanded on Windows as `~/` is elsewhere; the Windows spelling was not measured in the bundle.
 - A config home that no Kosmos job names (a person's own `CLAUDE_CONFIG_DIR` used only outside Kosmos) is not found, nor one whose agent's folder is outside the agents' folder (a connected agent).
 
+- The job LIST is read once per pass, but what is read for each job home (its settings tiers, plugin records and plugins' configs, in the start-command scan) is not: N job homes cost N reads per token-only agent per tick. Empty on this fleet today (every account is in ~/.claude-*). Card #5870 (review 21).
+- A new agent whose config home is outside ~/.claude* is covered for the token-only agents that already exist only when each one's guard is next written (board start, or that agent's launch); the per-tick check compares token rules only, so it does not notice. ~/.claude-* homes made later are caught by the existing glob (review 21).
+
 ## Also in this PR
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
@@ -199,4 +202,12 @@ engine/startplugins-5774.test.js (see the iteration notes for what each test cov
   - [WARNING] STATED GAP (decided, not changed): a plain `K=/x` line with no export anywhere in the file is still read (the safe direction: a deny rule). It costs a creation only when such a value falls in a refused place (temp, the projects folder, inside the agent), which is rare. Telling "exported later in the file" from "never exported" across a file is a parser of its own, and a wrong guess there would be a silent miss.
   - [WARNING] DUPLICATE of a stated gap (review 8): a job home refused as uncarriable, relative, the home itself, or covering this agent's folder fails every creation; the message names that home's path, so the job at fault can be found.
   - [NIT] not taken: the one-line folder read; the envKinds dedup shape; an ownHomeKnown flag instead of review 15's comment (a change to the per-tick caller, outside this branch).
+- Iteration 21 (Opus), on 1dcb3f648: no BLOCKER. The reviewer also ran tokenOnlySettingsRules read-only against a real agent folder on this machine: 84 ms, empty configUnsafe.
+  - [WARNING] STATED GAP, card #5870: the per-home start-command scan is not cached per pass (cost, not a hole; empty on this fleet). Caching it reaches route 1's scan, so it is its own change.
+  - [NIT] STATED (Gaps): the window before an existing agent's guard is rewritten.
+  - [NIT] FIXED: another account's RELATIVE plugin value is no longer dropped as a duplicate of the same string in this agent's tiers (it names a different folder); only absolute values are deduplicated. Not tested on its own (the agents' folder case is named either way).
+  - [NIT] FIXED: the $HOME replacement is a function, so a $ in the home path is literal. Not tested (a home with $& in it).
+  - [NIT] FIXED: jobsHere's Linux arm also takes AGENT_WORKFORCE_LAUNCH as a sandbox, as linuxjob.unitDir does.
+  - [NIT] FIXED (comment): the unparseable-job fallback has no runner filter because only CLAUDE_CONFIG_DIR is read.
+  - [NIT] DUPLICATE of review 15: CLAUDE_PLUGIN_DATA tagged with this agent's home for variable-named caches.
 

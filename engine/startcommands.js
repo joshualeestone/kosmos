@@ -864,7 +864,8 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const ownVals = {}, otherVals = {};
   for (const k of PLUGIN_VARS) {
     ownVals[k] = [...new Set([...(pluginVars[k] || []), ...(settingsEnvOwn[k] || [])])];
-    otherVals[k] = (settingsEnvOther[k] || []).filter((v) => !ownVals[k].includes(v));
+    // Review 21: only an ABSOLUTE value is the same folder in both; a relative one names a different folder per account, so it is kept (and named).
+    otherVals[k] = (settingsEnvOther[k] || []).filter((v) => !(path.isAbsolute(v) && ownVals[k].includes(v)));
   }
   const otherRelative = [];
   const envKinds = [];

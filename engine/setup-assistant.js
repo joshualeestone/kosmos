@@ -751,6 +751,8 @@ function agentJobConfigDirs(workersRoot, platform) {   // platform: the guard's 
       if (text !== null) {
         const m = linux ? /^Environment="?CLAUDE_CONFIG_DIR=([^"\n]*)"?$/m.exec(text) : /<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/.exec(text);
         // Review 19: the plist's XML escapes decoded, as the reader does (&amp; last).
+        // Review 21: no runner filter here, as the parsed path has: only CLAUDE_CONFIG_DIR is read, which only a Claude job
+        // carries (codex, gemini and grok jobs carry their own keys). Widen the key and this must filter by runner.
         if (m) out.push(linux ? m[1] : m[1].split('&lt;').join('<').split('&gt;').join('>').split('&apos;').join("'").split('&quot;').join('"').split('&amp;').join('&'));
       }
     }
@@ -1739,7 +1741,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // Review 11: the platform's OWN job place: the systemd unit folder on Linux (AGENT_WORKFORCE_SYSTEMD_DIR), the launch
     // folder on macOS (AGENT_WORKFORCE_LAUNCH). The guard does not run on Windows.
     const linux = (deps.platform || process.platform) === 'linux';
-    if (linux ? process.env.AGENT_WORKFORCE_SYSTEMD_DIR : process.env.AGENT_WORKFORCE_LAUNCH) return true;
+    // Review 21: on Linux the unit folder also follows AGENT_WORKFORCE_LAUNCH (linuxjob.unitDir), so either marks a sandbox there.
+    if (linux ? (process.env.AGENT_WORKFORCE_SYSTEMD_DIR || process.env.AGENT_WORKFORCE_LAUNCH) : process.env.AGENT_WORKFORCE_LAUNCH) return true;
     try {
       const place = linux ? path.dirname(require('./linuxjob').unitPath('x')) : create.AGENTS_DIR;
       const a = realOrLeaf(place), hh = realOrLeaf(home);
@@ -1936,7 +1939,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
         const selfRef = new RegExp(`\\$\\{${k}:\\+(?:\\$\\{?${k}\\}?${path.delimiter}|${path.delimiter}\\$\\{?${k}\\}?)\\}`, 'g');
         const plain = v === null ? null : v.replace(selfRef, '').split(path.delimiter)
           .filter((part) => part !== `$${k}` && part !== `\${${k}}`)
-          .map((part) => part.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, home)).join(path.delimiter);
+          .map((part) => part.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, () => home)).join(path.delimiter);   // review 21: a function, so a $ in the home is literal
           // Review 9: an unquoted ~user is the shell's to expand, before Claude Code sees it: a folder Kosmos cannot place.
         const tildeUser = plain !== null && plain.split(path.delimiter).some((part) => /^~[^/]/.test(part));
         if (plain === null || plain.includes('$') || plain.includes('`') || tildeUser) { fromFiles.unsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
