@@ -62991,7 +62991,7 @@ async function tkSayPost() {
     if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not record that message'; return; }
     if (input) input.value = '';
     /* #5842: say who the message did NOT reach. The activity above shows the message itself, so a send that reached
-       every assignee adds nothing here. One line per agent, worst outcome first when an agent is listed twice. Built
+       every assignee adds nothing here. One line per agent, keeping its worst outcome when it is listed twice. Built
        inside tkSayPost so a test that lifts it alone still runs it. */
     if (msg) {
       const list = out && Array.isArray(out.delivered) ? out.delivered : [];
@@ -62999,7 +62999,7 @@ async function tkSayPost() {
       const byName = new Map();
       for (const d of list) {
         if (!d || typeof d !== 'object') continue;
-        const sn = String(d.agent == null ? '' : d.agent).trim() || 'an agent';
+        const sn = String(d.agent == null ? '' : d.agent).trim();
         const had = byName.get(sn);
         if (!had || rank(d.state) > rank(had.state)) byName.set(sn, d);
       }
@@ -63015,24 +63015,26 @@ async function tkSayPost() {
         for (const [sn, d] of byName) {
           if (d.state === 'placed') continue;
           // The page's name for the agent (its card name), as the activity above uses; the board speaks in session names.
-          const who = typeof tkMemberName === 'function' && p ? tkMemberName(p, sn) : sn;
+          const who = !sn ? 'an agent' : typeof tkMemberName === 'function' && p ? tkMemberName(p, sn) : sn;
+          const lead = sn ? who : 'An agent';   // a sentence opening with the name; a real name is never re-cased
           const why = String(d.because == null ? '' : d.because);
           if (d.state === 'could_not') {
             lines.push(/switched off in this project/.test(why)
-              ? who + ' is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.'
-              : /not on this project any more/.test(why) ? who + ' is not on this project any more, so it was not told.'
+              ? lead + ' is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.'
+              : /not on this project any more/.test(why) ? lead + ' is not on this project any more, so it was not told.'
               : /could not keep this one/.test(why) ? 'Kosmos could not keep your message for ' + who + ', so it was not told.'
               : 'Kosmos could not reach ' + who + ', so it was not told. Your message stays on the task.');
           } else if (d.state === 'held') {
             // Built from heldUntil, never from the reason: the board's reason carries the reset as a raw UTC time.
             const at = Date.parse(d.heldUntil || '');
             const until = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
-            lines.push(until ? who + ' is out of usage until ' + until + '. Kosmos sends it your message after that.'
-              : /still has messages kept/.test(why) ? who + ' gets your message after the ones already waiting for it.'
-              : 'Kosmos is keeping your message to send to ' + who + ' later.');   // no time known: claim nothing more
+            // "will try": a kept line can still be dropped a day after the reset (recording that is #5842's second slice).
+            lines.push(until ? lead + ' is out of usage until ' + until + '. Kosmos will try to send it your message after that.'
+              : /still has messages kept/.test(why) ? 'Kosmos will try to send your message to ' + who + ' after the ones already waiting for it.'
+              : 'Kosmos is keeping your message and will try to send it to ' + who + ' later.');   // no time known: claim nothing more
           } else lines.push('Kosmos could not confirm that ' + who + ' got it.');
         }
-        msg.textContent = lines.map((l) => l.charAt(0).toUpperCase() + l.slice(1)).join(' ');   // a line may open with a name
+        msg.textContent = lines.join(' ');
       }
     }
     paintTaskActivity(n);
