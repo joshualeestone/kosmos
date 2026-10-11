@@ -47220,7 +47220,7 @@ function paintAsk() {
       '<button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(here.device_id) + '">Got it</button></div></div>');
   } else if (ASK.hereSaid) {
     after.unshift('<div class="askrow done"><p>' + askEsc(ASK.hereSaid) + '</p>' +
-      '<div class="acts"><button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(ASK.hereGone) + '">Got it</button></div></div>');
+      '<div class="acts"><button class="btn quiet" type="button" data-ask="here-ok" data-id="">Got it</button></div></div>');
   }
   out.push(...after);
   askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
@@ -47241,7 +47241,8 @@ async function askAct(act, id) {
     ASK.removing = null;
     const said = res && res.ok ? await res.json().catch(() => null) : null;
     ASK.hereSaidFor = key;
-    if (res && res.ok && !(said && said.timed_out)) { ASK.hereGone = key; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
+    if (res && res.ok && said && said.removed === false) { ASK.hereGone = key; ASK.hereSaid = removedWords(said); }
+    else if (res && res.ok && !(said && said.timed_out)) { ASK.hereGone = key; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
     else if (res && res.ok) { ASK.hereGone = key; ASK.hereSaid = 'Disconnecting is taking a while. Check it is gone under Devices.'; }
     else ASK.hereSaid = 'We could not disconnect it. Try again, or remove it under Devices.';
     for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }

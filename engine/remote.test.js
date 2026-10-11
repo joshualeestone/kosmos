@@ -4439,3 +4439,33 @@ test('#5786 (b): a new identity drops the "on this computer" notes of the one be
   assert.equal(remote.pendingDevices().connected_here, null, 'the previous identity\'s notice still shows');
   remote.setOn(false);
 });
+
+test('#5786 (b): a new sign-in replaces the secret, and a live one ends on Forget and when the opener fails', async () => {
+  // A new sign-in (a new identity) replaces the secret, and the old one allows nothing. This proves the replacement,
+  // not the epoch check in vouchTick, which no seam here can reach without minting a new secret.
+  let r = await vouchSignedIn('vouchepo1');
+  const old = r.secret;
+  r.plant([{ device_id: 'dev-epo', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: the browser opened');
+  r = await vouchSignedIn('vouchepo2');
+  assert.notEqual(remote.vouchSecretForTests(), old, 'premise: the new sign-in has its own secret');
+  const before = allowsOf().length;
+  r.plant([{ device_id: 'dev-epo', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(old, 'dev-epo') }]);
+  remote.vouchTickForTests();
+  await new Promise((res) => setTimeout(res, 150));
+  assert.ok(!allowsOf().slice(before).includes('dev-epo'), 'the previous identity\'s secret allowed a device');
+  remote.setOn(false);
+  // Forget ends a live secret.
+  await vouchSignedIn('vouchfgt');
+  assert.ok(remote.vouchSecretForTests(), 'premise: a live secret');
+  await remote.forget();
+  assert.equal(remote.vouchSecretForTests(), null, 'Forget left the secret live');
+  // An opener that fails ends the secret.
+  r = await vouchSignedIn('vouchopen');
+  remote.setCompanyOpenCommandForTests(['/usr/bin/false']);
+  r.plant([{ device_id: 'dev-open', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  await until(() => remote.vouchSecretForTests() === null, 'a failed opener to end the secret');
+  remote.setOn(false);
+});

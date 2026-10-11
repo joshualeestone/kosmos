@@ -1694,7 +1694,8 @@ function allowSelfQuietly() {
 }
 /* kosmos#5786 (b) (Josh, 2026-10-10 14:02: "this should automatically just allow since i am on this computer"): after
    this computer signs in, it may open the default browser at the sign-in page with #allow=<S>, where S is a secret
-   minted here, in memory (it also passes through the opener's argv and the browser's history). That page, signed in as the person, sends the coordinator
+   minted here, in memory (it also passes through the opener's argv, for the browser's whole life on Linux and Windows
+   when the opener starts it, and through the browser's history). That page, signed in as the person, sends the coordinator
    HMAC-SHA256(S, its own device id), never S. The tunnel's snapshot carries that back as the row's `vouch`, and this
    computer allows the ONE row whose vouch it can reproduce.
    What it proves: the device asking holds a session on this account AND holds S, which this computer minted and put
@@ -1800,6 +1801,7 @@ function vouchTick() {
         return;
       }
       // Allowed: noted even if a Sign out landed while it ran, so the notice and Undo still show.
+      v.matchedOk = true;
       if (vouchState === v) stopVouch();
       // Not during a Forget (it clears the notes), and not under another identity (the note would describe a device of
       // the account before it).
@@ -1810,7 +1812,11 @@ function vouchTick() {
       if (!saved.ok) process.stderr.write('kosmos+: allowed the browser this computer opened, but could not note it: ' + saved.because + '\n');
     })
     .catch(() => null)
-    .finally(() => { v.allowing = false; });
+    .finally(() => {
+      v.allowing = false;
+      // The three-try stop holds even for an allow that threw rather than answering.
+      if (vouchState === v && v.tries >= 3 && !v.matchedOk) stopVouch();
+    });
 }
 /* The newest device allowed this way in the last VOUCH_NOTICE_MS, for the "connected" notice with its Undo. */
 function recentlyVouched(settings = read()) {

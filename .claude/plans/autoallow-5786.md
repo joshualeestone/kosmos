@@ -28,7 +28,8 @@ as `vouch` (absent = no auto-allow).
   the compact line; Devices list "on this computer".
 
 ## Residuals accepted (beyond Josh's 19:04 ruling on a page-serving coordinator)
-- S is visible briefly in the opener's argv (`ps`) and in browser history; using it also needs a session on the
+- S is in the opener's argv (`ps`): briefly on macOS (`open` hands the URL over and exits), but for the browser's whole
+  life on Linux and Windows when the opener starts a browser that was not running; and in browser history; using it also needs a session on the
   account and a pending row, inside the window.
 - The browser opens when ANY eligible request is under 30 minutes old, a stranger's included: the tab is harmless
   (S stays in the fragment). 30 minutes, not 5: Josh's own request was 6 minutes old when he hit this.
