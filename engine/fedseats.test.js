@@ -3836,8 +3836,11 @@ test('#5191: an edges answer from before a re-invite neither refuses the re-invi
   await settle();
   assert.strictEqual(Object.keys(fedseal.roomState(id).peers).length, 2, 'fixture: the re-invited member pinned');
   // Two late answers: one asked before the re-invite, one from before the revoke. Neither changes anything.
+  const recorded = fedseal.roomState(id).revokedAccounts;
+  assert.deepStrictEqual(recorded, { 'acct-sl-0': 0 }, 'fixture: the revoke was recorded');
   assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), async () => revokedAnswer), false);
   assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), async () => beforeRevoke), false);
+  assert.deepStrictEqual(fedseal.roomState(id).revokedAccounts, recorded, 'a late answer changed the revoked accounts');
   stamped('acct-sl-0', 'back again, new key', 1);
   stamped('acct-sl-0', 'revoked copy, old key', 0);
   await settle();
