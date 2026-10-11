@@ -239,12 +239,14 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  assert.ok(no.stderr.startsWith('dailylog: not compiled. Nothing was written or removed.\nThis tool does not compile while these files are in ' + chatsDir + ':\n'), no.stderr);
-  assert.ok(no.stderr.includes('Files whose names end in .full after a conversation file\'s name:\n  ' + JSON.stringify(ASIDE) + '\n'), 'the file that caused the refusal is not named: ' + no.stderr);
-  assert.ok(!no.stderr.includes('refer to an earlier file'), 'it listed conversations that refer to an earlier file when there are none');
-  assert.ok(no.stderr.endsWith('could leave days out of the daily files, and no version of this tool reads them.\n'), no.stderr);
-  // no advice and no promise: what to do with a file depends on whose it is, and nothing reads these yet
-  assert.ok(!/\byet\b|move |leave (it|these)|needs a version/i.test(no.stderr), 'the refusal advises or promises: ' + no.stderr);
+  // The whole message, word for word, for the plainest state (one .full file): what happened, where, which file, why.
+  // Pinned whole so that a sentence of advice or a promise cannot be added without this test saying so: what to do
+  // with a file depends on whose it is, and nothing reads these files.
+  assert.equal(no.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
+    + 'This tool does not compile while ' + JSON.stringify(chatsDir) + ' holds:\n'
+    + 'Files whose names end in .full after a conversation file\'s name:\n'
+    + '  ' + JSON.stringify(ASIDE) + '\n'
+    + 'It stops because it does not read .full files, so compiling now could prune days or drop messages from the daily files.\n');
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
   const other = path.join(SANDBOX, 'elsewhere');
@@ -259,7 +261,7 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.equal(many.status, 3);
   assert.equal(many.stderr.split('\n').filter((l) => /^  ".*\.full"$/.test(l)).length, 10);
   assert.match(many.stderr, /^  and 3 more$/m);
-  // the live conversation file is never among the files a person is told they might move
+  // the two kinds are listed apart: the live conversation file is never in the list of .full files
   fs.writeFileSync(path.join(chatsDir, 'direct..p.json'), JSON.stringify({ continues: ASIDE, carried: 1, messages: [WHOLE[3]] }));
   const both = run();
   const [first, second] = both.stderr.split('Conversation files that refer to an earlier file:\n');
@@ -270,8 +272,11 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   for (const n of fs.readdirSync(chatsDir)) if (n.endsWith('.full')) fs.rmSync(path.join(chatsDir, n));
   const only = run();
   assert.equal(only.status, 3);
-  assert.ok(!only.stderr.includes('.full after'), only.stderr);
-  assert.match(only.stderr, /Conversation files that refer to an earlier file:\n  "direct\.\.p\.json"\nIt stops because /);
+  assert.equal(only.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
+    + 'This tool does not compile while ' + JSON.stringify(chatsDir) + ' holds:\n'
+    + 'Conversation files that refer to an earlier file:\n'
+    + '  "direct..p.json"\n'
+    + 'It stops because it does not read .full files, so compiling now could prune days or drop messages from the daily files.\n');
   // a file name is somebody's bytes: whatever it holds, what is printed is printable ASCII, on one line
   const nasty = 'proj1.k.json.\u001b]0;TITLE\u0007\nFiles named as\u009b2J\u007f\u202e\u2028.full';
   let made = true;
@@ -283,6 +288,24 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
     assert.equal(lines.length, 1, 'the odd name is not on one line of its own: ' + JSON.stringify(esc.stderr));
     assert.match(lines[0], /^  "proj1\.k\.json\.\\u001b\]0;TITLE\\u0007\\nFiles named as\\u009b2J\\u007f\\u202e\\u2028\.full"$/);
   }
+});
+
+test('the folder is shown escaped too: a data folder with a newline or an escape in its path cannot forge a line', () => {
+  const odd = path.join(SANDBOX, 'h h\u001b[31m\nFORGED: line\u202e');
+  const data = path.join(odd, 'data');
+  let made = true;
+  try { fs.mkdirSync(data, { recursive: true }); } catch { made = false; }   // some filesystems refuse such a name
+  if (!made) return;
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: data, AGENT_WORKFORCE_WORKERS: path.join(odd, 'w'), AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(odd, 'c.json'), AGENT_WORKFORCE_LAUNCH: path.join(odd, 'l') };
+  const root = spawnSync(process.execPath, ['-e', "process.stdout.write(require('./store').ROOT)"], { cwd: __dirname, env, encoding: 'utf8' }).stdout;
+  assert.ok(path.resolve(root).startsWith(path.resolve(odd) + path.sep), 'the odd data root did not take: ' + JSON.stringify(root));
+  fs.mkdirSync(path.join(root, 'chats'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'chats', ASIDE), '{}');
+  const r = spawnSync(process.execPath, [path.join(__dirname, 'dailylog.js')], { env, encoding: 'utf8' });
+  assert.equal(r.status, 3);
+  assert.match(r.stderr, /^[\x20-\x7e\n]*$/, 'something outside printable ASCII reached the output: ' + JSON.stringify(r.stderr));
+  assert.equal(r.stderr.split('\n').filter((l) => l.startsWith('FORGED')).length, 0, 'the folder path forged a line');
+  assert.equal(r.stderr.split('\n').length, 6, 'the message is not its five lines: ' + JSON.stringify(r.stderr));
 });
 
 test('shownName: printable ASCII out, whatever comes in', () => {

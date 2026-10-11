@@ -78,9 +78,9 @@ function dayFromFileName(name) {
 const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
 const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
 
-/* kosmos#5855: a rolled-over conversation's rows from before the ones its fresh file carries are only in a `.full` file beside its thread file
-   (`<thread file>.<stamp>.<pid>.<ms>[.<n>].full`), which the two patterns above do not match; its fresh thread file
-   names that file in `continues`. This recognises the name: any thread file's name, a dot, `.full` at the end. That
+/* kosmos#5855: a rolled-over conversation's rows from before the ones its fresh file carries are only in a `.full`
+   file beside its thread file (`<thread file>.<stamp>.<pid>.<ms>[.<n>].full`), which the two patterns above do not
+   match; its fresh thread file names that file in `continues`. This recognises the name: any thread file's name, a dot, `.full` at the end. That
    is deliberately wide (a stray file named this way counts): counting too much refuses a run, counting too little
    prunes history. */
 const ROLLED_OVER_SUFFIX = 'full';
@@ -94,7 +94,8 @@ function isRolledOverFileName(filename) {
   }
   return false;
 }
-/* The second sign in a file that will not parse (cut short mid-write): the `continues` field with a non-empty string value. */
+/* The second sign in a file that will not parse (cut short mid-write): `"continues"` followed by a non-empty string,
+   anywhere in the raw text (wider than the parsed read, which takes the top-level field only). */
 const NAMES_AN_EARLIER_FILE = /"continues"\s*:\s*"[^"]/;
 /* What compileAll's summary says in `refused`, and the command's exit code for it (2 is a usage error). */
 const REFUSED_ROLLED_OVER = 'rolled-over';
@@ -102,8 +103,9 @@ const EXIT_REFUSED = 3;
 /* How many file names of each kind a refusal prints before it says "and N more": enough to find the files, short
    enough to read in a terminal. */
 const REFUSAL_NAMES_SHOWN = 10;
-/* A file name as a refusal prints it: quoted, and every character outside printable ASCII written as \\uXXXX, so
-   the output is printable ASCII whatever the name holds (a newline, a terminal escape, a right-to-left mark). */
+/* A file or folder name as a refusal prints it: quoted, and every character outside printable ASCII written as a
+   backslash-u escape, so the output is printable ASCII whatever the name holds (a newline, a terminal escape, a
+   right-to-left mark). */
 function shownName(name) {
   return JSON.stringify(String(name)).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
@@ -319,8 +321,9 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  * Read + parse every conversation file in a chats dir. Returns
  * `{ conversations, readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles }`, which the caller
  * needs to decide whether writing and pruning are safe:
- *   - `rolledOver` counts the `.full` files of rolled-over conversations (kosmos#5855),
- *     whose rows this function does NOT return. By name only: they are not opened.
+ *   - `rolledOver` counts the files NAMED as a rolled-over conversation's `.full` file
+ *     (kosmos#5855; isRolledOverFileName), whose rows this function does NOT return.
+ *     By name only: they are not opened.
  *     A FOLDER with such a name is not counted.
  *   - `continued` counts thread files that NAME an earlier file (`continues`),
  *     INCLUDING one that names it but is otherwise not a readable conversation
@@ -509,7 +512,7 @@ if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
     + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
     + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file named as\n`
-    + '  the earlier part of a conversation (ending .full) or a conversation that points to one\n';
+    + '  the earlier part of a conversation (ending .full) or a conversation file that refers to an earlier file\n';
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};
@@ -545,14 +548,14 @@ if (require.main === module) {
       + (names.length > REFUSAL_NAMES_SHOWN ? `  and ${names.length - REFUSAL_NAMES_SHOWN} more\n` : '');
     const earlier = summary.rolledOverFiles;
     const pointing = summary.continuedFiles;
-    // Facts only, each true in every state that gets here (a real rollover, an interrupted one, a stray file): what
-    // happened, which files, and why it stops. No advice: what to do with a file depends on whose it is.
+    // What happened, where, which files, and why it stops. No advice: what to do with a file depends on whose it
+    // is, which this tool cannot tell.
     process.stderr.write('dailylog: not compiled. Nothing was written or removed.\n'
-      + `This tool does not compile while these files are in ${summary.chatsDir}:\n`
+      + `This tool does not compile while ${shownName(summary.chatsDir)} holds:\n`
       + (earlier.length ? 'Files whose names end in .full after a conversation file\'s name:\n' + list(earlier) : '')
       + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : '')
-      + 'It stops because compiling without reading them could leave days out of the daily files, and no version '
-      + 'of this tool reads them.\n');
+      + 'It stops because it does not read .full files, so compiling now could prune days or drop messages from '
+      + 'the daily files.\n');
     process.exit(EXIT_REFUSED);
   }
   process.stdout.write(
