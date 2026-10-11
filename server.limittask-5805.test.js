@@ -109,3 +109,10 @@ test('#5805: an agent\'s task message to an assignee out of usage is kept under 
   assert.equal(r.kept[0].from, 'mara');
   assert.equal(r.pasted, '', 'something was typed: ' + r.pasted.slice(0, 200));
 });
+
+test('#5842: the route keeps a task line with its task (project id and number), so its outcome can be recorded there', async () => {
+  const r = await sendTask('rate_limited', { 'sec-fetch-site': 'same-origin' });
+  assert.equal(r.code, 200, JSON.stringify(r.json));
+  assert.equal(r.kept.length, 1, 'not kept for casey');
+  assert.deepEqual([r.kept[0].projectId, r.kept[0].task], ['p5805', 7]);
+});
