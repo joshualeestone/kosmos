@@ -169,7 +169,7 @@ test('#5805 task: one still kept a day past its reset is dropped, untyped, and t
     assert.deepEqual(tmux.pastedTo('casey'), [], 'the dropped line was typed');
     const told = tmux.pastedTo('leo');
     assert.equal(told.length, 1, 'the sender was not told');
-    assert.match(told[0], /Your message in task 7 in Launch never reached casey: Kosmos kept it for a day/);
+    assert.match(told[0], /Your message in task 7 in Launch never reached casey: Kosmos kept it for a day while casey was out of usage/);
     assert.deepEqual(kept(), []);
     assert.deepEqual(messages.list('casey').filter((r) => r.kind === 'held-dropped'), [], 'a task drop wrote a message row');
   });
@@ -205,6 +205,18 @@ test('#5805 task: a failure after a hold is found refuses the line, untyped; one
     await withFleet(AHEAD(), 'rate_limited', async (board, tmux) => {
       const v = messages.keepTaskLine('casey', LINE, board.agents, 'leo', ABOUT);
       assert.equal(v && v.state, chat.DELIVERY.COULD_NOT, 'a throw while keeping fell through to typing: ' + JSON.stringify(v));
+      assert.match(v.because, /^casey is out of usage, and Kosmos could not keep this one for it/);
+      assert.deepEqual(tmux.pastedTo('casey'), []);
+    });
+    // Behind a backlog (released, a kept message still waiting): the refusal says so, not "out of usage".
+    const t = new Date().toISOString();
+    limitqueue.addOrWhy = realAdd;
+    limitqueue.add('casey', { id: 'm951', from: 'mara', envelope: 'earlier', at: t, reset: t });
+    limitqueue.addOrWhy = () => { throw new Error('disk gone'); };
+    await withFleet(undefined, 'idle', async (board, tmux) => {
+      const v = messages.keepTaskLine('casey', LINE, board.agents, 'leo', ABOUT);
+      assert.equal(v && v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(v));
+      assert.match(v.because, /^casey still has messages kept from while it was out of usage, and Kosmos could not keep this one/);
       assert.deepEqual(tmux.pastedTo('casey'), []);
     });
   } finally { limitqueue.addOrWhy = realAdd; }

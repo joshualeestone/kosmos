@@ -1482,6 +1482,7 @@ async function tellHeldDropped(entry, roster) {
    (as an unreadable limit verdict does for `kosmos msg`); one after a hold is found refuses it, untyped. */
 function keepTaskLine(toName, line, roster, from, about) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
+  let behindNow = false;
   try {
     const limitqueue = require('./limitqueue');
     let hold = null;
@@ -1497,6 +1498,7 @@ function keepTaskLine(toName, line, roster, from, about) {
     }
     decided = true;
     const behind = hold.behind === true;
+    behindNow = behind;
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
     const id = 'k' + crypto.randomBytes(6).toString('hex');
@@ -1511,15 +1513,16 @@ function keepTaskLine(toName, line, roster, from, about) {
     // heldReceipt is `kosmos msg`'s answer (could_not, held: true); the task route reports the row state instead.
     return { ...heldReceipt(toName, id, at, until, false, behind), state: HELD_STATE };
   } catch {
-    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + ' is out of usage, and Kosmos could not keep this one for it, so it was not told' } : null;
+    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? ' still has messages kept from while it was out of usage' : ' is out of usage')
+      + ', and Kosmos could not keep this one for it, so it was not told' } : null;
   }
 }
-/* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane (the person sees the
-   task's conversation, which holds the message, and the route already said it was kept). */
+/* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane. One the person sent
+   is told to nobody: the task page shows no delivery outcome yet (#5842). */
 async function tellTaskLineDropped(entry, roster) {
   if (!entry.from) return null;
   const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it'
-    + ' for a day while it was out of usage and could not type it. Send it again if it still matters.';
+    + ' for a day while ' + entry.to + ' was out of usage and could not type it. Send it again if it still matters.';
   try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
 }
 
