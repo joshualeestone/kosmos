@@ -1217,7 +1217,7 @@ const CLAUDE_GLOBAL_CONFIG_SUFFIXES = startcommands.CLAUDE_GLOBAL_CONFIG_SUFFIXE
    non-interactive), a login shell, the person's own terminal, and each agent's shell snapshot. The sandboxed shell
    cannot write the home folder already (its write scope), so this is the file tools' gap; they are denied in both
    layers anyway, links followed, since the target of a linked dotfile is what gets written. */
-const SHELL_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.bashrc', '.bash_profile', '.bash_login', '.profile', '.bash_logout',
+const SHELL_START_FILES = [path.join('.ssh', 'rc'), '.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.bashrc', '.bash_profile', '.bash_login', '.profile', '.bash_logout',
   '.bash_aliases', '.bash_completion', '.cshrc', '.tcshrc', '.login', '.logout'];   // review 2: .bash_aliases, sourced by the common default .bashrc
 const ZSH_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout'];
 /* Review 1: zsh runs a compiled copy (<file>.zwc) in place of a startup file when it is newer, so each is denied with
@@ -1234,7 +1234,8 @@ function foldersOf(value, home, xdgs, zdotNow = []) {
   /* Review 5: ${XDG_CONFIG_HOME:-default} and ${HOME:-...}, the common way to write these, are both arms: each folder
      the variable can be, and the default resolved the same way. Review 7: ${ZDOTDIR:-default} too (the usual
      `export ZDOTDIR="${ZDOTDIR:-$HOME/.config/zsh}"`), whose first arm is each ZDOTDIR already known. */
-  const dflt = /^\$\{(XDG_CONFIG_HOME|HOME|ZDOTDIR):-([^}]*)\}(.*)$/.exec(v);
+  // Review 13: := , - and = too (assign or use the default); for these paths each has the same two arms as :-.
+  const dflt = /^\$\{(XDG_CONFIG_HOME|HOME|ZDOTDIR):?[-=]([^}]*)\}(.*)$/.exec(v);
   if (dflt) {
     const rest = dflt[3];
     const set = dflt[1] === 'HOME' ? [home] : dflt[1] === 'ZDOTDIR' ? zdotNow : xdgs;
@@ -1257,7 +1258,7 @@ function assignmentsIn(text, name) {
   // this does not evaluate; reading them would make a guard not whole over a mention (stated under Gaps).
   /* Review 11: a value of joined quoted and bare parts with no space ("$HOME"/.zsh, the spelling shellcheck nudges
      toward) is unquoted part by part. A quoted ~ stays literal and a single-quoted $ is not expanded, so either makes
-     the value one this cannot read (null, named). A space inside quotes stops the match, so that value is named too. */
+     the value one this cannot read (null, named). A space inside quotes is part of the value and is read. */
   for (const m of String(text).matchAll(new RegExp(`^(?:export[ \\t]+)?${name}=((?:"[^"]*"|'[^']*'|[^\\s;#"']+)*)([^\\s;#]*)`, 'gm'))) {
     if (m[2]) { out.push(null); continue; }   // an unbalanced quote or a quote mid-part
     const parts = [...m[1].matchAll(/"([^"]*)"|'([^']*)'|([^"']+)/g)];
@@ -1289,7 +1290,8 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
       } catch {
         /* Review 12: dangling. The target is not there YET, and anything that creates it (the agent's own tools) makes
            the link run it, so the target as it would resolve is denied, as withTarget does for a dangling file. */
-        try { res.files.push(realOrLeaf(path.resolve(path.dirname(p), fs.readlinkSync(p)))); } catch { /* unreadable link */ }
+        // Review 13: through danglingTarget (every hop, each relative one read from the link's REAL folder).
+        try { res.files.push(realOrLeaf(danglingTarget(p))); } catch { /* unreadable link */ }
       }
     } else if (d.isDirectory() && depth > 1) {
       const sub = linkTargetsIn(p, depth - 1, budget);
@@ -1634,7 +1636,17 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   /* Review 9: a target the user cannot write (a read-only store such as /nix/store, whose hashed names change at every
      home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A
      path that is not there yet is kept: the agent could create it. */
-  const writableOrAbsent = (p) => { try { fs.accessSync(p, fs.constants.W_OK); return true; } catch (e) { return !!e && e.code === 'ENOENT'; } };
+  /* Review 13: "cannot write" means truly read-only: not writable now, NOT owned by this user (an owner can chmod it
+     back), and in a folder this user cannot write (a replace by rename needs only that). A read-only store is exactly
+     that (root-owned, in a read-only folder); a 0444 file of the user's own is not. Tests pass deps.readOnlyTarget. */
+  const readOnlyTarget = deps.readOnlyTarget || ((p) => {
+    let st;
+    try { st = fs.statSync(p); } catch { return false; }   // absent: the agent could create it
+    try { fs.accessSync(p, fs.constants.W_OK); return false; } catch { /* not writable now */ }
+    if (typeof process.getuid === 'function' && st.uid === process.getuid()) return false;
+    try { fs.accessSync(path.dirname(p), fs.constants.W_OK); return false; } catch { return true; }
+  });
+  const writableOrAbsent = (p) => !readOnlyTarget(p);
   /* Review 10: the LINK itself is always kept (it sits in a folder the user can write, so a tool could replace it);
      only its target is judged, and before withTarget, so a read-only target is never named as uncarriable either. */
   /* A link whose target is read-only goes to the FILE TOOLS only, by its own path: the sandbox side resolves a path to

@@ -6,18 +6,19 @@
 ## The change
 - `shellStartPaths(home, env, opts)` in engine/setup-assistant.js returns the files, the folders read whole, the permission-layer globs, and what it cannot work out:
   - zsh: .zshenv .zprofile .zshrc .zlogin .zlogout, each with its compiled .zwc, in the home folder and in every ZDOTDIR found. ZDOTDIR comes from the environment, from ~/.zshenv, and from each ZDOTDIR's own .zshenv (bounded to 8 rounds), and the conventional <XDG>/zsh is always included. Completion dumps (.zcompdump*): a glob in the home and each ZDOTDIR (the file tools), plus existing dumps by name in a ZDOTDIR that is not anywhere under the home (both layers).
+  - ~/.ssh/rc (run by sshd outside any sandbox; review 13). tmux's config is already denied as a launch rule (#5516).
   - bash and sh: .bashrc .bash_profile .bash_login .profile .bash_logout .bash_aliases, and the file $BASH_ENV or $ENV names. csh and tcsh: .cshrc .tcshrc .login .logout.
   - XDG_CONFIG_HOME: ~/.config always, plus the environment's, plus one ~/.zshenv sets. fish's and nushell's folders are denied whole under each, with nushell's macOS default (~/Library/Application Support/nushell).
   - User-writable startup folders outside the home, where they exist: Homebrew's zsh site-functions and fish vendor_conf.d, vendor_functions.d and vendor_completions.d, under /opt/homebrew and /usr/local.
   - Links inside the whole folders are followed (3 levels deep; one budget of 500 links and 50,000 entries read, which names itself when spent), and every file goes through withTarget, so each target is denied too: a linked folder gets a whole-folder rule. Targets in a Homebrew Cellar or Caskroom are covered by one stable rule for that folder, only for the one a target is in.
   - Files are read as regular files only, up to 256 KB.
-  - ${XDG_CONFIG_HOME:-default}, ${HOME:-default} and ${ZDOTDIR:-default} are read as both arms, with a plain ${HOME} or ${XDG_CONFIG_HOME} inside the default unbraced first; a brace left over is named.
-  - A target the user cannot write (a read-only store such as /nix/store, a root-owned file) is not listed: it protects nothing and its hashed name would pile up. The LINK to it is kept, for the file tools only (review 10).
+  - ${XDG_CONFIG_HOME:-default}, ${HOME:-default} and ${ZDOTDIR:-default} (and the :=, - and = forms) are read as both arms, with a plain ${HOME} or ${XDG_CONFIG_HOME} inside the default unbraced first; a brace left over is named.
+  - A target that is truly read-only (not writable now, not owned by this user, in a folder this user cannot write: a read-only store such as /nix/store) is not listed: it protects nothing and its hashed name would pile up. The LINK to it is kept, for the file tools only (review 10).
   - A Homebrew Cellar or Caskroom under any prefix is found from a target's <prefix>/Cellar/<name>/<version>/ shape (Linuxbrew, ~/homebrew), not only under /opt/homebrew and /usr/local.
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 23 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 24 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -114,4 +115,10 @@
   - [WARNING] FIXED. A DANGLING link found by the folder scan was skipped as "nothing there to write". But anything that creates its target (the agent's tools) makes the link run it. Its would-be target is now denied, as withTarget does for a top-level dangling file. Tested; mutation red.
   - [WARNING] DECIDED, stated under Gaps: other versioned or hashed link targets can pile up.
   - NITs: DEPS now pins homebrewPrefixes to empty (this file is fully hermetic). ENV with a slash, and dumps outside the home, are stated under Gaps.
+- Iteration 13 (Opus), on 9625fc687:
+  - [WARNING] FIXED (both reproduced by the reviewer). The dangling-target fix from review 12 followed one hop, from the link's WRITTEN folder: a relative link inside a Stow-linked folder, and a two-hop chain, each left the real would-be target writable. It now goes through danglingTarget, which takes every hop, each from the link's real folder (as withTarget already did). Tested; mutation red.
+  - [WARNING] FIXED. "Cannot write" meant not writable now, so a 0444 file the user owns, which the owner can chmod back, was treated like a read-only store. It now means: not writable now, not owned by this user, and in a folder this user cannot write. Tests cannot make a root-owned store, so they pass deps.readOnlyTarget; a new test shows the user's own 0444 target stays denied in both layers. Mutation red.
+  - [WARNING] FIXED. Two direct shellStartPaths calls in the tests (one in the FIFO child) still read this host's Homebrew; both now pin it.
+  - [WARNING] FIXED. ${VAR:=...}, ${VAR-...} and ${VAR=...} were named (a false "not whole"). They are read with the same two arms as :-. Tested; mutation red.
+  - NITs taken: the joined-quoting comment (a quoted space IS read); ~/.ssh/rc added (tested; mutation red); the chmod-based test arm is skipped when run as root. Not taken: the Cellar or Caskroom shape could match a user folder named Cellar (tooBroad stops the worst case); on macOS the plain-path branch is not exercised by these tests (the sandbox home is under /var, a link).
 

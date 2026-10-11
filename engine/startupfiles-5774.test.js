@@ -147,7 +147,7 @@ test('#5774 part 2: $ZDOTDIR, $BASH_ENV and $ENV are read from the environment t
   const dl = agentDir('pilot-rclabel');
   assert.equal(setup.guardTokenOnlyFolder(dl, 'pilot-rclabel', { ...DEPS, env: { ENV: 'staging' } }).ok, true);
   // ZDOTDIR naming the home folder itself adds nothing beyond the home files (no duplicate set), and is whole.
-  assert.equal(setup.shellStartPaths(HOME, { ZDOTDIR: HOME }).unsafe.length, 0);
+  assert.equal(setup.shellStartPaths(HOME, { ZDOTDIR: HOME }, { userShellDirs: [], homebrewPrefixes: [] }).unsafe.length, 0);
 });
 
 test('#5774 part 2 review 1: ZDOTDIR set inside .zshenv (where it usually is) moves zsh to that folder, and it is denied', () => {
@@ -277,7 +277,7 @@ test('#5774 part 2 review 4: dumps that exist are denied by name in both layers;
     require('child_process').execFileSync('/usr/bin/mkfifo', [zshenv]);
     try {
       const r = require('child_process').spawnSync(process.execPath, ['-e',
-        `const s = require(${JSON.stringify(require.resolve('./setup-assistant'))}); s.shellStartPaths(${JSON.stringify(fifoHome)}, {}, { userShellDirs: [] }); console.log('returned');`],
+        `const s = require(${JSON.stringify(require.resolve('./setup-assistant'))}); s.shellStartPaths(${JSON.stringify(fifoHome)}, {}, { userShellDirs: [], homebrewPrefixes: [] }); console.log('returned');`],
       { encoding: 'utf8', timeout: 20000 });
       assert.ok(!r.error && /returned/.test(r.stdout), 'the guard blocked on a FIFO .zshenv: ' + (r.error ? r.error.code : r.stderr));
     } finally { fs.rmSync(zshenv, { force: true }); }
@@ -514,7 +514,8 @@ test('#5774 part 2 review 9: braced defaults (${XDG_CONFIG_HOME:-${HOME}/.config
   fs.symlinkSync(target, link);
   try {
     const dir = agentDir('pilot-nix');
-    const g = setup.guardTokenOnlyFolder(dir, 'pilot-nix', { ...DEPS, env: ENV0 });
+    // Review 13: a test cannot make a root-owned store, so it says which targets are read-only.
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-nix', { ...DEPS, env: ENV0, readOnlyTarget: (p) => p.includes('abc123-home-manager-files') });
     assert.equal(g.ok, true, JSON.stringify(g));
     const s = readSettings(dir);
     assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes('abc123-home-manager-files')), 'a read-only store path was listed');
@@ -607,7 +608,7 @@ test('#5774 part 2 review 11: joined quoting ("$HOME"/.zsh) is read; a quoted ~ 
   fs.symlinkSync(store, link);
   try {
     const dir = agentDir('pilot-rodir');
-    setup.guardTokenOnlyFolder(dir, 'pilot-rodir', { ...DEPS, env: { XDG_CONFIG_HOME: xdg } });
+    setup.guardTokenOnlyFolder(dir, 'pilot-rodir', { ...DEPS, env: { XDG_CONFIG_HOME: xdg }, readOnlyTarget: (p) => p.includes('h-fish') });
     const deny = readSettings(dir).permissions.deny;
     assert.ok(deny.some((r) => r.endsWith(`${link}/**)`)), 'no /** rule for the read-only linked folder');
     assert.ok(!deny.some((r) => r.includes('h-fish')), 'the store path itself was listed');
@@ -630,4 +631,62 @@ test('#5774 part 2 review 12: a DANGLING link inside a startup folder has its wo
     assert.ok(editDeniedBy(s.permissions.deny, target).length > 0 || editDeniedBy(s.permissions.deny, realOrLeaf(target)).length > 0, 'the agent could create the target the link runs');
     assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, target), 'and the shell could');
   } finally { fs.rmSync(link, { force: true }); }
+});
+
+test('#5774 part 2 review 13: dangling chains and relative links in linked folders resolve to the real would-be target; a 0444 file of the user is still denied; := and - defaults are read', () => {
+  // A relative dangling link inside a linked folder (Stow): the target is read from the folder's REAL location.
+  const dot = path.join(SANDBOX, 'dot13');
+  fs.mkdirSync(path.join(dot, 'fish'), { recursive: true });
+  const rel = path.join(dot, 'fish', 'x.fish');
+  fs.rmSync(rel, { force: true });
+  fs.symlinkSync('../extra/x.fish', rel);   // dot13/extra/x.fish, not there yet
+  // A two-hop dangling chain: y.fish -> mid -> final/y.fish (absent).
+  const mid = path.join(SANDBOX, 'mid13');
+  fs.rmSync(mid, { force: true });
+  fs.symlinkSync(path.join(SANDBOX, 'final13', 'y.fish'), mid);
+  const two = path.join(dot, 'fish', 'y.fish');
+  fs.rmSync(two, { force: true });
+  fs.symlinkSync(mid, two);
+  const xdg = path.join(SANDBOX, 'xdg13');
+  fs.mkdirSync(xdg, { recursive: true });
+  const fishLink = path.join(xdg, 'fish');
+  fs.rmSync(fishLink, { force: true });
+  fs.symlinkSync(path.join(dot, 'fish'), fishLink);
+  try {
+    const dir = agentDir('pilot-dangle13');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-dangle13', { ...DEPS, env: { XDG_CONFIG_HOME: xdg } });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const dw = readSettings(dir).sandbox.filesystem.denyWrite;
+    assert.ok(sandboxDenies(dw, path.join(dot, 'extra', 'x.fish')), "the relative link's real would-be target");
+    assert.ok(sandboxDenies(dw, path.join(SANDBOX, 'final13', 'y.fish')), "the two-hop chain's final target");
+  } finally { fs.rmSync(fishLink, { force: true }); }
+  // A target the user owns, made 0444 in a folder they can write: they can chmod it back, so it is still denied in both layers.
+  if (typeof process.getuid === 'function' && process.getuid() !== 0) {
+    const rodot = path.join(SANDBOX, 'rodot13', 'bashrc');
+    touch(rodot);
+    fs.chmodSync(rodot, 0o444);
+    const link = path.join(HOME, '.bashrc');
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(rodot, link);
+    try {
+      const dir = agentDir('pilot-own444');
+      setup.guardTokenOnlyFolder(dir, 'pilot-own444', { ...DEPS, env: ENV0 });
+      const s = readSettings(dir);
+      assert.ok(editDeniedBy(s.permissions.deny, fs.realpathSync.native(rodot)).length > 0, "the user's own 0444 target, to the file tools");
+      assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, rodot), 'and to the shell');
+    } finally { fs.rmSync(link, { force: true }); fs.chmodSync(rodot, 0o644); }
+  }
+  // := and - defaults: whole, and the folder they mean is covered.
+  const zshenv = path.join(HOME, '.zshenv');
+  for (const line of ['export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:=$HOME/.config}"', 'export ZDOTDIR="${ZDOTDIR-$HOME/.zd13}"']) {
+    fs.writeFileSync(zshenv, line + '\n');
+    try {
+      const g = setup.guardTokenOnlyFolder(agentDir('pilot-ops13'), 'pilot-ops13', { ...DEPS, env: ENV0 });
+      assert.equal(g.ok, true, `${line}: ` + JSON.stringify(g));
+    } finally { fs.rmSync(zshenv, { force: true }); }
+  }
+  // ~/.ssh/rc, run by sshd outside any sandbox.
+  const d = agentDir('pilot-sshrc');
+  setup.guardTokenOnlyFolder(d, 'pilot-sshrc', { ...DEPS, env: ENV0 });
+  assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, '.ssh', 'rc')).length > 0, '~/.ssh/rc');
 });
