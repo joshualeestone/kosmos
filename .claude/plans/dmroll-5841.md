@@ -90,3 +90,24 @@ engine writes one, but a person could.
   - a legacy project thread with no projectBornAt breaks its chain at its first rollover; it affects a count only,
     and project threads have no earlier reader;
   - a held message older than the 200 carried rows keeps "Held" in its `.full` copy.
+
+## Review 4 (sonnet) + mutants for round 3's guards
+- **Reviewer:** no blocker, no path that loses a message. Worked 1 and 2 rollovers by hand; both routes agree.
+- **Test gaps, all fixed with a test each:**
+  - the project route's chain count (reviewer);
+  - a reply to a row only in an earlier file (reviewer);
+  - "chain stops early" could not fail on a doubled carried overlap (reviewer's NIT, and mutant A survived it). It
+    now pins the first earlier row to the readable file's first OWN row, and the last to the row before the tail.
+    A no-duplicates/unbroken-run check alone still let A through: the gap fell before a non-numbered row.
+  - each projectBornAt check on its own (chain walk, reattach). The reborn arm only went through the other-project path,
+    so both mutants survived. Round 2's "projectBornAt mutants red" must have removed both at once.
+  - a carried count past the file is not believed (mutant G survived).
+- **Mutants, each red at its named test:** A (first file keeps carried), E (chain bornAt), G (carried bound),
+  H (reattach bornAt), R (no earlier-file reply lookup), P (no project chain count). Earlier this round: cache
+  size/mtime, oldest-aside-wins, no put-back, no name check also red.
+- **The test server's keepAliveTimeout is raised** (piece 1's CI ECONNRESET came from ~400 sync appends between
+  fetches; this file does ~1000).
+- **Not taken (NIT):** a reattach after a crash or damage starts with carried 0, so the tail shows only new rows
+  and the first-reply nudge may fire again until the thread refills. Nothing is lost, positions agree, and the
+  crash window is between a rename and a write. Damaged-file rows written since the last rollover stay in the
+  `.damaged` file, kept but not paged. Would change my mind: a report of the nudge repeating in practice.

@@ -40,6 +40,10 @@ const CAP = chat.MAX_MESSAGES;
 let base;
 test.before(async () => {
   await start(0);
+  /* Several arms append ~1000 rows synchronously between two requests. Held longer than the server's keep-alive (5 s by
+     default), the event loop lets fetch reuse a socket the server is closing: ECONNRESET on a slow runner (piece 1's CI
+     run 38158076792). This server is the test's own, so its idle sockets are kept past any such gap. */
+  server.keepAliveTimeout = 120000;
   base = `http://127.0.0.1:${server.address().port}`;
   fleet.install([fleet.agent(AGENT, { state: 'idle' }), fleet.agent(OTHER, { state: 'idle' })]);
 });
@@ -53,6 +57,10 @@ const get = async (p) => {
   return { status: res.status, json: await res.json().catch(() => null) };
 };
 const texts = (j) => (j && Array.isArray(j.messages) ? j.messages.map((m) => m.text) : null);
+const post = async (p, body) => {
+  const res = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: JSON.stringify(body || {}) });
+  return { status: res.status, json: await res.json().catch(() => null) };
+};
 const fill = (who, n, from) => {
   for (let i = 0; i < n; i += 1) {
     const r = chat.appendMessage(chat.DIRECT, who, { text: 'message ' + (from + i) });
@@ -196,6 +204,62 @@ test('#5841 a project deleted and re-created under its name does NOT inherit the
   assert.equal(now.continues, null, 'the new project continued the OLD project\'s full file');
   assert.deepEqual(chat.asideChain(P, AGENT, false), [], 'the old project\'s files counted under the new one');
   assert.deepEqual(now.messages.map((m) => m.text), ['the new project speaks']);
+
+  // Each bornAt check on its own. The arm above never reaches them: its other-project path starts the file fresh.
+  const file = chat.threadFile(P, AGENT);
+  const oldAside = old.continues;
+  const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...rec, continues: oldAside }));   // the new project's file pointing at the old one's
+  assert.equal(chat.readThread(P, AGENT, B2).continues, oldAside, 'premise: the link is there to be followed');
+  assert.deepEqual(chat.asideChain(P, AGENT, false), [], 'the chain followed into the OLD project\'s full file');
+  fs.rmSync(file);   // a lost current file: the reattach looks for this conversation's newest full file
+  assert.equal(chat.appendMessage(P, AGENT, { text: 'after a loss' }, B2).recorded, true);
+  assert.equal(chat.readThread(P, AGENT, B2).continues, null, 'a lost file of the new project reattached to the OLD project\'s full file');
+});
+
+test('#5841 a carried count larger than the file is not believed', () => {
+  const who = 'carrybot';
+  assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'one' }).recorded, true);
+  const file = chat.threadFile(chat.DIRECT, who);
+  const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...rec, continues: path.basename(file) + '.1.1.1791000000000.full', carried: 5000 }));
+  assert.equal(chat.readThread(chat.DIRECT, who).carried, 0, 'a carried count past the rows the file holds was believed');
+  fs.writeFileSync(file, JSON.stringify({ ...rec, continues: path.basename(file) + '.1.1.1791000000000.full', carried: 1 }));
+  assert.equal(chat.readThread(chat.DIRECT, who).carried, 1, 'CONTROL: a carried count within the file is read');
+});
+
+test('#5841 a project thread that rolled over counts its earlier file', async () => {
+  const folder = path.join(SANDBOX, 'proj-folder');
+  fs.mkdirSync(folder, { recursive: true });
+  const made = await post('/api/projects', { name: 'Rollover', folder });
+  assert.equal(made.status, 200, JSON.stringify(made.json));
+  const project = made.json.project;
+  assert.equal((await post(`/api/project/${project.id}/agent/${AGENT}`)).status, 200);
+  for (let i = 0; i <= CAP; i += 1) assert.equal(chat.appendMessage(project.id, AGENT, { text: 'p' + i }, project.createdAt).recorded, true);
+  assert.ok(chat.readThread(project.id, AGENT, project.createdAt).continues, 'premise: the project thread rolled over');
+  const t = await get(`/api/project/${project.id}/thread/${AGENT}`);
+  assert.equal(t.status, 200, JSON.stringify(t.json));
+  // 1000 in the full file, then a current file of 200 carried + 1: the first row shown (p801) is at position 801.
+  assert.equal(t.json.olderCount, 801, 'the project route did not count the earlier file (the current file alone says 1)');
+  assert.equal(t.json.messages[0].text, 'p801', 'premise: the first row shown');
+});
+
+test('#5841 a reply to a message that lives only in an earlier file is found, not refused as gone', async () => {
+  const dir = path.dirname(chat.threadFile(chat.DIRECT, AGENT));
+  const cur = chat.readThread(chat.DIRECT, AGENT);
+  const inFile = new Set(cur.messages.map((m) => m.at));
+  let at = null;
+  for (const n of asides(AGENT)) {
+    const rec = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+    const m = rec.messages.find((x) => x.text === 'message 5');
+    if (m) { at = m.at; break; }
+  }
+  assert.ok(at, 'premise: message 5 is in a full file');
+  assert.equal(inFile.has(at), false, 'premise: message 5 is not in the current file');
+  const r = await post(`/api/agent/${AGENT}/thread`, { text: 'about that one', reply_to: at });
+  assert.ok([200, 202].includes(r.status), 'a reply to an earlier-file message was not taken: ' + r.status + ' ' + JSON.stringify(r.json));
+  const gone = await post(`/api/agent/${AGENT}/thread`, { text: 'about nothing', reply_to: '2020-01-01T00:00:00.000Z' });
+  assert.equal(gone.status, 409, 'CONTROL: a message in no file is refused as gone: ' + JSON.stringify(gone.json));
 });
 
 test('#5841 when the chain stops early (an earlier file unreadable), the count and the pages still agree on every position', async () => {
@@ -205,9 +269,22 @@ test('#5841 when the chain stops early (an earlier file unreadable), the count a
   fs.writeFileSync(path.join(dir, oldest), '{ not json');   // the walk now stops at the file after it
   try {
     const t = await get(`/api/agent/${AGENT}/thread`);
-    let b = t.json.olderCount; let got = 0;
-    while (b > 0) { const pg = await get(`/api/agent/${AGENT}/thread/older?before=${b}`); assert.equal(pg.json.olderCount + pg.json.messages.length, b, 'a page is not the range asked for: the routes disagree'); got += pg.json.messages.length; b = pg.json.olderCount; }
+    let b = t.json.olderCount; let got = 0; const seen = [];
+    while (b > 0) { const pg = await get(`/api/agent/${AGENT}/thread/older?before=${b}`); assert.equal(pg.json.olderCount + pg.json.messages.length, b, 'a page is not the range asked for: the routes disagree'); got += pg.json.messages.length; seen.unshift(...texts(pg.json)); b = pg.json.olderCount; }
     assert.equal(got, t.json.olderCount, 'paging to the start did not reach exactly olderCount rows');
+    /* The two checks above hold for ANY chain, so they cannot see a carried overlap served twice. These can: every row
+       once, numbered rows in order, and the last earlier row right before the first row the thread shows. */
+    const whole = [...seen, ...texts(t.json)];
+    assert.equal(new Set(whole).size, whole.length, 'a row was served twice across the pages and the tail');
+    const nums = whole.filter((x) => /^message \d+$/.test(x)).map((x) => Number(x.split(' ')[1]));
+    assert.ok(nums.every((n, i) => i === 0 || n === nums[i - 1] + 1), 'the numbered rows are not one unbroken run in order');
+    // Both ends, from the file the walk could read: the first earlier row is its first OWN row (its carried copies of the
+    // unreadable file are dropped, as the count drops them), and the last is the row right before the tail's first.
+    const cur = chat.readThread(chat.DIRECT, AGENT);
+    const prev = JSON.parse(fs.readFileSync(path.join(dir, cur.continues), 'utf8'));
+    assert.equal(seen[0], prev.messages[prev.carried || 0].text, 'the first earlier row is not the readable file\'s first own row');
+    const lastBefore = cur.messages.length > 200 ? cur.messages[cur.messages.length - 201].text : prev.messages[prev.messages.length - (cur.carried || 0) - 1].text;
+    assert.equal(seen[seen.length - 1], lastBefore, 'the last earlier row is not the one right before the tail');
   } finally { fs.writeFileSync(path.join(dir, oldest), keep); }
 });
 

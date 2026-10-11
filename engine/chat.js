@@ -3389,7 +3389,7 @@ function chainRows(earlier, currentRows, currentCarried) {
   return out;
 }
 
-/* kosmos#5841: this thread's own newest `.full` file on disk, by modification time, or null. */
+/* kosmos#5841: this thread's own newest `.full` file on disk (by the rename time in its name), or null. */
 function newestOwnAside(projectId, agent, born) {
   let file;
   try { file = threadFile(projectId, agent); } catch { return null; }
