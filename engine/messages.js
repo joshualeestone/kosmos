@@ -1529,7 +1529,7 @@ function keepTaskLine(toName, line, roster, from, about, where) {
    'kept-sent' (typed after the reset; `state` placed or unconfirmed) or 'kept-dropped'. An entry kept before the task
    was carried on it records nothing. Best-effort, like every taskchat record. */
 function recordTaskLineOutcome(entry, v, dropped) {
-  if (!entry || typeof entry.projectId !== 'string' || !entry.projectId || !Number.isSafeInteger(entry.task)) return false;
+  if (!entry || typeof entry.projectId !== 'string' || !entry.projectId || !Number.isSafeInteger(entry.task) || entry.task < 1) return false;
   // `behind`: kept behind earlier messages rather than for a usage reset, so the page does not speak of a reset.
   const behind = entry.behind === true ? { behind: true } : {};
   return require('./taskchat').record(entry.projectId, entry.task, dropped
