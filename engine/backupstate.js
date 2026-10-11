@@ -24,16 +24,19 @@
  *   next run starts a fresh period with a new naming key. Its chunks are not lost: the manifests that name them are
  *   stored; only deduplication against them is. The caller decides when (a refused read, said to the person once).
  * writeState(org, member, state): atomic (securewrite, owner-only). Throws on a state this module would not read back.
- * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the state's period when it is `label`, its index
+ * forPeriod(state, label, { memberKeyId, nowMs, granted?, newKey? }) -> period: the state's period when it is `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
  *   costing a run) and, defensively, of locks already ended (takeSnapshot's own check is stricter, against the manifest's
  *   lock; every row withRun accepts has passed it for its period); else a fresh period with a new naming key and an empty
- *   index. A new period never inherits the old index or key. A label EARLIER than the stored one returns the STORED
- *   (later) period: the coordinator may grant in the next week while this Mac's clock is still in this one
- *   (takeSnapshot's grantedPeriod), and starting the earlier week fresh would throw away the later week's naming key
- *   and index for good. Only up to a day ahead of nowMs (the coordinator's clock may be an hour off this one): a stored
- *   period further ahead (a clock that was wrong) is not kept, so it cannot hold every later run in the wrong week.
- *   The caller builds its context from the returned label, never from the one it asked for.
+ *   index. A new period never inherits the old index or key. Where a label comes from matters:
+ *   - granted: true, a label the COORDINATOR named (takeSnapshot's grantedPeriod): always honoured, earlier or later,
+ *     since its clock decides where chunks are filed (backupsnapshot's contract).
+ *   - otherwise a label read from this Mac's clock: when the stored period is LATER and is the period this clock reaches
+ *     within takeSnapshot's own skew (SKEW_MS, an hour), the stored one is returned, so a retry near Monday 00:00 does
+ *     not throw away the week the coordinator already granted in. Anything further ahead (written under a wrong clock)
+ *     is not kept: takeSnapshot would refuse it on every run.
+ *   Starting fresh costs deduplication against the abandoned period, never a restore: its naming key is inside every
+ *   manifest stored in it. The caller builds its context from the returned label.
  * withRun(state, period, result) -> state: the period after a takeSnapshot result, plus `leftOut` (how many `added`
  *   rows it did not keep: malformed, another period's, or past the cap; not persisted), so a caller bug shows. The index is dropped ONLY when the
  *   result says so: staleIndex, or chunks stored under a DIFFERENT non-null bucket. A null bucket is not "another
@@ -60,7 +63,6 @@ const backupkeys = require('./backupkeys');
 
 // Weeks 01 to 53 only (what periodOf writes), so labels compare correctly as strings.
 const PERIOD_RE = /^[0-9]{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$/;
-const AHEAD_MS = 24 * 60 * 60 * 1000;
 const TRANSIENT = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES']);
 function ids(org, member) {
   if (typeof org !== 'string' || !org || typeof member !== 'string' || !member) throw new TypeError('backupstate: org and member must be non-empty strings');
@@ -152,10 +154,13 @@ function writeState(org, member, state) {
 
 function forPeriod(state, label, opts = {}) {
   if (!PERIOD_RE.test(label)) throw new Error('backupstate: a period label is an ISO week, such as 2026-W41');
-  if (!HEX32_RE.test(opts.memberKeyId) || !Number.isSafeInteger(opts.nowMs)) throw new Error('backupstate: forPeriod needs the member key id and the time');
+  const snap = require('./backupsnapshot');
+  if (!HEX32_RE.test(opts.memberKeyId) || !Number.isSafeInteger(opts.nowMs) || !PERIOD_RE.test(snap.periodOf(opts.nowMs))) {
+    throw new Error('backupstate: forPeriod needs the member key id and a usable time');
+  }
   const p = state && state.period;
-  // ISO-week labels (YYYY-Www, weeks 01 to 53) compare correctly as strings. Kept only up to a day ahead of this clock.
-  if (p && p.label > label && p.label <= require('./backupsnapshot').periodOf(opts.nowMs + AHEAD_MS)) label = p.label;
+  // ISO-week labels (YYYY-Www, weeks 01 to 53) compare correctly as strings.
+  if (!opts.granted && p && p.label > label && p.label === snap.periodOf(opts.nowMs + snap.SKEW_MS)) label = p.label;
   if (p && p.label === label) {
     const index = new Map();
     for (const [name, e] of p.index) if (e.memberKeyId === opts.memberKeyId && e.lockedUntilMs > opts.nowMs) index.set(name, e);
