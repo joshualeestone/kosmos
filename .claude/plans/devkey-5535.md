@@ -76,3 +76,22 @@ fixed sentence, never a path or a byte. Read on each call, never cached or writt
   recorded for the upload, then the member's other device keys.
 - Filed kosmos#5871: the connector writing its identity atomically, the real fix.
 - NO CHANGE (NIT): MAC_ID_RE is wider than the coordinator's 32-hex ids; it accepts them all.
+
+## Review 4 (opus, blind, on 22bc03434): NOT CONVERGED; the design is changed
+- BLOCKER, reproduced by the reviewer: the key's time came from the fstat BEFORE the read, so a key write landing
+  between them passed every check and returned the new key with the old id. Plus: the time test fails on a clock set
+  back, on 1-second filesystems, and on a forward clock jump; and its only test used a future time.
+- DECIDED: stop claiming an identity at all. Reviews 2 to 4 each found an interleaving that one more check could not
+  close: two in-place writes under a lock Node cannot take cannot be read consistently from outside (kosmos#5871 asks
+  for an atomic write). deviceKey now returns the key alone (no macId), and the identity pair checks and file-time
+  heuristics are removed. Harmless by contract: consumers verify against the identity Kosmos+ recorded for the upload,
+  then the member's other device keys (never a manifest's own word); a mid-registration key is the new identity's,
+  enrolled when it finishes; one whose registration never finishes uploads nothing. REVERSES review 2's "returns macId so
+  slice (c) can record it" (the #5535 comment is corrected).
+- Kept: mac_id must exist (missing, a first registration cut off after the key); an empty file is retry; a file held by
+  another program (EBUSY, EAGAIN, EPERM, EACCES, a vanish between steps) is retry; a wrong form is never retry.
+- FIXED (WARNING): the test file now runs on Windows (tools/windows-tests.js ALSO); link and FIFO cases skip there.
+- FIXED (NIT): the folder must be absolute whether given or from AGENT_WORKFORCE_TUNNEL_STATE.
+- Tests: 7. Mutants, each red: mac_id existence, the empty-file retry, the transient retry, the absolute-path check,
+  JS trim, the canonical check, isFile. (Three of my first mutant runs were a split multi-line pattern that no longer
+  parsed; node --check caught them; redone as a one-line swap: red.)
