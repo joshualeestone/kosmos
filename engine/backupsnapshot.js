@@ -878,4 +878,4 @@ async function snapshotInner(input, deps, added, state, fail) {
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
-module.exports = { periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
+module.exports = { periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES, SKEW_MS };

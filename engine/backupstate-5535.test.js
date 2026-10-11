@@ -107,7 +107,9 @@ test('forPeriod keeps the same period (its key and index) and starts a new one f
   const none = bs.forPeriod({ job: {}, period: null }, '2026-W41', { memberKeyId: MK, nowMs: NOW });
   assert.equal(none.namingKey.length, 32); assert.ok(!none.namingKey.equals(nk));
   assert.throws(() => bs.forPeriod(state, 'W41', { memberKeyId: MK, nowMs: NOW }));
-  assert.throws(() => bs.forPeriod(state, '2026-W41', {}), /member key id and the time/);
+  assert.throws(() => bs.forPeriod(state, '2026-W41', {}), /member key id and a usable time/);
+  // A time past Date's range gives periodOf NaN-WNaN: refused, never compared.
+  assert.throws(() => bs.forPeriod(state, '2026-W41', { memberKeyId: MK, nowMs: 9e15 }), /usable time/);
   // Resuming prunes what takeSnapshot would refuse: another member key (a #5744 rotation), a lock that has ended.
   const mixed = { job: {}, period: { label: '2026-W41', namingKey: nk, bucket: 'b/', index: new Map([
     entry(1), [name(2), { key: 'o1/acct1/1/2026-W41/k2', lockedUntilMs: 1800000000002, memberKeyId: 'cd'.repeat(16) }],
@@ -188,7 +190,15 @@ test('round 2: an EARLIER label keeps the stored later period (the coordinator g
   // Across a year: 2026-W53 is before 2027-W01 (which starts Monday 2027-01-04).
   const y = { job: {}, period: { label: '2027-W01', namingKey: nk, bucket: null, index: new Map() } };
   assert.equal(bs.forPeriod(y, '2026-W53', { memberKeyId: MK, nowMs: Date.parse('2027-01-03T23:30:00Z') }).label, '2027-W01');
-  // Round 3: a stored period MORE than a day ahead of this clock (written under a wrong clock) is not kept.
+  // Review 4: only the period this clock reaches within takeSnapshot's skew (an hour) is kept. Two hours before Monday:
+  // not kept (takeSnapshot would refuse W42 as the context), nor mid-week.
+  const w42 = () => ({ job: {}, period: { label: '2026-W42', namingKey: nk, bucket: 'b/', index: new Map() } });
+  assert.equal(bs.forPeriod(w42(), '2026-W41', { memberKeyId: MK, nowMs: Date.parse('2026-10-11T22:00:00Z') }).label, '2026-W41');
+  assert.equal(bs.forPeriod(w42(), '2026-W41', { memberKeyId: MK, nowMs: Date.parse('2026-10-07T12:00:00Z') }).label, '2026-W41');
+  // A label the COORDINATOR granted is honoured, even earlier than the stored one (its clock behind this one).
+  const granted = bs.forPeriod(w42(), '2026-W41', { memberKeyId: MK, nowMs: sunday, granted: true });
+  assert.equal(granted.label, '2026-W41'); assert.ok(!granted.namingKey.equals(nk));
+  // Further ahead (written under a wrong clock) is not kept either.
   const far = bs.forPeriod({ job: {}, period: { label: '2026-W44', namingKey: nk, bucket: 'b/', index: new Map() } }, '2026-W41', { memberKeyId: MK, nowMs: sunday });
   assert.equal(far.label, '2026-W41'); assert.ok(!far.namingKey.equals(nk));
   // Control: a LATER label starts fresh.
