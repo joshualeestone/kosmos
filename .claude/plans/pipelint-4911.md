@@ -126,3 +126,11 @@ command's status.
 - Two more real escapes (quote parity fooled by an escaped or cross-kind quote; a pipeline held in a string run by
   bash -c or an alias), and the holistic WARNING that the trade does not pay. DECIDED: removed the heuristic
   (own, opens, closes, cont, shut) and replaced it with the explicit marker above. Rejected: another heuristic round.
+
+## Review 10 (sonnet, blind, on 6a80112ff), first review of the marker design: no BLOCKER
+- FIXED (WARNING): the marker rule accepted a status read anywhere on the line, so a marked COMMENT that only mentions
+  the status ("# see <status> # pipe-status-ok") excused the real read below it. The read must now be in the line's
+  code, before any "#". Fixture; the mutant (any status on the line) turns it BAD.
+- NO CHANGE (NIT): a marked line clears the pipe, so a further read on the next line or two is that marked line's own
+  status, not the pipe's. Accurate as worded.
+- The reviewer read all 11 marked lines with the lines above them: each is its own command's status.

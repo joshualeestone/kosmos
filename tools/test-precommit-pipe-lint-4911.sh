@@ -49,6 +49,8 @@ printf '%s\n' "x=\$(make $P tail -1); rc=$Q  # pipe-status-ok" > "$T/markedsame.
 flags "$T/markedsame.sh" && ok "the marker does not excuse a pipe on its own line" || bad "the marker excused a same-line pipe"
 printf '%s\n' "yarn test $P tail -5" "true  # pipe-status-ok" "[ $Q -eq 0 ] || exit 1" > "$T/markedother.sh"
 flags "$T/markedother.sh" && ok "a marker on a line that reads no status excuses nothing" || bad "a marker on another line excused the read"
+printf '%s\n' "yarn test $P tail -5" "# see $Q  # pipe-status-ok" "[ $Q -eq 0 ] || exit 1" > "$T/markedcomment.sh"
+flags "$T/markedcomment.sh" && ok "a marked comment that only mentions the status excuses nothing" || bad "a marked comment line excused the real read"
 
 printf '%s\n' "x $P grep y" 'true' "out=\"\$(run_it 2>&1)\"; rc=$Q  # pipe-status-ok" "V=1 run_it; rc=$Q  # pipe-status-ok" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q  # pipe-status-ok" > "$T/assigncmd.sh"
 [ -z "$(lint "$T/assigncmd.sh")" ] && ok "marked assignments from or before a command are accepted" || bad "an assignment from or before a command was refused: $(lint "$T/assigncmd.sh")"
