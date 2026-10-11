@@ -194,17 +194,17 @@ function secureStateDir() {
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: true };
-    return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false };
+    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: true };
+    return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false }; }
+  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false }; }
   // A JSON array passes `typeof === 'object'`, but that is harmless HERE, unlike
   // in heartbeat-setting: `on` below is read as `parsed.on === true` (an explicit
   // true test), never defaulted to true, so an array reads off -- the safe value
   // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
   // guard because heartbeat DID default true; this copy needs no Array.isArray.
-  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false };
+  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, ok: false };
   return {
     on: parsed.on === true,
     relay: typeof parsed.relay === 'string' ? parsed.relay : '',
@@ -245,6 +245,9 @@ function read() {
     /* client-clock ms when fedLive was last written; drives the TTL refresh. 0 = never
        stamped -> immediately stale. */
     fedLive_at: typeof parsed.fedLive_at === 'number' ? parsed.fedLive_at : 0,
+    /* kosmos#5786 (b): devices this computer allowed because the browser it opened proved itself (vouchTick), as
+       { <device_id>: { at: <seconds>, name } }, for the "connected" notice and the "on this computer" label. */
+    vouched: parsed.vouched && typeof parsed.vouched === 'object' && !Array.isArray(parsed.vouched) ? parsed.vouched : {},
     ok: true,
   };
 }
@@ -628,6 +631,7 @@ function tracked(p) {
 }
 function setOn(on) {
   if (typeof on !== 'boolean') return { ok: false, because: 'that has to be on or off' };
+  if (!on) stopVouch();   // kosmos#5786 (b): off ends an open-browser secret at once
   // #3827: Forget stops the tunnel, then waits on the retire; turning on in that
   // wait would start one from the key it is about to delete. And a register still
   // out may already have written the certificate: a second tunnel would start
@@ -1118,6 +1122,9 @@ async function forget() {
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
+  stopVouch();   // kosmos#5786 (b): nor an open-browser secret
+  lastVouched = null;
+  resetSelfGrant();   // bumps the epoch; `forgetting` is what keeps an allow already out from being noted
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1153,7 +1160,7 @@ async function forgetNow() {
   stopChild();
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
-  write({ on: false }, { repair: true });
+  write({ on: false, vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
   flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
@@ -1611,10 +1618,18 @@ function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
    tunnel's first poll rewrites it (up to 5s, and longer if that poll fails: a failed poll keeps the last file,
    kosmos-relay devices.rs). Called at every place the identity changes (setupComplete, cancelledAfter,
    signinRegister), after the old tunnel is stopped so it cannot rewrite it. A missing snapshot already reads as
-   nothing waiting (pendingDevices). */
+   nothing waiting (pendingDevices). kosmos#5786 (b): it also drops the identity's "on this computer" notes. */
 function forgetPendingSnapshot() {
   try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
   resetSelfGrant();   // round 2: every identity change also starts the self-grant over (all four call sites)
+  stopVouch();   // kosmos#5786 (b): and ends the open-browser secret now, not on the next tick
+  // kosmos#5786 (b): the "on this computer" notes belong to the identity they were made under.
+  lastVouched = null;
+  const cur = read();
+  if (cur.ok !== false && Object.keys(cur.vouched || {}).length) {
+    const w = write({ vouched: {} });
+    if (!w.ok) process.stderr.write('kosmos+: could not drop the old identity\'s on-this-computer labels: ' + w.because + '\n');
+  }
 }
 /* #4610, Josh's ruling (2026-09-29 13:00): "This computer one, the Kosmos app, should get auto-approved instantaneously
    behind the scenes and never display to the user." This Mac's own in-app sign-in is a device at the coordinator
@@ -1684,6 +1699,184 @@ function allowSelfQuietly() {
     .finally(() => { if (epoch === selfEpoch) selfAllowing = false; });
   return true;
 }
+/* kosmos#5786 (b) (Josh, 2026-10-10 14:02: "this should automatically just allow since i am on this computer"): after
+   this computer signs in, it may open the default browser at the sign-in page with #allow=<S>, where S is a secret
+   minted here, in memory (it also passes through the opener's argv, for the browser's whole life on Linux and Windows
+   when the opener starts it, and through the browser's history). That page, signed in as the person, sends the coordinator
+   HMAC-SHA256(S, its own device id), never S. The tunnel's snapshot carries that back as the row's `vouch`, and this
+   computer allows the ONE row whose vouch it can reproduce.
+   What it proves: the device asking holds a session on this account AND holds S, which this computer minted and put
+   in the browser it opened, inside the window; a stranger with a stolen match code has no S (#3311). The residual Josh accepted (10-10 19:04):
+   the coordinator serves the page that reads S, so a compromised coordinator could vouch for one device of its own
+   inside the window (kosmos-relay docs/coordinator-api.md, device-vouch).
+   What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
+   The browser is opened only once the snapshot holds a phone or browser request from the last VOUCH_RECENT_S, so an
+   app-only sign-up never gets a stray sign-in tab. That recency is the coordinator's first_seen, so a coordinator can
+   also make the tab open inside the window; the tab carries S only in its fragment, and allowing still needs the vouch.
+   A joining computer is never allowed this way: computers pair by
+   code (#4794, Baron's tunnel review). */
+const VOUCH_WINDOW_MS = 10 * 60 * 1000;
+const VOUCH_RECENT_S = 30 * 60;
+const VOUCH_POLL_MS = 3000;
+const VOUCH_NOTICE_MS = 10 * 60 * 1000;
+// The device the last automatic allow let in, kept in memory as well as noted in remote.json, so a Not me still takes
+// it back out when the note could not be saved.
+let lastVouched = null;   // { id, at }
+// Every Not me pressed during the current secret, whatever the tunnel answered: a deny the tunnel refuses (the allow
+// already landed there) writes no `denied`, and the allow's answer must still lose to it. Kept past stopVouch on purpose
+// (an allow can still be out); cleared when the next secret starts, except for the id an allow is still out for.
+const notMeDuringVouch = new Set();
+// The device an automatic allow is out for right now. It outlives the secret (a window end, Sign out or switch-off stops
+// S, not an allow already out), so a Not me pressed then is still remembered.
+let vouchAllowingId = '';
+let vouchState = null;   // { secret, until, epoch, opened, matched, allowing, tries, matchedOk }
+let vouchTimer = null;
+let vouchOpenedUrl = '';   // the last address opened, for tests (the opener's own argv drops it under a test command)
+function stopVouch() {
+  vouchState = null;
+  vouchOpenedUrl = '';   // it carries S
+  if (vouchTimer) { clearInterval(vouchTimer); vouchTimer = null; }
+}
+/* The sign-in page's address: the coordinator's own origin (it serves the page at /). https only, or plain http on
+   this computer's loopback for a local coordinator. */
+function vouchUrl(secret) {
+  let u;
+  try { u = new URL(COORDINATOR()); } catch { return null; }
+  const loopback = u.hostname === '127.0.0.1' || u.hostname === 'localhost';
+  if (!(u.protocol === 'https:' || (u.protocol === 'http:' && loopback))) return null;
+  return u.origin + '/#allow=' + secret;
+}
+function startVouch() {
+  stopVouch();
+  // A new secret forgets the old one's Not me presses, except for an allow still out: its answer must still lose.
+  const outAndRefused = vouchAllowingId && notMeDuringVouch.has(vouchAllowingId) ? vouchAllowingId : '';
+  notMeDuringVouch.clear();
+  if (outAndRefused) notMeDuringVouch.add(outAndRefused);
+  // A computer still waiting for another computer's Allow (held, #4737) cannot allow anyone: no secret.
+  if (inState(HELD_FILE)) return;
+  vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, ident: macIdHere(), opened: false, matched: '', allowing: false, tries: 0, matchedOk: false };
+  vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
+  if (vouchTimer.unref) vouchTimer.unref();
+}
+/* The rows a vouch may allow: valid ids, not this computer's own sign-ins, not a device the person said Not me to, and
+   never a computer (a joining one carries joining_computer, or a code wait). null while there is no snapshot. */
+function vouchRows() {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
+  if (!raw || !Array.isArray(raw.devices)) return null;
+  const settings = read();
+  const selves = ownDeviceIds(settings);
+  // A device the person said Not me to is never allowed this way; they can still Allow it by hand.
+  const denied = settings.denied || {};
+  return raw.devices.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
+    && !Object.prototype.hasOwnProperty.call(denied, String(d.device_id))
+    && !notMeDuringVouch.has(String(d.device_id))   // a Not me the tunnel refused writes no `denied`
+    && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait);
+}
+function vouchMatches(secret, d) {
+  if (typeof d.vouch !== 'string') return false;
+  const want = Buffer.from(crypto.createHmac('sha256', secret).update(String(d.device_id), 'utf8').digest('base64url'));
+  const got = Buffer.from(d.vouch);
+  return got.length === want.length && crypto.timingSafeEqual(got, want);
+}
+/* Allows in-engine, like #4610's own-sign-in grant, so it does not pass server.js's screen-only Allow gate (isViaScreen):
+   what stands in for the person's press is S (minted here after their own sign-in, one device, ten minutes) and the row
+   filters above. */
+function vouchTick() {
+  const v = vouchState;
+  if (!v) return;
+  if (Date.now() > v.until || v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE)) { stopVouch(); return; }
+  const rows = vouchRows();
+  if (!rows) return;
+  if (!v.opened) {
+    const now = Math.floor(Date.now() / 1000);
+    if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
+    v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
+    // error (runCompanyOpener), it just logs nothing. The window still bounds S.
+    // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
+    const url = vouchUrl(v.secret);
+    if (!url) {
+      process.stderr.write('kosmos+: the sign-in page is not https here, so the browser is not opened to connect it; the Allow card stays\n');
+      stopVouch();
+      return;
+    }
+    vouchOpenedUrl = url;
+    runCompanyOpener(url).then((ok) => {
+      if (ok || vouchState !== v) return;
+      process.stderr.write('kosmos+: could not open the browser to connect it to this computer; the Allow card stays\n');
+      stopVouch();
+    });
+    return;
+  }
+  // A register or a Forget in flight (busy) is waited out, not counted as a refused try.
+  if (v.allowing || busy()) return;
+  // One device per secret: the first row that matched, retried until it is allowed or the window ends.
+  const hit = rows.find((d) => (!v.matched || String(d.device_id) === v.matched) && vouchMatches(v.secret, d));
+  if (!hit) return;
+  const id = String(hit.device_id);
+  const name = typeof hit.name === 'string' && DEVICE_NAME.test(hit.name.trim()) ? hit.name.trim() : '';
+  v.matched = id;
+  v.allowing = true;
+  vouchAllowingId = id;
+  let threw = false;
+  Promise.resolve()
+    .then(() => deviceAllow(id, name || undefined))
+    .then((r) => {
+      if (!r || !r.ok) {
+        // Only the tunnel's refusals count: a busy register or Forget is waited out. (A setup-not-finished refusal is
+        // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
+        const why = String((r && r.because) || '');
+        if (!busy() && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
+        // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for ten minutes).
+        if (vouchState === v && v.tries >= 3) {
+          process.stderr.write('kosmos+: could not allow the browser this computer opened (' + String((r && r.because) || 'no answer') + '); the Allow card stays\n');
+          stopVouch();
+        }
+        return;
+      }
+      // Allowed: noted even if a Sign out or a switch-off landed while it ran (they stop the secret, not an allow already
+      // out), so the notice and Undo still show.
+      v.matchedOk = true;
+      if (vouchState === v) stopVouch();
+      // Not during a Forget (it clears the notes), and not under another identity (the note would describe a device of
+      // the account before it).
+      // (The identity is the mac_id file: a Forget mints a new one, and `forgetting` covers the Forget itself.)
+      // An allow that lands after a sign-in under ANOTHER identity is not ours to note. A re-register of the same identity
+      // also moves the epoch, but the device is in all the same, so it is still noted (and Not me can still take it out).
+      if (forgetting || (v.epoch !== selfEpoch && !(v.ident && macIdHere() === v.ident))) return;
+      // The person pressed Not me while this allow ran: their answer wins. Take the device back out, note nothing.
+      if (notMeDuringVouch.has(id) || Object.prototype.hasOwnProperty.call(read().denied || {}, id)) {
+        return deviceRemove(id).then((rr) => {
+          if (!rr || !rr.ok) process.stderr.write('kosmos+: a device refused while it was being allowed automatically could not be removed again (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
+        });
+      }
+      // Set even after a Sign out cleared it: the device is in, so its Not me must still be able to take it out.
+      lastVouched = { id, at: Math.floor(Date.now() / 1000) };
+      const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
+        .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
+      const saved = write({ vouched: Object.fromEntries(kept) });
+      if (!saved.ok) process.stderr.write('kosmos+: allowed the browser this computer opened, but could not note it: ' + saved.because + '\n');
+    })
+    .catch(() => { threw = true; })
+    .finally(() => {
+      v.allowing = false;
+      if (vouchAllowingId === id) vouchAllowingId = '';
+      // An allow that threw rather than answering counts as a refused try too.
+      if (threw) v.tries += 1;
+      if (vouchState === v && v.tries >= 3 && !v.matchedOk) stopVouch();
+    });
+}
+/* The newest device allowed this way in the last VOUCH_NOTICE_MS, for the "connected" notice with its Undo. */
+function recentlyVouched(settings = read()) {
+  const now = Math.floor(Date.now() / 1000);
+  let best = null;
+  for (const [id, e] of Object.entries(settings.vouched || {})) {
+    const at = Number(e && e.at) || 0;
+    if (!DEVICE_ID.test(id) || now - at > VOUCH_NOTICE_MS / 1000) continue;
+    if (!best || at > best.at) best = { device_id: id, name: e && typeof e.name === 'string' && e.name ? e.name : null, at };
+  }
+  return best;
+}
 /* kosmos#4794: the reasons kosmos-tunnel's devices.rs gives for a joining computer's empty code (pairing.rs wait_reason,
    plus was_a_computer). Anything else is dropped rather than shown. */
 const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer']);
@@ -1695,7 +1888,8 @@ const JOIN_CODE = /^\d{3} \d{3}$/;
     board with Plus off has nothing waiting. `snapshot` says which. */
 function pendingDevices() {
   const settings = read();
-  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '' };
+  // kosmos#5786 (b): a device allowed while Kosmos+ was being switched off still shows its notice and Undo.
+  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '', connected_here: recentlyVouched(settings) };
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { raw = null; }
   const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
@@ -1724,7 +1918,12 @@ function pendingDevices() {
          fixed list so the page words each one; null while the code is shown or being worked out. */
       code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null,
     }));
-  return { devices, snapshot: raw !== null, email: settings.email || '' };
+  // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
+  // still lists it (until its next poll).
+  const here = recentlyVouched(settings);
+  // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows. A minute of slack:
+  // first_seen is the coordinator's clock, the note's is this computer's.
+  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
    of JSON. Other lines
@@ -1771,6 +1970,7 @@ async function devicesList() {
   const r = parseSaid(await setupRun(deviceArgs('list', null, false)));
   if (!r.ok) return r;
   const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
+  const vouched = read().vouched || {};
   return { ok: true, because: null, data: { devices: list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
     .map((d) => ({
@@ -1783,7 +1983,18 @@ async function devicesList() {
          computers (its signed allow reached this one). null when this computer allowed it, and for a tunnel
          without part C, which sends nothing. */
       allowed_on: typeof d.allowed_on === 'string' && d.allowed_on.trim() ? d.allowed_on.trim().slice(0, 60) : null,
+      /* kosmos#5786 (b): allowed because the browser this computer opened proved itself, so the page can say
+         "on this computer". A lasting fact, not a notice: it stays until the device is removed here, and only for
+         the allow it was noted for (removed elsewhere and allowed again by hand, its allowed_at moves on). Ten
+         minutes of slack: allowed_at is the coordinator's clock, the note's this computer's. */
+      on_this_computer: vouchedFor(vouched, d),
     })) } };
+}
+function vouchedFor(vouched, d) {
+  if (!Object.prototype.hasOwnProperty.call(vouched, String(d.device_id))) return false;
+  const at = Number(vouched[String(d.device_id)] && vouched[String(d.device_id)].at) || 0;
+  const allowed = Number(d.allowed_at) || 0;
+  return !allowed || Math.abs(allowed - at) <= 600;   // a tunnel that sends no allowed_at cannot be checked
 }
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
     coordinator; a failed ack heals on the tunnel's next poll and the allow
@@ -1814,6 +2025,7 @@ async function deviceDeny(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  if (vouchState || vouchAllowingId === id) notMeDuringVouch.add(id);   // kosmos#5786 (b)
   const r = parseSaid(await tracked(setupRun(deviceArgs('deny', id, true), null, retireTimeoutMs())));
   if (r.ok) {
     const denied = { ...read().denied, [id]: Math.floor(Date.now() / 1000) };
@@ -1823,6 +2035,18 @@ async function deviceDeny(id) {
     /* #4308: the coordinator has the answer either way; only this computer's own note of it (used to word a re-ask) is
        lost when the settings file is damaged. Say so rather than drop it silently. */
     if (!saved.ok) process.stderr.write('remote: the device was refused, but this computer could not note it: ' + saved.because + '\n');
+  }
+  {
+    // kosmos#5786 (b): Not me on a device this computer allowed automatically a moment ago (the two raced) takes it
+    // back out, whatever the deny answered (an allowed row may refuse a deny). That is a second tunnel call, so this
+    // Not me can take up to two retire timeouts. Only inside the notice window: an old note is history, not a race.
+    const notes = read().vouched || {};
+    const noted = Object.prototype.hasOwnProperty.call(notes, id) ? Number(notes[id] && notes[id].at) || 0
+      : lastVouched && lastVouched.id === id ? lastVouched.at : 0;
+    if (noted && Math.floor(Date.now() / 1000) - noted <= VOUCH_NOTICE_MS / 1000) {
+      const rr = await deviceRemove(id);
+      if (!rr || !rr.ok) process.stderr.write('kosmos+: a device allowed automatically was refused, and could not be removed (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
+    }
   }
   return r;
 }
@@ -1844,9 +2068,20 @@ async function deviceRemove(id) {
   if (!r.ok && r.code === 2 && /unexpected argument '--coordinator'/.test(said)) {
     // A Forget may have started between the two spawns; the same refusal as the first call then.
     { const b = busy(); if (b) return b; }
-    return removeAnswer(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
+    return forgetVouched(id, removeAnswer(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs()))));
   }
-  return removeAnswer(r);
+  return forgetVouched(id, removeAnswer(r));
+}
+/* kosmos#5786 (b): a removed device (the notice's Undo, or the list's Remove) is no longer "on this computer". */
+function forgetVouched(id, answer) {
+  const vouched = read().vouched || {};
+  // A remove that timed out may not have happened: the note stays, so the device keeps saying where it came from.
+  if (answer && answer.ok && Object.prototype.hasOwnProperty.call(vouched, id) && !(answer.data && answer.data.timed_out)) {
+    const { [id]: _gone, ...rest } = vouched;
+    const saved = write({ vouched: rest });
+    if (!saved.ok) process.stderr.write('remote: removed, but this computer could not drop its "on this computer" note: ' + saved.because + '\n');
+  }
+  return answer;
 }
 /* #4824: a connector killed on the timeout answers `timed_out`, and the page points at the list. */
 function removeAnswer(r) {
@@ -2250,6 +2485,8 @@ function signinCancel() {
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: as the session: no secret is left behind a sign out
+  stopVouch();   // kosmos#5786 (b): the same for the open-browser secret
+  lastVouched = null;
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
@@ -2743,9 +2980,13 @@ async function signinRegister(name) {
     const have = address();
     if (have && have.split('.')[0] === name) {
       /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
+      // kosmos#5786 (b): only when this call spent a real sign-in (the code steps). A Try again with Kosmos+ already on
+      // (no session) does not mint a secret, so no local caller can re-open the browser by repeating it.
+      const spentSignin = !!(signinSession && typeof signinSession.token === 'string');
       turnOnAfterSignin();
       ensure(localPort);
       signinSession = null;
+      if (spentSignin) startVouch();
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
       // uniform shape (always a standing key) is easier for the wizard than a
@@ -2808,6 +3049,7 @@ async function signinRegister(name) {
      flag (busy) is cleared, and a fresh identity may be granted at once (the retry window starts over). */
   resetSelfGrant();
   setImmediate(allowSelfQuietly);
+  startVouch();   // kosmos#5786 (b): after resetSelfGrant, so its epoch is this sign-in's
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
   registerTakesOver();   // kosmos#4277: the register's start is not a relaunch
@@ -2898,7 +3140,12 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  bumpSelfEpochForTests: () => { selfEpoch += 1; },
+  resetForTests: () => { vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  vouchTickForTests: () => vouchTick(),
+  vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
+  vouchOpenedUrlForTests: () => vouchOpenedUrl,
+  vouchUntilForTests: () => (vouchState ? vouchState.until : 0),
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },

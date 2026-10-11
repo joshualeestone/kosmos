@@ -344,6 +344,11 @@ if (args[0] === 'devices') {
     console.log(JSON.stringify({ removed: true, device_id: flag('--device-id'), local_cutoff: !mode.includes('remove-no-cutoff'), signed_out: !mode.includes('remove-not-told') }));
     process.exit(0);
   }
+  // kosmos#5786 (b): a deny the tunnel refuses, and an allow that takes a while.
+  if (verb === 'deny' && mode.includes('deny-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
+  if (verb === 'allow' && mode.includes('slow-allow')) { const until = Date.now() + 1500; while (Date.now() < until) { /* wait */ } }
+  // kosmos#5786 (b): an allow the tunnel refuses (the vouch path's retry cap).
+  if (verb === 'allow' && mode.includes('allow-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
@@ -4234,4 +4239,476 @@ test('kosmos#5651 board review 6: a refusal for a setup that is gone says start 
   assert.equal(t.ok, false);
   assert.equal(t.because, 'that company sign-in has ended; start again on the computer', 'a dead setup was left on the code step');
   assert.doesNotMatch(t.because, /all the texts|wait \d+ seconds/, 'a gone setup reads like a metered answer');
+});
+
+/* kosmos#5786 (b) (Josh, 2026-10-10 14:02): after this computer signs in, the browser it opens at #allow=<S> proves
+   itself with HMAC(S, its device id), and only that row is allowed, once. */
+const vouchFor = (secret, id) => require('node:crypto').createHmac('sha256', secret).update(id, 'utf8').digest('base64url');
+async function vouchSignedIn(name) {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister(name);
+  assert.equal(reg.ok, true, reg.because);
+  const secret = remote.vouchSecretForTests();
+  assert.ok(secret && /^[A-Za-z0-9_-]{43}$/.test(secret), 'premise: a sign-in mints a 43-character secret');
+  const plant = (devices) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices }));
+  return { secret, plant };
+}
+const nowS = () => Math.floor(Date.now() / 1000);
+const allowsOf = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+
+test('#5786 (b): the browser this computer opened is allowed by its vouch, once, and noted as on this computer', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchmac');
+  // Nothing recent waits yet: no browser is opened.
+  plant([]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a browser was opened with nothing waiting');
+  // Safari's request (Josh's case): the browser is opened at the sign-in page with the secret in the fragment.
+  plant([{ device_id: 'dev-safari', name: 'Mac · Safari', first_seen: nowS() - 360, code: 'VR-D6' }]);
+  const untilBefore = remote.vouchUntilForTests();
+  await new Promise((r) => setTimeout(r, 20));
+  remote.vouchTickForTests();
+  assert.match(remote.vouchOpenedUrlForTests(), new RegExp('^https?://[^/#]+/#allow=' + secret + '$'));
+  assert.equal(remote.vouchUntilForTests(), untilBefore, 'the window moved: Josh ruled on ~10 minutes from sign-in');
+  // The page's vouch arrives on that row.
+  plant([{ device_id: 'dev-safari', name: 'Mac · Safari', first_seen: nowS() - 360, code: 'VR-D6', vouch: vouchFor(secret, 'dev-safari') }]);
+  const before = allowsOf().filter((x) => x === 'dev-safari').length;
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-safari'], 'the vouched allow to be noted');
+  assert.equal(allowsOf().filter((x) => x === 'dev-safari').length, before + 1, 'exactly one allow');
+  assert.equal(remote.vouchSecretForTests(), null, 'the secret is spent');
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'the opened address, which carries S, outlived the secret');
+  const c = remote.pendingDevices().connected_here;
+  assert.equal(c && c.device_id, 'dev-safari');
+  assert.equal(c && c.name, 'Mac · Safari');
+  // Spent: the same vouch does nothing more.
+  remote.vouchTickForTests();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(allowsOf().filter((x) => x === 'dev-safari').length, before + 1, 'a spent secret allowed again');
+  remote.setOn(false);
+  // Switched off, the notice and its Undo still show (review 11).
+  const off = remote.pendingDevices().connected_here;
+  assert.equal(off && off.device_id, 'dev-safari', 'the notice vanished when Kosmos+ was switched off');
+});
+
+test('#5786 (b) CONTROLS: a wrong vouch, a joining computer and this computer\'s own sign-in are never allowed', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchctl');
+  const self = remote.read().device_id;
+  plant([{ device_id: 'dev-recent', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: the browser was opened');
+  plant([
+    { device_id: 'dev-other', name: 'Mac · Chrome', first_seen: nowS(), code: 'K7-3M', vouch: vouchFor('not-' + secret, 'dev-other') },
+    { device_id: 'dev-swapped', name: 'iPhone', first_seen: nowS(), code: 'Q2-9P', vouch: vouchFor(secret, 'dev-recent') },
+    { device_id: 'dev-pc', name: 'computer', first_seen: nowS(), code: '', joining_computer: 'herpc', vouch: vouchFor(secret, 'dev-pc') },
+    { device_id: self, name: 'this computer', first_seen: nowS(), code: 'W6-M4', vouch: vouchFor(secret, self) },
+  ]);
+  const before = allowsOf().length;
+  remote.vouchTickForTests();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(allowsOf().slice(before).filter((x) => x !== self), [], 'a row was allowed without its own vouch');
+  // This computer's own sign-in may be allowed by allowSelfQuietly (#4610, under its own name), never by the vouch path,
+  // which passes the ROW's name ('this computer' here).
+  assert.ok(!recorded().slice(-20).some((a) => a[0] === 'devices' && a[1] === 'allow' && a.includes(self) && a.includes('this computer')),
+    'the vouch path allowed this computer\'s own sign-in');
+  assert.ok(remote.vouchSecretForTests(), 'the secret is still live after only bad vouches');
+  // The arm that must work, on the same tick shape, so the controls above are not passing by never matching.
+  plant([{ device_id: 'dev-recent', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-recent') }]);
+  remote.vouchTickForTests();
+  await until(() => allowsOf().includes('dev-recent'), 'the right vouch to allow');
+  remote.setOn(false);
+});
+
+test('#5786 (b): removing a vouched device (Undo) drops its "on this computer" note', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchundo');
+  plant([{ device_id: 'dev-undo', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-undo', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-undo') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-undo'], 'the vouched allow to be noted');
+  const r = await remote.deviceRemove('dev-undo');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(remote.read().vouched['dev-undo'], undefined, 'the note survived the Undo');
+  assert.equal(remote.pendingDevices().connected_here, null, 'the notice still offers an Undo for a removed device');
+  remote.setOn(false);
+});
+
+test('#5786 (b): a secret ends on Sign out and on switching off, and an old request or a plain-http coordinator opens nothing', async () => {
+  let r = await vouchSignedIn('vouchend1');
+  remote.signinCancel();
+  assert.equal(remote.vouchSecretForTests(), null, 'Sign out left the secret live');
+  r = await vouchSignedIn('vouchend2');
+  remote.setOn(false);
+  assert.equal(remote.vouchSecretForTests(), null, 'switching off left the secret live');
+  // An old request (an hour ago) is not "the person, a moment ago": no browser opens.
+  r = await vouchSignedIn('vouchend3');
+  r.plant([{ device_id: 'dev-old', name: 'Mac · Safari', first_seen: nowS() - 3600, code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'an hour-old request opened the browser');
+  // CONTROL for the line above: a recent one does.
+  r.plant([{ device_id: 'dev-new', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: a recent request opens the browser');
+  remote.setOn(false);
+  // A coordinator that is plain http and not loopback: the secret is dropped rather than sent in the clear.
+  const before = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://coordinator.example.test';
+  try {
+    remote.resetForTests();   // the earlier arms' opened URL must not be read as this one's
+    r = await vouchSignedIn('vouchend4');
+    r.plant([{ device_id: 'dev-http', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6' }]);
+    remote.vouchTickForTests();
+    assert.equal(remote.vouchOpenedUrlForTests(), '', 'a plain-http coordinator was opened with the secret');
+    assert.equal(remote.vouchSecretForTests(), null, 'the secret stayed live with nowhere safe to send it');
+  } finally {
+    if (before === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = before;
+  }
+  remote.setOn(false);
+});
+
+test('#5786 (b): a register Try again with no sign-in session does not mint a new secret (no local re-open)', async () => {
+  const { secret } = await vouchSignedIn('vouchretry');
+  // The same name again, Kosmos+ on, no code steps: the already-this-computer path answers, and mints nothing.
+  const again = await remote.signinRegister('vouchretry');
+  assert.equal(again.ok, true, again.because);
+  assert.equal(again.data && again.data.alreadySetUp, true, 'premise: the already-set-up path answered');
+  assert.equal(remote.vouchSecretForTests(), secret, 'a Try again with no session minted a new secret');
+  remote.setOn(false);
+});
+
+test('#5786 (b): a device the person said Not me to is never allowed by a vouch, and a refused allow stops after three tries', async () => {
+  let r = await vouchSignedIn('vouchden');
+  const den = await remote.deviceDeny('dev-den');
+  assert.equal(den.ok, true, den.because);
+  // A denied device alone opens nothing (it is not eligible); another recent request does.
+  r.plant([{ device_id: 'dev-den', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a denied device alone opened the browser');
+  r.plant([{ device_id: 'dev-den', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' },
+    { device_id: 'dev-other', name: 'iPhone', first_seen: nowS(), code: 'K7-3M' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: a recent request opened the browser');
+  const before = allowsOf().length;
+  r.plant([{ device_id: 'dev-den', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(r.secret, 'dev-den') }]);
+  remote.vouchTickForTests();
+  await new Promise((res) => setTimeout(res, 150));
+  assert.ok(!allowsOf().slice(before).includes('dev-den'), 'a device turned away by Not me was allowed by a vouch');
+  remote.setOn(false);
+  // A refused allow: three tries, then the secret ends (no spawn every 3 s for ten minutes).
+  process.env.FAKE_TUNNEL_MODE = 'allow-fails';
+  try {
+    r = await vouchSignedIn('vouchcap');
+    r.plant([{ device_id: 'dev-cap', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+    remote.vouchTickForTests();
+    r.plant([{ device_id: 'dev-cap', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(r.secret, 'dev-cap') }]);
+    const tries = () => allowsOf().filter((x) => x === 'dev-cap').length;
+    for (let i = 0; i < 5; i += 1) { remote.vouchTickForTests(); await until(() => tries() >= Math.min(i + 1, 3), 'try ' + (i + 1)); await new Promise((res) => setTimeout(res, 60)); }
+    assert.equal(tries(), 3, 'a refused allow was tried more than three times');
+    assert.equal(remote.vouchSecretForTests(), null, 'the secret stayed live after three refused allows');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});
+
+test('#5786 (b): a remove that timed out keeps the "on this computer" note (it may not have happened)', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchslow');
+  plant([{ device_id: 'dev-slow', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-slow', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-slow') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-slow'], 'the vouched allow to be noted');
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '2000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '400';
+  try {
+    const r = await remote.deviceRemove('dev-slow');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.data.timed_out, true, 'premise: the remove timed out');
+    assert.ok(remote.read().vouched['dev-slow'], 'a remove that may not have happened dropped the note');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_DEVICE_HANG_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+  remote.setOn(false);
+});
+
+test('#5786 (b): a new identity drops the "on this computer" notes of the one before', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchid1');
+  plant([{ device_id: 'dev-id1', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-id1', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-id1') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-id1'], 'the vouched allow to be noted');
+  // A different name is a new identity at the coordinator (the #4610 snapshot test's premise).
+  await vouchSignedIn('vouchid2');
+  assert.equal(remote.read().vouched['dev-id1'], undefined, 'the previous identity\'s note survived');
+  assert.equal(remote.pendingDevices().connected_here, null, 'the previous identity\'s notice still shows');
+  remote.setOn(false);
+});
+
+test('#5786 (b): a new sign-in replaces the secret, and a live one ends on Forget and when the opener fails', async () => {
+  // A new sign-in (a new identity) replaces the secret, and the old one allows nothing. This proves the replacement,
+  // not the epoch check in vouchTick, which no seam here can reach without minting a new secret.
+  let r = await vouchSignedIn('vouchepo1');
+  const old = r.secret;
+  r.plant([{ device_id: 'dev-epo', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: the browser opened');
+  r = await vouchSignedIn('vouchepo2');
+  assert.notEqual(remote.vouchSecretForTests(), old, 'premise: the new sign-in has its own secret');
+  const before = allowsOf().length;
+  r.plant([{ device_id: 'dev-epo', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(old, 'dev-epo') }]);
+  remote.vouchTickForTests();
+  await new Promise((res) => setTimeout(res, 150));
+  assert.ok(!allowsOf().slice(before).includes('dev-epo'), 'the previous identity\'s secret allowed a device');
+  remote.setOn(false);
+  // Forget ends a live secret.
+  await vouchSignedIn('vouchfgt');
+  assert.ok(remote.vouchSecretForTests(), 'premise: a live secret');
+  await remote.forget();
+  assert.equal(remote.vouchSecretForTests(), null, 'Forget left the secret live');
+  // An opener that fails ends the secret.
+  r = await vouchSignedIn('vouchopen');
+  remote.setCompanyOpenCommandForTests(['/usr/bin/false']);
+  r.plant([{ device_id: 'dev-open', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  await until(() => remote.vouchSecretForTests() === null, 'a failed opener to end the secret');
+  remote.setOn(false);
+});
+
+test('#5786 (b): Not me pressed while the automatic allow runs wins: the device is taken back out and not noted', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchrace');
+  plant([{ device_id: 'dev-race', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-race', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-race') }]);
+  const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-race')).length;
+  const before = removes();
+  remote.vouchTickForTests();   // the allow is now out
+  // The person's Not me lands while it runs (written as deviceDeny writes it).
+  const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  f.denied = { ...(f.denied || {}), 'dev-race': Math.floor(Date.now() / 1000) };
+  fs.writeFileSync(remote.FILE, JSON.stringify(f));
+  await until(() => removes() > before, 'the raced allow to be taken back out');
+  assert.equal(remote.read().vouched['dev-race'], undefined, 'a device the person refused was noted as on this computer');
+  remote.setOn(false);
+});
+
+test('#5786 (b): Not me arriving just AFTER an automatic allow still takes the device back out', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchlate');
+  plant([{ device_id: 'dev-late', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-late', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-late') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-late'], 'the vouched allow to be noted');
+  const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-late')).length;
+  const before = removes();
+  const den = await remote.deviceDeny('dev-late');
+  assert.equal(den.ok, true, den.because);
+  assert.equal(removes(), before + 1, 'a refused device that was allowed automatically stayed allowed');
+  assert.equal(remote.read().vouched['dev-late'], undefined, 'its note survived');
+  // An OLD note (past the notice window) is history: Not me then removes nothing.
+  const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  f.vouched = { ...(f.vouched || {}), 'dev-old': { at: Math.floor(Date.now() / 1000) - 3600, name: 'Mac · Safari' } };
+  fs.writeFileSync(remote.FILE, JSON.stringify(f));
+  const denOld = await remote.deviceDeny('dev-old');
+  assert.equal(denOld.ok, true, denOld.because);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-old')).length, 0, 'Not me on an hour-old note removed the device');
+  // CONTROL: Not me on a device that was NOT allowed automatically removes nothing.
+  const den2 = await remote.deviceDeny('dev-plain');
+  assert.equal(den2.ok, true, den2.because);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-plain')).length, 0);
+  remote.setOn(false);
+});
+
+test('#5786 (b): one device per secret, the code_wait and invalid-joining arms, and no double display', async () => {
+  // A matched device that was refused once pins the secret: a SECOND row with its own valid vouch is never allowed.
+  process.env.FAKE_TUNNEL_MODE = 'allow-fails';
+  const { secret, plant } = await vouchSignedIn('vouchpin');
+  plant([{ device_id: 'dev-a', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-a', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-a') }]);
+  remote.vouchTickForTests();
+  await until(() => allowsOf().includes('dev-a'), 'the first try at dev-a');
+  await new Promise((r) => setTimeout(r, 60));
+  delete process.env.FAKE_TUNNEL_MODE;
+  plant([{ device_id: 'dev-b', name: 'iPhone', first_seen: nowS(), code: 'K7-3M', vouch: vouchFor(secret, 'dev-b') },
+    { device_id: 'dev-a', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-a') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-a'], 'the pinned device to be allowed');
+  assert.ok(!allowsOf().includes('dev-b'), 'a second device was allowed under the same secret');
+  // Not shown as waiting once noted, even while the snapshot still lists it.
+  assert.ok(!remote.pendingDevices().devices.some((d) => d.device_id === 'dev-a'), 'the device shows as waiting AND connected');
+  assert.ok(remote.pendingDevices().devices.some((d) => d.device_id === 'dev-b'), 'CONTROL: another waiting device still shows');
+  // The same browser asking AGAIN (removed elsewhere; a newer first_seen than the note) is shown.
+  plant([{ device_id: 'dev-a', name: 'Mac · Safari', first_seen: nowS() + 120, code: 'VR-D6' }]);
+  assert.ok(remote.pendingDevices().devices.some((d) => d.device_id === 'dev-a'), 'a newer request from the noted browser was hidden');
+  remote.setOn(false);
+  // code_wait alone, and a joining_computer the display would null out, are never allowed.
+  const r2 = await vouchSignedIn('vouchwait');
+  r2.plant([{ device_id: 'dev-cw', name: 'computer', first_seen: nowS(), code: '', code_wait: 'was_a_computer' }]);
+  r2.plant([{ device_id: 'dev-cw', name: 'computer', first_seen: nowS(), code: '', code_wait: 'was_a_computer' },
+    { device_id: 'dev-ok', name: 'iPhone', first_seen: nowS(), code: 'K7-3M' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: opened');
+  const before = allowsOf().length;
+  r2.plant([{ device_id: 'dev-cw', name: 'computer', first_seen: nowS(), code: '', code_wait: 'was_a_computer', vouch: vouchFor(r2.secret, 'dev-cw') },
+    { device_id: 'dev-bad', name: 'computer', first_seen: nowS(), code: '', joining_computer: 'NOT A NAME!', vouch: vouchFor(r2.secret, 'dev-bad') }]);
+  remote.vouchTickForTests();
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual(allowsOf().slice(before).filter((x) => x === 'dev-cw' || x === 'dev-bad'), [], 'a computer-shaped row was allowed');
+  remote.setOn(false);
+});
+
+test('#5786 (b): Not me still takes the device back out when its note could not be saved; a held computer mints nothing', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchmem');
+  plant([{ device_id: 'dev-mem', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-mem', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-mem') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-mem'], 'the vouched allow');
+  // As if the note had never been saved: only the in-memory record knows.
+  const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  delete f.vouched['dev-mem'];
+  fs.writeFileSync(remote.FILE, JSON.stringify(f));
+  const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-mem')).length;
+  const before = removes();
+  const den = await remote.deviceDeny('dev-mem');
+  assert.equal(den.ok, true, den.because);
+  assert.equal(removes(), before + 1, 'Not me lost because the note was not saved');
+  remote.setOn(false);
+  // Held: a computer waiting for another's Allow mints no secret.
+  const held = nodePath.join(DATA_ROOT, 'remote');
+  await vouchSignedIn('vouchheld');
+  remote.setOn(false);
+  fs.writeFileSync(nodePath.join(held, require('./enrolment').HELD_FILE), '{}');
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('vouchheld');
+    assert.equal(remote.vouchSecretForTests(), null, 'a held computer minted a secret');
+  } finally { fs.rmSync(nodePath.join(held, require('./enrolment').HELD_FILE), { force: true }); }
+  remote.setOn(false);
+});
+
+test('#5786 (b): Not me takes an automatically allowed device back out even when the deny is refused', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchdenyf');
+  plant([{ device_id: 'dev-df', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-df', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-df') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-df'], 'the vouched allow');
+  const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-df')).length;
+  const before = removes();
+  process.env.FAKE_TUNNEL_MODE = 'deny-fails';
+  try {
+    const den = await remote.deviceDeny('dev-df');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(removes(), before + 1, 'a refused deny left an automatically allowed device in');
+  remote.setOn(false);
+});
+
+test('#5786 (b): an automatic allow that lands across a re-register of the SAME identity is still noted', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchrereg');
+  plant([{ device_id: 'dev-rr', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-allow';
+  try {
+    plant([{ device_id: 'dev-rr', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-rr') }]);
+    remote.vouchTickForTests();
+    await until(() => allowsOf().includes('dev-rr'), 'the allow to start');
+    remote.bumpSelfEpochForTests();   // what a same-identity re-register does to the epoch
+    await until(() => remote.read().vouched['dev-rr'], 'the allow across the re-register to be noted');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});
+
+test('#5786 (b): a Not me the tunnel refuses BEFORE the automatic allow answers still wins', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchnmref');
+  plant([{ device_id: 'dev-nr', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-allow,deny-fails';
+  try {
+    plant([{ device_id: 'dev-nr', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-nr') }]);
+    remote.vouchTickForTests();
+    await until(() => allowsOf().includes('dev-nr'), 'the allow to start');
+    const den = await remote.deviceDeny('dev-nr');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+    const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-nr')).length;
+    await until(() => removes() >= 1, 'the device to be taken back out after the allow answered');
+    assert.equal(remote.read().vouched['dev-nr'], undefined, 'a device the person said Not me to was noted as on this computer');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});
+
+test('#5786 (b): a Not me the tunnel refused BEFORE the vouch arrived is never allowed automatically', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchnmpre');
+  plant([{ device_id: 'dev-np', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'deny-fails';
+  try {
+    const den = await remote.deviceDeny('dev-np');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  plant([{ device_id: 'dev-np', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-np') }]);
+  remote.vouchTickForTests();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(allowsOf().includes('dev-np'), false, 'a device the person said Not me to was allowed automatically');
+  remote.setOn(false);
+});
+
+test('#5786 (b): the on-this-computer label holds only for the allow it was noted for', async () => {
+  await vouchSignedIn('vouchlabel');
+  const note = (at) => { const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8')); f.vouched = { 'dev-1': { at, name: 'iPhone' } }; fs.writeFileSync(remote.FILE, JSON.stringify(f)); };
+  note(1756000000 + 30);
+  let r = await remote.devicesList();
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.devices.find((d) => d.device_id === 'dev-1').on_this_computer, true, 'premise: the noted allow is labelled');
+  // Removed elsewhere and allowed again by hand two hours later: allowed_at moved on, the old note must not label it.
+  note(1756000000 - 7200);
+  r = await remote.devicesList();
+  assert.equal(r.data.devices.find((d) => d.device_id === 'dev-1').on_this_computer, false, 'an old note labelled a later, hand-made allow');
+  remote.setOn(false);
+});
+
+test('#5786 (b): a Not me pressed after the secret stopped, while its allow is still out, still wins', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchnmlate');
+  plant([{ device_id: 'dev-nl', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-allow,deny-fails';
+  try {
+    plant([{ device_id: 'dev-nl', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-nl') }]);
+    remote.vouchTickForTests();
+    await until(() => allowsOf().includes('dev-nl'), 'the allow to start');
+    remote.signinCancel();   // stops the secret, not the allow already out
+    assert.equal(remote.vouchSecretForTests(), null, 'premise: the secret is stopped');
+    const den = await remote.deviceDeny('dev-nl');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+    const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-nl')).length;
+    await until(() => removes() >= 1, 'the device to be taken back out once the allow answered');
+    assert.equal(remote.read().vouched['dev-nl'], undefined, 'a device the person said Not me to was noted');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});
+
+test('#5786 (b): a second sign-in while a refused Not me waits on its allow does not forget that Not me', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchnm2');
+  plant([{ device_id: 'dev-n2', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-allow,deny-fails';
+  try {
+    plant([{ device_id: 'dev-n2', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-n2') }]);
+    remote.vouchTickForTests();
+    await until(() => allowsOf().includes('dev-n2'), 'the allow to start');
+    const den = await remote.deviceDeny('dev-n2');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+    // A second sign-in on this computer mints a new secret while that allow is still out.
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('vouchnm2');
+    assert.ok(remote.vouchSecretForTests() && remote.vouchSecretForTests() !== secret, 'premise: a new secret while the allow is out');
+    const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-n2')).length;
+    await until(() => removes() >= 1, 'the device to be taken back out once the old allow answered');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
 });
