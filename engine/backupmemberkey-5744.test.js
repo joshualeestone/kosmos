@@ -199,7 +199,8 @@ test('#5744 2b: a key folder that already exists with looser permissions is made
 
 test('#5744 2b: a kept key Kosmos+ already holds at an older epoch (answer lost, then the epoch moved) gets a fresh key', async () => {
   const c = fakeCoordinator();
-  // The answer to epoch 1 is lost after Kosmos+ kept the key; then another computer of the member moves to epoch 2.
+  // A CONSTRUCTED state the plan's premise excludes (only the enrolled computer reaches the route), built to reach the
+  // fresh-key path: the answer to epoch 1 is lost after Kosmos+ kept the key, then epoch 2 is set by hand.
   const lost = async (m, route, b) => { const r = await c.macRequest(m, route, b); return route === mk.MEMBER_KEY_ROUTE ? { ok: false, because: 'the answer was lost' } : r; };
   await mk.ensureMemberKey({ macRequest: lost });
   c.setCurrent(2, backupkeys.newMemberKey().pk.toString('base64url'));
@@ -253,4 +254,27 @@ test('#5744 2b: a key file made unreadable during a rotation is left as it is', 
   } });
   assert.equal(r.ok, false);
   assert.equal(fs.readFileSync(keyFile(), 'utf8'), 'broken by someone else');
+});
+
+test('#5744 2b: a key another process registered before a fresh-key refresh is answered, not replaced', async () => {
+  const c = fakeCoordinator();
+  const theirs = backupkeys.newMemberKey();
+  const r = await mk.ensureMemberKey({ macRequest: async (m, route, b) => {
+    if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
+    fs.writeFileSync(keyFile(), JSON.stringify({ org: ORG, member: MEMBER, keys: { 1: { sk: theirs.sk.toString('base64url'), pk: theirs.pk.toString('base64url'), registered: true } } }));
+    return { ok: false, because: 'make a new key', refusal: { status: 409, code: 'member_key_reused', currentEpoch: null } };
+  } });
+  assert.deepEqual([r.ok, r.epoch, r.publicKey.equals(theirs.pk)], [true, 1, true], JSON.stringify(r));
+  assert.equal(JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['1'].pk, theirs.pk.toString('base64url'));
+});
+
+test('#5744 2b: a file error is said without its path', async () => {
+  const c = fakeCoordinator();
+  const sw = require('./securewrite');
+  const real = sw.writeSecret;
+  sw.writeSecret = () => { const e = new Error("EACCES: permission denied, open '/Users/someone/Library/backupkeys/x.json'"); e.code = 'EACCES'; throw e; };
+  let r;
+  try { r = await mk.ensureMemberKey({ macRequest: c.macRequest }); } finally { sw.writeSecret = real; }
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.equal(r.because, 'the backup key could not be set up on this computer (EACCES)');
 });
