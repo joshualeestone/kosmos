@@ -37,6 +37,7 @@ function clock(ms) {
 const RULE = '─'.repeat(80) + '\n';
 const STATUS_LINE = RULE + '❯ \n' + RULE + '  casey · Opus 4.8 · 7d 100%\n' + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
 const FOOTER = '✻ Sautéed for 0s · done 10:35 PM\n';
+const NEW_FOOTER = '✻ Baked for 2s · done 11:02 AM\n';   // the footer of a later turn
 const limitScreen = (line, menu) => '> hello\n' + `  ⎿  ${line}\n` + FOOTER
   + (menu ? '   What do you want to do?\n   1. Stop and wait for limit to reset\n' : '') + STATUS_LINE;
 
@@ -115,7 +116,7 @@ test('#5805 3b review 1: a row seen late, a quoted row, and a new limit printing
   assert.equal(status.limitFirstSeenOf('leo', line), t0, 'CONTROL: the first limit was timed');
   const nextDay = t0 + 24 * 3600e3;
   status.noteLimitRows('leo', limitScreen(line), nextDay - 3600e3);   // still on screen overnight
-  const twice = '> hello\n' + `  ⎿  ${line}\n` + FOOTER + '> again\n' + `  ⎿  ${line}\n` + FOOTER + STATUS_LINE;
+  const twice = '> hello\n' + `  ⎿  ${line}\n` + FOOTER + '> again\n' + `  ⎿  ${line}\n` + NEW_FOOTER + STATUS_LINE;   // a new turn's footer
   status.noteLimitRows('leo', twice, nextDay);
   assert.equal(status.limitFirstSeenOf('leo', line), nextDay, 'a new limit printing the same words kept yesterday\'s time');
   assert.ok(status.retireResetLimits(twice, nextDay + 60e3, (row) => status.limitFirstSeenOf('leo', row)).split('\n').filter((r) => r.includes('session limit')).length >= 1, 'today\'s live limit was retired on yesterday\'s time');
@@ -175,10 +176,11 @@ test('#5805 3b review 3: a second copy of the same row (a redraw) never re-times
   status.noteLimitRows('leo', limitScreen(session), t0);
   status.noteLimitRows('leo', twice(session), t0 + 3600e3);
   assert.equal(status.limitFirstSeenOf('leo', session), t0, 'a redraw ahead of the reset re-timed a session row');
-  // CONTROL (review 1's case): a session row past its reset and a second identical one under it the next day: new.
+  // CONTROL (review 1's case): a session row past its reset and a second identical one under it the next day, ending
+  // a new turn: new.
   const nextDay = t0 + 24 * 3600e3;
   status.noteLimitRows('leo', limitScreen(session), nextDay - 3600e3);
-  status.noteLimitRows('leo', twice(session), nextDay);
+  status.noteLimitRows('leo', '> a\n' + `  ⎿  ${session}\n` + FOOTER + '> b\n' + `  ⎿  ${session}\n` + NEW_FOOTER + STATUS_LINE, nextDay);
   assert.equal(status.limitFirstSeenOf('leo', session), nextDay, 'CONTROL: a new session limit with the same words was not timed');
 });
 
@@ -203,4 +205,20 @@ test('#5805 3b review 4: a row first seen after a long gap in captures (a Mac as
   status.noteLimitRows('kim', STATUS_LINE, mon);
   status.noteLimitRows('kim', limitScreen(weekly), mon + 5e3);
   assert.equal(status.limitFirstSeenOf('kim', weekly), mon + 5e3, 'CONTROL: a row seen arriving was not timed');
+});
+
+test('#5805 3b review 5: a redraw the next day (the old block copied, footer and all) never re-times a retired session row', () => {
+  const session = `You've hit your session limit · resets 4pm ${Z}`;   // 21:00Z
+  const t0 = Date.parse('2026-10-10T16:00:00Z');   // 11:00 CDT
+  status.noteLimitRows('casey', STATUS_LINE, t0 - 60e3);
+  status.noteLimitRows('casey', limitScreen(session), t0);
+  // Overnight, the row still on screen and the board capturing all along.
+  for (let t = t0 + 60e3; t < Date.parse('2026-10-11T18:00:00Z'); t += 60e3) status.noteLimitRows('casey', limitScreen(session), t);
+  // Next day 13:00 CDT (18:00Z): a resize reprints the transcript, so the capture shows the row twice, same footer.
+  const redraw = Date.parse('2026-10-11T18:00:00Z');
+  const copied = '> hello\n' + `  ⎿  ${session}\n` + FOOTER + '> hello\n' + `  ⎿  ${session}\n` + FOOTER + STATUS_LINE;
+  status.noteLimitRows('casey', copied, redraw);
+  assert.equal(status.limitFirstSeenOf('casey', session), t0, 'a redraw re-timed the retired row');
+  assert.equal(status.claudeLimitUntil('casey', session, redraw), Date.parse('2026-10-10T21:00:00Z'), 'its reset moved');
+  assert.ok(!status.retireResetLimits(copied, redraw, (row) => status.limitFirstSeenOf('casey', row)).includes('session limit'), 'the redrawn row was un-retired (a free agent held)');
 });

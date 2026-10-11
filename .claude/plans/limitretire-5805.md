@@ -37,20 +37,20 @@ Slice 3a added the time on the card but deliberately left these alone.
 - Only Claude Code's own limit rows are recorded (a "hit your ... limit" row with its turn footer, the rule classify
   and retireResetLimits use), so a quoted line in a tool result never sets a time.
 - More rows with one key than at the last capture is a new limit printing the same words (yesterday's retired row
-  still in the scrollback above today's) only for a SESSION row that was timed and whose reset has passed; then its
-  first-seen time starts again. Never for a late row or one ahead of its reset (a redraw drawing the row twice), and
+  still in the scrollback above today's) only for a SESSION row that was timed, whose reset has passed, and whose new
+  copy ends a turn the entry has not seen (a turn footer it has not seen); then its first-seen time starts again. Never for a late row or one ahead of its reset (a redraw drawing the row twice), and
   never for a weekly last-day row (a second identical weekly limit within a day cannot happen; re-timing a retired one
   would hold a free agent until tomorrow).
 - A dateless row with no time read (late, or beyond the span bound) is neither retired nor held: today's behaviour.
 - Rejected: retiring a dateless line on the turn footer's printed time ("done 10:35 PM"): no date either, absent on
   some screens.
-- Weakest premise: one row count per key is enough to tell a new limit from an old one. A new limit whose identical
+- Weakest premise: a redraw reprints the old turn footer verbatim, and a new turn prints a different one. A new
+  limit whose turn footer reads exactly as the old one's (same duration, same minute a day later) is taken for a
+  redraw: not re-timed, so it is retired on the old time (reads idle while capped).
+- Also: one row count per key is enough to tell a new limit from an old one. A new limit whose identical
   row replaces the old one in the same capture (the old scrolled out exactly as the new arrived) keeps the old time.
 
 ## Residuals
-- A session row retired past its reset and then drawn twice by a redraw is re-timed, reads untimed (past its span),
-  and so is no longer retired: the card goes from idle back to capped (not held) until the row scrolls off. Fails
-  toward capped, never toward idle.
 - A weekly last-day row left on an idle agent's screen for a WEEK, with the next weekly limit printing identical words
   under it, is not re-timed, so the new limit is retired at once (the card reads idle while capped).
 - A pane relaunched under the same name faster than one snapshot pass, with the old limit row in its scrollback, is
@@ -94,3 +94,11 @@ Slice 3a added the time on the card but deliberately left these alone.
   timed it then, holding a free agent until the next day. The first capture after a gap of more than five minutes is
   treated as a first capture (new rows late). Tested, with a control.
 - STATED (NIT): the idle-to-capped flicker of a redrawn retired session row (see Residuals).
+
+## Review 5 (opus)
+- FIXED (WARNING): the count-rise re-time fired on a redraw past the reset; inside the five hours before the next
+  occurrence of the printed time that re-timed row was held, so a free agent was held for up to five hours (and the
+  comment and residual claiming "never held" were false). A re-time now also needs a turn footer the entry has not
+  seen (a redraw copies the old footer). Rejected: requiring the card to read working in between (a turn that hits
+  the limit at once can finish between two snapshots). Tested: a redraw the next day at 13:00 CDT stays retired; a
+  new turn's limit re-times.

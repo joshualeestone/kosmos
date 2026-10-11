@@ -2854,25 +2854,34 @@ function noteLimitRows(agent, text, nowMs) {
   const rows = text.split('\n');
   const counts = new Map();
   const sample = new Map();
+  const footers = new Map();   // key -> the turn footers under its rows this capture
   rows.forEach((row, i) => {
-    if (!HIT_YOUR_LIMIT.test(row) || vendorFooterAt(rows, i) < 0) return;
+    const f = HIT_YOUR_LIMIT.test(row) ? vendorFooterAt(rows, i) : -1;
+    if (f < 0) return;
     const key = limitRowKey(agent, row);
-    if (key) { counts.set(key, (counts.get(key) || 0) + 1); sample.set(key, row); }
+    if (!key) return;
+    counts.set(key, (counts.get(key) || 0) + 1);
+    sample.set(key, row);
+    if (!footers.has(key)) footers.set(key, new Set());
+    footers.get(key).add(rows[f].trim());
   });
   for (const [key, count] of counts) {
     const seen = limitFirstSeen.get(key);
     // A row back from the gone list keeps that window (`until`), so returning again never extends it.
-    if (!seen) { limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture || limitRowGone.has(key), until: limitRowGone.get(key) }); continue; }
+    const here = footers.get(key) || new Set();
+    if (!seen) { limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture || limitRowGone.has(key), until: limitRowGone.get(key), footers: here }); continue; }
     seen.last = Math.max(seen.last, now);
-    /* More rows than before is a NEW limit only when one could have appeared (review 3): a SESSION limit, timed, its
-       reset passed (the next day's limit can print the same words). A second copy of the same row (a redraw on resize)
-       never re-times a late row or one still ahead of its reset; and a wrong re-time of a session row lands past its
-       five-hour span, so it reads untimed (as before), never held. A weekly last-day row is never re-timed this way:
-       a second identical weekly limit within a day cannot happen, and re-timing a retired one would hold a free agent
-       until tomorrow. */
-    if (count > seen.count && !seen.late && key.includes('\u0000session\u0000')) {
+    const newFooter = [...here].some((f) => !seen.footers.has(f));
+    for (const f of here) seen.footers.add(f);
+    /* More rows than before is a NEW limit only when one could have appeared and the new row ended a NEW turn
+       (reviews 3 and 5): a SESSION limit, timed, its reset passed (the next day's limit can print the same words), and a
+       turn footer under its rows this entry has not seen. A redraw (a resize reprinting the transcript) copies the old
+       block, footer and all, so it never re-times, which would otherwise hold a free agent for hours when the next
+       occurrence of the printed time falls inside the five-hour span. Never a late row, and never a weekly last-day
+       row (a second identical weekly limit within a day cannot happen). */
+    if (count > seen.count && !seen.late && newFooter && key.includes('\u0000session\u0000')) {
       const reset = limitResetTimeOnlyAt(sample.get(key), seen.at);
-      if (reset !== null && now >= reset + RESET_GRACE_MS) { limitFirstSeen.set(key, { at: now, last: now, count, late: false }); continue; }
+      if (reset !== null && now >= reset + RESET_GRACE_MS) { limitFirstSeen.set(key, { at: now, last: now, count, late: false, footers: new Set(seen.footers) }); continue; }
     }
     seen.count = count;
   }
