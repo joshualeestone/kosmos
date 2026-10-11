@@ -2817,6 +2817,10 @@ function limitResetTimeOnlyAt(line, firstSeenMs) {
    the longest span is only a memory backstop, for an agent that is gone. */
 const limitFirstSeen = new Map();
 const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;
+/* Review 2: "not capped" must hold for a while before it ends a limit. One reading can be unknown (a pane read that
+   failed) or briefly another state, and the line is still there; forgetting then restarts the clock. */
+const LIMIT_ENDED_AFTER_MS = 2 * 60 * 1000;
+const limitNotCappedSince = new Map();
 function forgetLimitLines(agent, keepLine) {
   const prefix = String(agent) + '\u0000';
   for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix) && k !== prefix + keepLine) limitFirstSeen.delete(k);
@@ -2827,7 +2831,7 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const line = String(evidence == null ? '' : evidence);
   const dated = limitResetAt(line, now);
-  if (dated !== null) return dated;
+  if (dated !== null) { forgetLimitLines(agent, line); return dated; }   // a dated line is another limit too
   if (!LIMIT_RESET_TIME_ONLY.test(line)) return null;
   for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
   forgetLimitLines(agent, line);   // another line on this agent's screen is another limit
@@ -2837,14 +2841,21 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   seen.last = Math.max(seen.last, now);
   return limitResetTimeOnlyAt(line, seen.at);
 }
-function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); }
+function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitNotCappedSince.clear(); }
 /* The card's limitUntil: only for a Claude pane read rate_limited (a Codex or Gemini limit says its own reset). */
 function claudeLimitUntilIso(pane, status) {
   if (!pane) return null;
+  const now = Date.now();
   if (!status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') {
-    forgetLimitLines(pane.name, null);   // not capped now: its limit (if any) ended
+    // Not capped now: its limit (if any) ended, once that has held for LIMIT_ENDED_AFTER_MS.
+    const prefix = String(pane.name) + '\u0000';
+    if (![...limitFirstSeen.keys()].some((k) => k.startsWith(prefix))) { limitNotCappedSince.delete(pane.name); return null; }
+    const since = limitNotCappedSince.get(pane.name);
+    if (since === undefined) limitNotCappedSince.set(pane.name, now);
+    else if (now - since >= LIMIT_ENDED_AFTER_MS) { forgetLimitLines(pane.name, null); limitNotCappedSince.delete(pane.name); }
     return null;
   }
+  limitNotCappedSince.delete(pane.name);
   if (pane.runner && pane.runner !== 'claude') return null;
   if (isCodexCommand(pane.command) || isGrokCommand(pane.command) || isAntigravityCommand(pane.command)) return null;
   const at = claudeLimitUntil(pane.name, status.evidence);

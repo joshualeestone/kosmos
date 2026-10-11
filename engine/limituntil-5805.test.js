@@ -80,14 +80,29 @@ test('#5805 slice 3: claudeLimitUntil keeps the first-seen time, so the reset do
   // (Another agent: a second line on casey's screen would itself end casey's first limit.)
   assert.equal(iso(status.claudeLimitUntil('april', weekly, at('2026-10-10T19:00:00Z'))), '2026-10-10T20:00:00.000Z');
   assert.equal(iso(status.claudeLimitUntil('april', weekly, at('2026-10-10T20:30:00Z'))), '2026-10-10T20:00:00.000Z', 'a sleep through the reset named tomorrow');
-  // CONTROL: the same line first seen by another agent at the later time reads differently (the key is the agent).
-  assert.equal(status.claudeLimitUntil('leo', line, t0 + 7 * 3600e3), null);
-  // The same words after the card was read not capped (the limit ended; a new one the next day) are a new limit,
-  // read from then. The idle reading comes through the real card builder.
-  const board = fleet.install([fleet.agent('casey', { state: 'idle', runner: 'claude', command: 'claude', screen: STATUS_LINE })]);
-  board.restore();
+  // CONTROL: the key is the agent. A weekly last-day line first seen by casey at 14:00 CDT is today's 3pm; the same
+  // words first seen by leo at 15:30 CDT are tomorrow's (within a day), never casey's time.
+  const wk = `You've hit your weekly limit · resets 3pm ${Z}`;
+  assert.equal(iso(status.claudeLimitUntil('kim', wk, at('2026-10-10T19:00:00Z'))), '2026-10-10T20:00:00.000Z');
+  assert.equal(iso(status.claudeLimitUntil('leo', wk, at('2026-10-10T20:30:00Z'))), '2026-10-11T20:00:00.000Z', 'another agent\'s first-seen time was used');
+  // One reading that is not capped (a failed pane read, a moment in another state) does not end the limit: the same
+  // line read again keeps its first-seen time (review 2). Readings come through the real card builder.
+  const idleRead = (ms) => {
+    const real = Date.now;
+    Date.now = () => ms;
+    try { fleet.install([fleet.agent('casey', { state: 'idle', runner: 'claude', command: 'claude', screen: STATUS_LINE })]).restore(); }
+    finally { Date.now = real; }
+  };
+  idleRead(t0 + 5.6 * 3600e3);
+  assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.7 * 3600e3)), '2026-10-10T21:00:00.000Z', 'one reading not capped ended the limit');
+  // Read not capped for two minutes and more: the limit ended, so the same words the next day are a new limit.
+  idleRead(t0 + 6 * 3600e3);
+  idleRead(t0 + 6 * 3600e3 + 3 * 60e3);
   const nextDay = at('2026-10-11T16:00:00Z');
   assert.equal(iso(status.claudeLimitUntil('casey', line, nextDay)), '2026-10-11T21:00:00.000Z', 'read against yesterday\'s first-seen time');
+  // A dated line on the screen is another limit too: after it, the dateless words are read afresh.
+  status.claudeLimitUntil('casey', `You've hit your weekly limit · resets Oct 14 at 3pm ${Z}`, nextDay + 60e3);
+  assert.equal(iso(status.claudeLimitUntil('casey', line, at('2026-10-12T17:00:00Z'))), '2026-10-12T21:00:00.000Z', 'a dated limit between did not end the dateless one');
   // A dated line needs no first-seen time.
   assert.equal(iso(status.claudeLimitUntil('casey', `You've hit your weekly limit · resets Oct 12 at 3pm ${Z}`, t0)), '2026-10-12T20:00:00.000Z');
   assert.equal(status.claudeLimitUntil('casey', 'Looks like nothing', t0), null);

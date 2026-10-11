@@ -36,8 +36,8 @@ occurrence of that time after the board first saw the line.
 ## Residuals
 - A weekly limit's last-day line first seen after a restart, when its time is already past today, reads as tomorrow's
   time (within a day, so not refused).
-- One snapshot that misreads a capped card as not capped forgets its first-seen time; the next read restarts it
-  (a session line then gives no time past its span; a weekly last-day line could read as tomorrow's).
+- A capped card read as another state for two minutes or more while its line is still on screen (if any reading
+  can do that) forgets its first-seen time; the next capped read restarts it.
 - Windows cards reading rate_limited at all is unmeasured (slice 1's gap).
 
 ## Tests
@@ -55,3 +55,15 @@ occurrence of that time after the board first saw the line.
 - FIXED (WARNING): "Out of usage until" dropped the #215 hedge for a screen reading. A scraped card says "Looks like a
   usage limit until <time>."; a reported one says "Out of usage until <time>." (tested; browser check updated).
 - FIXED (NIT): the hour the fall-back repeats now reads as the later instant, as limitResetAt does (tested).
+
+## Review 2 (sonnet)
+- FIXED (WARNING): one reading that is not capped (an unknown read, a moment in another state) ended the limit and
+  restarted the clock. A limit ends after two minutes of readings that are not capped; one such reading between
+  capped ones keeps the first-seen time (tested through the real card builder).
+- FIXED (WARNING): a dated line did not end a dateless entry, so the same dateless words after a dated limit kept a
+  stale time. A dated line ends the agent's other entries (tested).
+- FIXED (NIT): the key control now shows the key is the agent (a weekly line first seen by two agents at different
+  times reads two different days).
+- NIT not taken: "Out of usage until" for a reported card next to "Usage limit reached" elsewhere. The card asks for
+  "out of usage until <time>" in those words; the screen-read form keeps the existing "Looks like a usage limit".
+- Stated (residual 1, unchanged): a weekly line first seen after a restart, past its printed time, reads as tomorrow's.
