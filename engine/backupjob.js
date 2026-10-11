@@ -24,8 +24,17 @@
  * error.
  *
  * Kept from ensureMemberKey's answer, for the scheduler: unreadableKeyFile (a person must move the file aside; not a
- * retry) and refusal on a failure; pendingEpoch and lostEpochIgnored on an ok key. An ok key with pendingEpoch is
- * sealed under: the newer key is not registered yet, so the member's current epoch is still the answered one.
+ * retry), refusal, pendingEpoch and lostEpochIgnored.
+ *
+ * An ok key that comes with pendingEpoch is NEVER sealed under. ensureMemberKey keeps an unregistered key above a
+ * registered one only when a move off a lost key is waiting out the day, or Kosmos+ took the newer key and this computer
+ * could not note it: either way the answered key is already behind Kosmos+ (a run under it would walk and seal the
+ * whole tree to be refused at the grant). It is kept as lostEpoch instead, so the next call sends the pending key (a
+ * repeat, if Kosmos+ already holds it). This also restores lostEpoch when the caller lost the job's state.
+ *
+ * Only waiting is backed off. Every other refusal is asked again on the next run, and some send a registration
+ * (a refused one is re-sent): Kosmos+ caps registrations per member (30 an hour, kosmos#5736), so a scheduler must not
+ * run this more often than that allows.
  */
 
 const BACKOFF_MIN_MS = 60 * 60 * 1000;
@@ -44,8 +53,8 @@ function backoffMs(waits) {
   return Math.min(BACKOFF_MIN_MS * 2 ** Math.min(Math.max(waits - 1, 0), 10), BACKOFF_MAX_MS);
 }
 
-/* The key step. deps: { ensureMemberKey, now? }. Resolves { ok: true, key: { epoch, publicKey }, state, pendingEpoch?,
-   lostEpochIgnored? } or { ok: false, because, waiting?, unreadableKeyFile?, refusal?, state }. Never throws. */
+/* The key step. deps: { ensureMemberKey, now? }. Resolves { ok: true, key: { epoch, publicKey }, state, lostEpochIgnored? }
+   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, state }. Never throws. */
 async function memberKeyFor(state, deps) {
   const st = cleanState(state);
   const now = (deps && deps.now) || Date.now;
@@ -60,16 +69,22 @@ async function memberKeyFor(state, deps) {
     // An answer below the lost epoch comes when ensureMemberKey ignored lostEpoch (it is not the file's newest
     // registered key): that key is older still, so it is the one to replace next run. Never sealed under. (Equal is
     // never answered when lostEpoch is honoured; refused too, defensively.)
+    const waitsKept = st.waits ? { waits: st.waits } : {};
     if (st.lostEpoch && r.epoch <= st.lostEpoch) {
-      return { ok: false, because: 'the backup key this computer holds is older than the member\'s current one; it registers a new one next time', state: { lostEpoch: r.epoch } };
+      return Object.assign({ ok: false, because: 'the backup key this computer holds is older than the member\'s current one; it registers a new one next time', state: Object.assign({ lostEpoch: r.epoch }, waitsKept) },
+        r.lostEpochIgnored === true ? { lostEpochIgnored: true } : {});
+    }
+    if (isEpoch(r.pendingEpoch) && r.pendingEpoch > r.epoch) {
+      return { ok: false, pendingEpoch: r.pendingEpoch, because: 'a newer backup key for this computer is not confirmed with Kosmos+ yet; it is sent next time', state: Object.assign({ lostEpoch: r.epoch }, waitsKept) };
     }
     return Object.assign({ ok: true, key: { epoch: r.epoch, publicKey: r.publicKey }, state: {} },
-      isEpoch(r.pendingEpoch) ? { pendingEpoch: r.pendingEpoch } : {}, r.lostEpochIgnored === true ? { lostEpochIgnored: true } : {});
+      r.lostEpochIgnored === true ? { lostEpochIgnored: true } : {});
   }
   const keep = Object.assign(st.lostEpoch ? { lostEpoch: st.lostEpoch } : {}, st.waits ? { waits: st.waits } : {});
   if (r && r.waiting) {
     const waits = (st.waits || 0) + 1;
-    return { ok: false, waiting: true, because: r.because, state: Object.assign(keep, { waitUntilMs: now() + backoffMs(waits), waits }) };
+    return Object.assign({ ok: false, waiting: true, because: r.because, state: Object.assign(keep, { waitUntilMs: now() + backoffMs(waits), waits }) },
+      isEpoch(r.pendingEpoch) ? { pendingEpoch: r.pendingEpoch } : {});
   }
   return Object.assign({ ok: false, because: (r && typeof r.because === 'string' && r.because) || 'the backup key could not be set up on this computer', state: keep },
     r && r.unreadableKeyFile === true ? { unreadableKeyFile: true } : {}, r && r.refusal && typeof r.refusal === 'object' ? { refusal: r.refusal } : {});
@@ -86,8 +101,8 @@ function afterSnapshot(state, key, result) {
 
 /* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch }), where epoch is the key's
    context id. deps: { ensureMemberKey, snapshot, now? }. Resolves { state, key?, result }: result is the key step's
-   refusal when no snapshot was taken (its because, waiting?, unreadableKeyFile?, refusal?), else the snapshot's own
-   result. key, when present, carries the key step's pendingEpoch and lostEpochIgnored. Never throws. */
+   refusal when no snapshot was taken (its because and flags), else the snapshot's own
+   result. key, when present, carries the key step's lostEpochIgnored. Never throws. */
 async function runOnce(state, deps) {
   const k = await memberKeyFor(state, deps);
   if (!k.ok) {
@@ -98,7 +113,7 @@ async function runOnce(state, deps) {
   let result;
   try { result = await deps.snapshot({ memberPk: k.key.publicKey, epoch: String(k.key.epoch) }); } catch { result = null; }
   if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
-  const key = Object.assign({}, k.key, k.pendingEpoch ? { pendingEpoch: k.pendingEpoch } : {}, k.lostEpochIgnored ? { lostEpochIgnored: true } : {});
+  const key = Object.assign({}, k.key, k.lostEpochIgnored ? { lostEpochIgnored: true } : {});
   return { state: afterSnapshot(k.state, k.key, result), key, result };
 }
 

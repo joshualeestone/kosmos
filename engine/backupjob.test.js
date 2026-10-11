@@ -161,13 +161,33 @@ test('round 1: ensureMemberKey\'s structured answers reach the run result (unrea
   const w = await job.runOnce({}, { ensureMemberKey: ensurer({ ok: false, waiting: true, because: 'wait' }), snapshot, now: () => 0 });
   assert.strictEqual(w.result.waiting, true);
   assert.strictEqual(snapshot.calls.length, 0);
-  // A pending newer key: sealed under the answered (registered) one, and said.
-  const p = await job.runOnce({}, { ensureMemberKey: ensurer({ ok: true, epoch: 2, publicKey: PK, pendingEpoch: 3 }), snapshot });
-  assert.deepStrictEqual(snapshot.calls, [{ memberPk: PK, epoch: '2' }]);
-  assert.strictEqual(p.key.pendingEpoch, 3);
+  assert.strictEqual(snapshot.calls.length, 0);
   // lostEpoch ignored because the newest registered key is ABOVE it: that key is current, sealed under, state cleared.
   const s2 = snapper({ ok: true });
   const i = await job.runOnce({ lostEpoch: 2 }, { ensureMemberKey: ensurer({ ok: true, epoch: 4, publicKey: PK, lostEpochIgnored: true }), snapshot: s2 });
   assert.deepStrictEqual(s2.calls, [{ memberPk: PK, epoch: '4' }]);
   assert.strictEqual(i.key.lostEpochIgnored, true); assert.deepStrictEqual(i.state, {});
+});
+
+test('round 2: an ok key with a pending newer one is behind Kosmos+: never sealed under, kept as lostEpoch, the pending one sent next', async () => {
+  const snapshot = snapper({ ok: true });
+  const ensure = ensurer({ ok: true, epoch: 2, publicKey: PK, pendingEpoch: 3 }, { ok: true, epoch: 3, publicKey: PK });
+  const r1 = await job.runOnce({ waits: 2 }, { ensureMemberKey: ensure, snapshot });
+  assert.strictEqual(snapshot.calls.length, 0);
+  assert.strictEqual(r1.result.ok, false); assert.strictEqual(r1.result.pendingEpoch, 3);
+  assert.deepStrictEqual(r1.state, { lostEpoch: 2, waits: 2 });
+  const r2 = await job.runOnce(r1.state, { ensureMemberKey: ensure, snapshot });
+  assert.deepStrictEqual(ensure.calls[1], { lostEpoch: 2 });
+  assert.deepStrictEqual(snapshot.calls, [{ memberPk: PK, epoch: '3' }]); assert.deepStrictEqual(r2.state, {});
+  // Control: a pendingEpoch not above the answer (no such file state) is not read as one.
+  const s3 = snapper({ ok: true });
+  await job.runOnce({}, { ensureMemberKey: ensurer({ ok: true, epoch: 2, publicKey: PK, pendingEpoch: 2 }), snapshot: s3 });
+  assert.strictEqual(s3.calls.length, 1);
+});
+
+test('round 2: the below-lost refusal keeps the wait count and says lostEpochIgnored; waiting says pendingEpoch', async () => {
+  const r = await job.memberKeyFor({ lostEpoch: 3, waits: 4 }, { ensureMemberKey: ensurer({ ok: true, epoch: 2, publicKey: PK, lostEpochIgnored: true }) });
+  assert.deepStrictEqual(r.state, { lostEpoch: 2, waits: 4 }); assert.strictEqual(r.lostEpochIgnored, true);
+  const w = await job.runOnce({}, { ensureMemberKey: ensurer({ ok: false, waiting: true, pendingEpoch: 5, because: 'wait' }), snapshot: snapper({ ok: true }), now: () => 0 });
+  assert.strictEqual(w.result.pendingEpoch, 5); assert.strictEqual(w.result.waiting, true);
 });
