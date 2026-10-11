@@ -167,3 +167,15 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - FIXED (NIT): the header names the window between the guard's read and the rename (covered by the one-run duty).
 - FIXED (NIT): the plan's first Checks section says it is the first build's; current counts are here.
 - Now: 16 tests pass.
+
+## Review 11 (sonnet, blind, on a13371ab4): NOT CONVERGED
+- FIXED (WARNING): the write-side retry had no test. Added: fs.renameSync stubbed to EBUSY (retry), ENOSPC and EROFS
+  (not retry); the old file is left; control writes. Mutant (retry forced false) red.
+- FIXED (WARNING): the write error dropped the real error. It now carries `code` and `cause` (and the code in its
+  sentence, gated to a plain code), so a full disk reads differently from a bug. Mutant (code/cause dropped) red.
+- FIXED (WARNING): the cost sentence said 250 ms at 70 MB; that was one slot's read. Now: 251 ms at one full slot,
+  about half a second at two. (Measure, then write the sentence.)
+- FIXED (NIT): mkdir/chmod are inside the write wrapper, so their errors carry retry and code too.
+- FIXED (NIT): a lone surrogate in org or member is refused (it hashed to U+FFFD's file). Tests; mutant red.
+- FIXED (NITs): the header says the bounded-retry duty applies to writes; a run-on sentence re-wrapped.
+- Now: 17 tests pass.
