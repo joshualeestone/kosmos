@@ -4503,6 +4503,13 @@ test('#5786 (b): Not me arriving just AFTER an automatic allow still takes the d
   assert.equal(den.ok, true, den.because);
   assert.equal(removes(), before + 1, 'a refused device that was allowed automatically stayed allowed');
   assert.equal(remote.read().vouched['dev-late'], undefined, 'its note survived');
+  // An OLD note (past the notice window) is history: Not me then removes nothing.
+  const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  f.vouched = { ...(f.vouched || {}), 'dev-old': { at: Math.floor(Date.now() / 1000) - 3600, name: 'Mac · Safari' } };
+  fs.writeFileSync(remote.FILE, JSON.stringify(f));
+  const denOld = await remote.deviceDeny('dev-old');
+  assert.equal(denOld.ok, true, denOld.because);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-old')).length, 0, 'Not me on an hour-old note removed the device');
   // CONTROL: Not me on a device that was NOT allowed automatically removes nothing.
   const den2 = await remote.deviceDeny('dev-plain');
   assert.equal(den2.ok, true, den2.because);

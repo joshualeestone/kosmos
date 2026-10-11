@@ -1940,7 +1940,7 @@ async function devicesList() {
          without part C, which sends nothing. */
       allowed_on: typeof d.allowed_on === 'string' && d.allowed_on.trim() ? d.allowed_on.trim().slice(0, 60) : null,
       /* kosmos#5786 (b): allowed because the browser this computer opened proved itself, so the page can say
-         "on this computer". */
+         "on this computer". A lasting fact, not a notice: it stays until the device is removed here. */
       on_this_computer: Object.prototype.hasOwnProperty.call(vouched, String(d.device_id)),
     })) } };
 }
@@ -1982,8 +1982,10 @@ async function deviceDeny(id) {
     /* #4308: the coordinator has the answer either way; only this computer's own note of it (used to word a re-ask) is
        lost when the settings file is damaged. Say so rather than drop it silently. */
     if (!saved.ok) process.stderr.write('remote: the device was refused, but this computer could not note it: ' + saved.because + '\n');
-    // kosmos#5786 (b): Not me on a device this computer allowed automatically (the two raced) takes it back out.
-    if (Object.prototype.hasOwnProperty.call(read().vouched || {}, id)) {
+    // kosmos#5786 (b): Not me on a device this computer allowed automatically a moment ago (the two raced) takes it
+    // back out. Only inside the notice window: an old note is history, not a race.
+    const note = (read().vouched || {})[id];
+    if (Object.prototype.hasOwnProperty.call(read().vouched || {}, id) && Math.floor(Date.now() / 1000) - (Number(note && note.at) || 0) <= VOUCH_NOTICE_MS / 1000) {
       const rr = await deviceRemove(id);
       if (!rr || !rr.ok) process.stderr.write('kosmos+: a device allowed automatically was refused, and could not be removed (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
     }
