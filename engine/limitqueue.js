@@ -13,7 +13,8 @@ const path = require('node:path');
 const store = require('./store');
 
 const DROP_AFTER_MS = 24 * 60 * 60 * 1000;
-const MAX_KEPT = 100;   // per agent: a sender retrying in a loop cannot grow it without bound
+const MAX_KEPT = 200;   // per agent, from all senders together
+const MAX_PER_SENDER = 20;   // per agent per sender: one sender in a loop cannot crowd out the others
 
 function dir() { return path.join(store.ROOT, 'limitqueue'); }
 function fileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.json'); }
@@ -39,7 +40,7 @@ function add(name, entry) {
     if (!entry || typeof entry.id !== 'string' || typeof entry.envelope !== 'string') return false;
     if (store.safeKey(String(name)) !== String(name)) return false;
     const now = list(name).filter((e) => e.id !== entry.id);
-    if (now.length >= MAX_KEPT) return false;
+    if (now.length >= MAX_KEPT || now.filter((e) => e.from === String(entry.from || '')).length >= MAX_PER_SENDER) return false;
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
       key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null });
     return write(name, now);
@@ -92,7 +93,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       }
       if (!live.length) continue;
       const card = resolveCard(roster, name);
-      if (!card || !isReleased(card)) continue;
+      if (!card || !isReleased(card, roster)) continue;
       for (const e of live) {
         let v;
         try { v = await deliver(name, e.envelope, roster); } catch { v = null; }
@@ -109,4 +110,4 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
   return out;
 }
 
-module.exports = { add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT };
+module.exports = { add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER };

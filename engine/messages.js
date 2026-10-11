@@ -1277,7 +1277,9 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* #5805 slice 2a: the same send again while its first copy is still kept for an agent out of usage answers with
      that copy's held receipt; nothing is kept twice. */
   if (sameMsg && sameMsg.state === HELD_STATE) {
-    if (require('./limitqueue').has(toName, sameMsg.id)) return heldReceipt(toName, sameMsg.id, sameMsg.at, sameMsg.heldUntil, true);
+    if (require('./limitqueue').has(toName, sameMsg.id)) {
+      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true);
+    }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
     const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
     if (typed) return { state: typed.state, because: null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
@@ -1359,6 +1361,10 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      screen and be counted delivered. It is kept and typed after the reset by the minute sweep (limitqueue.flush). */
   let limitHold = null;
   try { limitHold = chat.limitHeldVerdict(toName, roster); } catch { limitHold = null; }
+  /* Released, but messages kept while it was out of usage are still waiting for the minute sweep: this one goes
+     behind them, so nothing it says arrives ahead of what was sent before it. */
+  const waiting = limitHold ? [] : require('./limitqueue').list(toName);
+  if (!limitHold && waiting.length) limitHold = { limitReset: waiting[waiting.length - 1].reset, behind: true };
   if (limitHold) {
     const limitqueue = require('./limitqueue');
     /* The same send already kept, at any age (the fold above looks back minutes; a hold lasts days): that copy. */
@@ -1371,7 +1377,9 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
     appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
-    return heldReceipt(toName, id, at, until, false);
+    const receipt = heldReceipt(toName, id, at, until, false);
+    if (limitHold.behind) receipt.because = 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them, within a minute or two';
+    return receipt;
   }
 
   const finish = (sent) => {

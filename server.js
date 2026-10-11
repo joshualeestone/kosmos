@@ -21573,9 +21573,11 @@ function start(port = PORT) {
            its card reads released; through the automatic gate, so a menu or a renewed limit on screen still holds them. */
         try {
           const limitqueue = require('./engine/limitqueue');
-          if (limitqueue.names().length) {
-            limitqueue.flush(safeRoster(), {
-              deliver: chat.deliverAutomaticAsync, isReleased: chat.limitReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
+          const roster = limitqueue.names().length ? safeRoster() : null;
+          if (roster) {
+            limitqueue.flush(roster, {
+              deliver: chat.deliverAutomaticAsync, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
+              isReleased: chat.limitQueueReleased,
               onDelivered: messages.logHeldDelivered, onDropped: (e, r) => { messages.tellHeldDropped(e, r).catch(() => { /* recorded */ }); },
             }).then((done) => {
               for (const d of done) process.stdout.write('limit-queue: ' + d.name + ' was given held message ' + d.id + ' after its usage reset, delivery=' + d.state + '\n');

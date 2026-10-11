@@ -174,7 +174,7 @@ test('#5805 2a: a message still kept a day past its reset is dropped and logged,
   assert.deepEqual(limitqueue.list('casey'), []);
 });
 
-const opts = (extra = {}) => ({ deliver: chat.deliverAutomaticAsync, isReleased: chat.limitReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDelivered: messages.logHeldDelivered, onDropped: messages.logHeldDropped, ...extra });
+const opts = (extra = {}) => ({ deliver: chat.deliverAutomaticAsync, isReleased: chat.limitQueueReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDelivered: messages.logHeldDelivered, onDropped: messages.logHeldDropped, ...extra });
 
 test('#5805 2a review 1: a name whose store key differs is not kept; an entry for another agent in a file is never typed', async () => {
   assert.notEqual(store.safeKey('Casey.2'), 'Casey.2', 'CONTROL: this name is not its own key');
@@ -259,8 +259,8 @@ test('#5805 2a review 2: a dropped long message\'s spilled file is removed; at m
   await Promise.all(told);
   assert.equal(fs.existsSync(spill), false, 'the spilled file was left behind');
   const now = new Date().toISOString();
-  for (let i = 0; i < limitqueue.MAX_KEPT; i += 1) assert.equal(limitqueue.add('casey', { id: 'mc' + i, from: 'leo', envelope: 'e', at: now, reset: now }), true);
-  assert.equal(limitqueue.add('casey', { id: 'mc-over', from: 'leo', envelope: 'e', at: now, reset: now }), false, 'kept past the cap');
+  for (let i = 0; i < limitqueue.MAX_KEPT; i += 1) assert.equal(limitqueue.add('casey', { id: 'mc' + i, from: 'agent' + Math.floor(i / limitqueue.MAX_PER_SENDER), envelope: 'e', at: now, reset: now }), true);
+  assert.equal(limitqueue.add('casey', { id: 'mc-over', from: 'someone-new', envelope: 'e', at: now, reset: now }), false, 'kept past the cap');
 });
 
 test('#5805 2a review 2: after an unconfirmed delivery the next kept message waits for the next minute', async () => {
@@ -270,4 +270,40 @@ test('#5805 2a review 2: after an unconfirmed delivery the next kept message wai
   await limitqueue.flush([{ sessionName: 'casey' }], { deliver: async (n, env) => { typed.push(env); return { state: chat.DELIVERY.UNCONFIRMED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY });
   assert.deepEqual(typed, ['m991'], 'typed on top of a message that may still be in the composer');
   assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m992'], 'the unconfirmed one was kept (it would be typed twice)');
+});
+
+test('#5805 2a review 3: once a fresh send would no longer be held, kept messages are released too (never stricter)', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    const long = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: `You've hit your weekly limit · resets ${resetAt(Date.now() - 3 * 3600e3)} (America/Chicago)` } : c));
+    const card = long.find((c) => c.sessionName === 'casey');
+    assert.equal(chat.limitReleased(card), false, 'CONTROL: slice 1 does not read this card released');
+    assert.equal(chat.limitHeldVerdict('casey', long), null, 'CONTROL: a fresh send is no longer held');
+    assert.equal(chat.limitQueueReleased(card, long), true, 'kept messages stricter than a fresh one');
+    assert.equal(chat.limitQueueReleased(board.agents.find((c) => c.sessionName === 'casey'), board.agents), false, 'released while the reset is still ahead');
+  });
+});
+
+test('#5805 2a review 3: a send to a released agent with kept messages still waiting goes behind them, in order', async () => {
+  let first;
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    first = (await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'one' }, board.agents)).id;
+  });
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    const v = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'two' }, board.agents);
+    assert.equal(v.held, true, 'jumped ahead of a kept message: ' + JSON.stringify(v));
+    assert.match(v.because, /after them/);
+    assert.deepEqual(tmux.pastedTo('casey'), []);
+    await limitqueue.flush(board.agents, opts());
+    const typed = tmux.pastedTo('casey');
+    assert.equal(typed.length, 2);
+    assert.match(typed[0], new RegExp(first + '\\]'));
+    assert.match(typed[1], /\] two$/);
+  });
+});
+
+test('#5805 2a review 3: one sender cannot fill an agent\'s queue for everyone else', () => {
+  const now = new Date().toISOString();
+  for (let i = 0; i < limitqueue.MAX_PER_SENDER; i += 1) assert.equal(limitqueue.add('casey', { id: 'ml' + i, from: 'loop', envelope: 'e' + i, at: now, reset: now }), true);
+  assert.equal(limitqueue.add('casey', { id: 'ml-over', from: 'loop', envelope: 'x', at: now, reset: now }), false, 'past the per-sender cap');
+  assert.equal(limitqueue.add('casey', { id: 'mg', from: 'leo', envelope: 'go ahead', at: now, reset: now }), true, 'another sender was crowded out');
 });

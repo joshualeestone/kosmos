@@ -75,3 +75,15 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   (tested).
 - Covered by the first fix: two identical sends at once (the held branch is synchronous, so the second finds the first).
 - NITs taken: a queue file with nothing readable left is removed; the sweep's one-run guard wraps a separate function.
+
+## Review 3 (opus)
+- FIXED: kept messages waited for slice 1's release test while fresh sends stopped being held an hour past the reset,
+  so old messages were dropped while new ones arrived. The sweep releases on chat.limitQueueReleased: slice 1's test,
+  or no longer held at all, the test a fresh send meets (tested).
+- FIXED: in the minute between release and the sweep a new send was typed ahead of the kept backlog. While an agent
+  still has kept messages a new one goes behind them, told so in its own words (tested in order).
+- FIXED: one sender looping with new text each time could fill the cap and crowd out everyone else; 20 per sender,
+  200 per agent (tested).
+- NITs taken: the recent-send fold no longer promises a time already past; the sweep is skipped when the roster cannot
+  be read (a drop then waits for a minute when its sender can be told). Not taken: the spill written before the hold
+  check (removed on refuse and drop); names() pruning empty files (commented where it happens).

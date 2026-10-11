@@ -1960,6 +1960,12 @@ function limitReleased(card) {
   if (card.state === status.STATE.IDLE) return true;
   return card.state === status.STATE.BLOCKED && card.screenState === status.STATE.IDLE;
 }
+/* #5805 slice 2a: the minute sweep types messages kept for a limit once this is true: released as limitReleased reads
+   it, or no longer held at all (the test a fresh send meets), so a kept message is never held longer than a new one. */
+function limitQueueReleased(card, roster) {
+  if (limitReleased(card)) return true;
+  try { return !!card && limitHeldVerdict(card.sessionName, roster) === null; } catch { return false; }
+}
 /* #5743/#5754: true while this agent's screen waits for an answer (question menu, permission prompt, safeguards menu), for a sweep that decides BEFORE it types
    anything (the recommender holds a whole convening on it, as it does on the quota). */
 function menuHeld(sessionName, roster) {
@@ -3760,7 +3766,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
