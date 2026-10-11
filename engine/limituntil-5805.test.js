@@ -95,7 +95,8 @@ test('#5805 slice 3: claudeLimitUntil keeps the first-seen time, so the reset do
   };
   idleRead(t0 + 5.6 * 3600e3);
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.7 * 3600e3)), '2026-10-10T21:00:00.000Z', 'one reading not capped ended the limit');
-  // Read not capped for two minutes and more: the limit ended, so the same words the next day are a new limit.
+  // Read not capped for two minutes and more (two idle readings three minutes apart): the limit ended, so the same
+  // words the next day are a new limit.
   idleRead(t0 + 6 * 3600e3);
   idleRead(t0 + 6 * 3600e3 + 3 * 60e3);
   const nextDay = at('2026-10-11T16:00:00Z');
@@ -131,4 +132,34 @@ test('#5805 slice 3: the card carries limitUntil for a capped Claude agent, date
       check(card.limitUntil);
     } finally { board.restore(); }
   }
+});
+
+test('#5805 slice 3: through the card builder, a capped reading between two stray ones keeps the limit (review 3)', () => {
+  // Every reading goes through the real card builder at a set clock. The limit is first seen at T with its reset at
+  // T+1h; the line stays on screen past the reset. Stray not-capped readings at T+0.6h and T+1.6h have a capped
+  // reading between them, so they are a minute apart in no sense that matters: the limit must survive both. Were the
+  // capped reading not to clear the first stray one, the second would end the limit at T+1.6h and the clock would
+  // restart past the reset (a session limit then names no time).
+  const real = Date.now;
+  const T = Math.floor(real() / 60e3) * 60e3;
+  const line = `You've hit your session limit · resets ${clock(T + 3600e3)} ${Z}`;
+  const read = (ms, capped) => {
+    Date.now = () => ms;
+    try {
+      const board = fleet.install([fleet.agent('dana', capped
+        ? { state: 'rate_limited', runner: 'claude', command: 'claude', screen: limitScreen(line) }
+        : { state: 'idle', runner: 'claude', command: 'claude', screen: STATUS_LINE })]);
+      try { return board.agents.find((c) => c.sessionName === 'dana').limitUntil; } finally { board.restore(); }
+    } finally { Date.now = real; }
+  };
+  const first = read(T, true);
+  assert.ok(first && Math.abs(Date.parse(first) - (T + 3600e3)) < 60e3, 'CONTROL: first seen with its reset an hour on: ' + first);
+  read(T + 0.6 * 3600e3, false);
+  assert.equal(read(T + 1.5 * 3600e3, true), first, 'one stray reading ended the limit');
+  read(T + 1.6 * 3600e3, false);
+  assert.equal(read(T + 1.7 * 3600e3, true), first, 'a stray reading an hour after an earlier one ended the limit');
+  // CONTROL: two stray readings three minutes apart with nothing capped between do end it.
+  read(T + 1.8 * 3600e3, false);
+  read(T + 1.85 * 3600e3, false);
+  assert.equal(read(T + 1.9 * 3600e3, true), null, 'the limit did not end after two minutes not capped');
 });

@@ -67,3 +67,10 @@ occurrence of that time after the board first saw the line.
 - NIT not taken: "Out of usage until" for a reported card next to "Usage limit reached" elsewhere. The card asks for
   "out of usage until <time>" in those words; the screen-read form keeps the existing "Looks like a usage limit".
 - Stated (residual 1, unchanged): a weekly line first seen after a restart, past its printed time, reads as tomorrow's.
+
+## Review 3 (opus)
+- FIXED (WARNING): nothing tested that a capped reading clears an earlier stray one, so deleting that line passed;
+  a capped agent with two failed reads hours apart would have lost its first-seen time. A new test reads only through
+  the real card builder at set clocks (capped, stray, capped, stray, capped keeps the limit; two strays three minutes
+  apart end it).
+- FIXED (NIT): both maps are pruned on every card read (a gone agent's entries last two days at most).

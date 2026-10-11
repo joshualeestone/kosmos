@@ -2821,6 +2821,12 @@ const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;
    failed) or briefly another state, and the line is still there; forgetting then restarts the clock. */
 const LIMIT_ENDED_AFTER_MS = 2 * 60 * 1000;
 const limitNotCappedSince = new Map();
+/* The memory backstop for agents that went away (review 3): run on every card read, both maps stay one entry per
+   agent at most for two days. */
+function pruneLimitMaps(now) {
+  for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
+  for (const [k, since] of limitNotCappedSince) if (now - since > LIMIT_FIRST_SEEN_KEEP_MS) limitNotCappedSince.delete(k);
+}
 function forgetLimitLines(agent, keepLine) {
   const prefix = String(agent) + '\u0000';
   for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix) && k !== prefix + keepLine) limitFirstSeen.delete(k);
@@ -2833,7 +2839,7 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   const dated = limitResetAt(line, now);
   if (dated !== null) { forgetLimitLines(agent, line); return dated; }   // a dated line is another limit too
   if (!LIMIT_RESET_TIME_ONLY.test(line)) return null;
-  for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
+  pruneLimitMaps(now);
   forgetLimitLines(agent, line);   // another line on this agent's screen is another limit
   const key = String(agent) + '\u0000' + line;
   let seen = limitFirstSeen.get(key);
@@ -2846,6 +2852,7 @@ function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitNotCappedS
 function claudeLimitUntilIso(pane, status) {
   if (!pane) return null;
   const now = Date.now();
+  pruneLimitMaps(now);
   if (!status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') {
     // Not capped now: its limit (if any) ended, once that has held for LIMIT_ENDED_AFTER_MS.
     const prefix = String(pane.name) + '\u0000';
