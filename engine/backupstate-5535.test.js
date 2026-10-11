@@ -101,17 +101,17 @@ test('forPeriod keeps the same period (its key and index) and starts a new one f
   const same = bs.forPeriod(state, '2026-W41', { memberKeyId: MK, nowMs: NOW });
   assert.ok(same.namingKey.equals(nk)); assert.equal(same.bucket, 'b/'); assert.deepEqual([...same.index], [...state.period.index]);
   const fresh = crypto.randomBytes(32);
-  const next = bs.forPeriod(state, '2026-W42', { memberKeyId: MK, nowMs: NOW, granted: true, newKey: () => fresh });
+  const next = bs.forPeriod(state, '2026-W42', { memberKeyId: MK, nowMs: NOW, newKey: () => fresh });
   assert.deepEqual({ label: next.label, bucket: next.bucket, size: next.index.size }, { label: '2026-W42', bucket: null, size: 0 });
   assert.ok(next.namingKey.equals(fresh));
   const none = bs.forPeriod({ job: {}, period: null }, '2026-W41', { memberKeyId: MK, nowMs: NOW });
   assert.equal(none.namingKey.length, 32); assert.ok(!none.namingKey.equals(nk));
   assert.throws(() => bs.forPeriod(state, 'W41', { memberKeyId: MK, nowMs: NOW }));
-  // A label not granted must be this clock's own.
-  assert.throws(() => bs.forPeriod(state, '2026-W40', { memberKeyId: MK, nowMs: NOW }), /this clock's own period/);
-  assert.throws(() => bs.forPeriod(state, '2026-W41', {}), /member key id and a usable time/);
-  // A time past Date's range gives periodOf NaN-WNaN: refused, never compared.
-  assert.throws(() => bs.forPeriod(state, '2026-W41', { memberKeyId: MK, nowMs: 9e15 }), /usable time/);
+  assert.throws(() => bs.forPeriod(state, '2026-W41', {}), /member key id and the time/);
+  // Review 6: any OTHER label, earlier or later, starts fresh: which week to run is the caller's call (it sees
+  // takeSnapshot's grantedPeriod); a kept earlier week could never deduplicate after Monday anyway.
+  const earlier = bs.forPeriod(state, '2026-W40', { memberKeyId: MK, nowMs: NOW });
+  assert.equal(earlier.label, '2026-W40'); assert.ok(!earlier.namingKey.equals(nk)); assert.equal(earlier.index.size, 0);
   // Resuming prunes what takeSnapshot would refuse: another member key (a #5744 rotation), a lock that has ended.
   const mixed = { job: {}, period: { label: '2026-W41', namingKey: nk, bucket: 'b/', index: new Map([
     entry(1), [name(2), { key: 'o1/acct1/1/2026-W41/k2', lockedUntilMs: 1800000000002, memberKeyId: 'cd'.repeat(16) }],
@@ -182,39 +182,6 @@ test('round 1: discardState sets a refused file aside (never deletes it), and th
   assert.deepEqual(bs.discardState(org, member), { ok: true }, 'nothing there is fine');
 });
 
-test('round 2: an EARLIER label keeps the stored later period (the coordinator granted ahead of this clock)', () => {
-  const nk = crypto.randomBytes(32);
-  const state = { job: {}, period: { label: '2026-W42', namingKey: nk, bucket: 'b/', index: new Map([entry(1, '2026-W42')]) } };
-  // This clock: Sunday 23:30 UTC, the last half hour of W41 (W42 starts Monday 00:00 UTC).
-  const sunday = Date.parse('2026-10-11T23:30:00Z');
-  const p = bs.forPeriod(state, '2026-W41', { memberKeyId: MK, nowMs: sunday, newKey: () => crypto.randomBytes(32) });
-  assert.equal(p.label, '2026-W42'); assert.ok(p.namingKey.equals(nk)); assert.equal(p.index.size, 1);
-  // Across a year: 2026-W53 is before 2027-W01 (which starts Monday 2027-01-04).
-  const y = { job: {}, period: { label: '2027-W01', namingKey: nk, bucket: null, index: new Map() } };
-  assert.equal(bs.forPeriod(y, '2026-W53', { memberKeyId: MK, nowMs: Date.parse('2027-01-03T23:30:00Z') }).label, '2027-W01');
-  // Review 4: only the period this clock reaches within takeSnapshot's skew (an hour) is kept. Two hours before Monday:
-  // not kept (takeSnapshot would refuse W42 as the context), nor mid-week.
-  const w42 = () => ({ job: {}, period: { label: '2026-W42', namingKey: nk, bucket: 'b/', index: new Map() } });
-  assert.equal(bs.forPeriod(w42(), '2026-W41', { memberKeyId: MK, nowMs: Date.parse('2026-10-11T22:00:00Z') }).label, '2026-W41');
-  assert.equal(bs.forPeriod(w42(), '2026-W41', { memberKeyId: MK, nowMs: Date.parse('2026-10-07T12:00:00Z') }).label, '2026-W41');
-  // A label the COORDINATOR granted is honoured, even earlier than the stored one (its clock behind this one).
-  const granted = bs.forPeriod(w42(), '2026-W41', { memberKeyId: MK, nowMs: sunday, granted: true });
-  assert.equal(granted.label, '2026-W41'); assert.ok(!granted.namingKey.equals(nk));
-  // Further ahead (written under a wrong clock) is not kept either.
-  const far = bs.forPeriod({ job: {}, period: { label: '2026-W44', namingKey: nk, bucket: 'b/', index: new Map() } }, '2026-W41', { memberKeyId: MK, nowMs: sunday });
-  assert.equal(far.label, '2026-W41'); assert.ok(!far.namingKey.equals(nk));
-  // Review 5: a stored EARLIER period within the skew is kept too (the coordinator still in it, its clock behind).
-  const monday = Date.parse('2026-10-12T00:10:00Z');
-  const w41 = { job: {}, period: { label: '2026-W41', namingKey: nk, bucket: 'b/', index: new Map([entry(1)]) } };
-  const kept = bs.forPeriod(w41, '2026-W42', { memberKeyId: MK, nowMs: monday });
-  assert.equal(kept.label, '2026-W41'); assert.ok(kept.namingKey.equals(nk));
-  // ...but not past the hour.
-  assert.equal(bs.forPeriod(w41, '2026-W42', { memberKeyId: MK, nowMs: Date.parse('2026-10-12T01:10:00Z') }).label, '2026-W42');
-  // Control: a granted LATER label starts fresh.
-  const later = bs.forPeriod(state, '2026-W43', { memberKeyId: MK, nowMs: sunday, granted: true });
-  assert.equal(later.label, '2026-W43'); assert.ok(!later.namingKey.equals(nk));
-});
-
 test('round 2: withRun says how many added rows it left out', () => {
   const period = { label: '2026-W41', namingKey: crypto.randomBytes(32), bucket: 'b/', index: new Map() };
   const r = bs.withRun({ job: {}, period }, period, { ok: true, added: new Map([entry(1), entry(2, '2026-W40')]), bucket: 'b/' });
@@ -243,36 +210,4 @@ test('round 3: org and member must be strings; week labels are 01 to 53; a passi
   // A not-ours file is NOT retry (it is the discard case).
   fs.writeFileSync(bs.fileFor(org, member), '{');
   assert.equal(bs.readState(org, member).retry, undefined);
-});
-
-/* The caller loop (review 5): each run asks for this clock's period, writes it, takes a "snapshot" that the coordinator
-   files under ITS clock's period; on a grant for another period it asks again with granted: true. Runs every 10 minutes
-   from Sunday 22:30 to Monday 01:40 UTC, with the coordinator 30 minutes ahead and 30 minutes behind. No period's naming
-   key may ever be replaced: one key per period, and each period's chunks keep deduplicating against it. */
-test('review 5: across Monday 00:00 with the coordinator 30 min ahead or behind, no period ever gets a second naming key', () => {
-  const { periodOf } = require('./backupsnapshot');
-  for (const offset of [30 * 60000, -30 * 60000]) {
-    let state = { job: {}, period: null };
-    const keyOf = new Map();   // label -> naming key hex, the first one seen
-    let i = 0, attempts = 0;
-    for (let t = Date.parse('2026-10-11T22:30:00Z'); t <= Date.parse('2026-10-12T01:40:00Z'); t += 10 * 60000) {
-      let p = bs.forPeriod(state, periodOf(t), { memberKeyId: MK, nowMs: t });
-      state = Object.assign({}, state, { period: p });   // written before the snapshot (the caller's duty)
-      const filedIn = periodOf(t + offset);
-      attempts++;
-      if (filedIn !== p.label) {   // takeSnapshot: newPeriod, grantedPeriod
-        p = bs.forPeriod(state, filedIn, { memberKeyId: MK, nowMs: t, granted: true });
-        state = Object.assign({}, state, { period: p });
-        attempts++;
-      }
-      const hex = p.namingKey.toString('hex');
-      if (!keyOf.has(p.label)) keyOf.set(p.label, hex);
-      assert.equal(hex, keyOf.get(p.label), `offset ${offset / 60000} min at ${new Date(t).toISOString()}: ${p.label} got a second naming key`);
-      i++;
-      state = bs.withRun(state, p, { ok: true, added: new Map([entry('s' + offset + i, p.label)]), bucket: 'b/' });
-    }
-    assert.deepEqual([...keyOf.keys()].sort(), ['2026-W41', '2026-W42'], `offset ${offset / 60000}`);
-    // At most one extra attempt per run, and only around the boundary (not a loop).
-    assert.ok(attempts <= i + 2, `offset ${offset / 60000}: ${attempts} attempts for ${i} runs`);
-  }
 });

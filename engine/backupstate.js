@@ -24,20 +24,18 @@
  *   next run starts a fresh period with a new naming key. Its chunks are not lost: the manifests that name them are
  *   stored; only deduplication against them is. The caller decides when (a refused read, said to the person once).
  * writeState(org, member, state): atomic (securewrite, owner-only). Throws on a state this module would not read back.
- * forPeriod(state, label, { memberKeyId, nowMs, granted?, newKey? }) -> period: the state's period when it is `label`, its index
+ * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the stored period when it IS `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
- *   costing a run) and, defensively, of locks already ended (takeSnapshot's own check is stricter, against the manifest's
- *   lock; every row withRun accepts has passed it for its period); else a fresh period with a new naming key and an empty
- *   index. A new period never inherits the old index or key. Where a label comes from matters:
- *   - granted: true, a label the COORDINATOR named (takeSnapshot's grantedPeriod): always honoured, earlier or later,
- *     since its clock decides where chunks are filed (backupsnapshot's contract).
- *   - otherwise the label must be this clock's own (periodOf(nowMs)), and the STORED period is kept whenever
- *     takeSnapshot would accept it as a context: any period within its skew (SKEW_MS, an hour, either way), earlier or
- *     later. Near Monday 00:00 that keeps the week the coordinator is actually granting in, whichever side of this clock
- *     its clock is, so a run does not throw away that week's key and index (review 5 simulated both signs). A stored
- *     period outside the skew (written under a wrong clock, or simply last week) starts fresh.
- *   Starting fresh costs deduplication against the abandoned period, never a restore: its naming key is inside every
- *   manifest stored in it. The caller builds its context from the returned label.
+ *   costing a run) and, defensively, of locks already ended (uploadManifest's own floor is stricter: a chunk must
+ *   outlast the new manifest's lock, now + 30 days + 15 minutes; within one period every kept row does); otherwise a fresh period with a new naming key and an empty
+ *   index. Nothing else: which label to run is the CALLER's decision, since only it sees takeSnapshot's answers (this
+ *   clock's periodOf(now), or the coordinator's grantedPeriod after a newPeriod answer). Review history: five rounds of
+ *   keeping a stored neighbouring period here each failed one way or the other. A kept EARLIER period can never
+ *   deduplicate after Monday 00:00 (its chunks' locks end before any new manifest's would, so uploadManifest refuses it,
+ *   measured by review 6); a kept LATER one needs the coordinator's word, which only the caller has.
+ *   What starting fresh costs: deduplication against the period left, never a restore (its naming key is inside every
+ *   manifest stored in it). Near Monday 00:00 with the coordinator's clock ahead, a caller alternating between its
+ *   clock's week and the granted one can upload a tree twice in that hour; bounded, once a week.
  * withRun(state, period, result) -> state: the period after a takeSnapshot result, plus `leftOut` (how many `added`
  *   rows it did not keep: malformed, another period's, or past the cap; not persisted), so a caller bug shows. The index is dropped ONLY when the
  *   result says so: staleIndex, or chunks stored under a DIFFERENT non-null bucket. A null bucket is not "another
@@ -51,6 +49,9 @@
  *   - Write after the run. A run killed before that loses its `added` (those chunks are stored, locked, and named by no
  *     manifest; the next run uploads them again and spends allowance again).
  *   - One run at a time per (org, member): two runs reading and writing this file lose one run's `added`.
+ *   - Run the period of this clock (periodOf(now)). On a newPeriod answer WITH grantedPeriod, run once more with that
+ *     label (the coordinator's clock decides); WITHOUT it, stop, and the next run uses its clock's period again. Never
+ *     loop on newPeriod within a run.
  *   - Files discardState set aside (<file>.bad-<time>, 0600, each holding that period's naming key) are never removed
  *     here; they are kept for a person to look at.
  *
@@ -62,7 +63,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const backupkeys = require('./backupkeys');
 
-// Weeks 01 to 53 only (what periodOf writes), so labels compare correctly as strings.
+// Weeks 01 to 53 only (what periodOf writes).
 const PERIOD_RE = /^[0-9]{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$/;
 const TRANSIENT = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES']);
 function ids(org, member) {
@@ -155,17 +156,8 @@ function writeState(org, member, state) {
 
 function forPeriod(state, label, opts = {}) {
   if (!PERIOD_RE.test(label)) throw new Error('backupstate: a period label is an ISO week, such as 2026-W41');
-  const snap = require('./backupsnapshot');
-  if (!HEX32_RE.test(opts.memberKeyId) || !Number.isSafeInteger(opts.nowMs) || !PERIOD_RE.test(snap.periodOf(opts.nowMs))) {
-    throw new Error('backupstate: forPeriod needs the member key id and a usable time');
-  }
+  if (!HEX32_RE.test(opts.memberKeyId) || !Number.isSafeInteger(opts.nowMs)) throw new Error('backupstate: forPeriod needs the member key id and the time');
   const p = state && state.period;
-  if (!opts.granted) {
-    if (label !== snap.periodOf(opts.nowMs)) throw new Error('backupstate: a label not granted by the coordinator must be this clock\'s own period');
-    // takeSnapshot's own acceptance (periodsNear): this clock's period, an hour either way.
-    const near = new Set([snap.periodOf(opts.nowMs - snap.SKEW_MS), label, snap.periodOf(opts.nowMs + snap.SKEW_MS)]);
-    if (p && near.has(p.label)) label = p.label;
-  }
   if (p && p.label === label) {
     const index = new Map();
     for (const [name, e] of p.index) if (e.memberKeyId === opts.memberKeyId && e.lockedUntilMs > opts.nowMs) index.set(name, e);
