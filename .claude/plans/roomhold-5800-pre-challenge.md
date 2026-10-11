@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomhold-5800
-diff_hash: 03caf5b526d399a8866747f0fc7f722a067ef44326624ef8ad815674f900f3a1
-validation: pending (full suite not run locally: Agent1s busy and Splinter asked for no new suites there at 20:32; the Mortals run gave up after 2700 s waiting behind release 0.7.39 and ran no tests. The PR's GitHub CI runs the full suite and the merge waits on it. Focused: 641 pass, 0 fail.)
+diff_hash: 713801786c53ea12f6c4a170c7dd6f27a93b1b36ea35a373ead4e7b6f980e48f
+validation: pending (PR CI green on the node suite at b59f2b044, rerunning on later heads; focused runs after iterations 10-12: tools.mobile-shots-desktop, browser-checks-reason-grep, cli.sandbox-data-4796, fixture-discipline, no-brand-refs-1881, no-name-refs-3071: 50 pass, 0 fail. Earlier: full suite not run locally: Agent1s busy and Splinter asked for no new suites there at 20:32; the Mortals run gave up after 2700 s waiting behind release 0.7.39 and ran no tests. The PR's GitHub CI runs the full suite and the merge waits on it. Focused: 641 pass, 0 fail.)
 subdir_audit: passed
-timestamp: 2026-10-11T02:18:57Z
-iterations: 9
+timestamp: 2026-10-11T03:11:10Z
+iterations: 12
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 9
-**Converged:** Yes (iteration 9 found no new actionable findings)
+**Iterations:** 12
+**Converged:** Yes, with a stated judgement: iteration 9 converged the product code; iterations 10 to 12 reviewed only the screenshot screen added after the first shots failed to show the strip (see below). Iteration 12's one WARNING was a stale README line, fixed in prose only (55def5e7c) with a comment wording NIT, and no fourth round was run on those two prose edits.
 **Total findings:** iterations 1-8: see their commits (the per-finding ledger for 1-8 was held in a session that was restarted at 20:08 CDT and is not recoverable in detail); iteration 9: 0 BLOCKERs, 3 WARNINGs (all DEFERRED, see below), 0 CONVENTIONs, 3 NITs
 **Fixed:** iterations 1-8, in the commits listed below | **Deferred (iteration 9):** 3 | **Asked (awaiting user):** 0
 
@@ -39,6 +39,34 @@ The plan's Decision section records the design changes those rounds forced: held
 - [NIT] web/index.html pjHeldReopenClick — a missing sibling span would swallow the error text (unreachable: the notice always emits it)
 - [NIT] engine/messages.js roomProgressAllowance — a local require('./projects') next to another function's local projectsMod (both are the module's lazy-require pattern, kept)
 **Converged** — no new actionable findings.
+
+#### Iteration 10 (screenshot screen, after the first shots, 2026-10-10 22:0x CDT)
+**Context:** the first design shots (22:02) passed the screen's checks yet none of the four frames showed #pj-held. c11445c62 scrolled the strip into view and added a seen-check in verify.
+**Reviewer model:** opus (blind subagent)
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 3 NITs
+- [WARNING] mobile-shots.js verify: the runner calls verify only after the screenshot, so a 3 s poll there could pass a bad picture --> FIXED be8f68914 (gate moved into go, before the shot)
+- [WARNING] no negative control for the new check --> FIXED be8f68914 (MSHOTS_COVER_CONTROL=overlay planted on this screen)
+- [WARNING] commit message overstated what the check catches --> FIXED (later commits state it narrowly)
+- [NIT] r.height not tested --> FIXED be8f68914 ("not laid out")
+- [NIT] centre point only; [NIT] elementFromPoint ignores pointer-events:none --> ACCEPTED (same as the #4524 sibling)
+
+#### Iteration 11
+**Reviewer model:** opus (blind subagent)
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 2 NITs
+- [WARNING] the overlay guard refused the control unless allow-card ran, so this screen's control could never run alone --> FIXED 38a010394 (guard accepts either screen; spill unchanged; its test updated, 12/12 pass)
+- [WARNING] no read after the shot, so a re-render between gate and picture passes --> FIXED 38a010394 (one module-level heldReopenAt, read in go and again in verify)
+- [NIT] scrollIntoView not instant --> FIXED 38a010394
+- [NIT] innerWidth includes scrollbars --> ACCEPTED (sibling shape)
+- Not done, by decision: a fourth control arm in tools/browser-checks.sh. The control is run by hand (README says so).
+
+#### Iteration 12
+**Reviewer model:** opus (blind subagent)
+**New findings:** 0 BLOCKERs, 1 WARNING, 4 NITs
+- [WARNING] docs/browser-checks/README.md still said overlay is refused without allow-card --> FIXED 55def5e7c
+- [NIT] verify comment overclaimed (a move that reverts before verify is not caught) --> FIXED 55def5e7c
+- [NIT] no accept-path test for overlay on this screen --> DEFERRED: the accept path boots a board; the by-hand control run is the evidence
+- [NIT] under the overlay, go throws and verify never runs, so verify's half is never seen red --> DEFERRED: verify calls the same function and throws on any non-empty answer
+- [NIT] heldReopenAt duplicates allow-card's inline whatIsAt --> DEFERRED: allow-card's is in a different screen's go; merging them changes a gate-run check outside this card
 
 ### Final Ledger (iteration 9)
 
