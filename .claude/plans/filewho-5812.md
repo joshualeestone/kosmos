@@ -81,3 +81,7 @@ toward naming nobody. If either case shows up in practice, a PostToolUse record 
 - Duplicate of review 2: the cost on the hook path (now bounded by the roots cache and the rewrite skip).
 - NITs taken: records have no prototype (a file named __proto__ is kept; tested); one loop resolves the roots; the
   constants sit together; ownedBy's comment describes the function.
+
+## After review 4 (found by a sibling branch's review, not this one's)
+- FIXED: engine/filewriters.js is an owner-only store writer (writeSecret at 0o600) and was not in the #5434 writer
+  guard's lists; it is now in both, so a later switch to a loose save is caught.
