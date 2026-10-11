@@ -213,3 +213,11 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - DEFERRED: a send to a card not yet released but not held either (a dateless limit) is typed, slice 1's stated gap;
   "after a drop it goes as new" is the design (review 1), noted as a coverage question.
 - NIT taken: the comments above the claim check sit on the lines they describe.
+
+## Review 17 (opus)
+- FIXED: the check just before typing read an unreadable queue file as "removed", so a transient read error skipped a
+  message and typed the next ahead of it; an unreadable file now stops that agent's run (tested).
+- FIXED: a message queued behind a backlog was noted "kept while you were out of usage", which was false for it; it
+  is noted "kept behind earlier messages" (tested).
+- NIT taken: the behind decision ignores entries already typed or dropped (their removal failed). Not taken: the
+  board log line's wording for behind entries; a pointer comment at readEntries.

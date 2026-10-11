@@ -96,7 +96,7 @@ async function withFleet(caseyScreen, caseyState, fn) {
 }
 const rows = () => messages.list('casey');
 /* A typed kept message without the sweep's "kept for you" note (asserted on its own below). */
-const bare = (env) => String(env).replace(/ \[kept for you while you were out of usage; sent [^\]]*\]$/, '');
+const bare = (env) => String(env).replace(/ \[kept (?:for you while you were out of usage|behind earlier messages); sent [^\]]*\]$/, '');
 /* A real card for casey (fixture discipline: never a hand-built roster row), for the sweep tests that stub everything
    but who the agent is. */
 function caseyRoster() {
@@ -599,4 +599,26 @@ test('#5805 2a review 16: a paste that never settles does not hold its agent for
   } finally { Date.now = realNow; }
   assert.deepEqual(typed, ['hangs', 'hangs'], 'the hung message was not tried again');
   assert.deepEqual(limitqueue.list('casey'), []);
+});
+
+test('#5805 2a review 17: a queue file unreadable mid-run stops that agent, so nothing is typed ahead of a skipped message', async () => {
+  const t = new Date().toISOString();
+  for (const id of ['m1110', 'm1111']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: t, reset: t });
+  const file = limitqueue.fileFor('casey');
+  const good = fs.readFileSync(file, 'utf8');
+  const typed = [];
+  let reads = 0;
+  // The file reads garbage exactly once: when the sweep checks the first message just before typing it.
+  const realRead = fs.readFileSync;
+  fs.readFileSync = function (p, ...rest) { if (p === file && ++reads === 2) return '[{"cut'; return realRead.call(fs, p, ...rest); };
+  try {
+    await limitqueue.flush(caseyRoster(), { deliver: async (n, env) => { typed.push(bare(env)); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY });
+  } finally { fs.readFileSync = realRead; }
+  assert.deepEqual(typed, [], 'a later message was typed after one was skipped on a bad read');
+  assert.equal(fs.readFileSync(file, 'utf8'), good, 'CONTROL: the backlog is intact');
+});
+
+test('#5805 2a review 17: a message queued behind a backlog is noted as kept behind, not as kept while out of usage', () => {
+  assert.equal(limitqueue.keptNote({ at: 'T', behind: true }), ' [kept behind earlier messages; sent T]');
+  assert.equal(limitqueue.keptNote({ at: 'T' }), ' [kept for you while you were out of usage; sent T]');
 });

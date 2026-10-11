@@ -116,7 +116,9 @@ function isTyping(id) { return claimedNow(id); }   // read by the tests
 function isDone(id) { return done.has(id); }   // read by the tests; the sweep reads `typing` itself
 /* What the recipient is told about a kept message as it is typed: kept, and when it was sent, so a day-old go-ahead
    does not read as new. */
-function keptNote(e) { return ' [kept for you while you were out of usage; sent ' + e.at + ']'; }
+function keptNote(e) {
+  return e && e.behind ? ' [kept behind earlier messages; sent ' + e.at + ']' : ' [kept for you while you were out of usage; sent ' + e.at + ']';
+}
 let flushingSince = 0;
 let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
@@ -160,8 +162,11 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       for (const e of live) {
         // Claimed by a run that outlived the guard: this agent waits, so nothing is typed ahead of it.
         if (claimedNow(e.id)) break;
-        // Still kept (not typed or dropped meanwhile): checked just before typing.
-        if (done.has(e.id) || !has(name, e.id)) continue;
+        // Still kept (not typed or dropped meanwhile): checked just before typing. A file that cannot be read now stops
+        // this agent's run (skipping one would type the next ahead of it).
+        const kept = readEntries(name);
+        if (!kept.ok) break;
+        if (done.has(e.id) || !kept.entries.some((x) => x.id === e.id)) continue;
         if (typedNow >= PER_RUN) break;
         typedNow += 1;
         typing.set(e.id, Date.now());
