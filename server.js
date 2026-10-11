@@ -3597,6 +3597,8 @@ function agentBelongsToThisKosmos(name) {
    duplicate every client's "do not re-send" sentence exists to stop. */
 function outboxOutcomeOf(delivery) {
   const state = delivery && delivery.state;
+  // #5805 slice 2a: held for an agent out of usage is accepted (kept and typed after the reset); a retry would duplicate it.
+  if (messages.heldAccepted(delivery)) return { outcome: 'delivered' };
   if (state === chat.DELIVERY.PLACED || state === chat.DELIVERY.UNCONFIRMED) return { outcome: 'delivered' };
   return { outcome: 'retry', because: (delivery && delivery.because) || 'it could not be placed' };
 }
@@ -21567,6 +21569,19 @@ function start(port = PORT) {
             for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
+        /* #5805 slice 2a: `kosmos msg` messages kept while their recipient was out of usage are typed, in order, once
+           its card reads released; through the automatic gate, so a menu or a renewed limit on screen still holds them. */
+        try {
+          const limitqueue = require('./engine/limitqueue');
+          if (limitqueue.names().length) {
+            limitqueue.flush(safeRoster(), {
+              deliver: chat.deliverAutomaticAsync, isReleased: chat.limitReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
+              onDelivered: messages.logHeldDelivered, onDropped: messages.logHeldDropped,
+            }).then((done) => {
+              for (const d of done) process.stdout.write('limit-queue: ' + d.name + ' was given held message ' + d.id + ' after its usage reset, delivery=' + d.state + '\n');
+            }).catch(() => { /* kept for the next minute */ });
+          }
+        } catch { /* kept for the next minute */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
       /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185
