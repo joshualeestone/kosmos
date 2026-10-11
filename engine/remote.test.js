@@ -4264,8 +4264,11 @@ test('#5786 (b): the browser this computer opened is allowed by its vouch, once,
   assert.equal(remote.vouchOpenedUrlForTests(), '', 'a browser was opened with nothing waiting');
   // Safari's request (Josh's case): the browser is opened at the sign-in page with the secret in the fragment.
   plant([{ device_id: 'dev-safari', name: 'Mac · Safari', first_seen: nowS() - 360, code: 'VR-D6' }]);
+  const untilBefore = remote.vouchUntilForTests();
+  await new Promise((r) => setTimeout(r, 20));
   remote.vouchTickForTests();
   assert.match(remote.vouchOpenedUrlForTests(), new RegExp('^https?://[^/#]+/#allow=' + secret + '$'));
+  assert.ok(remote.vouchUntilForTests() > untilBefore, 'the window did not restart when the browser opened');
   // The page's vouch arrives on that row.
   plant([{ device_id: 'dev-safari', name: 'Mac · Safari', first_seen: nowS() - 360, code: 'VR-D6', vouch: vouchFor(secret, 'dev-safari') }]);
   const before = allowsOf().filter((x) => x === 'dev-safari').length;

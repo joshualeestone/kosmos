@@ -1729,8 +1729,8 @@ function startVouch() {
   vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
   if (vouchTimer.unref) vouchTimer.unref();
 }
-/* The rows a vouch may allow: valid ids, not this computer's own sign-ins, and never a computer (a joining one carries
-   joining_computer, or a code wait). null while there is no snapshot. */
+/* The rows a vouch may allow: valid ids, not this computer's own sign-ins, not a device the person said Not me to, and
+   never a computer (a joining one carries joining_computer, or a code wait). null while there is no snapshot. */
 function vouchRows() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
@@ -1749,6 +1749,9 @@ function vouchMatches(secret, d) {
   const got = Buffer.from(d.vouch);
   return got.length === want.length && crypto.timingSafeEqual(got, want);
 }
+/* Allows in-engine, like #4610's own-sign-in grant, so it does not pass server.js's screen-only Allow gate (isViaScreen):
+   what stands in for the person's press is S (minted here after their own sign-in, one device, ten minutes) and the row
+   filters above. */
 function vouchTick() {
   const v = vouchState;
   if (!v) return;
@@ -1759,6 +1762,9 @@ function vouchTick() {
     const now = Math.floor(Date.now() / 1000);
     if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
     v.opened = true;
+    // The window restarts when the browser opens, so a request that appears late still gets its full time (the
+    // secret lives at most two windows from sign-in).
+    v.until = Date.now() + VOUCH_WINDOW_MS;
     const url = vouchUrl(v.secret);
     if (!url) { stopVouch(); return; }
     vouchOpenedUrl = url;
@@ -1785,10 +1791,11 @@ function vouchTick() {
         }
         return;
       }
-      // Allowed: noted even if a Sign out landed while it ran, so the notice and Undo still show. Not during a Forget,
-      // which clears the notes and shows nothing.
+      // Allowed: noted even if a Sign out landed while it ran, so the notice and Undo still show.
       if (vouchState === v) stopVouch();
-      if (forgetting) return;
+      // Not during a Forget (it clears the notes), and not under another identity (the note would describe a device of
+      // the account before it).
+      if (forgetting || v.epoch !== selfEpoch) return;
       const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
         .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
       const saved = write({ vouched: Object.fromEntries(kept) });
@@ -3046,6 +3053,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
+  vouchUntilForTests: () => (vouchState ? vouchState.until : 0),
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },

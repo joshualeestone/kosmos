@@ -13,8 +13,16 @@ HMAC-SHA256(key = UTF-8 of S, msg = UTF-8 of its device id), unpadded base64url.
 as `vouch` (absent = no auto-allow).
 
 ## Change (engine/remote.js, web/index.html, one new browser check)
-- After a successful sign-in (fresh register and the already-this-computer path): mint S in memory only, 10-minute
-  window, a 3 s timer while live; Forget, Sign out and switching off stop it.
+- After a successful sign-in that spent the code steps (fresh register and the already-this-computer path): mint S
+  in memory (it also passes through the opener's argv and the browser's history), 10-minute window restarted when
+  the browser opens, a 3 s timer while live; Forget, Sign out and switching off stop it.
+
+## Residuals accepted (beyond Josh's 19:04 ruling on a page-serving coordinator)
+- S is visible briefly in the opener's argv (`ps`) and in browser history; using it also needs a session on the
+  account and a pending row, inside the window.
+- The browser opens when ANY eligible request is under 30 minutes old, a stranger's included: the tab is harmless
+  (S stays in the fragment). 30 minutes, not 5: Josh's own request was 6 minutes old when he hit this.
+- The vouch path allows in-engine, bypassing server.js's screen-only Allow gate, like #4610's own-sign-in grant.
 - Open the default browser (runCompanyOpener) at the coordinator origin #allow=S, ONLY once the snapshot holds a
   phone or browser request from the last 30 minutes, so an app-only sign-up never gets a stray tab. https, or http on
   loopback only.
