@@ -51,3 +51,18 @@ after its lock was stolen could drop the lines of a sealed file deleted meanwhil
 - noteEnded compacts past the bound, keeping the end that triggered it.
 - an end is appended while the lock is held elsewhere.
 - the deny rules cover ended-agents.d in permissions and sandbox, with a control on the module's own paths.
+- a stuck compaction (an unreadable line) is said once per process, naming the folder (Angel's review).
+- Mutations, each red (restored and byte-compared): sealed files not read; a young sealed file deleted; the live file
+  copied instead of renamed; the oldest line kept; a bad line skipped; no unlocked fallback; the size bound ignored;
+  compact.jsonl not read; the stuck note said every time; ended-agents.d not denied (permission); not denied (sandbox).
+- 58 existing test files around removal, revoke, the birth log and the setup-assistant guard: 1546 tests, 0 fail.
+
+## Review 1 (opus, blind, on ee0b19003): led to the redesign above
+- FIXED (BLOCKER): a rewrite lost an end appended mid-prune (unlocked fallback; stolen lock). Seal-then-compact.
+- FIXED (WARNING): the births-based cutoff barely bounded. Replaced by newest-per-name.
+- FIXED (WARNING): a missing births log pruned to the floor. The births log is no longer read.
+- NOTED (WARNING): noteEnded now takes a lock (bounded wait, LOCK_WAIT_MS) on every revoke; stated here. Lock order is
+  session lock then this one, never the reverse.
+- FIXED (WARNING): nothing proved noteEnded compacts; a test now does.
+- GONE (NITs): bytes vs code units, the mode carried by writeFileSync, slugFor binding, the forward-clock edge: all were
+  about code the redesign removed.

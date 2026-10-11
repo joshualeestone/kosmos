@@ -115,7 +115,9 @@ test('kosmos#5208: nothing is compacted under the size bound, and a torn line st
   assert.equal(stuck.stuck, true);
   assert.equal(said.filter((m) => /no longer compacted/.test(m)).length, 1, 'a stuck compaction was not said, or said on every try');
   assert.equal(fs.existsSync(COMPACT()), false, 'compact.jsonl was written past a torn line');
-  assert.equal(sendertoken.endedSince(['a'], iso(T0 - 1)), null, 'the torn line no longer refuses (it was dropped)');
+  // A name with no line of its own reads every line, so it meets the torn one: still a refusal (null), as on main.
+  assert.equal(sendertoken.endedSince(['nobody'], iso(T0 - 1)), null, 'the torn line no longer refuses (it was dropped)');
+  assert.equal(sendertoken.endedSince(['a'], iso(T0 - 1)), true, 'CONTROL: a match ahead of the torn line still answers');
 });
 
 test('kosmos#5208: noteEnded compacts once the live file passes the bound', () => {
