@@ -48,6 +48,12 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
   orphan file under task-chats. Recording is best-effort by design, and checking the task exists would add a store read on
   every sweep for a file nobody reads.
 
+- Review 6: a kept line whose removal from the queue file failed is remembered only in memory, so after a restart it
+  is typed or dropped again and recorded a second time. That is the queue's existing window (the line itself is typed
+  twice then), and a second row says what happened.
+- Review 6: "sent" for a line placed in the agent's input, as the app says "sent" for a placed direct message. The
+  unconfirmed state is the only one worded differently.
+
 ## Weakest premise
 - An entry typed or dropped by a board older than this change records nothing, which is honest, but the person then
   sees no outcome for that one message. Entries last a day, so this window closes within a day of the update.
