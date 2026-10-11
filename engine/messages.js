@@ -1474,6 +1474,47 @@ async function tellHeldDropped(entry, roster) {
   try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
 }
 
+/* #5805: a task message's line (`kosmos task message`, or the person's from the screen) for an agent out of usage is
+   kept like a `kosmos msg` and typed by the same minute sweep after the reset; so is one for an agent whose messages
+   kept from then are still waiting, so it never arrives ahead of them. null: not held, type it now. Otherwise the
+   outcome the route reports for that agent: held when kept, could_not when it could not be kept (and was not typed).
+   `from` is the sending agent's name, or '' for the person. Never throws. */
+function keepTaskLine(toName, line, roster, from, about) {
+  try {
+    const limitqueue = require('./limitqueue');
+    let hold = null;
+    try { hold = chat.limitHeldVerdict(toName, roster); } catch { hold = null; }
+    const qName = limitQueueName(toName, roster);
+    const at = new Date().toISOString();
+    if (!hold) {
+      if (chat.addressable(toName, roster).ok !== true) return null;   // refused as before, by the delivery itself
+      const queued = limitqueue.readEntries(qName);
+      // A queue that cannot be read now may hold a backlog: never typed ahead of it (keeping it then fails, and says so).
+      if (queued.ok && !queued.entries.some((e) => !limitqueue.isDone(e.id))) return null;
+      hold = { limitReset: at, behind: true };
+    }
+    const behind = hold.behind === true;
+    // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
+    const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
+    const id = 'k' + crypto.randomBytes(6).toString('hex');
+    const why = limitqueue.addOrWhy(qName, { id, kind: 'task', from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind });
+    if (why) {
+      return { state: chat.DELIVERY.COULD_NOT, because: toName + (behind ? ' still has messages kept from while it was out of usage' : ' is out of usage')
+        + ', and Kosmos could not keep this one for it (' + (why === 'store' ? 'its queue could not be read or written' : 'too many are kept for it already') + '), so it was not told' };
+    }
+    const until = !behind && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
+    return { ...heldReceipt(toName, id, at, until, false, behind), state: HELD_STATE };
+  } catch { return null; }
+}
+/* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane (the person sees the
+   task's conversation, which holds the message, and the route already said it was kept). */
+async function tellTaskLineDropped(entry, roster) {
+  if (!entry.from) return null;
+  const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it'
+    + ' for a day while it was out of usage and could not type it. Send it again if it still matters.';
+  try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
+}
+
 function sendAsync(input, roster) {
   return Promise.resolve(sendWithDelivery(input, roster, chat.deliverAsync));
 }
@@ -3199,6 +3240,7 @@ function projectOfPost(id) {
 
 module.exports = {
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
+  keepTaskLine, tellTaskLineDropped,   // kosmos#5805: task messages
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,

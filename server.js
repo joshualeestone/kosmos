@@ -4549,7 +4549,8 @@ function taskMessageSummary(delivered, assigned) {
   if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
   /* One outcome per agent, the worst winning (not told, then may have been told, then told), so an agent listed twice
      never gets two sentences that contradict each other. A name that cleans to nothing is still said. */
-  const rank = (st) => (st === chat.DELIVERY.COULD_NOT ? 2 : st === chat.DELIVERY.PLACED ? 0 : 1);
+  // #5805: kept for an agent out of usage sits between told and may have been told: nothing was typed yet, on purpose.
+  const rank = (st) => (st === chat.DELIVERY.COULD_NOT ? 3 : st === chat.DELIVERY.PLACED ? 0 : st === messages.HELD_STATE ? 1 : 2);
   const byName = new Map();
   for (const d of list) {
     if (!d) continue;
@@ -4562,11 +4563,17 @@ function taskMessageSummary(delivered, assigned) {
   const told = names(chat.DELIVERY.PLACED);
   /* Only a delivery the board knows failed is "not told"; one it did not hear back from (unconfirmed, or no state
      at all) may have landed, so it is never claimed either way. */
-  const maybe = one.filter((d) => d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.COULD_NOT).map((d) => d.who);
+  const maybe = one.filter((d) => d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.COULD_NOT && d.state !== messages.HELD_STATE).map((d) => d.who);
+  const kept = one.filter((d) => d.state === messages.HELD_STATE);
   const not = one.filter((d) => d.state === chat.DELIVERY.COULD_NOT);
   const parts = [];
   if (told.length) parts.push('Told ' + told.join(', ') + '.');
   if (maybe.length) parts.push(maybe.join(', ') + ' may have been told (Kosmos could not confirm it).');
+  /* #5805: the reason already names the agent ("casey is out of usage until ...; Kosmos types it after the reset"). */
+  for (const d of kept) {
+    const why = plain(d.because).replace(/^held: /, '').replace(/\.$/, '');
+    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset')) + '.');
+  }
   /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
   for (const d of not) {
     const who = d.who;
@@ -20396,10 +20403,17 @@ const server = http.createServer(async (req, res) => {
         }
         for (const one of recipients) {
           let outcome;
+          /* #5805: an assignee out of usage (or with messages still kept from then) is not typed into: the line is kept
+             and the minute sweep types it after the reset, as for `kosmos msg`. */
+          const kept = messages.keepTaskLine(one, line, roster, viaScreen ? '' : senderName, 'task ' + t.number + ' in ' + projName);
           // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
-          try { outcome = await chat.deliverAsync(one, line, roster); }
-          catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
-          delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
+          if (kept) outcome = kept;
+          else {
+            try { outcome = await chat.deliverAsync(one, line, roster); }
+            catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
+          }
+          delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because,
+            ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}) });
         }
         if (!viaScreen) taskMessageValveRecord();
         sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) });
