@@ -40,3 +40,10 @@ holds only that line; a tunnel built before slice 1 prints no line at all, which
 - Neighbours and gates at 4bbfa762a: remote*, mac-standing, account-computers, backupupload, federation*, fedseats,
   fedmembers, agentevents-5683, orgrollup-worlds-5532, orgpolicy-apply-5534, hostedguide, engine.reachable,
   browser-checks-reason-grep, web.speech-kind-1397: 887 tests, 886 pass, 0 fail, 1 skipped.
+
+## Review 1 (sonnet)
+- FIXED: the because-filter's comment named mac-request, but the filter applies to every verb and both streams (as
+  planned); the comment now says so.
+- DEFERRED, not an issue: a failed macRequest's `refusal` key would reach anything that serialises the result whole;
+  no caller does (measured: orgenroll.signed and the server send `because`), and every field in it is validated.
+- NIT taken: the keepStdout note is folded into setupRun's doc block.

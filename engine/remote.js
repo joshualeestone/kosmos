@@ -930,9 +930,9 @@ function status() {
     written to the child's stdin and the stream closed (the #3149 `signin
     register` path pipes the session token in this way, so the 30-day credential
     never sits on argv); when it is null the child gets no stdin, exactly as
-    before -- so every existing caller is unaffected. */
-/* `opts.keepStdout` (kosmos#5744, mac-request only): a failed run's stdout is kept as `said`. Other verbs print
-   their logs there, so no other caller gets it on a failure. */
+    before -- so every existing caller is unaffected.
+    `opts.keepStdout` (kosmos#5744, mac-request only): a failed run's stdout is kept as `said`. Other verbs print
+    their logs there, so no other caller gets it on a failure. */
 function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
   return new Promise((resolve) => {
     let spawned;
@@ -974,8 +974,8 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
     }
     const resultFor = (code) => {
       if (code === 0) { finish({ ok: true, because: null, said: out.trim() }); return; }
-      /* kosmos#5744: mac-request prints a refusal's fields as a {"refusal":...} line on stdout. It is data, never
-         words for a person, so it is never `because`, even when stderr is empty. */
+      /* kosmos#5744: a {"refusal":...} line (mac-request prints one on stdout when refused) is data, never words
+         for a person, so for any verb and from either stream it is never `because`, even when stderr is empty. */
       const words = (t) => t.split('\n').filter((l) => l.trim() && !l.trim().startsWith('{"refusal"'));
       const errLines = words(errOut.trim());
       const lines = errLines.length ? errLines : words(out.trim());
