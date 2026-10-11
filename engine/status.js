@@ -2778,7 +2778,7 @@ function limitResetAt(line, nowMs) {
 
 /* #5805 slice 3: Claude Code prints a reset with no date ("resets 4pm (America/Chicago)") when it is under a day
    away: the 5-hour session limit, and a weekly limit on its last day. The time alone does not say which day, so it is
-   read as its next occurrence after the board FIRST saw the line (claudeLimitUntil keeps that time). */
+   read as its next occurrence after the board FIRST saw the line (the screen pass, noteLimitRows, keeps that time). */
 const LIMIT_RESET_TIME_ONLY = /\bresets (\d{1,2})(?::(\d{2}))? ?(am|pm) \(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)*)\)/i;
 /* How far after it is first seen a dateless reset can be: a session limit resets within five hours of the turn it
    stopped, anything else within a day (Claude Code dates a reset further away). A reading past that means the line
@@ -2809,67 +2809,127 @@ function limitResetTimeOnlyAt(line, firstSeenMs) {
     return null;
   } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
 }
-/* When each agent's dateless limit line was first seen, keyed by agent and the line itself. In memory: a board
-   restart sees it again from then, which the span above bounds. An entry ends when the line does: claudeLimitUntilIso
-   forgets an agent's entries once its card has read not capped for LIMIT_ENDED_AFTER_MS, and claudeLimitUntil when
-   it reads capped on any other line, so the same words tomorrow
-   are a new limit, never read against yesterday's time. NOT on a gap in reads (review 1): a Mac that slept through
-   the reset is still showing the same line, and restarting its clock then would name tomorrow's time. A day past
-   the longest span is only a memory backstop, for an agent that is gone. */
-const limitFirstSeen = new Map();
-const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;
-/* Review 2: "not capped" must hold for a while before it ends a limit. One reading can be unknown (a pane read that
-   failed) or briefly another state, and the line is still there; forgetting then restarts the clock. */
-const LIMIT_ENDED_AFTER_MS = 2 * 60 * 1000;
-const limitNotCappedSince = new Map();
-/* The memory backstop for agents that went away (review 3): run on every card read, both maps stay one entry per
-   agent at most for two days. */
-function pruneLimitMaps(now) {
-  for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
-  for (const [k, since] of limitNotCappedSince) if (now - since > LIMIT_FIRST_SEEN_KEEP_MS) limitNotCappedSince.delete(k);
+/* #5805 slice 3b: when each agent's dateless limit rows were first seen ON ITS SCREEN, keyed by agent and the row's
+   limit key (its kind and reset phrase). The snapshot's screen pass keeps it (noteLimitRows, every capture), so it
+   tracks the line itself rather than how the card was classified: a retired row (retireResetLimits) leaves the card
+   idle while the row is still on screen, and its first-seen time must stand then. An entry ends when its row has been
+   off the agent's screen for LIMIT_ROW_GONE_MS (a failed capture records nothing and ends nothing). In memory: a board
+   restart sees a row again from then, which the span above bounds. This replaces slice 3a's card-state lifecycle. */
+const limitFirstSeen = new Map();   // key -> { at, last, count, late, until? }
+/* Review 2: a row that left the screen and comes back within the longest its limit could last is the same row again
+   (a redraw, a pane relaunched with its scrollback), not a new limit, and its arrival time is unknown: it comes back
+   late. key -> until (its first sighting plus its kind's span). */
+const limitRowGone = new Map();
+const LIMIT_ROW_GONE_MS = 2 * 60 * 1000;
+const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;   // backstop for an agent that went away
+/* Agents the screen pass has captured before (review 1): a row already on screen at the board's FIRST capture of an
+   agent arrived at an unknown time (a board restart, an agent first appearing, or a capture after a long gap), so it is
+   marked late and given no time, no hold and no retirement, as before 3b. Only a row the board watched arrive is
+   timed. */
+const limitCapturedAgents = new Map();   // agent -> its last capture time
+/* Review 4: a capture after a gap longer than this (a Mac asleep, captures failing) is like a first capture: a row new
+   in it may have arrived any time in the gap, so it is late. */
+const LIMIT_CAPTURE_GAP_MS = 5 * 60 * 1000;
+function limitRowKey(agent, text) {
+  const t = String(text == null ? '' : text);
+  const m = LIMIT_RESET_TIME_ONLY.exec(t);
+  if (!m) return null;
+  return String(agent) + '\u0000' + (/\bsession limit\b/i.test(t) ? 'session' : 'day') + '\u0000' + m[0].toLowerCase();
 }
-/* Forget an agent's first-seen times, all of them or all but `keepLine`'s. */
-function forgetLimitLines(agent, keepLine) {
-  const prefix = String(agent) + '\u0000';
-  const keep = typeof keepLine === 'string' ? prefix + keepLine : null;
-  for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix) && k !== keep) limitFirstSeen.delete(k);
+/* The screen pass: record each dateless limit row on `agent`'s screen, and end the agent's rows that have been gone for
+   LIMIT_ROW_GONE_MS. `text` not a string (the capture failed): nothing recorded, nothing ended. Only Claude Code's own
+   limit rows count (reviews 1 and 9): a "hit your ... limit" row with its turn footer below it (vendorFooterAt) and the
+   person's prompt as the nearest column-0 row above it (underPromptAt), so a quoted limit line in a tool result never
+   sets a time, even when the turn ends on that tool result. More rows with
+   one key than at the last capture means a NEW limit printed the same words (review 1: yesterday's retired row still in
+   the scrollback above today's): its first-seen time starts again. */
+function noteLimitRows(agent, text, nowMs) {
+  if (typeof text !== 'string') return;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const name = String(agent);
+  const prefix = name + '\u0000';
+  const prevCapture = limitCapturedAgents.get(name);
+  const firstCapture = !Number.isFinite(prevCapture) || now - prevCapture > LIMIT_CAPTURE_GAP_MS;
+  limitCapturedAgents.set(name, now);
+  for (const [k, until] of limitRowGone) if (now > until) limitRowGone.delete(k);
+  const rows = text.split('\n');
+  const counts = new Map();
+  const sample = new Map();
+  const footers = new Map();   // key -> the turn footers under its rows this capture
+  rows.forEach((row, i) => {
+    const f = HIT_YOUR_LIMIT.test(row) ? vendorFooterAt(rows, i) : -1;
+    // Review 9: and straight under the person's prompt, so a quoted limit line ending a turn (under a tool call) is
+    // never timed, and so never held. A limit hit mid-turn goes untimed too: not held, as before 3b.
+    if (f < 0 || !underPromptAt(rows, i)) return;
+    const key = limitRowKey(agent, row);
+    if (!key) return;
+    counts.set(key, (counts.get(key) || 0) + 1);
+    sample.set(key, row);
+    if (!footers.has(key)) footers.set(key, new Set());
+    footers.get(key).add(rows[f].trim());
+  });
+  for (const [key, count] of counts) {
+    const seen = limitFirstSeen.get(key);
+    // A row back from the gone list keeps that window (`until`), so returning again never extends it.
+    const here = footers.get(key) || new Set();
+    if (!seen) { limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture || limitRowGone.has(key), until: limitRowGone.get(key), footers: here }); continue; }
+    seen.last = Math.max(seen.last, now);
+    const newFooter = [...here].some((f) => !seen.footers.has(f));
+    for (const f of here) seen.footers.add(f);
+    /* More rows than before is a NEW limit only when one could have appeared and the new row ended a NEW turn
+       (reviews 3 and 5): a SESSION limit, timed, its reset passed (the next day's limit can print the same words), and a
+       turn footer under its rows this entry has not seen. A redraw (a resize reprinting the transcript) copies the old
+       block, footer and all, so it never re-times, which would otherwise hold a free agent for hours when the next
+       occurrence of the printed time falls inside the five-hour span. Never a late row, and never a weekly last-day
+       row (a second identical weekly limit within a day cannot happen). */
+    if (count > seen.count && !seen.late && newFooter && key.includes('\u0000session\u0000')) {
+      const reset = limitResetTimeOnlyAt(sample.get(key), seen.at);
+      if (reset !== null && now >= reset + RESET_GRACE_MS) { limitFirstSeen.set(key, { at: now, last: now, count, late: false, footers: new Set(seen.footers) }); continue; }
+    }
+    seen.count = count;
+  }
+  for (const [k, v] of limitFirstSeen) {
+    if (!k.startsWith(prefix)) { if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k); continue; }
+    if (now - v.last > LIMIT_ROW_GONE_MS) {
+      limitFirstSeen.delete(k);
+      limitRowGone.set(k, Number.isFinite(v.until) ? v.until : v.at + (k.includes('\u0000session\u0000') ? SESSION_LIMIT_SPAN_MS : DAY_LIMIT_SPAN_MS));
+    }
+  }
 }
-function hasLimitLines(agent) {
-  const prefix = String(agent) + '\u0000';
-  for (const k of limitFirstSeen.keys()) if (k.startsWith(prefix)) return true;
-  return false;
+/* When `agent`'s dateless limit line (a row, or a card's evidence containing it) was first seen on its screen, or null. */
+function limitFirstSeenOf(agent, text) {
+  const key = limitRowKey(agent, text);
+  const seen = key ? limitFirstSeen.get(key) : null;
+  return seen && !seen.late ? seen.at : null;   // a row seen late is not timed
 }
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
-   this can read. A dated line is read as limitResetAt reads it; a dateless one from when it was first seen. */
+   this can read. A dated line is read as limitResetAt reads it; a dateless one from when the screen pass first saw it
+   (null when it has not: the board saw it late, or it is not on the screen). */
 function claudeLimitUntil(agent, evidence, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const line = String(evidence == null ? '' : evidence);
   const dated = limitResetAt(line, now);
-  // Any other line on this agent's screen (dated, dateless, or one with no reset this reads) is another limit.
-  if (dated !== null || !LIMIT_RESET_TIME_ONLY.test(line)) { forgetLimitLines(agent, line); return dated; }
-  pruneLimitMaps(now);
-  forgetLimitLines(agent, line);
-  const key = String(agent) + '\u0000' + line;
-  let seen = limitFirstSeen.get(key);
-  if (!seen) { seen = { at: now, last: now }; limitFirstSeen.set(key, seen); }
-  seen.last = Math.max(seen.last, now);
-  return limitResetTimeOnlyAt(line, seen.at);
+  if (dated !== null) return dated;
+  const first = limitFirstSeenOf(agent, line);
+  return first === null ? null : limitResetTimeOnlyAt(line, first);
 }
-function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitNotCappedSince.clear(); }
+/* The snapshot's agents this pass (review 2): an agent missing from it is no longer captured, so a pane relaunched
+   under its name starts over as a first capture (rows on its screen then are late). Never pass an empty list for a
+   listing that failed: every agent would lose its rows and its next rows would read late (the caller skips it). */
+function limitCaptureSweep(names) {
+  const present = new Set(Array.from(names || [], String));
+  for (const a of [...limitCapturedAgents.keys()]) {
+    if (present.has(a)) continue;
+    limitCapturedAgents.delete(a);
+    // Review 3: its rows go too, so a row at its first re-capture is late, never timed by an older sighting.
+    const prefix = a + '\u0000';
+    for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix)) limitFirstSeen.delete(k);
+  }
+}
+function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitCapturedAgents.clear(); limitRowGone.clear(); }
 /* The card's limitUntil: only for a Claude pane read rate_limited (a Codex or Gemini limit says its own reset). */
 function claudeLimitUntilIso(pane, status) {
-  if (!pane) return null;
-  const now = Date.now();
-  pruneLimitMaps(now);
-  if (!status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') {
-    // Not capped now: its limit (if any) ended, once that has held for LIMIT_ENDED_AFTER_MS.
-    if (!hasLimitLines(pane.name)) { limitNotCappedSince.delete(pane.name); return null; }
-    const since = limitNotCappedSince.get(pane.name);
-    if (since === undefined) limitNotCappedSince.set(pane.name, now);
-    else if (now - since >= LIMIT_ENDED_AFTER_MS) { forgetLimitLines(pane.name, null); limitNotCappedSince.delete(pane.name); }
-    return null;
-  }
-  limitNotCappedSince.delete(pane.name);
+  if (!pane || !status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') return null;
   if (pane.runner && pane.runner !== 'claude') return null;
   if (isCodexCommand(pane.command) || isGrokCommand(pane.command) || isAntigravityCommand(pane.command)) return null;
   const at = claudeLimitUntil(pane.name, status.evidence);
@@ -2883,6 +2943,18 @@ const CLAUDE_LIMIT_MENU_TITLE = /^\s*What do you want to do\?/;
 function claudeLimitMenuUp(text) {
   return String(text == null ? '' : text).split('\n').some((row) => CLAUDE_LIMIT_MENU_TITLE.test(row));
 }
+/* #5805 slice 3b review 8/9: is row i straight under the person's prompt? The nearest column-0 row above it is the
+   person's past turn, not a "●" row (the agent's text or a tool call, whose output is indented under it). A limit
+   Claude Code printed for a turn the person started sits there; a quoted limit line in a tool result does not.
+   Review 11: Claude Code 2.1.29x draws a past turn as "❯ text" (test-support/claude-screens/question-menu-2.1.29x.txt,
+   and every live pane on this box, 2026-10-10); "> text" is the older form some fixtures still use. Both count. */
+function underPromptAt(rows, i) {
+  for (let k = i - 1; k >= 0; k--) {
+    if (!rows[k].trim() || /^\s/.test(rows[k])) continue;
+    return /^[>❯]\s/.test(rows[k]);
+  }
+  return false;
+}
 /* #5031: the screen with every Claude limit block whose own reset has PASSED taken out, so classify reads what is
    left (review round 1: relabelling the whole reading idle read only the OLDEST limit line and hid whatever else the
    screen showed). A limit line stays on screen until the agent gets a new turn, and a capped Guide gets none (the
@@ -2895,17 +2967,36 @@ function claudeLimitMenuUp(text) {
    "Stop" (usage-based billing) or "Wait for limit to reset" (the spend-limit menu), all under that one title, which
    it uses only for the limit, spend-limit and trial-ended menus (review round 3). The reset gets a minute's grace:
    the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
-function retireResetLimits(text, nowMs) {
+function retireResetLimits(text, nowMs, firstSeenOf) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const lastMenu = rows.reduce((at, row, i) => (CLAUDE_LIMIT_MENU_TITLE.test(row) ? i : at), -1);
+  /* #5805 slice 3b review 7: the last "hit your ... limit" row Claude Code printed for a turn the person started (its
+     turn footer below it, and the person's prompt the nearest column-0 row above it). Every "hit your" row above that
+     has been typed past (a newer turn ended on a newer limit), so it is retired whatever its reset: otherwise an older
+     row the board saw late, untimed, stays on screen as the card's evidence (messageAt reads the first from the top)
+     and hides the newer limit's reset, so the newer limit is neither held nor ever retired. Review 8: only a row
+     straight under a prompt counts as the newer limit; a quoted limit line in a tool result (under a "●" row) that
+     happens to end a turn must never retire the real, binding row above it. A limit hit mid-turn (after the agent's
+     own text) does not count either, and then the older row stays, as before. */
+  let lastLimit = -1;
+  rows.forEach((row, i) => { if (HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0 && underPromptAt(rows, i)) lastLimit = i; });
   const drop = new Set();
   rows.forEach((row, i) => {
-    if (!HIT_YOUR_LIMIT.test(row) || lastMenu > i) return;
+    if (!HIT_YOUR_LIMIT.test(row)) return;
     const footer = vendorFooterAt(rows, i);
     if (footer < 0) return;
-    const resetAt = limitResetAt(row, now);
-    if (resetAt === null || now < resetAt + RESET_GRACE_MS) return;
+    const superseded = i < lastLimit;
+    if (!superseded && lastMenu > i) return;
+    let resetAt = limitResetAt(row, now);
+    /* #5805 slice 3b: a dateless row ("resets 4pm (zone)"), from when the screen pass first saw it. No first-seen time
+       (seen late, beyond the span bound): kept, as before. */
+    if (resetAt === null && typeof firstSeenOf === 'function') {
+      let first = null;
+      try { first = firstSeenOf(row); } catch { first = null; }
+      if (Number.isFinite(first)) resetAt = limitResetTimeOnlyAt(row, first);
+    }
+    if (!superseded && (resetAt === null || now < resetAt + RESET_GRACE_MS)) return;
     /* Up to the footer, or to the NEXT limit row of any wording if one shares this footer (review rounds 2 and 3): an
        expired row must never take a live one with it. The vendor's own /usage-credits upsell row is part of this
        block, not another limit, so it goes with it. A "hit your" row is judged on its own when the loop reaches it. */
@@ -8248,9 +8339,13 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
+  // #5805 3b review 2: agents gone from this pass are no longer captured (not on an empty read: a failed listing must
+  // not make every limit row read late).
+  if (panes.length) limitCaptureSweep(panes.map((pane) => pane.name));
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
-    const scrapedStatus = classify(pane, retireResetLimits(text, Date.now()));   // #5031
+    noteLimitRows(pane.name, text, Date.now());   // #5805 slice 3b: before retiring, so a first sighting never retires
+    const scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitFirstSeenOf(pane.name, row)));   // #5031
     /* The agent's own account outranks the scrape when fresh (#188); only a
        pane TIED to the name may read that name's record, the same gate every
        name-keyed read below honours. */
@@ -9185,7 +9280,7 @@ module.exports = {
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
