@@ -624,13 +624,17 @@ function isRevokedPost(st, member, epoch) {
   return !!m && typeof m === 'object' && typeof member === 'string' && Object.prototype.hasOwnProperty.call(m, member)
     && Number.isInteger(m[member]) && Number.isInteger(epoch) && epoch <= m[member];
 }
-/** #5191: this board's own screen removed a member (the coordinator answered the revoke), so the
-    room rotates now instead of at the next edge check. Resolves like rotateForRevoked; never rejects. */
+/** #5191: this board's own screen removed a member (the coordinator answered the revoke). The room
+    is checked now, with an answer asked after the remove, instead of at the next edge check; and
+    until a check like that succeeds, no check or shared answer asked before the remove lets a post
+    through (holdForCheck, checkRoom). Resolves true when the room rotated; never rejects. */
 function afterRemove(projectId) {
+  const s = seats.get(projectId);
+  if (s) { s.removedAt = Date.now(); s.removedMono = mono(); s.edgeAskedAt = 0; }
   let link = null;
   try { link = linkFor(projectId); } catch { link = null; }
   if (!link || link.role !== 'owner') return Promise.resolve(false);
-  return rotateForRevoked(projectId, link, null).catch(() => false);
+  return checkRoom(projectId, link, null, false, null, s).then((r) => !!(r && r.rotated), () => false);
 }
 function hasKey(st) {
   return !!st && !!st.keys && Number.isInteger(st.epoch) && typeof st.keys[st.epoch] === 'string';
@@ -777,14 +781,16 @@ function revokeCheck(projectId, link, edges) {
     const accountOfPeer = (p) => (p && typeof p.account === 'string' && p.account) || (p && accountOf.get(p.edge)) || null;
     const keptList = Object.values(keep).map(accountOfPeer);
     const keptAccounts = new Set(keptList.filter(Boolean));
-    const revokedAccounts = Object.assign({}, st.revokedAccounts && typeof st.revokedAccounts === 'object' ? st.revokedAccounts : {});
+    // A Map, written out with Object.fromEntries, so any account id is an own key of the record.
+    const prior = st.revokedAccounts && typeof st.revokedAccounts === 'object' ? st.revokedAccounts : {};
+    const revoked = new Map(Object.keys(prior).filter((a) => Number.isInteger(prior[a])).map((a) => [a, prior[a]]));
     // A kept peer whose account cannot be named might share a dropped one's: then nothing is recorded,
     // and the grace bounds this revoke as before, rather than refusing that peer's in-flight posts.
     if (!keptList.includes(null)) for (const pub of gone) {
       const account = accountOfPeer(peers[pub]);
-      if (account && !keptAccounts.has(account)) revokedAccounts[account] = Math.max(Number.isInteger(revokedAccounts[account]) ? revokedAccounts[account] : st.epoch, st.epoch);
+      if (account && !keptAccounts.has(account)) revoked.set(account, Math.max(revoked.has(account) ? revoked.get(account) : st.epoch, st.epoch));
     }
-    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys, revokedAccounts })); } catch {
+    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys, revokedAccounts: Object.fromEntries(revoked) })); } catch {
       return { checked: false, rotated: false, unreadable: true };
     }
     const s = seats.get(projectId);
@@ -873,7 +879,9 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
     // asked for: a later one (the answer was old by the time this step ran, behind a slow
     // sealing step) stays held for its own check or the next pass. The unchecked pass
     // release (Kosmos+ cannot answer) shows them all, as before.
-    const coversUntil = r && r.checked ? s.edgesCheckedAt + EDGE_FRESH_MS : Infinity;
+    let coversUntil = r && r.checked ? s.edgesCheckedAt + EDGE_FRESH_MS : Infinity;
+    // An answer asked before this screen removed someone covers only posts that arrived before it.
+    if (r && r.checked && Number.isFinite(s.removedAt) && s.edgesCheckedAt <= s.removedAt) coversUntil = Math.min(coversUntil, s.removedAt - 1);
     const held = s.held.filter((h) => h.at <= coversUntil);
     s.held = s.held.filter((h) => h.at > coversUntil);
     s.heldIds = new Set(s.held.map((h) => h.id));
@@ -893,7 +901,7 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
     memory: a board restart while they wait loses them. */
 function holdForCheck(projectId, s, sealed, env, line, now) {
   if (!Object.keys(sealed.peers || {}).length) return false;   // nobody pinned: no revoke to wait for
-  if (isFresh(s.edgesCheckedAt, now)) return false;
+  if (isFresh(s.edgesCheckedAt, now) && !(Number.isFinite(s.removedAt) && s.edgesCheckedAt <= s.removedAt)) return false;
   const opened = s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, env) : null;
   if (!opened || now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS || (s.seen && s.seen.has(opened.id))) return false;
   // An unreadable link record still holds the post (failing open would show a revoked
@@ -916,7 +924,7 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
   s.heldIds.add(opened.id);
   s.held.push({ line, at: now, id: opened.id });
   if (link && !s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
-    const ask = sharedEdges(now);
+    const ask = sharedEdges(now, s.removedMono);
     // The answer's own ask time: one joined from another room may be older than this post.
     s.edgeAskedAt = ask.askedAt;
     s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s).catch(() => {}).then(() => { s.edgeAsk = null; });

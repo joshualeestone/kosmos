@@ -40,8 +40,9 @@ new-key posts show.
   member's ticket member is its account id).
 - `revokedAccounts` is never pruned: one entry per account ever revoked from the room, so it is
   bounded by the room's invites, and it goes when the room is forgotten.
-- Between the remove and its own check answering (one request), the revoked member is still
-  pinned and nothing is noted yet.
+- Between the remove and its own check answering (the room's sealing steps already queued, plus
+  one request), the revoked member is still pinned and nothing is recorded yet. afterRemove drops
+  the Mac's shared edges answer first, so if its own check fails, the next post's check asks again.
 
 ## Tests (engine/fedseats.test.js, server.fedmembers-4649.test.js)
 Each run against a perturbation that turns it red (recorded in the commit messages):
@@ -50,4 +51,5 @@ Each run against a perturbation that turns it red (recorded in the commit messag
 - stale answers before a re-invite / before a revoke change nothing;
 - one account on two edges; exact stamp and epoch rule;
 - the account from the pin vs from the answer (both arms); a restarted board still refuses;
+- a remove whose own check fails still makes the next post ask fresh; a prototype-name account id;
 - the route calls afterRemove(project).
