@@ -897,13 +897,14 @@ const AGENTS_LOOK = `(() => {
           const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#d-file-btn' });
           if (!nodeId) return { found: false };
           await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: ['hover'] });
-          const bg = await page.evaluate(() => getComputedStyle(document.getElementById('d-file-btn')).backgroundImage);
+          const hv = await page.evaluate(() => { const b = document.getElementById('d-file-btn'), cs = getComputedStyle(b); return { img: cs.backgroundImage, fill: cs.backgroundColor, disabled: b.disabled }; });
           await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
           const rest = await page.evaluate(() => getComputedStyle(document.getElementById('d-file-btn')).backgroundImage);
-          return { found: true, bg, rest };
+          return { found: true, bg: hv.img, fill: hv.fill, disabled: hv.disabled, rest };
         } catch (e) { return { found: false, error: String(e && e.message || e).slice(0, 120) }; } finally { await cdp.detach().catch(() => {}); }
       })();
-      chk(ctlHover.found && ctlHover.bg.includes('rgba(198, 154, 50, 0.14)') && !ctlHover.rest.includes('rgba(198, 154, 50, 0.14)'),
+      /* Review 3: the tint lies over the RAISED fill, and a disabled button (a withdrawn agent) says so in the output. */
+      chk(ctlHover.found && !ctlHover.disabled && ctlHover.fill === RAISE_OF[theme] && ctlHover.bg.includes('rgba(198, 154, 50, 0.14)') && !ctlHover.rest.includes('rgba(198, 154, 50, 0.14)'),
         `${tag} On, the controls: a plain button under the pointer takes today's gold tint over its fill, and drops it after (#5551 option B)`, JSON.stringify(ctlHover));
       const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
       chk(setOn.found && setOn.dotBg !== OLD_DOT && setOn.dotBg !== CLEAR && setOn.dotBg !== 'absent' && setOn.plusNavBg !== GREY_OF[theme] && setOn.plusOnEdge !== CLEAR,
@@ -993,7 +994,8 @@ const AGENTS_LOOK = `(() => {
         chk(dmForced.found && dmForced.box === 'rgb(0, 0, 0)' && dmForced.you === GREY_OF.dark && dmForced.agent === 'rgb(0, 0, 0)' && dmForced.tail === 'rgb(0, 0, 0)' && dmForced.composer === GREY_OF.dark,
           `${tag} On + chosen Dark: an agent's page has the black ground, dark-grey own messages and composer`, JSON.stringify(dmForced));
         const ctlForced = await page.evaluate(CTRL_LOOK);
-        chk(ctlForced.found && ctlForced.plainBg === 'rgb(58, 58, 60)' && ctlForced.plainEdge !== 'rgba(0, 0, 0, 0)' && ctlForced.plainShadow === 'none',
+        /* Review 3: today's gold edge by value (--gold-deep, #b88920, one value in every theme), not just "some edge". */
+        chk(ctlForced.found && ctlForced.plainBg === 'rgb(58, 58, 60)' && ctlForced.plainEdge === 'rgb(184, 137, 32)' && ctlForced.plainShadow === 'none',
           `${tag} On + chosen Dark: a plain button is the raised dark pill, a step lighter than the box, with its gold edge (#5551 option B)`, JSON.stringify(ctlForced));
         const dlForced = await page.evaluate(DLEFT_LOOK);
         chk(dlForced.found && dlForced.ground === GREY_OF.dark && dlForced.onBg === 'rgb(0, 0, 0)',
@@ -1027,7 +1029,9 @@ const AGENTS_LOOK = `(() => {
         && agOn.home.pillEdge === 'rgba(0, 0, 0, 0)' && agOn.home.pillBg === 'rgba(0, 0, 0, 0)' && (agOn.home.pillLayer === 'none' || agOn.home.pillLayer === 'normal')
         && /Working/.test(agOn.home.pillWord),
         `${tag} On, Home: the working card is the idle card's grey with no wash or pulse, its state a word with no pill`, JSON.stringify(agOn.home));
-      /* The count row is plain text: the Issue filter loses its red box and rests on the soft grey ground of a control. */
+      /* The count row is plain text: the Issue filter loses its red box and rests on the soft grey ground of a control.
+         Review 3: only the EDGE half guards the change today (the tile's new-look fill is already this grey); the ground
+         half is kept so a later rule that paints the resting filter another colour fails here. */
       chk(agOn.home.attnTile !== 'absent' && agOn.home.attnTile.edge === 'rgba(0, 0, 0, 0)' && agOn.home.attnTile.bg === GREY_OF[theme],
         `${tag} On, Home: the Issue filter has no red box at rest, the soft grey of a control instead`, JSON.stringify(agOn.home.attnTile));
       chk(agOn.tile === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile has no box`, JSON.stringify(agOn));
@@ -1044,7 +1048,7 @@ const AGENTS_LOOK = `(() => {
         const out = { found: true };
         /* Review 2: each card carries the state pill boardMods gives it, so the pills Home keeps (Issue's white one,
            could-not-read's dashed one) and the ones it turns into a mark and a word (Question, idle) are read too. */
-        const PILL = { attn: 'st-attn', question: 'st-blocked', unk: 'st-unknown', '': 'st-idle' };
+        const PILL = { attn: 'st-attn', question: 'st-question', unk: 'st-unknown', '': 'st-idle' };   // boardMods: astate st-${m.st}, and m.st IS 'question' (review 3)
         for (const c of ['attn', 'question', 'unk', '']) {
           const d = document.createElement('div'); d.className = ('acard ' + c).trim();
           const pl = document.createElement('div'); pl.className = 'astate ' + PILL[c]; pl.innerHTML = '<b>x</b>'; d.append(pl); g.append(d);
