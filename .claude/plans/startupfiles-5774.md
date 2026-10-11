@@ -5,7 +5,7 @@
 
 ## The change
 - `shellStartPaths(home, env, opts)` in engine/setup-assistant.js returns the files, the folders read whole, the permission-layer globs, and what it cannot work out:
-  - zsh: .zshenv .zprofile .zshrc .zlogin .zlogout, each with its compiled .zwc, in the home folder and in every ZDOTDIR found. ZDOTDIR comes from the environment, from ~/.zshenv, and from each ZDOTDIR's own .zshenv (bounded to 8 rounds), and the conventional <XDG>/zsh is always included. Completion dumps (.zcompdump*): a glob in the home and each ZDOTDIR (the file tools), plus existing dumps by name in a ZDOTDIR outside the home (both layers).
+  - zsh: .zshenv .zprofile .zshrc .zlogin .zlogout, each with its compiled .zwc, in the home folder and in every ZDOTDIR found. ZDOTDIR comes from the environment, from ~/.zshenv, and from each ZDOTDIR's own .zshenv (bounded to 8 rounds), and the conventional <XDG>/zsh is always included. Completion dumps (.zcompdump*): a glob in the home and each ZDOTDIR (the file tools), plus existing dumps by name in a ZDOTDIR that is not anywhere under the home (both layers).
   - bash and sh: .bashrc .bash_profile .bash_login .profile .bash_logout .bash_aliases, and the file $BASH_ENV or $ENV names. csh and tcsh: .cshrc .tcshrc .login .logout.
   - XDG_CONFIG_HOME: ~/.config always, plus the environment's, plus one ~/.zshenv sets. fish's and nushell's folders are denied whole under each, with nushell's macOS default (~/Library/Application Support/nushell).
   - User-writable startup folders outside the home, where they exist: Homebrew's zsh site-functions and fish vendor_conf.d, vendor_functions.d and vendor_completions.d, under /opt/homebrew and /usr/local.
@@ -15,7 +15,7 @@
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 17 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 18 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host with its real Homebrew folders (17 zsh completion links, and fish's vendor_completions.d), a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 57 more denyWrite entries (131 against 74; 8.3 KB against 4.6 KB as JSON) and 65 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -32,6 +32,7 @@
 - A link inside a folder that is itself reached through a link is not followed further.
 - Other guard tests that pass neither deps.env nor deps.userShellDirs read this host's environment and Homebrew folders. Decided, not pinned in their nine files: only a relative BASH_ENV, path-like ENV, ZDOTDIR or XDG_CONFIG_HOME in the host's environment can change their result, and it fails closed. Homebrew targets are now covered by a stable Cellar rule rather than by name.
 - A completion dump that does not exist yet, in a ZDOTDIR the shell can write, is covered by the file tools' glob only.
+- A second assignment on one line (`export A=1 ZDOTDIR=x`) is not read.
 - ZDOTDIR set in .zshenv by `typeset -x ZDOTDIR=...` or `: ${ZDOTDIR:=...}`, or in /etc/zshenv, is not read; the conventional XDG folder is covered regardless.
 - Route 3 and on stay on the card.
 
@@ -84,4 +85,8 @@
   - [WARNING] FIXED. Existing dumps in the home folder were listed by name, so each zsh upgrade or host change (oh-my-zsh's .zcompdump-<host>-<version>) would add entries that are never pruned. The home glob already covers the file tools, and the shell cannot write the home folder. Names are now kept only for a ZDOTDIR outside the home. Tested; mutation red.
   - [WARNING] FIXED. Homebrew's Caskroom keeps casks by version, as the Cellar does, so it gets the same stable rule. Tested; mutation red.
   - NITs taken: only the Cellar or Caskroom a target is in is denied (tested; mutation red); the real paths in tooBroad are computed once; the plan's test count is corrected.
+- Iteration 8 (Sonnet), on 220796e09:
+  - [WARNING] FIXED. Review 7's dump fix excluded only a ZDOTDIR equal to the home, so the conventional ~/.config/zsh, under the home, still had its dumps named (the pile-up again). Dumps are now named only for a folder not anywhere under the home, compared by real path. Tested; mutation red.
+  - [WARNING] FIXED. Links into a Cellar or Caskroom spent the shared link budget though one stable rule covers them, so a heavy Homebrew host could get a false "not whole". They are no longer counted. Tested with 510 Cellar links (whole); the control is review 5's 510 links elsewhere (named). Mutation red.
+  - NITs taken: .bash_completion is listed and named in the test. Stated under Gaps: a second assignment on one line. Not taken: other guard tests reading the host's Homebrew (decided in iteration 5).
 

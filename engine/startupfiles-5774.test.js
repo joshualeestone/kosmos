@@ -70,7 +70,7 @@ test('#5774 part 2: each shell startup file in the home folder is denied in both
   assert.equal(g.ok, true, JSON.stringify(g));
   const s = readSettings(dir);
   // Named here, not only through the exported list (a list the test reads cannot catch a name dropped from it).
-  for (const f of ['.zshenv', '.zshrc', '.bashrc', '.bash_profile', '.profile', '.bash_aliases', '.cshrc', '.tcshrc']) assert.ok(setup.SHELL_START_FILES.includes(f), f);
+  for (const f of ['.zshenv', '.zshrc', '.bashrc', '.bash_profile', '.profile', '.bash_aliases', '.bash_completion', '.cshrc', '.tcshrc']) assert.ok(setup.SHELL_START_FILES.includes(f), f);
   for (const f of setup.SHELL_START_FILES) {
     const p = path.join(HOME, f);
     assert.ok(editDeniedBy(s.permissions.deny, p).length > 0, `${f}: the file tools can rewrite it`);
@@ -460,4 +460,30 @@ test('#5774 part 2 review 7: a Caskroom target gives one stable Caskroom rule; o
   assert.deepEqual(s.permissions.deny.filter((r) => r.includes('/9.1/')), [], 'a versioned Caskroom path became a rule');
   assert.ok(editDeniedBy(s.permissions.deny, fs.realpathSync.native(v)).length > 0, 'the cask target is covered');
   assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(fs.realpathSync.native(path.join(other, 'Cellar')), 'x')), [], "a Cellar nothing points into was denied");
+});
+
+test('#5774 part 2 review 8: dumps under the home (the conventional ~/.config/zsh) are not named; links into a Cellar spend no budget', () => {
+  const conv = path.join(HOME, '.config', 'zsh');
+  fs.mkdirSync(conv, { recursive: true });
+  const dump = path.join(conv, '.zcompdump-myhost-5.9');
+  fs.writeFileSync(dump, '');
+  try {
+    const dir = agentDir('pilot-convdump');
+    setup.guardTokenOnlyFolder(dir, 'pilot-convdump', { ...DEPS, env: ENV0 });
+    const s = readSettings(dir);
+    assert.ok(editDeniedBy(s.permissions.deny, dump).length > 0, 'the glob covers it');
+    assert.ok(!s.sandbox.filesystem.denyWrite.some((r) => r.includes('zcompdump-myhost')), 'named in denyWrite (piles up over upgrades)');
+  } finally { fs.rmSync(dump, { force: true }); }
+  // 510 links, all into a Cellar: one stable rule covers them, so the budget is not spent and the guard stays whole.
+  const pre = path.join(SANDBOX, 'hb8');
+  const sf = path.join(pre, 'share', 'zsh', 'site-functions');
+  fs.mkdirSync(sf, { recursive: true });
+  for (let i = 0; i < 510; i++) {
+    const t = path.join(pre, 'Cellar', `f${i}`, '1.0', '_f');
+    if (!fs.existsSync(t)) touch(t);
+    const l = path.join(sf, `_f${i}`);
+    if (!fs.existsSync(l)) fs.symlinkSync(t, l);
+  }
+  const g = setup.guardTokenOnlyFolder(agentDir('pilot-cellarmany'), 'pilot-cellarmany', { ...DEPS, env: ENV0, userShellDirs: [sf], homebrewPrefixes: [pre] });
+  assert.equal(g.ok, true, JSON.stringify(g));
 });

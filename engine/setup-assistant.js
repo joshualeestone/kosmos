@@ -1218,7 +1218,7 @@ const CLAUDE_GLOBAL_CONFIG_SUFFIXES = startcommands.CLAUDE_GLOBAL_CONFIG_SUFFIXE
    cannot write the home folder already (its write scope), so this is the file tools' gap; they are denied in both
    layers anyway, links followed, since the target of a linked dotfile is what gets written. */
 const SHELL_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.bashrc', '.bash_profile', '.bash_login', '.profile', '.bash_logout',
-  '.bash_aliases', '.cshrc', '.tcshrc', '.login', '.logout'];   // review 2: .bash_aliases, sourced by the common default .bashrc
+  '.bash_aliases', '.bash_completion', '.cshrc', '.tcshrc', '.login', '.logout'];   // review 2: .bash_aliases, sourced by the common default .bashrc
 const ZSH_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout'];
 /* Review 1: zsh runs a compiled copy (<file>.zwc) in place of a startup file when it is newer, so each is denied with
    its .zwc; and compinit loads its dump file (.zcompdump, often with a host suffix) on every completing shell. */
@@ -1271,7 +1271,9 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
     if (--budget.seen < 0) { budget.out = true; break; }
     const p = path.join(dir, d.name);
     if (d.isSymbolicLink()) {
-      if (--budget.n < 0) { budget.out = true; break; }
+      let real0 = null;
+      try { real0 = fs.realpathSync.native(p); } catch { /* dangling */ }
+      if (!(real0 && budget.free && budget.free(real0)) && --budget.n < 0) { budget.out = true; break; }
       try {
         const real = fs.realpathSync.native(p);
         // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
@@ -1348,7 +1350,16 @@ function shellStartPaths(home, env, opts = {}) {
   /* Review 7: by name only in a ZDOTDIR outside the home folder. In the home folder the glob already covers the file
      tools and the shell cannot write there, and names there (oh-my-zsh's .zcompdump-<host>-<version>) would add
      entries at every zsh upgrade that are never pruned. */
-  for (const d of zdots) { if (d !== path.resolve(home)) { files.push(...dumpsIn(d), ...zshFilesIn(d)); globs.push(path.join(d, '.zcompdump*')); } }
+  // Review 8: "outside" means not anywhere under the home (the conventional ~/.config/zsh is under it), by real path.
+  const realOf = (d) => { try { return fs.realpathSync.native(d); } catch { return path.resolve(d); } };
+  const homeR = realOf(home);
+  const underHome = (d) => { const r = realOf(d); return r === homeR || r.startsWith(homeR + path.sep); };
+  for (const d of zdots) {
+    if (d === path.resolve(home)) continue;
+    files.push(...zshFilesIn(d));
+    globs.push(path.join(d, '.zcompdump*'));
+    if (!underHome(d)) files.push(...dumpsIn(d));
+  }
   for (const k of ['BASH_ENV', 'ENV']) {
     if (typeof e[k] !== 'string' || !e[k]) continue;
     if (path.isAbsolute(e[k])) files.push(path.resolve(e[k]));
@@ -1362,16 +1373,17 @@ function shellStartPaths(home, env, opts = {}) {
   const dirs = [...[...xdgs].flatMap((x) => [path.join(x, 'fish'), path.join(x, 'nushell')]), path.join(home, 'Library', 'Application Support', 'nushell')];
   const userDirs = (opts.userShellDirs || USER_WRITABLE_SHELL_DIRS).filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
   dirs.push(...userDirs);
-  const budget = { n: 500, seen: 50000, out: false };
+  // Review 7: the Caskroom keeps casks by version too.
+  const cellars = (opts.homebrewPrefixes || HOMEBREW_PREFIXES).flatMap((pre) => [path.join(pre, 'Cellar'), path.join(pre, 'Caskroom')])
+    .filter((c) => { try { return fs.statSync(c).isDirectory(); } catch { return false; } });
+  const realCellars = cellars.map((c) => { try { return fs.realpathSync.native(c); } catch { return c; } });
+  // Review 8: a link into a Cellar or Caskroom does not spend the budget: the one stable rule below covers it.
+  const budget = { n: 500, seen: 50000, out: false, free: (t) => realCellars.some((c) => t === c || t.startsWith(c + path.sep)) };
   const linked = dirs.map((d) => linkTargetsIn(d, 3, budget));
   if (budget.out) unsafe.push('the links inside the shell startup folders (more than Kosmos follows), so some of their targets are not denied');
   /* Review 5: Homebrew's links point into its Cellar by VERSION, and the deny lists only grow (only launch rules are
      pruned, #5663), so each upgrade would add new versioned paths for good. Each prefix's Cellar is denied whole
      instead, one stable rule; targets elsewhere are kept one by one. */
-  // Review 7: the Caskroom keeps casks by version too.
-  const cellars = (opts.homebrewPrefixes || HOMEBREW_PREFIXES).flatMap((pre) => [path.join(pre, 'Cellar'), path.join(pre, 'Caskroom')])
-    .filter((c) => { try { return fs.statSync(c).isDirectory(); } catch { return false; } });
-  const realCellars = cellars.map((c) => { try { return fs.realpathSync.native(c); } catch { return c; } });
   const inCellar = (t, c) => t === c || t.startsWith(c + path.sep);
   const outsideCellar = (t) => !realCellars.some((c) => inCellar(t, c));
   const linkedFiles = linked.flatMap((l) => l.files);
