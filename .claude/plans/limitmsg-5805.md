@@ -239,3 +239,6 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - STATED (residual): a dateless limit line releases kept messages as it does fresh sends (slice 1's stated gap).
 - NITs not taken: the CLI wording for a held repeat; the repeat key built from the typed name (a different-case
   retry can keep a second copy); the roster read twice a minute.
+
+## Review 20 (sonnet)
+- NO NEW ISSUES. CONVERGED at iteration 20 (head ff612024f).
