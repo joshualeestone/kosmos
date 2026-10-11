@@ -4401,3 +4401,24 @@ test('#5786 (b): a device the person said Not me to is never allowed by a vouch,
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   remote.setOn(false);
 });
+
+test('#5786 (b): a remove that timed out keeps the "on this computer" note (it may not have happened)', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchslow');
+  plant([{ device_id: 'dev-slow', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-slow', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-slow') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-slow'], 'the vouched allow to be noted');
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '2000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '400';
+  try {
+    const r = await remote.deviceRemove('dev-slow');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.data.timed_out, true, 'premise: the remove timed out');
+    assert.ok(remote.read().vouched['dev-slow'], 'a remove that may not have happened dropped the note');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_DEVICE_HANG_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+  remote.setOn(false);
+});

@@ -46981,7 +46981,7 @@ paintStyles(true);
 const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
   /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id
      whose notice was put away, and what its Undo said. */
-  here: null, hereGone: '', hereSaid: '' };
+  here: null, hereGone: '', hereSaid: '', hereSaidFor: '' };
 /* kosmos#5786 (b): one connection's notice, by device AND when it was connected, so putting one away never hides a
    later automatic Allow of the same browser. */
 function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
@@ -47215,8 +47215,8 @@ function paintAsk() {
     const word = askEsc(askBrowserWord(here.name));
     after.unshift('<div class="askrow done"><p class="askok">' + word + ' on this computer is connected.</p>' +
       '<p>This computer opened it, signed in to your account, so it did not ask you. Not yours? Undo turns it away.</p>' +
-      (ASK.hereSaid ? '<p class="askwait">' + askEsc(ASK.hereSaid) + '</p>' : '') +
-      '<div class="acts"><button class="btn quiet" type="button" data-ask="here-undo" data-id="' + askEsc(here.device_id) + '" aria-label="Undo: disconnect ' + word + ' on this computer">Undo</button>' +
+      (ASK.hereSaid && ASK.hereSaidFor === askHereKey(here) ? '<p class="askwait">' + askEsc(ASK.hereSaid) + '</p>' : '') +
+      '<div class="acts"><button class="btn quiet" type="button" data-ask="here-undo" data-id="' + askEsc(here.device_id) + '" aria-label="Undo: disconnect ' + word + ' on this computer"' + (ASK.removing ? ' disabled' : '') + '>' + (ASK.removing === here.device_id ? 'Disconnecting' : 'Undo') + '</button>' +
       '<button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(here.device_id) + '">Got it</button></div></div>');
   } else if (ASK.hereSaid) {
     after.unshift('<div class="askrow done"><p>' + askEsc(ASK.hereSaid) + '</p>' +
@@ -47231,12 +47231,18 @@ async function askAct(act, id) {
   if (act === 'open') { showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
   if (act === 'here-ok') { ASK.hereGone = ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone; ASK.hereSaid = ''; paintAsk(); return; }
   if (act === 'here-undo') {
+    // One remove at a time, shared with the Devices list's Remove (it can take up to a minute).
+    if (ASK.removing) return;
+    const key = ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : '';
+    ASK.removing = id;
+    paintAsk();
     let res = null;
     try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
+    ASK.removing = null;
     const said = res && res.ok ? await res.json().catch(() => null) : null;
-    const gone = ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone;
-    if (res && res.ok && !(said && said.timed_out)) { ASK.hereGone = gone; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
-    else if (res && res.ok) { ASK.hereGone = gone; ASK.hereSaid = 'Disconnecting is taking a while. Check it is gone under Devices.'; }
+    ASK.hereSaidFor = key;
+    if (res && res.ok && !(said && said.timed_out)) { ASK.hereGone = key; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
+    else if (res && res.ok) { ASK.hereGone = key; ASK.hereSaid = 'Disconnecting is taking a while. Check it is gone under Devices.'; }
     else ASK.hereSaid = 'We could not disconnect it. Try again, or remove it under Devices.';
     for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
     paintAsk();

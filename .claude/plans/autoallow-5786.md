@@ -25,9 +25,11 @@ as `vouch` (absent = no auto-allow).
 - Page: "<Browser> on this computer is connected." with why, Undo (Remove) and Got it; Devices list "on this computer".
 
 ## Verify
-- engine/remote.test.js #5786 (3 tests): opens only with a recent request; allows by vouch once and notes it; wrong
-  vouch / swapped id / joining computer / own sign-in never allowed (with a positive arm); Undo drops the note.
-  Mutants (no HMAC check, joining computer allowed, no forgetVouched, never spent) each red their own test.
+- engine/remote.test.js #5786 (7 tests): opens only with a recent eligible request; allows by vouch once, notes it and
+  clears the remembered address; wrong vouch / swapped id / joining computer / own sign-in (vouch-path name) never
+  allowed, with a positive arm; Undo drops the note; Sign out, switch-off, an hour-old request and a plain-http
+  coordinator; a no-session Try again mints nothing; a Not-me device is never allowed and a refused allow stops after
+  three tries; a timed-out remove keeps the note. Mutants for each guard red their own test (iterations 1-3).
 - docs/browser-checks/render-connected-here-5786.js (new) + the three existing ask checks (surface gate), headless,
   through queued-heavy.
-- Page tests that touch the ask code (330) pass.
+- Page tests that touch the ask code pass.

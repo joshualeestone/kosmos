@@ -1737,7 +1737,7 @@ function vouchRows() {
   if (!raw || !Array.isArray(raw.devices)) return null;
   const settings = read();
   const selves = ownDeviceIds(settings);
-  // A device the person said Not me to is never allowed this way: that answer stands until they Allow it by hand.
+  // A device the person said Not me to is never allowed this way; they can still Allow it by hand.
   const denied = settings.denied || {};
   return raw.devices.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
     && !Object.prototype.hasOwnProperty.call(denied, String(d.device_id))
@@ -1785,8 +1785,10 @@ function vouchTick() {
         }
         return;
       }
-      // Allowed: noted even if a Sign out or Forget landed while it ran, so the person still sees it and can Undo.
+      // Allowed: noted even if a Sign out landed while it ran, so the notice and Undo still show. Not during a Forget,
+      // which clears the notes and shows nothing.
       if (vouchState === v) stopVouch();
+      if (forgetting) return;
       const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
         .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
       const saved = write({ vouched: Object.fromEntries(kept) });
@@ -1977,7 +1979,8 @@ async function deviceRemove(id) {
 /* kosmos#5786 (b): a removed device (the notice's Undo, or the list's Remove) is no longer "on this computer". */
 function forgetVouched(id, answer) {
   const vouched = read().vouched || {};
-  if (answer && answer.ok && vouched[id]) {
+  // A remove that timed out may not have happened: the note stays, so the device keeps saying where it came from.
+  if (answer && answer.ok && vouched[id] && !(answer.data && answer.data.timed_out)) {
     const { [id]: _gone, ...rest } = vouched;
     write({ vouched: rest });
   }
