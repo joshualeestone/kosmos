@@ -66,3 +66,18 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
   of a good one. Now retry, and the header says never discard on retry. Test (and a not-ours file is not retry); mutant red.
 - FIXED (NIT): PERIOD_RE accepts weeks 01 to 53 only, so string comparison holds. Test; mutant red.
 - FIXED (NIT): discardState's aside name has a random suffix (two in one millisecond no longer collide).
+
+## Review 4 (opus, blind, on f55d0971f): NOT CONVERGED
+- FIXED (BLOCKER): my review-2 rule ("an earlier label keeps the later stored period") overrode the COORDINATOR'S
+  grantedPeriod when its clock is BEHIND this one: a fresh W42, grants filed under W41 (newPeriod, grantedPeriod W41),
+  forPeriod handing W42 back, a wasted batch every attempt until the coordinator crossed Monday. Now forPeriod takes
+  { granted: true } for a coordinator-named label, always honoured; only a label read from this clock can keep a later
+  stored period. Test (an earlier granted label wins); mutant red.
+- FIXED (WARNING): the one-day bound disagreed with takeSnapshot's own skew (SKEW_MS, one hour, periodsNear): a stored
+  next week kept on a Sunday afternoon was refused by takeSnapshot on every run. Now kept only when it is the period this
+  clock reaches within SKEW_MS (exported from backupsnapshot, not copied). Tests: kept at Sunday 23:30, not at 22:00,
+  not mid-week; the one-day mutant, which the earlier tests could not see, is now red.
+- FIXED (NIT): "for good" overstated the loss; starting fresh costs deduplication only (the key is in every manifest).
+- FIXED (NIT): a time past Date's range (periodOf NaN-WNaN) is refused, never compared. Test; mutant red.
+- Process: rounds 2 to 4 each corrected the rule before (clever-ahead, then too-wide, then source-blind). The rule now
+  takes the label's source as an input instead of inferring it.
