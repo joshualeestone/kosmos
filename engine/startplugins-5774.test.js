@@ -381,8 +381,12 @@ test('#5774 route 5 review 7: the plugins inside the folders the variables name 
   const outer = path.join(SANDBOX, 'outer-r7');
   const d3 = path.join(outer, 'agent');
   fs.mkdirSync(d3, { recursive: true });
-  const g3 = setup.guardTokenOnlyFolder(d3, 'pilot-outer', { ...DEPS, env: ENV0, accountConfigDir: outer, agentConfigDirs: [outer] });
-  assert.ok(!JSON.stringify(g3).includes('which holds this agent\'s own folder'), JSON.stringify(g3));
+  // Review 9: placed so the refusal WOULD fire (the agent under its own home's skills/ member): only the early "already
+  // listed" skip keeps it from being named, so this can fail.
+  const d3b = path.join(outer, 'skills', 'agent');
+  fs.mkdirSync(d3b, { recursive: true });
+  const g3 = setup.guardTokenOnlyFolder(d3b, 'pilot-outer', { ...DEPS, env: ENV0, accountConfigDir: outer, agentConfigDirs: [outer] });
+  assert.ok(!JSON.stringify(g3).includes('would cover this agent'), JSON.stringify(g3));
 });
 
 test('#5774 route 5 review 8: a plugin folder inside the temp folder is named (a per-run place); a job home is refused only when its code folders would cover this agent\'s folder', () => {
@@ -401,5 +405,23 @@ test('#5774 route 5 review 8: a plugin folder inside the temp folder is named (a
   fs.mkdirSync(d2, { recursive: true });
   const g2 = setup.guardTokenOnlyFolder(d2, 'pilot-holder2', { ...DEPS, env: ENV0, agentConfigDirs: [holder2] });
   assert.ok(JSON.stringify(g2).includes('whose code folders would cover this agent'), JSON.stringify(g2));
+});
+
+test('#5774 route 5 review 9: a plugin installed inside a cache folder is covered by it (no versioned rule); a ~user value in a startup file is named', () => {
+  const cache = path.join(SANDBOX, 'pcache-r9');
+  const inst = path.join(cache, 'cache', 'mkt', 'p', '1.2.3');
+  fs.mkdirSync(inst, { recursive: true });
+  writeJson(path.join(cache, 'installed_plugins.json'), { plugins: { 'p@mkt': [{ installPath: inst }] } });
+  const d = agentDir('pilot-cacheinside');
+  assert.equal(setup.guardTokenOnlyFolder(d, 'pilot-cacheinside', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: cache } }).ok, true);
+  const s = readSettings(d);
+  assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes(path.join('mkt', 'p', '1.2.3'))), 'a versioned plugin path was listed');
+  assert.ok(editDeniedBy(s.permissions.deny, path.join(inst, 'x.js')).length > 0, 'the plugin, through its cache folder');
+  const zshrc = path.join(HOME, '.zshrc');
+  fs.writeFileSync(zshrc, 'export CLAUDE_CODE_PLUGIN_DIRS=~bob/p\n');
+  try {
+    const g = setup.guardTokenOnlyFolder(agentDir('pilot-tildeuser'), 'pilot-tildeuser', { ...DEPS, env: ENV0 });
+    assert.ok(JSON.stringify(g).includes('a plugin folder Kosmos cannot work out'), JSON.stringify(g));
+  } finally { fs.rmSync(zshrc, { force: true }); }
 });
 

@@ -1702,6 +1702,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   /* Review 8: the job files are read only where they belong to THIS home (the launch folder inside it), or an explicit
      sandbox names their folder: a caller that passes another home (a test) without one never reads the machine's real
      jobs, and so never adds real config homes to its rules. Production's launch folder is inside the home. */
+  // (create.AGENTS_DIR is macOS's launch folder; on Linux and Windows the jobs live elsewhere, and this asks only whether the
+  // caller's home is the machine's, which that folder's place answers on every platform Kosmos runs on.)
   const jobsHere = () => {
     if (process.env.AGENT_WORKFORCE_LAUNCH) return true;
     try { const a = realOrLeaf(create.AGENTS_DIR), hh = realOrLeaf(home); return a === hh || a.startsWith(hh + path.sep); } catch { return false; }
@@ -1848,7 +1850,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
         const plain = v === null ? null : v.replace(selfRef, '').split(path.delimiter)
           .filter((part) => part !== `$${k}` && part !== `\${${k}}`)
           .map((part) => part.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, home)).join(path.delimiter);
-          if (plain === null || plain.includes('$') || plain.includes('`')) { fromFiles.unsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
+          // Review 9: an unquoted ~user is the shell's to expand, before Claude Code sees it: a folder Kosmos cannot place.
+        const tildeUser = plain !== null && plain.split(path.delimiter).some((part) => /^~[^/]/.test(part));
+        if (plain === null || plain.includes('$') || plain.includes('`') || tildeUser) { fromFiles.unsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
           (fromFiles.vals[k] = fromFiles.vals[k] || []).push(plain);
         }
       }
@@ -1862,13 +1866,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   let startCmds;
   try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied, pluginVars }); } catch (e) { startCmds = { files: [], pluginDirs: [], envPluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...startCmds.unsafe);
-  for (const d of startCmds.pluginDirs) {
-    if (coveredWhole(d)) continue;
-    if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (an installed plugin's folder, whose path the permission rules cannot carry)`); continue; }
-    const both = withTarget(d, configUnsafe);
-    pluginDirs.push(...both);
-    wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
-  }
+
   /* #5774 route 5: each plugin folder the three variables name (parsed in the scan), denied whole in both layers, as an
      installed plugin's folder is. One too wide to deny (the root, or one holding the home, the agent's folder, the temp
      folder, Kosmos's data or a config home Claude Code writes) or one the rules cannot carry is named. */
@@ -1882,7 +1880,6 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   let envPluginTaken = 0;
   for (const d of new Set(startCmds.envPluginDirs || [])) {
     if (coveredWhole(d)) continue;   // review 5: before the count, so covered folders do not spend the budget
-    if (++envPluginTaken > ENV_PLUGIN_MAX) { configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); break; }
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
     const r = realOrLeaf(d);
     // Review 7: one INSIDE the agent's own folder (a plugin it is developing) is named, not denied whole, as an installed
@@ -1891,9 +1888,21 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // Review 8: one inside the temp folder is a per-run place: its rule would pile up at every refresh (never pruned).
     if (r.startsWith(tmpRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
     if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || holdsP(r, dataRealP) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data or a config home)`); continue; }
+    // Review 9: counted after the refusals, as the job homes are, so a refused folder spends none of the budget.
+    if (++envPluginTaken > ENV_PLUGIN_MAX) { configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); break; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
     wholeDenied.push(...both);
+  }
+  // Route 5 review 9: the installed plugins AFTER the folders the variables name, so one inside a folder now denied whole
+  // (a cache's <cache>/<marketplace>/<plugin>/<version>) is covered by it, not listed by its versioned name, which would
+  // pile up at every update. A refused folder (too wide, temp, inside the agent, past the cap) covers nothing.
+  for (const d of startCmds.pluginDirs) {
+    if (coveredWhole(d)) continue;
+    if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (an installed plugin's folder, whose path the permission rules cannot carry)`); continue; }
+    const both = withTarget(d, configUnsafe);
+    pluginDirs.push(...both);
+    wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
   /* Review 9: a target the user cannot write (a read-only store such as /nix/store, whose hashed names change at every
      home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A

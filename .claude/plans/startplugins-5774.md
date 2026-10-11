@@ -14,7 +14,7 @@
 - The other agents' config homes come from their job files: for each agent folder in the agents' folder, `create.readJob(name).configDir` (Claude agents only). Each one outside `~/.claude*` joins the config homes the guard already covers, for every member it covers.
   - The names come from the agents' folder, not from the job files' names, which carry a world key.
   - It is not read from `create.runningJobs()`, which asks launchd: the guard runs at every refresh.
-- `engine/startcommands.js` also returns every value each settings tier gives a variable (not only the agreed ones), with this agent's own tiers and other accounts' homes apart. The three plugin variables are read from this agent's environment, from the home's shell startup files (review 1: the agent's Claude Code inherits the tmux server's environment, which carries shell exports; a value with another variable in it is named), from this agent's own tiers, and from other accounts' homes (absolute values only there: a relative one resolves under that account's agent folder, which is not known here). They are parsed as Claude Code parses them. Each folder is denied whole in both layers, links followed, as part 2's folders are. A folder too wide to deny, or one the rules cannot carry, is named.
+- `engine/startcommands.js` also returns every value each settings tier gives a variable (not only the agreed ones), with this agent's own tiers and other accounts' homes apart. The three plugin variables are read from this agent's environment, from the home's shell startup files (review 1: the agent's Claude Code inherits the tmux server's environment, which carries shell exports; a value with another variable in it is named), from this agent's own tiers, and from other accounts' homes (absolute values there; a relative one resolves under that account's agent folder, which is not known here, so it is NAMED and the guard fails closed, since review 6). They are parsed as Claude Code parses them. Each folder is denied whole in both layers, links followed, as part 2's folders are. A folder too wide to deny, or one the rules cannot carry, is named.
 
 ## Gaps, stated
 - The shell startup files read are part 2's zsh and bash rc files by name; part 2's other files (the ~/.bashrc.d folder, the BASH_ENV and ENV files) are not read for the variables (review 7). The files read are part 2's zsh and bash files (the home's and each ZDOTDIR's), on top-level lines only, as part 2 reads its assignments: fish (`set -x`) and nushell syntax, and an export inside an `if` or a function, are not read (review 2).
@@ -33,7 +33,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 11 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
+engine/startplugins-5774.test.js, 12 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on b7d167941:
@@ -111,4 +111,13 @@ engine/startplugins-5774.test.js, 11 tests, using the production job reader agai
   - [WARNING] FIXED. A job home holding this agent's folder was refused, so one odd job file stopped every agent's creation. It is now refused only when a member it denies whole (its code and memory folders) would hold the agent's folder or sit inside it. Tested both ways; two mutations red (the old broad rule and no rule).
   - [NIT] TAKEN: the repeated checks in the job-home loop are gone; the startup-file size limit is a named constant.
   - [NIT] not taken: the "Review N" notes in comments are this codebase's convention.
+- Iteration 9 (Opus), on 7beae4a22:
+  - [WARNING] FIXED (reproduced by the reviewer). A plugin installed INSIDE a cache folder (<cache>/cache/<marketplace>/<plugin>/<version>) got its own versioned rule, which piles up at every update: the installed-plugin loop ran before the cache folder was denied whole. It runs after now, so the cache folder covers it; a refused folder covers nothing. Tested; the old order turns it red. My edit first REMOVED the folder cap without re-adding it (an anchor joined two lines); the cap test caught it, and the cap is back after the refusals.
+  - [WARNING] FIXED. The review-7 "listed home first" test could not fail (the wording changed in review 8, and the agent was not under a code member). It now places the agent under its own home's skills/ so only the early skip keeps it from being named; mutation red.
+  - [NIT] TAKEN: the folder cap counts after the refusals.
+  - [NIT] TAKEN: an unquoted ~user in a startup file (the shell's to expand) is named. Tested; mutation red.
+  - [NIT] TAKEN: a comment on jobsHere (it asks whether the caller's home is the machine's).
+  - [NIT] TAKEN (plan): another account's relative value is named, not just uncounted.
+  - [NIT] not taken: CLAUDE_PLUGIN_DATA for a cached plugin points under the agent's home; both that folder and the cache are denied whole, so nothing is missed.
+  - [NIT] ALREADY covered: the review-8 holder test has its positive arm (the holding home's settings.json is denied).
 
