@@ -19,3 +19,6 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - 7 tests: round trip and modes; 10 not-ours forms refused with a control; a link refused; job fields cleaned;
   writeState refuses unreadable states and writes nothing; forPeriod same and fresh; withRun merge, staleIndex,
   another bucket, no bucket, a first run; all written and read back.
+- Mutants, each red: the period-of-key check, index-needs-bucket, the naming key id check, writeState's refusal,
+  staleIndex, another bucket dropping the index, the member check, the duplicate check, the link check, forPeriod's
+  reuse. (One mutant line was a no-op swap after a pattern split; not counted.)
