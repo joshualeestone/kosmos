@@ -191,18 +191,33 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
    are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
    dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
    conversation row). */
+/* A person's message row (slice 2b) whose new delivery could not be written yet (the thread's lock busy, or its file
+   unreadable for a moment): kept here and written by the next sweep, so a row never says "Held" for a message that
+   was typed or dropped. In memory only: a restart leaves such a row held (stated in the plan). */
+const rowFixes = new Map();
+function setRow(name, at, delivery, chat) {
+  const key = String(name) + '\u0000' + String(at);
+  let ok = false;
+  try { ok = chat.updateDmDelivery(name, at, delivery); } catch { ok = false; }
+  if (ok) rowFixes.delete(key); else rowFixes.set(key, { name: String(name), at: String(at), delivery });
+  return ok;
+}
+function retryRows(chat) {
+  for (const f of [...rowFixes.values()]) setRow(f.name, f.at, f.delivery, chat);
+}
 function sweepHooks({ chat, messages }) {
+  retryRows(chat);
   return {
     deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, isReleased: chat.limitQueueReleased,
-    onDelivered: (e, v) => (e.kind === 'dm' ? chat.updateDmDelivery(e.to, e.at, v) : messages.logHeldDelivered(e, v)),
+    onDelivered: (e, v) => (e.kind === 'dm' ? setRow(e.to, e.at, v, chat) : messages.logHeldDelivered(e, v)),
     onDropped: (e, r) => {
-      if (e.kind === 'dm') { chat.updateDmDelivery(e.to, e.at, { state: chat.DELIVERY.COULD_NOT, because: 'Kosmos kept it for a day and could not type it' }); return; }
+      if (e.kind === 'dm') { setRow(e.to, e.at, { state: chat.DELIVERY.COULD_NOT, because: 'Kosmos kept it for a day and could not type it' }, chat); return; }
       messages.tellHeldDropped(e, r).catch(() => { /* recorded */ });
     },
   };
 }
 
-function resetForTests() { done.clear(); typing.clear(); flushingSince = 0; }
+function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks };
+module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow };

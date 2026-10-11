@@ -43,3 +43,17 @@ the way out when that is wrong.
   press answers 409.
 - Sweep: a kept dm is typed after release and its row reads placed; dropped, its row reads could not deliver.
 - Page: a held row shows the held words and the button; pressing it posts the row's `at` (browser check).
+
+## Review 1 (opus)
+- FIXED: Send now anyway pressed while the minute sweep was typing the same message typed it twice; a message being
+  typed is claimed (limitqueue.isTyping) and the route answers 409 for it (tested).
+- FIXED: a held message whose row could not be recorded was kept where the person could not see it (the page then
+  put the words back as unsent); it is taken back out and typed now (tested).
+- FIXED: a row whose update failed (lock busy) stayed "Held" for a message already typed or dropped; limitqueue.setRow
+  keeps the update and the next sweep writes it (tested). A Send now anyway whose typing throws marks the row not
+  delivered instead of leaving it held. In memory only: a board restart leaves such a row held (residual).
+- FIXED: the "behind" path had no test (now tested); the page reads a structured `behind` flag, not the server's
+  wording; queue ids carry a random suffix so two sends in one millisecond stay two.
+- CONVENTION taken: the Send now anyway route sits above the thread docblock, not between it and its route.
+- Not taken: telling reactions only once across held messages (the route's own rule: telling twice costs one note);
+  a retry path when Send now anyway comes back could not deliver (the row says so; the person can send again).

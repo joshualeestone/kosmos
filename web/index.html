@@ -69686,7 +69686,7 @@ function placedWords(d) {
 }
 /* #5805 slice 2b: what a person's held message says, on its row and under the box: why it is held and when it goes. */
 function dmHeldWords(name, d) {
-  if (/still has messages kept/.test(String((d && d.because) || ''))) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.';
+  if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.';
   const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
   return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.';

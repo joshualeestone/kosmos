@@ -129,3 +129,47 @@ test('#5805 2b: the sweep types a kept message as the route would and updates it
   assert.equal(dropped.state, chat.DELIVERY.COULD_NOT);
   assert.match(dropped.because, /kept it for a day/);
 });
+
+test('#5805 2b review 1: an agent no longer held but with messages still kept holds a new one behind them (behind: true)', async () => {
+  const t = new Date().toISOString();
+  limitqueue.add(NAME, { id: 'mx1', from: 'leo', envelope: 'earlier', at: t, reset: t });
+  const r = await call('/thread', { text: 'after those' }, { held: false });
+  assert.deepEqual(r.calls, [], 'typed ahead of messages kept before it');
+  assert.equal(r.out.delivery.state, 'held');
+  assert.equal(r.out.delivery.behind, true);
+  assert.deepEqual(limitqueue.list(NAME).map((e) => e.kind || 'msg'), ['msg', 'dm']);
+});
+
+test('#5805 2b review 1: a held message whose row cannot be recorded is taken back out and typed now', async () => {
+  const realAppend = chat.appendMessage;
+  chat.appendMessage = (...a) => (a[2] && a[2].delivery && a[2].delivery.state === 'held' ? { recorded: false, because: 'the thread is busy' } : realAppend(...a));
+  let r;
+  try { r = await call('/thread', { text: 'cannot file this' }); } finally { chat.appendMessage = realAppend; }
+  assert.deepEqual(r.calls, [['plain', 'cannot file this']], 'kept where the person cannot see it instead of typed');
+  assert.deepEqual(limitqueue.list(NAME), [], 'left in the queue as well');
+});
+
+test('#5805 2b review 1: Send now anyway on a message the sweep is typing this moment answers 409 and types nothing', async () => {
+  const held = await call('/thread', { text: 'racing' });
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
+  let run;
+  try {
+    run = limitqueue.flush(board.agents, { deliver: async () => { await gate; return PLACED(); }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY });
+    await new Promise((res) => setTimeout(res, 20));
+    const r = await call('/thread/held', { at: held.out.delivery.at });
+    assert.equal(r.status, 409, JSON.stringify(r.out));
+    assert.deepEqual(r.calls, []);
+  } finally { release(); await run; board.restore(); }
+});
+
+test('#5805 2b review 1: a row update that fails is written by the next sweep', async () => {
+  const held = await call('/thread', { text: 'row later' });
+  const realUpdate = chat.updateDmDelivery;
+  chat.updateDmDelivery = () => false;   // the thread's lock busy
+  try { limitqueue.setRow(NAME, held.out.delivery.at, PLACED(), chat); } finally { chat.updateDmDelivery = realUpdate; }
+  assert.equal(rowAt(held.out.delivery.at).delivery.state, 'held', 'CONTROL: the first write did fail');
+  limitqueue.sweepHooks({ chat, messages });   // the next minute's sweep
+  assert.equal(rowAt(held.out.delivery.at).delivery.state, chat.DELIVERY.PLACED, 'the row stayed held');
+});
