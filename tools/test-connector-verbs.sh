@@ -198,8 +198,14 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # Kosmos (mayReport), and enrolling needs a connector with the org routes. An older connector refuses to sign; the tick
 # reads that as a failed send and keeps the events queued (at most 500, 7 days), sending nothing. Reporting refusals
 # never worked before, so nothing that works today breaks.
+# kosmos#5744 re-decided for engine/backupmemberkey.js (a member's backup key, slice 2b): it calls /v1/org/backup-key and
+# /v1/org/backup/member-key, which only a connector carrying the backup routes signs (kosmos-relay #358 and #375). An older
+# connector refuses backup-key first ("mac-request does not sign"); ensureMemberKey answers ok:false with no key written.
+# A connector that signs backup-key but not member-key refuses with no refusal code: the new key stays in the file
+# unregistered and the same key is sent on the next call. Nothing calls it yet and backup never worked before these
+# connectors, so nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupupload.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the eleven the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backupupload.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the twelve the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
