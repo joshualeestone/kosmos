@@ -16,7 +16,10 @@
  *      wraps it to the company's key for (org, member, epoch), and registers it: epoch 1 first; a different key
  *      already at that epoch (409 member_key_exists) or a later current epoch (400 member_key_wrong_epoch with
  *      currentEpoch) means this computer lost its key, so it tries the next epoch once.
- * A 429 member_key_rotation_wait keeps the new key and answers `waiting`; the next call tries again.
+ * A 429 member_key_rotation_wait keeps the new key and answers `waiting`; the next call sends the same key.
+ * It does NOT ask whether a key Kosmos+ took is still the member's current one: the backup job compares the epoch
+ * it answers with each grant's `epoch` (the uploader refuses a grant for another epoch), and a mismatch is the sign
+ * the member moved on elsewhere. Calls run one at a time in this process, so two at once cannot each make a key.
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
  * base64url. Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
@@ -61,6 +64,7 @@ function readKeys(org, member) {
 }
 function writeKeys(org, member, keys) {
   fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
   const out = {};
   for (const [e, k] of Object.entries(keys)) out[e] = { sk: b64(k.sk), pk: b64(k.pk), registered: k.registered === true };
   require('./securewrite').writeSecret(fileFor(org, member), JSON.stringify({ org, member, keys: out }), 0o600, { atomicOnly: true });
@@ -79,7 +83,15 @@ async function register(macRequest, company, epoch, key) {
   return macRequest('POST', MEMBER_KEY_ROUTE, { epoch, member_public: b64(key.pk), wrap: b64(wrap) });
 }
 
-async function ensureMemberKey(opts = {}) {
+/* One at a time: two calls that each read "no key" would each make one, and the later write could replace a key
+   Kosmos+ had already taken. */
+let chain = Promise.resolve();
+function ensureMemberKey(opts = {}) {
+  const run = chain.then(() => ensureNow(opts));
+  chain = run.catch(() => {});
+  return run;
+}
+async function ensureNow(opts) {
   const macRequest = opts.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b));
   try {
     const bk = await macRequest('POST', BACKUP_KEY_ROUTE, {});
@@ -102,7 +114,10 @@ async function ensureMemberKey(opts = {}) {
       const r = await register(macRequest, company, epoch, keys[epoch]);
       if (r && r.ok) {
         keys[epoch].registered = true;
-        writeKeys(company.org, company.member, keys);
+        try { writeKeys(company.org, company.member, keys); } catch {
+          // Kosmos+ has it; the next call sends the same kept key and gets a repeat.
+          return { ok: false, because: 'Kosmos+ took the backup key, but this computer could not note that; it will confirm it next time' };
+        }
         return { ok: true, epoch, publicKey: keys[epoch].pk };
       }
       const code = r && r.refusal && r.refusal.code;
@@ -112,7 +127,10 @@ async function ensureMemberKey(opts = {}) {
       // This computer lost its key: another key holds this epoch, or a later one is current. Try the next, once.
       let next = null;
       if (code === 'member_key_exists') next = epoch + 1;
-      else if (code === 'member_key_wrong_epoch' && Number.isSafeInteger(r.refusal.currentEpoch) && r.refusal.currentEpoch >= 1) next = r.refusal.currentEpoch + 1;
+      else if (code === 'member_key_wrong_epoch' && Number.isSafeInteger(r.refusal.currentEpoch) && r.refusal.currentEpoch >= 0) {
+        // 0: no key is registered for this member at all (a kept key from an earlier epoch), so start at 1.
+        next = r.refusal.currentEpoch === 0 ? (epoch === 1 ? null : 1) : r.refusal.currentEpoch + 1;
+      }
       if (attempt === 1 || next === null || next > EPOCH_MAX) {
         return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer', ...(r && r.refusal ? { refusal: r.refusal } : {}) };
       }
@@ -124,7 +142,7 @@ async function ensureMemberKey(opts = {}) {
     }
     return { ok: false, because: 'the backup key could not be registered' };
   } catch (err) {
-    return { ok: false, because: 'the backup key could not be kept on this computer: ' + String((err && err.message) || err) };
+    return { ok: false, because: 'the backup key could not be set up: ' + String((err && err.message) || err) };
   }
 }
 
