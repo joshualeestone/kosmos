@@ -241,9 +241,9 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.equal(no.status, 3);
   // The whole message, word for word, for the plainest state (one .full file): what happened, where, which file, why.
   // Pinned whole so that a sentence of advice or a promise cannot be added without this test saying so: what to do
-  // with a file depends on whose it is, and nothing reads these files.
+  // with a file depends on whose it is.
   assert.equal(no.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
-    + 'This tool does not compile while ' + JSON.stringify(chatsDir) + ' holds:\n'
+    + 'This tool does not compile while ' + dl.shownName(chatsDir) + ' holds:\n'
     + 'Files whose names end in .full after a conversation file\'s name:\n'
     + '  ' + JSON.stringify(ASIDE) + '\n'
     + 'It stops because it does not read the part of a conversation that is kept in another file, so compiling now could prune days or drop messages from the daily files.\n');
@@ -273,7 +273,7 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   const only = run();
   assert.equal(only.status, 3);
   assert.equal(only.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
-    + 'This tool does not compile while ' + JSON.stringify(chatsDir) + ' holds:\n'
+    + 'This tool does not compile while ' + dl.shownName(chatsDir) + ' holds:\n'
     + 'Conversation files that refer to an earlier file:\n'
     + '  "direct..p.json"\n'
     + 'It stops because it does not read the part of a conversation that is kept in another file, so compiling now could prune days or drop messages from the daily files.\n');
@@ -328,6 +328,7 @@ test('the two lists come back sorted, whatever order the folder is listed in', (
   let r;
   try { r = dl.readConversations(chatsDir); } finally { fs.readdirSync = real; }
   assert.deepEqual(r.continuedFiles, ['direct..a.json', 'direct..b.json', 'direct..c.json']);
+  assert.deepEqual([r.rolledOver, r.continued], [3, 3], 'a count disagrees with its list');
   assert.deepEqual(r.rolledOverFiles, ['direct..a.json.x.full', 'direct..b.json.x.full', 'direct..c.json.x.full']);
 });
 

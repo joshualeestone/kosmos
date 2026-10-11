@@ -80,9 +80,9 @@ const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
 
 /* kosmos#5855: a rolled-over conversation's rows from before the ones its fresh file carries are only in a `.full`
    file beside its thread file (`<thread file>.<stamp>.<pid>.<ms>[.<n>].full`), which the two patterns above do not
-   match; its fresh thread file names that file in `continues`. This recognises the name: any thread file's name, a dot, `.full` at the end. That
-   is deliberately wide (a stray file named this way counts): counting too much refuses a run, counting too little
-   prunes history. */
+   match; its fresh thread file names that file in `continues`.
+   isRolledOverFileName recognises the name: any thread file's name, a dot, `.full` at the end. That is deliberately
+   wide (a stray file named this way counts): counting too much refuses a run, counting too little prunes history. */
 const ROLLED_OVER_SUFFIX = 'full';
 /* How a thread file's name ends, as DIRECT_THREAD_FILE and PROJECT_THREAD_FILE above require. */
 const THREAD_FILE_END = '.json';
@@ -94,7 +94,7 @@ function isRolledOverFileName(filename) {
   }
   return false;
 }
-/* The second sign in a file that will not parse (cut short mid-write): `"continues"` followed by a non-empty string,
+/* The second sign in a file that will not parse: `"continues"` followed by a non-empty string,
    anywhere in the raw text (wider than the parsed read, which takes the top-level field only). */
 const NAMES_AN_EARLIER_FILE = /"continues"\s*:\s*"[^"]/;
 /* What compileAll's summary says in `refused`, and the command's exit code for it (2 is a usage error). */
@@ -103,9 +103,9 @@ const EXIT_REFUSED = 3;
 /* How many file names of each kind a refusal prints before it says "and N more": enough to find the files, short
    enough to read in a terminal. */
 const REFUSAL_NAMES_SHOWN = 10;
-/* A file or folder name as a refusal prints it: quoted, and every character outside printable ASCII written as a
-   backslash-u escape, so the output is printable ASCII whatever the name holds (a newline, a terminal escape, a
-   right-to-left mark). */
+/* A file or folder name as a refusal prints it: quoted and escaped as JSON does, then every character still outside
+   printable ASCII written as a backslash-u escape. So the output is printable ASCII on one line whatever the name
+   holds (a newline, a terminal escape, a right-to-left mark). */
 function shownName(name) {
   return JSON.stringify(String(name)).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
