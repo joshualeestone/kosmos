@@ -22341,8 +22341,8 @@ let ENGINE_STALE = null;
 /**
  * #2055: the board notice for a silently-aborting update. Angel's engine half
  * records a durable, consecutive-counted marker each time an update stops at its
- * pause (#4675: with the stop's reason, which chooses the sentence below; the count
- * is of consecutive stops for that one reason), and clears it once one gets through; `/api/status` carries it as
+ * pause (#4675: with the latest stop's reason and how many of the latest stops shared
+ * it, which choose the sentence below), and clears it once one gets through; `/api/status` carries it as
  * `updateAbort = { count, reason, port, ts } | null`. Until this, the only
  * audience was install.log -- 155 aborts on one machine, seen by nobody -- and a
  * machine in this state stops receiving fixes, invisibly.
@@ -22380,36 +22380,37 @@ function paintUpdateAbort(ab) {
     if (slot.dataset.n) { slot.dataset.n = ''; slot.innerHTML = ''; }
     return;
   }
-  // Re-render only on a changed count or reason: this is an aria-live region, so rewriting
-  // identical markup every 5s poll would re-announce it to a screen reader.
-  // #4675: the reason is part of the key, so a streak that changes cause without changing count still repaints.
-  const reason = typeof ab.reason === 'string' ? ab.reason : '';
-  const key = count + ' ' + reason;
-  if (slot.dataset.n === key) return;
-  slot.dataset.n = key;
   const times = count === 1 ? 'once' : count + ' times';
-  // #4675: the sentence is chosen by the stop's reason, and says only what the installer saw. 'board-would-not-pause'
-  // keeps #2055's words exactly. The two stops with something on the port share one sentence (to a person they are
-  // the same event). A reason this page does not know, from a newer installer or a damaged file, gets the plain one.
+  // #4675: the sentence is chosen by the stop's reason, and says only what the installer saw. A reason speaks for the
+  // whole count only when every stop in the streak had it (same >= count; a marker from before `same` existed had one
+  // possible reason). A mixed streak, or a reason this page does not know (a newer installer, a damaged file), gets
+  // the plain sentence. 'board-would-not-pause' keeps #2055's words exactly, and the other sentences borrow its
+  // remedy unchanged where reopening can help; a failed check is not something reopening fixes.
   // "replaced nothing" is about files: by these stops the installer has stopped the board, and its exit puts it back.
-  // The advice never asks for a typed command (#2055), and never says the notice will go away after a step: only an
-  // update that gets past the pause clears it, so the thing to watch is the count.
-  // The table stays inside the function so a test can lift the function whole.
-  const AGENTS_FINE = 'Your agents keep working, they do not live in this window. ';
-  const PORT_HELD = 'something was still using the connection Kosmos runs on, so the update replaced nothing. '
-    + AGENTS_FINE + 'Quit and reopen Kosmos. If the count in this notice goes up again, restart this computer.';
+  // The tables stay inside the function so a test can lift the function whole.
+  const reason = typeof ab.reason === 'string' ? ab.reason : '';
+  const allSame = !Number.isFinite(ab.same) || ab.same >= count;
+  const AGENTS_FINE = 'Your agents keep working, they do not live in this window.';
+  const REOPEN = 'Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one '
+    + 'can finish. ' + AGENTS_FINE;
+  const PORT_HELD = 'each time, something was still using the connection Kosmos runs on, so the update replaced '
+    + 'nothing. ' + REOPEN;
   const UPDATE_ABORT_WHY = {
     'board-would-not-pause': 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
       + 'was holding the update, so the next one can finish. Your agents keep working, they do '
       + 'not live in this window.',
     'port-check-failed': 'this computer could not check whether Kosmos had stopped, so the update replaced nothing. '
-      + AGENTS_FINE + 'The step to try is restarting this computer.',
+      + AGENTS_FINE + ' Restarting this computer is the step to try.',
     'port-unreachable': PORT_HELD,
     'port-still-held': PORT_HELD,
   };
-  const why = Object.prototype.hasOwnProperty.call(UPDATE_ABORT_WHY, reason) ? UPDATE_ABORT_WHY[reason]
-    : 'the update stopped before replacing anything. ' + AGENTS_FINE
-      + 'Quit and reopen Kosmos. If the count in this notice goes up again, restart this computer.';
+  const why = allSame && Object.prototype.hasOwnProperty.call(UPDATE_ABORT_WHY, reason) ? UPDATE_ABORT_WHY[reason]
+    : 'the update stopped each time before replacing anything. ' + REOPEN;
+  // Re-render only when the words change: the notice is a role="status" node, so rewriting identical markup every 5s
+  // poll would re-announce it to a screen reader.
+  const key = count + ' ' + why;
+  if (slot.dataset.n === key) return;
+  slot.dataset.n = key;
   slot.innerHTML = '<div class="utoast stale" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>A new version of Kosmos is ready.</b>'

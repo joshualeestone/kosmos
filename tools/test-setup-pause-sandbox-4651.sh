@@ -182,10 +182,12 @@ P="$(free_port)"; start_listener "$P" silent; OUT="$(STUBSTART=fail run_pause ""
 chk "control: the third stop with a failing start keeps main's words (#4818)" '[[ "$OUT" == *"Kosmos was paused for this update and could not be started again"* ]]'
 
 # ---- #4675: when the BOARD started the run, each stop after the pause is recorded with its own reason -------------
-# The marker is read from outside any sandbox. The count is per reason; a pass clears it.
+# The marker is read from outside any sandbox. count is the whole streak, same counts back over the latest reason; a
+# pass clears it.
 MARK="$T/logs/update-abort"
 reason_is() { grep -q "^reason=$1\$" "$MARK" 2>/dev/null; }
 count_is() { [ "$(sed -n 's/^count=//p' "$MARK" 2>/dev/null)" = "$1" ]; }
+same_is() { [ "$(sed -n 's/^same=//p' "$MARK" 2>/dev/null)" = "$1" ]; }
 rm -f "$MARK"
 # CONTROL: the same three stops from a pasted install line (no marker from the board) record nothing.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
@@ -202,19 +204,19 @@ P="$(free_port)"; start_listener "$P" silent; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 ru
 chk "the board's run: the marker is read, then gone from the environment the board will be started in" '[[ "$OUT" == *"BYBOARD=yes child-sees=gone"* ]]'
 chk "the board's run stopping at a held port records port-still-held, count 1" '[[ "$OUT" == *"is still holding port"* ]] && reason_is port-still-held && count_is 1'
 P="$(free_port)"; start_listener "$P" silent; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "" "$P")"; stop_listener
-chk "the same stop again: count 2" 'reason_is port-still-held && count_is 2'
-# The second stop: a different reason, so its count starts at 1.
+chk "the same stop again: count 2, same 2" 'reason_is port-still-held && count_is 2 && same_is 2'
+# The second stop: a different reason. The streak goes on; same starts again.
 P="$(free_port)"; start_listener "$P" v6; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "" "$P")"; stop_listener
-chk "the board's run stopping at an unreachable holder records port-unreachable, count 1" '[[ "$OUT" == *"check of it failed"* ]] && reason_is port-unreachable && count_is 1'
+chk "the board's run stopping at an unreachable holder records port-unreachable, count 3, same 1" '[[ "$OUT" == *"check of it failed"* ]] && reason_is port-unreachable && count_is 3 && same_is 1'
 # The first stop (the port check itself fails), with the same words as before.
 P="$(free_port)"; start_listener "$P" http; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "$PROFILE_B" "$P")"; stop_listener
-chk "the board's run stopping at a failed port check records port-check-failed, count 1" '[[ "$OUT" == *"the port check failed"* ]] && reason_is port-check-failed && count_is 1'
+chk "the board's run stopping at a failed port check records port-check-failed, count 4, same 1" '[[ "$OUT" == *"the port check failed"* ]] && reason_is port-check-failed && count_is 4 && same_is 1'
 # A pasted run after that leaves the board's streak as it was.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
-chk "a pasted run that stops leaves the board's streak as it was" '[[ "$OUT" == *"DIE:"* ]] && reason_is port-check-failed && count_is 1'
+chk "a pasted run that stops leaves the board's streak as it was" '[[ "$OUT" == *"DIE:"* ]] && reason_is port-check-failed && count_is 4 && same_is 1'
 # C cannot write the marker at all: the stop must still stop, with its own words, and the marker is as it was.
 P="$(free_port)"; start_listener "$P" http; OUT="$(KOSMOS_UPDATE_BY_BOARD=1 run_pause "$PROFILE_C" "$P")"; stop_listener
-chk "sandbox C, the board's run: an unwritable marker does not change the stop, and is left as it was" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"the port check failed"* && "$OUT" != *"PASSED THE PAUSE"* ]] && reason_is port-check-failed && count_is 1'
+chk "sandbox C, the board's run: an unwritable marker does not change the stop, and is left as it was" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"the port check failed"* && "$OUT" != *"PASSED THE PAUSE"* ]] && reason_is port-check-failed && count_is 4 && same_is 1'
 # An update that gets past the pause clears the streak, whoever ran it.
 P="$(free_port)"; OUT="$(run_pause "" "$P")"
 chk "an update that passes the pause clears the streak" '[[ "$OUT" == *"PASSED THE PAUSE"* ]] && [ ! -e "$MARK" ]'

@@ -61,64 +61,78 @@ test('a recovered machine (count -> null on the SAME slot) clears the notice it 
 
 // #4675: the sentence is chosen by the stop's reason, and says only what the installer saw.
 const BUSY = /Kosmos was busy each time\. Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one can finish\. Your agents keep working, they do not live in this window\./;
+const REOPEN = /Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one can finish\. Your agents keep working, they do not live in this window\./;
 const TYPED = /update now|paste|install line|kosmos stop|in a terminal/i;
 const body = (h) => h.replace(/^.*and could not, because /, '').replace(/<\/small>.*$/, '');
 
-test('#4675 control: board-would-not-pause keeps the #2055 sentence, word for word', () => {
-  assert.match(paint({ count: 2, reason: 'board-would-not-pause' }).innerHTML, BUSY, 'the #2055 sentence changed');
+test('#4675 control: board-would-not-pause keeps the #2055 sentence, word for word, with or without a same count', () => {
+  const old = paint({ count: 2, reason: 'board-would-not-pause' }).innerHTML;   // a marker from before `same` existed
+  assert.match(old, BUSY, 'the #2055 sentence changed');
+  assert.equal(paint({ count: 2, reason: 'board-would-not-pause', same: 2 }).innerHTML, old);
+  assert.equal(paint({ count: 2, reason: 'board-would-not-pause', same: null }).innerHTML, old);
 });
 
-test('#4675: a failed port check says the update could not check, never that Kosmos was busy', () => {
-  const h = paint({ count: 4, reason: 'port-check-failed' }).innerHTML;
+test('#4675: a failed port check says the update could not check, and the step is a restart, not a reopen', () => {
+  const h = paint({ count: 4, reason: 'port-check-failed', same: 4 }).innerHTML;
   assert.match(h, /tried to install it 4 times and could not, because this computer could not check whether Kosmos had stopped, so the update replaced nothing\./);
-  assert.match(h, /The step to try is restarting this computer\./, 'no step a person can take');
+  assert.match(h, /Restarting this computer is the step to try\./, 'no step a person can take');
   assert.match(h, /agents keep working/i);
-  assert.ok(h.indexOf('agents keep working') < h.indexOf('restarting this computer'), 'the reassurance about agents follows the restart, which would stop them');
+  assert.ok(h.indexOf('agents keep working') < h.indexOf('Restarting this computer'), 'the reassurance about agents follows the restart, which would stop them');
   assert.ok(!/was busy|quit and reopen/i.test(h), 'it blamed a busy Kosmos, or offered a reopen that cannot fix a failing check');
   assert.ok(!TYPED.test(h), 'the notice offered a dead button or a type instruction');
 });
 
-test('#4675: both stops with something on the port say so, in the same words, and point at the count', () => {
-  const h = paint({ count: 1, reason: 'port-unreachable' }).innerHTML;
-  assert.match(h, /tried to install it once and could not, because something was still using the connection Kosmos runs on, so the update replaced nothing\./);
-  assert.match(h, /Quit and reopen Kosmos\. If the count in this notice goes up again, restart this computer\./);
-  assert.match(h, /agents keep working/i);
-  assert.ok(h.indexOf('agents keep working') < h.indexOf('restart this computer'), 'the reassurance about agents follows the restart, which would stop them');
+test('#4675: both stops with something on the port say so in the same words, with the #2055 remedy', () => {
+  const h = paint({ count: 3, reason: 'port-unreachable', same: 3 }).innerHTML;
+  assert.match(h, /tried to install it 3 times and could not, because each time, something was still using the connection Kosmos runs on, so the update replaced nothing\./);
+  assert.match(h, REOPEN);
   assert.ok(!/was busy/i.test(h), 'it still blamed a busy Kosmos');
   assert.ok(!TYPED.test(h), 'the notice offered a dead button or a type instruction');
-  assert.equal(paint({ count: 1, reason: 'port-still-held' }).innerHTML, h, 'the two held-port stops read differently');
+  assert.equal(paint({ count: 3, reason: 'port-still-held', same: 3 }).innerHTML, h, 'the two held-port stops read differently');
 });
 
 test('#4675: a reason this page does not know gets the plain sentence, never a cause it cannot know', () => {
-  const plain = paint({ count: 2, reason: 'something-new' }).innerHTML;
-  assert.match(plain, /tried to install it 2 times and could not, because the update stopped before replacing anything\./);
-  assert.match(plain, /Quit and reopen Kosmos\. If the count in this notice goes up again, restart this computer\./);
+  const plain = paint({ count: 2, reason: 'something-new', same: 2 }).innerHTML;
+  assert.match(plain, /tried to install it 2 times and could not, because the update stopped each time before replacing anything\./);
+  assert.match(plain, REOPEN);
   assert.ok(!/was busy|could not check|still using/i.test(plain), 'an unknown reason was given a known cause');
   assert.ok(!TYPED.test(plain));
   // no reason, a non-string, and names an object already has (a lookup that reached the prototype would paint a function)
   for (const reason of ['', undefined, 7, 'unknown', 'constructor', '__proto__', 'hasOwnProperty', 'toString']) {
-    assert.equal(body(paint({ count: 2, reason }).innerHTML), body(plain), 'reason ' + JSON.stringify(reason) + ' did not get the plain sentence');
+    assert.equal(body(paint({ count: 2, reason, same: 2 }).innerHTML), body(plain), 'reason ' + JSON.stringify(reason) + ' did not get the plain sentence');
   }
 });
 
-test('#4675: no sentence says the notice goes away after a step (only a passing update clears it)', () => {
-  for (const reason of ['port-check-failed', 'port-unreachable', 'port-still-held', 'something-new']) {
-    assert.ok(!/still here|goes away|will disappear|will try again/i.test(paint({ count: 2, reason }).innerHTML), reason + ' promises something the page cannot know');
+test('#4675: a streak of mixed reasons names no single cause, and its count is the whole streak', () => {
+  const plain = body(paint({ count: 5, reason: 'something-new', same: 5 }).innerHTML);
+  for (const reason of ['board-would-not-pause', 'port-check-failed', 'port-unreachable', 'port-still-held']) {
+    const mixed = paint({ count: 5, reason, same: 2 }).innerHTML;
+    assert.match(mixed, /tried to install it 5 times and could not, because the update stopped each time/, reason + ': the count is not the whole streak');
+    assert.equal(body(mixed), plain, reason + ' spoke for stops that had another cause');
+    // control: the same marker with every stop sharing the reason does name it
+    assert.notEqual(body(paint({ count: 5, reason, same: 5 }).innerHTML), plain, reason + ' lost its own sentence');
+    assert.notEqual(body(paint({ count: 5, reason, same: 9 }).innerHTML), plain, reason + ': a same above the count is still "all of them"');
   }
 });
 
-test('#4675: a streak whose reason changes at the same count repaints (the key is count and reason)', () => {
+test('#4675: the notice repaints when its words change, and not otherwise (a screen reader hears each repaint)', () => {
   const slot = { dataset: {}, innerHTML: '' };
   const doc = { getElementById: () => slot };
   const run = (ab) => new Function('document', 'ab', page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'paintUpdateAbort']) + '\npaintUpdateAbort(ab);')(doc, ab);
-  run({ count: 1, reason: 'board-would-not-pause' });
+  run({ count: 1, reason: 'board-would-not-pause', same: 1 });
   assert.match(slot.innerHTML, /was busy/);
-  run({ count: 1, reason: 'port-check-failed' });
+  run({ count: 1, reason: 'port-check-failed', same: 1 });
   assert.match(slot.innerHTML, /could not check/, 'the same count with a new reason kept the old words');
-  const before = slot.innerHTML; slot.innerHTML = 'UNTOUCHED';
-  run({ count: 1, reason: 'port-check-failed' });
-  assert.equal(slot.innerHTML, 'UNTOUCHED', 'an unchanged notice was repainted (a screen reader would hear it again)');
-  assert.ok(before.length > 0);
+  slot.innerHTML = 'UNTOUCHED';
+  run({ count: 1, reason: 'port-check-failed', same: 1 });
+  assert.equal(slot.innerHTML, 'UNTOUCHED', 'an unchanged notice was repainted');
+  run({ count: 1, reason: 'port-unreachable', same: 1 });
+  assert.match(slot.innerHTML, /still using the connection/);
+  slot.innerHTML = 'UNTOUCHED';
+  run({ count: 1, reason: 'port-still-held', same: 1 });
+  assert.equal(slot.innerHTML, 'UNTOUCHED', 'a reason change that changes no words was repainted');
+  run({ count: 2, reason: 'port-still-held', same: 2 });
+  assert.match(slot.innerHTML, /2 times/, 'a changed count did not repaint');
 });
 
 test('#4675: the board marks its own installer run, and setup.sh records the port stops only for that run', () => {
@@ -134,4 +148,9 @@ test('#4675: the board marks its own installer run, and setup.sh records the por
   assert.deepEqual(written, ['board-would-not-pause', 'port-check-failed', 'port-still-held', 'port-unreachable']);
   const fn = page.liftAll(SCRIPT, ['paintUpdateAbort']);
   for (const reason of written) assert.ok(fn.includes("'" + reason + "': "), 'the page has no words for ' + reason);
+  // install/kosmos starts the board in two places and strips the marker in both, so a board never hands it to its agents
+  const cli = fs.readFileSync(nodePath.join(__dirname, 'install', 'kosmos'), 'utf8');
+  const starts = cli.split('\n').filter((l) => /^\s*(exec )?env -u KOSMOS_AGENT_SESSION .*"\$NODE" "\$APP"/.test(l));
+  assert.equal(starts.length, 2, 'expected the two lines in install/kosmos that start the board');
+  for (const l of starts) assert.ok(l.includes(' -u KOSMOS_UPDATE_BY_BOARD '), 'a board start in install/kosmos does not strip KOSMOS_UPDATE_BY_BOARD');
 });

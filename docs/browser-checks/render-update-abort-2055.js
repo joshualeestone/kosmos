@@ -66,27 +66,28 @@ function check(name, pass, detail) {
   const s1 = await slotAfter({ count: 1, reason: 'board-would-not-pause', port: 16180, ts: '' });
   check('abort count 1: reads "install it once", not "1 times"', /install it once/i.test(s1) && !/1 times/.test(s1), s1.slice(0, 160));
 
-  // ---- #4675: the sentence is chosen by the stop's reason and says only what the installer saw. None blames a busy
-  // Kosmos, none asks the person to type a command, and none promises the notice will go away after a step.
+  // ---- #4675: the sentence is chosen by the stop's reason and says only what the installer saw. Only
+  // board-would-not-pause blames a busy Kosmos, and none asks the person to type a command.
   const TYPED = /paste|install line|kosmos stop|in a terminal|run this|update now/i;
-  const PROMISE = /still here|goes away|will try again/i;
-  const chk = await slotAfter({ count: 2, reason: 'port-check-failed', port: 16180, ts: '' });
-  check('#4675 port-check-failed: says the update could not check, names N, and the step is a restart',
+  const REOPEN = /Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one can finish\. Your agents keep working/;
+  const chk = await slotAfter({ count: 2, reason: 'port-check-failed', same: 2, port: 16180, ts: '' });
+  check('#4675 port-check-failed: says the update could not check, names N, and the step is a restart, not a reopen',
     /tried to install it 2 times and could not, because this computer could not check whether Kosmos had stopped/i.test(chk)
-      && /the step to try is restarting this computer/i.test(chk) && /agents keep working/i.test(chk)
-      && !/was busy|quit and reopen/i.test(chk) && !TYPED.test(chk) && !PROMISE.test(chk), chk.slice(0, 260));
-  const unr = await slotAfter({ count: 1, reason: 'port-unreachable', port: 16180, ts: '' });
-  check('#4675 port-unreachable: says something was still using the connection, and points at the count',
-    /tried to install it once and could not, because something was still using the connection Kosmos runs on/i.test(unr)
-      && /quit and reopen Kosmos\. If the count in this notice goes up again, restart this computer/i.test(unr) && /agents keep working/i.test(unr)
-      && !/was busy/i.test(unr) && !TYPED.test(unr) && !PROMISE.test(unr), unr.slice(0, 260));
-  const held = await slotAfter({ count: 1, reason: 'port-still-held', port: 16180, ts: '' });
+      && /Restarting this computer is the step to try/.test(chk) && /agents keep working/i.test(chk)
+      && !/was busy|quit and reopen/i.test(chk) && !TYPED.test(chk), chk.slice(0, 260));
+  const unr = await slotAfter({ count: 1, reason: 'port-unreachable', same: 1, port: 16180, ts: '' });
+  check('#4675 port-unreachable: says something was still using the connection, with the #2055 remedy',
+    /tried to install it once and could not, because each time, something was still using the connection Kosmos runs on/i.test(unr)
+      && REOPEN.test(unr) && !/was busy/i.test(unr) && !TYPED.test(unr), unr.slice(0, 260));
+  const held = await slotAfter({ count: 1, reason: 'port-still-held', same: 1, port: 16180, ts: '' });
   check('#4675 port-still-held: the same words as port-unreachable', held === unr && held.length > 0, held.slice(0, 120));
-  const unk = await slotAfter({ count: 3, reason: 'a-reason-from-the-future', port: 16180, ts: '' });
+  const unk = await slotAfter({ count: 3, reason: 'a-reason-from-the-future', same: 3, port: 16180, ts: '' });
   check('#4675 an unknown reason: the plain sentence, no cause claimed',
-    /tried to install it 3 times and could not, because the update stopped before replacing anything/i.test(unk)
-      && !/was busy|could not check|still using/i.test(unk) && !TYPED.test(unk), unk.slice(0, 200));
-  // CONTROL for the four above: the reason they differ by is what chose the words; the #2055 text is untouched.
+    /tried to install it 3 times and could not, because the update stopped each time before replacing anything/i.test(unk)
+      && REOPEN.test(unk) && !/was busy|could not check|still using/i.test(unk) && !TYPED.test(unk), unk.slice(0, 200));
+  const mixed = await slotAfter({ count: 3, reason: 'board-would-not-pause', same: 1, port: 16180, ts: '' });
+  check('#4675 a mixed streak: the whole count, and no single cause (the same text as an unknown reason)', mixed === unk, mixed.slice(0, 200));
+  // CONTROL for the five above: the #2055 text (count 3, a marker with no same line) is untouched and differs from each.
   check('#4675 CONTROL: board-would-not-pause still reads "Kosmos was busy each time"', /was busy each time/i.test(s3) && s3 !== unk && s3 !== unr && s3 !== chk, s3.slice(0, 120));
 
   // ---- CONTROL A (the dangerous answer): a CLEAN board shows NOTHING.

@@ -83,3 +83,18 @@ test('updateAbort: missing optional fields default cleanly, count still drives i
     assert.equal(a.ts, null);
   });
 });
+
+// #4675: `same` says how many of the latest stops shared the reason. Absent (a marker from before it existed) or
+// damaged reads null, which the page takes as "all of them".
+test('updateAbort: same is passed through as a number, and is null when absent or not a number', () => {
+  withRoot((root) => {
+    writeMarker(root, 'count=5\nreason=port-still-held\nsame=2\nport=16180\nts=x\n');
+    assert.deepEqual(update.updateAbort(), { count: 5, reason: 'port-still-held', same: 2, port: '16180', ts: 'x' });
+    writeMarker(root, 'count=5\nreason=board-would-not-pause\nport=16180\n');
+    assert.equal(update.updateAbort().same, null);
+    writeMarker(root, 'count=5\nreason=port-still-held\nsame=lots\n');
+    assert.equal(update.updateAbort().same, null);
+    writeMarker(root, 'count=5\nreason=port-still-held\nsame=\n');
+    assert.equal(update.updateAbort().same, null);
+  });
+});

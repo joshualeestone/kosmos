@@ -2944,22 +2944,30 @@ _kosmos_mode_keeps_board_off() {
 # BEGIN #4818 put-back
 _kosmos_was_running=no
 _kosmos_paused_board=no
-# #2055, #4675: record a stop at the update's pause, durably and with a CONSECUTIVE count, in the same logs/ dir the
-# board reads install.status from. On the automatic update path the die that follows goes to stderr and install.log,
-# which nobody reads (one machine stopped there 155 times unseen), so this file is the only thing a screen can show.
-# The count is of consecutive stops FOR THIS REASON: a stop for a different reason starts again at 1, so the board's
-# "N times, because <reason>" is true of every one of the N. It is cleared once an update gets past the pause.
-# A file that cannot be written is not an error: the stop still stops.
+# #2055, #4675: record a stop at the update's pause, durably, in the same logs/ dir the board reads install.status
+# from. On the automatic update path the die that follows goes to stderr and install.log, which nobody reads (one
+# machine stopped there 155 times unseen), so this file is the only thing a screen can show.
+#   count  = consecutive stops at the pause, whatever their reasons: the streak, and it must never restart while the
+#            machine is still stuck (a count that restarted on every change of reason would read "once" forever).
+#   reason = the latest stop's.
+#   same   = how many of the latest stops, counting back, had this same reason. same = count means every stop in the
+#            streak had it, which is what lets the board say "because <reason>" of all of them.
+# A file from before `same` existed had only one possible reason, so its same is its count. Cleared once an update
+# gets past the pause. A file that cannot be written is not an error: the stop still stops.
 _kosmos_note_pause_abort() { # reason
   _abortf="$LOG_DIR/update-abort"
-  _abortn=0
-  if [ -f "$_abortf" ] && [ "$(sed -n 's/^reason=//p' "$_abortf" 2>/dev/null || true)" = "$1" ]; then
+  _abortn=0; _abortsame=0
+  if [ -f "$_abortf" ]; then
     _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+    case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
+    if [ "$(sed -n 's/^reason=//p' "$_abortf" 2>/dev/null || true)" = "$1" ]; then
+      _abortsame="$(sed -n 's/^same=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+      case "$_abortsame" in ''|*[!0-9]*) _abortsame="$_abortn" ;; esac
+    fi
   fi
-  case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
-  _abortn=$((_abortn + 1))
-  { printf 'count=%s\nreason=%s\nport=%s\nts=%s\n' \
-      "$_abortn" "$1" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
+  _abortn=$((_abortn + 1)); _abortsame=$((_abortsame + 1))
+  { printf 'count=%s\nreason=%s\nsame=%s\nport=%s\nts=%s\n' \
+      "$_abortn" "$1" "$_abortsame" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
       > "$_abortf"; } 2>/dev/null || true
 }
 # #4675: whether the board started this run (engine/update.js sets KOSMOS_UPDATE_BY_BOARD). Read once and taken out of

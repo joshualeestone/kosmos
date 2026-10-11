@@ -804,11 +804,12 @@ function lastAttemptView() {
    install.log, which the in-process updater's curl|sh leaves unread, so a machine can stop
    receiving updates -- 155 consecutive aborts on one machine -- with nothing on any surface a
    person looks at. This exposes it so the board can say so. Returns
-   { count, reason, port, ts } when the machine is stuck AT THE PAUSE, or null when it is not.
+   { count, reason, same, port, ts } when the machine is stuck AT THE PAUSE, or null when it is not.
    #4675: four reasons. 'board-would-not-pause' is written whoever ran the installer; the three
    stops after it ('port-check-failed', 'port-unreachable', 'port-still-held') only when THIS board
-   started the run (beginInstall's KOSMOS_UPDATE_BY_BOARD). count is of consecutive stops for that
-   one reason: a stop for another reason starts again at 1.
+   started the run (beginInstall's KOSMOS_UPDATE_BY_BOARD). count is the streak, whatever the
+   reasons; same is how many of the latest stops had this reason (same === count: all of them), or
+   null from a file written before it existed.
    🔑 SCOPE, so a reader does not over-read null: this tracks ONLY stops at the pause. null means
    "the last run got PAST the pause", NOT "the last update succeeded" -- a later install failure
    (a 404, a checksum refusal, a failed swap) is a DIFFERENT signal, carried by updateAttempt /
@@ -827,7 +828,8 @@ function updateAbort() {
   }
   const count = Number(kv.count);
   if (!Number.isInteger(count) || count <= 0) return null;   // absent/blank/garbage/0 => not stuck
-  return { count, reason: kv.reason || 'unknown', port: kv.port || null, ts: kv.ts || null };
+  const same = /^[0-9]+$/.test(kv.same || '') ? Number(kv.same) : null;
+  return { count, reason: kv.reason || 'unknown', same, port: kv.port || null, ts: kv.ts || null };
 }
 
 /**
@@ -1281,7 +1283,7 @@ module.exports = {
   updatePhase, // S4: the win32 update journal phase for the client, or null
   setBoardContext, // S4: server tells update.js its own {port, pid} at listen time
   setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsRollback, setKeptPreviousBuild, setWindowsHelperWitnessMs,
-  updateAbort, // #2055, #4675: the durable stopped-at-the-pause marker ({count,reason,port,ts} or null)
+  updateAbort, // #2055, #4675: the durable stopped-at-the-pause marker ({count,reason,same,port,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,

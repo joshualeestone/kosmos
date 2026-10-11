@@ -77,18 +77,31 @@ printf 'count=not-a-number\nreason=x\n' > "$M2"
 record "$L2" 16180
 chk "corrupt count resets to 1, not blank/garbage"   sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 1 ]' _ "$M2"
 
-# ---- #4675: the count is per reason, so "N times because <reason>" is true ---
+# ---- #4675: count is the whole streak; same counts back over the latest reason --------------
+val() { sed -n "s/^$1=//p" "$2" 2>/dev/null; }
 L3="$TMP/logs3"; mkdir -p "$L3"; M3="$L3/update-abort"
 record "$L3" 16180
 record "$L3" 16180
+chk "two stops for one reason: count 2, same 2"       sh -c '[ "$1" = "2 2" ]' _ "$(val count "$M3") $(val same "$M3")"
 record "$L3" 16180 port-check-failed
-chk "a stop for a different reason starts the count at 1" sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 1 ]' _ "$M3"
+chk "a stop for another reason: the streak goes on (count 3), same restarts at 1" sh -c '[ "$1" = "3 1" ]' _ "$(val count "$M3") $(val same "$M3")"
 chk "the reason is the latest stop's"                 sh -c 'grep -q "^reason=port-check-failed$" "$1"' _ "$M3"
 chk "only one reason line is kept"                    sh -c '[ "$(grep -c "^reason=" "$1")" = 1 ]' _ "$M3"
 record "$L3" 16180 port-check-failed
-chk "the same reason again continues its count"      sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 2 ]' _ "$M3"
+chk "the same reason again: count 4, same 2"          sh -c '[ "$1" = "4 2" ]' _ "$(val count "$M3") $(val same "$M3")"
 record "$L3" 16180
-chk "back to the first reason starts at 1, not 3"     sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 1 ]' _ "$M3"
+chk "alternating reasons never restart the streak: count 5, same 1" sh -c '[ "$1" = "5 1" ]' _ "$(val count "$M3") $(val same "$M3")"
+# A marker written before `same` existed had one possible reason, so its count is its same.
+L4="$TMP/logs4"; mkdir -p "$L4"; M4="$L4/update-abort"
+printf 'count=7\nreason=board-would-not-pause\nport=16180\nts=x\n' > "$M4"
+record "$L4" 16180
+chk "an older marker with no same line: count 8, same 8" sh -c '[ "$1" = "8 8" ]' _ "$(val count "$M4") $(val same "$M4")"
+printf 'count=7\nreason=board-would-not-pause\nport=16180\nts=x\n' > "$M4"
+record "$L4" 16180 port-still-held
+chk "an older marker, then another reason: count 8, same 1" sh -c '[ "$1" = "8 1" ]' _ "$(val count "$M4") $(val same "$M4")"
+printf 'count=3\nreason=port-still-held\nsame=lots\n' > "$M4"
+record "$L4" 16180 port-still-held
+chk "a damaged same falls back to the count: count 4, same 4" sh -c '[ "$1" = "4 4" ]' _ "$(val count "$M4") $(val same "$M4")"
 # ---- a logs dir that cannot be written is not an error (the stop still stops) -
 chk "an unwritable logs dir does not fail the caller" record "$TMP/no-such-dir" 16180
 
