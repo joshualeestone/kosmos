@@ -36,7 +36,9 @@ function fakeCoordinator({ day = true } = {}) {
     const current = kept.size ? Math.max(...kept.keys()) : 0;
     const pk = Buffer.from(body.member_public, 'base64url');
     const opened = backupkeys.unwrapMemberKey(company.sk, Buffer.from(body.wrap, 'base64url'), { org: ORG, member: MEMBER, epoch: String(body.epoch) }, pk);
-    if (body.epoch === current && kept.get(current) === body.member_public) return opened ? { ok: true, data: { epoch: current } } : refuse(400, 'member_wrap_unopenable', 'no');
+    // The real route opens the wrap before it compares keys.
+    if (body.epoch === current && !opened) return refuse(400, 'member_wrap_unopenable', 'no');
+    if (body.epoch === current && kept.get(current) === body.member_public) return { ok: true, data: { epoch: current } };
     if (body.epoch === current) return refuse(409, 'member_key_exists', 'another key holds this epoch');
     if (body.epoch !== current + 1) return refuse(400, 'member_key_wrong_epoch', 'not current or next', current);
     if (current >= 1 && !day) return refuse(429, 'member_key_rotation_wait', 'wait a day');
@@ -133,4 +135,50 @@ test('#5744 2b: a malformed company answer, an unreadable key file and a failed 
   assert.equal(unreadable.ok, false);
   assert.equal(fs.readFileSync(keyFile(), 'utf8'), 'not json', 'an unreadable key file was overwritten');
   assert.equal(c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length, 1, 'something was registered past a bad answer');
+});
+
+test('#5744 2b: two calls at once make one key, and Kosmos+ and this computer agree on it', async () => {
+  const c = fakeCoordinator();
+  const [a, b] = await Promise.all([mk.ensureMemberKey({ macRequest: c.macRequest }), mk.ensureMemberKey({ macRequest: c.macRequest })]);
+  assert.deepEqual([a.ok, b.ok, a.epoch, b.epoch], [true, true, 1, 1], JSON.stringify([a, b]));
+  assert.equal(a.publicKey.equals(b.publicKey), true);
+  assert.equal(c.kept.size, 1, 'a second epoch was started');
+  assert.equal(JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['1'].pk, c.kept.get(1), 'the key on disk is not the one Kosmos+ took');
+});
+
+test('#5744 2b: currentEpoch 0 (no key at all) moves a kept later-epoch key to epoch 1', async () => {
+  const c = fakeCoordinator();
+  // A kept, unregistered key for epoch 3 (an old account): Kosmos+ has none, so it answers wrong_epoch with 0.
+  const k = backupkeys.newMemberKey();
+  await mk.ensureMemberKey({ macRequest: async (m, route, b) => (route === mk.BACKUP_KEY_ROUTE ? c.macRequest(m, route, b) : { ok: false, because: 'offline' }) });
+  const file = keyFile();
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  kept.keys = { 3: { sk: k.sk.toString('base64url'), pk: k.pk.toString('base64url'), registered: false } };
+  fs.writeFileSync(file, JSON.stringify(kept));
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.deepEqual([r.ok, r.epoch], [true, 1], JSON.stringify(r));
+  assert.equal(c.kept.get(1), k.pk.toString('base64url'));
+});
+
+test('#5744 2b: member_key_reused and a 429 with no code fail without starting an epoch', async () => {
+  const c = fakeCoordinator();
+  for (const refusal of [{ status: 409, code: 'member_key_reused', currentEpoch: null }, { status: 429, code: null, currentEpoch: null }]) {
+    loseTheKey();
+    const sent = [];
+    const r = await mk.ensureMemberKey({ macRequest: async (m, route, b) => {
+      if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
+      sent.push(b.epoch);
+      return { ok: false, because: 'no', refusal };
+    } });
+    assert.equal(r.ok, false, JSON.stringify(refusal));
+    assert.deepEqual(sent, [1], 'it tried another epoch on ' + JSON.stringify(refusal));
+  }
+});
+
+test('#5744 2b: a key folder that already exists with looser permissions is made owner-only', async () => {
+  fs.mkdirSync(path.join(store.ROOT, 'backupkeys'), { recursive: true });
+  fs.chmodSync(path.join(store.ROOT, 'backupkeys'), 0o755);
+  const c = fakeCoordinator();
+  assert.equal((await mk.ensureMemberKey({ macRequest: c.macRequest })).ok, true);
+  assert.equal(fs.statSync(path.join(store.ROOT, 'backupkeys')).mode & 0o777, 0o700);
 });

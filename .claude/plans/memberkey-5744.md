@@ -54,3 +54,15 @@ the API doc's missing `member` field.
 - Red-capable at 1be4a071f: without writing the key before sending, 1 of 7 fails; without the 409 arm, 3 of 7 fail.
 - Neighbours and gates at 1be4a071f: engine/backup*, engine/hpke*, engine.reachable, browser-checks-reason-grep,
   web.speech-kind-1397: 339 tests, 339 pass.
+
+## Review 1 (sonnet)
+- FIXED: two calls at once could each make a key and the later write replace one Kosmos+ took; calls now run one at
+  a time in this process (a promise chain); tested.
+- FIXED (doc): ensureMemberKey does not ask whether a taken key is still current; the header says the backup job
+  compares its epoch with each grant's.
+- FIXED: the key folder is chmod 0700 even when it already existed; tested.
+- FIXED: the catch-all message no longer says "kept on this computer" for a transport or wrap failure; a failed
+  "registered" note after Kosmos+ took the key says so.
+- FIXED: wrong_epoch with currentEpoch 0 (no key at all) moves a kept later-epoch key to epoch 1; tested.
+- FIXED: the fake opens the wrap before comparing keys, as the real route does; member_key_reused and a 429 with no
+  code are tested not to rotate.
