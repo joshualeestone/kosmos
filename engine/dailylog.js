@@ -545,16 +545,14 @@ if (require.main === module) {
       + (names.length > REFUSAL_NAMES_SHOWN ? `  and ${names.length - REFUSAL_NAMES_SHOWN} more\n` : '');
     const earlier = summary.rolledOverFiles;
     const pointing = summary.continuedFiles;
-    process.stderr.write('dailylog: not compiled. Nothing was written or removed. The daily files made before are '
-      + 'still there, as they were, and so are the conversations.\n'
-      + 'Why: this tool cannot read a conversation that continues from another file, and it stopped rather than '
-      + 'leave days out of the daily files. No version of this tool can read one yet.\n'
-      + `In ${summary.chatsDir}:\n`
-      + (earlier.length ? 'Files named as the earlier part of a conversation (a conversation file\'s name, then more, ending in .full):\n' + list(earlier) : '')
-      + (pointing.length ? 'Conversation files that point to an earlier part:\n' + list(pointing) : '')
-      + 'Leave these files where they are: Kosmos uses them. The one exception is a file ending in .full that you '
-      + 'know Kosmos did not make (a copy someone saved there, say); moving that one out lets this run. If unsure, '
-      + 'leave it.\n');
+    // Facts only, each true in every state that gets here (a real rollover, an interrupted one, a stray file): what
+    // happened, which files, and why it stops. No advice: what to do with a file depends on whose it is.
+    process.stderr.write('dailylog: not compiled. Nothing was written or removed.\n'
+      + `This tool does not compile while these files are in ${summary.chatsDir}:\n`
+      + (earlier.length ? 'Files whose names end in .full after a conversation file\'s name:\n' + list(earlier) : '')
+      + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : '')
+      + 'It stops because compiling without reading them could leave days out of the daily files, and no version '
+      + 'of this tool reads them.\n');
     process.exit(EXIT_REFUSED);
   }
   process.stdout.write(

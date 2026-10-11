@@ -239,13 +239,12 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  assert.match(no.stderr, /^dailylog: not compiled\. Nothing was written or removed\. The daily files made before are still there/);
-  assert.match(no.stderr, /No version of this tool can read one yet\./, 'the message promises a version that does not exist');
-  assert.ok(no.stderr.includes('In ' + chatsDir + ':\n'), 'the folder is not named: ' + no.stderr);
-  assert.ok(no.stderr.includes('ending in .full):\n  ' + JSON.stringify(ASIDE) + '\n'), 'the file that caused the refusal is not named: ' + no.stderr);
-  assert.ok(!no.stderr.includes('point to an earlier part'), 'it listed conversations that point to an earlier part when there are none');
-  assert.match(no.stderr, /Leave these files where they are: Kosmos uses them\./);
-  assert.match(no.stderr, /If unsure, leave it\.\n$/);
+  assert.ok(no.stderr.startsWith('dailylog: not compiled. Nothing was written or removed.\nThis tool does not compile while these files are in ' + chatsDir + ':\n'), no.stderr);
+  assert.ok(no.stderr.includes('Files whose names end in .full after a conversation file\'s name:\n  ' + JSON.stringify(ASIDE) + '\n'), 'the file that caused the refusal is not named: ' + no.stderr);
+  assert.ok(!no.stderr.includes('refer to an earlier file'), 'it listed conversations that refer to an earlier file when there are none');
+  assert.ok(no.stderr.endsWith('could leave days out of the daily files, and no version of this tool reads them.\n'), no.stderr);
+  // no advice and no promise: what to do with a file depends on whose it is, and nothing reads these yet
+  assert.ok(!/\byet\b|move |leave (it|these)|needs a version/i.test(no.stderr), 'the refusal advises or promises: ' + no.stderr);
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
   const other = path.join(SANDBOX, 'elsewhere');
@@ -263,16 +262,16 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   // the live conversation file is never among the files a person is told they might move
   fs.writeFileSync(path.join(chatsDir, 'direct..p.json'), JSON.stringify({ continues: ASIDE, carried: 1, messages: [WHOLE[3]] }));
   const both = run();
-  const [first, second] = both.stderr.split('Conversation files that point to an earlier part:\n');
-  assert.ok(second !== undefined, 'the conversation that points to an earlier part is not listed apart: ' + both.stderr);
-  assert.ok(!first.includes('"direct..p.json"'), 'the live conversation file is in the list of earlier parts');
+  const [first, second] = both.stderr.split('Conversation files that refer to an earlier file:\n');
+  assert.ok(second !== undefined, 'the conversation that refers to an earlier file is not listed apart: ' + both.stderr);
+  assert.ok(!first.includes('"direct..p.json"'), 'the live conversation file is in the list of .full files');
   assert.ok(second.startsWith('  "direct..p.json"\n'));
-  // only the second sign: the same advice, and no list of earlier parts
+  // only the second sign: its list alone, and the same closing sentence
   for (const n of fs.readdirSync(chatsDir)) if (n.endsWith('.full')) fs.rmSync(path.join(chatsDir, n));
   const only = run();
   assert.equal(only.status, 3);
-  assert.ok(!only.stderr.includes('Files named as the earlier part'), only.stderr);
-  assert.match(only.stderr, /Conversation files that point to an earlier part:\n  "direct\.\.p\.json"\nLeave these files where they are/);
+  assert.ok(!only.stderr.includes('.full after'), only.stderr);
+  assert.match(only.stderr, /Conversation files that refer to an earlier file:\n  "direct\.\.p\.json"\nIt stops because /);
   // a file name is somebody's bytes: whatever it holds, what is printed is printable ASCII, on one line
   const nasty = 'proj1.k.json.\u001b]0;TITLE\u0007\nFiles named as\u009b2J\u007f\u202e\u2028.full';
   let made = true;
