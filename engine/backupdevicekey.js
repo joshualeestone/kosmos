@@ -15,13 +15,14 @@
  * cannot take; kosmos#5871 asks for an atomic write). No read order and no file-time test can tell a finished pair from
  * one caught between the two writes (reviews 3 and 4 of this slice each found an interleaving that defeated one), so
  * this returns no `macId` and makes no claim about which identity the key belongs to. That is harmless by contract:
- *   - A manifest is checked against the device key of the identity Kosmos+ recorded for the upload and, failing that,
- *     the member's other enrolled device keys, never against an identity the manifest names (stated on #5535).
+ *   - Kosmos+ records an upload by org and account only (coordinator/src/backup.rs member_of; backup_manifests keeps no
+ *     device), so a manifest is checked against EVERY device key that account has had, current and retired, never
+ *     against an identity the manifest names (stated on #5535).
  *   - A key read mid-registration is the NEW identity's key, which Kosmos+ enrolls when the registration finishes; one
  *     whose registration never finishes signs nothing that uploads, since the connector itself then signs every grant
  *     request with a key Kosmos+ does not hold for its id.
- *   - Restore and the content view must keep RETIRED device keys: a manifest verifies only against the key that signed
- *     it (stated on #5535).
+ *   - So Kosmos+ must keep each account's RETIRED device public keys for restore and the content view: a manifest
+ *     verifies only against the key that signed it (stated on #5535).
  * What is checked: `mac_id` must exist (as MacState::open and remote.holdsKey require), so a folder whose very first
  * registration was cut off after the key is `missing`; and an empty file (the truncation before an in-place write) is
  * refused with `retry`.
@@ -36,7 +37,10 @@
  *
  * deviceKey({ stateDir? }) -> { ok: true, privateKey, publicKey } or { ok: false, because, missing?, retry? }.
  *   stateDir: an absolute path (default remote.stateDir(), which must also resolve to one).
- *   missing: no finished identity yet. retry: a passing state (a file being rewritten, or held open by another program).
+ *   missing: no finished identity yet (ENOENT only; any other error reading mac_id is reported as itself).
+ *   retry: a passing state: a file being rewritten (empty), EBUSY or EAGAIN, a file that vanished between the open and
+ *   the lstat, and on Windows only EPERM or EACCES (a sharing violation or a scanner holding the file). On macOS and
+ *   Linux EPERM and EACCES are a lasting misconfiguration and are NOT retry. A caller still caps its attempts.
  */
 const fs = require('fs');
 const path = require('path');
@@ -48,8 +52,8 @@ const MAX_FILE = 256;
 const SEED_RE = /^[A-Za-z0-9_-]{43}$/;
 const rustTrim = (t) => t.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '');
 const codeOf = (err) => (err && /^[A-Z0-9_]{1,32}$/.test(String(err.code)) ? ` (${err.code})` : '');
-// Passing states: a file another program holds (Windows sharing, antivirus) or that vanished between two steps.
-const TRANSIENT = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES', 'ENOENT']);
+// Passing states (see the header). EPERM and EACCES only on Windows, where they are sharing violations.
+const TRANSIENT = new Set(['EBUSY', 'EAGAIN', 'ENOENT'].concat(process.platform === 'win32' ? ['EPERM', 'EACCES'] : []));
 const NOT_FORM = 'the device key file does not hold a key in the form the connector writes';
 
 function deviceKey(opts = {}) {
@@ -58,8 +62,11 @@ function deviceKey(opts = {}) {
   // An empty, relative or non-string folder is a mistake (the caller's, or AGENT_WORKFORCE_TUNNEL_STATE's), never the
   // current directory.
   if (typeof dir !== 'string' || !path.isAbsolute(dir)) return { ok: false, because: 'the device key folder is not an absolute path' };
-  if (!fs.existsSync(path.join(dir, 'mac_id'))) {
-    return { ok: false, missing: true, because: 'this computer has no device identity yet (remote access was never set up, or setting it up did not finish)' };
+  // statSync, not existsSync: only ENOENT is "missing". A folder this process cannot read is NOT reported as never set
+  // up, which would send the person to register again over a good identity.
+  try { fs.statSync(path.join(dir, 'mac_id')); } catch (err) {
+    if (err && err.code === 'ENOENT') return { ok: false, missing: true, because: 'this computer has no device identity yet (remote access was never set up, or setting it up did not finish)' };
+    return Object.assign({ ok: false, because: `the device identity file could not be read${codeOf(err)}` }, err && TRANSIENT.has(err.code) && err.code !== 'ENOENT' ? { retry: true } : {});
   }
   const file = path.join(dir, 'mac_key');
   let fd;
