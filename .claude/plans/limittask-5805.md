@@ -44,6 +44,9 @@ for this reason.
   Twenty kept from the person per capped agent is far past any real use; past it the line is refused, said, untyped.
 - An agent that sent with no resolvable name (senderName empty, not via the screen) is stored with from '' and so is
   not told about a drop. Same as before this change: such a sender was already unnamed in the line.
+- A card past its reset with Claude Code's limit menu still up stays held (limitHeldVerdict), so a kept line waits
+  until someone dismisses the menu, and is dropped a day later if nobody does. Same as `kosmos msg`. Before this
+  change the line was typed into that menu, which is worse.
 - Windows agents: limitHeldVerdict needs a RATE_LIMITED Claude card, exactly as for `kosmos msg`; unmeasured there
   (the 0.7.40 What's New tags the holds Mac only).
 
@@ -67,6 +70,20 @@ for this reason.
   keepTaskLine now leaves a line the delivery refuses anyway (not sendable, not reachable, swarm paused) to the
   delivery, which says the true reason now. Residual, as for `kosmos msg`: a swarm paused AFTER a line is kept still
   holds the queue until the drop. "No record an agent can read of a kept line being typed" went onto #5842.
+
+## Review 7 (sonnet): nothing new (the shared cap and the automatic gate were already recorded).
+
+## Final validation 1 (Mortals, a5fbea52): 18864 pass, 1 fail
+- web.speech-kind-1397 reads every `kind: 'x'` literal in engine/messages.js as a message-log kind the page must
+  classify. The task line's queue kind was such a literal. It is never a log row, so it is now limitqueue.TASK_KIND,
+  named in the queue module, not a new entry in the page's lists.
+
+## Review 8 (opus)
+- A dropped task line left no record anywhere (no message-log row, the tell's verdict thrown away). The drop now
+  writes one board log line, "limit-queue: task line <id> for <to> was dropped a day past its reset, never typed;
+  told <sender, delivery=...> | nobody (the person sent it)", after the tell settles.
+- The person's kept line is invisible to them: #5842, linked from the PR body as a known gap.
+- Weakest premise added below: the limit menu left up past the reset.
 
 ## Tests
 - engine/limittask-5805.test.js: held and not typed; idle CONTROL not held; unreachable not held; behind a backlog;

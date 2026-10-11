@@ -1526,10 +1526,17 @@ function keepTaskLine(toName, line, roster, from, about) {
 /* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane. One the person sent
    is told to nobody: the task page shows no delivery outcome yet (#5842). */
 async function tellTaskLineDropped(entry, roster) {
-  if (!entry.from) return null;
-  const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it'
-    + ' for a day while ' + entry.to + ' was out of usage and could not type it. Send it again if it still matters.';
-  try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
+  let v = null;
+  let told = 'nobody (the person sent it)';
+  if (entry.from) {
+    const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it'
+      + ' for a day while ' + entry.to + ' was out of usage and could not type it. Send it again if it still matters.';
+    try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
+    told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');
+  }
+  // The board's own record of the drop (a task line has no message-log row), whether or not the tell was typed.
+  try { process.stdout.write('limit-queue: task line ' + entry.id + ' for ' + entry.to + ' was dropped a day past its reset, never typed; told ' + told + '\n'); } catch { /* recorded where it could be */ }
+  return v;
 }
 
 function sendAsync(input, roster) {
