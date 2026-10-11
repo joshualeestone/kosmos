@@ -93,17 +93,26 @@ test('writeState refuses a period it would not read back (a bad label, a short k
   assert.deepEqual(bs.readState(org, member), { ok: true, state: { job: {}, period: null } }, 'nothing was written');
 });
 
+const MK = 'ab'.repeat(16), NOW = 1700000000000;
 test('forPeriod keeps the same period (its key and index) and starts a new one fresh', () => {
   const nk = crypto.randomBytes(32);
   const state = { job: {}, period: { label: '2026-W41', namingKey: nk, bucket: 'b/', index: new Map([entry(1)]) } };
-  assert.equal(bs.forPeriod(state, '2026-W41'), state.period);
+  const same = bs.forPeriod(state, '2026-W41', { memberKeyId: MK, nowMs: NOW });
+  assert.ok(same.namingKey.equals(nk)); assert.equal(same.bucket, 'b/'); assert.deepEqual([...same.index], [...state.period.index]);
   const fresh = crypto.randomBytes(32);
-  const next = bs.forPeriod(state, '2026-W42', () => fresh);
+  const next = bs.forPeriod(state, '2026-W42', { memberKeyId: MK, nowMs: NOW, newKey: () => fresh });
   assert.deepEqual({ label: next.label, bucket: next.bucket, size: next.index.size }, { label: '2026-W42', bucket: null, size: 0 });
   assert.ok(next.namingKey.equals(fresh));
-  const none = bs.forPeriod({ job: {}, period: null }, '2026-W41');
+  const none = bs.forPeriod({ job: {}, period: null }, '2026-W41', { memberKeyId: MK, nowMs: NOW });
   assert.equal(none.namingKey.length, 32); assert.ok(!none.namingKey.equals(nk));
-  assert.throws(() => bs.forPeriod(state, 'W41'));
+  assert.throws(() => bs.forPeriod(state, 'W41', { memberKeyId: MK, nowMs: NOW }));
+  assert.throws(() => bs.forPeriod(state, '2026-W41', {}), /member key id and the time/);
+  // Resuming prunes what takeSnapshot would refuse: another member key (a #5744 rotation), a lock that has ended.
+  const mixed = { job: {}, period: { label: '2026-W41', namingKey: nk, bucket: 'b/', index: new Map([
+    entry(1), [name(2), { key: 'o1/acct1/1/2026-W41/k2', lockedUntilMs: 1800000000002, memberKeyId: 'cd'.repeat(16) }],
+    [name(3), { key: 'o1/acct1/1/2026-W41/k3', lockedUntilMs: NOW, memberKeyId: MK }]]) } };
+  assert.deepEqual([...bs.forPeriod(mixed, '2026-W41', { memberKeyId: MK, nowMs: NOW }).index.keys()], [name(1)]);
+  assert.equal(mixed.period.index.size, 3, 'the input is not changed');
 });
 
 test('withRun merges added chunks under the bucket; staleIndex or another bucket drops the old index', () => {
@@ -118,8 +127,12 @@ test('withRun merges added chunks under the bucket; staleIndex or another bucket
   assert.deepEqual([...stale.period.index.keys()], [name(3)]);
   const moved = bs.withRun(state, period, { ok: false, added: new Map([entry(4)]), bucket: 'c/' });
   assert.deepEqual([...moved.period.index.keys()], [name(4)]); assert.equal(moved.period.bucket, 'c/');
-  const gone = bs.withRun(state, period, { ok: false, added: new Map(), bucket: null });
-  assert.equal(gone.period.index.size, 0); assert.equal(gone.period.bucket, null);
+  // Review 1 BLOCKER: a run that failed before reading the index returns bucket null; it touched nothing. Kept.
+  const early = bs.withRun(state, period, { ok: false, because: 'a root could not be read', added: new Map(), bucket: null });
+  assert.deepEqual([...early.period.index.keys()], [name(1)]); assert.equal(early.period.bucket, 'b/');
+  // otherBucket with an index comes with staleIndex: then it is dropped.
+  const gone = bs.withRun(state, period, { ok: false, staleIndex: true, added: new Map(), bucket: null });
+  assert.equal(gone.period.index.size, 0);
   // A first run (no bucket yet) takes the run's bucket and its chunks.
   const first = bs.withRun(state, { label: '2026-W41', namingKey: nk, bucket: null, index: new Map() }, { ok: true, added: new Map([entry(5)]), bucket: 'b/' });
   assert.deepEqual([...first.period.index.keys()], [name(5)]); assert.equal(first.period.bucket, 'b/');
@@ -128,4 +141,37 @@ test('withRun merges added chunks under the bucket; staleIndex or another bucket
   bs.writeState(org, member, merged);
   assert.deepEqual([...bs.readState(org, member).state.period.index.keys()], [name(1), name(2)]);
   assert.equal(backupkeys.namingKeyId(bs.readState(org, member).state.period.namingKey), backupkeys.namingKeyId(nk));
+});
+
+test('round 1: withRun leaves out a malformed added row and caps the index, so writeState never throws after a run', () => {
+  const nk = crypto.randomBytes(32);
+  const period = { label: '2026-W41', namingKey: nk, bucket: 'b/', index: new Map([entry(1)]) };
+  const bad = [name(7), { key: 'o1/acct1/1/2026-W41/k7', lockedUntilMs: 1, memberKeyId: 'short' }];
+  const other = [name(8), { key: 'o1/acct1/1/2026-W40/k8', lockedUntilMs: 1800000000008, memberKeyId: MK }];
+  const r = bs.withRun({ job: {}, period }, period, { ok: true, added: new Map([entry(2), bad, other]), bucket: 'b/' });
+  assert.deepEqual([...r.period.index.keys()], [name(1), name(2)]);
+  const [org, member] = ids();
+  bs.writeState(org, member, r);
+  assert.equal(bs.readState(org, member).ok, true);
+  // The cap: an index already at MAX (200000) takes nothing more, and still writes.
+  const full = new Map();
+  for (let i = 0; i < 200000; i++) full.set(name('f' + i), { key: `o1/acct1/1/2026-W41/f${i}`, lockedUntilMs: 1800000000000, memberKeyId: MK });
+  const big = { label: '2026-W41', namingKey: nk, bucket: 'b/', index: full };
+  const capped = bs.withRun({ job: {}, period: big }, big, { ok: true, added: new Map([entry(3)]), bucket: 'b/' });
+  assert.equal(capped.period.index.size, 200000);
+  assert.equal(capped.period.index.has(name(3)), false);
+});
+
+test('round 1: discardState sets a refused file aside (never deletes it), and the next read is a fresh start', () => {
+  const [org, member] = ids();
+  bs.writeState(org, member, { job: {}, period: null });
+  const f = bs.fileFor(org, member);
+  fs.writeFileSync(f, '{ not ours');
+  assert.equal(bs.readState(org, member).ok, false);
+  assert.deepEqual(bs.discardState(org, member), { ok: true });
+  assert.deepEqual(bs.readState(org, member), { ok: true, state: { job: {}, period: null } });
+  const aside = fs.readdirSync(path.dirname(f)).filter((x) => x.startsWith(path.basename(f) + '.bad-'));
+  assert.equal(aside.length, 1);
+  assert.equal(fs.readFileSync(path.join(path.dirname(f), aside[0]), 'utf8'), '{ not ours');
+  assert.deepEqual(bs.discardState(org, member), { ok: true }, 'nothing there is fine');
 });
