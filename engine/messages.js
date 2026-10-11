@@ -1301,7 +1301,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      a hold lasts days), is that copy: answered here, before the pair valve (whose count already holds the first copy)
      and before an id or a spill file is made. */
   const keptEarly = require('./limitqueue').keptByKey(qName, msgKey);
-  if (keptEarly) {
+  // Typed already (its removal from the file failed): not held. Answered as the delivery when the log has it.
+  if (keptEarly && require('./limitqueue').isDone(keptEarly.id)) {
+    const typedRow = log.find((r) => r && r.kind === 'held-delivered' && r.of === keptEarly.id);
+    if (typedRow) return { state: typedRow.state, because: null, id: keptEarly.id, at: keptEarly.at, duplicate: true };
+  } else if (keptEarly) {
     return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true);
   }
 
@@ -1387,9 +1391,14 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     /* The drop clock: the printed reset, or now when that is already past (a limit menu left up overnight would
        otherwise drop the message at the next sweep). */
     const dropFrom = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : at;
-    if (!limitqueue.add(qName, { id, from, envelope, at, reset: dropFrom, key: msgKey, spill: spillFile, behind: limitHold.behind === true })) {
+    const why = limitqueue.addOrWhy(qName, { id, from, envelope, at, reset: dropFrom, key: msgKey, spill: spillFile, behind: limitHold.behind === true });
+    if (why) {
       unspill(spillFile);
-      return refuse(toName, 'this agent is out of usage, and Kosmos could not keep the message for after its reset');
+      const situation = limitHold.behind ? 'still has messages kept from while it was out of usage' : 'is out of usage';
+      return refuse(toName, toName + ' ' + situation + ', and Kosmos ' + (why === 'sender-cap'
+        ? 'is already keeping ' + limitqueue.MAX_PER_SENDER + ' messages from you for it; wait for those to arrive before sending more'
+        : why === 'agent-cap' ? 'is already keeping ' + limitqueue.MAX_KEPT + ' messages for it; try again after its reset'
+          : 'could not keep this one for it (its queue could not be written); try again in a minute'));
     }
     // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;

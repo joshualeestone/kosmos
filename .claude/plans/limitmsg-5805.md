@@ -193,3 +193,14 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   overwrite, and the listing deletes only a file it read and found nothing for (tested both ways).
 - STATED (residual): a restart can repeat a drop notice.
 - CONVENTION taken: the held fold reads the delivery row once.
+
+## Review 15 (opus)
+- FIXED: every refusal to keep said "out of usage, could not keep"; it now says what happened (behind or out of usage;
+  the per-sender cap, the per-agent cap, or the queue not written) (tested for the sender cap).
+- FIXED: a drop could fall on a message a stuck run was still typing, telling its sender "never delivered" for one
+  that arrived; a claimed message is not dropped (tested).
+- FIXED: nothing tested the board's sweep wiring; a source assertion pins the gate, the release test and both
+  outcome rows (tested).
+- FIXED: a repeat of a message typed but not removed from the file answered "held"; it answers as that delivery
+  (tested with a failed removal).
+- NIT taken: the queue folder is owner-only (0700). Not taken: local time in the kept note and the CLI line.

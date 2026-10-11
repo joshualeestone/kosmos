@@ -527,3 +527,59 @@ test('#5805 2a review 14: a queue file that cannot be read is never overwritten 
   fs.rmSync(file, { force: true });
   assert.equal(limitqueue.add('casey', { id: 'm1084', from: 'leo', envelope: 'new', at: t, reset: t }), true, 'CONTROL: a missing file did not start empty');
 });
+
+test('#5805 2a review 15: a refusal says why: the per-sender cap is named, not "out of usage, could not keep"', async () => {
+  const t = new Date().toISOString();
+  for (let i = 0; i < limitqueue.MAX_PER_SENDER; i += 1) limitqueue.add('casey', { id: 'mq' + i, from: 'leo', envelope: 'e' + i, at: t, reset: t });
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    const v = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'one more' }, board.agents);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+    assert.match(v.because, /already keeping 20 messages from you/, v.because);
+  });
+});
+
+test('#5805 2a review 15: a message being typed by a run that outlived the guard is not dropped under it', async () => {
+  const t = new Date().toISOString();
+  limitqueue.add('casey', { id: 'm1090', from: 'leo', envelope: 'slow', at: t, reset: t });
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const dropped = [];
+  const o = (extra) => ({ deliver: async () => { await gate; return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id), ...extra });
+  const run1 = limitqueue.flush(caseyRoster(), o());
+  await new Promise((r) => setTimeout(r, 20));
+  const realNow = Date.now;
+  Date.now = () => realNow() + 16 * 60e3;
+  try { await limitqueue.flush(caseyRoster(), o({ now: realNow() + limitqueue.DROP_AFTER_MS + 60e3 })); } finally { Date.now = realNow; }
+  assert.deepEqual(dropped, [], 'dropped (and its sender told "never delivered") while it was being typed');
+  release();
+  await run1;
+});
+
+test('#5805 2a review 15: the board wires the sweep to the automatic gate, the release test and both outcome rows', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('limitqueue.flush(');
+  assert.notEqual(at, -1, 'the sweep is not wired at all');
+  const call = src.slice(at, at + 900);
+  for (const want of [/deliver: chat\.deliverAutomaticAsync/, /isReleased: chat\.limitQueueReleased/, /onDelivered: messages\.logHeldDelivered/, /messages\.tellHeldDropped\(/]) {
+    assert.match(call, want);
+  }
+});
+
+test('#5805 2a review 15: a repeat of a message typed but not removed from the file answers as that delivery, not held', async () => {
+  let first;
+  await withFleet(AHEAD(), 'rate_limited', async (board) => { first = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'typed once' }, board.agents); });
+  await withFleet(undefined, 'idle', async (board) => {
+    const folder = path.dirname(limitqueue.fileFor('casey'));
+    const o = { ...opts(), deliver: async () => { fs.chmodSync(folder, 0o500); return { state: chat.DELIVERY.PLACED }; } };
+    try { await limitqueue.flush(board.agents, o); } finally { fs.chmodSync(folder, 0o700); }
+    assert.equal(limitqueue.isDone(first.id), true, 'CONTROL: the removal did fail');
+    fs.rmSync(messages.LOG, { recursive: true, force: true });   // past the recent-send window
+    messages.resetForTests();
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    // The held-delivered row went with the log; put the record back as the board would have it.
+    messages.logHeldDelivered({ id: first.id, from: 'leo', to: 'casey' }, { state: chat.DELIVERY.PLACED });
+    const again = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'typed once' }, board.agents);
+    assert.notEqual(again.held, true, 'told held for a message already typed: ' + JSON.stringify(again));
+    assert.deepEqual([again.state, again.id, again.duplicate], [chat.DELIVERY.PLACED, first.id, true]);
+  });
+});

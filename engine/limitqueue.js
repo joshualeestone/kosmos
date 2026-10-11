@@ -45,24 +45,28 @@ function list(name) { return readEntries(name).entries; }
 function write(name, entries) {
   // force: a file already gone is no error, so any error here is a removal that failed.
   if (!entries.length) { try { fs.rmSync(fileFor(name), { force: true }); } catch { return false; } return true; }
-  fs.mkdirSync(dir(), { recursive: true });
+  fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });   // the file names say which agents have kept messages
   require('./securewrite').writeSecret(fileFor(name), JSON.stringify(entries), 0o600, { atomicOnly: true });
   return true;
 }
 
 /* Keep one message for `name`. Returns true when kept. */
-function add(name, entry) {
+function add(name, entry) { return addOrWhy(name, entry) === ''; }
+/* As add, answering why a message was not kept ('' when it was): 'sender-cap', 'agent-cap', or 'store' (the file could
+   not be read or written), so the sender is told the true reason. */
+function addOrWhy(name, entry) {
   try {
-    if (!entry || typeof entry.id !== 'string' || typeof entry.envelope !== 'string') return false;
+    if (!entry || typeof entry.id !== 'string' || typeof entry.envelope !== 'string') return 'store';
     const read = readEntries(name);
-    if (!read.ok) return false;   // an unreadable file is never overwritten: the sender is told it could not be kept
+    if (!read.ok) return 'store';   // an unreadable file is never overwritten: the sender is told it could not be kept
     const now = read.entries.filter((e) => e.id !== entry.id);
-    if (now.length >= MAX_KEPT || now.filter((e) => e.from === String(entry.from || '')).length >= MAX_PER_SENDER) return false;
+    if (now.length >= MAX_KEPT) return 'agent-cap';
+    if (now.filter((e) => e.from === String(entry.from || '')).length >= MAX_PER_SENDER) return 'sender-cap';
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
       key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null,
       ...(entry.behind === true ? { behind: true } : {}) });
-    return write(name, now);
-  } catch { return false; }
+    return write(name, now) ? '' : 'store';
+  } catch { return 'store'; }
 }
 
 function has(name, id) { return list(name).some((e) => e.id === id); }
@@ -97,7 +101,9 @@ const done = new Set();
 /* Ids being typed this moment: claimed before the await, so no other flush run (one that outlived the guard below)
    types the same message alongside it, or ahead of it. */
 const typing = new Set();
-function isTyping(id) { return typing.has(id); }   // read by the tests; the sweep reads `typing` itself
+function isTyping(id) { return typing.has(id); }
+/* Typed (or dropped) already, its removal from the file having failed: still in the file, but not kept. */
+function isDone(id) { return done.has(id); }   // read by the tests; the sweep reads `typing` itself
 /* What the recipient is told about a kept message as it is typed: kept, and when it was sent, so a day-old go-ahead
    does not read as new. */
 function keptNote(e) { return ' [kept for you while you were out of usage; sent ' + e.at + ']'; }
@@ -130,6 +136,8 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       for (const e of kept) {
         // Its reset, or when it arrived if the reset cannot be read: nothing is kept for ever.
         const reset = Number.isFinite(Date.parse(e.reset)) ? Date.parse(e.reset) : Date.parse(e.at);
+        // Being typed this moment (a run that outlived the guard): not dropped under it.
+        if (typing.has(e.id)) { live.push(e); continue; }
         if (!Number.isFinite(reset) || now - reset > DROP_AFTER_MS) {
           if (!remove(name, e.id)) done.add(e.id);
           try { if (onDropped) onDropped(e, roster); } catch { /* the drop stands */ }
@@ -164,4 +172,4 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
 
 function resetForTests() { done.clear(); typing.clear(); flushingSince = 0; }
 
-module.exports = { keptNote, isTyping, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN };
+module.exports = { keptNote, isTyping, isDone, addOrWhy, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN };
