@@ -1478,8 +1478,10 @@ async function tellHeldDropped(entry, roster) {
    kept like a `kosmos msg` and typed by the same minute sweep after the reset; so is one for an agent whose messages
    kept from then are still waiting, so it never arrives ahead of them. null: not held, type it now. Otherwise the
    outcome the route reports for that agent: held when kept, could_not when it could not be kept (and was not typed).
-   `from` is the sending agent's name, or '' for the person. Never throws. */
+   `from` is the sending agent's name, or '' for the person. Never throws: a throw before a hold is found types it
+   (as an unreadable limit verdict does for `kosmos msg`); one after a hold is found refuses it, untyped. */
 function keepTaskLine(toName, line, roster, from, about) {
+  let decided = false;   // a hold was found: from here a failure must not fall through to typing
   try {
     const limitqueue = require('./limitqueue');
     let hold = null;
@@ -1493,18 +1495,24 @@ function keepTaskLine(toName, line, roster, from, about) {
       if (queued.ok && !queued.entries.some((e) => !limitqueue.isDone(e.id))) return null;
       hold = { limitReset: at, behind: true };
     }
+    decided = true;
     const behind = hold.behind === true;
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
     const id = 'k' + crypto.randomBytes(6).toString('hex');
     const why = limitqueue.addOrWhy(qName, { id, kind: 'task', from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind });
     if (why) {
+      const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
+        : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
       return { state: chat.DELIVERY.COULD_NOT, because: toName + (behind ? ' still has messages kept from while it was out of usage' : ' is out of usage')
-        + ', and Kosmos could not keep this one for it (' + (why === 'store' ? 'its queue could not be read or written' : 'too many are kept for it already') + '), so it was not told' };
+        + ', and Kosmos could not keep this one for it (' + cause + '), so it was not told' };
     }
     const until = !behind && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
+    // heldReceipt is `kosmos msg`'s answer (could_not, held: true); the task route reports the row state instead.
     return { ...heldReceipt(toName, id, at, until, false, behind), state: HELD_STATE };
-  } catch { return null; }
+  } catch {
+    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + ' is out of usage, and Kosmos could not keep this one for it, so it was not told' } : null;
+  }
 }
 /* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane (the person sees the
    task's conversation, which holds the message, and the route already said it was kept). */

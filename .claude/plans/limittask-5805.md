@@ -47,12 +47,21 @@ for this reason.
 - Windows agents: limitHeldVerdict needs a RATE_LIMITED Claude card, exactly as for `kosmos msg`; unmeasured there
   (the 0.7.40 What's New tags the holds Mac only).
 
+## Review 1 (sonnet): 5 warnings
+- The person's kept or dropped task line is invisible on the task page (the page never reads `delivered` or
+  `summary`, for any outcome). DEFERRED to #5842: it is a web change, and it covers outcomes that predate the hold.
+- No "do not re-send" for a kept line: the summary now ends "Do not send it again." per kept agent.
+- The route test only compared source positions: replaced by server.limittask-5805.test.js, which drives the route.
+- keepTaskLine's catch typed the line on any throw: a throw after a hold is found now refuses it, untyped.
+- A sender-cap refusal did not say whose messages filled it: it now names the per-sender and per-agent caps.
+
 ## Tests
-- engine/limittask-5805.test.js (10): held and not typed; idle CONTROL not held; unreachable not held; behind a backlog;
+- engine/limittask-5805.test.js: held and not typed; idle CONTROL not held; unreachable not held; behind a backlog;
   the real sweepHooks types it after release with the kept note and no message row; a drop tells the agent sender
-  which task; a drop from the person types nothing; a full queue is refused and said; the route keeps before typing.
-  Red-capable: with keepTaskLine returning null, 4 of 10 fail.
+  which task; a drop from the person types nothing; a full queue is refused and says why; a throw after a hold is
+  found refuses, one before it does not.
+- server.limittask-5805.test.js: the route end to end. From the screen, a capped assignee is kept and the other is
+  told; CONTROL, an idle assignee is typed into; from an agent, the line is kept under that agent's name.
 - server.task-message-summary-4540.test.js: two cases for the kept sentence.
 - engine/limitmsg-5805.test.js: the wiring test now reads all of sweepHooks (it read a fixed 1400 characters, and the
   new task branches pushed tellHeldDropped past it).
-- Local gates: engine.reachable, browser-checks-reason-grep, the browser-check surface gate: all pass.

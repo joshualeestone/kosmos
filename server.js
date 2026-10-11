@@ -4572,7 +4572,8 @@ function taskMessageSummary(delivered, assigned) {
   /* #5805: the reason already names the agent ("casey is out of usage until ...; Kosmos types it after the reset"). */
   for (const d of kept) {
     const why = plain(d.because).replace(/^held: /, '').replace(/\.$/, '');
-    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset')) + '.');
+    // It was accepted: a sender that read it as a failure would only add a second copy to the same queue.
+    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset')) + '. Do not send it again.');
   }
   /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
   for (const d of not) {

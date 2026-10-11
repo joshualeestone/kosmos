@@ -92,11 +92,11 @@ test('#5805: an assignee out of usage is said as kept, not told and not "may hav
     { agent: 'mara', state: 'placed' },
     { agent: 'casey', state: 'held', heldUntil: '2026-10-12T20:00:00.000Z', because: 'held: casey is out of usage until 2026-10-12T20:00:00.000Z; Kosmos types it after the reset' },
   ], 2);
-  assert.equal(s, 'Told mara. Kept, not typed yet: casey is out of usage until 2026-10-12T20:00:00.000Z; Kosmos types it after the reset.');
+  assert.equal(s, 'Told mara. Kept, not typed yet: casey is out of usage until 2026-10-12T20:00:00.000Z; Kosmos types it after the reset. Do not send it again.');
   assert.doesNotMatch(s, /casey may have been told|Told [^.]*casey|Not told: casey/);
   assert.doesNotMatch(s, /["\\\r\n]/);
 });
 
 test('#5805: a kept outcome with no reason still names the agent and says it is kept', () => {
-  assert.equal(taskMessageSummary([{ agent: 'casey', state: 'held' }], 1), 'Kept, not typed yet: casey is out of usage; Kosmos types it after the reset.');
+  assert.equal(taskMessageSummary([{ agent: 'casey', state: 'held' }], 1), 'Kept, not typed yet: casey is out of usage; Kosmos types it after the reset. Do not send it again.');
 });
