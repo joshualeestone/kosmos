@@ -3762,13 +3762,22 @@ test('#5285: the owner sees ONE line per outcome: nothing while the check runs, 
 
 // ---- #5191 (residual of #5228): the relay's member stamp refuses a revoked member at once, members left or not ----
 
-/** A room of `n` members; each edge carries its member account (acct-<tag>-<i> unless `accounts` names it). */
-async function stampedRoom(id, tag, n, accounts = []) {
-  const r = await pinnedRoom(id, tag, n);
-  const edges = (gone) => Array.from({ length: n }, (_, j) => ({ id: 'edge-inv-' + tag + '-' + j, project_ref: r.ref, status: gone.includes(j) ? 'revoked' : 'active', invite_id: 'inv-' + tag + '-' + j, member_account_id: accounts[j] || 'acct-' + tag + '-' + j }));
-  r.h.edges = edges([]);
-  const stamped = (member, text, epoch = 0) => say(r.seat, Object.assign({ event: 'message', data: fedseal.seal(fedseal.roomState(id).keys[epoch], epoch, r.room, { from: 'Guest', kind: 'person', text }, Date.now()) }, member === null ? {} : { member }));
-  return Object.assign(r, { edges, stamped });
+/** A room of `n` members; each edge carries its member account (acct-<tag>-<i> unless `accounts` names it).
+    `pinAccounts: false` pins them from edges WITHOUT the account, as a room pinned before #5191 was. */
+async function stampedRoom(id, tag, n, accounts = [], { pinAccounts = true } = {}) {
+  const invs = Array.from({ length: n }, (_, i) => newInvite(tag + '-' + i));
+  const ref = 'ref-' + tag;
+  const room = 'room-' + tag;
+  const { h, seat } = await ownerRoom(id, ref, room, invs);
+  const edges = (gone, withAccount = true) => invs.map((inv, j) => Object.assign({ id: 'edge-' + inv.invite, project_ref: ref, status: gone.includes(j) ? 'revoked' : 'active', invite_id: inv.invite },
+    withAccount ? { member_account_id: accounts[j] || 'acct-' + tag + '-' + j } : {}));
+  h.edges = edges([], pinAccounts);
+  for (const inv of invs) say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), room) });
+  await settle();
+  assert.strictEqual(Object.keys(fedseal.roomState(id).peers).length, n, 'fixture: members pinned');
+  h.edges = edges([]);
+  const stamped = (member, text, epoch = 0, to = seat) => say(to, Object.assign({ event: 'message', data: fedseal.seal(fedseal.roomState(id).keys[epoch], epoch, room, { from: 'Guest', kind: 'person', text }, Date.now()) }, member === null ? {} : { member }));
+  return { h, seat, ref, room, edges, stamped };
 }
 
 test('#5191: with a member left, a revoked member\'s stamped post is refused at once; the one left still shows in the grace', async (t) => {
@@ -3858,3 +3867,63 @@ test('#5191: only an exact stamp is refused, and only on a key the revoked membe
   await settle();
   assert.deepStrictEqual(shown(h), ['stamp that only starts with the account', 'newer key']);
 });
+
+test('#5191: the account recorded at the pin is what names a revoked member, whatever the revoke\'s answer carries', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  for (const pinAccounts of [true, false]) {
+    const id = 'proj-5191-pinacct-' + pinAccounts;
+    const tag = 'pa' + pinAccounts;
+    const { h, edges, stamped } = await stampedRoom(id, tag, 2, [], { pinAccounts });
+    // The revoke's answer carries no account at all.
+    h.edges = edges([0], false);
+    assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), true);
+    stamped('acct-' + tag + '-0', 'revoked, old key');
+    await settle();
+    // A room pinned before #5191 has no account on the peer: with none in the answer either, nothing can
+    // name the member, and its old key opens in the grace as it did before (the stated residual).
+    assert.deepStrictEqual(shown(h), pinAccounts ? [] : ['revoked, old key'], 'pinAccounts=' + pinAccounts);
+  }
+});
+
+test('#5191: a room pinned before #5191 takes the revoked account from the revoke\'s own answer', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  const id = 'proj-5191-legacy';
+  const { h, edges, stamped } = await stampedRoom(id, 'lg', 2, [], { pinAccounts: false });
+  h.edges = edges([0]);
+  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), true);
+  stamped('acct-lg-0', 'revoked, old key');
+  stamped('acct-lg-1', 'remaining, old key');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['remaining, old key']);
+});
+
+test('#5191: a restarted owner board still refuses the revoked member: the accounts are in the rooms file', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  const id = 'proj-5191-rsacct';
+  const { edges, room } = await stampedRoom(id, 'ra', 2);
+  const h0 = { edges: edges([0]) };
+  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), async () => ({ ok: true, data: { as_owner: h0.edges, as_member: [] } })), true);
+  const h = harness({ edges: edges([0]) });   // a fresh seat manager reading the rooms file
+  await fedseats.ensure(id);
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room, expires_at: 9 });
+  await settle();
+  const old = (member, text) => say(seat, { event: 'message', member, data: fedseal.seal(fedseal.roomState(id).keys[0], 0, room, { from: 'Guest', kind: 'person', text }, Date.now()) });
+  t.mock.timers.tick(10 * 1000);
+  old('acct-ra-0', 'revoked, after the restart');
+  old('acct-ra-1', 'remaining, in the grace');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['remaining, in the grace']);
+});
+
+test('#5191: a forgotten room starts again with no revoked accounts', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  const id = 'proj-5191-forget';
+  const { h, edges } = await stampedRoom(id, 'fg', 2);
+  h.edges = edges([0]);
+  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), true);
+  assert.deepStrictEqual(fedseal.roomState(id).revokedAccounts, { 'acct-fg-0': 0 }, 'fixture: the account was recorded with the rotation');
+  assert.strictEqual(fedseal.forgetRoom(id), true);
+  assert.strictEqual(fedseal.roomState(id), null, 'a forgotten room keeps no record, revoked accounts included');
+});
+
