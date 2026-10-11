@@ -1183,7 +1183,7 @@ const SCREENS = [
     await page.waitForTimeout(300);
   }, verify: async (page) => {
     const t = await page.evaluate(() => { const b = document.querySelector('#pj-held [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
-    for (const want of ['Your agents cannot post here until you post something yourself or reopen the room.', 'Reopen the room']) {
+    for (const want of ['Your agents\' posts will most likely not go through until you post something yourself or reopen the room.', 'Reopen the room']) {
       if (!t.includes(want)) throw new Error('the hold strip does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
     }
   }, after: async (page, data) => {

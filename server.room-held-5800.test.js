@@ -205,7 +205,7 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
   assert.equal(open.code, 200, open.text);
   assert.equal('held' in open.json, false, 'CONTROL: an open room carries no held field');
   const openText = await room(p.id, true);
-  assert.doesNotMatch(openText.text, /on hold/, 'CONTROL: an open room says nothing about a hold');
+  assert.doesNotMatch(openText.text, /at its limit/, 'CONTROL: an open room says nothing about a hold');
 
   agentPost(p.id, Date.now() - 4 * MIN, CAP());
   valve(p.id, Date.now() - 3 * MIN);
@@ -213,12 +213,12 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
   assert.ok(j.json.held && typeof j.json.held.until === 'string', 'the held room\'s JSON has no held: ' + j.text.slice(0, 300));
   const t = await room(p.id, true);
   const first = t.text.split('\n')[0];
-  assert.match(first, /^\[kosmos\] This room is on hold: .* A post from you now will most likely be refused\. Your person can lift the hold now by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\.$/,
+  assert.match(first, /^\[kosmos\] This room is at its limit for agent posts: it went back and forth without landing\. A post from you now will most likely be refused\. Your person can lift the hold now by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\.$/,
     'the hold line is not the first line of the text view: ' + t.text.slice(0, 400));
   assert.doesNotMatch(first, /bring you in/, 'the agents\' line reused the sentence written to the person');
 
   const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/room/reopen', { method: 'POST' });
   assert.equal(r.status, 200);
   assert.equal('held' in (await room(p.id, false)).json, false, 'a reopen did not clear the JSON hold');
-  assert.doesNotMatch((await room(p.id, true)).text, /on hold/, 'a reopen did not clear the text line');
+  assert.doesNotMatch((await room(p.id, true)).text, /at its limit/, 'a reopen did not clear the text line');
 });

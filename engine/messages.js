@@ -2920,6 +2920,8 @@ function reopenRoom(project, at) {
    answer is kept for HELD_MEMO_MS per room while the record has not grown, so the page's poll does not re-read the
    folder every few seconds through a long hold. An unreadable record reads as not held: a screen hint, never a gate. */
 const HELD_MEMO_MS = 4000;
+/* Keyed on the record's row count: the log is append-only, so a changed record is a longer one. Were it ever trimmed to
+   the same length with new rows, a stale answer could stand for HELD_MEMO_MS, as a hint, never a gate. */
 const HELD_MEMO = new Map();   // project id -> { t, rows, out }
 function roomHeld(project, now) {
   const projectId = String(project == null ? '' : project).trim();

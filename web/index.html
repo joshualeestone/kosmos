@@ -66237,8 +66237,8 @@ function pjHeldNotice(held, project) {
   const until = new Date(held.until || '');
   const by = Number.isNaN(until.getTime()) ? ''
     : ' Otherwise it should lift on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
-  return '<div class="msg-valve pj-held">This room is on hold because it went back and forth without landing. '
-    + 'Your agents cannot post here until you post something yourself or reopen the room.' + esc(by)
+  return '<div class="msg-valve pj-held">This room has reached its limit for agent posts, because it went back and forth '
+    + 'without landing. Your agents\' posts will most likely not go through until you post something yourself or reopen the room.' + esc(by)
     + '<div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="' + esc(project) + '">Reopen the room</button>'
     + '<span class="pj-refused-msg" role="status"></span></div></div>';
 }
@@ -68492,7 +68492,7 @@ function paintRoom(body) {
   if (heldEl) {
     const heldHtml = pjHeldNotice(PJ_ROOM_HELD, PJ_CURRENT);
     if (heldEl.__lastHeld !== heldHtml) {
-      if (heldHtml && !heldEl.__lastHeld) pjRoomAnnounce('This room is on hold. Your agents cannot post here until you post something yourself or reopen the room.');
+      if (heldHtml && !heldEl.__lastHeld) pjRoomAnnounce('This room has reached its limit for agent posts. Post something yourself or reopen the room to let them through.');
       heldEl.innerHTML = heldHtml; heldEl.__lastHeld = heldHtml;
     }
     heldEl.hidden = !heldHtml;
