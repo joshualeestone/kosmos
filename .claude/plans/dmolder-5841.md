@@ -53,3 +53,25 @@ That this 200-row view is the limit the reporter meant. The card records both li
   A search over all kept messages would be its own card.
 - **For piece 2:** `before` is stable only because a thread grows only at its newest end. The rollover moves old rows
   aside into `.full` files, so the older route must then page across the asides, with positions re-based per file.
+
+## Review 3 (opus): REDESIGN. The earlier rows move INTO the thread
+Seven warnings had one cause: a SECOND box drawn with the thread's renderer misses every rule and handler keyed on
+`#d-dmthread`. That meant:
+- styles: new-look bubbles, avatars, cursors;
+- the attachment preview;
+- menus that close on any click, which the box's stopPropagation blocked;
+- on a phone with the keyboard up, the box squeezed the latest messages.
+It also left a GAP: messages leaving the latest 200 while the box was open showed nowhere.
+
+So the earlier rows are now drawn IN `#d-dmthread`, before the latest, by `paintTalkThread` itself (EARLIER.rows
+concatenated in front of the thread's rows). They behave exactly like the rest: reactions, reply, copy, previews,
+search, styling. Gone: the separate box, its CSS extensions, the read-only conversion and the click-stopping listener.
+
+- **The line** (`paintOlderLine`, extracted from paintTalk) carries "Show earlier messages" and "Hide earlier
+  messages" as STATIC buttons. While a page loads, Show is aria-disabled, not disabled, so focus stays on it.
+- **The gap:** `EARLIER.end` is the position just after the last earlier row. When a poll's `olderCount` passes it,
+  `earlierFillGap` fetches `[end, olderCount)` and appends it.
+- **Kept from review 1:** the reset at the top of paintTalk before any await (no cross-agent rows, also when the next
+  read fails), and the `opening` counter (a stale answer is dropped).
+- Review 1's "search does not filter the earlier section" is moot: they are thread rows now.
+- Browser check rewritten for the new shape: 16 PASS, with a CONTROL, the gap arm, a failing-read switch and focus.
