@@ -62,6 +62,22 @@ test('#5744: malformed fields read as null, and a line with no usable status is 
   }
 });
 
+test('#5744: beside the right code, an epoch out of bounds or not a whole number reads as null', async () => {
+  for (const epoch of ['9007199254740992', '-1', '1.5', '"3"']) {
+    const r = await ask('refusal:{"refusal":{"status":400,"code":"member_key_wrong_epoch","current_epoch":' + epoch + '}}');
+    assert.deepEqual(r.refusal, { status: 400, code: 'member_key_wrong_epoch', currentEpoch: null }, epoch);
+  }
+  // The edge itself is kept.
+  const edge = await ask('refusal:{"refusal":{"status":400,"code":"member_key_wrong_epoch","current_epoch":9007199254740991}}');
+  assert.equal(edge.refusal.currentEpoch, 9007199254740991);
+});
+
+test('#5744: a refusal line on stderr is not because either', async () => {
+  const r = await ask('refusal-err:{"refusal":{"status":400,"code":"member_key_wrong_epoch","current_epoch":2}}');
+  assert.equal(r.ok, false);
+  assert.equal(r.because, 'setup failed (exit 1)', r.because);
+});
+
 test('#5744: a refusal line spaced or keyed differently is still never because', async () => {
   const r = await ask('refusal-quiet:{ "other": 1, "refusal": {"status":400,"code":"member_key_wrong_epoch","current_epoch":2} }');
   assert.equal(r.because, 'setup failed (exit 1)', r.because);
