@@ -120,3 +120,32 @@ test('#5805 3b review 1: a row seen late, a quoted row, and a new limit printing
   assert.equal(status.limitFirstSeenOf('leo', line), nextDay, 'a new limit printing the same words kept yesterday\'s time');
   assert.ok(status.retireResetLimits(twice, nextDay + 60e3, (row) => status.limitFirstSeenOf('leo', row)).split('\n').filter((r) => r.includes('session limit')).length >= 1, 'today\'s live limit was retired on yesterday\'s time');
 });
+
+test('#5805 3b review 2: a row back within its span is late; a new one after it is timed; a relaunched agent starts over', () => {
+  const line = `You've hit your session limit · resets 4pm ${Z}`;
+  const t0 = Date.parse('2026-10-10T16:00:00Z');   // 11:00 CDT
+  const on = limitScreen(line);
+  // A row timed, gone three minutes (a redraw), back within its five hours: the same row, arrival unknown, so late.
+  status.noteLimitRows('casey', STATUS_LINE, t0 - 60e3);
+  status.noteLimitRows('casey', on, t0);
+  status.noteLimitRows('casey', STATUS_LINE, t0 + 3 * 60e3);
+  assert.equal(status.limitFirstSeenOf('casey', line), null, 'CONTROL: gone over two minutes ended it');
+  status.noteLimitRows('casey', on, t0 + 4 * 3600e3);
+  assert.equal(status.limitFirstSeenOf('casey', line), null, 'a row back within its span was timed afresh');
+  // The same words after the span (gone again first): a new limit, timed from then.
+  status.noteLimitRows('casey', STATUS_LINE, t0 + 4 * 3600e3 + 3 * 60e3);
+  const later = t0 + 6 * 3600e3;
+  status.noteLimitRows('casey', on, later);
+  assert.equal(status.limitFirstSeenOf('casey', line), later, 'a new limit after the span was not timed');
+
+  // An agent missing from a snapshot pass is no longer captured: back with a row on its screen, the row is late.
+  status.noteLimitRows('leo', STATUS_LINE, t0 - 60e3);
+  status.limitCaptureSweep(['casey', 'kim']);
+  status.noteLimitRows('leo', on, t0);
+  assert.equal(status.limitFirstSeenOf('leo', line), null, 'a relaunched agent\'s row was timed as arriving');
+  // CONTROL: an agent present in the pass keeps being captured, so its new row is timed.
+  status.noteLimitRows('ann', STATUS_LINE, t0 - 60e3);
+  status.limitCaptureSweep(['ann']);
+  status.noteLimitRows('ann', on, t0);
+  assert.equal(status.limitFirstSeenOf('ann', line), t0, 'CONTROL: a present agent\'s new row was not timed');
+});

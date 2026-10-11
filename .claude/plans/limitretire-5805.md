@@ -45,8 +45,9 @@ Slice 3a added the time on the card but deliberately left these alone.
   row replaces the old one in the same capture (the old scrolled out exactly as the new arrived) keeps the old time.
 
 ## Residuals
-- A row off the screen for more than two minutes that comes back (a redraw that drops scrollback) is timed afresh as a
-  new limit, and if its printed time already passed today it reads as tomorrow's (bounded by the one-day span).
+- A pane relaunched under the same name faster than one snapshot pass, with the old limit row in its scrollback, is
+  not seen as a first capture, so that row could be timed as arriving. The pane list carries no pid to tell (asking
+  tmux per pane per pass costs too much).
 - Windows cards reading rate_limited at all is unmeasured (slice 1's gap).
 
 ## Tests
@@ -62,3 +63,14 @@ Slice 3a added the time on the card but deliberately left these alone.
   row count starts it again. Tested.
 - FIXED (WARNING): a quoted limit line could set the time; only Claude Code's own rows count. Tested.
 - FIXED (NIT): all three have tests.
+
+## Review 2 (sonnet)
+- FIXED (WARNING): a row that left the screen and came back (a redraw, or a relaunched pane with its scrollback) was
+  timed afresh, so a weekly last-day line past its printed time would hold for a day. A row gone over two minutes
+  leaves a marker for its kind's span from its first sighting; back within it, it is late (untimed); a late return
+  keeps the original window, so returning again never extends it. Tested.
+- FIXED (WARNING): an agent missing from a snapshot pass is no longer "captured", so a relaunched pane starts as a
+  first capture (its rows late). Not on an empty listing. Tested (a relaunch faster than one pass: residual).
+- FIXED (NIT): a stale comment named claudeLimitUntil as keeping the first-seen time.
+- NIT tried and reverted: resetting a row's count when it is absent from one capture (so 2, 0, 1 reads as new). It
+  made a row missing from one capture for under two minutes (a redraw) read as a new limit, the more common case.

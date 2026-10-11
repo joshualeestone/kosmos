@@ -2778,7 +2778,7 @@ function limitResetAt(line, nowMs) {
 
 /* #5805 slice 3: Claude Code prints a reset with no date ("resets 4pm (America/Chicago)") when it is under a day
    away: the 5-hour session limit, and a weekly limit on its last day. The time alone does not say which day, so it is
-   read as its next occurrence after the board FIRST saw the line (claudeLimitUntil keeps that time). */
+   read as its next occurrence after the board FIRST saw the line (the screen pass, noteLimitRows, keeps that time). */
 const LIMIT_RESET_TIME_ONLY = /\bresets (\d{1,2})(?::(\d{2}))? ?(am|pm) \(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)*)\)/i;
 /* How far after it is first seen a dateless reset can be: a session limit resets within five hours of the turn it
    stopped, anything else within a day (Claude Code dates a reset further away). A reading past that means the line
@@ -2815,7 +2815,11 @@ function limitResetTimeOnlyAt(line, firstSeenMs) {
    idle while the row is still on screen, and its first-seen time must stand then. An entry ends when its row has been
    off the agent's screen for LIMIT_ROW_GONE_MS (a failed capture records nothing and ends nothing). In memory: a board
    restart sees a row again from then, which the span above bounds. This replaces slice 3a's card-state lifecycle. */
-const limitFirstSeen = new Map();   // key -> { at, last, count, late }
+const limitFirstSeen = new Map();   // key -> { at, last, count, late, until? }
+/* Review 2: a row that left the screen and comes back within the longest its limit could last is the same row again
+   (a redraw, a pane relaunched with its scrollback), not a new limit, and its arrival time is unknown: it comes back
+   late. key -> until (its first sighting plus its kind's span). */
+const limitRowGone = new Map();
 const LIMIT_ROW_GONE_MS = 2 * 60 * 1000;
 const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;   // backstop for an agent that went away
 /* Agents the screen pass has captured before (review 1): a row already on screen at the board's FIRST capture of an
@@ -2841,6 +2845,7 @@ function noteLimitRows(agent, text, nowMs) {
   const prefix = name + '\u0000';
   const firstCapture = !limitCapturedAgents.has(name);
   limitCapturedAgents.add(name);
+  for (const [k, until] of limitRowGone) if (now > until) limitRowGone.delete(k);
   const rows = text.split('\n');
   const counts = new Map();
   rows.forEach((row, i) => {
@@ -2850,12 +2855,17 @@ function noteLimitRows(agent, text, nowMs) {
   });
   for (const [key, count] of counts) {
     const seen = limitFirstSeen.get(key);
-    if (!seen) limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture });
+    // A row back from the gone list keeps that window (`until`), so returning again never extends it.
+    if (!seen) limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture || limitRowGone.has(key), until: limitRowGone.get(key) });
     else if (count > seen.count) limitFirstSeen.set(key, { at: now, last: now, count, late: false });
     else { seen.last = Math.max(seen.last, now); seen.count = count; }
   }
   for (const [k, v] of limitFirstSeen) {
-    if (k.startsWith(prefix) ? now - v.last > LIMIT_ROW_GONE_MS : now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
+    if (!k.startsWith(prefix)) { if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k); continue; }
+    if (now - v.last > LIMIT_ROW_GONE_MS) {
+      limitFirstSeen.delete(k);
+      limitRowGone.set(k, Number.isFinite(v.until) ? v.until : v.at + (k.includes('\u0000session\u0000') ? SESSION_LIMIT_SPAN_MS : DAY_LIMIT_SPAN_MS));
+    }
   }
 }
 /* When `agent`'s dateless limit line (a row, or a card's evidence containing it) was first seen on its screen, or null. */
@@ -2875,7 +2885,13 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   const first = limitFirstSeenOf(agent, line);
   return first === null ? null : limitResetTimeOnlyAt(line, first);
 }
-function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitCapturedAgents.clear(); }
+/* The snapshot's agents this pass (review 2): an agent missing from it is no longer captured, so a pane relaunched
+   under its name starts over as a first capture (rows on its screen then are late). */
+function limitCaptureSweep(names) {
+  const present = new Set(Array.from(names || [], String));
+  for (const a of [...limitCapturedAgents]) if (!present.has(a)) limitCapturedAgents.delete(a);
+}
+function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitCapturedAgents.clear(); limitRowGone.clear(); }
 /* The card's limitUntil: only for a Claude pane read rate_limited (a Codex or Gemini limit says its own reset). */
 function claudeLimitUntilIso(pane, status) {
   if (!pane || !status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') return null;
@@ -8264,6 +8280,9 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
+  // #5805 3b review 2: agents gone from this pass are no longer captured (not on an empty read: a failed listing must
+  // not make every limit row read late).
+  if (panes.length) limitCaptureSweep(panes.map((pane) => pane.name));
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
     noteLimitRows(pane.name, text, Date.now());   // #5805 slice 3b: before retiring, so a first sighting never retires
@@ -9202,7 +9221,7 @@ module.exports = {
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
