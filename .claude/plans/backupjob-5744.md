@@ -69,3 +69,11 @@ the step that a scheduler will call, not the scheduler.
 - FIXED (NIT): this plan's test count.
 - Process slip: three of my first round-2 mutant runs read "pass 0 fail 1", which was a file that no longer parsed (a
   multi-line pattern split by the loop), not a red test. Redone with single-line patterns and node --check first: red.
+
+## Review 3 (sonnet, blind, on ed26add75): CONVERGED, NITs only
+- Traced every ensureMemberKey answer over several runs: no sequence seals under a stale key, loops without progress
+  or loses lostEpoch.
+- FIXED (NIT): the header's list of how a pending key sits above a registered one now includes a refused or unanswered
+  registration on the lost path (the conclusion was unchanged).
+- FIXED (NIT): a duplicated assertion removed.
+- FIXED (NIT): now is documented as whole milliseconds (a fractional clock would drop waitUntilMs).
