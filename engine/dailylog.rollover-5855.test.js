@@ -1,8 +1,8 @@
 'use strict';
 /**
- * kosmos#5855: kosmos#5841's rollover. When a conversation rolls over at its message cap, the full file is set aside
- * as `<thread file>.<stamp>.<pid>.<ms>[.<n>].full` and a fresh file carries a copy of its newest rows and names the
- * file it continues. The daily-log compiler does not read that chain. Compiling from the current files alone would rewrite a day that straddles
+ * kosmos#5855: a rolled-over conversation (kosmos#5841 is the change that makes them). Its full file sits beside the
+ * thread file as `<thread file>.<stamp>.<pid>.<ms>[.<n>].full`, and the fresh thread file carries a copy of its
+ * newest rows and names the file it continues. The daily-log compiler does not read that chain. Compiling from the current files alone would rewrite a day that straddles
  * the rollover with fewer rows and prune every day whose rows live only in a `.full` file, so on either sign of a
  * rollover (such a file in the folder, or a current file that names one) the compiler refuses the run: nothing
  * written, nothing pruned, and it says why.
@@ -57,7 +57,7 @@ function rolledOver(label, asideName, opts = {}) {
 }
 const dayFiles = (outDir) => fs.readdirSync(outDir).filter((n) => n.endsWith('.md')).sort();
 
-test('isRolledOverFileName: a thread file\'s name, a dot, and .full at the end (chat.js\'s rule for following one)', () => {
+test('isRolledOverFileName: any thread file\'s name, a dot, and .full at the end (a superset of what chat.js follows)', () => {
   // the last two are names chat.js never writes but WOULD follow, so a renamed or restored file must count here too
   for (const yes of [ASIDE, 'proj1.3-slug.json.20261011T180000Z.1.2.full', 'direct..p.json.20261011T180000Z.4242.1791741600000.2.full', 'direct..p.json.full', 'direct..p.json.x.superseded.full']) {
     assert.equal(dl.isRolledOverFileName(yes), true, yes);
@@ -68,8 +68,11 @@ test('isRolledOverFileName: a thread file\'s name, a dot, and .full at the end (
     assert.equal(dl.isRolledOverFileName(yes), true, yes);
   }
   assert.deepEqual(dl.parseChatFileName('p.json.json'), { kind: 'project', projectId: 'p', key: 'json' }, 'precondition: a key of "json" is a real thread file name');
-  // not a thread file's name in front (a stray file must not turn the daily log off), or not .full at the end
-  for (const no of ['direct..p.json', 'proj1.3-slug.json', 'room-seen.json', 'notes.json.full', 'a.json.full', 'room-seen.json.bak.full', '.direct..p.json.x.full', 'direct..p.jsonfull', 'direct..p.full', 'notes.full', 'direct..p.json.x.superseded', 'direct..p.json.x.damaged', 'direct..p.json.x.fullish', '', null, undefined, 7]) {
+  // KNOWN and accepted: the front is checked only as loosely as parseChatFileName reads a thread file's name, so a
+  // stray file a person named this way refuses the run too. Counting too much refuses; counting too little prunes.
+  assert.equal(dl.isRolledOverFileName('my.notes.json.old.full'), true);
+  // nothing parseChatFileName reads as a thread file's name in front, or not `.full` at the end
+  for (const no of ['direct..p.json.xfull', 'direct..p.json.x.FULL', 'direct..p.json', 'proj1.3-slug.json', 'room-seen.json', 'notes.json.full', 'a.json.full', 'room-seen.json.bak.full', '.direct..p.json.x.full', 'direct..p.jsonfull', 'direct..p.full', 'notes.full', 'direct..p.json.x.superseded', 'direct..p.json.x.damaged', 'direct..p.json.x.fullish', '', null, undefined, 7]) {
     assert.equal(dl.isRolledOverFileName(no), false, String(no));
   }
 });
@@ -150,6 +153,39 @@ test('the other sign alone refuses too: a current file that names an earlier fil
   }
 });
 
+test('a fresh file that names an earlier one but is itself damaged still refuses (the sign is read before the rest)', () => {
+  const mk = (label, body) => {
+    const { chatsDir, outDir, before, file } = rolledOver(label, null);
+    fs.writeFileSync(file, body);
+    const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+    assert.equal(s.refused, 'rolled-over', label);
+    assert.deepEqual([s.rolledOver, s.continued, s.conversations], [0, 1, 0], label);
+    assert.deepEqual(dayFiles(outDir), Object.keys(before).sort().map((d) => d + '.md'), label + ': days were pruned');
+  };
+  mk('dmg-list', JSON.stringify({ continues: ASIDE, messages: 'nope' }));
+  mk('dmg-cut', '{"continues":"' + ASIDE + '","carried":1,"messages":[{"at":"2026-09-15T10:00:00Z","te');
+  mk('dmg-spaced', '{ "continues" : "' + ASIDE + '", "messages": [');
+  // control: the same damage with no such field is stable junk, as before, and does not refuse
+  for (const [label, body] of [['ctl-cut', '{"carried":1,"messages":[{"at":"2026-09-15T10:00:00Z","te'], ['ctl-empty', '{"continues":"","messages":['], ['ctl-word', '{"note":"this continues elsewhere","messages":[']]) {
+    const chatsDir = path.join(SANDBOX, 'chats-' + label);
+    fs.mkdirSync(chatsDir, { recursive: true });
+    fs.writeFileSync(path.join(chatsDir, 'direct..p.json'), body);
+    assert.equal(dl.compileAll({ chatsDir, outDir: path.join(SANDBOX, 'daily-' + label), dayOf, timeOf }).refused, null, label);
+  }
+});
+
+test('a rolled-over name this compiler cannot look at (a link to nowhere) is counted, the safe way', () => {
+  const chatsDir = path.join(SANDBOX, 'chats-dangling');
+  fs.mkdirSync(chatsDir, { recursive: true });
+  fs.writeFileSync(path.join(chatsDir, 'direct..p.json'), JSON.stringify({ messages: [WHOLE[0]] }));
+  let linked = true;
+  try { fs.symlinkSync(path.join(chatsDir, 'no-such-target'), path.join(chatsDir, ASIDE)); } catch { linked = false; }
+  if (!linked) return;   // a filesystem or account that cannot make a symlink has no such state to test
+  const s = dl.compileAll({ chatsDir, outDir: path.join(SANDBOX, 'daily-dangling'), dayOf, timeOf });
+  assert.equal(s.refused, 'rolled-over');
+  assert.equal(s.rolledOver, 1);
+});
+
 test('the states an interrupted rollover can leave are refused too', () => {
   // (1) the rollover hard-links the full file aside and stopped before writing the fresh one: both names, same bytes
   const a = rolledOver('linked', null, { names: false });
@@ -189,6 +225,7 @@ test('one rolled-over conversation refuses the run for every conversation (a day
 
 test('the command says why and exits non-zero, so a scheduled run cannot read as "compiled, nothing new"', () => {
   const root = require('./store').ROOT;
+  assert.ok(path.resolve(root).startsWith(path.resolve(SANDBOX) + path.sep), 'the data root is not inside this test\'s sandbox: ' + root);
   const chatsDir = path.join(root, 'chats');
   fs.mkdirSync(chatsDir, { recursive: true });
   fs.writeFileSync(path.join(chatsDir, 'direct..p.json'), JSON.stringify({ messages: [WHOLE[3]] }));
@@ -210,10 +247,10 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.equal(day.stdout, '');
   assert.equal(day.stderr, no.stderr, 'a targeted run was refused in different words');
   assert.ok(!fs.existsSync(other), 'a refused run created its output folder');
-  assert.match(no.stderr, /There is nothing to fix in the folder/);
+  assert.match(no.stderr, /It needs a version of Kosmos that can read it\./);
 });
 
-test('pin (convention 5): what this compiler takes as the signs of a rollover is what engine/chat.js writes and follows', () => {
+test('pin (convention 5): where chat.js puts an aside, and, once the rollover is in the tree, the signs it writes and follows', () => {
   const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
   // WHERE and HOW an aside is named, for every kind: beside the thread file, the file's own name first, the kind last.
   // This holds before and after the rollover lands (supersede builds every aside), so it is asserted either way.
