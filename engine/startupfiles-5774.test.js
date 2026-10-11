@@ -932,3 +932,70 @@ test('#5774 part 2 review 19: a target in a startup folder, or a link on the way
     assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, t), 'a link inside a linked folder, sandbox');
   } finally { fs.rmSync(fnLink, { force: true }); }
 });
+
+test('#5774 part 2 review 21: a ZDOTDIR or XDG folder the rules cannot carry is named and the rest written; BASH_ENV=/dev/null is not denied; a dotfile linked into a Cellar gets the Cellar rule', () => {
+  for (const [name, env, mark] of [
+    ['pilot-zdotodd21', { ZDOTDIR: path.join(HOME, 'Dots (x21)', 'zsh') }, 'Dots (x21)'],
+    ['pilot-xdgodd21', { XDG_CONFIG_HOME: path.join(SANDBOX, 'Cfg (y21)') }, 'Cfg (y21)'],
+  ]) {
+    const d = agentDir(name);
+    const g = setup.guardTokenOnlyFolder(d, name, { ...DEPS, env });
+    assert.equal(g.ok, false, `${name}: not whole`);
+    const said = JSON.stringify(g);
+    assert.ok(said.includes(mark) && said.includes('cannot carry'), `${name}: not named: ${said}`);
+    assert.ok(fs.existsSync(path.join(d, '.claude', 'settings.json')), `${name}: the rest of the guard was not written`);
+  }
+  // BASH_ENV=/dev/null switches it off: nothing to deny. An absent file is still denied (the agent could create it).
+  const d1 = agentDir('pilot-devnull21');
+  assert.equal(setup.guardTokenOnlyFolder(d1, 'pilot-devnull21', { ...DEPS, env: { BASH_ENV: '/dev/null' } }).ok, true);
+  const s1 = readSettings(d1);
+  assert.ok(![...s1.permissions.deny, ...s1.sandbox.filesystem.denyWrite].some((r) => r.includes('/dev/null')), '/dev/null was denied');
+  const absent = path.join(SANDBOX, 'benv21.sh');
+  const d2 = agentDir('pilot-benvabsent21');
+  setup.guardTokenOnlyFolder(d2, 'pilot-benvabsent21', { ...DEPS, env: { BASH_ENV: absent } });
+  assert.ok(editDeniedBy(readSettings(d2).permissions.deny, absent).length > 0, 'an absent BASH_ENV file is not denied');
+  // A home dotfile linked into a Cellar by version: one stable Cellar rule, the link kept, no versioned name.
+  const pre = path.join(SANDBOX, 'hb21');
+  const t = path.join(pre, 'Cellar', 'zz', '1.0', 'zlogout');
+  touch(t);
+  const cellar = fs.realpathSync.native(path.join(pre, 'Cellar'));
+  const zlogout = path.join(HOME, '.zlogout');
+  fs.rmSync(zlogout, { force: true }); fs.symlinkSync(t, zlogout);
+  try {
+    const d = agentDir('pilot-dotcellar21');
+    assert.equal(setup.guardTokenOnlyFolder(d, 'pilot-dotcellar21', { ...DEPS, env: ENV0 }).ok, true);
+    const s = readSettings(d);
+    assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes(path.join('zz', '1.0'))), 'a versioned Cellar name was listed');
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(cellar, 'zz', '2.0', 'zlogout')).length > 0, 'the Cellar, file tools');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(cellar, 'zz', '2.0', 'zlogout')), 'the Cellar, sandbox');
+    assert.ok(editDeniedBy(s.permissions.deny, zlogout).length > 0, 'the link itself');
+  } finally { fs.rmSync(zlogout, { force: true }); }
+});
+
+test('#5774 part 2 review 21: a hop inside a Cellar is covered by the Cellar rule, never by its versioned name and never left uncovered', () => {
+  const mk = (link, to) => { fs.mkdirSync(path.dirname(link), { recursive: true }); fs.rmSync(link, { force: true }); fs.symlinkSync(to, link); };
+  const pre = path.join(SANDBOX, 'hb21h');
+  touch(path.join(SANDBOX, 'real21b')); touch(path.join(SANDBOX, 'real21c'));
+  mk(path.join(pre, 'Cellar', 'yy', '2.0', 'l'), path.join(SANDBOX, 'real21b'));
+  mk(path.join(pre, 'Cellar', 'ww', '1.0', 'l'), path.join(SANDBOX, 'real21c'));
+  const cellar = fs.realpathSync.native(path.join(pre, 'Cellar'));
+  const bashLogout = path.join(HOME, '.bash_logout');
+  const fishLink = path.join(HOME, '.config', 'fish', 'conf.d', 'h21.fish');
+  mk(bashLogout, path.join(pre, 'Cellar', 'yy', '2.0', 'l'));
+  mk(fishLink, path.join(pre, 'Cellar', 'ww', '1.0', 'l'));
+  try {
+    for (const [name, link] of [['pilot-hopcellar21', bashLogout], ['pilot-hopcellarfish21', fishLink]]) {
+      const other = link === bashLogout ? fishLink : bashLogout;
+      const parked = path.join(SANDBOX, `parked-${name}`);   // outside every scanned folder (a renamed link inside fish is still scanned)
+      fs.renameSync(other, parked);
+      try {
+        const d = agentDir(name);
+        assert.equal(setup.guardTokenOnlyFolder(d, name, { ...DEPS, env: ENV0 }).ok, true);
+        const s = readSettings(d);
+        assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => /(yy|ww)\/[12]\.0/.test(r)), `${name}: a versioned hop was listed`);
+        assert.ok(editDeniedBy(s.permissions.deny, path.join(cellar, 'yy', '9.0', 'l')).length > 0, `${name}: the Cellar, file tools`);
+        assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(cellar, 'yy', '9.0', 'l')), `${name}: the Cellar, sandbox`);
+      } finally { fs.renameSync(parked, other); }
+    }
+  } finally { fs.rmSync(bashLogout, { force: true }); fs.rmSync(fishLink, { force: true }); }
+});

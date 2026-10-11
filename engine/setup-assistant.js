@@ -1311,7 +1311,7 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
       if (!real0) { try { dangle = realOrLeaf(danglingTarget(p)); } catch { /* unreadable link */ } }
       const t0 = real0 || dangle;
       if (!(t0 && budget.free && budget.free(t0)) && --budget.n < 0) { budget.out = true; break; }
-      res.hops.push(...chainHops(p, budget.free || (() => false)));   // review 18
+      res.hops.push(...chainHops(p));   // review 18
       try {
         const real = real0 || fs.realpathSync.native(p);
         // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
@@ -1352,6 +1352,9 @@ const HOMEBREW_PREFIXES = ['/opt/homebrew', '/usr/local'];
    store instead of its hashed name, as a Cellar does. */
 const STORE_ROOTS = ['/nix/store'];
 const storeIn = (roots, t) => roots.find((r) => t.startsWith(r + path.sep)) || null;
+/* Review 21: the folder a versioned or hashed path lives in, which gets one stable rule: a Homebrew Cellar or Caskroom
+   (<...>/Cellar/<name>/<version>/...), or a store. Null for anything else. */
+const stableRootOf = (roots, t) => { const m = /^(.*\/(?:Cellar|Caskroom))\/[^/]+\/[^/]+(?:\/|$)/.exec(t); return m ? m[1] : storeIn(roots, t); };
 const USER_WRITABLE_SHELL_DIRS = HOMEBREW_PREFIXES.flatMap((pre) => [path.join(pre, 'share', 'zsh', 'site-functions'),
   ...['vendor_conf.d', 'vendor_functions.d', 'vendor_completions.d'].map((v) => path.join(pre, 'share', 'fish', v))]);
 /* The files, the folders read whole, and the globs (permission layer only) for this home and environment.
@@ -1452,7 +1455,13 @@ function shellStartPaths(home, env, opts = {}) {
   }
   for (const k of ['BASH_ENV', 'ENV']) {
     if (typeof e[k] !== 'string' || !e[k]) continue;
-    if (path.isAbsolute(e[k])) files.push(path.resolve(e[k]));
+    if (path.isAbsolute(e[k])) {
+      // Review 21: only a file, or nothing yet. A device (BASH_ENV=/dev/null, the usual way to switch it off) or a
+      // folder runs nothing, and a write-deny on /dev/null could break every `> /dev/null` in the agent's shell.
+      let st = null;
+      try { st = fs.statSync(e[k]); } catch { /* absent: the agent could create it */ }
+      if (!st || st.isFile()) files.push(path.resolve(e[k]));
+    }
     /* Review 2: ENV is also a common label (ENV=staging), and only an interactive sh reads it; a value that does not
        look like a path is not read as one, so a label never makes every guard not whole. BASH_ENV is read by every
        non-interactive bash, so any relative value is named. */
@@ -1484,16 +1493,18 @@ function shellStartPaths(home, env, opts = {}) {
   const inCellar = (t, c) => t === c || t.startsWith(c + path.sep);
   /* Review 10: a Homebrew under another prefix (Linuxbrew, ~/homebrew) keeps the same <prefix>/Cellar/<name>/<version>/
      shape; such a Cellar is found from the target itself and gets the same one stable rule. */
-  const cellarOf = (t) => { const m = /^(.*\/(?:Cellar|Caskroom))\/[^/]+\/[^/]+(?:\/|$)/.exec(t); return m ? m[1] : storeIn(opts.storeRoots || STORE_ROOTS, t); };
+  const cellarOf = (t) => stableRootOf(opts.storeRoots || STORE_ROOTS, t);
   const outsideCellar = (t) => !realCellars.some((c) => inCellar(t, c)) && !cellarOf(t);
   /* Review 14: a read-only target found INSIDE a startup folder (home-manager links ~/.config/fish/config.fish into the
      store) protects nothing and its hashed name would pile up; the link itself is under that folder's own rule. */
   const ro = opts.readOnlyTarget || isReadOnlyTarget;
   const linkedFiles = linked.flatMap((l) => l.files).filter((t) => !ro(t));
   const linkedDirs = linked.flatMap((l) => l.dirs).filter((t) => !ro(t));
-  // Review 7: only the Cellar or Caskroom a target is in, not every one that exists.
+  // Review 7: only the Cellar or Caskroom a target is in, not every one that exists. Review 21: or a hop is in.
+  const allHops = [...new Set(linked.flatMap((l) => l.hops))];
+  const stableOfHop = (h) => realCellars.find((c) => inCellar(h, c)) || cellarOf(h);
   const hitCellars = [...new Set([...realCellars.filter((c) => [...linkedFiles, ...linkedDirs].some((t) => inCellar(t, c))),
-    ...[...linkedFiles, ...linkedDirs].map(cellarOf).filter(Boolean)])];
+    ...[...linkedFiles, ...linkedDirs].map(cellarOf).filter(Boolean), ...allHops.map(stableOfHop).filter(Boolean)])];
   /* Review 6: a folder that is the root, the home folder, or contains the agent's folder would get a rule over the
      agent's own work (Edit(<home>/**)); it is named instead, so the guard is not whole rather than over-broad. Applied
      below to every folder denied whole, linked ones and the startup folders alike. */
@@ -1515,7 +1526,7 @@ function shellStartPaths(home, env, opts = {}) {
     else keptDirs.push(d);
   }
   // Review 18: the links a found link passes through, for the file tools (the caller lists them by their own path).
-  const hops = [...new Set(linked.flatMap((l) => l.hops).filter((h) => !cellarOf(h) && !realCellars.some((c) => inCellar(h, c))))];
+  const hops = allHops.filter((h) => !stableOfHop(h));
   return { files: [...new Set(files)], dirs: keptDirs, globs: [...new Set(globs)], hops, unsafe };
 }
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
@@ -1567,9 +1578,10 @@ function danglingTarget(p) {
 }
 /* Review 18 (#5774 part 2): the links a chain passes THROUGH on the way to its target (neither the path itself nor the
    target), each by its real folder. A tool that replaces one with a file changes what the first path runs, so each one
-   in a folder the user can write is denied to the file tools. One in a read-only folder cannot be replaced, and one the
-   caller covers otherwise (skip: a Cellar or store) would only pile up, so both are left out. */
-function chainHops(p, skip = () => false) {
+   in a folder the user can write is denied to the file tools; one in a read-only folder cannot be replaced, and is left
+   out. Review 21: one in a Cellar or store is the caller's to cover by that folder's one stable rule (by name it would
+   pile up, and skipped it would be uncovered). */
+function chainHops(p) {
   const hops = [];
   let cur = path.resolve(p);
   for (let hop = 0; hop < 8; hop++) {
@@ -1577,7 +1589,7 @@ function chainHops(p, skip = () => false) {
     try { if (!fs.lstatSync(cur).isSymbolicLink()) break; to = fs.readlinkSync(cur); } catch { break; }
     if (hop > 0) {
       const h = path.join(realOrLeaf(path.dirname(cur)), path.basename(cur));   // an absolute link target may pass a linked folder
-      if (!skip(h)) { try { fs.accessSync(path.dirname(h), fs.constants.W_OK); hops.push(h); } catch { /* read-only folder */ } }
+      try { fs.accessSync(path.dirname(h), fs.constants.W_OK); hops.push(h); } catch { /* read-only folder */ }
     }
     cur = path.resolve(realOrLeaf(path.dirname(cur)), to);
   }
@@ -1757,14 +1769,14 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const editOnlyLinks = [];
   const editOnlyLinkDirs = [];
   const storeHits = new Set();
-  const inStore = (t) => storeIn(deps.storeRoots || STORE_ROOTS, t) !== null;
   const linkAware = (dirs) => (p) => {
     const real = realOrLeaf(p);
     if (real === path.resolve(p)) return [p];
-    editOnlyLinks.push(...chainHops(p, inStore));   // review 18: every replaceable link on the way, file tools only
+    // Review 18: every replaceable link on the way, file tools only. Review 21: one in a Cellar or store, by its stable rule.
+    for (const h of chainHops(p)) { const r = stableRootOf(deps.storeRoots || STORE_ROOTS, h); if (r) storeHits.add(r); else editOnlyLinks.push(h); }
     if (!writableOrAbsent(real)) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); return []; }
     // Review 17: a writable target in a store: the link for the file tools, the store by one stable rule (both layers).
-    const st = storeIn(deps.storeRoots || STORE_ROOTS, real);
+    const st = stableRootOf(deps.storeRoots || STORE_ROOTS, real);
     if (st) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); storeHits.add(st); return []; }
     return withTarget(p, configUnsafe);
   };
@@ -1785,6 +1797,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const shellEditDirs = shellStartDirs.filter(carries('a shell startup folder or where its link leads'));
   const linkEditFiles = [...new Set(editOnlyLinks)].filter(carries('a link on the way to a shell startup file'));
   const linkEditDirs = [...new Set(editOnlyLinkDirs)].filter(carries('a link on the way to a shell startup folder'));
+  // Review 21: the completion-dump globs too, judged by their folder (a ZDOTDIR under ~/Dropbox (Personal)).
+  const shellEditGlobs = shellStart.globs.filter((g) => carries('a folder of zsh startup files')(path.dirname(g)));
   const commandScripts = [];
   for (const f of startCmds.files) {
     if (coveredWhole(f)) continue;
@@ -1880,7 +1894,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
     ...shellEditDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 part 2: fish's folder, read whole
     ...linkEditDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 11: a linked folder whose target is read-only
-    ...shellStart.globs.map((g) => `Edit(${ruleAbs(g)})`),   // review 1: zsh's completion dump; the shell cannot write there anyway
+    ...shellEditGlobs.map((g) => `Edit(${ruleAbs(g)})`),   // review 1: zsh's completion dump; the shell cannot write there anyway
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
     ...siblingRules,
     ...[...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),   // review 9: memory for a later home too
