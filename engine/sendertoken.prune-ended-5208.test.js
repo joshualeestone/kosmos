@@ -90,8 +90,9 @@ test('kosmos#5208: a sealed file is deleted only once old and unchanged, and its
   assert.equal(sealed().length, 2, 'a new sealed file was deleted');
   writeLive([line('y', T0)]);
   const r = sendertoken.compactEnded({ force: true, now: Date.now() + sendertoken.SEALED_KEEP_MS + 60000 });
-  assert.equal(r.removed, 3, 'old sealed files were not deleted');
-  assert.deepEqual(sealed(), []);
+  // The two sealed before this run are deleted; the one this run sealed was not read in it, so it waits for the next.
+  assert.equal(r.removed, 2, 'old sealed files were not deleted');
+  assert.equal(sealed().length, 1);
   assert.equal(sendertoken.endedSince(['gone'], iso(T0)), true, 'an end was lost with its sealed file');
   assert.equal(sendertoken.endedSince(['gone'], iso(T0 + 10)), false, 'CONTROL: strictly after its end it is not ended');
 });
@@ -108,13 +109,14 @@ test('kosmos#5208: nothing is compacted under the size bound, and a torn line st
   let stuck;
   try {
     stuck = sendertoken.compactEnded({ force: true });
-    writeLive([line('b', T0)]);   // a second try that reaches the torn line again
+    fs.appendFileSync(LIVE(), line('b', T0) + '\n');   // a second try: the torn line is still in the live file (nothing was sealed)
     assert.equal(sendertoken.compactEnded({ force: true }).stuck, true, 'the second try did not reach the stuck path');
   } finally { console.error = realErr; }
   assert.equal(stuck.compacted, false, 'compacted past a torn line');
   assert.equal(stuck.stuck, true);
   assert.equal(said.filter((m) => /no longer compacted/.test(m)).length, 1, 'a stuck compaction was not said, or said on every try');
-  assert.match(said.find((m) => /no longer compacted/.test(m)), /sealed\.[^)]*\.jsonl\)/, 'the note does not name the file holding the bad line');
+  assert.match(said.find((m) => /no longer compacted/.test(m)), /ended-agents\.jsonl\)/, 'the note does not name the file holding the bad line');
+  assert.deepEqual(sealed(), [], 'a stuck compaction sealed the live file anyway');
   assert.equal(fs.existsSync(COMPACT()), false, 'compact.jsonl was written past a torn line');
   // A name with no line of its own reads every line, so it meets the torn one: still a refusal (null), as on main.
   assert.equal(sendertoken.endedSince(['nobody'], iso(T0 - 1)), null, 'the torn line no longer refuses (it was dropped)');
@@ -223,7 +225,8 @@ function oldEndedSince(name, sinceIso, inclusive) {
   let raw; try { raw = fs.readFileSync(LIVE(), 'utf8'); } catch { return false; }
   for (const l of raw.split('\n')) {
     if (!l) continue;
-    const r = JSON.parse(l);
+    let r; try { r = JSON.parse(l); } catch { return null; }   // main's endedSince refuses on a line it cannot read
+    if (!r || typeof r.name !== 'string') return null;
     if (r.name.toLowerCase() !== name.toLowerCase()) continue;
     if (r.at > sinceIso || (inclusive && r.at === sinceIso)) return true;
   }
@@ -259,4 +262,47 @@ test('kosmos#5208: a compaction does not write over a compact.jsonl that changed
   assert.equal(r.compacted, false, 'it wrote over a compact.jsonl that changed under it');
   assert.match(fs.readFileSync(COMPACT(), 'utf8'), /"newer"/, 'the newer compact.jsonl was overwritten');
   assert.equal(sendertoken.endedSince(['second'], iso(T0)), true, 'CONTROL: the end it was folding is still read from its sealed file');
+});
+
+// An older build's view, before and after, for names in a fixture: the live file alone (oldEndedSince above).
+function oldView(names) { return names.map((n) => [oldEndedSince(n, iso(T0 - 1), false), oldEndedSince(n, iso(T0 + 3), true)]); }
+
+test('kosmos#5208: a rolled-back build answers the same on every way a compaction can stop', () => {
+  const names = ['a', 'b', 'late', 'never'];
+  const realRename = fs.renameSync;
+  const cases = {
+    'a torn line': () => { writeLive([line('a', T0), line('b', T0 + 5), '{"name":"torn"']); return () => sendertoken.compactEnded({ force: true }); },
+    'compact.jsonl changed under it': () => {
+      writeLive([line('a', T0), line('b', T0 + 5)]);
+      return () => {
+        const realRead = fs.readFileSync;
+        fs.readFileSync = function (p, ...rest) { const out = realRead.call(this, p, ...rest); if (p === COMPACT()) { fs.readFileSync = realRead; fs.writeFileSync(COMPACT(), '\n' + line('zz', T0) + '\n'); } return out; };
+        try { return sendertoken.compactEnded({ force: true }); } finally { fs.readFileSync = realRead; }
+      };
+    },
+    'compact.jsonl cannot be renamed into place': () => {
+      writeLive([line('a', T0), line('b', T0 + 5)]);
+      return () => {
+        fs.renameSync = function (from, to) { if (to === COMPACT()) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); return realRename.call(this, from, to); };
+        try { return sendertoken.compactEnded({ force: true }); } finally { fs.renameSync = realRename; }
+      };
+    },
+    'an unlocked append between the read and the seal': () => {
+      writeLive([line('a', T0), line('b', T0 + 5)]);
+      return () => {
+        fs.renameSync = function (from, to) { if (from === LIVE()) { fs.renameSync = realRename; fs.appendFileSync(LIVE(), line('late', T0 + 7) + '\n'); } return realRename.call(this, from, to); };
+        try { return sendertoken.compactEnded({ force: true }); } finally { fs.renameSync = realRename; }
+      };
+    },
+  };
+  for (const [label, arm] of Object.entries(cases)) {
+    reset();
+    const go = arm();
+    const before = label === 'an unlocked append between the read and the seal'
+      ? names.map((n) => (n === 'late' ? [true, true] : [oldEndedSince(n, iso(T0 - 1), false), oldEndedSince(n, iso(T0 + 3), true)]))   // the late line counts once it lands
+      : oldView(names);
+    const r = go();
+    assert.deepEqual(oldView(names), before, label + ': a rolled-back build answers differently (' + JSON.stringify(r) + ')');
+    assert.equal(sendertoken.endedSince(['b'], iso(T0)), label === 'a torn line' ? true : true, label + ': this build lost an end');
+  }
 });

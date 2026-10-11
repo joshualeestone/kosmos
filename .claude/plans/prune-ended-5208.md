@@ -90,3 +90,20 @@ after its lock was stolen could drop the lines of a sealed file deleted meanwhil
 - FIXED (NIT): compactEnded's return shapes documented; server.js's refusal log names ended-agents.d too; the new test
   file runs in the Windows job (tools/windows-tests.js).
 - Tests force a compaction with `force: true` (the size test still runs without it).
+
+## Review 4 (sonnet, blind, on 6d2468c7b)
+- FIXED (WARNING): the rollback carry ran only when the whole compaction succeeded; seven ways to stop after the seal
+  left a rolled-back build blind to the sealed ends (fail open), the stuck path worst. Reordered: compact.jsonl, the
+  sealed files and the live file are read and folded BEFORE the seal, so every way to stop that can stop does so with
+  the live file untouched (a stuck compaction no longer seals at all); after the seal the folded lines, plus any line
+  an unlocked append put into the sealed file after the read, go back into the live file on every path (finally).
+  Tests: a rolled-back reader answers the same for a torn line, a compact.jsonl that changed, a failed rename, and an
+  append between the read and the seal; mutations (carry only on success; extra not carried) red.
+- FIXED (WARNING, by comment): the stale-overwrite check narrows the window and does not close it; the comment says
+  so, and what bounds the loss (an hour of sealed files, still read).
+- FIXED (WARNING, by comment): growth is bounded by distinct names, which are not capped; the comment says so.
+- FIXED (NIT): the slugFor comment now says the real hazard (a split key cannot be undone).
+- NO CHANGE (NIT): a torn line is not healed (it never was; endedSince refuses on it as on main; the stuck note names
+  the file). Plan file name: this repo's other plans are <branch>.md as well.
+- One consequence of the reorder: the file sealed in a run is not among those read in it, so it is deleted at the
+  earliest one run later (test updated).
