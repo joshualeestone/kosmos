@@ -149,10 +149,14 @@ test('#5805 2a: the sweep types kept messages in order once the card reads relea
 test('#5805 2a: a kept message whose try comes back could-not stays, and so does every one after it (order kept)', async () => {
   limitqueue.add('casey', { id: 'm901', from: 'leo', envelope: '[message from your colleague leo · m901] a', at: new Date().toISOString(), reset: new Date().toISOString() });
   limitqueue.add('casey', { id: 'm902', from: 'leo', envelope: '[message from your colleague leo · m902] b', at: new Date().toISOString(), reset: new Date().toISOString() });
+  const tried = [];
+  // The first one cannot be typed this minute; the second could be, and must still wait behind it.
   const done = await limitqueue.flush([{ sessionName: 'casey' }], {
-    deliver: async () => ({ state: chat.DELIVERY.COULD_NOT }), isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY,
+    deliver: async (n, env) => { tried.push(env); return { state: /m901/.test(env) ? chat.DELIVERY.COULD_NOT : chat.DELIVERY.PLACED }; },
+    isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY,
   });
   assert.deepEqual(done, []);
+  assert.equal(tried.length, 1, 'a later message was typed ahead of an earlier one');
   assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m901', 'm902']);
 });
 
