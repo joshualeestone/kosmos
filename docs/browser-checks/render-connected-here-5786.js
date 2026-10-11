@@ -7,7 +7,8 @@
  * What this pins, and why each line can fail:
  *  - with the engine's connected_here set and nothing waiting, #plus-ask-rows reads "Safari on this computer is
  *    connected." (the browser word out of "Mac · Safari"), with Undo and Got it, and no "Waiting for you" heading;
- *  - Undo posts that device id to /api/remote/devices/remove and the line becomes "Disconnected. ...";
+ *  - a first Undo that fails (500) says "We could not disconnect it" and keeps Undo; the next posts that device id
+ *    to /api/remote/devices/remove and the line becomes "Disconnected. ...";
  *  - Got it puts the line away; with connected_here null (the CONTROL) the line never shows;
  *  - in the Devices list a device with on_this_computer says "on this computer", and one without (the CONTROL) does not;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
@@ -61,8 +62,11 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const removed = [];
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', connected_here: here })));
+      let removeFailsOnce = true;   // the first Undo fails: the notice must say so and keep its Undo
       await page.route('**/api/remote/devices/remove', (route, req) => {
-        const id = JSON.parse(req.postData() || '{}').device_id; removed.push(id); if (here && here.device_id === id) here = null;
+        const id = JSON.parse(req.postData() || '{}').device_id;
+        if (removeFailsOnce) { removeFailsOnce = false; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) }); }
+        removed.push(id); if (here && here.device_id === id) here = null;
         return route.fulfill(json({ ok: true }));
       });
       await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, pending: [], allowed: [
@@ -87,6 +91,12 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       r = await rows();
       chk(r.shown && r.text.startsWith('Safari on this computer is connected.') && r.acts.join(',') === 'Undo,Got it' && !r.title,
         `${tag} "Safari on this computer is connected." with Undo and Got it, under no Waiting heading`, JSON.stringify(r));
+      // A failed Undo: the sentence shows inside the notice, and Undo is still there to try again.
+      await page.click('#plus-ask-rows [data-ask="here-undo"]');
+      await page.waitForFunction(() => /could not disconnect/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      r = await rows();
+      chk(/We could not disconnect it/.test(r.text) && r.acts.includes('Undo') && removed.length === 0,
+        `${tag} a failed Undo says so and keeps Undo`, JSON.stringify({ removed, r }));
       await page.click('#plus-ask-rows [data-ask="here-undo"]');
       await page.waitForFunction(() => /Disconnected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       r = await rows();
