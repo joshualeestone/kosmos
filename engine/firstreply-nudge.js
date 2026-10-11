@@ -55,7 +55,10 @@ const MAX_TRIES = 3;
    (messages.js operatorDirect), so the reminder names the command the agent was already shown. */
 const NUDGE_TEXT = 'Kosmos here, a one-time reminder: the person you work for sent you a message and '
   + 'nothing has reached them yet. Writing an answer here does not send it. To answer them, run: '
-  + 'kosmos reply "<your answer>". If their message did not reach you, read it with: kosmos inbox';
+  + 'kosmos reply "<your answer>". If their message did not reach you, read it with: kosmos inbox. '
+  /* kosmos#5805 part 2: the agent in the report was told to answer elsewhere and had no way to learn the opt-out;
+     this reminder is the moment it is needed. */
+  + 'If your instructions say to answer them somewhere else, answer there and run: kosmos reply-channel "<where>"';
 
 /* Has this session's one nudge been spent? A book entry with a nudge time, however it went. */
 function nudged(entry) {

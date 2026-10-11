@@ -1208,7 +1208,7 @@ async function verbReplyChannel(ctx, args) {
       : 'Set. Kosmos will not remind you that nothing reached the person, since you answer them on a channel it cannot see.');
     return 0;
   }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not set your reply channel: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not set your reply channel: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }   // #5333
   ctx.err('Kosmos gave an answer we could not read when setting your reply channel.');
   return 1;
 }

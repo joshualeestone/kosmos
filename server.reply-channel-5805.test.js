@@ -2,7 +2,7 @@
 /**
  * kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel). An agent whose instructions say to answer
  * the person somewhere Kosmos cannot see declares it, so the reminders stop saying nothing reached the person. Over HTTP
- * on a sandboxed board: an agent sets only its own channel, the screen names an agent that exists, and the refusals.
+ * on a sandboxed board: an agent sets only its own channel (by token or by pane), the screen sets none, and the refusals.
  *
  *   node --test server.reply-channel-5805.test.js
  */
@@ -74,7 +74,7 @@ test('kosmos#5805: an agent declares its own reply channel, a name in its body i
   } finally { board.restore(); }
 });
 
-test('kosmos#5805: refusals (too long, two lines, not words, nobody named); the screen names an agent that exists', async () => {
+test('kosmos#5805: refusals (too long, two lines, not words, nobody named); the screen sets no agent\'s channel', async () => {
   const { board, ada, bo } = twoAgents();
   try {
     const minted = sendertoken.mint(ada);
@@ -92,15 +92,33 @@ test('kosmos#5805: refusals (too long, two lines, not words, nobody named); the 
     assert.ok(r.status >= 400 && r.status < 500, 'an unnamed caller got ' + r.status);
     assert.equal(declared(ada), null);
     assert.equal(declared(bo), null);
-    // The screen must name an agent here; a typed name never makes a stray profile.
-    r = await asScreen({ channel: 'Discord', name: 'rc-nobody-by-this-name' });
-    assert.equal(r.status, 404);
-    assert.deepEqual(store.readProfile('rc-nobody-by-this-name'), {}, 'a profile was written for a name that is no agent');
-    r = await asScreen({ channel: 'Discord' });
-    assert.equal(r.status, 400);
+    // The screen sets no agent's channel: only an agent declares its own, and a name in the body names nobody.
     r = await asScreen({ channel: 'Discord', name: bo });
+    assert.ok(r.status >= 400 && r.status < 500, 'the screen set a channel: ' + r.status);
+    assert.equal(declared(bo), null, 'a name typed on the screen set that agent\'s channel');
+    assert.deepEqual(store.readProfile('rc-nobody-by-this-name'), {}, 'control: no stray profile');
+    r = await asScreen({ channel: 'Discord', name: 'rc-nobody-by-this-name' });
+    assert.deepEqual(store.readProfile('rc-nobody-by-this-name'), {}, 'a profile was written for a name that is no agent');
+  } finally {
+    try { replychannel.set(bo, '', store); replychannel.set(ada, '', store); } catch { /* best effort */ }
+    board.restore();
+  }
+});
+
+test('kosmos#5805: the Mac path, a pane and no token, sets that pane\'s own agent and no other', async () => {
+  const { board, ada, bo } = twoAgents();
+  try {
+    const card = board.agents.find((c) => c.sessionName === ada);
+    assert.ok(card && card.target && card.isNamedOurs === true, 'fixture: the agent has no tied pane to name it by');
+    // Profiles outlive a test in this sandbox, so both start cleared and are asserted so.
+    replychannel.set(ada, '', store); replychannel.set(bo, '', store);
+    assert.equal(declared(bo), null, 'fixture: bo starts declared');
+    const r = await post({ channel: 'Slack', from_pane: card.target, name: bo }, {});
     assert.equal(r.status, 200, await r.clone().text());
-    assert.equal(declared(bo), 'Discord');
-    assert.equal(declared(ada), null, 'the screen set the wrong agent');
-  } finally { board.restore(); }
+    assert.equal(declared(ada), 'Slack', 'the pane did not name its own agent');
+    assert.equal(declared(bo), null, 'a name in the body was read on the pane path');
+  } finally {
+    try { replychannel.set(ada, '', store); } catch { /* best effort */ }
+    board.restore();
+  }
 });

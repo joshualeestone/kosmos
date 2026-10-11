@@ -3550,8 +3550,11 @@ test('kosmos#5805 part 2: an agent that declared another reply channel is not ca
       let a = ask();
       assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), { [a.id]: ['mara'] }, 'CONTROL: an unanswered ask did not read unanswered');
       assert.ok(messages.owedElsewhere('mara', 'other-room', a.at + 5000), 'CONTROL: the which-room question does not see the ask as owed');
-      arm([]);
+      const tm = arm([]);
       assert.deepEqual((messages.sweepUnanswered(board.agents, a.at + 5000).nudged || []).filter((n) => n.to === 'mara').map((n) => n.post), [a.id], 'CONTROL: the sweep does not nudge an owed ask');
+      // The reminder that landed teaches the opt-out (the agent in the report had no way to learn it).
+      const typed = tm.pastedMessages();
+      assert.ok(typed.some((t) => /run: kosmos reply-channel "<where>"\]$/.test(t)), 'the room reminder does not teach kosmos reply-channel: ' + JSON.stringify(typed));
       // Declared: Kosmos cannot see that channel, so it calls her silent nowhere.
       replychannel.set('mara', 'Discord');
       a = ask();

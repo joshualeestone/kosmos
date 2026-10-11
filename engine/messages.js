@@ -2478,18 +2478,20 @@ function setUnansweredAfterForTests(ms) {
    reminder went quiet for the agents who talk to the person most. A thread that cannot be read is no answer (as
    before). Weakest premise: a reply inside the hour may still be about an earlier direct message. */
 const DIRECT_ANSWER_WINDOW_MS = 60 * 60 * 1000;
-/* Parsed direct threads by agent, reused while the file's mtime and size stand (unanswered runs on every room render
-   and every minute's sweep, once per project). One entry per agent. */
+/* Parsed direct threads by file, reused while the file's mtime and size stand (unanswered runs on every room render
+   and every minute's sweep, once per project). Keyed by the resolved path, so a switched data root never reads
+   another root's rows. One entry per thread file. */
 const directCache = new Map();
 function directRows(name) {
+  let file = null;
   let st = null;
-  try { st = fs.statSync(chat.threadFile(chat.DIRECT, name)); } catch { st = null; }
-  if (!st) { directCache.delete(name); return []; }
-  const hit = directCache.get(name);
+  try { file = chat.threadFile(chat.DIRECT, name); st = fs.statSync(file); } catch { st = null; }
+  if (!st) { if (file) directCache.delete(file); return []; }
+  const hit = directCache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.rows;
   let rows = [];
   try { const t = chat.readThread(chat.DIRECT, name); rows = (t && Array.isArray(t.messages)) ? t.messages : []; } catch { return []; }
-  directCache.set(name, { mtimeMs: st.mtimeMs, size: st.size, rows });
+  directCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, rows });
   return rows;
 }
 function answeredDirectly(name, askAt) {
@@ -2628,7 +2630,9 @@ function sweepUnanswered(roster, now) {
         const card = (roster || []).find((c) => c && c.sessionName === name);
         if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
-          + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
+          + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId
+          // kosmos#5805 part 2: the opt-out, taught where the false reminder lands.
+          + '; if your instructions say to answer the person somewhere else, run: kosmos reply-channel "<where>"]';
         const sent = chat.deliverAutomatic(name, line, roster);
         /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen, or #5805 a usage limit), nothing typed. No row, so the pair's one nudge is still unspent, and
            unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so the post is still due after a long pause. */
@@ -2662,8 +2666,9 @@ function sweepUnanswered(roster, now) {
    of an owed answer (operator + mentioned + typed), bounded to the post's instant,
    with one difference kept on purpose: it does not read direct threads or declared
    channels (kosmos#5805 part 2, answeredOffRoom), so an ask W answered on the
-   person's direct thread, or W's declared channel, still counts here. It is an aggregate "suspected" count over the whole record,
-   and reading every agent's thread for every day compiled is not worth it.
+   person's direct thread, or W's declared channel, still counts here. It is an
+   aggregate "suspected" count over the whole record, and reading every agent's
+   thread for every day compiled is not worth it.
 
    ⚠️ AS-OF-POST-TIME is deliberate, and it is why this does NOT reuse `unanswered`
    (whose answer-check is unbounded, "answered ever after the ask"). A misroute

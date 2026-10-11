@@ -166,7 +166,7 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   /* #5153 (Baron's review) added POST /api/undo/keep, a WRITE: its handler names a token-only caller
      (agentTokenOnlyCaller) and keeps copies for that agent's own sessions only (engine/undo.js keep onlyFor). */
   /* kosmos#5805 part 2 added POST /api/agent/reply-channel, a WRITE: its handler names the caller with processCaller and
-     sets only that agent's own channel; a token-presenting caller is never the screen, so it cannot name another agent.
+     sets only that agent's own channel; no name in the body is read.
      Measured in server.reply-channel-5805.test.js. */
   assert.deepEqual(routes, ['GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');

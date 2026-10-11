@@ -350,3 +350,10 @@ test('kosmos#5805: an injected replyChannel is honoured, and a throwing one is n
   assert.equal(run(() => 'Slack'), 0, 'a declared channel was nudged');
   assert.equal(run(() => { throw new Error('unreadable'); }), 1, 'a profile that cannot be read silenced the nudge');
 });
+
+test('kosmos#5805: the reminder teaches the opt-out, by a verb both commands ship', () => {
+  assert.match(nudge.NUDGE_TEXT, /answer there and run: kosmos reply-channel "<where>"/);
+  assert.ok(require('../tools/windows/kosmos-cli').VERBS.includes('reply-channel'), 'the reminder names a verb the Windows command lacks');
+  const mac = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'install', 'kosmos'), 'utf8');
+  assert.match(mac, /^ {2}reply-channel\) shift; cmd_reply_channel "\$@" ;;/m, 'the reminder names a verb the Mac command lacks');
+});

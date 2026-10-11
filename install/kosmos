@@ -2729,7 +2729,9 @@ cmd_reply_channel() {
     '{"ok":true'*) say "Set. Kosmos will not remind you that nothing reached the person, since you answer them on a channel it cannot see." ;;
     '{"error":'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
-      say "Kosmos did not set your reply channel: ${because:-it did not say why}."; exit 1 ;;
+      say "Kosmos did not set your reply channel: ${because:-it did not say why}."
+      token_refused_hint "$_tok" "$body"   # #5333
+      exit 1 ;;
     *) say "Kosmos gave an answer we could not read when setting your reply channel."; exit 1 ;;
   esac
 }

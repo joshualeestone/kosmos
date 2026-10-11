@@ -28,8 +28,13 @@ does not read threads, on purpose, and says so.
 - Bounded to an hour after the ask, and to before the person speaks again on that thread (review 1).
 - An unreadable thread or profile counts as no answer and no declaration (today's behaviour).
 - The route is in AGENT_TOKEN_ROUTES (every Windows agent holds a token and no board token). Its handler names the
-  caller with processCaller and sets only that agent's own channel; a token-presenting caller is never the screen.
-  The screen must name an agent on the roster, so a typed name never writes a stray profile.
+  caller with processCaller (a token exactly; a pane as given) and sets only that agent's own channel. No name in the
+  body is read, and the screen sets nothing (review 5 removed a screen branch no page called).
+- **How an agent learns the verb:** both reminders now end by teaching it ("if your instructions say to answer them
+  somewhere else, ... run: kosmos reply-channel"). That is the moment it is needed. Rejected: a line in the agents'
+  working rules (engine/defaults.js): it changes the doctrine every agent holds, which needs a version bump and a
+  measured rollout, for one sentence the reminder already carries.
+- **The person cannot yet see or clear a declaration:** kosmos#5820 (follow-up, needs a page change).
 
 ## Rejected
 - Automatic only (34aedd9ef's call): blind to the reported case.
@@ -107,3 +112,15 @@ Also: a reply inside the hour may still be about an earlier direct message (Baro
   changed commands, a new directory) does not call for a row.
 - NO CHANGE (NIT): directRows hands back its cached rows; every caller only reads them.
 - One more blind pass runs because these NIT fixes changed code.
+
+## Review 5 (opus, blind, on 30f776d6f)
+- FIXED (WARNING): no agent could learn the verb exists; both reminder texts now teach it (tests on both, and a
+  mutation on each goes red; the room line keeps its guarded prefix).
+- FIXED (WARNING): no server test of the pane path the Mac uses; added (a pane names its own agent, a body name is
+  ignored). Writing it found test pollution: a profile set in one test outlived it; each test now starts cleared.
+- FIXED (WARNING): a screen branch nothing called, and the person cannot see a declaration. The branch is removed
+  (the route is agent-only); visibility is kosmos#5820.
+- FIXED (CONVENTION): replychannel.js said owedElsewhere shares unanswered; it shares answeredOffRoom.
+- FIXED (NIT): the direct-thread cache is keyed by the thread file's path, not the agent's name.
+- FIXED (NIT): a comment line past the block's wrap; rewrapped.
+- FIXED (NIT): a refused declaration on a stale token now prints the #5333 way-back hint, on both commands.
