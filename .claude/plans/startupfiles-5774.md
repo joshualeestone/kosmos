@@ -12,6 +12,7 @@
   - Links inside the whole folders are followed (3 levels deep; one 500-entry budget, which names itself when spent), and every file goes through withTarget, so each target is denied too: a linked folder gets a whole-folder rule. Targets in a Homebrew Cellar are covered by one stable rule for that Cellar.
   - Files are read as regular files only, up to 256 KB.
   - ${XDG_CONFIG_HOME:-default} and ${HOME:-default} are read as both arms.
+  - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
 - Tests: engine/startupfiles-5774.test.js, 11 tests, each fix mutated red (counts per iteration below).
@@ -27,9 +28,8 @@
 ## Gaps, stated
 - A shell beyond zsh, bash, sh, csh and tcsh, fish and nushell is not listed (ksh's .kshrc, xonsh, PowerShell profiles); nor ~/.inputrc (key bindings, not code).
 - ENV=rc (a bare name with no slash) is read as a label and skipped (review 2), which fails open, but only for an interactive sh.
-- A ZDOTDIR or XDG_CONFIG_HOME set conditionally (`[[ -d x ]] && ZDOTDIR=x`, inside an if) is not read: only an assignment at the start of a line is. The conventional XDG folder is covered regardless.
+- A ZDOTDIR or XDG_CONFIG_HOME set conditionally (`[[ -d x ]] && ZDOTDIR=x`) or indented (inside an if, a function or a here-document) is not read: only an assignment at the very start of a line is (review 6, so a mention never makes a guard not whole). The conventional XDG folder is covered regardless.
 - A link inside a folder that is itself reached through a link is not followed further.
-- The FIFO test cannot go red on a regression: the read is synchronous, so the test hangs until the job's timeout instead.
 - Other guard tests that pass neither deps.env nor deps.userShellDirs read this host's environment and Homebrew folders. Decided, not pinned in their nine files: only a relative BASH_ENV, path-like ENV, ZDOTDIR or XDG_CONFIG_HOME in the host's environment can change their result, and it fails closed. Homebrew targets are now covered by a stable Cellar rule rather than by name.
 - A completion dump that does not exist yet, in a ZDOTDIR the shell can write, is covered by the file tools' glob only.
 - ZDOTDIR set in .zshenv by `typeset -x ZDOTDIR=...` or `: ${ZDOTDIR:=...}`, or in /etc/zshenv, is not read; the conventional XDG folder is covered regardless.
@@ -71,4 +71,11 @@
   - [WARNING] FIXED. A linked folder got a bare-path rule, where every other folder gets /**; whether Claude Code reads a bare rule as covering contents was never measured. It now gets /** (the test asserts the exact rule; mutation red).
   - [WARNING] DECIDED, stated under Gaps: other guard test files read the host's environment and Homebrew folders.
   - NITs taken: a ZDOTDIR something sets explicitly has its .zshenv read, even when it is the conventional folder (tested; mutation red); the budget is now one shared budget, and the plan says so. Stated: links inside a linked folder; the FIFO test hangs rather than going red.
+- Iteration 6 (Sonnet), on c3a2b7cc8:
+  - [WARNING] FIXED. A folder denied whole that a link makes the home, the root, or a folder holding the agent's own (fish's folder linked at ~, or Stow-folded at a broad folder) would get <that>/** in both layers and take the agent's own work. Such a folder is now named, not denied. Two tests, checking the agent's own file stays writable. I first wrote the check twice, once for linked folders and once for all folders. The first check's mutation stayed green, because the second already covers it, so I removed the first, and the remaining check's mutation is red.
+  - [WARNING] FIXED. Indented assignments (inside a here-document, a function or an if) were read, so a mention could make a guard not whole. Only assignments at the very start of a line are read now, matching the plan. Test with a here-document and a function; mutation red.
+  - [WARNING] FIXED. The FIFO test could hang the run. It now runs the read in a child process with a 20 s timeout, so a regression fails, and it is skipped where mkfifo is absent. Its own home folder, so the shared HOME is untouched. Mutation red, with no hang.
+  - [WARNING] DECIDED. The Cellar rule's effect on `brew upgrade` from an agent's sandboxed shell: that shell cannot write /opt/homebrew already (its write scope), so the rule changes nothing there; brew run by the person is not governed by deny rules.
+  - [WARNING] DUPLICATE of iteration 5: other guard tests read the host's environment and Homebrew folders.
+  - [WARNING] NOT A DEFECT. A ZDOTDIR or XDG path with a pattern character makes rules the deny filter drops. That sets tokenRuleDropped, so the guard says it is not whole (the generic message, not a named one).
 

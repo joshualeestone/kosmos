@@ -1249,7 +1249,9 @@ function foldersOf(value, home, xdgs) {
    null for a value with a quote in the middle (review 2: ZDOTDIR="$HOME"/.zsh must not read as "$HOME"). */
 function assignmentsIn(text, name) {
   const out = [];
-  for (const m of String(text).matchAll(new RegExp(`^[ \\t]*(?:export[ \\t]+)?${name}=([^\\s;#]*)`, 'gm'))) {
+  // Review 6: at the very start of a line only. Indented ones sit in if-blocks, functions or here-documents, which
+  // this does not evaluate; reading them would make a guard not whole over a mention (stated under Gaps).
+  for (const m of String(text).matchAll(new RegExp(`^(?:export[ \\t]+)?${name}=([^\\s;#]*)`, 'gm'))) {
     const raw = m[1];
     const one = /^"([^"]*)"$/.exec(raw) || /^'([^']*)'$/.exec(raw);
     out.push(one ? one[1] : /["']/.test(raw) ? null : raw);
@@ -1363,10 +1365,27 @@ function shellStartPaths(home, env, opts = {}) {
   const linkedFiles = linked.flatMap((l) => l.files);
   const linkedDirs = linked.flatMap((l) => l.dirs);
   const hitsCellar = [...linkedFiles, ...linkedDirs].some((t) => !outsideCellar(t));
+  /* Review 6: a folder that is the root, the home folder, or contains the agent's folder would get a rule over the
+     agent's own work (Edit(<home>/**)); it is named instead, so the guard is not whole rather than over-broad. Applied
+     below to every folder denied whole, linked ones and the startup folders alike. */
+  const tooBroad = (t) => {
+    const inside = (a, b) => a === b || b.startsWith(a + path.sep);
+    const homeReal = (() => { try { return fs.realpathSync.native(home); } catch { return path.resolve(home); } })();
+    const agent = opts.agentDir ? (() => { try { return fs.realpathSync.native(opts.agentDir); } catch { return path.resolve(opts.agentDir); } })() : null;
+    return t === path.parse(t).root || inside(t, homeReal) || (agent !== null && inside(t, agent));
+  };
   files.push(...linkedFiles.filter(outsideCellar));
-  dirs.push(...linkedDirs.filter(outsideCellar));
+  dirs.push(...linkedDirs.filter(outsideCellar));   // each checked below with the startup folders themselves
   if (hitsCellar) dirs.push(...realCellars);
-  return { files: [...new Set(files)], dirs: [...new Set(dirs)], globs: [...new Set(globs)], unsafe };
+  // The startup folders themselves too: a linked ~/.config/fish pointing at the home would otherwise become <home>/**.
+  const keptDirs = [];
+  for (const d of new Set(dirs)) {
+    let real = d;
+    try { real = fs.realpathSync.native(d); } catch { /* absent: as written */ }
+    if (tooBroad(real)) unsafe.push(`${d} (a shell startup folder that leads to ${real}, too wide to deny: it holds the home or the agent's own folder)`);
+    else keptDirs.push(d);
+  }
+  return { files: [...new Set(files)], dirs: keptDirs, globs: [...new Set(globs)], unsafe };
 }
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
    and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
@@ -1569,7 +1588,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
-  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes });
+  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir });
   configUnsafe.push(...shellStart.unsafe);
   const shellStartFiles = [...new Set(shellStart.files.flatMap((p) => withTarget(p, configUnsafe)))];
   const shellStartDirs = [...new Set(shellStart.dirs.flatMap((p) => withTarget(p, configUnsafe)))];

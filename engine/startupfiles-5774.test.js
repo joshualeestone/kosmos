@@ -264,16 +264,21 @@ test('#5774 part 2 review 4: dumps that exist are denied by name in both layers;
   setup.guardTokenOnlyFolder(dir, 'pilot-dump', { ...DEPS, env: { ZDOTDIR: zd } });
   const s = readSettings(dir);
   assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(zd, '.zcompdump-host-5.9')), 'an existing dump, to the shell');
-  // A FIFO where .zshenv would be: the guard reads regular files only, so it returns rather than waiting on it.
-  const zshenv = path.join(HOME, '.zshenv');
-  fs.rmSync(zshenv, { force: true });
-  require('child_process').execFileSync('/usr/bin/mkfifo', [zshenv]);
-  try {
-    const t0 = Date.now();
-    const g = setup.guardTokenOnlyFolder(agentDir('pilot-fifo'), 'pilot-fifo', { ...DEPS, env: ENV0 });
-    assert.equal(g.ok, true, JSON.stringify(g));
-    assert.ok(Date.now() - t0 < 20000, 'the guard waited on a FIFO');
-  } finally { fs.rmSync(zshenv, { force: true }); }
+  // A FIFO where .zshenv would be: the guard reads regular files only. Review 6: checked in a CHILD process with a
+  // timeout, so a regression fails here instead of hanging this run; skipped where there is no mkfifo.
+  if (process.platform !== 'win32' && fs.existsSync('/usr/bin/mkfifo')) {
+    const fifoHome = path.join(SANDBOX, 'fifo-home');
+    fs.mkdirSync(fifoHome, { recursive: true });
+    const zshenv = path.join(fifoHome, '.zshenv');
+    fs.rmSync(zshenv, { force: true });
+    require('child_process').execFileSync('/usr/bin/mkfifo', [zshenv]);
+    try {
+      const r = require('child_process').spawnSync(process.execPath, ['-e',
+        `const s = require(${JSON.stringify(require.resolve('./setup-assistant'))}); s.shellStartPaths(${JSON.stringify(fifoHome)}, {}, { userShellDirs: [] }); console.log('returned');`],
+      { encoding: 'utf8', timeout: 20000 });
+      assert.ok(!r.error && /returned/.test(r.stdout), 'the guard blocked on a FIFO .zshenv: ' + (r.error ? r.error.code : r.stderr));
+    } finally { fs.rmSync(zshenv, { force: true }); }
+  }
   const gr = setup.guardTokenOnlyFolder(agentDir('pilot-xdgrel'), 'pilot-xdgrel', { ...DEPS, env: { XDG_CONFIG_HOME: 'cfg' } });
   assert.equal(gr.ok, false, JSON.stringify(gr));
   assert.match(String(gr.because), /XDG_CONFIG_HOME/);
@@ -370,4 +375,41 @@ test('#5774 part 2 review 5: the conventional zsh folder, when something sets ZD
     setup.guardTokenOnlyFolder(dir, 'pilot-conv', { ...DEPS, env: { ZDOTDIR: conv } });
     assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(further, '.zshrc')).length > 0, 'the folder the conventional one moves to');
   } finally { fs.rmSync(path.join(conv, '.zshenv'), { force: true }); }
+});
+
+test('#5774 part 2 review 6: a link to the home or to a folder holding the agent is named, never denied whole; indented assignments are not read', () => {
+  // A link inside fish's folder pointing at the home: no <home>/** rule; named.
+  const fishDir = path.join(HOME, '.config', 'fish');
+  fs.mkdirSync(fishDir, { recursive: true });
+  const l1 = path.join(fishDir, 'home-link');
+  fs.rmSync(l1, { force: true });
+  fs.symlinkSync(HOME, l1);
+  try {
+    const dir = agentDir('pilot-broad');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-broad', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /too wide to deny/);
+    const homeReal = fs.realpathSync.native(HOME);
+    assert.ok(!readSettings(dir).permissions.deny.some((r) => r.endsWith(`${homeReal}/**)`)), 'the home folder was denied whole');
+    assert.deepEqual(editDeniedBy(readSettings(dir).permissions.deny, path.join(dir, 'work.md')), [], "the agent's own file was denied");
+  } finally { fs.rmSync(l1, { force: true }); }
+  // An XDG folder whose fish is a link to the folder that holds the agents: named; the agent's work stays writable.
+  const xdg = path.join(SANDBOX, 'xdg-broad');
+  fs.mkdirSync(xdg, { recursive: true });
+  const l2 = path.join(xdg, 'fish');
+  fs.rmSync(l2, { force: true });
+  fs.symlinkSync(path.join(SANDBOX, 'workers'), l2);
+  const dir2 = agentDir('pilot-broad2');
+  const g2 = setup.guardTokenOnlyFolder(dir2, 'pilot-broad2', { ...DEPS, env: { XDG_CONFIG_HOME: xdg } });
+  assert.equal(g2.ok, false, JSON.stringify(g2));
+  assert.deepEqual(editDeniedBy(readSettings(dir2).permissions.deny, path.join(dir2, 'work.md')), [], "the agent's own file was denied");
+  // Indented: inside a here-document or a function, not evaluated, so not read (and not a reason to be not whole).
+  const zshenv = path.join(HOME, '.zshenv');
+  fs.writeFileSync(zshenv, 'cat <<EOF\n  ZDOTDIR=$(mystery)\nEOF\nf() {\n  export ZDOTDIR=/somewhere/odd\n}\n');
+  try {
+    const dir3 = agentDir('pilot-indent');
+    const g3 = setup.guardTokenOnlyFolder(dir3, 'pilot-indent', { ...DEPS, env: ENV0 });
+    assert.equal(g3.ok, true, JSON.stringify(g3));
+    assert.deepEqual(editDeniedBy(readSettings(dir3).permissions.deny, '/somewhere/odd/.zshrc'), []);
+  } finally { fs.rmSync(zshenv, { force: true }); }
 });
