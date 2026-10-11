@@ -37859,12 +37859,14 @@ document.addEventListener('click', (e) => {
 /**
  * kosmos#5841: a direct conversation's EARLIER messages, opened from the "older messages are still kept" line, a page
  * at a time from GET .../thread/older?before=<n>, and drawn IN the thread, before the latest 200, by the thread's own
- * paint. So they look and act like the rest (reactions, reply, copy, search), and there is no second box. They are a
- * SNAPSHOT, though: the 5 s poll refreshes only the latest, so a preview not cached when the page was fetched, or a
- * reaction or delivery change made elsewhere, shows only after Hide and Show (a reaction made HERE is written in). `before` counts from the OLDEST message, so a send cannot shift a page; `end` is the position just after
- * the last earlier row, and messages that leave the latest 200 while this is open are fetched into it (earlierFillGap)
- * so nothing falls between. Per agent: another agent on screen resets it (paintTalk, before any await), and `opening`
- * drops an answer that belongs to a reset that came after it.
+ * paint. So they look and act like the rest (reactions, reply, copy, search), and there is no second box.
+ * They are a SNAPSHOT: the 5 s poll refreshes only the latest, so a preview not cached when the page was fetched, or a
+ * reaction or delivery change made elsewhere, shows only after Hide and Show (a reaction made HERE is written in).
+ * `before` counts from the OLDEST message, so a send cannot shift a page. `end` is the position just after the last
+ * earlier row; messages that leave the latest 200 while this is open are fetched into it (earlierFillGap), so nothing
+ * falls between. Per agent: a DIFFERENT agent on screen resets it (paintTalk, before any await) and `earlierOn` draws
+ * rows only for their own agent; coming back to the SAME agent keeps them until Hide. `opening` drops an answer that
+ * belongs to a reset that came after it.
  */
 const EARLIER = { session: null, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: 0 };
 function earlierReset(session) {
@@ -37883,6 +37885,7 @@ async function earlierFetch(session, before) {
 function earlierRepaint() {
   const thread = document.getElementById('d-dmthread');
   if (!thread || !thread.__lastBody || thread.__lastSession !== EARLIER.session) return;
+  if (!CURRENT || CURRENT.sessionName !== EARLIER.session) return;   // mid-switch: the thread still holds the last agent's body
   if (thread.__readFailed) return;   // the last read FAILED and the thread says so: an earlier load does not draw over it
   paintTalkThread(thread.__lastBody, thread.__lastName);
   paintOlderLine(thread.__lastBody, thread.__lastSession);
@@ -37928,6 +37931,9 @@ async function earlierFillGap(session, olderCount) {
   EARLIER.rows = EARLIER.rows.concat(got); EARLIER.end = olderCount; EARLIER.filling = false;
   convPause();
   earlierRepaint();
+  /* A poll that came while this ran was turned away by `filling`: check once more against the newest answer. */
+  const last = document.getElementById('d-dmthread').__lastBody;
+  if (last && Array.isArray(last.messages) && (Number(last.olderCount) || 0) > EARLIER.end) earlierFillGap(session, Number(last.olderCount));
 }
 /* The line under the thread: how many older messages are kept, and the way to them. Two STATIC buttons, toggled and
    relabelled only on change (a rebuild each poll would take a keyboard user's focus); a load in flight is
@@ -37966,6 +37972,7 @@ document.addEventListener('click', (e) => {
   const thread = document.getElementById('d-dmthread');
   const session = thread && thread.__lastSession;
   if (!session || !thread.__lastBody) return;
+  if (!CURRENT || CURRENT.sessionName !== session) return;   // mid-switch: the line still shows the last agent's; wait for this one's
   if (t.id === 'd-talk-older-hide') {
     earlierReset(session);
     convPause();

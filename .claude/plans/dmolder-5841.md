@@ -23,7 +23,8 @@
   - `earlierFillGap` fetches messages that left the latest 200 while the earlier rows are open.
 - **Isolation:**
   - `earlierOn` draws earlier rows only for their own agent.
-  - `paintTalk` resets the earlier rows before any await, so each agent starts closed.
+  - `paintTalk` resets the earlier rows before any await when a DIFFERENT agent comes on screen, so that agent starts
+    closed. Coming back to the SAME agent keeps them until Hide (a snapshot, see below).
   - The `opening` counter drops a stale answer.
   - When the latest read fails, nothing draws earlier rows over the failure.
 - **Snapshot:** the earlier rows are not refreshed by the 5 s poll. A reaction made here is written in. A preview, or a
@@ -120,3 +121,13 @@ search, styling. Gone: the separate box, its CSS extensions, the read-only conve
   - This plan's top half described the abandoned design; it now matches what ships.
 - **Not taken (NITs):** the poll's cost with the whole kept thread open (up to 1000 rows through dmRow every 5 s),
   and older-route tests for pills and `reactionsTold`, which is shared code.
+
+## Review 6 (sonnet)
+- "Each agent starts closed" was true only for a DIFFERENT agent. Returning to the same agent keeps the rows, and
+  the wording now says so; that behaviour is kept on purpose.
+- A Show or Hide press inside the switch window acted for the last agent. The handler and earlierRepaint now require
+  CURRENT to match.
+- A gap fill re-checks the newest answer when it finishes.
+- A comment whose words a scripted replace had swallowed is rewritten.
+- **Not taken:** the `[data-at]` scroll lookup degrades quietly (the person stays at the newest). The unread edge would
+  mark earlier rows as unread if UNREAD_EDGE_ON were turned on; it is false today.
