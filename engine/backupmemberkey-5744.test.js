@@ -317,3 +317,15 @@ test('#5744 2b: a key file for another company or member, or an epoch past 2^53,
     assert.match(r.because, /could not be read/);
   }
 });
+
+test('#5744 2b: a wrong_epoch naming the epoch just sent (a race between sends) is answered, not a move', async () => {
+  const c = fakeCoordinator();
+  const sent = [];
+  const r = await mk.ensureMemberKey({ macRequest: async (m, route, b) => {
+    if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
+    sent.push(b.epoch);
+    return { ok: false, because: 'wrong epoch', refusal: { status: 400, code: 'member_key_wrong_epoch', currentEpoch: 1 } };
+  } });
+  assert.equal(r.ok, false);
+  assert.deepEqual(sent, [1], 'it moved on a race');
+});
