@@ -1255,10 +1255,15 @@ function assignmentsIn(text, name) {
   const out = [];
   // Review 6: at the very start of a line only. Indented ones sit in if-blocks, functions or here-documents, which
   // this does not evaluate; reading them would make a guard not whole over a mention (stated under Gaps).
-  for (const m of String(text).matchAll(new RegExp(`^(?:export[ \\t]+)?${name}=([^\\s;#]*)`, 'gm'))) {
-    const raw = m[1];
-    const one = /^"([^"]*)"$/.exec(raw) || /^'([^']*)'$/.exec(raw);
-    out.push(one ? one[1] : /["']/.test(raw) ? null : raw);
+  /* Review 11: a value of joined quoted and bare parts with no space ("$HOME"/.zsh, the spelling shellcheck nudges
+     toward) is unquoted part by part. A quoted ~ stays literal and a single-quoted $ is not expanded, so either makes
+     the value one this cannot read (null, named). A space inside quotes stops the match, so that value is named too. */
+  for (const m of String(text).matchAll(new RegExp(`^(?:export[ \\t]+)?${name}=((?:"[^"]*"|'[^']*'|[^\\s;#"']+)*)([^\\s;#]*)`, 'gm'))) {
+    if (m[2]) { out.push(null); continue; }   // an unbalanced quote or a quote mid-part
+    const parts = [...m[1].matchAll(/"([^"]*)"|'([^']*)'|([^"']+)/g)];
+    if (parts.length && (parts[0][1] !== undefined || parts[0][2] !== undefined) && /^~/.test(parts[0][1] ?? parts[0][2])) { out.push(null); continue; }
+    if (parts.some((q) => q[2] !== undefined && q[2].includes('$'))) { out.push(null); continue; }
+    out.push(parts.map((q) => q[1] ?? q[2] ?? q[3]).join(''));
   }
   return out;
 }
@@ -1628,20 +1633,22 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const writableOrAbsent = (p) => { try { fs.accessSync(p, fs.constants.W_OK); return true; } catch (e) { return !!e && e.code === 'ENOENT'; } };
   /* Review 10: the LINK itself is always kept (it sits in a folder the user can write, so a tool could replace it);
      only its target is judged, and before withTarget, so a read-only target is never named as uncarriable either. */
-  const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
   /* A link whose target is read-only goes to the FILE TOOLS only, by its own path: the sandbox side resolves a path to
      its target (realOrLeaf), which would put the hashed store path back into denyWrite, and the shell can write
      neither the home folder nor that target anyway. */
+  /* Review 11: "linked" means a link ANYWHERE on the path (a Stow-folded ~/.config, a linked ZDOTDIR folder), judged by
+     where the path really resolves, not by the leaf alone; and the path itself is always kept (a read-only ~/.bashrc
+     still sits in a folder the user can write). Only a resolved TARGET is judged for writability. */
   const editOnlyLinks = [];
-  const linkAware = (p) => {
-    if (!isLink(p)) return writableOrAbsent(p) ? [p] : [];
-    let real = null;
-    try { real = fs.realpathSync.native(p); } catch { /* dangling: the link alone */ }
-    if (real && !writableOrAbsent(real)) { editOnlyLinks.push(p); return []; }
+  const editOnlyLinkDirs = [];
+  const linkAware = (dirs) => (p) => {
+    const real = realOrLeaf(p);
+    if (real === path.resolve(p)) return [p];
+    if (!writableOrAbsent(real)) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); return []; }
     return withTarget(p, configUnsafe);
   };
-  const shellStartFiles = [...new Set(shellStart.files.flatMap(linkAware))];
-  const shellStartDirs = [...new Set(shellStart.dirs.flatMap(linkAware))];
+  const shellStartFiles = [...new Set(shellStart.files.flatMap(linkAware(false)))];
+  const shellStartDirs = [...new Set(shellStart.dirs.flatMap(linkAware(true)))];
   const commandScripts = [];
   for (const f of startCmds.files) {
     if (coveredWhole(f)) continue;
@@ -1736,6 +1743,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
     ...shellStartDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 part 2: fish's folder, read whole
+    ...editOnlyLinkDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 11: a linked folder whose target is read-only
     ...shellStart.globs.map((g) => `Edit(${ruleAbs(g)})`),   // review 1: zsh's completion dump; the shell cannot write there anyway
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
     ...siblingRules,

@@ -152,7 +152,7 @@ test('#5774 part 2: $ZDOTDIR, $BASH_ENV and $ENV are read from the environment t
 test('#5774 part 2 review 1: ZDOTDIR set inside .zshenv (where it usually is) moves zsh to that folder, and it is denied', () => {
   const dir = agentDir('pilot-zdot');
   const zshenv = path.join(HOME, '.zshenv');
-  const cases = [['export ZDOTDIR="$HOME/dots/zsh"', path.join(HOME, 'dots', 'zsh')], ["ZDOTDIR='~/zd2'", path.join(HOME, 'zd2')], ['export ZDOTDIR=${XDG_CONFIG_HOME}/zz', path.join(SANDBOX, 'xdg', 'zz')]];
+  const cases = [['export ZDOTDIR="$HOME/dots/zsh"', path.join(HOME, 'dots', 'zsh')], ['ZDOTDIR=~/zd2', path.join(HOME, 'zd2')], ['export ZDOTDIR=${XDG_CONFIG_HOME}/zz', path.join(SANDBOX, 'xdg', 'zz')]];
   try {
     cases.forEach(([line, folder], i) => {
       fs.writeFileSync(zshenv, `# a comment\n${line}\n`);
@@ -536,4 +536,76 @@ test('#5774 part 2 review 10: a Homebrew under any prefix gets the one stable Ce
   const s = readSettings(dir);
   assert.deepEqual([...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].filter((r) => r.includes('/3.2/')), [], 'a versioned path from an unlisted prefix');
   assert.ok(editDeniedBy(s.permissions.deny, fs.realpathSync.native(v)).length > 0, 'its Cellar rule covers the target');
+});
+
+test('#5774 part 2 review 11: a linked PARENT (Stow-folded ~/.config, a linked ZDOTDIR) has its real files denied; a read-only ~/.bashrc is kept', () => {
+  // ~/.config linked whole into a dotfiles repo: fish's real folder there is denied to the file tools.
+  const cfgReal = path.join(SANDBOX, 'dotfiles11', 'config');
+  fs.mkdirSync(path.join(cfgReal, 'fish'), { recursive: true });
+  const cfg = path.join(HOME, '.config');
+  const saved = path.join(SANDBOX, 'config-saved-11');
+  const had = fs.existsSync(cfg);
+  if (had) fs.renameSync(cfg, saved);
+  fs.symlinkSync(cfgReal, cfg);
+  try {
+    const dir = agentDir('pilot-parent');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-parent', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(dir).permissions.deny;
+    assert.ok(editDeniedBy(deny, path.join(fs.realpathSync.native(cfgReal), 'fish', 'config.fish')).length > 0, 'the real fish folder under a linked ~/.config');
+  } finally { fs.rmSync(cfg); if (had) fs.renameSync(saved, cfg); }
+  // ZDOTDIR=$HOME/.zsh with ~/.zsh linked into a repo: the real .zshrc is denied.
+  const zReal = path.join(SANDBOX, 'dots11', 'zsh');
+  fs.mkdirSync(zReal, { recursive: true });
+  const zLink = path.join(HOME, '.zsh');
+  fs.rmSync(zLink, { force: true });
+  fs.symlinkSync(zReal, zLink);
+  const zshenv = path.join(HOME, '.zshenv');
+  fs.writeFileSync(zshenv, 'export ZDOTDIR=$HOME/.zsh\n');
+  try {
+    const dir = agentDir('pilot-zlink');
+    setup.guardTokenOnlyFolder(dir, 'pilot-zlink', { ...DEPS, env: ENV0 });
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(fs.realpathSync.native(zReal), '.zshrc')).length > 0, 'the real .zshrc under a linked ZDOTDIR');
+  } finally { fs.rmSync(zshenv, { force: true }); fs.rmSync(zLink, { force: true }); }
+  // A read-only ~/.bashrc (not a link) is still denied: the home folder is writable, so it could be replaced.
+  const rc = path.join(HOME, '.bashrc');
+  fs.writeFileSync(rc, '');
+  fs.chmodSync(rc, 0o444);
+  try {
+    const dir = agentDir('pilot-robashrc');
+    setup.guardTokenOnlyFolder(dir, 'pilot-robashrc', { ...DEPS, env: ENV0 });
+    const s = readSettings(dir);
+    assert.ok(editDeniedBy(s.permissions.deny, rc).length > 0, 'a read-only ~/.bashrc was dropped');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, rc));
+  } finally { fs.chmodSync(rc, 0o644); fs.rmSync(rc, { force: true }); }
+});
+
+test('#5774 part 2 review 11: joined quoting ("$HOME"/.zsh) is read; a quoted ~ is named; a read-only linked folder gets /**', () => {
+  const zshenv = path.join(HOME, '.zshenv');
+  try {
+    fs.writeFileSync(zshenv, 'export ZDOTDIR="$HOME"/.zq\n');
+    const d1 = agentDir('pilot-joined');
+    const g1 = setup.guardTokenOnlyFolder(d1, 'pilot-joined', { ...DEPS, env: ENV0 });
+    assert.equal(g1.ok, true, JSON.stringify(g1));
+    assert.ok(editDeniedBy(readSettings(d1).permissions.deny, path.join(HOME, '.zq', '.zshrc')).length > 0);
+    fs.writeFileSync(zshenv, 'export ZDOTDIR="~/.zq"\n');   // zsh leaves a quoted ~ literal: a relative folder
+    const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-qtilde'), 'pilot-qtilde', { ...DEPS, env: ENV0 });
+    assert.equal(g2.ok, false, JSON.stringify(g2));
+  } finally { fs.rmSync(zshenv, { force: true }); }
+  // fish's folder linked whole into a read-only store: a /** rule on the link, not a bare one.
+  const store = path.join(SANDBOX, 'nix11', 'h-fish');
+  fs.mkdirSync(store, { recursive: true });
+  fs.chmodSync(store, 0o555);
+  const xdg = path.join(SANDBOX, 'xdg11');
+  fs.mkdirSync(xdg, { recursive: true });
+  const link = path.join(xdg, 'fish');
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(store, link);
+  try {
+    const dir = agentDir('pilot-rodir');
+    setup.guardTokenOnlyFolder(dir, 'pilot-rodir', { ...DEPS, env: { XDG_CONFIG_HOME: xdg } });
+    const deny = readSettings(dir).permissions.deny;
+    assert.ok(deny.some((r) => r.endsWith(`${link}/**)`)), 'no /** rule for the read-only linked folder');
+    assert.ok(!deny.some((r) => r.includes('h-fish')), 'the store path itself was listed');
+  } finally { fs.chmodSync(store, 0o755); fs.rmSync(link, { force: true }); }
 });
