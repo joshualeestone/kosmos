@@ -8,7 +8,8 @@
  * Why the same key is safe for both: a manifest signature covers bytes that start with the fixed tag
  * `kosmos-backup v1 manifest-signature\0` (engine/backupformat.js), while a mac-request signs `{ts}\n{METHOD}\n...`
  * (kosmos-relay crates/tunnel/src/coordinator.rs signed_string, and assistant.rs), which starts with a digit. Neither
- * can stand for the other.
+ * can stand for the other. (The connector's only other use of the seed is not a signature: pairing.rs hashes it, under
+ * its own prefix, into a nonce.)
  *
  * The key alone, never paired with an identity here. The connector replaces `mac_key` and `mac_id` together on every
  * registration, but NOT atomically (setup.rs write_identity: two in-place writes, key first, under a file lock Node
@@ -25,7 +26,8 @@
  *     verifies only against the key that signed it (stated on #5535).
  * What is checked: `mac_id` must exist (as MacState::open and remote.holdsKey require), so a folder whose very first
  * registration was cut off after the key is `missing`; and an empty file (the truncation before an in-place write) is
- * refused with `retry`.
+ * refused with `retry`. KNOWN UNCLASSIFIED: a read between the truncation and a short write would see part of a key line
+ * and refuse it as the wrong form, not retry. A 43-byte local write is one system call, and the next read clears it.
  *
  * The key file is the connector's: one line, the 32-byte seed in base64url without padding, read as the connector reads
  * it: trimmed of exactly Rust's whitespace (char::is_whitespace, the Unicode White_Space property). JS trim() differs
@@ -56,9 +58,11 @@ const codeOf = (err) => (err && /^[A-Z0-9_]{1,32}$/.test(String(err.code)) ? ` (
 const TRANSIENT = new Set(['EBUSY', 'EAGAIN', 'ENOENT'].concat(process.platform === 'win32' ? ['EPERM', 'EACCES'] : []));
 const NOT_FORM = 'the device key file does not hold a key in the form the connector writes';
 
-function deviceKey(opts = {}) {
-  let dir = opts.stateDir;
-  if (dir === undefined) { try { dir = require('./remote').stateDir(); } catch { dir = undefined; } }
+function deviceKey(opts) {
+  let dir = opts && typeof opts === 'object' ? opts.stateDir : undefined;
+  if (dir === undefined) {
+    try { dir = require('./remote').stateDir(); } catch { return { ok: false, because: 'the device key folder could not be found' }; }
+  }
   // An empty, relative or non-string folder is a mistake (the caller's, or AGENT_WORKFORCE_TUNNEL_STATE's), never the
   // current directory.
   if (typeof dir !== 'string' || !path.isAbsolute(dir)) return { ok: false, because: 'the device key folder is not an absolute path' };
