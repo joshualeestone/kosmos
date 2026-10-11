@@ -630,11 +630,14 @@ function isRevokedPost(st, member, epoch) {
     through (holdForCheck, checkRoom). Resolves true when the room rotated; never rejects. */
 function afterRemove(projectId) {
   const s = seats.get(projectId);
+  // Kept until the next remove: once a later check succeeds, checkedBeforeRemove is false again.
   if (s) { s.removedAt = Date.now(); s.removedMono = mono(); s.edgeAskedAt = 0; }
   let link = null;
   try { link = linkFor(projectId); } catch { link = null; }
   if (!link || link.role !== 'owner') return Promise.resolve(false);
-  return checkRoom(projectId, link, null, false, null, s).then((r) => !!(r && r.rotated), () => false);
+  // This check is asked after the remove in program order, whatever a coarse timer reads.
+  const after = s ? () => s.removedMono + 1n : undefined;
+  return checkRoom(projectId, link, null, false, null, s, after).then((r) => !!(r && r.rotated), () => false);
 }
 function hasKey(st) {
   return !!st && !!st.keys && Number.isInteger(st.epoch) && typeof st.keys[st.epoch] === 'string';
@@ -872,9 +875,10 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat, askedMono)
     const at = typeof askedAt === 'function' ? askedAt() : 0;
     s.edgesCheckedAt = at > 0 ? Math.min(at, started) : started;
     // #5191: the same moment on the monotonic clock when the caller knows it (a remove compares on it).
-    // Set on every check, undefined included, so an older check's value never outlives this one.
+    // Set on every check, undefined included, so an older check's value never outlives this one. A lower
+    // bound: the request itself may go out later, behind the room's sealing step.
     const am = typeof askedMono === 'function' ? askedMono() : undefined;
-    s.edgesCheckedMono = typeof am === 'bigint' ? (am < startedMono ? am : startedMono) : (at > 0 ? undefined : startedMono);
+    s.edgesCheckedMono = typeof am === 'bigint' ? am : (at > 0 ? undefined : startedMono);
   }
   // The pass shows them unchecked, but not while the rooms record is unreadable: then every
   // one would be refused for that, so they wait for a pass that can read it.
