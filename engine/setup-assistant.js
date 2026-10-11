@@ -1963,9 +1963,19 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     }
     outsideAgents(f);
   }
+  /* Review 5: a link on the way, or a store reached through one, can sit where the rule syntax cannot carry it (a
+     ~/Dropbox (Personal) folder) even when the import's own path can: named here, as `carries` does for the shell
+     startup files, so the generic drop never stops the whole guard and blames the agent's folder. */
+  const importCarries = (what, rule) => (x) => {
+    if (!ruleHasPatternChar(rule(x))) return true;
+    configUnsafe.push(`${x} (${what}, a path the permission rules cannot carry)`);
+    return false;
+  };
+  const importLinksOk = [...new Set(importLinks)].filter(importCarries('a link on the way to a file an instruction file imports', (x) => `Edit(${ruleAbs(x)})`));
+  const importStableOk = [...importStableDirs].filter(importCarries('a store or Cellar a file an instruction file imports leads into', (x) => `Edit(${ruleAbs(x)}/**)`));
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
-    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellEditFiles.map((p) => ({ f: p })), ...linkEditFiles.map((p) => ({ f: p })), ...[...new Set(importFiles)].map((p) => ({ f: p })), ...[...new Set(importLinks)].map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
+    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellEditFiles.map((p) => ({ f: p })), ...linkEditFiles.map((p) => ({ f: p })), ...[...new Set(importFiles)].map((p) => ({ f: p })), ...importLinksOk.map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
     { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorFiles)].map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
@@ -2029,7 +2039,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...linkEditDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 11: a linked folder whose target is read-only
     ...shellEditGlobs.map((g) => `Edit(${ruleAbs(g)})`),   // review 1: zsh's completion dump; the shell cannot write there anyway
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
-    ...[...importStableDirs].map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 route 3 review 2: a store or Cellar an import is in
+    ...importStableOk.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 route 3 review 2: a store or Cellar an import is in
     ...siblingRules,
     ...importGlobs,   // #5774 route 3: imports inside the agents' folders, one glob per name
     ...[...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),   // review 9: memory for a later home too
@@ -2092,7 +2102,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
   else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, commandScripts: [...new Set(commandScripts)], importFiles: [...new Set(importFiles)], importStableDirs: [...importStableDirs], shellStartFiles, shellStartDirs, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, launchSecretDirs, trustedFiles, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, commandScripts: [...new Set(commandScripts)], importFiles: [...new Set(importFiles)], importStableDirs: [...importStableDirs], shellStartFiles,   /* the sandbox carries any path, so it keeps every one */ shellStartDirs, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, launchSecretDirs, trustedFiles, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not

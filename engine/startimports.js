@@ -49,10 +49,62 @@ function proseOf(text) {
     if (m && !(m[1][0] === '`' && line.slice(line.indexOf(m[1]) + m[1].length).includes('`'))) { fence = m[1]; out.push(''); continue; }
     out.push(line);
   }
-  return out.join('\n')
-    .replace(/(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[\s\S])*?(?<!`)\1(?!`)/g, ' ')   // review 2: a closer is a run of the SAME length
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/[*[\]]/g, ' ');
+  return stripComments(stripCodeSpans(out.join('\n'))).replace(/[*[\]]/g, ' ');
+}
+/* Review 5: both strips are LINEAR. The text is the agent's to write (its own instruction files are roots), and the
+   regex forms were quadratic on an unclosed `<!--` repeated, or on backtick runs of many lengths: enough to stall the
+   guard for every agent. A code span: a backtick run closed by the next run of the SAME length in the same paragraph
+   (review 2), with nothing between a blank line. */
+function stripCodeSpans(t) {
+  const runs = [];   // [start, length, paragraph]
+  let para = 0;
+  for (let i = 0; i < t.length;) {
+    if (t[i] === '\n') {
+      let j = i + 1;
+      while (j < t.length && (t[j] === ' ' || t[j] === '\t')) j++;
+      if (t[j] === '\n') para++;
+      i++;
+    } else if (t[i] === '`') {
+      let j = i;
+      while (j < t.length && t[j] === '`') j++;
+      runs.push([i, j - i, para]);
+      i = j;
+    } else i++;
+  }
+  const byLen = new Map();
+  runs.forEach((r, k) => { if (!byLen.has(r[1])) byLen.set(r[1], []); byLen.get(r[1]).push(k); });
+  const next = new Map();   // per length, how far its list has been consumed
+  const cut = [];
+  for (let k = 0; k < runs.length; k++) {
+    const [start, len, para0] = runs[k];
+    const list = byLen.get(len);
+    let q = next.get(len) || 0;
+    while (q < list.length && list[q] <= k) q++;
+    next.set(len, q);
+    if (q < list.length && runs[list[q]][2] === para0) {
+      const close = runs[list[q]];
+      cut.push([start, close[0] + close[1]]);
+      const end = list[q];
+      while (k < end) k++;   // the runs inside the span are its text
+      next.set(len, q + 1);
+    }
+  }
+  if (!cut.length) return t;
+  let out = '', at = 0;
+  for (const [a, b] of cut) { out += t.slice(at, a) + ' '; at = b; }
+  return out + t.slice(at);
+}
+function stripComments(t) {
+  let out = '', at = 0;
+  for (;;) {
+    const a = t.indexOf('<!--', at);
+    if (a === -1) break;
+    const b = t.indexOf('-->', a + 4);
+    if (b === -1) break;   // unclosed: the rest stays text
+    out += t.slice(at, a) + ' ';
+    at = b + 3;
+  }
+  return out + t.slice(at);
 }
 
 /* The imports in one file's text, as absolute paths, in Claude Code's rule: `@` at the start or after whitespace, then
@@ -60,14 +112,17 @@ function proseOf(text) {
    or is a bare name starting with a letter, digit, ., _ or -; resolved from the file's folder. */
 function importsIn(text, file, home) {
   const out = new Set();
-  const re = /(?:^|[\s_])@((?:[^\s\\]|\\ )+)/g;
+  /* Review 5: Claude Code runs (?:^|\s)@ on each marked TEXT token, so an @ just after any token edge (inline HTML, a
+     link's closing ), an image, an escape, an autolink) starts an import. Any character that is not a letter or digit
+     is taken as a possible edge: a superset, and an e-mail address (a letter before the @) still is not one. */
+  const re = /(?:^|[^A-Za-z0-9])@((?:[^\s\\]|\\ )+)/g;
   /* Review 3: the subset does not model list items, where Claude Code scans an item's RAW text (code spans and comments
      included), nor a fence that an item's end closes. So the raw text is scanned too, nothing stripped, and the union
      kept: any difference from the lexer now errs toward denying more, never less. */
   const prose = proseOf(text) + '\n' + String(text);
   /* Review 1: resolved from the folder the file REALLY is in, as Claude Code does (it parses with the resolved path).
-     The folder as given too, when it differs: under a linked folder both name one file, which the agent's tools can
-     write by either spelling; for a linked FILE the given one is a different file nobody loads, a harmless extra. */
+     The folder as given too, when only a FOLDER on the way is linked: both name one file, which the agent's tools can
+     write by either spelling. */
   const given = path.dirname(path.resolve(file));
   let real = given;
   try { real = path.dirname(fs.realpathSync.native(file)); } catch { /* as given */ }
@@ -75,19 +130,29 @@ function importsIn(text, file, home) {
   let fileIsLink = false;
   try { fileIsLink = fs.lstatSync(file).isSymbolicLink(); } catch { fileIsLink = false; }
   const bases = real === given || fileIsLink ? [real] : [real, given];
-  let m;
-  while ((m = re.exec(prose)) !== null) {
-    let p = m[1];
-    if (m[0].startsWith('_')) p = p.replace(/_+$/, '');   // _@b.md_: the closing emphasis mark is not the path's
+  const addPath = (raw) => {
+    let p = raw;
     const h = p.indexOf('#');
     if (h !== -1) p = p.slice(0, h);
     p = p.replaceAll('\\ ', ' ');
-    if (!p) continue;
+    if (!p) return;
     const ok = p.startsWith('./') || p.startsWith('~/') || (p.startsWith('/') && p !== '/')
       || (!p.startsWith('@') && !/^[#%^&*()]+/.test(p) && /^[a-zA-Z0-9._-]/.test(p));
-    if (!ok) continue;
+    if (!ok) return;
     if (p.startsWith('~/')) out.add(path.join(home, p.slice(2)));
     else for (const b of bases) out.add(path.resolve(b, p));
+  };
+  let m;
+  while ((m = re.exec(prose)) !== null) {
+    const p = m[1];
+    addPath(p);
+    /* Review 5: Claude Code's text token also ENDS at the next token, so the path stops there: at inline HTML or an
+       autolink (<), a code span (`), a link or image ([ ] !), or a closing emphasis mark (**@a.md**, _@b.md_). Each such
+       shorter path is added too. */
+    const cut = p.search(/[<`[\]!]/);
+    if (cut > 0) addPath(p.slice(0, cut));
+    const bare = p.replace(/[_*]+$/, '');
+    if (bare && bare !== p) addPath(bare);
   }
   return [...out];
 }

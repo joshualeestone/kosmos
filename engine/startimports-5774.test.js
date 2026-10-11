@@ -88,9 +88,11 @@ test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spac
   // Every non-space character is part of the path, punctuation too: Claude Code reads `@./b.md,` as an import of "b.md,".
   // Review 3: a list item's raw text (its code spans and comments) is scanned by Claude Code, and this does not model
   // lists, so code and comments are scanned everywhere: the result is a superset, never a subset.
-  assert.deepStrictEqual(got.sort(), [path.join(dir, 'a.md'), path.join(dir, 'b.md,'), '/h/c.md,', '/abs/d.md', path.join(dir, 'j.md'),
-    path.join(dir, 'my file.md'), path.join(dir, 'indented.md'), path.join(dir, 'inline.md`'), path.join(dir, 'comment.md'),   // raw: the closing backtick is part of it, as in a list item
-    path.join(dir, 'fenced.md'), path.join(dir, 'tilde-fenced.md')].sort());
+  // Review 5: a superset by design, so the test names what MUST be there and what must NOT.
+  for (const w of [path.join(dir, 'a.md'), path.join(dir, 'b.md,'), '/h/c.md,', '/abs/d.md', path.join(dir, 'j.md'),
+    path.join(dir, 'my file.md'), path.join(dir, 'indented.md'), path.join(dir, 'inline.md`'), path.join(dir, 'inline.md'), path.join(dir, 'comment.md'),
+    path.join(dir, 'fenced.md'), path.join(dir, 'tilde-fenced.md')]) assert.ok(got.includes(w), `${w} missing from ${JSON.stringify(got)}`);
+  for (const n of ['e.md', 'f.io']) assert.ok(!got.some((g) => path.basename(g) === n), `${n}: a word-joined @ (an e-mail) read as an import`);
   // The cases review 3 measured in 2.1.296: list items scan code spans and comments.
   for (const [line, want] of [['- run `claude @notes.md --x` first', 'notes.md'], ['- see <!-- @hidden.md --> here', 'hidden.md'], ['1. step `cat @one.md | x`', 'one.md']]) {
     assert.ok(si.importsIn(line, f, home).includes(path.join(dir, want)), line);
@@ -182,8 +184,9 @@ test('#5774 route 3 review 1: emphasis and link marks are edges; a stray backtic
     'a lone ` then @span-len.md and a double `` mark (a span closes only on a run of the same length)',
   ].join('\n'), f, '/h');
   const want = ['em.md', 'it.md', 'us.md', 'link.md', 'after-stray.md', 'after-comment-mark.md', 'pic.png', 'data.bin', 'noext', 'UPPER.MD', 'script.sh', 'span-len.md'];
-  // importsIn returns every import Claude Code PARSES; whether it is read as text is the walk's question (below).
-  assert.deepStrictEqual([...new Set(got.map((p) => path.basename(p)))].sort(), want.sort());
+  // importsIn returns every import Claude Code PARSES (a superset); whether it is read as text is the walk's question (below).
+  const names = new Set(got.map((p) => path.basename(p)));
+  for (const w of want) assert.ok(names.has(w), `${w} missing from ${[...names]}`);
   const d = path.join(SANDBOX, 'r1ext');
   fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(d, 'root.md'), '@pic.png @noext @UPPER.MD @script.sh\n');
@@ -352,5 +355,49 @@ test('#5774 route 3 review 4: a link in the middle of an import\'s chain is deni
     const deny = readSettings(d).permissions.deny;
     assert.ok(editDeniedBy(deny, path.join(dots, 'b.md')).length > 0, 'the middle link');
     assert.ok(editDeniedBy(deny, path.join(dots, 'c.md')).length > 0, 'the end');
+  } finally { fs.rmSync(homeMd, { force: true }); }
+});
+
+test('#5774 route 3 review 5: an @ just after any token edge is an import, cut where the token ends; the strips are linear', () => {
+  const f = path.join(SANDBOX, 'r5', 'CLAUDE.md');
+  const dir = path.dirname(f);
+  for (const [line, want] of [['see <b>@x1.md</b>', 'x1.md'], ['press <kbd>K</kbd>@x2.md', 'x2.md'], ['a [link](u)@x3.md', 'x3.md'],
+    ['an ![img](i.png)@x4.md', 'x4.md'], ['esc \\#@x5.md', 'x5.md'], ['auto <http://a>@x6.md', 'x6.md'], ['plain @x8.md', 'x8.md'], ['**b**@x9.md', 'x9.md']]) {
+    assert.ok(si.importsIn(line, f, '/h').includes(path.join(dir, want)), `${line}: ${JSON.stringify(si.importsIn(line, f, '/h'))}`);
+  }
+  assert.deepStrictEqual(si.importsIn('mail me@f.io or x@e.md', f, '/h'), [], 'a letter before the @ is not an edge');
+  // Agent-written text cannot stall the guard: an unclosed comment opener repeated, and backtick runs of many lengths.
+  let t0 = Date.now();
+  si.proseOf('<!--'.repeat(40000));
+  assert.ok(Date.now() - t0 < 500, `comments: ${Date.now() - t0} ms`);
+  t0 = Date.now();
+  si.proseOf(Array.from({ length: 1000 }, (_, i) => '`'.repeat(i + 1) + ' x ').join(''));
+  assert.ok(Date.now() - t0 < 500, `code spans: ${Date.now() - t0} ms`);
+});
+
+test('#5774 route 3 review 5: a link on the way, or a store reached through one, the rules cannot carry is named and the rest written', () => {
+  const base = fs.realpathSync.native(SANDBOX);
+  const odd = path.join(base, 'Drop (r5)');
+  fs.mkdirSync(odd, { recursive: true });
+  touch(path.join(base, 'real-r5.md'));
+  const mk = (l, t) => { fs.mkdirSync(path.dirname(l), { recursive: true }); fs.rmSync(l, { force: true }); fs.symlinkSync(t, l); };
+  mk(path.join(odd, 'link2.md'), path.join(base, 'real-r5.md'));
+  mk(path.join(base, 'notes-r5', 'a.md'), path.join(odd, 'link2.md'));                       // a hop in an odd folder
+  const store = path.join(odd, 'Cellar', 'pkg', '1');
+  touch(path.join(store, 'n.md'));
+  mk(path.join(base, 'notes-r5', 'b.md'), path.join(store, 'n.md'));                          // a Cellar reached through a link
+  const homeMd = path.join(HOME, '.claude', 'CLAUDE.md');
+  fs.writeFileSync(homeMd, `@${path.join(base, 'notes-r5', 'a.md')}\n@${path.join(base, 'notes-r5', 'b.md')}\n`);
+  try {
+    const d = agentDir('pilot-oddhop-r5');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-oddhop-r5', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false, 'not whole');
+    const said = JSON.stringify(g);
+    assert.ok(said.includes('link2.md (a link on the way'), said);
+    assert.ok(said.includes('(a store or Cellar'), said);
+    assert.ok(fs.existsSync(path.join(d, '.claude', 'settings.json')), 'the rest of the guard was not written');
+    const s = readSettings(d);
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(odd, 'Cellar', 'pkg', '2', 'n.md')), 'the sandbox keeps the Cellar');
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(base, 'real-r5.md')).length > 0, 'the end of the chain');
   } finally { fs.rmSync(homeMd, { force: true }); }
 });
