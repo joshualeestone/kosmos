@@ -52,6 +52,8 @@ whether it is still current, so the job MUST compare the epoch it answers with e
 mismatch as "the member moved on"; until that job lands nothing detects it. ALSO: a `waiting` answer carries no
 retry time (the coordinator's retry_after_secs does not ride in the tunnel's refusal line), so the job must back
 off on its own: each early retry costs a round trip, and past the day each send counts toward the registration cap.
+AND: the job seals only under a key answered ok (an unregistered key may be replaced). AND: restoring an old copy
+of the data root whose key was never marked registered makes a rotation, not a recovery of the old key.
 AND: backupupload.js checks a grant's epoch only when `opts.epoch` is passed (epochProblem is null without it), so the
 job must pass the epoch ensureMemberKey answers (a Number; sealedEpoch converts it).
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
@@ -155,3 +157,10 @@ the API doc's missing `member` field.
   each read the other's key as lost. A shipped board has one; the header and Weakest premise say so.
 - NITs taken: a wrong_epoch naming the epoch just sent is answered, not a move (tested); the Tests and gate shas
   re-measured at HEAD (353 pass); the job must pass the answered epoch to the uploader (Not in this slice).
+
+## Review 9 (sonnet)
+- STATED (docs): the file holds at most one entry, the newest, and a file with more is answered by its newest
+  registered key (W1: unreachable by this code); the job seals only under a key answered ok (W2); a restored data
+  root makes a rotation (W3, Not in this slice).
+- DEFERRED, not an issue (W4): `because` from the tunnel passes through as every macRequest caller passes it; it is
+  the tunnel's own error line (it names the coordinator URL, not a home path).

@@ -31,7 +31,11 @@
  * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected).
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
- * base64url. Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
+ * base64url. This code keeps at most one entry there, the newest: a move deletes the old epoch's, a fresh key replaces
+ * its slot. A file with more (hand-edited, restored) is answered by its newest registered key.
+ * The backup job must seal ONLY under a key answered ok here: an unregistered key may be replaced by a fresh one
+ * (member_key_reused), and anything sealed under it would then open only through escrow.
+ * Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
  */
 
 const crypto = require('node:crypto');
