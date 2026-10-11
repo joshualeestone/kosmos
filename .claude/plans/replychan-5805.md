@@ -6,9 +6,11 @@ nudge) counts an agent's answer to the person's @-mention only when the agent po
 answers the person on their direct thread (`kosmos reply`) is still shown as not answering, and is nudged.
 
 ## The change
-engine/messages.js unanswered(): when the room shows no answer from a mentioned agent, its direct thread with the
-person is read (once per agent per call, only then); a row from the agent itself, not Kosmos's own words in its name
-(`kosmos: true`), at or after the ask, answers it. The nudge (sweepUnanswered) reads unanswered(), so it follows.
+engine/messages.js answeredDirectly(name, askAt): the agent's own row on the person's direct thread (not Kosmos's own
+words in its name), within an hour after the ask, with no newer message from the person between the ask and it.
+unanswered() (the room line and, through it, sweepUnanswered's nudge) and owedElsewhere() (the which-room question)
+both use it. Parsed threads are cached by file mtime and size. suspectedMisrouteCount (the daily "suspected" figure)
+does not read threads, on purpose, and says so.
 
 ## Decided
 - Counted automatically; nothing for the agent to declare. The card asked to "let an agent declare its reply channel".
@@ -17,10 +19,20 @@ person is read (once per agent per call, only then); a row from the agent itself
   must remember to do before the reminder stops lying.
 - Only the person's direct thread. Discord or another outside channel is not visible to Kosmos (out of scope), and a
   `kosmos msg` to a colleague is not an answer to the person.
-- Weakest premise: the direct reply may be about something else, and the room then reads answered. What would change
-  it: reports of asks left unanswered because a DM on another subject cleared them; then match on in_reply_to.
+- Bounded to an hour after the ask, and to before the person speaks again on that thread (review 1: unbounded, a
+  chatty agent cleared every room ask the moment it sent any direct message).
+- Weakest premise: a reply inside that hour may still be about an earlier direct message from the person. What would
+  change it: reports of room asks cleared that way; then match on in_reply_to.
 - An unreadable thread counts as no answer (today's behaviour).
 
 ## Tests
-engine/messages.test.js: an ask stays unanswered with mara's earlier reply, Kosmos's own notice in her name, and the
-person's own message on the thread (controls); her direct reply after the ask clears it.
+engine/messages.test.js: an ask stays unanswered with mara's earlier reply and Kosmos's own notice in her name
+(controls); her direct reply clears the room line, the nudge (control: an owed ask is nudged) and the which-room
+question; a reply after a newer person message, or past the hour, does not clear it.
+
+## Review 1 (opus)
+- FIXED (WARNING): unbounded window; see Decided.
+- FIXED (WARNING): owedElsewhere's "owed" disagreed with unanswered; both use answeredDirectly now.
+- FIXED (WARNING, by comment): suspectedMisrouteCount keeps the room-only test on purpose and says so.
+- FIXED (WARNING): a thread was parsed on every render and every sweep per project; cached by mtime and size.
+- FIXED (NIT): the nudge is asserted, with a control that it fires for an owed ask.

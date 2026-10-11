@@ -2481,26 +2481,49 @@ function setUnansweredAfterForTests(ms) {
  * never reached the pane is not silence, it is non-delivery, which the
  * post's own outcomes already report.
  */
+/* kosmos#5805 part 2: did `name` answer an ask made at `askAt` on the person's direct thread (`kosmos reply`) instead of
+   in the room? The person who asked is the one who heard back, which is what the room's unanswered line, its nudge and
+   the which-room question exist for. Counted: the agent's own row (`from` it, not Kosmos's words in its name) within
+   DIRECT_ANSWER_WINDOW_MS after the ask, with no newer message from the person on that thread between the ask and it
+   (then it is answering that, not the room). Review 1: unbounded, any later chat cleared every room ask, so the
+   reminder went quiet for the agents who talk to the person most. A thread that cannot be read is no answer (as
+   before). Weakest premise: a reply inside the hour may still be about an earlier direct message. */
+const DIRECT_ANSWER_WINDOW_MS = 60 * 60 * 1000;
+/* Parsed direct threads by agent, reused while the file's mtime and size stand (unanswered runs on every room render
+   and every minute's sweep, once per project). One entry per agent. */
+const directCache = new Map();
+function directRows(name) {
+  let st = null;
+  try { st = fs.statSync(chat.threadFile(chat.DIRECT, name)); } catch { st = null; }
+  if (!st) { directCache.delete(name); return []; }
+  const hit = directCache.get(name);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.rows;
+  let rows = [];
+  try { const t = chat.readThread(chat.DIRECT, name); rows = (t && Array.isArray(t.messages)) ? t.messages : []; } catch { return []; }
+  directCache.set(name, { mtimeMs: st.mtimeMs, size: st.size, rows });
+  return rows;
+}
+function answeredDirectly(name, askAt) {
+  if (!name || !Number.isFinite(askAt)) return false;
+  let personSince = Infinity;   // the person's first direct message after the ask
+  const replies = [];
+  for (const m of directRows(name)) {
+    if (!m) continue;
+    const t = Date.parse(m.at);
+    if (!Number.isFinite(t) || t < askAt) continue;
+    if (!m.from) { if (t < personSince) personSince = t; continue; }
+    if (m.from === name && m.kosmos !== true && t - askAt <= DIRECT_ANSWER_WINDOW_MS) replies.push(t);
+  }
+  return replies.some((t) => t <= personSince);
+}
+
 function unanswered(projectId, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const rec = record();
   if (!rec.ok) return {};
   const rows = rec.rows.filter((m) => m && m.project === projectId);
   const out = {};
-  /* kosmos#5805 part 2: an agent that answered the person on their direct thread (`kosmos reply`) instead of in the
-     room has answered the ask: the person who asked is the one who heard back, which is what this line and the nudge
-     exist for. Its own reply only (a row `from` it, not Kosmos's words in its name), at or after the ask. Read only
-     when the room shows silence, once per agent per call; a thread that cannot be read counts as no answer (as
-     before). Weakest premise: that reply may be about something else; the room then reads answered. */
-  const direct = new Map();
-  const repliedDirect = (name, since) => {
-    if (!direct.has(name)) {
-      let msgs = [];
-      try { const t = chat.readThread(chat.DIRECT, name); msgs = (t && Array.isArray(t.messages)) ? t.messages : []; } catch { msgs = []; }
-      direct.set(name, msgs);
-    }
-    return direct.get(name).some((m) => m && m.from === name && m.kosmos !== true && Date.parse(m.at) >= since);
-  };
+
   for (const p of rows) {
     if (p.kind !== 'post' || p.operator !== true || !Array.isArray(p.mentioned) || !p.mentioned.length) continue;
     const age = at - Date.parse(p.at);
@@ -2522,7 +2545,7 @@ function unanswered(projectId, now) {
          read in the other direction. */
       return !rows.some((m) => m.kind === 'post' && m.operator !== true && m.from === name
         && Date.parse(m.at) >= Date.parse(p.at))
-        && !repliedDirect(name, Date.parse(p.at));
+        && !answeredDirectly(name, Date.parse(p.at));
     });
     if (silent.length) out[p.id] = silent;
   }
@@ -2624,7 +2647,11 @@ function sweepUnanswered(roster, now) {
    project B: an operator post in B before this post, with W in its `mentioned`,
    delivered (TYPED, not could_not -- an undelivered ask is not owed), and NO room
    post from W in B in [askAt, postAt). This mirrors `unanswered`'s own definition
-   of an owed answer (operator + mentioned + typed), bounded to the post's instant.
+   of an owed answer (operator + mentioned + typed), bounded to the post's instant,
+   with one difference kept on purpose: it does not read direct threads (kosmos#5805
+   part 2, answeredDirectly), so an ask W answered on the person's direct thread
+   still counts here. It is an aggregate "suspected" count over the whole record,
+   and reading every agent's thread for every day compiled is not worth it.
 
    ⚠️ AS-OF-POST-TIME is deliberate, and it is why this does NOT reuse `unanswered`
    (whose answer-check is unbounded, "answered ever after the ask"). A misroute
@@ -2929,9 +2956,11 @@ function reopenRoom(project, at) {
  * agent which room it meant instead of posting blind. Returns { id, project } for the
  * most recent owed question, or null when there is nothing to ask about.
  *
- * "Owed" is the same test the #185 nudge (`unanswered`) and the daily misroute count
- * use: an operator post that mentioned this agent and reached its pane (anything but
- * could_not), with no room post from the agent in that project since. Two bounds keep
+ * "Owed" is the same test the #185 nudge (`unanswered`) uses: an operator post that
+ * mentioned this agent and reached its pane (anything but could_not), with no room post
+ * from the agent in that project since and no answer to the person on their direct
+ * thread (answeredDirectly, kosmos#5805 part 2). The daily misroute count uses it without
+ * the direct-thread part (see suspectedMisrouteCount). Two bounds keep
  * the cost of a wrong guess to one rerun, and rarely:
  * - only questions from the last WHICH_ROOM_WINDOW_MS count, so an ask the agent
  *   ignored yesterday does not hold every post it makes today;
@@ -2977,7 +3006,8 @@ function owedElsewhere(agent, targetProject, now, opts) {
      ask at or before the agent's latest --new post is treated as acknowledged. That is
      slightly wider than "was put to it": a question landing between the hold and the
      --new rerun is cleared too. Accepted: the window is one rerun long. */
-  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt);
+  // kosmos#5805 part 2: an ask answered on the person's direct thread is not owed (as unanswered reads it).
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt && !answeredDirectly(who, a.t));
   const elsewhere = owed.filter((a) => a.project !== target && (() => {
     try { return canPostIn(a.project) === true; } catch { return false; }
   })());
