@@ -386,3 +386,32 @@ test('#5841 with no link, a failed write puts the renamed full file back; a name
   assert.equal(renamed, false, 'it fell back to a rename that would overwrite the file holding that name');
   assert.equal(chat.readThread(chat.DIRECT, who).messages.length, CAP, 'the full file was changed');
 });
+
+test('#5841 a save that fails AFTER replacing the file never takes the full file\'s only name with it', () => {
+  const store = require('./engine/store');
+  const real = store.saveFlushed;
+  const who = 'latefail';
+  for (let i = 0; i < CAP; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'l' + i }).recorded, true);
+  const file = chat.threadFile(chat.DIRECT, who);
+  store.saveFlushed = (f, body) => { const out = real(f, body); if (f === file) throw new Error('a check after the write'); return out; };
+  let r;
+  try { r = chat.appendMessage(chat.DIRECT, who, { text: 'past the cap' }); } finally { store.saveFlushed = real; }
+  assert.equal(r.recorded, false, 'premise: the save reported a failure');
+  assert.equal(chat.readThread(chat.DIRECT, who).messages.length, 201, 'premise: the new file was already in place');
+  const kept = asides(who);
+  assert.equal(kept.length, 1, 'the set-aside name was removed although it had become the full file\'s only name');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(path.dirname(file), kept[0]), 'utf8')).messages.length, CAP, 'the full file is not whole');
+});
+
+test('#5841 the reattach picks the newest full file by the time in its name, not by its modification time', () => {
+  const file = chat.threadFile(chat.DIRECT, AGENT);
+  const dir = path.dirname(file);
+  const stamp = (n) => Number((n.match(/\.(\d{13})(?:\.\d+)?\.full$/) || [])[1]);
+  const byName = asides(AGENT).sort((a, b) => stamp(a) - stamp(b));
+  assert.ok(byName.length >= 2 && byName.every((n) => stamp(n) > 0), 'premise: two or more stamped full files');
+  const future = new Date(Date.now() + 3600 * 1000);
+  fs.utimesSync(path.join(dir, byName[0]), future, future);   // the OLDEST now looks newest to an mtime sort
+  fs.rmSync(file);
+  assert.equal(chat.appendMessage(chat.DIRECT, AGENT, { text: 'after a loss, again' }).recorded, true);
+  assert.equal(chat.readThread(chat.DIRECT, AGENT).continues, byName[byName.length - 1], 'the reattach followed the modification time');
+});

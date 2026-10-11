@@ -3286,8 +3286,13 @@ function appendLocked(projectId, agent, entry, bornAt) {
     if (rolledAside) {
       try {
         const tf = threadFile(projectId, agent);
-        // Linked: the full file is still in place, so only the extra name goes. Renamed: move it back.
-        if (rolledAside.linked) { if (fs.existsSync(tf)) fs.unlinkSync(rolledAside.aside); }
+        /* Linked: the full file is still in place, so only the extra name goes, and ONLY while both names are still
+           the same file. Had the save replaced the original before it threw, the aside would be the full file's only
+           name, and removing it would delete the rows that were not carried. Renamed: move it back. */
+        if (rolledAside.linked) {
+          const a = fs.statSync(rolledAside.aside); const c = fs.statSync(tf);
+          if (a.ino === c.ino && a.dev === c.dev) fs.unlinkSync(rolledAside.aside);
+        }
         else if (!fs.existsSync(tf)) fs.renameSync(rolledAside.aside, tf);
       } catch { /* the reattach covers it on the next send */ }
     }

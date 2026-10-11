@@ -145,3 +145,16 @@ engine writes one, but a person could.
 - **NIT, not taken:** a throw between the set-aside and the save, outside the save's catch, is not undone. On the
   linked path it leaves a harmless orphan `.full`. On the rename fallback the next send reattaches with carried 0,
   which is the same state as review 4's not-taken NIT, and nothing is lost. No code in that span is known to throw.
+
+## Review 7 (opus)
+- **No blocker; nothing lost, duplicated or shifted.** It re-worked the arithmetic, the hard links, a crash at each
+  step, the readers, and the wording.
+- **SHOULD-FIX, taken (hardening):** the linked undo unlinked the `.full` name whenever the thread file existed. A
+  save that threw AFTER its rename would leave the `.full` as the full file's only name, so the undo would delete it.
+  That cannot happen today (writeSecret's only step after the rename is syncDir, which swallows errors), but the
+  undo depended on another module's internals. It now unlinks only while both names are the same inode and device.
+  Arm: a save that replaces the file and then throws keeps the `.full` whole. Mutant red.
+- **NIT, taken:** the name-time ordering in newestOwnAside was tested only by accident: another arm's cleanup
+  rewrote the oldest file's mtime. It now has an explicit arm (utimesSync puts the oldest file in the future; the
+  reattach still follows the newest name). An mtime-sort mutant is red at it. The plan said "a test touched it",
+  which was not true of any arm; corrected here.
