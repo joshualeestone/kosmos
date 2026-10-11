@@ -64,3 +64,11 @@ holds only that line; a tunnel built before slice 1 prints no line at all, which
 - FIXED (convention): the Tests counts re-measured and restated with their shas.
 - NITs taken: WRONG_EPOCH_CODE above its use; the code rule's comment names the tunnel's matching cap; the
   keepStdout opt-in and the because filter are tested through another verb (company-start).
+
+## Review 4 (opus)
+- FIXED: the epoch bounds were never tested beside the right code (the one malformed epoch rode with a bad code,
+  which the code gate nulls first). Now 2^53, -1, 1.5 and "3" beside member_key_wrong_epoch read as null and the edge
+  2^53 - 1 is kept; without the bounds check 1 of 9 fails (measured at 1fef52a04).
+- NITs taken: a refusal line on stderr is tested (a third fake mode); the comment says the last JSON line is read;
+  WRONG_EPOCH_CODE sits above refusalOf's doc block; the because filter's comment says whitespace-only lines are
+  skipped too (before, one could be `because`).
