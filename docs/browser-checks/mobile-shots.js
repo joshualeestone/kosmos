@@ -1181,26 +1181,33 @@ const SCREENS = [
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-held [data-reopen-room]', { state: 'visible', timeout: 10000 });
     /* The shot is viewport-only, and the first shots of this screen framed the room with the strip out of view while
-       the wait above passed: visible is not seen (#4524). Bring the strip to the middle; verify checks it is seen. */
+       the wait above passed: visible is not seen (#4524). Bring the strip to the middle, then gate the SHOT here, as
+       the #4524 screen does: the runner calls verify only after the picture is taken, so a check there would read a
+       page that may have moved since. The point at the Reopen button's centre must be that button: anything drawn
+       over it (the sticky composer below it), or the button outside the viewport, fails before the shot. Polled for
+       up to 3 s, so a repaint between two reads is not a red; the shot follows the read that passed. */
     await page.evaluate(() => document.getElementById('pj-held').scrollIntoView({ block: 'center' }));
-    await page.waitForTimeout(300);
-  }, verify: async (page) => {
-    /* The point at the Reopen button's centre must be that button: anything drawn over it (the composer below it),
-       or the button outside the viewport, fails the shot. Polled for up to 3 s, so a repaint between reads is not red. */
+    // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
+    if (COVER_CONTROL === 'overlay') {
+      await page.evaluate(() => { const d = document.createElement('div'); d.id = 'cover-control';
+        d.style.cssText = 'position:fixed;inset:0;z-index:2147483647'; document.body.appendChild(d); });
+    }
     const whatIsAt = () => {
       const b = document.querySelector('#pj-held [data-reopen-room]');
       if (!b) return 'gone (no Reopen button)';
       const r = b.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return 'not laid out (' + Math.round(r.width) + 'x' + Math.round(r.height) + ')';
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
-      if (r.width === 0 || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
       const top = document.elementFromPoint(x, y);
       if (top && b.contains(top)) return '';
-      const named = top && (top.id ? top : top.closest('[id]'));
+      const named = top && (top.id ? top : top.closest('[id]'));   // the nearest element with an id names the layer
       return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
     };
     let hit = await page.evaluate(whatIsAt);
     for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(whatIsAt)) await page.waitForTimeout(200);
     if (hit) throw new Error('the Reopen button is not seen: ' + hit);
+  }, verify: async (page) => {
     const t = await page.evaluate(() => { const b = document.querySelector('#pj-held [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
     for (const want of ['Your agents\' posts will most likely not go through until you post something yourself or reopen the room.', 'Reopen the room']) {
       if (!t.includes(want)) throw new Error('the hold strip does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
