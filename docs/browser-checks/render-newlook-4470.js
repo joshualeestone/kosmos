@@ -27,9 +27,11 @@
  *  - a project's Documents in the new look (docsLook): back is the round chevron, the text link hidden, and it returns
  *    to the project; the switch is a grey pill with today's gold choice; with the look off, today's link and switch,
  *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
- *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
- *    current view's gold are the same as with the look off; Issue, Question and could-not-read cards keep their
- *    strokes (the could-not-read dash at least 1.5:1 off its ground, measured by EDGE_RATIO); the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
+ *    40px round grey button, a pressed Messages filter still looks pressed; the current view's gold is the same as
+ *    with the look off; Issue and could-not-read cards keep their strokes (the could-not-read dash at least 1.5:1 off
+ *    its ground, measured by EDGE_RATIO); Home as drawn (#5551): the working card the idle card's grey with no stroke,
+ *    wash or pulse and its state a word with no pill, the Question card warm with no stroke, the Issue card its red
+ *    wash, the Issue filter no red box at rest (with the look off, today's stroke, wash and box: the control); the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
  *    the grey box while a could-not-read note keeps its solid border (and a note in a project page keeps today's
  *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
  *  - an agent's question in the project room (QUESTION_LOOK, #5551): today's warm ground and hairline kept (#3692), 24px
@@ -43,7 +45,8 @@
  *  - Settings in the new look (SETTINGS_LOOK): the nav a grey box with flat items, the current one a page tile (on a
  *    phone the scroller stays, the current item a grey tile); boxes with no edge and 28px corners and sentence-case
  *    labels; with the look off, today's (the control),
- *  - the controls in the new look (CTRL_LOOK): a plain button a pill in the page's ground with no edge, the main one a
+ *  - the controls in the new look (CTRL_LOOK): a plain or quiet button a raised pill keeping today's gold edge and no
+ *    shadow (#5551 option B), the main one a
  *    pill keeping its fill, a danger one keeping its edge; with the look off, today's (the control),
  *  - the phone slice (PHONE_LOOK): an agent message's avatar at the top, your own with no avatar and its tail with room
  *    inside the thread (no sideways scroll, #5551), New task a pill, and on a phone the project's gear on the crumb's line
@@ -703,7 +706,18 @@ const AGENTS_LOOK = `(() => {
   const agentsTile = document.getElementById('st-agents') && document.getElementById('st-agents').closest('.stat');
   const p = plus ? getComputedStyle(plus) : null;
   const idleCard = card('idle');
-  return { idle: bc(idleCard), radius: idleCard ? getComputedStyle(idleCard).borderTopLeftRadius : 'absent', working: bc(card('working')), tile: bc(agentsTile),
+  /* #5551, Home as drawn: the working card's ground and pulse layer, and its state's pill (edge, ground) next to the idle
+     card's ground. */
+  const wk = card('working'), wkPill = wk && wk.querySelector('.astate');
+  const home = { workingBg: wk ? getComputedStyle(wk).backgroundColor : 'absent', workingImg: wk ? getComputedStyle(wk).backgroundImage : 'absent',
+    workingLayer: wk ? getComputedStyle(wk, '::before').content : 'absent', idleBg: idleCard ? getComputedStyle(idleCard).backgroundColor : 'absent',
+    pillEdge: wkPill ? getComputedStyle(wkPill).borderTopColor : 'absent', pillBg: wkPill ? getComputedStyle(wkPill).backgroundColor : 'absent',
+    pillLayer: wkPill ? getComputedStyle(wkPill, '::before').content : 'absent', pillWord: wkPill ? wkPill.textContent.trim() : 'absent' };
+  /* The Issue filter at rest, shown for the read (the fixture has nobody needing you) and hidden again in the same tick. */
+  const at = document.getElementById('st-attn-tile');
+  if (at) { const h = at.hidden; at.hidden = false; const cs = getComputedStyle(at); home.attnTile = { edge: cs.borderTopColor, bg: cs.backgroundColor, padL: cs.paddingLeft }; at.hidden = h; }
+  else home.attnTile = 'absent';
+  return { home, idle: bc(idleCard), radius: idleCard ? getComputedStyle(idleCard).borderTopLeftRadius : 'absent', working: bc(card('working')), tile: bc(agentsTile),
     plus: p ? { w: plus.getBoundingClientRect().width, round: p.borderRadius, bg: p.backgroundColor } : null,
     seg: on ? getComputedStyle(on).backgroundColor : 'absent', page: getComputedStyle(document.body).backgroundColor };
 })()`;
@@ -866,11 +880,13 @@ const AGENTS_LOOK = `(() => {
       const RAISE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(58, 58, 60)' };
       chk(ctlOn.disabledFound && ctlOn.disabledBg === CLEAR && ctlOn.disabledEdge !== CLEAR,
         `${tag} On, the controls: a disabled plain button is an outlined pill, not a faint shape`, JSON.stringify(ctlOn));
-      chk(ctlOn.found && ctlOn.plainBg === RAISE_OF[theme] && ctlOn.plainEdge === CLEAR && ctlOn.plainRadius === '999px'
-        && ctlOn.plainShadow !== 'none' && ctlOn.mainRadius === '999px' && ctlOn.mainBg !== PAGE_OF[theme] && ctlOn.mainBg !== CLEAR
-        && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === RAISE_OF[theme] && ctlOn.quietEdge === CLEAR && ctlOn.quietRadius === '999px'
+      /* #5551, option B: plain and quiet buttons keep TODAY's gold edge (compared with the same buttons before the
+         switch was touched, so a changed or vanished edge fails), with no shadow: the edge is the one hairline. */
+      chk(ctlOn.found && ctlBefore.found && ctlOn.plainBg === RAISE_OF[theme] && ctlOn.plainEdge !== CLEAR && ctlOn.plainEdge === ctlBefore.plainEdge && ctlOn.plainRadius === '999px'
+        && ctlOn.plainShadow === 'none' && ctlOn.mainRadius === '999px' && ctlOn.mainBg !== PAGE_OF[theme] && ctlOn.mainBg !== CLEAR
+        && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === RAISE_OF[theme] && ctlOn.quietEdge !== CLEAR && ctlOn.quietEdge === ctlBefore.quietEdge && ctlOn.quietRadius === '999px'
         && ctlOn.plainFocus !== 'none' && ctlOn.plainFocus !== 'not focused' && ctlOn.outsideDangerEdge !== CLEAR,
-        `${tag} On, the controls: plain and quiet buttons are raised pills in the page's ground with no edge, the main one a pill that keeps its fill, a danger one a pill that keeps its edge`, JSON.stringify(ctlOn));
+        `${tag} On, the controls: plain and quiet buttons are raised pills that keep today's gold edge and no shadow (#5551 option B), the main one a pill that keeps its fill, a danger one a pill that keeps its edge`, JSON.stringify({ on: ctlOn, before: ctlBefore }));
       const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
       chk(setOn.found && setOn.dotBg !== OLD_DOT && setOn.dotBg !== CLEAR && setOn.dotBg !== 'absent' && setOn.plusNavBg !== GREY_OF[theme] && setOn.plusOnEdge !== CLEAR,
         `${tag} On, Settings: the current item's needs-you dot is not the gold-era dark red, and the Kosmos+ section keeps today's nav`, JSON.stringify(setOn));
@@ -959,8 +975,8 @@ const AGENTS_LOOK = `(() => {
         chk(dmForced.found && dmForced.box === 'rgb(0, 0, 0)' && dmForced.you === GREY_OF.dark && dmForced.agent === 'rgb(0, 0, 0)' && dmForced.tail === 'rgb(0, 0, 0)' && dmForced.composer === GREY_OF.dark,
           `${tag} On + chosen Dark: an agent's page has the black ground, dark-grey own messages and composer`, JSON.stringify(dmForced));
         const ctlForced = await page.evaluate(CTRL_LOOK);
-        chk(ctlForced.found && ctlForced.plainBg === 'rgb(58, 58, 60)' && ctlForced.plainEdge === 'rgba(0, 0, 0, 0)',
-          `${tag} On + chosen Dark: a plain button is the raised dark pill, a step lighter than the box`, JSON.stringify(ctlForced));
+        chk(ctlForced.found && ctlForced.plainBg === 'rgb(58, 58, 60)' && ctlForced.plainEdge !== 'rgba(0, 0, 0, 0)' && ctlForced.plainShadow === 'none',
+          `${tag} On + chosen Dark: a plain button is the raised dark pill, a step lighter than the box, with its gold edge (#5551 option B)`, JSON.stringify(ctlForced));
         const dlForced = await page.evaluate(DLEFT_LOOK);
         chk(dlForced.found && dlForced.ground === GREY_OF.dark && dlForced.onBg === 'rgb(0, 0, 0)',
           `${tag} On + chosen Dark: an agent's left column is the dark grey box, the open section a black tile`, JSON.stringify(dlForced));
@@ -984,8 +1000,18 @@ const AGENTS_LOOK = `(() => {
       await page.evaluate(() => { const g = document.querySelector('#boardbar .vt[data-layout="grid"]'); if (g && !g.classList.contains('on')) g.click(); });
       await page.waitForTimeout(400);
       const agOn = await page.evaluate(AGENTS_LOOK);
-      chk(agOn.idle === 'rgba(0, 0, 0, 0)' && agOn.working !== 'rgba(0, 0, 0, 0)' && agOn.working !== 'absent',
-        `${tag} On, Agents page: the idle card has no border, the working card keeps its stroke`, JSON.stringify(agOn));
+      chk(agOn.idle === 'rgba(0, 0, 0, 0)' && agOn.working === 'rgba(0, 0, 0, 0)',
+        `${tag} On, Agents page: the idle card has no border, and the working card none either (#5551, Home as drawn)`, JSON.stringify(agOn));
+      /* #5551, Home as drawn: every card the same soft grey (the working card's ground IS the idle card's, no wash, no
+         pulse layer), and the state a mark and a word, not a pill (no edge, no ground, no breath), its word kept. */
+      chk(agOn.home.workingBg !== 'absent' && agOn.home.workingBg === agOn.home.idleBg && agOn.home.workingImg === 'none'
+        && (agOn.home.workingLayer === 'none' || agOn.home.workingLayer === 'normal')
+        && agOn.home.pillEdge === 'rgba(0, 0, 0, 0)' && agOn.home.pillBg === 'rgba(0, 0, 0, 0)' && (agOn.home.pillLayer === 'none' || agOn.home.pillLayer === 'normal')
+        && /Working/.test(agOn.home.pillWord),
+        `${tag} On, Home: the working card is the idle card's grey with no wash or pulse, its state a word with no pill`, JSON.stringify(agOn.home));
+      /* The count row is plain text: the Issue filter loses its red box and rests on the soft grey ground of a control. */
+      chk(agOn.home.attnTile !== 'absent' && agOn.home.attnTile.edge === 'rgba(0, 0, 0, 0)' && agOn.home.attnTile.bg === GREY_OF[theme],
+        `${tag} On, Home: the Issue filter has no red box at rest, the soft grey of a control instead`, JSON.stringify(agOn.home.attnTile));
       chk(agOn.tile === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile has no box`, JSON.stringify(agOn));
       chk(agOn.radius === '24px', `${tag} On, Agents page: the idle card has the project page's 24px corners`, agOn.radius);
       /* An inert tile shows no box under the pointer either. */
@@ -1000,12 +1026,16 @@ const AGENTS_LOOK = `(() => {
         const out = { found: true };
         for (const c of ['attn', 'question', 'unk']) {
           const d = document.createElement('div'); d.className = 'acard ' + c; d.textContent = 'x'; g.append(d);
-          const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle, ratio: new Function(`return (${ratioFn})`)()(d) }; d.remove();
+          const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle, img: cs.backgroundImage, ratio: new Function(`return (${ratioFn})`)()(d) }; d.remove();
         }
         return out;
       }, EDGE_RATIO);
-      chk(strokes.found && ['attn', 'question', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed' && strokes.unk.ratio >= 1.5,
-        `${tag} On, Agents page: Issue, Question and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
+      chk(strokes.found && ['attn', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed' && strokes.unk.ratio >= 1.5,
+        `${tag} On, Agents page: Issue and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
+      /* #5551, Home as drawn: the card asking you something is warm (the project room question box's --warn-bg over the
+         page), not stroked; the Issue card keeps today's red wash. */
+      chk(strokes.found && strokes.question.color === 'rgba(0, 0, 0, 0)' && /gradient/.test(strokes.question.img) && /gradient/.test(strokes.attn.img),
+        `${tag} On, Home: the Question card is the warm ground with no stroke, the Issue card keeps its red wash`, JSON.stringify(strokes));
       /* The Messages filter is a control: at rest it keeps the soft grey ground (its "you can press this", which a
          touch screen needs), and hovering it does not change its width (nothing in the row jumps). Shown by hand for
          the read, since the fixture has no unread messages, then hidden again. */
@@ -1232,9 +1262,12 @@ const AGENTS_LOOK = `(() => {
         `${tag} the plain row keeps today's state wash with the look on, on an opaque surface (only its border goes)`, JSON.stringify({ on: [listOn.groundImg, listOn.groundColor], off: [listOff.groundImg, listOff.groundColor] }));
       chk(listOn.strokes && listOff.strokes && listOn.strokes.attn.color === listOff.strokes.attn.color && listOn.strokes.unk.style === listOff.strokes.unk.style,
         `${tag} the needs-you edge is today's red, and the could-not-read edge still dashed, with the look on`, JSON.stringify({ on: listOn.strokes, off: listOff.strokes }));
-      /* What the new look must NOT change, compared on the same board: the working card's stroke (state owns the
-         stroke) and the current view's gold (Josh 2026-08-17: selected is gold). */
-      chk(agOn.working === agOff.working, `${tag} the working card's stroke is the same with the look on as off`, JSON.stringify({ on: agOn.working, off: agOff.working }));
+      /* What the new look must NOT change, compared on the same board: the current view's gold (Josh 2026-08-17:
+         selected is gold). The working card's stroke used to be here too; #5551 (Home as drawn) takes it away. */
+      /* #5551: the look takes the working card's stroke away (Home as drawn); with it off, today's green stroke stays (the control). */
+      chk(agOff.working !== 'rgba(0, 0, 0, 0)' && agOff.working !== 'absent' && agOn.working === 'rgba(0, 0, 0, 0)' && agOff.home.workingImg !== 'none'
+        && agOff.home.attnTile !== 'absent' && agOff.home.attnTile.edge !== 'rgba(0, 0, 0, 0)',
+        `${tag} the working card keeps today's green stroke and wash, and the Issue filter its red box, with the look off (the control)`, JSON.stringify({ on: agOn.working, off: agOff.working, offImg: agOff.home.workingImg }));
       chk(agOn.seg === agOff.seg && agOff.seg !== 'rgba(0, 0, 0, 0)', `${tag} the current view's fill is today's gold with the look on`, JSON.stringify({ on: agOn.seg, off: agOff.seg }));
       if (width >= 1088) {
         const tabsOff = await page.evaluate(TABS);

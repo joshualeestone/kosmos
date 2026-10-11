@@ -10726,17 +10726,18 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
 /* #4470, the controls in the new look, in the agent page's boxes and Settings' (not the conversation, not Kosmos+'s navy
    page): as Josh's drawing draws them (Files/kosmos-project-two-col-v9), a button is a pill. A plain or quiet button
-   has no edge ("Use the left", "Use the right"), the main one keeps its gold ("Post"), a danger button keeps its edge,
-   which says what it does. The Terminal's send button keeps today's corners, as its composer does. Fields keep today's
+   is a raised pill that KEEPS today's thin gold edge (#5551, option B of the three-screens drawing, decided 10-10: the
+   gold edge is the one button outline that clears WCAG 1.4.11's 3:1 in both themes, so without it a plain button on
+   the white page has no boundary and reads as text; option A, no edge, is one rule to flip back), the main one keeps
+   its gold fill ("Post"), a danger button keeps its edge, which says what it does. The Terminal's send button keeps today's corners, as its composer does. Fields keep today's
    edge: a white field on the grey box has no other boundary. A button stays raised and a field recessed (the ruling
-   above .dbox .btn): a button's fill is --nl-raise, above the box (white with a hairline shadow in light, a step
-   lighter than the box in dark, where a shadow cannot show), a field's is the page's ground with its edge. Under the
-   pointer a button lifts further, never toward the box. A disabled plain button is an outlined pill, so it reads as
-   unavailable rather than missing. ⚠️ Today's gold edge on a plain button is the one control boundary that clears WCAG
-   1.4.11's 3:1 (see .dbox .btn above); the pill's label identifies it instead, as in the drawing. */
+   above .dbox .btn): a button's fill is --nl-raise, above the box (white in light, a step lighter than the box in
+   dark), a field's is the page's ground with its edge. The edge is the one hairline, so there is no shadow. Under the
+   pointer a button takes today's gold tint over its fill, never toward the box. A disabled plain button is an
+   outlined pill in its own ink, so it reads as unavailable rather than missing. */
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.cpost) { border-radius: 999px; }
-:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn) { background: var(--nl-raise); border-color: transparent; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
-:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):not(:disabled):hover { background: var(--nl-raise-hover); box-shadow: 0 2px 6px rgba(0, 0, 0, .18); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn) { background: var(--nl-raise); box-shadow: none; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):not(:disabled):hover { background: linear-gradient(rgba(198,154,50,.14), rgba(198,154,50,.14)), var(--nl-raise); }
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):disabled { background: transparent; border-color: currentColor; box-shadow: none; }
 /* #4470, the last page in the card's order, the phone (and what it showed on a desktop too). An agent's message has
    no bubble in the new look, so its avatar no longer sits beside a bubble's tail: it goes to the top, beside the name
@@ -10910,6 +10911,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #boardbar .stats .stat:not(.alert):not([role="button"]) { border-color: transparent; background: transparent; padding-inline: 10px; }
 :root[data-look="new"] body:not(.consolidated) #boardbar .stats #st-dm-tile { padding-inline: 14px; }
 :root[data-look="new"] body:not(.consolidated) #boardbar .stats #st-dm-tile:not([aria-pressed="true"]):not(:hover) { border-color: transparent; background: var(--nl-grey); }
+/* #5551, Home as drawn: the count row is plain text, so the Issue filters lose their red box too. The red mark and
+   the word still say it, and since they ARE filters they rest on the Messages filter's soft grey ground, its "you can
+   press this". Pressed or hovered they keep today's gold, as every filter here does. */
+:root[data-look="new"] body:not(.consolidated) #boardbar .stats .stat.alert[role="button"] { padding-inline: 14px; }   /* in every state, so it never jumps */
+:root[data-look="new"] body:not(.consolidated) #boardbar .stats .stat.alert[role="button"]:not([aria-pressed="true"]):not(:hover) { border-color: transparent; background: var(--nl-grey); }
 /* New agent: a round grey button (40px, the new look's grey) with the words beside it on one line; the control
    stays 44px tall, the tap floor. */
 :root[data-look="new"] body:not(.consolidated) #new-agent { border: 0; background: transparent; padding: 0; gap: 12px; min-height: 44px; }
@@ -10939,6 +10945,22 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    treatment, per the same 08-21 ruling) loses its border and shadow, since its grey ground is the separation. */
 :root[data-look="new"] body:not(.consolidated) #grid .acard { border-radius: 24px; }
 :root[data-look="new"] body:not(.consolidated) #grid .acard:not(.working):not(.attn):not(.question):not(.unk) { border-color: transparent; box-shadow: none; }
+/* #5551, Home in the new look, as drawn (kosmos-v2-three-screens-for-josh, page 3; decided 10-10): Josh's v9
+   drawing's language applied to the cards. It changes the 08-21 "state owns the ground" ruling for this look only,
+   under his 09-28 rule "subtract decoration, never information":
+   - every card is the same soft grey: Working loses its green wash, its green stroke and its pulse (#3956);
+   - each state is a mark and a word instead of a pill: the pill's edge, fill and breath go, its glyph and word stay;
+   - the card that is asking you something takes the warm ground the project room's question box already uses
+     (--warn-bg, the v9 drawing's "Needs you"), in place of its blue stroke.
+   KEPT, because each says something: the Issue card as today (its red wash, red edge and the white pill Josh asked
+   for "so it stands out as a stark warning"; red stays rare by covering one state), the could-not-read card's dash
+   and its dashed pill (the one pill whose shape is the meaning), every state word and every count.
+   The grid only: the drawing draws the cards; the list view keeps its rows until it is drawn. */
+:root[data-look="new"] body:not(.consolidated) #grid .acard.working { background: var(--k-surface); border-color: transparent; box-shadow: none; }
+:root[data-look="new"] body:not(.consolidated) #grid .acard.working::before { content: none; animation: none; }
+:root[data-look="new"] body:not(.consolidated) #grid .acard.question:not(.attn) { background: linear-gradient(var(--warn-bg), var(--warn-bg)), var(--k-bg); border-color: transparent; box-shadow: none; }
+:root[data-look="new"] body:not(.consolidated) #grid .acard > .astate:not(.st-attn):not(.st-unknown) { border-color: transparent; background: transparent; padding: 0; font-size: .875rem; }
+:root[data-look="new"] body:not(.consolidated) #grid .acard > .astate.st-working::before { content: none; animation: none; }
 /* The list view (#4470, the next page after the cards): the same language. A row is shorter than a card, so its
    corners sit between the project page's task rows (10px) and the cards (24px). The ground keeps saying the state
    (grey, the working green, the needs-you red wash: #3187), so a plain row's border goes, as a plain card's did.
