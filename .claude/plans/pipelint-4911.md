@@ -168,3 +168,12 @@ command's status.
 - FIXED (NIT): a marked line in a CRLF file is a PINNED accept fixture.
 - The reviewer ran origin and new side by side on many look-alikes (escaped pipes in quotes, uppercase or quoted
   markers, markers on other lines): none escapes without a correctly placed marker.
+
+## Review 14 (sonnet, blind, on 84b841420): no BLOCKER; a 600-case old/new differential fuzz found no unmarked escape
+- FIXED (WARNING): "a command ran before the read" was approximated as "not the line straight after the pipe", so a
+  blank or comment line between them defeated it. Now q counts CODE lines since the pipe (blank and comment lines do
+  not count). Fixtures for both sides; the mutants (no q term; comments counted as commands) each turn one BAD.
+- FIXED (WARNING): the && and || separators and the code-only read check had no fixture that failed when narrowed or
+  removed (an earlier rule masked the comment fixture). Added; each mutant BAD.
+- NO CHANGE (NIT): a ";" inside a quoted string on the marked line counts as a separator; reachable only with a marker
+  present, where a command did run.

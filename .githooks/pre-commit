@@ -32,17 +32,19 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     # An escaped "\|" is not a pipe either. Escaped backslashes go first ("a\\| tail" is a backslash, then a REAL
     # pipe), then "\|", then "||", so "a\|| tail" keeps its real pipe too.
     { s = $0; gsub(/\\\\/, "  ", s); gsub(/\\\|/, "  ", s); gsub(/\|\|/, "  ", s) }
-    s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
+    s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0; q = 0 }
     # The author'"'"'s word, written where a reviewer sees it: a line ending in "# pipe-status-ok" reads its OWN
     # command'"'"'s status, so a pipe on an EARLIER line is not what it reads. A pipe on the same line still counts.
     # The status must be read in the line'"'"'s CODE (before any "#"): a comment that only mentions it excuses nothing.
     # "$#" and "${#x}" are not comments; the marker itself must be a real comment (a "#" at the start or after a space).
     { c = $0; gsub(/\$\{#|\$#/, "", c) }
-    # On the line straight after the pipe, a status read before any command on it ("[ <status> ... ] # marker") can
-    # only be the filter'"'"'s, so the marker cannot be true there: it counts only after a ";", "&&" or "||".
-    { first = substr(c, 1, index(c, "$" "?") - 1); ran = (NR != p + 1 || first ~ /;|&&|\|\|/) }
+    # If no code line has run since the pipe (blank and comment lines do not count), a status read before any command
+    # on this line ("[ <status> ... ] # marker") can only be the filter'"'"'s, so the marker cannot be true there: it
+    # counts only after a ";", "&&" or "||" on the line. q counts the code lines since the pipe.
+    { first = substr(c, 1, index(c, "$" "?") - 1); ran = (q > 0 || first ~ /;|&&|\|\|/) }
     p && p != NR && ran && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
+    p && NR > p && $0 !~ /^[[:space:]]*(#.*)?$/ { q++ }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
   ')"
   # PIPE-LINT-END
