@@ -1034,7 +1034,9 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Agents page: Issue and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
       /* #5551, Home as drawn: the card asking you something is warm (the project room question box's --warn-bg over the
          page), not stroked; the Issue card keeps today's red wash. */
-      chk(strokes.found && strokes.question.color === 'rgba(0, 0, 0, 0)' && /gradient/.test(strokes.question.img) && /gradient/.test(strokes.attn.img),
+      /* The warm ground is named by its colour (--warn-bg), so a green or red wash cannot pass for it (review 1). */
+      const WARN_OF = { light: 'rgba(176, 116, 0, 0.1)', dark: 'rgba(255, 190, 60, 0.12)' };
+      chk(strokes.found && strokes.question.color === 'rgba(0, 0, 0, 0)' && strokes.question.img.includes(WARN_OF[theme]) && /gradient/.test(strokes.attn.img) && !strokes.attn.img.includes(WARN_OF[theme]),
         `${tag} On, Home: the Question card is the warm ground with no stroke, the Issue card keeps its red wash`, JSON.stringify(strokes));
       /* The Messages filter is a control: at rest it keeps the soft grey ground (its "you can press this", which a
          touch screen needs), and hovering it does not change its width (nothing in the row jumps). Shown by hand for
@@ -1192,6 +1194,10 @@ const AGENTS_LOOK = `(() => {
       await page.evaluate(() => showTab('agents'));
       await page.waitForTimeout(600);
       const agOff = await page.evaluate(AGENTS_LOOK);
+      /* #5551 control: with the look off a Question card keeps today's blue stroke (drawn by hand, as above). */
+      const qStrokeOff = await page.evaluate(() => { const g = document.getElementById('grid'); if (!g) return 'absent';
+        const d = document.createElement('div'); d.className = 'acard question'; d.textContent = 'x'; g.append(d); const c = getComputedStyle(d).borderTopColor; d.remove(); return c; });
+      chk(qStrokeOff !== 'absent' && qStrokeOff !== 'rgba(0, 0, 0, 0)', `${tag} Off, Home: the Question card keeps today's blue stroke (the control)`, qStrokeOff);
       chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.tile !== 'rgba(0, 0, 0, 0)' && agOff.plus && agOff.plus.round !== '50%',
         `${tag} Off, Agents page: today's bordered idle card, Agents tile and New agent tile`, JSON.stringify(agOff));
       /* Control for the agent-page arms: with the look off, today's conversation (the surface behind it, a tinted bubble of

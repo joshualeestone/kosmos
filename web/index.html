@@ -10726,9 +10726,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
 /* #4470, the controls in the new look, in the agent page's boxes and Settings' (not the conversation, not Kosmos+'s navy
    page): as Josh's drawing draws them (Files/kosmos-project-two-col-v9), a button is a pill. A plain or quiet button
-   is a raised pill that KEEPS today's thin gold edge (#5551, option B of the three-screens drawing, decided 10-10: the
-   gold edge is the one button outline that clears WCAG 1.4.11's 3:1 in both themes, so without it a plain button on
-   the white page has no boundary and reads as text; option A, no edge, is one rule to flip back), the main one keeps
+   is a raised pill that KEEPS today's thin gold edge (#5551, option B of the three-screens drawing, decided 10-10).
+   Measured: the edge is 3.16:1 against the button's white fill and 2.91:1 against the grey box in light (3.59 and 4.40
+   in dark); without it the button's only boundary is white on that grey, 1.09:1, so it reads as text. So B is not a
+   clean 3:1 pass against the box in light, only far closer than A. Option A, no edge, is one rule to flip back. The main one keeps
    its gold fill ("Post"), a danger button keeps its edge, which says what it does. The Terminal's send button keeps today's corners, as its composer does. Fields keep today's
    edge: a white field on the grey box has no other boundary. A button stays raised and a field recessed (the ruling
    above .dbox .btn): a button's fill is --nl-raise, above the box (white in light, a step lighter than the box in
@@ -10901,9 +10902,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #4470, the Agents page in the new look, in the project page's language (there is no drawing of this page):
    no borders where a ground already separates, the project page's grey box and round grey button, controls as
    grey pills. Looks only: every tile, count and card, and every rule that hides one, are unchanged.
-   🔑 The state rules stand (Josh, 2026-08-21: "state owns the ground and the stroke"): Working keeps its green
-   stroke, Issue its red, Question its blue, the could-not-read card its dash; only the plain card loses its border.
-   🔑 The alert tiles (Issue, No project) keep their red outline, and a pressed or hovered tile keeps today's gold
+   🔑 The state rules stand (Josh, 2026-08-21: "state owns the ground and the stroke") on the LIST and the Projects
+   page: on the grid, #5551's Home block below (as drawn) takes Working's green stroke and Question's blue away; Issue
+   keeps its red and the could-not-read card its dash everywhere. Only the plain card loses its border here.
+   🔑 The alert tiles (Issue, No project) keep their red outline (on the Agents page #5551 below gives the pressable
+   Issue filters a grey ground at rest instead, as drawn), and a pressed or hovered tile keeps today's gold
    (the Messages and alert filters), so a filter that is on still looks on. The tiles while inert (Agents, Working,
    Idle) never show a box, not even on hover, since a box would say "click me" on a tile that does nothing. The
    Messages filter DOES something, so at rest it keeps a soft grey ground (no border) as its "you can press this",
@@ -10951,14 +10954,15 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    - every card is the same soft grey: Working loses its green wash, its green stroke and its pulse (#3956);
    - each state is a mark and a word instead of a pill: the pill's edge, fill and breath go, its glyph and word stay;
    - the card that is asking you something takes the warm ground the project room's question box already uses
-     (--warn-bg, the v9 drawing's "Needs you"), in place of its blue stroke.
+     (--warn-bg, the v9 drawing's "Needs you"), in place of its blue stroke. The tint lies over the CARD's grey, not
+     the page: over the page's black in dark it came out darker than every other card and receded (review 1).
    KEPT, because each says something: the Issue card as today (its red wash, red edge and the white pill Josh asked
    for "so it stands out as a stark warning"; red stays rare by covering one state), the could-not-read card's dash
    and its dashed pill (the one pill whose shape is the meaning), every state word and every count.
    The grid only: the drawing draws the cards; the list view keeps its rows until it is drawn. */
 :root[data-look="new"] body:not(.consolidated) #grid .acard.working { background: var(--k-surface); border-color: transparent; box-shadow: none; }
 :root[data-look="new"] body:not(.consolidated) #grid .acard.working::before { content: none; animation: none; }
-:root[data-look="new"] body:not(.consolidated) #grid .acard.question:not(.attn) { background: linear-gradient(var(--warn-bg), var(--warn-bg)), var(--k-bg); border-color: transparent; box-shadow: none; }
+:root[data-look="new"] body:not(.consolidated) #grid .acard.question:not(.attn) { background: linear-gradient(var(--warn-bg), var(--warn-bg)), var(--k-surface); border-color: transparent; box-shadow: none; }
 :root[data-look="new"] body:not(.consolidated) #grid .acard > .astate:not(.st-attn):not(.st-unknown) { border-color: transparent; background: transparent; padding: 0; font-size: .875rem; }
 :root[data-look="new"] body:not(.consolidated) #grid .acard > .astate.st-working::before { content: none; animation: none; }
 /* The list view (#4470, the next page after the cards): the same language. A row is shorter than a card, so its
