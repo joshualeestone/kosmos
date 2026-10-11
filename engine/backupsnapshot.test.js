@@ -1632,3 +1632,19 @@ test('#5686: a file is read from its own root (a same-named file in another root
     assert.equal(sink.committed.get('workers/same.txt').toString(), 'from workers\n');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('#5744 slice 3: a grant for another key epoch reaches the snapshot result as otherEpoch (chunks and manifest)', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    const st = store();
+    const r = await take(k, w.root, st, { deps: { uploadChunks: async () => ({ ok: false, otherEpoch: 3, grantSpent: true, because: 'the grant names key epoch 3, not 1', keys: new Map(), lockedUntil: new Map(), bucket: null }) } });
+    assert.equal(r.ok, false); assert.equal(r.otherEpoch, 3);
+    const st2 = store({ manifestAnswer: { ok: false, otherEpoch: 4, grantSpent: true, because: 'the manifest grant names key epoch 4, not 1' } });
+    const r2 = await take(k, w.root, st2);
+    assert.equal(r2.ok, false); assert.equal(r2.otherEpoch, 4);
+    // Control: a refusal without it carries none.
+    const st3 = store({ manifestAnswer: { ok: false, grantSpent: true, because: 'no' } });
+    const r3 = await take(k, w.root, st3);
+    assert.equal(r3.ok, false); assert.equal('otherEpoch' in r3, false);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
