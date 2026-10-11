@@ -294,6 +294,14 @@ const TRIAGED_5548 = {
   setIntervalMinutes: ['engine/heartbeat-setting.js', ACCESSOR + ' (a single-field setter beside the patch setter the PUT route uses, #1722)'],
   labelFor: ['engine/communityindustry.js', 'pending: slice 2 of OPEN #4375 (the public label for an owner\'s industry)'],
   HANDOFF_CHECK_FOR_SERVING_AFTER_MS: ['engine/win32handoff.js', 'mirrored by tools/windows/KosmosLauncher.cs (CheckForServingAfterMs), pinned equal by tools.win-launcher-native.test.js'],
+  // kosmos#5786 (b): the open-browser secret's seams. engine/remote.test.js drives the 3 s tick, reads S to compute a
+  // device's vouch, reads the URL the opener got and the window's end, and moves the epoch as a same-identity re-register
+  // does. Production runs the tick from its own timer and never reads S back.
+  vouchTickForTests: ['engine/remote.js', TEST_SEAM + ' (drives the 3 s tick; production runs it from its own timer)'],
+  vouchSecretForTests: ['engine/remote.js', TEST_SEAM + ' (reads S so a test can compute a vouch; in-process code that can call it can already call deviceAllow)'],
+  vouchOpenedUrlForTests: ['engine/remote.js', TEST_SEAM + ' (reports the address the opener was given)'],
+  vouchUntilForTests: ['engine/remote.js', TEST_SEAM + ' (reports the window end, to pin that opening the browser does not restart it)'],
+  bumpSelfEpochForTests: ['engine/remote.js', TEST_SEAM + ' (moves the epoch as a same-identity re-register does)'],
 };
 
 const engineDir = path.join(__dirname, 'engine');

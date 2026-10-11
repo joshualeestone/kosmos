@@ -37538,7 +37538,7 @@ async function dmHeldSend(btn) {
     ok = res.ok || res.status === 409;   // 409: it was sent or dropped meanwhile; the repaint shows which
     if (!ok) {
       const out = await res.json().catch(() => null);
-      because = out && typeof out.error === 'string' && out.error ? 'Not sent: ' + out.error.replace(/[.\s]+$/, '') + '.' : 'Not sent (the board answered ' + res.status + '). Try again.';
+      because = out && typeof out.error === 'string' && out.error ? 'Not sent: ' + out.error.replace(/[.\s]+$/, '') + '.' : 'Kosmos could not send it. Try again.';   // never a bare status number on screen
     }
   } catch { ok = false; }
   if (!ok) {
@@ -47333,7 +47333,19 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null };
+const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
+  /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id
+     whose notice was put away, and what its Undo said. */
+  here: null, hereGone: '', hereSaid: '', hereSaidFor: '', hereSaidAt: 0 };
+/* kosmos#5786 (b): one connection's notice, by device AND when it was connected, so putting one away never hides a
+   later automatic Allow of the same browser. */
+function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
+/* kosmos#5786 (b): the browser in a device name ("Mac · Safari" is Safari), for "Safari on this computer". */
+function askBrowserWord(name) {
+  const n = String(name || '');
+  const i = n.lastIndexOf(' \u00b7 ');
+  return i >= 0 ? n.slice(i + 3) : 'Your browser';   // a bare name may not be a browser
+}
 /* #4824: how long what a Remove said stays under the list (through the 5 s poll's repaints) before it is dropped. */
 const REMOVE_SAID_MS = 2 * 60 * 1000;
 /* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Not me; an old one fades). A
@@ -47414,6 +47426,7 @@ async function pollAsk() {
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
   ASK.email = r.email || '';
+  ASK.here = r.connected_here && typeof r.connected_here.device_id === 'string' ? r.connected_here : null;
   /* A finished row leaves once the tunnel stops listing the device (allowed
      ids are excluded from pending; a deny drops the row at the coordinator),
      and an allowed row leaves on its own after a few seconds regardless. */
@@ -47441,7 +47454,11 @@ function paintAsk() {
   const live = askLive();
   const rows = ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state !== 'gone');
   const doneIds = Object.keys(ASK.done).filter((id) => ASK.done[id].state !== 'gone');
-  const anything = live.length || doneIds.length;
+  /* kosmos#5786 (b): the browser this computer just connected without asking, until Got it, its Undo, or ten minutes. */
+  // What an Undo said stays as long as a Remove's line does (REMOVE_SAID_MS), then goes.
+  if (ASK.hereSaid && Date.now() - ASK.hereSaidAt > REMOVE_SAID_MS) ASK.hereSaid = '';
+  const here = ASK.here && askHereKey(ASK.here) !== ASK.hereGone ? ASK.here : null;
+  const anything = live.length || doneIds.length || here || ASK.hereSaid;
   /* #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the full cards render ABOVE the panel; on any
      other view the top card is one compact line linking there. */
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
@@ -47458,7 +47475,7 @@ function paintAsk() {
      whose Allow or Not me failed still waits (its sheet shows again, with the reason). */
   const answered = (id) => !!ASK.done[id] && (ASK.done[id].state === 'allowed' || ASK.done[id].state === 'denied');
   { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !rows.some((d) => !answered(d.device_id)); }   // the rows the sheets are drawn from
-  const hide = !anything || inPanel || (!onPlus && !live.length);
+  const hide = !anything || inPanel || (!onPlus && !live.length && !here);
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
   const dot = document.querySelector('#s-nav button[data-go="plus"]');
@@ -47470,7 +47487,9 @@ function paintAsk() {
     title.textContent = '';
     lead.hidden = true;
     const n = live.length;
-    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + (n === 1 ? askHead(live[0]) + '.' : n + ' devices want to connect to your Kosmos.') +
+    // kosmos#5786 (b): with nothing waiting, the browser this computer just connected; Review leads to its Undo.
+    const line = !n && here ? askEsc(askBrowserWord(here.name)) + ' on this computer is connected.' : n === 1 ? askHead(live[0]) + '.' : n + ' devices want to connect to your Kosmos.';
+    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>');
     return;
   }
@@ -47549,13 +47568,47 @@ function paintAsk() {
   const after = [];
   for (const d of rows) { seen.add(d.device_id); (answered(d.device_id) ? after : out).push(render(d, ASK.done[d.device_id])); }
   for (const id of doneIds) { if (!seen.has(id)) after.push(render(ASK.done[id].device, ASK.done[id])); }
+  if (here) {
+    const word = askEsc(askBrowserWord(here.name));
+    after.unshift('<div class="askrow done"><p class="askok">' + word + ' on this computer is connected.</p>' +
+      '<p>It was opened from this computer and is signed in to your account, so Kosmos did not ask you. Not yours? Undo disconnects it here.</p>' +
+      (ASK.hereSaid && ASK.hereSaidFor === askHereKey(here) ? '<p class="askwait">' + askEsc(ASK.hereSaid) + '</p>' : '') +
+      '<div class="acts"><button class="btn quiet" type="button" data-ask="here-undo" data-id="' + askEsc(here.device_id) + '" data-at="' + askEsc(String(here.at)) + '" aria-label="Undo: disconnect ' + word + ' on this computer"' + (ASK.removing ? ' disabled' : '') + '>' + (ASK.removing === here.device_id ? 'Disconnecting' : 'Undo') + '</button>' +
+      '<button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(here.device_id) + '" data-at="' + askEsc(String(here.at)) + '">Got it</button></div></div>');
+  } else if (ASK.hereSaid) {
+    after.unshift('<div class="askrow done"><p>' + askEsc(ASK.hereSaid) + '</p>' +
+      '<div class="acts"><button class="btn quiet" type="button" data-ask="here-ok" data-id="">Got it</button></div></div>');
+  }
   out.push(...after);
   askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
   askWrite(document.getElementById(inPanel ? 'ask-rows' : 'plus-ask-rows'), '');
 }
-async function askAct(act, id) {
+async function askAct(act, id, at) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
   if (act === 'open') { showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
+  if (act === 'here-ok') { ASK.hereGone = at ? id + '@' + at : ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone; ASK.hereSaid = ''; paintAsk(); return; }
+  if (act === 'here-undo') {
+    // One remove at a time, shared with the Devices list's Remove (it can take up to a minute).
+    if (ASK.removing) return;
+    // The notice this button was painted for (a poll may have replaced ASK.here since).
+    const key = at ? id + '@' + at : ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : '';
+    ASK.removing = id;
+    paintAsk();
+    paintDevices();
+    let res = null;
+    try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
+    ASK.removing = null;
+    const said = res ? await res.json().catch(() => null) : null;
+    ASK.hereSaidFor = key;
+    ASK.hereSaidAt = Date.now();
+    // The same words the Devices list's Remove says (what it reached, what it did not), from the same answer.
+    if (res && res.ok) { ASK.hereGone = key; ASK.hereSaid = removedWords(said); }
+    else ASK.hereSaid = plusWords((said && said.error) || 'we could not disconnect it; try again, or remove it under Devices');
+    for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+    paintAsk();
+    paintDevices();
+    return;
+  }
   if (act === 'gotit') { if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d }; paintAsk(); paintDevices(); return; }
   if (!d) return;
   const verb = act === 'allow' ? 'allow' : 'deny';
@@ -47584,11 +47637,11 @@ async function askAct(act, id) {
 }
 document.getElementById('askcard').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
-  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
+  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'), b.getAttribute('data-at'));
 });
 document.getElementById('plus-asks').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
-  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
+  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'), b.getAttribute('data-at'));
 });
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in
@@ -47648,7 +47701,8 @@ async function paintDevices() {
     const name = askKind(d);
     /* #4794 (part C): a device another of the person's computers allowed says which one. The wording is ours to
        change (Mona owns the copy); a device this computer allowed reads exactly as before. */
-    const meta = (d.allowed_on ? 'allowed on ' + askEsc(d.allowed_on) + ' &middot; ' : '') +
+    /* kosmos#5786 (b): one allowed because this computer opened it says so. */
+    const meta = (d.on_this_computer ? 'on this computer &middot; ' : '') + (d.allowed_on ? 'allowed on ' + askEsc(d.allowed_on) + ' &middot; ' : '') +
       'let in ' + askEsc(d.allowed_at ? askAgo(d.allowed_at).replace(/^on /, '') : 'today') +
       (d.last_seen ? ' &middot; last used ' + askEsc(askAgo(d.last_seen)) : ' &middot; not used yet');
     const confirming = ASK.confirm === d.device_id;
@@ -47724,6 +47778,7 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
     ASK.confirm = null;
     ASK.removing = id;
     paintDevices();
+    paintAsk();   // kosmos#5786 (b): the notice's Undo shares this lock, so it shows disabled too
     let res = null;
     try {
       try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
@@ -47733,6 +47788,7 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
     ASK.saidAt = Date.now();
     msg.textContent = ASK.said;
     paintDevices();
+    paintAsk();
   }
 });
 setInterval(pollAsk, 5000);
