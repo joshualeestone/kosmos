@@ -39,3 +39,18 @@ the step that a scheduler will call, not the scheduler.
   and the ok-key gate removed (it first SURVIVED: building the snapshot input threw and read as a failed run; the test
   now requires the key step's own reason, and the mutant goes red).
 - engine/backup*.test.js + engine.reachable.test.js: 356 pass, 0 fail. test-connector-verbs: 27 passed.
+
+## Review 1 (sonnet, blind, on cccf19b9c): NOT CONVERGED
+- FIXED (WARNING): a plain refusal between waits dropped `waits`, so the backoff restarted at an hour and each run
+  asked again (counting toward the #5736 cap). waits is now kept until an ok key; the passed waitUntilMs is dropped.
+  Test; mutant red.
+- FIXED (WARNING): a stored waitUntilMs far ahead (a wrong clock when written, a restored state) held the job for the
+  whole error. A wait more than BACKOFF_MAX_MS ahead is read as over. Test with a control at exactly the max; mutant red.
+- FIXED (WARNING): ensureMemberKey's unreadableKeyFile and refusal (failure) and pendingEpoch and lostEpochIgnored (ok)
+  were dropped. Passed through (result, and key). DECIDED: an ok key with pendingEpoch is sealed under, because the
+  newer key is not registered, so the member's current epoch is still the answered one. Tests; four mutants red.
+- FIXED (NIT): the "equal to lostEpoch" refusal is now commented as defensive (never answered when lostEpoch is honoured).
+- FIXED (NIT): a test for lostEpochIgnored with an answer ABOVE lostEpoch (sealed under, state cleared).
+- NO CHANGE (NIT): afterSnapshot on a state already holding lostEpoch overwrites it with key.epoch. That is right: the
+  key just used is the newest this computer holds, and runOnce never passes such a state (an ok key clears it).
+- NO CHANGE (NIT): the '4' string otherEpoch case guards isEpoch against a producer change; kept.
