@@ -4612,11 +4612,12 @@ cmd_task() {
       local _toldusage="Usage: kosmos task told <project-id> <task-number> [\"<what you told the person>\"]   (or --value \"...\")"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_toldusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      local _t _twant=0 _tval=0
+      local _t _twant=0 _tval=0 _tpast=0
       for _t in "${@:3}"; do
+        if [ "$_tpast" = 1 ]; then break; fi   # review 2: after --, every word is what was told (as ran)
         if [ "$_twant" = 1 ]; then case "$_t" in --*) say "--value needs the words, not $_t. $_toldusage"; exit 2 ;; esac; _twant=0; _tval=1; continue; fi
         # Review 1: bare words are what was told (as ran's note); only --value is an option here.
-        case "$_t" in --value) _twant=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task told" "$_toldusage" "$_t" ;; esac
+        case "$_t" in --) _tpast=1 ;; --value) _twant=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task told" "$_toldusage" "$_t" ;; esac
       done
       [ "$_twant" = 0 ] || { say "--value needs the words. $_toldusage"; exit 2; } ;;
     hold|unhold)
@@ -4892,8 +4893,10 @@ cmd_task() {
         if [ "$sub" = repeat ]; then
           case "$_w" in --at) _wnext=at ;; --on) _wnext=on ;; --reviewer) _wnext=reviewer ;; --clear) clear=true ;; *) every="$_w" ;; esac
         else
-          case "$_wnext" in note) note="${note:+$note }$_w"; _wnext=""; continue ;; value) value="$_w"; _hasval=true; _wnext=""; continue ;; esac
+          # Review 2: told's words join in order, --value's and bare ones alike (Windows does the same); ran's --value is one word.
+          case "$_wnext" in note) note="${note:+$note }$_w"; _wnext=""; continue ;; value) if [ "$sub" = told ]; then value="${value:+$value }$_w"; else value="$_w"; fi; _hasval=true; _wnext=""; continue ;; esac
           if [ "$_w" = "--value" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=value; continue; fi   # kosmos#5836
+          if [ "$sub" = told ] && [ "$_w" = "--" ] && [ "${_rpast:-0}" = 0 ]; then _rpast=1; continue; fi   # review 2: -- is not a word
           if [ "$sub" = told ]; then value="${value:+$value }$_w"; _hasval=true; continue; fi   # review 1: bare words are what was told
           if [ "$_w" = "--note" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=note; continue; fi
           if [ "$_w" = "--unchanged" ] && [ "${_rpast:-0}" = 0 ]; then unchanged=true; continue; fi   # kosmos#5643

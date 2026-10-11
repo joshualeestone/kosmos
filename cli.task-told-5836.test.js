@@ -174,3 +174,23 @@ test('both CLIs: told refuses an option, and --value with no words or with an op
     assert.equal(w.calls.length, 0);
   }
 });
+
+/* Review 2: told's words, whatever mix of bare words and --value, join in order on both CLIs; `--` ends the options and
+   is never part of the text, so a reading starting with -- can still be told. */
+for (const [args, want] of [
+  [['task', 'told', 'p1', '3', 'a', '--value', 'b'], 'a b'],
+  [['task', 'told', 'p1', '3', '--', '3', 'errors'], '3 errors'],
+  [['task', 'told', 'p1', '3', '--', '--dry', 'run'], '--dry run'],
+]) {
+  test('both CLIs: told ' + args.slice(4).join(' ') + ' records "' + want + '"', async () => {
+    const home = makeHome();
+    await withStub(async (port, seen) => {
+      const r = await sh(port, home, args);
+      assert.equal(r.code, 0, r.out);
+      assert.equal(seen[0].body.value, want);
+    });
+    const w = await win(args);
+    assert.equal(w.code, 0, w.out);
+    assert.equal(w.calls[0].body.value, want);
+  });
+}

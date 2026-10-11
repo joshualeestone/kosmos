@@ -1112,9 +1112,11 @@ async function taskTold(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err(TOLD_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  let want = false, value;
+  let want = false, value, past = false;
   const words = [];
   for (const a of args.slice(2)) {
+    if (past) { words.push(a); continue; }   // review 2: after --, every word is what was told (as ran)
+    if (a === '--' && !want) { past = true; continue; }
     if (want) {
       if (/^--/.test(a)) { ctx.err('--value needs the words, not ' + a + '. ' + TOLD_USAGE); return 2; }
       words.push(a); want = false; continue;
