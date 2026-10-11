@@ -59,12 +59,11 @@ function settingModelName(name, deps) {
 }
 
 /* #5811: the decision for one snapshot row (engine/status.js), from what that tick's ONE session read already put on it:
-   `a.model` (the raw id the newest reply named) and `a.geminiSeen` ({ modelAt, planned }). No job read and no session
-   read here; only the run start (tmux's session list, cached per poll) and the display name (pure). No geminiSeen means
-   the snapshot could not read the session, so there is nothing to say. */
-function settingModelNameOfRow(a, deps) {
-  if (!a || !a.geminiSeen) return null;
-  const seen = a.geminiSeen;
+   `a.model` (the raw id the newest reply named) and the row's `geminiSeen` ({ modelAt, planned }), passed as `seen`
+   because server.js takes it off the row before the page gets it. No job read and no session read here. No `seen`
+   means the snapshot could not read the session, so there is nothing to say. */
+function settingModelNameOfRow(a, seen, deps) {
+  if (!a || !seen) return null;
   return settingModelName(a.sessionName, {
     ...(deps || {}),
     planned: () => seen.planned,

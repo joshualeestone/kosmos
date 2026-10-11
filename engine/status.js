@@ -6197,8 +6197,8 @@ function readGeminiSession(agentName) {
   let sess;
   try { sess = require('./geminisession').read(dir, home); }
   catch { return { found: false }; }
-  /* #5811: the model this job is SET to, from the job already read above, so the #5804 "(set to X)" decision
-     (engine/geminimodelswitch.js) needs no second job read per poll. */
+  /* #5811: the model this job is SET to, from the job already read above (every caller gets it), so the #5804
+     "(set to X)" decision (engine/geminimodelswitch.js) needs no second job read per poll. */
   if (sess && sess.found) {
     let planned = null;
     try { planned = create.plannedModelOfJob(job); } catch { planned = null; }
@@ -8692,7 +8692,7 @@ function snapshot() {
       modelName: modelDisplayName(model),
       /* #5811: what the #5804 "(set to X)" decision needs, from this tick's ONE session read (geminiSess above), so
          server.js decides it without reading the job or the session again. Gemini panes only; null when the session
-         was not found. Not sent to the page: server.js builds the page's row field by field. */
+         was not found. server.js takes it off the row before the page gets it. */
       geminiSeen: (tied && isGeminiPane && geminiSess && geminiSess.found)
         ? { modelAt: Number.isFinite(geminiSess.modelAt) ? geminiSess.modelAt : null, planned: geminiSess.planned || null }
         : null,
