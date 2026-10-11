@@ -780,6 +780,9 @@ echo "== update (stale file must not survive; board must restart) =="
 # edited it). Both halves: a file cannot be changed, and no file can be added.
 chk "#4449: the installed app refuses an edit to a file" "[ -f \"$SB/home/app/server.js\" ] && [ ! -w \"$SB/home/app/server.js\" ]"
 chk "#4449: the installed app refuses a new file" "! ( : > \"$SB/home/app/engine/agent-edit.js\" ) 2>/dev/null && [ ! -e \"$SB/home/app/engine/agent-edit.js\" ]"
+# Only app/ is read-only. bin/ and runtime/ stay as they were, and this pins it, so a later widening is a decision
+# somebody makes here and not a side effect.
+chk "#4449: bin/ and runtime/ are left writable" "[ -w \"$SB/home/bin\" ] && [ -w \"$SB/home/runtime\" ]"
 # The edit that happened: an editor writes a temp file BESIDE the target and renames it over (measured on the card).
 chk "#4449: an editor's write-beside-then-rename edit of server.js is refused" "! ( cp \"$SB/home/app/server.js\" \"$SB/home/app/server.js.tmp.4449\" && mv -f \"$SB/home/app/server.js.tmp.4449\" \"$SB/home/app/server.js\" ) 2>/dev/null && [ ! -e \"$SB/home/app/server.js.tmp.4449\" ]"
 # The stale leftover the swap must remove, planted the way an agent that chmods its way past would.
