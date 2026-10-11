@@ -1944,7 +1944,8 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   }
   const iso = new Date(reset > now ? reset : now + LIMIT_RELOOK_MS).toISOString();
   return {
-    state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: iso,
+    // limitReset: the printed reset itself, which a held ask's day counts from (heldUntil is the next look after it).
+    state: DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: iso, limitReset: new Date(reset).toISOString(),
     because: reset > now ? 'held: this agent is paused on a usage limit until ' + iso
       : 'held: this agent still shows its usage limit on screen; looking again at ' + iso,
     at: new Date().toISOString(), paneState: null, paneNote: null,

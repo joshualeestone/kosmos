@@ -102,7 +102,11 @@ function noteLimit(name, projectId, ids, untilIso, now = Date.now()) {
       if (!Number.isFinite(prev) || prev < until) (out[projectId] = out[projectId] || Object.create(null))[k] = new Date(until).toISOString();
     }
     return writeLimits(name, out);
-  } catch { return false; }
+  } catch {
+    // Without the record these asks are judged a day old from the post, not the reset, and may be dropped.
+    try { process.stdout.write('room-hold: ' + (name || '?') + ' could not record the usage limit for ' + ids.length + ' held ask(s) in ' + projectId + '\n'); } catch { /* never breaks a send */ }
+    return false;
+  }
 }
 function writeLimits(name, all) {
   const kept = Object.create(null);
@@ -345,7 +349,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
       const sent = await deliver(name, clauseFor(projectId, shown, ids), roster);
       state = sent && sent.state;
       capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
-      if (sent && sent.held === true && sent.heldBy === 'limit') limitUntil = sent.heldUntil;
+      if (sent && sent.held === true && sent.heldBy === 'limit') limitUntil = sent.limitReset;
     } catch { state = DELIVERY.COULD_NOT; }
     /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
        posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */

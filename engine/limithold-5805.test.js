@@ -147,6 +147,7 @@ test('#5805 a passed dated reset on a card that still reads capped (its limit me
     assert.match(v.because, /still shows its usage limit on screen/);
     const until = Date.parse(v.heldUntil);
     assert.ok(until >= before + 50e3 && until <= Date.now() + 70e3, 'not a minute on: ' + v.heldUntil);
+    assert.equal(Date.parse(v.limitReset), status.limitResetAt(past, Date.now()), 'limitReset is not the printed reset');
     assert.deepEqual(tmux.typed(), []);
     // More than an hour past the reset, a card still reading capped (a line status never retires) is typed as before.
     const long = (h) => board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: `You've reached your weekly limit · resets ${resetAt(Date.now() - h * 3600e3)} (America/Chicago)` } : c));
@@ -255,12 +256,14 @@ test('#5805 withoutStale: an ask a usage limit kept is not dropped as a day old 
 
 test('#5805 flush: a #4624 hold the limit holds at the idle flush keeps its marks and records the reset', async () => {
   roomhold.hold('april', PROJECT, roomhold.addressedId('m9'));
-  const until = new Date(Date.now() + 2 * DAY).toISOString();
-  const held = async () => ({ state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: until, because: 'held: limit' });
+  /* A re-look after the reset: heldUntil is a minute on, the reset was 50 minutes ago. The day counts from the reset. */
+  const now = Date.now();
+  const held = async () => ({ state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: new Date(now + 60e3).toISOString(), limitReset: new Date(now - 50 * 60e3).toISOString(), because: 'held: limit' });
   const done = await roomhold.flushOnIdle('april', { deliver: held, roster: [], shownOf: () => 'Henderson lease', DELIVERY: chat.DELIVERY });
   assert.equal(done[0].state, chat.DELIVERY.COULD_NOT);
   assert.deepEqual(roomhold.heldIn('april', PROJECT), [roomhold.addressedId('m9')], 'the mark was lost on the put-back');
   assert.equal(roomhold.limitKept('april', PROJECT, 'm9'), true, 'the flush did not record the limit');
+  assert.equal(roomhold.limitKept('april', PROJECT, 'm9', now + DAY - 40 * 60e3), false, 'the day counted from the next look, not the reset');
 });
 
 test('#5805 retry: only a project whose ask survives is told; a project holding only plain posts waits untouched', async () => {
