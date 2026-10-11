@@ -17,8 +17,10 @@ new-key posts show.
    rotation names it without relying on the revoke's answer; a peer pinned before this change
    falls back to that answer by its edge id.
 3. An account that a KEPT peer also has (one account on two edges) is not recorded.
-4. handleEvent (owner, sealed, opened): a post whose relay stamp `ev.member` equals a recorded
-   account and whose authenticated epoch is <= the recorded epoch is refused with one note.
+4. handleEvent (owner, sealed): a post whose relay stamp `ev.member` equals a recorded account and
+   whose envelope epoch is <= the recorded epoch is refused with one note, before holdForCheck, so
+   it never takes a held place or asks Kosmos+. The envelope epoch is not yet authenticated, but
+   the stamp is the relay's, so a wrong epoch can only refuse its own sender's post.
 5. server.js /api/federation/remove: on success, `fedseats.afterRemove(project)` records the
    moment (wall and monotonic) and runs the room's check (checkRoom) with a fresh answer, so the
    room rotates and records now, and held posts are judged on an answer asked after the remove.

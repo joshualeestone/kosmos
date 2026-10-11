@@ -232,6 +232,14 @@ function handleEvent(projectId, line, heldAt) {
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from ' + farSide(projectId) + ' was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
+      // #5191: the relay's stamp names a member this owner knows is revoked, on a key that member
+      // held: refused, grace or not, before it can take a held place. The epoch is the envelope's,
+      // not yet opened, but the stamp is the relay's, so a wrong one refuses only its sender's post.
+      // No stamp (an older relay): as before.
+      if (sealed && sealed.role === 'owner' && isRevokedPost(sealed, ev.member, ev.data.epoch)) {
+        noteOnce(projectId, s, 'revokedPost', 'A message from someone you removed from this shared project was not shown.');
+        return;
+      }
       // #5191: an owner opens a post only after a recent enough edge check (holdForCheck).
       if (!heldAt && sealed && sealed.role === 'owner' && hasKey(sealed) && holdForCheck(projectId, s, sealed, ev.data, line, now)) return;
       // A member seeing a newer epoch than its own missed a rotation: until the owner's
@@ -276,12 +284,6 @@ function handleEvent(projectId, line, heldAt) {
           return;
         }
         noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.');
-        return;
-      }
-      // #5191: the relay's stamp names a member this owner knows is revoked, and the post opened
-      // under a key that member held: refused, grace or not. No stamp (an older relay): as before.
-      if (sealed && sealed.role === 'owner' && isRevokedPost(sealed, ev.member, ev.data.epoch)) {
-        noteOnce(projectId, s, 'revokedPost', 'A message from someone you removed from this shared project was not shown.');
         return;
       }
       const fresh = freshMessage(s, opened, now);
@@ -635,7 +637,8 @@ function afterRemove(projectId) {
   let link = null;
   try { link = linkFor(projectId); } catch { link = null; }
   if (!link || link.role !== 'owner') return Promise.resolve(false);
-  // This check is asked after the remove in program order, whatever a coarse timer reads.
+  // An ordering token, not a measured time: this check is asked after the remove in program order,
+  // whatever a coarse timer reads.
   const removedMono = s ? s.removedMono : undefined;   // this remove's moment, not a later remove's
   const after = s ? () => removedMono + 1n : undefined;
   return checkRoom(projectId, link, null, false, null, s, after).then((r) => !!(r && r.rotated), () => false);

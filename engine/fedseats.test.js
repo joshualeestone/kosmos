@@ -4164,3 +4164,17 @@ test('#5191: a first remove\'s answer arriving after a second remove does not co
   assert.deepStrictEqual(fedseal.roomState(id).revokedAccounts, { 'acct-tr-0': 0, 'acct-tr-1': 1 }, 'both removes recorded, each at the key it held');
 });
 
+test('#5191: a revoked member\'s stamped post is refused before it can take a held place or ask Kosmos+', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  const id = 'proj-5191-noheld';
+  const { h, edges, stamped } = await stampedRoom(id, 'nh', 2);
+  h.edges = edges([0]);
+  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), true);
+  t.mock.timers.tick(20 * 1000);   // the room's last check is now older than 15 s: a post would be held for one
+  const asked = h.asked;
+  stamped('acct-nh-0', 'revoked');
+  await settle();
+  assert.strictEqual(h.asked, asked, 'a revoked member\'s post was held and asked Kosmos+ for a check');
+  assert.deepStrictEqual(shown(h), []);
+});
+
