@@ -1895,8 +1895,17 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...(md0 ? [path.join(md0, 'CLAUDE.md'), ...mdUnder(path.join(md0, '.claude', 'rules'))] : []),   // review 3: the managed rules too
   ];
   if (mdBudget.out) configUnsafe.push('the rules folders Claude Code reads (more folders than Kosmos follows), so some imports are not denied');
-  const imported = startimports.importTargets(importRoots, { home });
+  /* Review 9: whatever happens in the import scan, the rest of the guard is still written and the guard says it is not
+     whole, as the start-command and launch scans do. */
+  let imported = { files: [], unsafe: [] };
+  try { imported = startimports.importTargets(importRoots, { home }); } catch (e) { imported = { files: [], unsafe: [`(the files Claude Code's instruction files import could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...imported.unsafe);
+  /* Review 9: an import path is carriable only if it has NO rule-syntax character at all. ruleHasPatternChar lets the
+     guard's OWN glob shapes through (a trailing double or single star, a mid-path star folder, a trailing dot-star), so `@src/**` in an
+     instruction file became a live wildcard denying a whole tree, in every agent's folder, never pruned; Claude Code
+     only ever reads a literal file of that name. */
+  const IMPORT_RULE_SYNTAX = /[*?[\]{}()!\\]/;
+  const importBad = (p, rule) => IMPORT_RULE_SYNTAX.test(p) || ruleHasPatternChar(rule);
   const importFiles = [];
   /* A target inside an agent's folder in the agents' folder (Kosmos's own instruction files say "@-mention", which
      Claude Code reads as an import of <agent>/-mention) gets ONE mid-path glob per name, as the sibling members above
@@ -1926,11 +1935,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const importLinks = [];   // a link to a read-only or store target: the link itself, file tools only (as editOnlyLinks)
   const outsideAgentsHop = (h) => {
     const r = stableRootOf(deps.storeRoots || STORE_ROOTS, h);
-    if (r && !tooWide(r) && !ruleHasPatternChar(`Edit(${ruleAbs(r)}/**)`)) importStableDirs.add(r); else importLinks.push(h);
+    if (r && !tooWide(r) && !importBad(r, `Edit(${ruleAbs(r)}/**)`)) importStableDirs.add(r); else importLinks.push(h);
   };
   const outsideAgents = (f) => {
     if (coveredWhole(f)) return;
-    if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) { uncarriedImport(f); return; }
+    if (importBad(f, `Edit(${ruleAbs(f)})`)) { uncarriedImport(f); return; }
     // Review 4: every replaceable link on the way (part 2's chainHops), file tools only; one in a store or Cellar by its rule.
     for (const h of chainHops(f)) outsideAgentsHop(h);
     let real;
@@ -1945,11 +1954,19 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (st) { configUnsafe.push(`${f} (an import that leads into ${st}, a folder too wide to deny: it holds the home or the agent's own folder)`); if (linked) importLinks.push(f); return; }
     importFiles.push(...withTarget(f, configUnsafe));
   };
+  /* Review 9: a name that is a FOLDER in any agent's folder (`@src` in prose) is not a file Claude Code reads there, and
+     an Edit rule on it would cover the whole folder in every agent's folder: skipped. */
+  const agentDirCache = new Map();
+  const agentDirNamed = (rest) => {
+    if (!agentDirCache.has(rest)) agentDirCache.set(rest, [path.resolve(dir), ...siblings].some((a) => { try { return fs.statSync(path.join(a, rest)).isDirectory(); } catch { return false; } }));
+    return agentDirCache.get(rest);
+  };
   for (const f of imported.files) {
     if (coveredWhole(f)) continue;
     const rest = inAgentFolder(f);
     if (rest !== null) {
-      if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', rest))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest))})`);
+      if (agentDirNamed(rest)) { /* a folder in some agent's folder: Claude Code reads files only, and a rule would cover the folder */ }
+      else if (!importBad(rest, `Edit(${ruleAbs(path.join(siblingBase, 'x', rest))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest))})`);
       else uncarriedImport(f);
       // Review 2: the glob names the path as written; one that leads elsewhere (a link, or under a linked folder) has
       // that place denied too, as any target is. Inside the agents' folder again, its own glob.
@@ -1960,12 +1977,13 @@ function tokenOnlySettingsRules(dir, deps = {}) {
         for (const h of chainHops(f)) {
           const restH = inAgentFolder(h);
           if (restH === null) outsideAgentsHop(h);
-          else if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', restH))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', restH))})`);
+          else if (!importBad(restH, `Edit(${ruleAbs(path.join(siblingBase, 'x', restH))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', restH))})`);
           else uncarriedImport(h);
         }
         const rest2 = inAgentFolder(real);
         if (rest2 === null) outsideAgents(real);
-        else if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', rest2))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest2))})`);
+        else if (agentDirNamed(rest2)) { /* a folder, as above */ }
+        else if (!importBad(rest2, `Edit(${ruleAbs(path.join(siblingBase, 'x', rest2))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest2))})`);
         else uncarriedImport(real);   // review 7: named, never silently dropped
       }
       continue;
@@ -1976,7 +1994,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      ~/Dropbox (Personal) folder) even when the import's own path can: named here, as `carries` does for the shell
      startup files, so the generic drop never stops the whole guard and blames the agent's folder. */
   const importCarries = (what, rule) => (x) => {
-    if (!ruleHasPatternChar(rule(x))) return true;
+    if (!importBad(x, rule(x))) return true;
     configUnsafe.push(`${x} (${what}, a path the permission rules cannot carry)`);
     return false;
   };

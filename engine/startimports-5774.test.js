@@ -435,3 +435,27 @@ test('#5774 route 3 review 7: a chain that starts inside an agent folder has its
     assert.ok(JSON.stringify(g).includes('odd (1).md (a file an instruction file imports'), JSON.stringify(g));
   } finally { fs.rmSync(path.join(sib, 'CLAUDE.md'), { force: true }); }
 });
+
+test('#5774 route 3 review 9: an import shaped like the guard\'s own globs never becomes a wildcard rule; an escaped backtick is text; a list line inside a top-level fence is code; a bare folder name is no rule', () => {
+  const f = path.join(SANDBOX, 'r9', 'CLAUDE.md');
+  const dir = path.dirname(f);
+  assert.ok(si.importsIn('Use \\`@x.md\\` here.', f, '/h').includes(path.join(dir, 'x.md')), 'an escaped backtick is not a code span');
+  assert.deepStrictEqual(si.importsIn('Example:\n\n```\n- @docs/x.md\n- npx @scope/tool\n```\n', f, '/h'), [], 'list lines inside a top-level fence');
+  assert.ok(si.importsIn('- item\n  ```\n  - @in-list.md\n  ```\n', f, '/h').includes(path.join(dir, 'in-list.md')), 'a fence inside a list item is still raw text');
+  const write = (p, body) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, body); };
+  const sib = path.join(SANDBOX, 'workers', 'sib-r9', 'CLAUDE.md');
+  const homeMd = path.join(HOME, '.claude', 'CLAUDE.md');
+  const wild = ['- edit files under @src/** only', '- or @lib/* and @a/*/b.md and @conf/.* too', '- see @src please'].join('\n') + '\n';
+  write(sib, wild);
+  write(homeMd, '- keep @notes/** tidy\n');
+  try {
+    const d = agentDir('pilot-wild-r9');
+    fs.mkdirSync(path.join(d, 'src'), { recursive: true });   // a folder named src in an agent's folder
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-wild-r9', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(d).permissions.deny;
+    for (const t of [path.join(d, 'src', 'index.ts'), path.join(d, 'lib', 'x.js'), path.join(d, 'a', 'q', 'b.md'), path.join(d, 'conf', '.env'), path.join(HOME, '.claude', 'notes', 'n.md')]) {
+      assert.ok(!editDeniedBy(deny, t).length, `${t} denied by an import-shaped wildcard: ${JSON.stringify(editDeniedBy(deny, t))}`);
+    }
+  } finally { fs.rmSync(sib, { force: true }); fs.rmSync(homeMd, { force: true }); }
+});

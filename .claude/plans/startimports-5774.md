@@ -23,6 +23,7 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
   - the managed CLAUDE.md and the managed rules (`<managed>/.claude/rules`, as 2.1.296 builds it).
 - Each target goes through withTarget (links followed) and is denied in both layers, as part 1's command scripts are. A target inside a folder already denied whole is left to that rule.
 - A target inside an agent's folder in the agents' folder gets ONE mid-path glob per name (`<agents>/*/<name>`), file tools only, as the sibling members already do. Measured on this fleet: Kosmos's own agent instruction files say "@-mention" and "@-mentioned." in prose, which Claude Code reads as imports of `<agent>/-mention`. It would load such a file as instructions if one were created, so it is denied, but by name it would be one rule per agent (26 on this machine), growing with every agent. The glob also matches the agent's own folder, the safe direction.
+- An import path is carriable only with NO rule-syntax character at all (review 9): the guard's general check lets its own glob shapes through, and `@src/**` became a live wildcard over a whole tree in every agent's folder. A path whose last part is empty, `.` or `..` names a folder and is no import (`lib/`, or `conf/.` from `@conf/.*`), and a name that is a folder in some agent's folder gets no glob (an Edit rule on it would cover the folder).
 - A target the rule syntax cannot carry is named when it exists. An absent one is skipped, as part 1 decided for a word that only looks like a path.
 
 ## Decided
@@ -52,13 +53,14 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - An existing import target whose path carries a version or a branch name (`@~/work/foo-<branch>/NOTES.md`) is denied by name, so each version that is imported in turn leaves its rule behind (import rules are not pruned; see Decided). Not seen on this fleet (review 8).
 - Part 1's command scripts still do not deny a link in the middle of a chain (imports do since review 4, by part 2's chainHops).
 - An import that names an existing FOLDER is skipped (Claude Code reads files only). Where the shell can write, the agent could replace the folder with a file of that name; denying the folder whole instead would refuse the agent's own work there.
+- The test sandbox lives under the system temp folder, so its folders above include the real temp chain and /: a stray CLAUDE.md there would add targets (harmless to the positive assertions).
 - Claude Code skips an external include (outside the folder it runs in) unless the person approved external includes, and a User-type root that is a link; the guard denies them regardless (the safe direction; the approval can change later).
 
 ## Cost
 On this host, the real roots for this agent's folder (two config homes, the folders above it, 23 siblings: 149 root files) read in 11 ms and give 5 import targets outside the agents' folder (the global CLAUDE.md's four imports plus `-addresses` from prose) and 3 names inside it. The size probe: 1017 deny rules and 145 denyWrite entries (9.2 KB), against 1012 and 140 before; the size check passes.
 
 ## Tests
-engine/startimports-5774.test.js, 14 tests. Thirteen mutations, each red: the config-home, ancestor and managed roots; the agents'-folder glob; the whole-folder skip; the absent-uncarriable skip; the sandbox layer; the depth limit; fenced code, inline code, comments, the # cut and the escaped space. The inline-code mutation stayed GREEN at first: the fixture's @ followed a backtick, which the import pattern never matches anyway; the fixture now puts a space before it inside the code span.
+engine/startimports-5774.test.js, 15 tests. The first cut's thirteen mutations, each red (each later iteration's are in its note below): the config-home, ancestor and managed roots; the agents'-folder glob; the whole-folder skip; the absent-uncarriable skip; the sandbox layer; the depth limit; fenced code, inline code, comments, the # cut and the escaped space. The inline-code mutation stayed GREEN at first: the fixture's @ followed a backtick, which the import pattern never matches anyway; the fixture now puts a space before it inside the code span.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on c5be2d57d:
@@ -127,4 +129,12 @@ engine/startimports-5774.test.js, 14 tests. Thirteen mutations, each red: the co
   - [NIT] not taken: `@src/*.md` gives an absent `src` target, skipped or denied harmlessly.
   - [NIT] ALREADY STATED, now with its source: the case-sensitive `.md` match is 2.1.296's own (measured).
   - [NIT] TAKEN: the depth line says the breadth-first walk is a superset of Claude Code's.
+- Iteration 9 (Opus), on 86b8a0769:
+  - [BLOCKER] FIXED (reproduced by the reviewer). An import shaped like the guard's own globs (`@src/**`, `@x/*`, `@a/*/b.md`, `@x/.*`) passed ruleHasPatternChar, which deliberately lets those shapes through, and became a LIVE wildcard: one line in any agent's instruction file denied a whole tree in every agent's folder, forever. Import paths are now carriable only with no rule-syntax character at all. Tested with all four shapes in a sibling's and a config home's list items; mutation red.
+  - [WARNING] FIXED. A backslash-escaped backtick was taken as a code-span edge, hiding an import Claude Code reads (the @ after an escape is a token edge). Escaped backticks are now text. Tested; mutation red.
+  - [WARNING] FIXED. The import scan was not wrapped as the start-command and launch scans are; a throw would have left no guard written. Now caught and named. Not tested (nothing in the scan is known to throw).
+  - [WARNING] FIXED. The raw pass read list-looking lines inside a top-level fenced example. listText now tracks fences outside lists. Tested (and a fence inside a list item is still read); mutation red.
+  - [NIT] FIXED, and it was wider than reported. A bare folder name (`@src`), and paths my star-to-space step made folder-shaped (`@lib/*` became `lib/`, `@conf/.*` became `conf/.`), became rules that cover a whole folder. A path whose last part is empty, . or .. is no import, and a name that is a folder in some agent's folder gets no glob. Tested; two mutations red. Caught by my own test of the blocker: two of its four shapes first failed this way.
+  - [NIT] TAKEN: the stale mutation count in the plan.
+  - [NIT] STATED under Gaps: the test sandbox's folders above.
 

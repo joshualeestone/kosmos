@@ -71,6 +71,10 @@ function stripCodeSpans(t) {
       if (t[j] === '\n') para++;
       i++;
     } else if (t[i] === '`') {
+      // Review 9: a backtick after an odd number of backslashes is escaped: literal text, not a span edge.
+      let bs = 0;
+      for (let b = i - 1; b >= 0 && t[b] === '\\'; b--) bs++;
+      if (bs % 2 === 1) { i++; continue; }
       let j = i;
       while (j < t.length && t[j] === '`') j++;
       runs.push([i, j - i, para]);
@@ -120,9 +124,13 @@ function stripComments(t) {
    comment inside such an item could be missed. */
 function listText(text) {
   const out = [];
-  let inList = false, prevBlank = false;
+  let inList = false, prevBlank = false, fence = null;
   for (const line of String(text).split('\n')) {
     const blank = /^\s*$/.test(line);
+    /* Review 9: a fenced block OUTSIDE a list is code, whatever its lines look like (`- @docs/x.md` in an example). */
+    const fm = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (!inList && fence) { if (fm && fm[1][0] === fence[0] && fm[1].length >= fence.length) fence = null; out.push(''); prevBlank = blank; continue; }
+    if (!inList && fm) { fence = fm[1]; out.push(''); prevBlank = blank; continue; }
     if (/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/.test(line)) inList = true;
     else if (inList && !blank && !/^\s/.test(line) && (prevBlank || /^(?:`{3,}|~{3,})/.test(line))) inList = false;
     out.push(inList ? line : '');
@@ -163,6 +171,10 @@ function importsIn(text, file, home) {
     if (h !== -1) p = p.slice(0, h);
     p = p.replaceAll('\\ ', ' ');
     if (!p) return;
+    // Review 9: a path whose last part is empty, . or .. names a folder, which Claude Code never loads as a file; proseOf's
+    // star-to-space also makes one from `@lib/*` or `@conf/.*`, which would be a rule over the whole folder.
+    const last = p.split('/').pop();
+    if (last === '' || last === '.' || last === '..') return;   // `lib/`, `conf/.` (from `@conf/.*`), `..`: a folder
     const ok = p.startsWith('./') || p.startsWith('~/') || (p.startsWith('/') && p !== '/')
       || (!p.startsWith('@') && !/^[#%^&*()]+/.test(p) && /^[a-zA-Z0-9._-]/.test(p));
     if (!ok) return;
