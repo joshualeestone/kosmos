@@ -242,3 +242,8 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 
 ## Review 20 (sonnet)
 - NO NEW ISSUES. CONVERGED at iteration 20 (head ff612024f).
+
+## After review 21 (found by the Mortals full suite, not a reviewer)
+- FIXED: limitqueue exports isTyping and isDone for its tests only; engine.reachable (#265) refused isTyping (isDone
+  escaped only because another module has a reachable isDone). Both are file-keyed test seams in SEAMS_5548 now.
+- Not this branch: remove.test.js #4006 timed out under load 18.7 on 12 cores; 93/93 alone.
