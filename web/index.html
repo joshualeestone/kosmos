@@ -38037,7 +38037,7 @@ function paintTalkThread(body, name) {
      that is genuinely mid-task the moment you open its dialog. */
   const dmSession = CURRENT && CURRENT.sessionName;
   const seededThread = dmSession ? DM_SPOKE_SEEDED.has(dmSession) : false;
-  for (const m of dmSession ? tailRows : []) {   // kosmos#5841: the latest only; an old earlier row is not a reply learned now
+  for (const m of dmSession && Array.isArray(body.messages) ? body.messages : []) {   // kosmos#5841: the latest only, not earlier rows
     if (!m || m.from !== dmSession || !m.at) continue;
     if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
     const at = Date.parse(m.at);
@@ -38175,9 +38175,7 @@ function paintTalkThread(body, name) {
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
-  /* kosmos#5841: another agent's earlier messages never stand under this agent's name, not for the fetch's round
-     trip and not while this agent's read keeps failing: reset BEFORE any await, whatever the read then does. */
-  if (EARLIER.session !== sessionName) earlierReset(sessionName);
+  if (EARLIER.session !== sessionName) earlierReset(sessionName);   // kosmos#5841: before any await
   /* #4256: this agent's pending reply, not the last one's, before any read answers: the read's failure arm
      returns without painting rows, and must not leave another agent's "Replying to" up. */
   dmReplyPaint(sessionName);

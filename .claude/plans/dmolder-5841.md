@@ -156,3 +156,11 @@ search, styling. Gone: the separate box, its CSS extensions, the read-only conve
   - Hide stealing focus from a click on a non-focusable area during a load;
   - the guide rule computed in both the thread route and dmServeRows (the thread route needs it for `pressable`);
   - the "latest N" count including the synthetic rows, which predates this change.
+
+## Final validation, run 1 (Mortals, 299b74717): 3 of 19141 red, all from this branch, all fixed
+- `browser-checks-reason-grep`: the new check needs a SITE_COUNTS line, `[1, 0]`.
+- `web.dm-badge-2863` reads the first 1800 characters of paintTalk, and the reset's 3-line comment pushed the `/seen`
+  read past it. The comment is now one line, leaving a margin of 9 characters. The next small addition to the top of
+  paintTalk will trip this test again.
+- `web.typing-order-1150` runs the DM stamp block on its own, where `tailRows` is not in scope. The loop now reads
+  `body.messages` directly.
