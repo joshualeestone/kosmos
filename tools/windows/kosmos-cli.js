@@ -90,7 +90,7 @@ const USAGE = {
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran|told>',
+    'Usage: kosmos task <list|add|assign|close|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
@@ -100,6 +100,7 @@ const USAGE = {
     '      --part <part-number>                                     which part, when the task has several',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
+    '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, as its page shows it',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
@@ -935,6 +936,35 @@ async function taskClose(ctx, args) {
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when closing that task.');
   return 1;
+}
+
+/* #5874, as install/kosmos cmd_task activity: the task's conversation through the board's route (never its files), each
+   event in the page's words (`?words=1`, engine/taskactphrase.js), one line each, oldest first, with this computer's
+   local time. With the agent's own token, so an agent reads only a project it is on. An older board sends no words:
+   the event's bare kind stands in, as the page shows an unknown kind. */
+async function taskActivity(ctx, args) {
+  const [project, num] = args;
+  const usage = 'Usage: kosmos task activity <project-id> <task-number>   (the number is shown by kosmos task list)';
+  if (!project || !num) { ctx.err(usage); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  if (tooManyWords(ctx, 'task activity', 2, usage, args)) return 2;
+  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/task/' + num + '/activity?words=1');
+  if (!r.reached) return ctx.unreachable('read that task');
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (!r.json || !Array.isArray(r.json.events)) { ctx.err('Kosmos gave an answer we could not read for that task.'); return 1; }
+  if (!r.json.events.length) { ctx.out('Nothing recorded on task ' + num + ' yet.'); return 0; }
+  const two = (n) => String(n).padStart(2, '0');
+  const when = (s) => {
+    const t = new Date(s);
+    return Number.isFinite(t.getTime())
+      ? t.getFullYear() + '-' + two(t.getMonth() + 1) + '-' + two(t.getDate()) + ' ' + two(t.getHours()) + ':' + two(t.getMinutes())
+      : '(no time)';
+  };
+  for (const e of r.json.events) {
+    const w = typeof e.words === 'string' ? e.words : String(e.kind);
+    ctx.out(when(e.at) + '  ' + w.replace(/\s+/g, ' ').trim());
+  }
+  return 0;
 }
 
 /* #768, as install/kosmos cmd_task message: records the words on the task and
@@ -2005,7 +2035,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
