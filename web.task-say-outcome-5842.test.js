@@ -133,10 +133,13 @@ test('#5842: the board still words the reasons the page recognises as the page r
   const read = (f) => fs.readFileSync(nodePath.join(__dirname, ...f.split('/')), 'utf8');
   assert.match(read('engine/projects.js'), /SWARM_OFF_SENTENCE = \(who\) => `\$\{who\} is switched off in this project\./, 'SWARM_OFF_SENTENCE reworded; update tkSayPost');
   assert.match(read('server.js'), /' is not on this project any more, so it was not told'/, 'the task route reworded a departed member; update tkSayPost');
-  // keepTaskLine (the task route's keep, limittask-5805): checked inside its body once it is on main.
+  // A failed keep: always somewhere in messages.js (kosmos msg's keep says it today), and, once the task route calls
+  // keepTaskLine (limittask-5805), inside that function's own body. The route's call is what arms the second check.
   const msgs = read('engine/messages.js');
+  assert.match(msgs, /could not keep this one/, 'the board no longer words a failed keep as the page reads it; update tkSayPost');
+  if (!/keepTaskLine\(/.test(read('server.js'))) return;
   const at = msgs.indexOf('function keepTaskLine(');
-  if (at < 0) return;
+  assert.ok(at > -1, 'the task route calls keepTaskLine but engine/messages.js does not define it; point this check at the keep');
   let depth = 0; let end = -1;
   for (let k = msgs.indexOf('{', at); k < msgs.length; k += 1) {
     if (msgs[k] === '{') depth += 1;

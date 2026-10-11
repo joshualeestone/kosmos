@@ -62955,7 +62955,8 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
    activity so the message appears the same tick. Empty input is a no-op (no request,
    no error band). Clears the input on success; reports a refusal in tk-say-msg, and
    (#5842) after a success, any assignee the message did not reach. Not on the poll --
-   a message is a deliberate act, read on send like the other in-app changes. (The board is the operator, so it is exempt from the process rate valve.) */
+   a message is a deliberate act, read on send like the other in-app changes. (The
+   board is the operator, so it is exempt from the process rate valve.) */
 async function tkSayPost() {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return;
