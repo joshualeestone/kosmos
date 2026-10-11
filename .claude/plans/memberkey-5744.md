@@ -35,6 +35,10 @@ and this slice reads codes only from `refusal`, so neither lost-key arm can fire
 - Retrying past one next epoch: each new epoch is audited and limited to one a day; a loop would burn the day.
 
 ## Weakest premise
+- One computer per member gets backup keys. The coordinator enforces it: POST /v1/org/backup-key refuses 403
+  backup_not_member when "the computer is not its enrolled one" (docs/coordinator-api.md, Org backup key). So the
+  409 member_key_exists arm reads "another key holds this epoch" as "this computer lost its key"; a second computer
+  of the same member never reaches the member-key route.
 That the code arrives as `refusal.code`. It does only through slice 1's tunnel line; with an older tunnel a 409 or a
 wrong-epoch refusal has no `refusal`, so ensureMemberKey answers ok: false and does not rotate (safe: it never starts
 an epoch it cannot read the reason for). Second: a file key is readable by any process running as the person, as
@@ -44,7 +48,7 @@ mac_key already is.
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at f3dbaeb74: 14 tests, 14 pass)
+## Tests (measured at 4db7061a0: 16 tests, 16 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -53,7 +57,8 @@ the API doc's missing `member` field.
   register nothing; two calls at once agree (not a red arm for the chain); currentEpoch 0 goes to 1; member_key_reused
   gets one fresh key at the same epoch and a code-less 429 nothing; a loose existing folder is made 0700; a kept key
   already held at an older epoch gets a fresh key at the next; an ok answer not naming what was sent is not taken;
-  a key another process registered mid-rotation is answered, not replaced.
+  a key another process registered mid-rotation is answered, not replaced; a non-canonical base64url key is not read
+  (red without the check, 1 of 16, at 4db7061a0); a file made unreadable mid-rotation is left as it is.
 - Red-capable (each measured): without writing the key before sending, 1 fails (1be4a071f); without the 409 arm, 3
   fail (1be4a071f); without the epoch-0 arm, 1 fails (5052ecedd); without the reused refresh, 2 of 14 fail; without
   the re-read guard, 1 of 14 fails (both f3dbaeb74).
@@ -88,3 +93,12 @@ the API doc's missing `member` field.
 - NITs taken: the header names currentEpoch 0; an ok answer must name what was sent; the waiting answer says
   pendingEpoch; one malformed field per case. Not taken: a pk-derives-from-sk check on read (no exported derive in
   backupkeys.js; a bad file then fails at the coordinator with member_wrap_unopenable, not silently).
+
+## Review 3 (sonnet)
+- FIXED: a file made unreadable before a fresh key or a rotation was overwritten; both now re-read and leave it.
+- FIXED: Node's base64url decoder skips characters it does not know, so a non-canonical string could read as a key;
+  keys must encode back to what was read.
+- Answered with a citation, not a change: several computers per member (the 409 arm's premise). Only the enrolled
+  computer gets backup keys (Weakest premise above).
+- CONVENTION fixed: the header says the coordinator's own wrap check bounds the unsigned answer. NITs taken: the
+  `theirs` sentinel; a comment pinning write-before-send at the move; a test asserts the offline key was kept.
