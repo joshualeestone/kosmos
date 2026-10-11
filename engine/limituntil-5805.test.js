@@ -60,6 +60,8 @@ test('#5805 slice 3: a dateless reset is its next occurrence after it was first 
   // Across the fall-back change (Nov 1 2026, 2am CDT -> 1am CST): first seen 23:00 CDT Oct 31, 3am is CST, five
   // hours on (the repeated hour counts), not four.
   assert.equal(iso(status.limitResetTimeOnlyAt(session('3am'), at('2026-11-01T04:00:00Z'))), '2026-11-01T09:00:00.000Z');
+  // The hour the fall-back repeats (1:30am happens twice on Nov 1 2026): the later one, as limitResetAt reads it.
+  assert.equal(iso(status.limitResetTimeOnlyAt(session('1:30am'), at('2026-11-01T04:00:00Z'))), '2026-11-01T07:30:00.000Z');
   // CONTROLS: a dated line, a relative one and a malformed hour are not dateless resets.
   for (const bad of [`resets Oct 5 at 3pm ${Z}`, "You've hit your fast limit · resets in 4m", `resets 13pm ${Z}`, `resets 4pm (Mars/Olympus_Mons)`]) {
     assert.equal(status.limitResetTimeOnlyAt(bad, at('2026-10-10T16:00:00Z')), null, bad);
@@ -70,14 +72,19 @@ test('#5805 slice 3: claudeLimitUntil keeps the first-seen time, so the reset do
   const line = `You've hit your session limit · resets 4pm ${Z}`;
   const t0 = at('2026-10-10T16:00:00Z');
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0)), '2026-10-10T21:00:00.000Z');
-  // The board reads the card every few seconds while the line stays on screen; read every five minutes to 16:30 CDT,
-  // after the printed 4pm: still today's 4pm, not tomorrow's.
-  for (let t = t0; t <= t0 + 5.5 * 3600e3; t += 5 * 60e3) status.claudeLimitUntil('casey', line, t);
+  // Read again at 16:30 CDT after a gap in reads (the Mac slept through the reset, the line still on screen): still
+  // today's 4pm, not tomorrow's (review 1: a gap in reads is not the line going away).
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.5 * 3600e3)), '2026-10-10T21:00:00.000Z', 'the reset moved with the clock');
+  // A weekly last-day line across a sleep through its reset: still today's time, never tomorrow's.
+  const weekly = `You've hit your weekly limit · resets 3pm ${Z}`;
+  assert.equal(iso(status.claudeLimitUntil('casey', weekly, at('2026-10-10T19:00:00Z'))), '2026-10-10T20:00:00.000Z');
+  assert.equal(iso(status.claudeLimitUntil('casey', weekly, at('2026-10-10T20:30:00Z'))), '2026-10-10T20:00:00.000Z', 'a sleep through the reset named tomorrow');
   // CONTROL: the same line first seen by another agent at the later time reads differently (the key is the agent).
   assert.equal(status.claudeLimitUntil('leo', line, t0 + 7 * 3600e3), null);
-  // The same words after the line was gone for more than ten minutes (the limit ended, a new one the next day) are a
-  // new limit, read from then.
+  // The same words after the card was read not capped (the limit ended; a new one the next day) are a new limit,
+  // read from then. The idle reading comes through the real card builder.
+  const board = fleet.install([fleet.agent('casey', { state: 'idle', runner: 'claude', command: 'claude', screen: STATUS_LINE })]);
+  board.restore();
   const nextDay = at('2026-10-11T16:00:00Z');
   assert.equal(iso(status.claudeLimitUntil('casey', line, nextDay)), '2026-10-11T21:00:00.000Z', 'read against yesterday\'s first-seen time');
   // A dated line needs no first-seen time.

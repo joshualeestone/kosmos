@@ -2802,6 +2802,7 @@ function limitResetTimeOnlyAt(line, firstSeenMs) {
       const wall = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + d, hour, minute);
       let at = wall - zoneOffsetMs(zone, wall);
       at = wall - zoneOffsetMs(zone, at);   // the offset AT the instant (they differ near a DST change)
+      if (at + 3600000 + zoneOffsetMs(zone, at + 3600000) === wall) at += 3600000;   // the repeated fall-back hour: later, as limitResetAt
       if (at + RESET_GRACE_MS < firstSeenMs) continue;
       return at - firstSeenMs <= span ? at : null;
     }
@@ -2809,11 +2810,17 @@ function limitResetTimeOnlyAt(line, firstSeenMs) {
   } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
 }
 /* When each agent's dateless limit line was first seen, keyed by agent and the line itself. In memory: a board
-   restart sees it again from then, which the span above bounds. An entry lasts only while the line keeps being read
-   (the board reads every card every few seconds): a line not read for LIMIT_LINE_GONE_MS is a limit that ended, so the
-   same words tomorrow are a new limit, first seen tomorrow, never read against yesterday's time. */
+   restart sees it again from then, which the span above bounds. An entry ends when the line does: claudeLimitUntilIso
+   forgets an agent's entries when its card is read not capped, or capped on another line, so the same words tomorrow
+   are a new limit, never read against yesterday's time. NOT on a gap in reads (review 1): a Mac that slept through
+   the reset is still showing the same line, and restarting its clock then would name tomorrow's time. A day past
+   the longest span is only a memory backstop, for an agent that is gone. */
 const limitFirstSeen = new Map();
-const LIMIT_LINE_GONE_MS = 10 * 60 * 1000;
+const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;
+function forgetLimitLines(agent, keepLine) {
+  const prefix = String(agent) + '\u0000';
+  for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix) && k !== prefix + keepLine) limitFirstSeen.delete(k);
+}
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
    this can read. A dated line is read as limitResetAt reads it; a dateless one from when it was first seen. */
 function claudeLimitUntil(agent, evidence, nowMs) {
@@ -2822,7 +2829,8 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   const dated = limitResetAt(line, now);
   if (dated !== null) return dated;
   if (!LIMIT_RESET_TIME_ONLY.test(line)) return null;
-  for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_LINE_GONE_MS) limitFirstSeen.delete(k);
+  for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
+  forgetLimitLines(agent, line);   // another line on this agent's screen is another limit
   const key = String(agent) + '\u0000' + line;
   let seen = limitFirstSeen.get(key);
   if (!seen) { seen = { at: now, last: now }; limitFirstSeen.set(key, seen); }
@@ -2832,7 +2840,11 @@ function claudeLimitUntil(agent, evidence, nowMs) {
 function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); }
 /* The card's limitUntil: only for a Claude pane read rate_limited (a Codex or Gemini limit says its own reset). */
 function claudeLimitUntilIso(pane, status) {
-  if (!pane || !status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') return null;
+  if (!pane) return null;
+  if (!status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') {
+    forgetLimitLines(pane.name, null);   // not capped now: its limit (if any) ended
+    return null;
+  }
   if (pane.runner && pane.runner !== 'claude') return null;
   if (isCodexCommand(pane.command) || isGrokCommand(pane.command) || isAntigravityCommand(pane.command)) return null;
   const at = claudeLimitUntil(pane.name, status.evidence);
