@@ -2815,9 +2815,13 @@ function limitResetTimeOnlyAt(line, firstSeenMs) {
    idle while the row is still on screen, and its first-seen time must stand then. An entry ends when its row has been
    off the agent's screen for LIMIT_ROW_GONE_MS (a failed capture records nothing and ends nothing). In memory: a board
    restart sees a row again from then, which the span above bounds. This replaces slice 3a's card-state lifecycle. */
-const limitFirstSeen = new Map();   // key -> { at, last }
+const limitFirstSeen = new Map();   // key -> { at, last, count, late }
 const LIMIT_ROW_GONE_MS = 2 * 60 * 1000;
 const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;   // backstop for an agent that went away
+/* Agents the screen pass has captured before (review 1): a row already on screen at the board's FIRST capture of an
+   agent arrived at an unknown time (a board restart, an agent first appearing), so it is marked late and given no time,
+   no hold and no retirement, as before 3b. Only a row the board watched arrive is timed. */
+const limitCapturedAgents = new Set();
 function limitRowKey(agent, text) {
   const t = String(text == null ? '' : text);
   const m = LIMIT_RESET_TIME_ONLY.exec(t);
@@ -2825,18 +2829,30 @@ function limitRowKey(agent, text) {
   return String(agent) + '\u0000' + (/\bsession limit\b/i.test(t) ? 'session' : 'day') + '\u0000' + m[0].toLowerCase();
 }
 /* The screen pass: record each dateless limit row on `agent`'s screen, and end the agent's rows that have been gone for
-   LIMIT_ROW_GONE_MS. `text` not a string (the capture failed): nothing recorded, nothing ended. */
+   LIMIT_ROW_GONE_MS. `text` not a string (the capture failed): nothing recorded, nothing ended. Only Claude Code's own
+   limit rows count (review 1): a "hit your ... limit" row followed by its turn footer (vendorFooterAt), the rule classify
+   and retireResetLimits use, so a quoted limit line in a tool result or a catted file never sets a time. More rows with
+   one key than at the last capture means a NEW limit printed the same words (review 1: yesterday's retired row still in
+   the scrollback above today's): its first-seen time starts again. */
 function noteLimitRows(agent, text, nowMs) {
   if (typeof text !== 'string') return;
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  const prefix = String(agent) + '\u0000';
-  for (const row of text.split('\n')) {
-    if (!RATE_LIMIT_MARKERS.some((re) => re.test(row))) continue;
+  const name = String(agent);
+  const prefix = name + '\u0000';
+  const firstCapture = !limitCapturedAgents.has(name);
+  limitCapturedAgents.add(name);
+  const rows = text.split('\n');
+  const counts = new Map();
+  rows.forEach((row, i) => {
+    if (!HIT_YOUR_LIMIT.test(row) || vendorFooterAt(rows, i) < 0) return;
     const key = limitRowKey(agent, row);
-    if (!key) continue;
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  for (const [key, count] of counts) {
     const seen = limitFirstSeen.get(key);
-    if (seen) seen.last = Math.max(seen.last, now);
-    else limitFirstSeen.set(key, { at: now, last: now });
+    if (!seen) limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture });
+    else if (count > seen.count) limitFirstSeen.set(key, { at: now, last: now, count, late: false });
+    else { seen.last = Math.max(seen.last, now); seen.count = count; }
   }
   for (const [k, v] of limitFirstSeen) {
     if (k.startsWith(prefix) ? now - v.last > LIMIT_ROW_GONE_MS : now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
@@ -2846,7 +2862,7 @@ function noteLimitRows(agent, text, nowMs) {
 function limitFirstSeenOf(agent, text) {
   const key = limitRowKey(agent, text);
   const seen = key ? limitFirstSeen.get(key) : null;
-  return seen ? seen.at : null;
+  return seen && !seen.late ? seen.at : null;   // a row seen late is not timed
 }
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
    this can read. A dated line is read as limitResetAt reads it; a dateless one from when the screen pass first saw it
@@ -2859,7 +2875,7 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   const first = limitFirstSeenOf(agent, line);
   return first === null ? null : limitResetTimeOnlyAt(line, first);
 }
-function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); }
+function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitCapturedAgents.clear(); }
 /* The card's limitUntil: only for a Claude pane read rate_limited (a Codex or Gemini limit says its own reset). */
 function claudeLimitUntilIso(pane, status) {
   if (!pane || !status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') return null;

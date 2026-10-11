@@ -73,6 +73,7 @@ test('#5805 slice 3: a dateless reset is read from when the screen first showed 
   const on = limitScreen(line);
   const t0 = at('2026-10-10T16:00:00Z');   // 11:00 CDT
   assert.equal(status.claudeLimitUntil('casey', line, t0), null, 'CONTROL: a line the screen pass never saw has no time');
+  for (const a of ['casey', 'kim', 'leo']) status.noteLimitRows(a, STATUS_LINE, t0 - 60e3);   // captured before: rows seen arrive
   status.noteLimitRows('casey', on, t0);
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0)), '2026-10-10T21:00:00.000Z');
   // The Mac slept through the reset with the row still on screen: on waking it is the same limit, today's 4pm.
@@ -117,6 +118,7 @@ test('#5805 slice 3: the card carries limitUntil for a capped Claude agent, date
   ];
   for (const [label, screen, state, check] of cases) {
     status.resetLimitFirstSeenForTests();
+    status.noteLimitRows('casey', '', Date.now());   // captured before, so the row is seen arriving (3b: not late)
     const board = fleet.install([fleet.agent('casey', { state, runner: 'claude', command: 'claude', screen })]);
     try {
       const card = board.agents.find((c) => c.sessionName === 'casey');

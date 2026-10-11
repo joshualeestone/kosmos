@@ -30,15 +30,23 @@ Slice 3a added the time on the card but deliberately left these alone.
 
 ## Decided
 - First-seen from the screen, not the card: the screen is the ground truth for "the line is still there".
-- A dateless row with no first-seen time (the board saw it late, beyond the span bound) is neither retired nor held:
-  today's behaviour, the safe direction (capped, typed into as before).
+- Only a row the board watched arrive is timed. A row already on screen at the board's first capture of that agent (a
+  restart, an agent first appearing) is marked late: no time, no hold, no retirement, as before 3b. Review 1: timed
+  from the restart, a weekly last-day line already past its printed time would read as tomorrow's and hold every
+  automatic line for most of a day while the agent was free.
+- Only Claude Code's own limit rows are recorded (a "hit your ... limit" row with its turn footer, the rule classify
+  and retireResetLimits use), so a quoted line in a tool result never sets a time.
+- More rows with one key than at the last capture is a new limit printing the same words (yesterday's retired row
+  still in the scrollback above today's): its first-seen time starts again.
+- A dateless row with no time read (late, or beyond the span bound) is neither retired nor held: today's behaviour.
 - Rejected: retiring a dateless line on the turn footer's printed time ("done 10:35 PM"): no date either, absent on
   some screens.
-- Weakest premise: a dateless row seen continuously from first sight is the same limit. A second limit with the same
-  reset phrase printed under the first without the first leaving the screen would keep the old first-seen time; both
-  print the same reset, so the time is still right.
+- Weakest premise: one row count per key is enough to tell a new limit from an old one. A new limit whose identical
+  row replaces the old one in the same capture (the old scrolled out exactly as the new arrived) keeps the old time.
 
 ## Residuals
+- A row off the screen for more than two minutes that comes back (a redraw that drops scrollback) is timed afresh as a
+  new limit, and if its printed time already passed today it reads as tomorrow's (bounded by the one-day span).
 - (from 3a) A weekly last-day line first seen after a restart, past its printed time, resolves to tomorrow's time.
   With 3b that also means it is held, and not retired, until then. Bounded by the one-day span.
 - Windows cards reading rate_limited at all is unmeasured (slice 1's gap).
@@ -49,3 +57,10 @@ Slice 3a added the time on the card but deliberately left these alone.
   one ahead of it, one with no first-seen time, and one with the limit menu below it; a capped agent on a dateless
   line ahead of its reset is held (automatic line not typed) and after it reads idle and is typed to; controls on a
   dated line unchanged.
+
+## Review 1 (opus)
+- FIXED (WARNING): a row first seen at a restart was timed from the restart; now marked late (see Decided). Tested.
+- FIXED (WARNING): a new limit with the same words inherited yesterday's first-seen and was retired at once; a higher
+  row count starts it again. Tested.
+- FIXED (WARNING): a quoted limit line could set the time; only Claude Code's own rows count. Tested.
+- FIXED (NIT): all three have tests.

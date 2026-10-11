@@ -434,6 +434,7 @@ test('#5805 review 9: the restart pickup ({ cap: false }) is held by the limit, 
 });
 
 test('#5805 review 17: on a dateless limit line too, the fresh StopFailure report does not outrank the screen (decided), and (slice 3b) it is held on its first-seen reset', async () => {
+  status.noteLimitRows('casey', '', Date.now());   // captured before, so the line is seen arriving (3b: not late)
   await withReport(LIMIT_REPORT, DATELESS(), async (board, tmux) => {
     const card = board.agents.find((c) => c.sessionName === 'casey');
     assert.equal(card.state, status.STATE.RATE_LIMITED, 'the card reads ' + card.state + ' (before this slice: blocked)');

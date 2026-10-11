@@ -69,6 +69,8 @@ test('#5805 3b: through the card builder, a dateless line holds until its reset 
       try { return fn(board.agents.find((c) => c.sessionName === 'casey'), board.agents); } finally { board.restore(); }
     } finally { Date.now = real; }
   };
+  // Captured before the limit (an idle screen), so the row is seen arriving.
+  read(T - 60e3, STATUS_LINE, 'idle', () => {});
   // First sight: capped, its reset an hour on, and an automatic line is held.
   read(T, limitScreen(line), 'rate_limited', (card, roster) => {
     assert.ok(card.limitUntil && Math.abs(Date.parse(card.limitUntil) - (T + 3600e3)) < 60e3, 'its reset was not read: ' + card.limitUntil);
@@ -92,4 +94,29 @@ test('#5805 3b: through the card builder, a dateless line holds until its reset 
     const v = chat.limitHeldVerdict('casey', roster, T + 3600e3 + 180e3);
     assert.ok(v && /still shows its usage limit on screen/.test(v.because), 'not held under the limit menu: ' + JSON.stringify(v));
   });
+});
+
+test('#5805 3b review 1: a row seen late, a quoted row, and a new limit printing the same words', () => {
+  const line = `You've hit your session limit · resets 4pm ${Z}`;
+  const t0 = Date.parse('2026-10-10T16:00:00Z');   // 11:00 CDT
+  // 1. Already on screen at the board's FIRST capture of the agent (a restart): no time, so no hold and no retirement.
+  status.noteLimitRows('casey', limitScreen(line), t0);
+  assert.equal(status.limitFirstSeenOf('casey', line), null, 'a row seen late was timed');
+  assert.equal(status.claudeLimitUntil('casey', line, t0), null);
+  assert.ok(status.retireResetLimits(limitScreen(line), Date.parse('2026-10-11T03:00:00Z'), (row) => status.limitFirstSeenOf('casey', row)).includes('session limit'), 'a row seen late was retired');
+  // 2. A quoted limit line (a tool result: indented, no turn footer of its own at column 0 within reach) is not recorded.
+  status.noteLimitRows('kim', STATUS_LINE, t0 - 60e3);
+  const quoted = '● Bash(cat capture.txt)\n' + `  ⎿  You've hit your session limit · resets 4pm ${Z}\n` + '     more output\n'.repeat(8) + STATUS_LINE;
+  status.noteLimitRows('kim', quoted, t0);
+  assert.equal(status.limitFirstSeenOf('kim', line), null, 'a quoted limit line set a first-seen time');
+  // 3. Yesterday's retired row still in the scrollback, and today the same words again under it: a new limit, timed from today.
+  status.noteLimitRows('leo', STATUS_LINE, t0 - 60e3);
+  status.noteLimitRows('leo', limitScreen(line), t0);
+  assert.equal(status.limitFirstSeenOf('leo', line), t0, 'CONTROL: the first limit was timed');
+  const nextDay = t0 + 24 * 3600e3;
+  status.noteLimitRows('leo', limitScreen(line), nextDay - 3600e3);   // still on screen overnight
+  const twice = '> hello\n' + `  ⎿  ${line}\n` + FOOTER + '> again\n' + `  ⎿  ${line}\n` + FOOTER + STATUS_LINE;
+  status.noteLimitRows('leo', twice, nextDay);
+  assert.equal(status.limitFirstSeenOf('leo', line), nextDay, 'a new limit printing the same words kept yesterday\'s time');
+  assert.ok(status.retireResetLimits(twice, nextDay + 60e3, (row) => status.limitFirstSeenOf('leo', row)).split('\n').filter((r) => r.includes('session limit')).length >= 1, 'today\'s live limit was retired on yesterday\'s time');
 });
