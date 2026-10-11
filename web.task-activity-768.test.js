@@ -236,11 +236,12 @@ test('#5842: a kept message sent after the reset, or dropped, reads plainly with
     { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '' },
     { at: minsAgo(5), kind: 'kept-dropped', to: 'mona', from: 'leo' },
   ])).innerHTML;
-  assert.match(html, /Your message to Mona was sent after Mona\u2019s usage reset</);
-  assert.match(html, /Kosmos tried to send your message to Mona after Mona\u2019s usage reset, but could not confirm Mona got it/);
-  assert.match(html, /Your message to Mona was never sent: Kosmos kept it until a day after Mona\u2019s usage reset and could not send it in that time/);
+  assert.match(html, /Your message to Mona, kept while Mona was out of usage, was sent once Mona was back</);
+  assert.match(html, /Kosmos tried to send your message to Mona once Mona was back, but could not confirm Mona got it/);
+  assert.match(html, /Your message to Mona was never sent: Mona was out of usage, and Kosmos kept it for more than a day without being able to send it/);
   assert.match(html, /leo\u2019s message to Mona was never sent/, 'from and to mixed up, or the sender lost');
-  assert.doesNotMatch(html, /was sent after[^<]*could not confirm/, 'an unconfirmed message read as sent');
+  assert.doesNotMatch(html, /was sent[^<]*could not confirm/, 'an unconfirmed message read as sent');
+  assert.doesNotMatch(html, /reset/, 'a reset nobody saw was named');
 });
 
 test('#5842: an agent\'s kept message, and one kept behind earlier messages, read without a reset that did not happen', async () => {
@@ -249,9 +250,9 @@ test('#5842: an agent\'s kept message, and one kept behind earlier messages, rea
     { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', state: 'placed', behind: true },
     { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '', behind: true },
   ])).innerHTML;
-  assert.match(html, /Kosmos tried to send leo\u2019s message to Mona after Mona\u2019s usage reset, but could not confirm Mona got it/);
-  assert.match(html, /Your message to Mona was sent once the messages ahead of it had gone</);
-  assert.match(html, /Your message to Mona was never sent: Kosmos kept it for a day behind earlier messages and could not send it in that time/);
-  assert.equal((html.match(/usage reset/g) || []).length, 1, 'a message kept behind others spoke of a usage reset');
+  assert.match(html, /Kosmos tried to send leo\u2019s message to Mona once Mona was back, but could not confirm Mona got it/);
+  assert.match(html, /Your message to Mona, kept behind earlier messages, was sent once the messages ahead of it had gone</);
+  assert.match(html, /Your message to Mona was never sent: Kosmos kept it behind earlier messages for more than a day without being able to send it/);
+  assert.doesNotMatch(html.split('leo\u2019s')[1] || '', /out of usage/, 'a message kept behind others spoke of a usage limit');
   assert.doesNotMatch(html, /kept-sent|kept-dropped/, 'a raw event kind reached the screen');
 });
