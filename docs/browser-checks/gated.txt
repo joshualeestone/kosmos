@@ -53,6 +53,7 @@ render-conn-top-3708
 render-connect-linux-stuck-5449
 render-connect-sheet-4637
 render-connect-win32-install-570
+render-connected-here-5786
 render-connlost-reconnect-3410
 render-cons-tree-2929
 render-consolidated-nav-4345
