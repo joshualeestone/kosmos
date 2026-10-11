@@ -22356,7 +22356,8 @@ let ENGINE_STALE = null;
  * against is a definite POSITION shown without a confirmed read, which cannot
  * happen when the notice paints only from a value the poll actually returned.
  *
- * COPY is Mona Lisa's spec (#2055): title, N-body ("tried to install it N times
+ * COPY for the board-would-not-pause stop is Mona Lisa's spec (#2055; the other stops' sentences are #4675's, see
+ * the table in the function): title, N-body ("tried to install it N times
  * and could not, because Kosmos was busy each time"), and "your agents kept
  * working". The ACTION is a quit-and-reopen, NOT an "Update now" button:
  * pressing Update re-enters setup.sh's pause block (server.js /api/update ->
@@ -22387,19 +22388,28 @@ function paintUpdateAbort(ab) {
   if (slot.dataset.n === key) return;
   slot.dataset.n = key;
   const times = count === 1 ? 'once' : count + ' times';
-  // #4675: the stops after the pause are not "Kosmos was busy", so they get their own words. Each ends in steps a
-  // person can take without typing a command (as #2055 requires). "replaced nothing" is about files: by these stops
-  // the installer has stopped the board and its exit puts it back. The const stays in here so a test can lift the
-  // function whole. Any other reason, 'board-would-not-pause' and 'port-still-held' included, keeps #2055's sentence.
+  // #4675: the sentence is chosen by the stop's reason, and says only what the installer saw. 'board-would-not-pause'
+  // keeps #2055's words exactly. The two stops with something on the port share one sentence (to a person they are
+  // the same event). A reason this page does not know, from a newer installer or a damaged file, gets the plain one.
+  // "replaced nothing" is about files: by these stops the installer has stopped the board, and its exit puts it back.
+  // The advice never asks for a typed command (#2055), and never says the notice will go away after a step: only an
+  // update that gets past the pause clears it, so the thing to watch is the count.
+  // The table stays inside the function so a test can lift the function whole.
+  const AGENTS_FINE = 'Your agents keep working, they do not live in this window. ';
+  const PORT_HELD = 'something was still using the connection Kosmos runs on, so the update replaced nothing. '
+    + AGENTS_FINE + 'Quit and reopen Kosmos. If the count in this notice goes up again, restart this computer.';
   const UPDATE_ABORT_WHY = {
+    'board-would-not-pause': 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
+      + 'was holding the update, so the next one can finish. Your agents keep working, they do '
+      + 'not live in this window.',
     'port-check-failed': 'this computer could not check whether Kosmos had stopped, so the update replaced nothing. '
-      + 'Your agents keep working, they do not live in this window. Quit and reopen Kosmos; the next update will '
-      + 'try again. If this notice is still here after that, restart this computer.',
-    'port-unreachable': 'something was still using the connection Kosmos runs on and the update could not tell what, '
-      + 'so it replaced nothing. Your agents keep working, they do not live in this window. Quit and reopen Kosmos; '
-      + 'the next update will try again. If this notice is still here after that, restart this computer.',
+      + AGENTS_FINE + 'The step to try is restarting this computer.',
+    'port-unreachable': PORT_HELD,
+    'port-still-held': PORT_HELD,
   };
-  const why = Object.prototype.hasOwnProperty.call(UPDATE_ABORT_WHY, reason) ? UPDATE_ABORT_WHY[reason] : '';
+  const why = Object.prototype.hasOwnProperty.call(UPDATE_ABORT_WHY, reason) ? UPDATE_ABORT_WHY[reason]
+    : 'the update stopped before replacing anything. ' + AGENTS_FINE
+      + 'Quit and reopen Kosmos. If the count in this notice goes up again, restart this computer.';
   slot.innerHTML = '<div class="utoast stale" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>A new version of Kosmos is ready.</b>'
@@ -22407,10 +22417,7 @@ function paintUpdateAbort(ab) {
     /* win32-board-copy (W-26): there is no Kosmos window to Quit on Windows. */
     + (onWindows()
       ? windowsCopy('updateAbortRemedy')
-      : why ? why
-      : 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
-        + 'was holding the update, so the next one can finish. Your agents keep working, they do '
-        + 'not live in this window.')
+      : why)
     + '</small>'
     + '</div></div>';
 }
