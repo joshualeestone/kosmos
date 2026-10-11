@@ -19,10 +19,11 @@
  * late-arriving message is picked up, an edited/deleted one is reflected, and an
  * emptied day's stale file is removed.
  *
- * NOT YET: a conversation that rolled over at its message cap (kosmos#5841). Its
- * earlier rows live in `.full` files this compiler does not read, so while one is
- * present the whole run is refused and nothing is written or pruned (kosmos#5855;
- * see compileAll). Reading the chain is that card's second step.
+ * NOT YET: a conversation that rolled over at its message cap, which
+ * engine/chat.js will do once kosmos#5841 merges (today it refuses at the cap).
+ * Its earlier rows will live in `.full` files this compiler does not read, so
+ * while one is present the whole run is refused and nothing is written or pruned
+ * (kosmos#5855; see compileAll). Reading the chain is that card's second step.
  *
  * Why a sibling directory, not inside chats/: `engine/forget.js` enumerates
  * `chats/` as "conversations", and a reader (or a future removal sweep) must
@@ -79,15 +80,22 @@ function dayFromFileName(name) {
 const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
 const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
 
-/* kosmos#5855: a conversation that reaches the message cap ROLLS OVER (kosmos#5841): engine/chat.js moves the full
-   file aside whole, as `<thread file>.<stamp>.<pid>.<ms>[.<n>].full`, and starts a fresh file that carries a copy of
-   its newest rows. The earlier rows then live ONLY in the `.full` file, which the two patterns above do not match.
-   This compiler does not read that chain yet, so it must be able to see that one exists (see compileAll). The
-   pattern is the thread file's own name, a dot, anything, and the `.full` suffix. */
-const ROLLED_OVER_FILE = /^[^.].*\.json\..+\.full$/;
+/* kosmos#5855: once kosmos#5841 merges, a conversation that reaches the message cap will ROLL OVER instead of
+   refusing: engine/chat.js will set the full file aside whole, in this same folder, under a name its `supersede`
+   builds (`<thread file>.<stamp>.<pid>.<ms>[.<n>].full`), and start a fresh file that carries a copy of its newest
+   rows. The earlier rows then live ONLY in the `.full` file, which the two patterns above do not match. This compiler
+   does not read that chain yet, so it must be able to see that one exists (see compileAll).
+   THE RULE IS chat.js's OWN for following such a file (asideChain there): the name starts with a thread file's name
+   and a dot, and ends with `.full`. So `direct..p.json.full` counts too, though chat never writes it: a file a person
+   renamed or restored is one chat would follow, and missing it here is the unsafe direction. */
+const ROLLED_OVER_SUFFIX = 'full';
+const ROLLED_OVER_FILE = new RegExp('^[^.].*\\.json\\.(.*\\.)?' + ROLLED_OVER_SUFFIX + '$');
 function isRolledOverFileName(filename) {
   return typeof filename === 'string' && ROLLED_OVER_FILE.test(filename);
 }
+/* What compileAll's summary says in `refused`, and the command's exit code for it (2 is a usage error). */
+const REFUSED_ROLLED_OVER = 'rolled-over';
+const EXIT_REFUSED = 3;
 
 /**
  * Classify a filename in the chats dir. Returns a descriptor or null for
@@ -301,7 +309,8 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  * `{ conversations, readable, readErrors, rolledOver }`, all of which the caller
  * needs to decide whether writing and pruning are safe:
  *   - `rolledOver` counts the `.full` files of rolled-over conversations (kosmos#5855),
- *     whose rows this function does NOT return.
+ *     whose rows this function does NOT return. By name only: they are not opened.
+ *     A FOLDER with such a name is not one (chat.js could not follow it).
  *   - `readable` is true ONLY if the directory LISTING succeeded. A failed
  *     listing (permissions, a transient error, a wrong root, the dir absent)
  *     means "could not read the source", which is NOT "the source is empty".
@@ -322,7 +331,12 @@ function readConversations(chatsDir) {
   let readErrors = 0;
   let rolledOver = 0;
   for (const name of names) {
-    if (isRolledOverFileName(name)) { rolledOver += 1; continue; }
+    if (isRolledOverFileName(name)) {
+      let isDir = false;
+      try { isDir = fs.statSync(path.join(chatsDir, name)).isDirectory(); } catch { /* cannot tell: count it, the safe way */ }
+      if (!isDir) rolledOver += 1;
+      continue;
+    }
     const desc = parseChatFileName(name);
     if (!desc) continue;
     let raw;
@@ -368,11 +382,16 @@ function compileAll(opts = {}) {
      day that straddles the rollover with only the rows the fresh file carried, and it would PRUNE every day whose
      rows now live only in a `.full` file. Both destroy compiled history that is still true. So with even one such
      file present the run writes nothing and prunes nothing, and says why (`refused`). An `onlyDay` run is refused
-     too: that one day may be the straddling one. The originals in chats/ are untouched either way. */
+     too: that one day may be the straddling one. The originals in chats/ are untouched either way.
+     `.full` files are never deleted, so this refusal lasts until the compiler can read the chain (the card's second
+     step). `messages` and `undated` are 0 here because nothing was flattened, not because there are none.
+     NOT COVERED, and already so before this: chat.js also sets a thread file aside as `.superseded` (an earlier
+     project of the same name) or `.damaged`. Their rows are not in any current file either, so their days are pruned
+     by a full run today. That is kosmos#5866, not this refusal. */
   if (rolledOver > 0) {
     return {
       conversations: conversations.length, messages: 0, days: 0, written: [], pruned: [], undated: 0,
-      readable, readErrors, rolledOver, refused: 'rolled-over', outDir,
+      readable, readErrors, rolledOver, refused: REFUSED_ROLLED_OVER, outDir,
     };
   }
 
@@ -460,7 +479,8 @@ module.exports = {
    scheduled run wants; --day targets one day. */
 if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
-    + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n';
+    + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
+    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while a conversation that started a new file at its message limit is present\n`;
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};
@@ -489,12 +509,16 @@ if (require.main === module) {
     else die(`unrecognized argument '${argv[i]}'`);
   }
   const summary = compileAll(opts);
-  if (summary.refused === 'rolled-over') {
-    // kosmos#5855: say it and exit non-zero, so a scheduled run cannot read as "compiled, nothing new".
-    process.stderr.write(`dailylog: not compiled. ${summary.rolledOver} conversation file(s) in the chats folder hold the `
-      + 'earlier part of a conversation that reached its message limit and started a new file, and this version '
-      + 'cannot read those yet. Nothing was written or removed; the daily files already there are left as they are.\n');
-    process.exit(3);
+  if (summary.refused === REFUSED_ROLLED_OVER) {
+    // kosmos#5855: say it on stderr, print no success line, and exit non-zero, so a scheduled run cannot read as
+    // "compiled, nothing new".
+    const n = summary.rolledOver;
+    process.stderr.write('dailylog: not compiled. '
+      + (n === 1 ? 'One file in the chats folder holds' : `${n} files in the chats folder hold`)
+      + ' the earlier part of a conversation that reached its message limit and started a new file, and this version '
+      + 'cannot read those yet. Nothing was written or removed: the daily files already there are left as they are, '
+      + 'and so are the conversations.\n');
+    process.exit(EXIT_REFUSED);
   }
   process.stdout.write(
     `dailylog: ${summary.messages} messages across ${summary.conversations} conversations `
