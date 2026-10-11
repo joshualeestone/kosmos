@@ -63,6 +63,11 @@ test('isRolledOverFileName: a thread file\'s name, a dot, and .full at the end (
     assert.equal(dl.isRolledOverFileName(yes), true, yes);
     assert.equal(dl.parseChatFileName(yes), null, yes + ' must not also read as a current conversation file');
   }
+  // an agent whose key is exactly "json": its thread file is `<id>.json.json`, so the name ends at the SECOND ".json."
+  for (const yes of ['p.json.json.20261011T1.1.1791741600000.full', 'direct..json.json.20261011T1.1.1791741600000.full', 'p.json.json.full']) {
+    assert.equal(dl.isRolledOverFileName(yes), true, yes);
+  }
+  assert.deepEqual(dl.parseChatFileName('p.json.json'), { kind: 'project', projectId: 'p', key: 'json' }, 'precondition: a key of "json" is a real thread file name');
   // not a thread file's name in front (a stray file must not turn the daily log off), or not .full at the end
   for (const no of ['direct..p.json', 'proj1.3-slug.json', 'room-seen.json', 'notes.json.full', 'a.json.full', 'room-seen.json.bak.full', '.direct..p.json.x.full', 'direct..p.jsonfull', 'direct..p.full', 'notes.full', 'direct..p.json.x.superseded', 'direct..p.json.x.damaged', 'direct..p.json.x.fullish', '', null, undefined, 7]) {
     assert.equal(dl.isRolledOverFileName(no), false, String(no));
@@ -223,6 +228,7 @@ test('pin (convention 5): what this compiler takes as the signs of a rollover is
     assert.ok(src.includes("n.startsWith(base + '.') && n.endsWith('.' + ROLL_KIND)"), 'engine/chat.js follows a rolled-over file by a different rule now');
     assert.ok(src.includes("continues: typeof parsed.continues === 'string' && parsed.continues ? parsed.continues : null"), 'engine/chat.js reads `continues` differently now');
     assert.ok(src.includes('continues: path.basename(moved.aside)'), 'engine/chat.js no longer writes the file it rolled over from into `continues`');
+    assert.ok(src.includes('...(existing.continues ? { continues: existing.continues } : {}),'), 'engine/chat.js no longer keeps `continues` on a later write');
     assert.ok(src.includes("if (!n.startsWith(base + '.') || !n.endsWith('.' + ROLL_KIND)) continue;"), 'engine/chat.js finds a thread\'s own newest rolled-over file by a different rule now');
   } else {
     // it is not in this tree yet: chat.js must still be refusing at the cap, or this pin has gone blind

@@ -92,10 +92,11 @@ const ROLLED_OVER_SUFFIX = 'full';
 const THREAD_FILE_END = '.json';
 function isRolledOverFileName(filename) {
   if (typeof filename !== 'string' || !filename.endsWith('.' + ROLLED_OVER_SUFFIX)) return false;
-  // A thread file's key and project id hold no dot (chat.js safeKey / PROJECT_ID), so the first ".json." ends its name.
-  const cut = filename.indexOf(THREAD_FILE_END + '.');
-  if (cut < 0) return false;
-  return parseChatFileName(filename.slice(0, cut + THREAD_FILE_END.length)) !== null;
+  // Any ".json." may be where the thread file's name ends: a key may itself be "json" (`p.json.json`), so each is tried.
+  for (let cut = filename.indexOf(THREAD_FILE_END + '.'); cut >= 0; cut = filename.indexOf(THREAD_FILE_END + '.', cut + 1)) {
+    if (parseChatFileName(filename.slice(0, cut + THREAD_FILE_END.length)) !== null) return true;
+  }
+  return false;
 }
 /* What compileAll's summary says in `refused`, and the command's exit code for it (2 is a usage error). */
 const REFUSED_ROLLED_OVER = 'rolled-over';
@@ -491,7 +492,7 @@ module.exports = {
 if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
     + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
-    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while a conversation that started a new file at its message limit is present\n`;
+    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while a conversation whose earlier part is kept in a separate file is present\n`;
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};
