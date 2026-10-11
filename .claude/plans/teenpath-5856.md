@@ -19,6 +19,12 @@ named in the same list. No age question anywhere.
   18+; xAI API under the Enterprise terms (x.ai/legal/terms-of-service-enterprise) 18+; OpenAI API not confirmed
   at source, treated as 18+. Hence "and so do API keys" and "sign in with your own account" (not "a
   subscription": Meta Muse is an account sign-in).
+- Sign-in routes (third review): OpenAI's help center (help.openai.com/en/articles/11369540) says a Codex
+  sign-in with a personal ChatGPT account is under the ChatGPT Terms of Use, so 13+ with a parent applies.
+  Grok's sign-in uses a SuperGrok or X Premium subscription; no official xAI page found saying which terms
+  cover its CLI, so "consumer terms" is REASONED, not measured, and is the copy's weakest premise.
+- Meta Muse is named whenever Muse is live, even if Muse Code is not installed: the sentence is about who
+  is old enough, and the Meta row itself says when Muse Code is missing (deferred in review, iteration 3).
 - Gemini has NO under-18 route in Kosmos: its two routes are an API key (18+, above) and Antigravity on a
   Google sign-in, which Google staff say is 18+ and blocked for under-18 accounts (discuss.ai.google.dev
   "Why does Antigravity think I am under 18?"; forum, not terms text). So Gemini is named with Claude.
