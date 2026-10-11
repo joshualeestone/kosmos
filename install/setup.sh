@@ -3069,7 +3069,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       # a second Kosmos can now hold, so this is a real returning-user shape (the
       # aged-specimen walk that found this, 2026-08-26). Our install records its
       # board's pid in board.pid; whatever answers on $PORT is ours only if that pid
-      # is the running board. Only OUR-board-will-not-pause takes the #2055 abort
+      # is the running board. Of these two, only OUR-board-will-not-pause takes the #2055 abort
       # streak + the "kosmos stop" die; a foreign board gets actionable port advice.
       #
       # STRICTER THAN A BARE kill -0. The #964 target is a returning user whose board

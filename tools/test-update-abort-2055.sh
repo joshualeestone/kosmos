@@ -1,10 +1,12 @@
 #!/bin/sh
 # test-update-abort-2055.sh -- unit test for setup.sh's #2055 durable update-abort
-# marker: the board-would-not-pause abort records a CONSECUTIVE count in
-# $LOG_DIR/update-abort, and an update that gets past the pause CLEARS it.
+# marker: a stop at the update's pause records a CONSECUTIVE count in
+# $LOG_DIR/update-abort (#4675: with its reason, and how many of the latest stops
+# shared it), and an update that gets past the pause CLEARS it. Also the lines that
+# read the board's own marker, KOSMOS_UPDATE_BY_BOARD (#4675).
 #
 # setup.sh is served as a single curl|sh file and sources nothing, so this extracts
-# the exact shipped bytes of the record block (the technique test-install.sh and
+# the exact shipped bytes of the record function (the technique test-install.sh and
 # test-app-bundle-status.sh use) and drives it with a temp LOG_DIR, then exercises
 # the reset separately. The card's acceptance requires a control that FAILS on a
 # clean update: scenario "reset" is that control -- it proves the marker is gone
@@ -38,7 +40,7 @@ PASS=0; FAIL=0
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/updateabort.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
-# Run the extracted record block once with LOG_DIR/PORT set. It runs under a
+# Define the extracted record function and call it once with LOG_DIR/PORT set. It runs under a
 # `set -eu` subshell so an errexit-unsafe line is caught.
 record() { # logdir port [reason]
   ( set -eu; LOG_DIR="$1"; PORT="$2"; eval "$BLOCK"; _kosmos_note_pause_abort "${3:-board-would-not-pause}" )

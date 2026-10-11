@@ -85,8 +85,8 @@ test('updateAbort: missing optional fields default cleanly, count still drives i
 });
 
 // #4675: `same` says how many of the latest stops shared the reason. Absent (a marker from before it existed) or
-// damaged reads null, which the page takes as "all of them" only for board-would-not-pause, the one reason such a
-// marker could hold.
+// damaged reads null, which the page takes as "every stop was this one" only for board-would-not-pause, the one
+// reason such a marker could hold.
 test('updateAbort: same is passed through as a number, and is null when absent or not a number', () => {
   withRoot((root) => {
     writeMarker(root, 'count=5\nreason=port-still-held\nsame=2\nport=16180\nts=x\n');
@@ -95,7 +95,10 @@ test('updateAbort: same is passed through as a number, and is null when absent o
     assert.equal(update.updateAbort().same, null);
     writeMarker(root, 'count=5\nreason=port-still-held\nsame=lots\n');
     assert.equal(update.updateAbort().same, null);
-    writeMarker(root, 'count=5\nreason=port-still-held\nsame=\n');
-    assert.equal(update.updateAbort().same, null);
+    // the forms setup.sh also treats as damaged: empty, a leading zero, zero, more than nine digits
+    for (const bad of ['', '08', '0', '99999999999999999999', '1e3', '-1']) {
+      writeMarker(root, 'count=5\nreason=port-still-held\nsame=' + bad + '\n');
+      assert.equal(update.updateAbort().same, null, 'same=' + JSON.stringify(bad) + ' was taken as a number');
+    }
   });
 });

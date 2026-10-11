@@ -828,7 +828,7 @@ function updateAbort() {
   }
   const count = Number(kv.count);
   if (!Number.isInteger(count) || count <= 0) return null;   // absent/blank/garbage/0 => not stuck
-  const same = /^[0-9]+$/.test(kv.same || '') ? Number(kv.same) : null;
+  const same = /^[1-9][0-9]{0,8}$/.test(kv.same || '') ? Number(kv.same) : null;   // as setup.sh reads it: no leading zero, at most nine digits
   return { count, reason: kv.reason || 'unknown', same, port: kv.port || null, ts: kv.ts || null };
 }
 

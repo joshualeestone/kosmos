@@ -1,7 +1,7 @@
 /**
  * #2055: a silently-aborting update must SHOW ITSELF on the board, not only in
  * install.log (155 aborts on one machine, seen by nobody). The board reads
- * `updateAbort = { count, reason, port, ts } | null` off /api/status and, when a
+ * `updateAbort = { count, reason, same, port, ts } | null` off /api/status and, when a
  * marker is present with count >= 1, paints a notice in #uabort-slot that NAMES N.
  *
  * 🔑 THE CONTROL THAT MUST RETURN THE DANGEROUS ANSWER (the card's acceptance):
@@ -66,29 +66,34 @@ function check(name, pass, detail) {
   const s1 = await slotAfter({ count: 1, reason: 'board-would-not-pause', port: 16180, ts: '' });
   check('abort count 1: reads "install it once", not "1 times"', /install it once/i.test(s1) && !/1 times/.test(s1), s1.slice(0, 160));
 
-  // ---- #4675: the sentence is chosen by the stop's reason and says only what the installer saw. Only
-  // board-would-not-pause blames a busy Kosmos, and none asks the person to type a command.
+  // ---- #4675: the count is the whole streak; the cause and the advice are said of the LATEST stop. Only a busy
+  // Kosmos keeps #2055's words, none of the others claims a measured remedy, and none asks for a typed command.
   const TYPED = /paste|install line|kosmos stop|in a terminal|run this|update now/i;
-  const REOPEN = /Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one can finish\. Your agents keep working/;
+  const NOT_KNOWN = /We do not yet know what clears this one;/;
   const chk = await slotAfter({ count: 2, reason: 'port-check-failed', same: 2, port: 16180, ts: '' });
-  check('#4675 port-check-failed: says the update could not check, names N, and offers a restart as a try, not a reopen',
-    /tried to install it 2 times and could not, because this computer could not check whether Kosmos had stopped/i.test(chk)
-      && /We do not yet know what clears this one; restarting this computer is worth a try/.test(chk) && /agents keep working/i.test(chk)
-      && !/was busy|quit and reopen/i.test(chk) && !TYPED.test(chk), chk.slice(0, 260));
+  check('#4675 port-check-failed: names N, says the update could not check, offers a restart as a try, never a reopen',
+    /tried to install it 2 times and could not\. The last time, this computer could not check whether Kosmos had stopped, so the update replaced nothing/.test(chk)
+      && /restarting this computer is worth a try/.test(chk) && NOT_KNOWN.test(chk) && /agents keep working/i.test(chk)
+      && !/was busy|reopen|usually|each time/i.test(chk) && !TYPED.test(chk), chk.slice(0, 300));
   const unr = await slotAfter({ count: 1, reason: 'port-unreachable', same: 1, port: 16180, ts: '' });
-  check('#4675 port-unreachable: says something was still using the connection, with the #2055 remedy',
-    /tried to install it once and could not, because something was still using the connection Kosmos runs on/i.test(unr)
-      && REOPEN.test(unr) && !/was busy/i.test(unr) && !TYPED.test(unr), unr.slice(0, 260));
+  check('#4675 port-unreachable, a single stop: says something was still using the connection, and claims no measured remedy',
+    /tried to install it once and could not: something was still using the connection Kosmos runs on, so the update replaced nothing/.test(unr)
+      && /quitting and reopening Kosmos is worth a try, then restarting this computer/.test(unr) && NOT_KNOWN.test(unr)
+      && !/was busy|usually|each time|last time/i.test(unr) && !TYPED.test(unr), unr.slice(0, 300));
   const held = await slotAfter({ count: 1, reason: 'port-still-held', same: 1, port: 16180, ts: '' });
   check('#4675 port-still-held: the same words as port-unreachable', held === unr && held.length > 0, held.slice(0, 120));
   const unk = await slotAfter({ count: 3, reason: 'a-reason-from-the-future', same: 3, port: 16180, ts: '' });
   check('#4675 an unknown reason: the plain sentence, no cause claimed',
-    /tried to install it 3 times and could not, because the update stopped each time before replacing anything/i.test(unk)
-      && REOPEN.test(unk) && !/was busy|could not check|still using/i.test(unk) && !TYPED.test(unk), unk.slice(0, 200));
+    /tried to install it 3 times and could not\. The last time, the update stopped before replacing anything/.test(unk)
+      && NOT_KNOWN.test(unk) && !/was busy|could not check|still using|usually/i.test(unk) && !TYPED.test(unk), unk.slice(0, 240));
   const mixed = await slotAfter({ count: 3, reason: 'board-would-not-pause', same: 1, port: 16180, ts: '' });
-  check('#4675 a mixed streak: the whole count, and no single cause (the same text as an unknown reason)', mixed === unk, mixed.slice(0, 200));
-  // CONTROL for the five above: the #2055 text (count 3, a marker with no same line) is untouched and differs from each.
-  check('#4675 CONTROL: board-would-not-pause still reads "Kosmos was busy each time"', /was busy each time/i.test(s3) && s3 !== unk && s3 !== unr && s3 !== chk, s3.slice(0, 120));
+  check('#4675 a busy Kosmos after other stops: "the last time", never "each time", with the #2055 remedy',
+    /tried to install it 3 times and could not\. The last time, Kosmos was busy\. Quit and reopen Kosmos/.test(mixed) && !/each time/.test(mixed), mixed.slice(0, 200));
+  const late = await slotAfter({ count: 101, reason: 'port-check-failed', same: 100, port: 16180, ts: '' });
+  check('#4675 one earlier stop of another kind does not bring back reopen advice for a failing check',
+    /tried to install it 101 times and could not\. The last time, this computer could not check/.test(late) && !/reopen/i.test(late), late.slice(0, 200));
+  // CONTROL for the six above: the #2055 text (count 3, a marker with no same line) is untouched and differs from each.
+  check('#4675 CONTROL: every stop a busy Kosmos still reads "because Kosmos was busy each time"', /and could not, because Kosmos was busy each time/.test(s3) && s3 !== unk && s3 !== unr && s3 !== chk && s3 !== mixed, s3.slice(0, 120));
 
   // ---- CONTROL A (the dangerous answer): a CLEAN board shows NOTHING.
   const clean = await slotAfter(undefined);

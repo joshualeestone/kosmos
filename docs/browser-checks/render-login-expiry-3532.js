@@ -310,7 +310,7 @@ const CASES = [
      is a pill and stays one, centred under the column (measured on desktop). Each layout claim has a control in the
      same page that undoes the rule under test. */
   {
-    let feed = { abort: { count: 2 }, update: null };
+    let feed = { abort: { count: 2, reason: 'board-would-not-pause' }, update: null };   // #4675: a real marker carries its reason, which chooses the card's words
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
