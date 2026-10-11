@@ -318,6 +318,7 @@ function noteEnded(sessionName) {
    endedSince reads the live file, the sealed files, the live file again, then any new sealed file (see there). */
 const ENDED_COMPACT_AT_BYTES = 64 * 1024;
 const SEALED_KEEP_MS = 60 * 60 * 1000;
+const COMPACT_READ_BUDGET_MS = 3000;
 let compactStuckSaid = false;
 let compactReplaceSaid = false;
 let compactLinkSaid = false;
@@ -369,21 +370,26 @@ function compactEnded(opts = {}) {
        none is. */
     const idOf = (x) => x.dev + ':' + x.ino + ':' + x.birthtimeMs;
     let base = 0; try { base = Number(fs.readFileSync(compactedBytesFile(), 'utf8')) || 0; } catch { base = 0; }
+    if (base > st.size) base = 0;   // the live file shrank outside this code (a hand cleanup): measure from nothing
     if (opts.force !== true && st.size <= atBytes + base) return { compacted: false };
     /* Every try that stops after the size check records the size it saw, so the next try waits for another `atBytes`
        of growth instead of folding the whole history on every end (a torn line, an unreadable file, a flush or a rename
        that keeps failing, no hard links). */
     const gaveUp = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
     // 1. Read and fold. Any failure leaves every file as it was.
+    const startedAt = Date.now();
     const read = [];
     let liveText;
     try {
       for (const f of sealedFiles()) {
         let fst; try { fst = fs.statSync(f); } catch (e) { if (e && e.code === 'ENOENT') continue; throw e; }
-        read.push({ f, mtimeMs: fst.mtimeMs, text: fs.readFileSync(f, 'utf8') });
+        read.push({ f, mtimeMs: fst.mtimeMs, size: fst.size, text: fs.readFileSync(f, 'utf8') });
       }
       liveText = fs.readFileSync(live, 'utf8');
     } catch { return gaveUp({ compacted: false }); }
+    /* The lock this runs under is stolen after filelock's LOCK_STALE_MS (10 s). A read that alone took a good part of
+       that (a slow disk, a scanner) stops here and backs off, rather than run the rest past the bound. */
+    if (Date.now() - startedAt > COMPACT_READ_BUDGET_MS) return gaveUp({ compacted: false });
     const next = newestPerName([...read.map((r) => r.text), liveText]);
     if (next === null) {
       /* A line it cannot read whole stops every compaction from now on, so the history grows again; say so once per
@@ -448,7 +454,8 @@ function compactEnded(opts = {}) {
     let removed = 0;
     for (const r of read) {
       let fst; try { fst = fs.statSync(r.f); } catch { continue; }
-      if (fst.mtimeMs !== r.mtimeMs || now - fst.mtimeMs <= SEALED_KEEP_MS) continue;   // changed since read, or too new
+      // Changed since read (size too: a coarse or same-millisecond mtime can hide an append), or too new.
+      if (fst.mtimeMs !== r.mtimeMs || fst.size !== r.size || now - fst.mtimeMs <= SEALED_KEEP_MS) continue;
       try { fs.unlinkSync(r.f); removed++; } catch { /* still read; tried again next time */ }
     }
     try {

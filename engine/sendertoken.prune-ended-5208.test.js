@@ -393,3 +393,19 @@ test('kosmos#5208: a compaction that stole the lock and put a newer file in plac
   assert.equal(oldEndedSince('newer', iso(T0), false), true, 'a rolled-back build lost the newer file\'s line');
   assert.equal(sendertoken.endedSince(['a'], iso(T0 - 1)), true, 'the line this compaction folded was lost');
 });
+
+test('kosmos#5208: a sealed file that grew with its mtime unchanged is not deleted (size is compared too)', () => {
+  reset();
+  writeLive([line('gone', T0 + 10)]);
+  sendertoken.compactEnded({ force: true });
+  const [first] = sealed();
+  const f = path.join(DIR(), first);
+  const old = (Date.now() - sendertoken.SEALED_KEEP_MS - 60000) / 1000;
+  fs.utimesSync(f, old, old);
+  const realRead = fs.readFileSync;
+  // An append right after the read whose mtime does not move (coarse clock): put the old mtime back.
+  fs.readFileSync = function (p, ...rest) { const out = realRead.call(this, p, ...rest); if (p === f) { fs.readFileSync = realRead; fs.appendFileSync(f, line('same-ms', T0 + 2) + '\n'); fs.utimesSync(f, old, old); } return out; };
+  try { sendertoken.compactEnded({ force: true }); } finally { fs.readFileSync = realRead; }
+  assert.ok(fs.existsSync(f), 'a sealed file that grew after it was read was deleted (its mtime did not move)');
+  assert.equal(sendertoken.endedSince(['same-ms'], iso(T0)), true);
+});

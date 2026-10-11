@@ -183,3 +183,14 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
 - RECORDED (NIT): on Windows, unlinking a sealed file a reader holds open may leave it delete-pending, so a reader that
   listed it gets EPERM and endedSince refuses that once (fail closed). Treating EPERM as "missing" could fail open, so it
   is left refusing; the Windows job runs the test file.
+
+## Review 10 (sonnet, blind, on d3efc7c7c): no BLOCKER
+- FIXED (WARNING): a sealed file's deletion compared mtime only; a same-millisecond or coarse-mtime append could hide.
+  Size is compared too (test keeps the mtime, changes only the size).
+- FIXED (WARNING): a compaction slow enough to approach filelock's 10 s stale bound: a read-and-fold phase over 3 s
+  (COMPACT_READ_BUDGET_MS) stops and backs off.
+- FIXED (WARNING, wording): a line torn at the read and finished later reaches only the sealed file, so an older build
+  misses it until the next compaction folds it (this build reads the sealed file meanwhile).
+- FIXED (NIT): a base larger than the live file (shrunk outside this code) resets to 0.
+- RECORDED (NITs): newestPerName stops on a bad line for any name, wider than endedSince's refusal (safe: it only stops
+  compacting); the test's old-build model folds case, which equals slugFor for every name it uses.
