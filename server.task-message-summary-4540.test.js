@@ -100,3 +100,8 @@ test('#5805: an assignee out of usage is said as kept, not told and not "may hav
 test('#5805: a kept outcome with no reason still names the agent and says it is kept', () => {
   assert.equal(taskMessageSummary([{ agent: 'casey', state: 'held' }], 1), 'Kept, not typed yet: casey is out of usage; Kosmos types it after the reset. Do not send it again.');
 });
+
+test('#5805: an assignee kept behind earlier kept messages is said as kept, with that reason', () => {
+  assert.equal(taskMessageSummary([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey still has messages kept from while it was out of usage; Kosmos types this one after them' }], 1),
+    'Kept, not typed yet: casey still has messages kept from while it was out of usage; Kosmos types this one after them. Do not send it again.');
+});
