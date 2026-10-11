@@ -2,7 +2,7 @@
 /**
  * kosmos#5855: the daily-log compiler does not read a rolled-over conversation (earlier rows in a `.full` file beside
  * the thread file; the fresh thread file names it in `continues`). On either sign it refuses the run: nothing
- * written, nothing pruned, and it says why.
+ * written, nothing pruned, and the summary says so (`refused`).
  *
  *   tools/run-tests.sh --only engine/dailylog.rollover-5855.test.js
  */
@@ -25,6 +25,8 @@ const dayOf = (at) => (typeof at === 'string' && at.length >= 10 ? at.slice(0, 1
 const timeOf = (at) => (typeof at === 'string' && at.length >= 16 ? at.slice(11, 16) : '');
 
 const ASIDE = 'direct..p.json.20261011T180000Z.4242.1791741600000.full';
+// The refusal's last line: the two things that hold whatever the listed files are.
+const CLOSING = 'This tool does not compile when it finds either kind, and it changes none of them. They can be Kosmos\'s own files, so do not move or delete one unless you know it is not.\n';
 const WHOLE = [
   { at: '2026-09-13T09:00:00Z', text: 'day13 only in the full file', from: null },
   { at: '2026-09-14T09:00:00Z', text: 'day14 only in the full file', from: null },
@@ -76,8 +78,8 @@ test('isRolledOverFileName: any thread file\'s name, a dot, and .full at the end
 });
 
 test('CONTROL (the hazard, by proxy): compiled from a current file alone, one day shrinks and two are deleted', () => {
-  // BY PROXY: the full file is deleted and the fresh file does not name it, because with the fix in place there is no
-  // sign of a rollover this compiler would overlook. What this shows is what compiling from the current file alone
+  // BY PROXY: the full file is deleted and the fresh file does not name it, because with the fix in place both signs
+  // of an ordinary rollover are seen. What this shows is what compiling from the current file alone
   // does; that a real rollover used to be overlooked is shown by the tests below failing without the fix. It asserts
   // nothing this change added, so it passes on the compiler from before the change too.
   const { chatsDir, outDir, before } = rolledOver('hazard', null, { names: false });
@@ -225,7 +227,7 @@ test('one rolled-over conversation refuses the run for every conversation (a day
   assert.ok(!fs.existsSync(path.join(outDir, '2026-09-20.md')));
 });
 
-test('the command says why and exits non-zero, so a scheduled run cannot read as "compiled, nothing new"', (t) => {
+test('the command says what it found and exits non-zero, so a scheduled run cannot read as "compiled, nothing new"', (t) => {
   const root = require('./store').ROOT;
   assert.ok(path.resolve(root).startsWith(path.resolve(SANDBOX) + path.sep), 'the data root is not inside this test\'s sandbox: ' + root);
   const chatsDir = path.join(root, 'chats');
@@ -239,13 +241,13 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  // The whole message, word for word, for the plainest state (one .full file): what happened, where, which file.
-  // Pinned whole so that a reason, advice or a promise cannot be added without this test saying so: each depends on
-  // what the files are, which the tool cannot tell.
+  // The whole message, word for word, for the plainest state (one .full file). Pinned whole so that a sentence about
+  // why a file is there, or what to do with it, cannot be added without this test saying so: the tool cannot tell.
   assert.equal(no.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
-    + 'This tool does not compile while ' + dl.shownName(chatsDir) + ' holds:\n'
+    + 'Found in ' + dl.shownName(chatsDir) + ':\n'
     + 'Files whose names end in .full after a conversation file\'s name:\n'
-    + '  ' + JSON.stringify(ASIDE) + '\n');
+    + '  ' + JSON.stringify(ASIDE) + '\n'
+    + CLOSING);
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
   const other = path.join(SANDBOX, 'elsewhere');
@@ -267,14 +269,15 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.ok(second !== undefined, 'the conversation that refers to an earlier file is not listed apart: ' + both.stderr);
   assert.ok(!first.includes('"direct..p.json"'), 'the live conversation file is in the list of .full files');
   assert.ok(second.startsWith('  "direct..p.json"\n'));
-  // only the second sign: its list alone, and the same closing sentence
+  // only the second sign: its list alone, and the same last line
   for (const n of fs.readdirSync(chatsDir)) if (n.endsWith('.full')) fs.rmSync(path.join(chatsDir, n));
   const only = run();
   assert.equal(only.status, 3);
   assert.equal(only.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
-    + 'This tool does not compile while ' + dl.shownName(chatsDir) + ' holds:\n'
+    + 'Found in ' + dl.shownName(chatsDir) + ':\n'
     + 'Conversation files that refer to an earlier file:\n'
-    + '  "direct..p.json"\n');
+    + '  "direct..p.json"\n'
+    + CLOSING);
   // a file name is somebody's bytes: whatever it holds, what is printed is printable ASCII, on one line
   const nasty = 'proj1.k.json.\u001b]0;TITLE\u0007\nFiles named as\u009b2J\u007f\u202e\u2028.full';
   let made = true;
@@ -302,7 +305,7 @@ test('the folder is shown escaped too: a data folder with a newline or an escape
   assert.equal(r.status, 3);
   assert.match(r.stderr, /^[\x20-\x7e\n]*$/, 'something outside printable ASCII reached the output: ' + JSON.stringify(r.stderr));
   assert.equal(r.stderr.split('\n').filter((l) => l.startsWith('FORGED')).length, 0, 'the folder path forged a line');
-  assert.equal(r.stderr.split('\n').length, 5, 'the message is not its four lines: ' + JSON.stringify(r.stderr));
+  assert.equal(r.stderr.split('\n').length, 6, 'the message is not its five lines: ' + JSON.stringify(r.stderr));
 });
 
 test('shownName: printable ASCII out, whatever comes in', () => {

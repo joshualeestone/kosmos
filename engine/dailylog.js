@@ -548,12 +548,15 @@ if (require.main === module) {
       + (names.length > REFUSAL_NAMES_SHOWN ? `  and ${names.length - REFUSAL_NAMES_SHOWN} more\n` : '');
     const earlier = summary.rolledOverFiles;
     const pointing = summary.continuedFiles;
-    // What happened, where, and which files. No reason and no advice are printed: both depend on what the files
-    // are (a real rollover, an interrupted one, a stray copy), which this tool cannot tell.
+    // What happened, where, which files, and two sentences that hold whatever the files are (a real rollover, an
+    // interrupted one, a stray copy): what this tool does on finding them, and not to remove one on this message's
+    // say-so. Nothing here says why a file is there or what to do with it; the tool cannot tell.
     process.stderr.write('dailylog: not compiled. Nothing was written or removed.\n'
-      + `This tool does not compile while ${shownName(summary.chatsDir)} holds:\n`
+      + `Found in ${shownName(summary.chatsDir)}:\n`
       + (earlier.length ? 'Files whose names end in .full after a conversation file\'s name:\n' + list(earlier) : '')
-      + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : ''));
+      + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : '')
+      + 'This tool does not compile when it finds either kind, and it changes none of them. They can be Kosmos\'s '
+      + 'own files, so do not move or delete one unless you know it is not.\n');
     // exitCode, not exit(): the process ends once stderr has drained, so a piped reader gets the whole message.
     process.exitCode = EXIT_REFUSED;
   } else {
