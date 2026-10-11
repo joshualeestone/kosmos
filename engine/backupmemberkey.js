@@ -11,7 +11,8 @@
  * ensureMemberKey():
  *   1. asks POST /v1/org/backup-key for the company (org), this computer's account as the coordinator names it
  *      (member), and the company's public key, all from one answer to a device-signed request (the answer itself is
- *      not signed; it rests on the tunnel's TLS to Kosmos+);
+ *      not signed; it rests on the tunnel's TLS to Kosmos+, and is bounded by the coordinator, which keeps a wrap only
+ *      if its own escrowed company key opens it);
  *   2. with a key here that Kosmos+ already took, answers it;
  *   3. otherwise keeps a key on disk BEFORE sending it (an answer lost after Kosmos+ kept it must not lose the key),
  *      wraps it to the company's key for (org, member, epoch), and registers it: epoch 1 first; a different key
@@ -48,7 +49,8 @@ function fileFor(org, member) {
   return path.join(dir(), h + '.json');
 }
 const b64 = (buf) => Buffer.from(buf).toString('base64url');
-const unb64 = (s) => { try { const b = Buffer.from(String(s), 'base64url'); return b.length === 32 ? b : null; } catch { return null; } };
+// Canonical base64url only: Node's decoder skips characters it does not know, so the bytes must encode back to s.
+const unb64 = (s) => { try { const b = Buffer.from(String(s), 'base64url'); return b.length === 32 && b64(b) === String(s) ? b : null; } catch { return null; } };
 
 /* The keys kept for (org, member): { ok, keys } with keys { "<epoch>": { sk, pk, registered } } (Buffers). A missing
    file is ok and empty; an unreadable or malformed one is NOT ok, so nothing overwrites it. */
@@ -138,6 +140,8 @@ async function ensureNow(opts) {
       // A kept key Kosmos+ already holds for another epoch (an answer lost, then the epoch moved): a fresh key, once.
       if (code === 'member_key_reused' && !refreshed) {
         refreshed = true;
+        const now = readKeys(company.org, company.member);
+        if (!now.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
         keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
         writeKeys(company.org, company.member, keys);
         continue;
@@ -154,8 +158,10 @@ async function ensureNow(opts) {
       }
       // Another process may have registered a key meanwhile: re-read, and answer that one rather than replace it.
       const fresh = readKeys(company.org, company.member);
-      const theirs = fresh.ok && Object.keys(fresh.keys).map(Number).sort((a, b) => b - a).find((e) => fresh.keys[e].registered);
-      if (theirs !== undefined && theirs !== false) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
+      if (!fresh.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
+      const theirs = Object.keys(fresh.keys).map(Number).sort((a, b) => b - a).find((e) => fresh.keys[e].registered);
+      if (theirs !== undefined) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
+      // The write below comes before the next send, so the key is on disk before Kosmos+ can take it at `next`.
       // The lost epoch's key is not this computer's; the new epoch gets the same unregistered key, kept before it is sent.
       keys[next] = { sk: keys[epoch].sk, pk: keys[epoch].pk, registered: false };
       delete keys[epoch];

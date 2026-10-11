@@ -94,7 +94,8 @@ test('#5744 2b: a lost key when the current epoch is later reads currentEpoch an
   // A key file that still says epoch 1, unregistered (an old crash): 400 wrong_epoch with currentEpoch 3, then 4.
   loseTheKey();
   const before = await mk.ensureMemberKey({ macRequest: async (m, r2, b) => (r2 === mk.BACKUP_KEY_ROUTE ? c.macRequest(m, r2, b) : { ok: false, because: 'offline' }) });
-  assert.equal(before.ok, false);   // made and kept a key for epoch 1 while offline
+  assert.equal(before.ok, false);
+  assert.equal(JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['1'].registered, false, 'no key was kept for epoch 1 while offline');
   const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.epoch, 4);
@@ -229,4 +230,27 @@ test('#5744 2b: a key another process registered during a rotation is answered, 
   assert.deepEqual([r.ok, r.epoch], [true, 1], JSON.stringify(r));
   assert.equal(r.publicKey.equals(theirs.pk), true);
   assert.equal(JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys['1'].pk, theirs.pk.toString('base64url'), 'their key was replaced');
+});
+
+test('#5744 2b: a key in the file that is not canonical base64url is not read as a key', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });
+  const file = keyFile();
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  kept.keys['1'].pk = kept.keys['1'].pk + '!';   // decodes to the same 32 bytes in Node, but is not what was written
+  fs.writeFileSync(file, JSON.stringify(kept));
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /could not be read/);
+});
+
+test('#5744 2b: a key file made unreadable during a rotation is left as it is', async () => {
+  const c = fakeCoordinator();
+  const r = await mk.ensureMemberKey({ macRequest: async (m, route, b) => {
+    if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
+    fs.writeFileSync(keyFile(), 'broken by someone else');
+    return { ok: false, because: 'another key holds this epoch', refusal: { status: 409, code: 'member_key_exists', currentEpoch: null } };
+  } });
+  assert.equal(r.ok, false);
+  assert.equal(fs.readFileSync(keyFile(), 'utf8'), 'broken by someone else');
 });
