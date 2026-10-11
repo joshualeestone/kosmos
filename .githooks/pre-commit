@@ -27,33 +27,41 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
   # kosmos#4911: the program sits between these two markers so tools/test-precommit-pipe-lint-4911.sh runs THIS text.
   # PIPE-LINT-BEGIN
   hits="$(git show ":$f" | awk '
-    # own(l): l is "<plain command> ...; var=<exit status>", so that status is the command'"'"'s own. Refused (the pipe
-    # still counts) for a closer (done fi esac then else elif do wait, or } and ) by the first-character rule), a
-    # comment, a status read before the ";", or a ";" inside quotes, since each of those passes the pipe'"'"'s status on.
+    # own(l): l is "<one simple command>; var=<exit status>", so that status is the command'"'"'s own and a pipe on an
+    # earlier line cannot reach it. Everything before the ";" must be ONE simple command: no other ";", "&&" or "||"
+    # (the status would be the last segment'"'"'s), no pipe, no comment, no status read, balanced quotes, and a first word
+    # (after any VAR=x prefixes) that is a plain command: not a keyword or closer, not a builtin that always succeeds,
+    # not a wrapper of another command, not a sourced file. Assignments alone run no command, so own nothing.
     # (These comments never write the status variable itself: this hook lints its own text.)
     function own(l,   i, w, pre, t, t2) {
       if (l !~ /^[[:space:]]*[A-Za-z_.\/]/) return 0
-      w = l; sub(/^[[:space:]]*/, "", w); sub(/[^A-Za-z0-9_.\/-].*$/, "", w)
-      if (w ~ /^(done|fi|esac|then|else|elif|do|wait)$/) return 0
-      # A builtin that always succeeds owns nothing: "local rc; rc=..." still reads 0 when the suite failed.
-      if (w ~ /^(local|declare|typeset|readonly|export|set|unset|shift|true|alias|builtin|command|eval|exec|time|echo|printf)$/) return 0
-      # A sourced file is a function defined elsewhere (its status may be its last pipe'"'"'s): not owned.
-      if (w ~ /^(source|\.)$/) return 0
       i = match(l, /;[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/)
       if (!i) return 0
       pre = substr(l, 1, i - 1)
-      if (pre ~ /\$\?/) return 0
-      if (pre ~ /(^|[[:space:]])#/) return 0   # the ";" is inside a comment, so the status is read on a later line
-      t = pre; gsub(/\|\|/, "", t); if (t ~ /\|/) return 0   # a pipe of its own before the ";" (any filter)
-      # Assignments alone ("x=1; rc=...") run no command, so the status read after them is a constant 0. An assignment
-      # FROM a command ("out=$(cmd)") or before one ("V=1 cmd") is that command'"'"'s, and stays owned.
-      t = pre
-      while (sub(/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=(\([^)]*\)|("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]"'"'"'(]+|\$\(\([^)]*\)\))*)/, "", t)) { }
-      t2 = pre; gsub(/\$\(\(/, "", t2)   # arithmetic $(( )) runs no command
-      if (t ~ /^[[:space:]]*$/ && t2 !~ /\$\(|`/) return 0
+      if (pre ~ /;|&&|\|\||\$\?/) return 0                     # more than one command, or a status read first
+      if (pre ~ /\|/) return 0                                 # a pipe of its own (any filter)
+      if (pre ~ /(^|[[:space:]])#/) return 0                   # the ";" is inside a comment
       t = pre; if (gsub(/"/, "", t) % 2) return 0
       t = pre; if (gsub(/'"'"'/, "", t) % 2) return 0
+      # Strip leading assignments (scalars, arrays, +=, elements, quoted, arithmetic, $()) to reach the command word.
+      t = pre
+      while (sub(/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=(\([^)]*\)|("[^"]*"|'"'"'[^'"'"']*'"'"'|\$\(\([^)]*\)\)|\$\([^)]*\)|[^[:space:]"'"'"'(\\]+)*)/, "", t)) { }
+      if (t ~ /^[[:space:]]*$/) {                              # assignments alone: owned only if one ran a command
+        t2 = pre; gsub(/\$\(\(/, "", t2)                         # arithmetic $(( )) runs no command
+        return (t2 ~ /\$\(|`/) ? 1 : 0
+      }
+      w = t; sub(/^[[:space:]]*/, "", w); sub(/[^A-Za-z0-9_.\/-].*$/, "", w)
+      if (w == "") return 0
+      if (w ~ /^(done|fi|esac|then|else|elif|do|if|for|while|until|case|select|function|wait)$/) return 0
+      if (w ~ /^(local|declare|typeset|readonly|export|set|unset|shift|true|alias|unalias|builtin|command|eval|exec|time|echo|printf|trap|hash|ulimit|shopt|umask|pushd|popd|dirs|enable|getopts|let)$/) return 0
+      if (w ~ /^(sudo|env|nice|nohup|xargs|timeout|stdbuf|caffeinate)$/) return 0
+      if (w ~ /^(source|\.)$/) return 0
       return 1
+    }
+    function closes(l,   a, o, c) {
+      a = l; gsub(/\$\{/, "", a); o = gsub(/[({]/, "", a)
+      a = l; gsub(/\$\{[^}]*\}/, "", a); c = gsub(/[)}]/, "", a)
+      return c > o
     }
     # A file saved with CRLF endings: read each line without its CR, so a trailing backslash still reads as one.
     { sub(/\r$/, "") }
@@ -75,7 +83,8 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     # Also "a | tail ||" or "&&": the next line is the fallback, and it reads the filter'"'"'s status.
     { cont = ($0 ~ /\\$/ || s ~ /\|[[:space:]]*$/ || $0 ~ /(\|\||&&)[[:space:]]*$/) }
     # A closer as its own word anywhere on the line ("; }", "} # end", "} 2>/dev/null", "tail -1 )") also ends a body.
-    { shut = ($0 ~ /^[[:space:]]*[})]/ || $0 ~ /[;[:space:]][})]([[:space:];<>&|#]|$)/ || $0 ~ /\(\)[[:space:]]*[{(]/ || $0 ~ /^[[:space:]]*function[[:space:]]/) }
+    # And any line that closes more ( or { than it opens ("tail -1)" with no space) ends a body begun above.
+    { shut = ($0 ~ /^[[:space:]]*[})]/ || $0 ~ /[;[:space:]][})]([[:space:];<>&|#]|$)/ || $0 ~ /\(\)[[:space:]]*[{(]/ || $0 ~ /^[[:space:]]*function[[:space:]]/ || closes($0)) }
   ')"
   # PIPE-LINT-END
   if [ -n "$hits" ]; then

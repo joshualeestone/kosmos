@@ -41,8 +41,10 @@ printf '%s\n' "sed -i '' '6d' f 2>/dev/null || sed -i '6d' f" "rc=$Q" > "$T/oror
 printf '%s\n' "echo \"calls=\$(grep -c . f $P tr -d x)\"" 'true' "run_it --flag 2> err; rc=$Q" > "$T/ownstatus.sh"
 [ -z "$(lint "$T/ownstatus.sh")" ] && ok "'cmd; rc=\$?' reads cmd's own status, whatever pipe came before" || bad "'cmd; rc=\$?' after an unrelated pipe was refused"
 
-printf '%s\n' "x $P grep y" 'true' "out=\"\$(run_it 2>&1)\"; rc=$Q" "V=1 run_it; rc=$Q" > "$T/assigncmd.sh"
+printf '%s\n' "x $P grep y" 'true' "out=\"\$(run_it 2>&1)\"; rc=$Q" "V=1 run_it; rc=$Q" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q" > "$T/assigncmd.sh"
 [ -z "$(lint "$T/assigncmd.sh")" ] && ok "an assignment from a command, or before one, still owns its status" || bad "an assignment from or before a command was refused: $(lint "$T/assigncmd.sh")"
+printf '%s\n' "x $P grep y" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q" > "$T/assignsubst.sh"
+[ -z "$(lint "$T/assignsubst.sh")" ] && ok "an assignment from a prefixed command, right after a pipe, owns its status" || bad "an assignment from a prefixed command was refused: $(lint "$T/assignsubst.sh")"
 
 printf '%s\n' 'set -o pipefail' "yarn test $P tail -5" "[ $Q -eq 0 ]" > "$T/pipefail.sh"
 [ -z "$(lint "$T/pipefail.sh")" ] && ok "CONTROL: under pipefail the shape is accepted, as before" || bad "pipefail no longer accepted"
@@ -91,6 +93,14 @@ mustflag "an array assignment alone owns no status" "yarn test $P tail -5" "a=(1
 mustflag "an append or element assignment alone owns no status" "yarn test $P tail -5" "a+=x; b[1]=y; rc=$Q"
 mustflag "a mixed-quote assignment alone owns no status" "yarn test $P tail -5" "a=x\"y z\"; rc=$Q"
 mustflag "a semicolon inside a comment" "yarn test $P tail -5" "x=1 # n; rc=$Q" "[ $Q -eq 0 ]"
+mustflag "a status line whose last command is echo" "yarn test $P tail -5" "a; echo done; rc=$Q"
+mustflag "a compound command before the status" "yarn test $P tail -5" "if foo; then bar; fi; rc=$Q"
+mustflag "a prefixed always-zero builtin" "yarn test $P tail -5" "FOO=1 true; rc=$Q"
+mustflag "a wrapper of another command" "yarn test $P tail -5" "sudo true; rc=$Q"
+mustflag "trap owns no status" "yarn test $P tail -5" "trap x EXIT; rc=$Q"
+mustflag "a subshell body closed against the last word" 'f() (' "  make $P tail -1)" "f; rc=$Q"
+mustflag "an escaped-space assignment alone" "yarn test $P tail -5" "x=a\\ b; rc=$Q"
+mustflag "two assignments split by a semicolon" "yarn test $P tail -5" "x=1 ; y=2; rc=$Q"
 
 # The file the finding was about, as it is in this tree.
 if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then

@@ -35,6 +35,15 @@ common form (arithmetic, arrays, +=, element, mixed quotes); a ";" after a "#".
 **A second residual, stated:** a "cmd; rc=<status>" line inside an unquoted heredoc body is read as owning its status,
 though the body is text whose status expands at the heredoc's command. Contrived; not handled.
 
+**Rebuilt at review 6:** own() now requires everything before the ";" to be ONE simple command (no other ";", "&&"
+or "||"), and checks the command word after any VAR=x prefixes, against keywords, always-zero builtins, wrappers
+(sudo env nice nohup xargs timeout stdbuf caffeinate) and source. A line that closes more ( or { than it opens ends
+a body.
+
+**A third residual, stated:** the first-character rule refuses a status line whose command word is quoted or a
+variable ("$BIN" --x; rc=...), and one that starts with "[" or "~". Those are false positives (the safe direction);
+none occurs in the tree today (sweep: 0).
+
 **The residual, stated:** a function defined elsewhere in the file whose last command is a pipe, called as
 "fn; rc=<status>" with some unrelated line between its end and the call. The lint reads lines, not a parse, so it
 cannot know what fn returns. The old lint caught that only when the call sat within two lines of the pipe, which the
@@ -90,3 +99,17 @@ kind refuses a correct line: a false positive, the safe direction for a guard.
 - FIXED (NITs): assignment-only forms (arithmetic, arrays, +=, element, mixed quotes) and a ";" after "#". Fixtures;
   mutation red. Heredoc bodies named as a residual. The function-end comment now says what the code matches.
 - Whole-repo sweep after all of it: 0 flagged under BSD awk and mawk (hazard/clean control in each).
+
+## Review 6 (sonnet, blind, on 534dbf16b): no BLOCKER
+- FIXED (WARNING): own() looked at the line's FIRST word, but the status is the LAST command's: "a; echo done;",
+  "if ...; fi;", "FOO=1 true;", "sudo true;" all read 0 and passed. Rebuilt: one simple command only, and the command
+  word after VAR=x prefixes, with wrappers listed. Fixtures; the multi-command and wrapper mutants each turn one BAD.
+- FIXED (WARNING): "tail -1)" with no space before the closer did not end a body; a line that closes more ( or { than
+  it opens now does. Fixture; mutation red.
+- FIXED (NITs): trap, hash, ulimit, shopt and similar listed; "x=1 ; y=2;" refused as more than one command; an
+  escaped-space assignment is refused (its remainder has no command word). Fixtures.
+- Found while fixing: the first rebuild re-flagged an original false positive ("out=$(PATH=... cmd); rc=") because a
+  $() value was not stripped as part of the assignment; added, with an in-window must-accept fixture whose mutant goes
+  BAD (the first must-accept fixture sat outside the two-line window, so its mutant stayed green). An "escaped
+  character" value form had no effect on any verdict, so it was removed rather than kept untested.
+- Named residual: a quoted or variable command word refuses correct code (none in the tree).
