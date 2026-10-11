@@ -72,6 +72,7 @@ render-disconnect-stop-2570
 render-dm-badges-2863
 render-dm-chatfirst-718
 render-dm-emoji-3744
+render-dm-held-5805
 render-dm-multiline-3208
 render-dm-owes-4340
 render-dm-phone-718

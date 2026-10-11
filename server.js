@@ -14851,7 +14851,8 @@ const server = http.createServer(async (req, res) => {
           // Review 2: could_not is "did not reach you"; unconfirmed (pasted, Enter not confirmed) often did.
           reached: !person || !m.delivery || m.delivery.state === chat.DELIVERY.PLACED
             ? 'yes'
-            : (m.delivery.state === chat.DELIVERY.COULD_NOT ? 'no' : 'maybe'),
+            // #5805 slice 2b: a held message has not been typed to you yet (it is kept for after your usage resets).
+            : (m.delivery.state === chat.DELIVERY.COULD_NOT || m.delivery.state === 'held' ? 'no' : 'maybe'),
         };
       });
       if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
@@ -15838,6 +15839,35 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5805 slice 2b: Send now anyway. The person types a message Kosmos is holding for an agent out of usage, now, and
+     its row takes the delivery. The person's action only. A message no longer kept (typed or dropped), or one the
+     minute sweep is typing this moment, answers 409. */
+  const dmHeld = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/held$/);
+  if (dmHeld && req.method === 'POST') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this is the person\'s to send, not an agent\'s' }); return; }
+    const name = decodeSegment(dmHeld[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.at !== 'string' || !body.at) { sendJson(res, 400, { error: 'say which held message (its at)' }); return; }
+        const limitqueue = require('./engine/limitqueue');
+        const entry = limitqueue.list(name).find((e) => e.kind === 'dm' && e.at === body.at);
+        if (!entry || !limitqueue.claim(entry.id)) { sendJson(res, 409, { error: 'that message is no longer held: it was sent or dropped, or is being sent now' }); return; }
+        let delivery;
+        try {
+          try { delivery = await chat.deliverAsync(name, entry.text, safeRoster(), entry.envelope, entry.trailer); }
+          catch (err) { delivery = { state: chat.DELIVERY.COULD_NOT, because: 'it could not be typed: ' + String((err && err.message) || err) }; }
+          // Removed only after the try, so a board that stops mid-typing still has it kept.
+          limitqueue.settle(name, entry.id);
+        } finally { limitqueue.release(entry.id); }
+        limitqueue.setRow(name, entry.at, delivery, chat);   // retried by the sweep when the thread cannot be written now
+        sendJson(res, 200, { delivery });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
   /**
    * --- the thread between the person and ONE agent -------------------------
    *
@@ -16565,6 +16595,54 @@ const server = http.createServer(async (req, res) => {
         /* An answered menu was typed as one key: PLACED when the menu went, UNCONFIRMED when it is still asking (a
            redraw), never a message delivery. The bubble shows the option's words. */
         if (qmenuAnswer && !chose) chose = chat.cleanMessage(qmenuAnswer.label);
+        /* #5805 slice 2b: a person's own message to an agent out of usage (slice 1's hold), or to one that still has
+           messages kept from then (slice 2a's order rule), is kept and typed after the reset by the minute sweep, unless
+           the person sent it anyway. The row is recorded held; the page offers Send now anyway. Could not keep it: it is
+           typed as before (a person's message is never refused for this). */
+        if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true) {
+          const limitqueue = require('./engine/limitqueue');
+          let hold = null;
+          try { hold = chat.limitHeldVerdict(name, roster); } catch { hold = null; }
+          let behind = !hold && chat.addressable(name, roster).ok === true && limitqueue.list(name).length > 0;
+          /* Never held while the agent's screen waits on an answer: a question or permission menu, or, past the reset,
+             Claude Code's limit menu, which the person's message may be answering (held, nothing could dismiss it).
+             Asked only when it would otherwise be held, so an ordinary send reads the pane no more than before. */
+          if (hold || behind) {
+            let answering = false;
+            try { answering = chat.menuHeld(name, roster); } catch { answering = false; }
+            if (!answering && hold && !(Date.parse(hold.limitReset) > Date.now())) {
+              try {
+                const view = chat.viewport(name, roster);
+                answering = !!(view && typeof view.text === 'string' && require('./engine/status').claudeLimitMenuUp(view.text));
+              } catch { answering = false; }
+            }
+            if (answering) { hold = null; behind = false; }
+          }
+          if (hold || behind) {
+            const at = new Date().toISOString();
+            const until = hold && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
+            const trailer = (attachments.wireNote(files.recs) || '') + reactionNote;
+            const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
+            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at })) {
+              const heldDelivery = {
+                state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}),
+                because: behind ? 'held: it still has messages kept from while it was out of usage; Kosmos sends this one after them'
+                  : 'held: it is out of usage' + (until ? ' until ' + until : '') + '; Kosmos sends it after the reset',
+              };
+              const keptRow = chat.appendMessage(chat.DIRECT, name, {
+                ...attachments.rowFields(files.recs), text: body.text, wire: null, at, delivery: heldDelivery,
+                ...(answered ? { replyTo: answered.at } : {}),
+              });
+              if (keptRow.recorded === true) {
+                sendJson(res, 200, { delivery: heldDelivery, recorded: true, recordedBecause: null });
+                return;
+              }
+              /* No row to show it held (or to offer Send now anyway): taken back out and typed now, as before, rather
+                 than kept where the person cannot see it and typed later behind a "not sent" they may resend. */
+              limitqueue.remove(name, heldId);
+            }
+          }
+        }
         let delivery = qmenuAnswer
           ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
             because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at its window',
@@ -21610,11 +21688,7 @@ function start(port = PORT) {
           const limitqueue = require('./engine/limitqueue');
           const roster = limitqueue.names().length ? safeRoster() : null;
           if (roster) {
-            limitqueue.flush(roster, {
-              deliver: chat.deliverAutomaticAsync, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
-              isReleased: chat.limitQueueReleased,
-              onDelivered: messages.logHeldDelivered, onDropped: (e, r) => { messages.tellHeldDropped(e, r).catch(() => { /* recorded */ }); },
-            }).then((done) => {
+            limitqueue.flush(roster, limitqueue.sweepHooks({ chat, messages })).then((done) => {
               for (const d of done) process.stdout.write('limit-queue: ' + d.name + ' was given held message ' + d.id + ' after its usage reset, delivery=' + d.state + '\n');
             }).catch(() => { /* kept for the next minute */ });
           }

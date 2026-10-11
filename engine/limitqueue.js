@@ -64,7 +64,9 @@ function addOrWhy(name, entry) {
     if (now.filter((e) => e.from === String(entry.from || '')).length >= MAX_PER_SENDER) return 'sender-cap';
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
       key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null,
-      ...(entry.behind === true ? { behind: true } : {}) });
+      ...(entry.behind === true ? { behind: true } : {}),
+      // #5805 slice 2b: a person's own message: its text and trailer are typed with the envelope, as the route types them.
+      ...(entry.kind === 'dm' ? { kind: 'dm', text: String(entry.text || ''), trailer: String(entry.trailer || '') } : {}) });
     return write(name, now) ? '' : 'store';
   } catch { return 'store'; }
 }
@@ -119,6 +121,14 @@ function isDone(id) { return done.has(id); }   // read by the tests; the sweep r
 function keptNote(e) {
   return e && e.behind ? ' [kept behind earlier messages; sent ' + e.at + ']' : ' [kept for you while you were out of usage; sent ' + e.at + ']';
 }
+/* Send now anyway (slice 2b) takes the same claim while it types a kept message, so the sweep skips it and a crash
+   mid-typing leaves it kept (typed again, at worst) rather than lost. False when it is already claimed, or already
+   typed (its removal from the file having failed), so Send now anyway answers 409 rather than type it twice. */
+function claim(id) { if (claimedNow(id) || done.has(id)) return false; typing.set(id, Date.now()); return true; }
+function release(id) { typing.delete(id); }
+/* A kept message typed by another path (Send now anyway): removed, or, when the removal fails, remembered as done so
+   the sweep never types it again. */
+function settle(name, id) { if (!remove(name, id)) done.add(id); }
 let flushingSince = 0;
 let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
@@ -135,7 +145,7 @@ async function flush(roster, opts) {
   // Only this run frees the guard: a stuck run that finishes late must not clear a newer run's.
   try { return await flushOnce(roster, opts); } finally { if (runToken === mine) flushingSince = 0; }
 }
-async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, now = Date.now() }) {
+async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, now = Date.now() }) {
   const out = [];
   for (const name of names()) {
     try {
@@ -171,9 +181,12 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         typedNow += 1;
         typing.set(e.id, Date.now());
         let v;
-        try { v = await deliver(name, e.envelope + keptNote(e), roster); } catch { v = null; } finally { typing.delete(e.id); }
+        try { v = await deliver(name, e.envelope + keptNote(e), roster, e); } catch { v = null; } finally { typing.delete(e.id); }
         const state = v && v.state;
-        if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) break;
+        if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) {
+          try { if (onStuck) onStuck(e, v); } catch { /* it stays kept either way */ }
+          break;
+        }
         if (!remove(name, e.id)) done.add(e.id);
         try { if (onDelivered) onDelivered(e, v); } catch { /* it was typed */ }
         out.push({ name, id: e.id, state });
@@ -185,6 +198,44 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
   return out;
 }
 
-function resetForTests() { done.clear(); typing.clear(); flushingSince = 0; }
+/* A person's message row (slice 2b) whose new delivery could not be written yet (the thread's lock busy, or its file
+   unreadable for a moment): kept here and written by the next sweep, so a row never says "Held" for a message that
+   was typed or dropped. In memory only: a restart leaves such a row held (stated in the plan). */
+const rowFixes = new Map();
+function setRow(name, at, delivery, chat) {
+  const key = String(name) + '\u0000' + String(at);
+  let ok = false;
+  try { ok = chat.updateDmDelivery(name, at, delivery); } catch { ok = false; }
+  if (ok) rowFixes.delete(key); else rowFixes.set(key, { name: String(name), at: String(at), delivery });
+  return ok;
+}
+function retryRows(chat) {
+  for (const f of [...rowFixes.values()]) setRow(f.name, f.at, f.delivery, chat);
+}
+/* The board's minute sweep, wired: `kosmos msg` messages (slice 2a) and a person's own messages (slice 2b, kind 'dm')
+   are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
+   dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
+   conversation row). */
+function sweepHooks({ chat, messages }) {
+  retryRows(chat);
+  return {
+    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
+    resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, isReleased: chat.limitQueueReleased,
+    onDelivered: (e, v) => (e.kind === 'dm' ? setRow(e.to, e.at, v, chat) : messages.logHeldDelivered(e, v)),
+    // A person's message the sweep could not type: its row stays held and says why (a menu up, no window), so it does
+    // not read as merely waiting for the reset. Written straight, not retried: a later outcome replaces it anyway.
+    onStuck: (e, v) => {
+      if (e.kind !== 'dm') return;
+      const because = String((v && v.because) || 'it could not be typed').replace(/^held: /, '');
+      try { chat.updateDmDelivery(e.to, e.at, { state: 'held', stuck: because }); } catch { /* the row stays as it was */ }
+    },
+    onDropped: (e, r) => {
+      if (e.kind === 'dm') { setRow(e.to, e.at, { state: chat.DELIVERY.COULD_NOT, because: 'Kosmos kept it for a day and could not type it' }, chat); return; }
+      messages.tellHeldDropped(e, r).catch(() => { /* recorded */ });
+    },
+  };
+}
 
-module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS };
+function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
+
+module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
