@@ -1625,7 +1625,10 @@ function forgetPendingSnapshot() {
   // kosmos#5786 (b): the "on this computer" notes belong to the identity they were made under.
   lastVouched = null;
   const cur = read();
-  if (cur.ok !== false && Object.keys(cur.vouched || {}).length) write({ vouched: {} });
+  if (cur.ok !== false && Object.keys(cur.vouched || {}).length) {
+    const w = write({ vouched: {} });
+    if (!w.ok) process.stderr.write('kosmos+: could not drop the old identity\'s on-this-computer labels: ' + w.because + '\n');
+  }
 }
 /* #4610, Josh's ruling (2026-09-29 13:00): "This computer one, the Kosmos app, should get auto-approved instantaneously
    behind the scenes and never display to the user." This Mac's own in-app sign-in is a device at the coordinator
@@ -1811,7 +1814,8 @@ function vouchTick() {
     .then(() => deviceAllow(id, name || undefined))
     .then((r) => {
       if (!r || !r.ok) {
-        // Only the tunnel's refusals count: a busy register or Forget, or setup not finished, is waited out.
+        // Only the tunnel's refusals count: a busy register or Forget is waited out. (A setup-not-finished refusal is
+        // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
         const why = String((r && r.because) || '');
         if (!busy() && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
         // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for ten minutes).

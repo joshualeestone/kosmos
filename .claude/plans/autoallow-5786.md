@@ -21,7 +21,8 @@ as `vouch` (absent = no auto-allow).
   or http on loopback only. An opener that fails ends S, with a log line.
 - Allow the ONE row whose vouch equals HMAC(S, its id), constant-time; never a joining computer (joining_computer or
   code_wait), never this computer's own sign-ins, never a device the person said Not me to; spend S on the first
-  allowed match; three refused tries end S (only the tunnel's refusals count; busy or setup-not-finished is waited out).
+  allowed match; three refused tries end S (only the tunnel's refusals count; busy is waited out; not enrolled ends S on
+  the next tick, failing closed).
 - Note it in remote.json `vouched` ({id: {at, name}}, newest 20): pendingDevices().connected_here (10 min) and
   devicesList on_this_computer; Remove (the Undo) drops the note unless it timed out; an identity change drops all.
 - Page: "<Browser> on this computer is connected." with why, Undo (Remove, one at a time) and Got it; other views show
@@ -40,6 +41,8 @@ as `vouch` (absent = no auto-allow).
 - A vouch needs no relay-side binding: the board recomputes HMAC(S, row's own device id), so a vouch moved to another
   row never matches (review 18).
 - A pinned device that leaves the snapshot leaves S waiting until the window ends: fails closed (review 18).
+- A phone's request opens the tab too; if this computer's browser is already signed in to the account, that browser
+  vouches and is allowed although it never asked, while the phone still waits. The notice and Undo show (review 27).
 - The `vouchSecretForTests` / `vouchOpenedUrlForTests` exports stay (reviews 15-24): only code running inside the engine
   can call them, and that code can already call deviceAllow on any device directly, so reading S gives it nothing new.
 - Browser history sync can carry the #allow URL to the person's other devices; one opened inside the window is allowed
