@@ -1729,7 +1729,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     else if (jobsHere()) {
       const root = path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir());
       const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
-      const key = `#5774 route 5 job homes ${root}`;
+      const key = `#5774 route 5 job homes ${root}\0${deps.platform || process.platform}`;   // review 13: the reader depends on the platform
       if (cache && cache.has(key)) jobHomes = cache.get(key);
       else { jobHomes = agentJobConfigDirs(root, deps.platform); if (cache) cache.set(key, jobHomes); }
     }
@@ -1757,10 +1757,27 @@ function tokenOnlySettingsRules(dir, deps = {}) {
        agent's folder elsewhere is covered as any home (otherwise one odd job file stopped every agent's creation). */
     const holdsJ = (a, b) => a === b || b.startsWith(a + path.sep);
     if ([...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].some((m) => { const mr = path.join(hr, m); return holdsJ(mr, dirRealJ) || holdsJ(dirRealJ, mr); })) { configUnsafe.push(`${h} (a config home an agent's job names, whose code folders would cover this agent's own folder)`); continue; }
-    if (++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
     if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (a config home an agent's job names, whose path the permission rules cannot carry)`); continue; }
+    // Review 13: counted after every refusal, so a refused home spends none of the budget.
+    if (++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
     listedReal.add(hr);
     concreteHomes.push(h);
+  }
+  /* Review 13: a config home that is a link to something absent (an unmounted volume, a removed target) has no real
+     path, and its members resolve back to the link's own name, so the place it points to went unnamed and the agent
+     could create that home's settings there by its own path. Every home (this agent's, ~/.claude*, the job homes) has
+     the link's target listed beside it. A live link needs nothing: its members resolve through it. */
+  for (const c of [...concreteHomes]) {
+    let live = true;
+    try { fs.realpathSync.native(c); } catch { live = false; }
+    if (live) continue;
+    let linked = false;
+    try { linked = fs.lstatSync(c).isSymbolicLink(); } catch { linked = false; }
+    if (!linked) continue;
+    const t = danglingTarget(c);
+    if (t === path.resolve(c) || concreteHomes.includes(t)) continue;
+    if (ruleHasPatternChar(`Edit(${ruleAbs(t)}/**)`)) { configUnsafe.push(`${t} (where the config home ${c}, a link to something absent, points, whose path the permission rules cannot carry)`); continue; }
+    concreteHomes.push(t);
   }
   const settingsFileDirs = [settingsDir, ...concreteHomes];
   const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
@@ -1858,6 +1875,13 @@ function tokenOnlySettingsRules(dir, deps = {}) {
       try { const st = fs.statSync(f); if (st.isFile() && st.size <= STARTUP_FILE_MAX_BYTES) text = fs.readFileSync(f, 'utf8'); } catch { text = ''; }
       for (const k of PLUGIN_VARS) {
         if (!text.includes(k)) continue;   // review 2: most files name none of them
+        /* Review 13: an INDENTED assignment (an if-block, a function) is one the reader below does not read, so it is
+           named rather than missed: a conditional plugin-dev export is the likeliest way a person writes one. A `source`d
+           file stays a stated gap (the plan). */
+        const indented = new RegExp(`(?:^|[\\s;&|(])${k}=|\\$\\{${k}:?=`);
+        for (const raw of text.split('\n')) {
+          if (/^\s+[^\s#]/.test(raw) && indented.test(raw)) { fromFiles.unsafe.push(`${k} (set on an indented line in ${f}, which Kosmos does not read), a plugin folder Kosmos cannot work out`); break; }
+        }
         // Review 4: a quoted ~ is kept literal by the shell and expanded by Claude Code, so it is read here.
         for (let v of assignmentsIn(text, k, { quotedTildeOk: true })) {   // let: a default-if-unset wrapper is unwrapped below
         /* Review 3: the append idiom refers back to the variable itself (`$K:$HOME/x`, `${K:+$K:}...`): every earlier
@@ -1900,6 +1924,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // Review 4: bounded like the job homes; past 50 the rest are named (each is a whole-folder rule, never pruned).
   const ENV_PLUGIN_MAX = 50;
   let envPluginTaken = 0;
+  /* Review 13: a folder refused as a per-run place (temp) or past the cap: the installed plugins inside it are not
+     listed by their versioned names either, which would bring back the pile-up the refusal exists to stop. The guard
+     already says it is not whole. A folder refused as too wide is not here: what it holds is still denied by name. */
+  const refusedEnv = [];
   for (const d of new Set(startCmds.envPluginDirs || [])) {
     if (coveredWhole(d)) continue;   // review 5: before the count, so covered folders do not spend the budget
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
@@ -1909,10 +1937,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // Review 12: a "$" in it means a variable Claude Code did not expand (a settings env value is taken literally).
     if (r.startsWith(dirRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the agent's own folder, so Kosmos does not deny it whole${d.includes('$') ? '; it has a $ in it: Claude Code does not expand variables in a settings env value, so it reads as a folder under the agent\'s own' : ''})`); continue; }
     // Review 8: one inside the temp folder is a per-run place: its rule would pile up at every refresh (never pruned).
-    if (r.startsWith(tmpRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
+    if (r.startsWith(tmpRealP + path.sep)) { refusedEnv.push(d, r); configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
     if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || holdsP(r, dataRealP) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data or a config home)`); continue; }
     // Review 9: counted after the refusals, as the job homes are, so a refused folder spends none of the budget.
-    if (++envPluginTaken > ENV_PLUGIN_MAX) { configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); break; }
+    // Review 13: past the cap the loop goes on (each refused folder is recorded), and the cap is named once.
+    if (++envPluginTaken > ENV_PLUGIN_MAX) { refusedEnv.push(d, r); if (envPluginTaken === ENV_PLUGIN_MAX + 1) configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
     wholeDenied.push(...both);
@@ -1922,6 +1951,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // pile up at every update. A refused folder (too wide, temp, inside the agent, past the cap) covers nothing.
   for (const d of startCmds.pluginDirs) {
     if (coveredWhole(d)) continue;
+    const dr = realOrLeaf(d);
+    if (refusedEnv.some((x) => d.startsWith(x + path.sep) || dr.startsWith(x + path.sep))) continue;   // review 13
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (an installed plugin's folder, whose path the permission rules cannot carry)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);

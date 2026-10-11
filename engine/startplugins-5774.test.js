@@ -260,7 +260,7 @@ test('#5774 route 5 review 3: the append idiom is read; a backtick is named; ~/.
   assert.ok(JSON.stringify(g2).includes('more than 50 outside'), JSON.stringify(g2));
   // The pass's cache is used: a home seeded there is covered without any job file naming it.
   const seeded = path.join(SANDBOX, 'seeded-home');
-  const cache = new Map([[`#5774 route 5 job homes ${path.resolve(DEPS.workersRoot)}`, [seeded]]]);
+  const cache = new Map([[`#5774 route 5 job homes ${path.resolve(DEPS.workersRoot)}\0${DEPS.platform}`, [seeded]]]);   // review 13: keyed by platform too
   const d3 = agentDir('pilot-cache');
   setup.guardTokenOnlyFolder(d3, 'pilot-cache', { ...DEPS, env: ENV0, launchCache: cache });
   assert.ok(editDeniedBy(readSettings(d3).permissions.deny, path.join(seeded, 'settings.json')).length > 0, 'the cached job homes were not used');
@@ -472,3 +472,53 @@ test('#5774 route 5 review 11: on Linux a MASKED agent unit is no job (not a fai
   } finally { fs.rmSync(mp, { force: true }); fs.rmSync(bp, { recursive: true, force: true }); }
 });
 
+
+test('#5774 route 5 review 13: a config home that is a link to something absent has its target covered; an indented export is named; a per-run cache lists no versioned plugin', () => {
+  // A base under the REAL sandbox path: the temp folder is itself a link on macOS, so every path there reads as linked.
+  const base = path.join(fs.realpathSync.native(SANDBOX), 'r13');
+  fs.mkdirSync(base, { recursive: true });
+  const target = path.join(base, 'nowhere', 'x');   // absent, and so is its parent
+  const dangle = path.join(base, 'dangle-home');
+  fs.symlinkSync(target, dangle);
+  const d = agentDir('pilot-danglehome');
+  setup.guardTokenOnlyFolder(d, 'pilot-danglehome', { ...DEPS, env: ENV0, agentConfigDirs: [dangle] });
+  const s = readSettings(d);
+  for (const t of [path.join(target, 'settings.json'), path.join(target, 'hooks', 'h.sh')]) {
+    assert.ok(editDeniedBy(s.permissions.deny, t).length > 0, `${t}: file tools, by the place the link points to`);
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, t), `${t}: sandbox`);
+  }
+  // The link's own spelling stays denied (the dangerous case of listing the target INSTEAD of the link).
+  assert.ok(editDeniedBy(s.permissions.deny, path.join(dangle, 'settings.json')).length > 0, 'the link itself, file tools');
+  // Control: a live linked home adds no second spelling of its target (its members resolve through it).
+  const liveT = path.join(base, 'live-target');
+  fs.mkdirSync(liveT, { recursive: true });
+  const live = path.join(base, 'live-home');
+  fs.symlinkSync(liveT, live);
+  const d2 = agentDir('pilot-livehome');
+  setup.guardTokenOnlyFolder(d2, 'pilot-livehome', { ...DEPS, env: ENV0, agentConfigDirs: [live] });
+  assert.ok(sandboxDenies(readSettings(d2).sandbox.filesystem.denyWrite, path.join(liveT, 'settings.json')), 'a live link: covered through it');
+
+  // An indented export (an if-block) is named, not missed; an indented COMMENT naming it is not.
+  const zshrc = path.join(HOME, '.zshrc');
+  fs.writeFileSync(zshrc, 'if [ -d ~/devplug ]; then\n  export CLAUDE_CODE_PLUGIN_DIRS=/opt/devplug-indented\nfi\n');
+  try {
+    const g = setup.guardTokenOnlyFolder(agentDir('pilot-indented'), 'pilot-indented', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.ok(JSON.stringify(g).includes('CLAUDE_CODE_PLUGIN_DIRS (set on an indented line'), JSON.stringify(g));
+    fs.writeFileSync(zshrc, 'if true; then\n  # CLAUDE_CODE_PLUGIN_DIRS=/opt/old was here\nfi\n');
+    const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-indentcomment'), 'pilot-indentcomment', { ...DEPS, env: ENV0 });
+    assert.ok(!JSON.stringify(g2).includes('set on an indented line'), JSON.stringify(g2));
+  } finally { fs.rmSync(zshrc, { force: true }); }
+
+  // A cache inside the temp folder is refused, and the plugin installed in it is not listed by its version.
+  const cache = path.join(DEPS.tmpDir, 'run-r13', 'cache');
+  const inst = path.join(cache, 'cache', 'mkt', 'p', '9.9.9');
+  fs.mkdirSync(inst, { recursive: true });
+  writeJson(path.join(cache, 'installed_plugins.json'), { plugins: { 'p@mkt': [{ installPath: inst }] } });
+  const d3 = agentDir('pilot-tmpcache');
+  const g3 = setup.guardTokenOnlyFolder(d3, 'pilot-tmpcache', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: cache } });
+  assert.equal(g3.ok, false, JSON.stringify(g3));
+  assert.ok(JSON.stringify(g3).includes('inside the temp folder: a per-run place'), JSON.stringify(g3));
+  const s3 = readSettings(d3);
+  assert.ok(![...s3.permissions.deny, ...s3.sandbox.filesystem.denyWrite].some((r) => r.includes('9.9.9')), 'a versioned plugin path was listed');
+});
