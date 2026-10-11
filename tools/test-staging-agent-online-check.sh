@@ -223,6 +223,16 @@ NOTOK="$(mktemp -d "${TMPDIR:-/tmp}/aoc-notok.XXXXXX")"
 KOSMOS_STORE_ROOT="$NOTOK" bash "$CHECK" 16180 >/dev/null 2>&1; rc=$?; rm -rf "$NOTOK"
 [ "$rc" = 2 ] && pass "no board.token -> cannot-tell (exit 2)" || bad "no board.token: expected 2, got $rc"
 
+# kosmos#5849: the cleared list in run_case is written by hand. Every KOSMOS_ variable the check reads must be one
+# run_case clears or sets, so a variable the check starts reading tomorrow fails here until someone decides which.
+HANDLED=" KOSMOS_STAGING_VERIFY_ALLOW_LIVE KOSMOS_AGENT_ONLINE_MAX_EXISTING KOSMOS_HOME KOSMOS_AOC_CURL KOSMOS_STORE_ROOT KOSMOS_PORT KOSMOS_AGENT_ONLINE_POLL_INT KOSMOS_AGENT_ONLINE_TIMEOUT "
+READS="$(grep -v '^[[:space:]]*#' "$CHECK" | grep -oE '\$\{?KOSMOS_[A-Z0-9_]+' | tr -d '${' | sort -u)"
+UNHANDLED=""
+for v in $READS; do has "$HANDLED" " $v " || UNHANDLED="$UNHANDLED $v"; done
+if [ -z "$READS" ]; then bad "could not list the KOSMOS_ variables the check reads (the list came back empty)"
+elif [ -n "$UNHANDLED" ]; then bad "the check reads KOSMOS_ variables run_case neither clears nor sets:$UNHANDLED"
+else pass "every KOSMOS_ variable the check reads ($(printf '%s\n' "$READS" | wc -l | tr -d ' ') of them) is cleared or set by run_case"; fi
+
 rm -rf "$FIXDIR"
 if [ "$fail" = 0 ]; then echo "test-staging-agent-online-check: all arms passed"; exit 0; fi
 echo "test-staging-agent-online-check: FAILURES above"; exit 1
