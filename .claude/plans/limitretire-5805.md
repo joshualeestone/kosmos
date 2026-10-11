@@ -37,7 +37,10 @@ Slice 3a added the time on the card but deliberately left these alone.
 - Only Claude Code's own limit rows are recorded (a "hit your ... limit" row with its turn footer, the rule classify
   and retireResetLimits use), so a quoted line in a tool result never sets a time.
 - More rows with one key than at the last capture is a new limit printing the same words (yesterday's retired row
-  still in the scrollback above today's): its first-seen time starts again.
+  still in the scrollback above today's) only for a SESSION row that was timed and whose reset has passed; then its
+  first-seen time starts again. Never for a late row or one ahead of its reset (a redraw drawing the row twice), and
+  never for a weekly last-day row (a second identical weekly limit within a day cannot happen; re-timing a retired one
+  would hold a free agent until tomorrow).
 - A dateless row with no time read (late, or beyond the span bound) is neither retired nor held: today's behaviour.
 - Rejected: retiring a dateless line on the turn footer's printed time ("done 10:35 PM"): no date either, absent on
   some screens.
@@ -45,6 +48,8 @@ Slice 3a added the time on the card but deliberately left these alone.
   row replaces the old one in the same capture (the old scrolled out exactly as the new arrived) keeps the old time.
 
 ## Residuals
+- A weekly last-day row left on an idle agent's screen for a WEEK, with the next weekly limit printing identical words
+  under it, is not re-timed, so the new limit is retired at once (the card reads idle while capped).
 - A pane relaunched under the same name faster than one snapshot pass, with the old limit row in its scrollback, is
   not seen as a first capture, so that row could be timed as arriving. The pane list carries no pid to tell (asking
   tmux per pane per pass costs too much).
@@ -74,3 +79,9 @@ Slice 3a added the time on the card but deliberately left these alone.
 - FIXED (NIT): a stale comment named claudeLimitUntil as keeping the first-seen time.
 - NIT tried and reverted: resetting a row's count when it is absent from one capture (so 2, 0, 1 reads as new). It
   made a row missing from one capture for under two minutes (a redraw) read as a new limit, the more common case.
+
+## Review 3 (opus)
+- FIXED (WARNING): a higher row count re-timed any entry, so a redraw drawing the row twice re-timed a late row or a
+  retired weekly row to tomorrow and held a free agent for most of a day. Re-time only a session row, timed, past its
+  reset (see Decided). Tested: late, retired weekly, session ahead, and the next-day session control.
+- FIXED (NIT): an agent swept out keeps no rows, so its first re-capture is late, never timed by an older sighting.

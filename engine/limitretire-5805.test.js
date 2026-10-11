@@ -149,3 +149,40 @@ test('#5805 3b review 2: a row back within its span is late; a new one after it 
   status.noteLimitRows('ann', on, t0);
   assert.equal(status.limitFirstSeenOf('ann', line), t0, 'CONTROL: a present agent\'s new row was not timed');
 });
+
+test('#5805 3b review 3: a second copy of the same row (a redraw) never re-times a late row, one ahead of its reset, or a retired weekly row', () => {
+  const t0 = Date.parse('2026-10-10T16:00:00Z');   // 11:00 CDT
+  const twice = (line) => '> a\n' + `  ⎿  ${line}\n` + FOOTER + '> b\n' + `  ⎿  ${line}\n` + FOOTER + STATUS_LINE;
+  const weekly = `You've hit your weekly limit · resets 4pm ${Z}`;
+  const session = `You've hit your session limit · resets 4pm ${Z}`;
+  // A. Seen late (first capture), then drawn twice: still late.
+  status.noteLimitRows('casey', limitScreen(weekly), Date.parse('2026-10-10T22:00:00Z'));
+  status.noteLimitRows('casey', twice(weekly), Date.parse('2026-10-10T22:01:00Z'));
+  assert.equal(status.limitFirstSeenOf('casey', weekly), null, 'a duplicated late row was timed');
+  // B. A weekly row timed, retired at its reset, then drawn twice: the same time, so it stays retired.
+  status.noteLimitRows('kim', STATUS_LINE, t0 - 60e3);
+  status.noteLimitRows('kim', limitScreen(weekly), t0);
+  status.noteLimitRows('kim', twice(weekly), Date.parse('2026-10-10T21:35:00Z'));
+  assert.equal(status.limitFirstSeenOf('kim', weekly), t0, 'a redraw past the reset re-timed a weekly row to tomorrow');
+  // C. A session row ahead of its reset, drawn twice: the same time.
+  status.noteLimitRows('leo', STATUS_LINE, t0 - 60e3);
+  status.noteLimitRows('leo', limitScreen(session), t0);
+  status.noteLimitRows('leo', twice(session), t0 + 3600e3);
+  assert.equal(status.limitFirstSeenOf('leo', session), t0, 'a redraw ahead of the reset re-timed a session row');
+  // CONTROL (review 1's case): a session row past its reset and a second identical one under it the next day: new.
+  const nextDay = t0 + 24 * 3600e3;
+  status.noteLimitRows('leo', limitScreen(session), nextDay - 3600e3);
+  status.noteLimitRows('leo', twice(session), nextDay);
+  assert.equal(status.limitFirstSeenOf('leo', session), nextDay, 'CONTROL: a new session limit with the same words was not timed');
+});
+
+test('#5805 3b review 3: an agent swept out loses its rows, so its first re-capture is late', () => {
+  const t0 = Date.parse('2026-10-10T16:00:00Z');
+  const session = `You've hit your session limit · resets 4pm ${Z}`;
+  status.noteLimitRows('casey', STATUS_LINE, t0 - 60e3);
+  status.noteLimitRows('casey', limitScreen(session), t0);
+  assert.equal(status.limitFirstSeenOf('casey', session), t0, 'CONTROL: timed');
+  status.limitCaptureSweep([]);   // gone from a pass (an empty list is the caller's to skip; the sweep itself drops all)
+  status.noteLimitRows('casey', limitScreen(session), t0 + 60e3);
+  assert.equal(status.limitFirstSeenOf('casey', session), null, 'a row at the first re-capture kept an older sighting\'s time');
+});

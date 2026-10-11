@@ -2848,17 +2848,28 @@ function noteLimitRows(agent, text, nowMs) {
   for (const [k, until] of limitRowGone) if (now > until) limitRowGone.delete(k);
   const rows = text.split('\n');
   const counts = new Map();
+  const sample = new Map();
   rows.forEach((row, i) => {
     if (!HIT_YOUR_LIMIT.test(row) || vendorFooterAt(rows, i) < 0) return;
     const key = limitRowKey(agent, row);
-    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+    if (key) { counts.set(key, (counts.get(key) || 0) + 1); sample.set(key, row); }
   });
   for (const [key, count] of counts) {
     const seen = limitFirstSeen.get(key);
     // A row back from the gone list keeps that window (`until`), so returning again never extends it.
-    if (!seen) limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture || limitRowGone.has(key), until: limitRowGone.get(key) });
-    else if (count > seen.count) limitFirstSeen.set(key, { at: now, last: now, count, late: false });
-    else { seen.last = Math.max(seen.last, now); seen.count = count; }
+    if (!seen) { limitFirstSeen.set(key, { at: now, last: now, count, late: firstCapture || limitRowGone.has(key), until: limitRowGone.get(key) }); continue; }
+    seen.last = Math.max(seen.last, now);
+    /* More rows than before is a NEW limit only when one could have appeared (review 3): a SESSION limit, timed, its
+       reset passed (the next day's limit can print the same words). A second copy of the same row (a redraw on resize)
+       never re-times a late row or one still ahead of its reset; and a wrong re-time of a session row lands past its
+       five-hour span, so it reads untimed (as before), never held. A weekly last-day row is never re-timed this way:
+       a second identical weekly limit within a day cannot happen, and re-timing a retired one would hold a free agent
+       until tomorrow. */
+    if (count > seen.count && !seen.late && key.includes('\u0000session\u0000')) {
+      const reset = limitResetTimeOnlyAt(sample.get(key), seen.at);
+      if (reset !== null && now >= reset + RESET_GRACE_MS) { limitFirstSeen.set(key, { at: now, last: now, count, late: false }); continue; }
+    }
+    seen.count = count;
   }
   for (const [k, v] of limitFirstSeen) {
     if (!k.startsWith(prefix)) { if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k); continue; }
@@ -2889,7 +2900,13 @@ function claudeLimitUntil(agent, evidence, nowMs) {
    under its name starts over as a first capture (rows on its screen then are late). */
 function limitCaptureSweep(names) {
   const present = new Set(Array.from(names || [], String));
-  for (const a of [...limitCapturedAgents]) if (!present.has(a)) limitCapturedAgents.delete(a);
+  for (const a of [...limitCapturedAgents]) {
+    if (present.has(a)) continue;
+    limitCapturedAgents.delete(a);
+    // Review 3: its rows go too, so a row at its first re-capture is late, never timed by an older sighting.
+    const prefix = a + '\u0000';
+    for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix)) limitFirstSeen.delete(k);
+  }
 }
 function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitCapturedAgents.clear(); limitRowGone.clear(); }
 /* The card's limitUntil: only for a Claude pane read rate_limited (a Codex or Gemini limit says its own reset). */
