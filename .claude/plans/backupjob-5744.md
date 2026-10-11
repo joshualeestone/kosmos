@@ -34,7 +34,7 @@ the step that a scheduler will call, not the scheduler.
   string other epoch and a key-path mismatch carry none). Mutants red: askSigned not passing it (2 fail), the integer
   check dropped (1 fail).
 - Piece 2: backupsnapshot.test.js "#5744 slice 3" (chunks, manifest, a control with none). Each passthrough removed: red.
-- Pieces 3 to 5: engine/backupjob.test.js, 7 tests. Eight mutants, each red: no wait check, lostEpoch not sent, sealing
+- Pieces 3 to 5: engine/backupjob.test.js, 7 tests at first (12 after reviews 1 and 2). Eight mutants, each red: no wait check, lostEpoch not sent, sealing
   at or below lostEpoch, any other epoch marks lost, no 24 h cap, epoch as a number, lostEpoch dropped on a refusal,
   and the ok-key gate removed (it first SURVIVED: building the snapshot input threw and read as a failed run; the test
   now requires the key step's own reason, and the mutant goes red).
@@ -47,10 +47,25 @@ the step that a scheduler will call, not the scheduler.
 - FIXED (WARNING): a stored waitUntilMs far ahead (a wrong clock when written, a restored state) held the job for the
   whole error. A wait more than BACKOFF_MAX_MS ahead is read as over. Test with a control at exactly the max; mutant red.
 - FIXED (WARNING): ensureMemberKey's unreadableKeyFile and refusal (failure) and pendingEpoch and lostEpochIgnored (ok)
-  were dropped. Passed through (result, and key). DECIDED: an ok key with pendingEpoch is sealed under, because the
-  newer key is not registered, so the member's current epoch is still the answered one. Tests; four mutants red.
+  were dropped. Passed through. Tests; four mutants red. (A DECISION made here, sealing under an ok key that came with
+  pendingEpoch, was WRONG and is reversed in review 2.)
 - FIXED (NIT): the "equal to lostEpoch" refusal is now commented as defensive (never answered when lostEpoch is honoured).
 - FIXED (NIT): a test for lostEpochIgnored with an answer ABOVE lostEpoch (sealed under, state cleared).
 - NO CHANGE (NIT): afterSnapshot on a state already holding lostEpoch overwrites it with key.epoch. That is right: the
   key just used is the newest this computer holds, and runOnce never passes such a state (an ok key clears it).
 - NO CHANGE (NIT): the '4' string otherEpoch case guards isEpoch against a producer change; kept.
+
+## Review 2 (opus, blind, on 03a653988): NOT CONVERGED
+- FIXED (WARNING): my review-1 decision was wrong. ensureMemberKey keeps an unregistered key above a registered one
+  only when a move off a lost key waits out the day, or Kosmos+ took the newer key and this computer failed to note it;
+  either way the answered key is already behind Kosmos+. Checked in backupmemberkey.js (pendingEpoch at the "above"
+  line; the lost path and the writeKeys failure are the only writers). Now: no snapshot, lostEpoch = the answered epoch,
+  so the next call sends the pending key. This also restores lostEpoch when the caller lost the job state. Test; two
+  mutants red (the branch removed, and "pending above the answer" loosened).
+- FIXED (NIT): the below-lost refusal dropped waits and lostEpochIgnored; kept. Mutant red.
+- FIXED (NIT): a waiting answer's pendingEpoch is passed on. Mutant red.
+- FIXED (NIT): the header says only waiting is backed off and that other refusals (some re-sending a registration)
+  repeat every run, so a scheduler must stay under the 30-an-hour registration cap (#5736).
+- FIXED (NIT): this plan's test count.
+- Process slip: three of my first round-2 mutant runs read "pass 0 fail 1", which was a file that no longer parsed (a
+  multi-line pattern split by the loop), not a red test. Redone with single-line patterns and node --check first: red.
