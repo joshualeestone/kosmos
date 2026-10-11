@@ -32,11 +32,13 @@ That the tunnel prints the refusal line LAST on stdout. Slice 1 pins mac-request
 holds only that line; a tunnel built before slice 1 prints no line at all, which reads as no refusal.
 
 ## Tests
-- engine/remote-refusal-5744.test.js (5), macRequest against the fake tunnel (two new modes in
+- engine/remote-refusal-5744.test.js (7 at 110ffd141), macRequest against the fake tunnel (two new modes in
   test-support/fake-mac-request.js): the wrong-epoch fields and because; epoch 0 kept, null null; malformed fields
   null and a bad status no refusal; the line never `because` with an empty stderr; CONTROL, an older tunnel gives no
-  refusal and an answer is unchanged. Red-capable at 4bbfa762a: without refusalOf 4 of 5 fail; without the because
-  filter 1 of 5 fails.
+  refusal and an answer is unchanged; an epoch beside another code is null; a differently spaced line is still not
+  because; another verb (company-start) gets no `said` and no refusal line as because. Red-capable at 110ffd141:
+  without refusalOf 5 of 7 fail; with `said` kept for every verb 1 of 7 fails; without the code gate 1 fails, and
+  with the old prefix filter 1 fails (both measured at 781c354bc, 6 tests).
 - Neighbours and gates at 4bbfa762a: remote*, mac-standing, account-computers, backupupload, federation*, fedseats,
   fedmembers, agentevents-5683, orgrollup-worlds-5532, orgpolicy-apply-5534, hostedguide, engine.reachable,
   browser-checks-reason-grep, web.speech-kind-1397: 887 tests, 886 pass, 0 fail, 1 skipped.
@@ -57,3 +59,8 @@ holds only that line; a tunnel built before slice 1 prints no line at all, which
   the two new modes.
 - NIT taken: one rule for "a refusal line" (JSON with a `refusal` key), shared by the because filter and refusalOf,
   so a differently spaced or keyed line is still kept out of because; tested.
+
+## Review 3 (sonnet)
+- FIXED (convention): the Tests counts re-measured and restated with their shas.
+- NITs taken: WRONG_EPOCH_CODE above its use; the code rule's comment names the tunnel's matching cap; the
+  keepStdout opt-in and the because filter are tested through another verb (company-start).
