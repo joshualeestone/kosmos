@@ -31,6 +31,9 @@ fi
 NODE="$(command -v node || true)"
 [ -n "$NODE" ] || { echo "FAIL: node is needed for the stub listener" >&2; exit 1; }
 
+# #4675, #5849: the cases below decide for themselves whether the run is the board's; a value the caller happens to
+# carry must not turn the "pasted run records nothing" controls red.
+unset KOSMOS_UPDATE_BY_BOARD
 BLOCK="$(awk '/^if \[ "\$FRESH_INSTALL" = "no" \] && \[ -f "\$KOSMOS_HOME\/bin\/kosmos" \]/{f=1} f{print} f && /^fi$/{exit}' "$SETUP")"
 case "$BLOCK" in
   *'pausing Kosmos for the update'*'rm -f "$LOG_DIR/update-abort"'*) ;;

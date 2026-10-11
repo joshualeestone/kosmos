@@ -2951,26 +2951,33 @@ _kosmos_paused_board=no
 #            machine is still stuck (a count that restarted on every change of reason would read "once" forever).
 #   reason = the latest stop's.
 #   same   = how many of the latest stops, counting back, had this same reason. same = count means every stop in the
-#            streak had it, which is what lets the board say "because <reason>" of all of them.
-# A file with no readable same line: if its reason is board-would-not-pause it may be from before `same` existed,
-# when that was the only reason, so its same is its count; for any other reason nothing is known, so the run of that
-# reason starts at this stop. Cleared once an update gets past the pause. A file that cannot be written is not an
-# error: the stop still stops.
+#            streak had it. It never exceeds count.
+# ONE RULE FOR A NUMBER, shared with the reader (engine/update.js updateAbort, pinned equal by its test): 1 to 9
+# digits, no leading zero. Anything else is damage: a leading zero reads as octal and a long number overflows, and
+# under set -e a refused $(( )) would end the run here, before the stop's own words are printed.
+#   - a damaged count starts the streak again at this stop, and same with it;
+#   - a same line that is missing altogether, under board-would-not-pause, is a file from before `same` existed,
+#     when that was the only reason: its same is its count;
+#   - any other unreadable same (damaged, above count, or missing under another reason) is unknown, so the run of
+#     this reason starts at this stop.
+# Cleared once an update gets past the pause. A file that cannot be written is not an error: the stop still stops.
 _kosmos_note_pause_abort() { # reason
   _abortf="$LOG_DIR/update-abort"
   _abortn=0; _abortsame=0
   if [ -f "$_abortf" ]; then
-    _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
-    # A number the shell's arithmetic would refuse (a leading zero reads as octal, a very long one overflows) is
-    # treated as damaged, like any non-number: under set -e a refused $(( )) would end the run here, before the stop's
-    # own words are printed.
-    case "$_abortn" in ''|*[!0-9]*|0?*|??????????*) _abortn=0 ;; esac
-    # A damaged count starts the streak again at this stop, and same with it: same can never exceed count.
+    _abortn="$(sed -n 's/^count=//p' "$_abortf" 2>/dev/null || true)"
+    case "$_abortn" in ''|*[!0-9]*|0*|??????????*) _abortn=0 ;; esac
     if [ "$_abortn" -gt 0 ] && [ "$(sed -n 's/^reason=//p' "$_abortf" 2>/dev/null || true)" = "$1" ]; then
-      _abortsame="$(sed -n 's/^same=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+      _abortsame="$(sed -n 's/^same=//p' "$_abortf" 2>/dev/null || true)"
       case "$_abortsame" in
-        ''|*[!0-9]*|0?*|??????????*) if [ "$1" = board-would-not-pause ]; then _abortsame="$_abortn"; else _abortsame=0; fi ;;
+        ''|*[!0-9]*|0*|??????????*)
+          if [ "$1" = board-would-not-pause ] && ! grep -q '^same=' "$_abortf" 2>/dev/null; then
+            _abortsame="$_abortn"
+          else
+            _abortsame=0
+          fi ;;
       esac
+      if [ "$_abortsame" -gt "$_abortn" ]; then _abortsame=0; fi
     fi
   fi
   _abortn=$((_abortn + 1)); _abortsame=$((_abortsame + 1))

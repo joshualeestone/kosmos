@@ -22383,8 +22383,9 @@ function paintUpdateAbort(ab) {
   const times = count === 1 ? 'once' : count + ' times';
   // #4675: count is the whole streak, and what is said about the cause is said of the LATEST stop only, because that
   // is all the marker knows for sure. The one exception is #2055's own sentence, "Kosmos was busy each time", kept
-  // word for word when every stop in the streak was that one (same >= count; with no same at all the marker is from
-  // before `same` existed, when it was the only reason).
+  // word for word when every stop in the streak was that one (same >= count; with no same at all, which the engine
+  // sends as null only for a marker with no same line, the marker is from before `same` existed, when it was the
+  // only reason; an unreadable same arrives as 0 and claims nothing).
   // The advice follows the latest stop too. #2055's reopen remedy was measured for a busy Kosmos and is kept for it.
   // For the other stops nobody has measured what clears them, so the sentence says so and offers what is worth a
   // try: a failed check is not something reopening can fix, a held port may be. No sentence asks for a typed command.

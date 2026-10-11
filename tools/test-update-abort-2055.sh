@@ -108,19 +108,57 @@ chk "a damaged same under another reason is not taken as the whole streak: count
 printf 'count=4\nreason=port-still-held\n' > "$M4"
 record "$L4" 16180 port-still-held
 chk "a missing same under another reason is not taken as the whole streak: count 5, same 1" sh -c '[ "$1" = "5 1" ]' _ "$(val count "$M4") $(val same "$M4")"
-# A count or same the shell's arithmetic would refuse must not end the run inside the function (it runs under set -e,
-# just before the stop prints its words): it is treated as damaged.
-for bad in 08 0099 99999999999999999999; do
-  printf 'count=%s\nreason=port-still-held\nsame=6\n' "$bad" > "$M4"
+# ONE RULE FOR A NUMBER, shared with the reader: 1 to 9 digits, no leading zero. These two lists are the same cases
+# engine/update.abort-2055.test.js runs against the engine's reader (that test compares the lists). A bad number must
+# not end the run inside the function either: it runs under set -e, just before the stop prints its words, and shell
+# arithmetic refuses a leading zero (octal) or a very long number.
+NUMBER_GOOD='1|7|999999999'
+NUMBER_BAD='|0|08|0099|1e3|0x10|-1|+2| 3|3 |3\r|1000000000|99999999999999999999|lots'
+each() { # list, then a command run once per item (the item is $1 there); "|" separates, and an empty item counts
+  _list="$1"; shift
+  while :; do
+    case "$_list" in *'|'*) _item="${_list%%|*}"; _list="${_list#*|}" ;; *) _item="$_list"; _list="" ; _last=1 ;; esac
+    "$@" "$(printf '%b' "$_item")" "$_item"
+    [ "${_last:-0}" = 1 ] && { _last=0; break; }
+  done
+}
+good_count() { # value, label
+  printf 'count=%s\nreason=port-still-held\nsame=1\n' "$1" > "$M4"
   RC=0; record "$L4" 16180 port-still-held 2>/dev/null || RC=$?
-  chk "count=$bad does not end the run (rc 0), and the streak restarts whole: count 1, same 1" sh -c '[ "$1" = "0 1 1" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
-  printf 'count=3\nreason=port-still-held\nsame=%s\n' "$bad" > "$M4"
+  chk "count=$2 is a number: the streak goes on" sh -c '[ "$1" = "$2" ]' _ "$RC $(val count "$M4") $(val same "$M4")" "0 $(($1 + 1)) 2"
+}
+bad_count() {
+  printf 'count=%s\nreason=port-still-held\nsame=6\n' "$1" > "$M4"
   RC=0; record "$L4" 16180 port-still-held 2>/dev/null || RC=$?
-  chk "same=$bad does not end the run (rc 0), and same restarts: count 4, same 1" sh -c '[ "$1" = "0 4 1" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
-done
-printf 'count=not-a-number\nreason=board-would-not-pause\nsame=6\n' > "$M4"
+  chk "count=$2 is damage: rc 0, and the streak restarts whole (count 1, same 1)" sh -c '[ "$1" = "0 1 1" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
+}
+good_same() {
+  printf 'count=999999999\nreason=port-still-held\nsame=%s\n' "$1" > "$M4"
+  RC=0; record "$L4" 16180 port-still-held 2>/dev/null || RC=$?
+  chk "same=$2 is a number: the run goes on" sh -c '[ "$1" = "$2" ]' _ "$RC $(val same "$M4")" "0 $(($1 + 1))"
+}
+bad_same() { # under both kinds of reason: a same line that is THERE but unreadable is unknown, never "all of them"
+  for r in port-still-held board-would-not-pause; do
+    printf 'count=3\nreason=%s\nsame=%s\n' "$r" "$1" > "$M4"
+    RC=0; record "$L4" 16180 "$r" 2>/dev/null || RC=$?
+    chk "same=$2 under $r is damage: rc 0, count 4, same 1" sh -c '[ "$1" = "0 4 1" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
+  done
+}
+each "$NUMBER_GOOD" good_count
+each "$NUMBER_BAD" bad_count
+each "$NUMBER_GOOD" good_same
+each "$NUMBER_BAD" bad_same
+# same never exceeds count, even from a well-formed file that says it does
+printf 'count=2\nreason=board-would-not-pause\nsame=5\n' > "$M4"
 record "$L4" 16180
-chk "a damaged count never leaves same above count (busy reason): count 1, same 1" sh -c '[ "$1" = "1 1" ]' _ "$(val count "$M4") $(val same "$M4")"
+chk "a same above its count is unknown, not the whole streak: count 3, same 1" sh -c '[ "$1" = "3 1" ]' _ "$(val count "$M4") $(val same "$M4")"
+# a line written twice is damage
+printf 'count=3\ncount=4\nreason=port-still-held\nsame=2\n' > "$M4"
+record "$L4" 16180 port-still-held
+chk "a count written twice restarts the streak: count 1, same 1" sh -c '[ "$1" = "1 1" ]' _ "$(val count "$M4") $(val same "$M4")"
+printf 'count=3\nreason=board-would-not-pause\nsame=2\nsame=3\n' > "$M4"
+record "$L4" 16180
+chk "a same written twice is unknown: count 4, same 1" sh -c '[ "$1" = "0" ]' _ "$([ "$(val count "$M4")" = 4 ] && [ "$(val same "$M4" | tr -d '\n')" = 1 ]; echo $?)"
 # ---- #4675: setup.sh's own lines that read the board's marker: only the value 1 is the board, and the variable is
 # gone from the environment afterwards (the script goes on to start the board, whose agents must not inherit it).
 BYBOARD_LINES="$(awk '/^_kosmos_by_board=no$/{f=1} f{print} f && /^unset KOSMOS_UPDATE_BY_BOARD$/{exit}' "$SETUP")"

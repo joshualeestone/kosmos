@@ -808,8 +808,8 @@ function lastAttemptView() {
    #4675: four reasons. 'board-would-not-pause' is written whoever ran the installer; the three
    stops after it ('port-check-failed', 'port-unreachable', 'port-still-held') only when THIS board
    started the run (beginInstall's KOSMOS_UPDATE_BY_BOARD). count is the streak, whatever the
-   reasons; same is how many of the latest stops had this reason (same === count: all of them), or
-   null when the file has no readable same line (one written before it existed, or a damaged one).
+   reasons; same is how many of the latest stops had this reason (same === count: all of them), null
+   when the file has no same line at all (one written before it existed), or 0 when it is unreadable.
    🔑 SCOPE, so a reader does not over-read null: this tracks ONLY stops at the pause. null means
    "the last run got PAST the pause", NOT "the last update succeeded" -- a later install failure
    (a 404, a checksum refusal, a failed swap) is a DIFFERENT signal, carried by updateAttempt /
@@ -821,15 +821,27 @@ function updateAbort() {
   if (!file) return null;
   let raw = '';
   try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
-  const kv = {};
+  // A key is a key whatever follows the "=" (a stray \r included), and a key written twice is damage, as it is to
+  // setup.sh, whose sed then yields two lines.
+  const kv = Object.create(null);
+  const twice = new Set();
   for (const line of raw.split('\n')) {
-    const m = /^([a-z_]+)=(.*)$/.exec(line);
-    if (m) kv[m[1]] = m[2];
+    const m = /^([a-z_]+)=([\s\S]*)$/.exec(line);
+    if (!m) continue;
+    if (m[1] in kv) twice.add(m[1]);
+    kv[m[1]] = m[2];
   }
-  const count = Number(kv.count);
-  if (!Number.isInteger(count) || count <= 0) return null;   // absent/blank/garbage/0 => not stuck
-  const same = /^[1-9][0-9]{0,8}$/.test(kv.same || '') ? Number(kv.same) : null;   // as setup.sh reads it: no leading zero, at most nine digits
-  return { count, reason: kv.reason || 'unknown', same, port: kv.port || null, ts: kv.ts || null };
+  // #4675 ONE RULE FOR A NUMBER, shared with the writer (install/setup.sh _kosmos_note_pause_abort): 1 to 9 digits, no
+  // leading zero. Anything else is damage.
+  const num = (k) => (!twice.has(k) && /^[1-9][0-9]{0,8}$/.test(kv[k] === undefined ? '' : kv[k]) ? Number(kv[k]) : null);
+  const count = num('count');
+  if (count === null) return null;   // absent/blank/garbage/0 => not stuck (setup.sh starts such a file again at 1)
+  // same: null ONLY when the line is missing altogether (a file from before it existed). A same line that is there
+  // but damaged, or above count, is unknown: 0, so nothing is claimed about the earlier stops.
+  let same = null;
+  if ('same' in kv) { same = num('same'); if (same === null || same > count) same = 0; }
+  const reason = twice.has('reason') ? 'unknown' : (kv.reason || 'unknown');
+  return { count, reason, same, port: kv.port || null, ts: kv.ts || null };
 }
 
 /**

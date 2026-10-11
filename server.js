@@ -6119,7 +6119,8 @@ const server = http.createServer(async (req, res) => {
            a true sentence instead of spinning. */
         updateAttempt: updates.lastAttempt(),
         /* #2055: a machine whose update keeps aborting at the pause (the board
-           would not stop) records a durable, counted marker; the installer's own
+           would not stop; #4675: or one of the port checks after it stopped the
+           update) records a durable, counted marker; the installer's own
            message is silent on the automatic path. Surface it so the board can
            tell the user their machine has stopped receiving updates. Null when the
            machine is not stuck. */
