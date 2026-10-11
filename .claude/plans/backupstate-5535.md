@@ -95,3 +95,21 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
   mutant red.
 - NO CHANGE (NIT): forPeriod's nowMs and takeSnapshot's now() are read separately; a run starting at the exact edge can
   disagree, which costs one newPeriod answer (the granted path), never a loop.
+
+## Review 6 (opus, blind, on 7552ef681): NOT CONVERGED; the period policy is removed
+- BLOCKER, measured by the reviewer with the real uploadManifest: keeping last week's period after this Mac's Monday
+  00:00 can never deduplicate: chunks granted mid-week are locked to their week's end + 30 days + 15 minutes, and a new
+  manifest's lock is later, so uploadManifest refuses it (outlastsChunks) before any grant, even with both clocks in
+  sync. A wasted run or two per member per week, and the dedup the keep existed for never happens.
+- WARNING: my caller-loop test did not model takeSnapshot (no precheck, no manifest floor, grantedPeriod assumed on
+  every path), so it proved nothing about the real rules.
+- DECIDED: rounds 2, 4, 5 and 6 each found the previous keep rule wrong in a new direction. A pure state module cannot
+  see takeSnapshot's answers, so it should not choose the week. forPeriod now resumes ONLY an equal label (pruned) and
+  otherwise starts fresh; the caller runs this clock's period, and once more with grantedPeriod after a newPeriod
+  answer (stated in the header's duties). Cost, stated in the header: a re-upload at most once a week, in the hour
+  around Monday 00:00 when the coordinator's clock is ahead. The simulation test is removed (it could not fail on the
+  real rules); the SKEW_MS export from backupsnapshot is reverted (nothing uses it now).
+- WARNING not taken here: backupsnapshot's manifest wrong-period result carries no grantedPeriod. With this design the
+  caller then just uses its clock's period next run; adding it is a backupsnapshot change for the run slice to judge.
+- FIXED (NITs): the prune comment names uploadManifest's stricter floor; a stale "compare as strings" comment removed.
+- Tests: 11. Mutant (resume the stored period for any label): red. backup*.test.js + reachable: 372 pass.
