@@ -137,4 +137,11 @@ engine/startimports-5774.test.js, 15 tests. The first cut's thirteen mutations, 
   - [NIT] FIXED, and it was wider than reported. A bare folder name (`@src`), and paths my star-to-space step made folder-shaped (`@lib/*` became `lib/`, `@conf/.*` became `conf/.`), became rules that cover a whole folder. A path whose last part is empty, . or .. is no import, and a name that is a folder in some agent's folder gets no glob. Tested; two mutations red. Caught by my own test of the blocker: two of its four shapes first failed this way.
   - [NIT] TAKEN: the stale mutation count in the plan.
   - [NIT] STATED under Gaps: the test sandbox's folders above.
+- Iteration 10 (Sonnet), on 08bcf8b36: no BLOCKER (CONVERGED).
+  - [WARNING] DUPLICATE of a stated gap: a name imported by any agent is denied in every agent's folder, never pruned. It stays on the card as follow-up with the pruning record, and the PR comment names it.
+  - [WARNING] DUPLICATE, decided as part 2 did: an existing import path with a rule-syntax character makes the guard not whole (named, the rest written).
+  - [NIT] not taken: the import scan's catch has no test (nothing in it is known to throw).
+  - [NIT] not taken: the empty `if (agentDirNamed(...))` branches carry a comment saying why.
+  - [NIT] not taken: a dangling link and its future target dedupe as two keys; both are denied.
+  - [NIT] DUPLICATE: "exact" already says what is exact and what is approximated.
 
