@@ -7,8 +7,9 @@
  * refused. This file proves:
  *   - engine messages.roomHeld: held while a stopping valve came after the person's last post or
  *     reopen and the agent posts since then leave no room for the next one (charged like the
- *     latest); open once they age out, once a post lands after the latest refusal, with the limit
- *     off, or after a valve that did not stop; and per project;
+ *     latest) beyond the budget plus the #4786 allowance for work moving; open once they age out,
+ *     once work moving earns the room enough, with the limit off, or after a valve that did not
+ *     stop; and per project;
  *   - GET /api/project/:id/room carries `held` (JSON) and one [kosmos] hold line at the top of the
  *     text view agents read, and neither when the room is open (the control);
  *   - a reopen through the real route clears both.
@@ -96,21 +97,29 @@ test('#5800 engine: a hold ends when the posts behind it age out, even while its
 const refusal = (project, at) => append({ kind: 'refused', from: 'bob', to: project, project, at: iso(at),
   because: 'the room was going back and forth without landing, so Kosmos was holding it for the person' });
 
-test('#5800 engine: the refused-row text this file writes is the engine\'s own', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8');
-  assert.ok(src.includes("const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so Kosmos was holding it for the person';"),
-    'ROOM_HELD_REFUSAL changed; the refusal() fixture no longer matches what the valve writes');
-});
-
-test('#5800 engine: a post that landed after the latest refusal reads open; a refusal after it reads held again', () => {
+test('#5800 engine: a room still over budget reads held after its valve row left the window', () => {
   const now = Date.now();
   valve('heldF', now - 70 * MIN);
   agentPost('heldF', now - 20 * MIN, CAP());
-  assert.equal(messages.roomHeld('heldF', now), null, 'the room took a post after its last refusal (the #4786 allowance) yet read held');
-  refusal('heldF', now - 5 * MIN);
   const h = messages.roomHeld('heldF', now);
-  assert.ok(h, 'a room-held refusal after that post, with the budget still full, read open');
+  assert.ok(h, 'a full room whose valve fired 70 minutes ago (no person since) read open');
   assert.equal(h.at, iso(now - 70 * MIN), 'at stays the valve row\'s, the band the page draws Reopen on');
+});
+
+test('#5800 engine: work moving earns the room the valve\'s own allowance, so a changed file can end a hold', () => {
+  const made = projects.create({ name: 'Held Moving' });
+  const pid = made.id || (made.project && made.project.id);
+  const longAgo = new Date(Date.now() - 3 * 24 * 60 * MIN);
+  projects.writeAll(projects.readAll().map((p) => (p.id === pid ? { ...p, createdAt: longAgo.toISOString() } : p)));
+  const folder = projects.readAll().find((p) => p.id === pid).folder;
+  for (const f of fs.readdirSync(folder)) fs.utimesSync(path.join(folder, f), longAgo, longAgo);
+  const now = Date.now();
+  agentPost(pid, now - 13 * MIN, CAP() - 1);
+  agentPost(pid, now - 12 * MIN, 1);   // the next post is charged one arrival, so a quarter of the cap is room enough
+  valve(pid, now - 10 * MIN);
+  assert.ok(messages.roomHeld(pid, now), 'CONTROL: held with no work moving');
+  fs.writeFileSync(path.join(folder, 'batch-1.md'), 'a step forward');
+  assert.equal(messages.roomHeld(pid, Date.now()), null, 'a changed file earned the room a quarter of the cap and it still read held');
 });
 
 test('#5800 engine: one post over the whole budget has no until (only the person can end that hold)', () => {
@@ -190,7 +199,7 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
   assert.ok(j.json.held && typeof j.json.held.until === 'string', 'the held room\'s JSON has no held: ' + j.text.slice(0, 300));
   const t = await room(p.id, true);
   const first = t.text.split('\n')[0];
-  assert.match(first, /^\[kosmos\] This room is on hold: .* A post from you now will most likely be refused\. Only your person can lift the hold, by posting here or reopening the room; otherwise it lifts by \d\d:\d\d at the latest\. Do not send your post another way meanwhile\.$/,
+  assert.match(first, /^\[kosmos\] This room is on hold: .* A post from you now will most likely be refused\. Only your person can lift the hold, by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\.$/,
     'the hold line is not the first line of the text view: ' + t.text.slice(0, 400));
   assert.doesNotMatch(first, /bring you in/, 'the agents\' line reused the sentence written to the person');
 

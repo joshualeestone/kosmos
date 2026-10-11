@@ -577,7 +577,7 @@ test('#5800: the CURRENT hold\'s band says who can end it and offers Reopen; an 
   const html = scope.written['pj-room'];
   assert.equal((html.match(/data-reopen-room/g) || []).length, 1, 'exactly the current band offers Reopen: ' + html);
   assert.ok(html.lastIndexOf('bring you in') < html.indexOf('data-reopen-room'), 'the button sits on the newer band, not the older one');
-  assert.match(html, /Your agents' posts are on hold\. To let them through now, post something yourself or reopen the room\. Otherwise it lifts on its own by /);
+  assert.match(html, /Your agents' posts are on hold\. To let them through now, post something yourself or reopen the room\. Otherwise it should lift on its own by /);
   assert.match(html, />Reopen the room<\/button>/);
 
   scope.paintRoom({ ok: true, rows: [old, now] });

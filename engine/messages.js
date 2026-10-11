@@ -1943,13 +1943,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      written since countFrom, synchronously. */
   let allowed = lim.roomArrivalsPerWindow;
   if (lim.on && operator !== true && arrivals + charged > allowed) {
-    const taskSteps = require('./taskchat').progressTimes(projectId, now, countFrom).filter((t) => t >= countFrom).length;
     /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
        same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
-       earn the most there is. */
-    const fileSteps = taskSteps >= ROOM_PROGRESS_STEPS ? 0 : projectsMod.changedFileTimes(projectId, countFrom, now).length;
-    const steps = taskSteps + fileSteps;
-    allowed += Math.min(lim.roomArrivalsPerWindow, steps * Math.ceil(lim.roomArrivalsPerWindow / ROOM_PROGRESS_STEPS));
+       earn the most there is. #5800: the count lives in roomProgressAllowance, shared with roomHeld. */
+    allowed += roomProgressAllowance(projectId, lim, now, countFrom)(countFrom);
   }
   if (operator !== true && arrivals + charged > allowed) {
     const because = lim.on
@@ -2907,18 +2904,16 @@ function reopenRoom(project, at) {
    learned of it only by being refused, so members with real work waited without knowing why or who could clear it.
    This answers it for the room page (the band and its Reopen button) and for `kosmos room` (one line at the top).
 
-   Held means the limit is on, the valve has stopped this room since the person last posted or reopened it, and the
-   agent posts counted since then (sendPost's own sum: arrivals, from countFrom) leave no room for the next agent post,
-   so it would be refused. A room post is charged one arrival per member it reaches, so the next post's charge is taken
-   as the latest counted post's (at least one). `until` is when enough of those posts age out for such a post to land,
-   or null when one post alone is over the budget (only the person can end that hold).
-   An agent post that landed after the latest refusal (the valve row, or a room-held refused row) means the room took
-   it, most likely on the #4786 allowance for work moving, which this does not re-run: it then reads open until the
-   next refusal says otherwise.
-   Not counted: the #4786 allowance for work moving, which reads task and file times (too heavy for a 5 s poll), so a
-   post can land sooner than `until`, never later. Returns { at, because, until } (at and because are the latest
-   stopping valve row's, which the page matches its band on) or null. An unreadable record reads as not held: this is
-   a screen hint, never a gate. */
+   It runs the valve's own decision (sendPost) for the next agent post: the limit is on, the valve has stopped this
+   room since the person last posted or reopened it, and the agent arrivals counted since then, plus the next post's
+   charge, are over the budget plus the #4786 allowance for work moving (roomProgressAllowance, the valve's own
+   function). Estimated, not known: the next post's charge, taken as the latest counted post's (a room post costs one
+   arrival per member it reaches); a member switched off or added since changes it. `until` is when enough of the
+   counted posts age out for such a post to land, counting only steps already taken, so further work moving can end
+   the hold sooner; null when one post alone is over the budget (only the person can end that hold).
+   Returns { at, because, until } (at and because are the latest stopping valve row's, which the page matches its band
+   on) or null. The allowance reads task and file times, so it is read only for a room already over its plain budget.
+   An unreadable record reads as not held: this is a screen hint, never a gate. */
 function roomHeld(project, now) {
   const projectId = String(project == null ? '' : project);
   if (!projectId) return null;
@@ -2937,8 +2932,6 @@ function roomHeld(project, now) {
   }
   const countFrom = Math.max(at - lim.windowMs, lastOperatorAt);
   let hold = null;
-  let refusedAt = 0;      // latest evidence the room refused: a stopping valve row or a room-held refused row
-  let landedAt = 0;       // latest agent post that landed
   const counted = [];
   for (const m of rec.rows) {
     if (!m || m.project !== projectId) continue;
@@ -2946,25 +2939,42 @@ function roomHeld(project, now) {
     if (!Number.isFinite(t) || t > at) continue;
     if (m.kind === 'valve' && m.stopped !== false && t > lastOperatorAt && (!hold || t >= hold.t)) {
       hold = { t, at: m.at, because: m.because || null };
-      if (t > refusedAt) refusedAt = t;
-    } else if (m.kind === 'refused' && m.because === ROOM_HELD_REFUSAL && t > lastOperatorAt) {
-      if (t > refusedAt) refusedAt = t;
-    } else if (m.kind === 'post' && !m.operator) {
-      if (t > landedAt) landedAt = t;
-      if (t >= countFrom) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
+    } else if (m.kind === 'post' && !m.operator && t >= countFrom) {
+      counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
     }
   }
-  if (!hold || landedAt > refusedAt) return null;
+  if (!hold) return null;
   counted.sort((a, b) => a.t - b.t);
   const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
   let arrivals = counted.reduce((n, c) => n + c.n, 0);
-  if (arrivals + charge <= lim.roomArrivalsPerWindow) return null;
+  const cap = lim.roomArrivalsPerWindow;
+  if (arrivals + charge <= cap) return null;
+  const allowanceFrom = roomProgressAllowance(projectId, lim, at, countFrom);
+  if (arrivals + charge <= cap + allowanceFrom(countFrom)) return null;
   let freeAt = null;
   for (const c of counted) {
     arrivals -= c.n;
-    if (arrivals + charge <= lim.roomArrivalsPerWindow) { freeAt = c.t + lim.windowMs; break; }
+    /* When c ages out the window starts at c.t, and only steps from then on still earn room. */
+    if (arrivals + charge <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
   }
   return { at: hold.at, because: hold.because, until: freeAt === null ? null : new Date(freeAt).toISOString() };
+}
+
+/* #4786 / #5260: the extra room a project earns by work moving since countFrom, the valve's allowance. Reads the task
+   and file times once (from `since`) and returns a function of the window start, so sendPost asks it once and roomHeld
+   can ask it again for a later window start without reading again. Each first-time task step and each changed file
+   (files read only when task steps alone do not already earn the most there is) adds a quarter of the cap, up to the
+   cap. */
+function roomProgressAllowance(projectId, lim, now, since) {
+  const cap = lim.roomArrivalsPerWindow;
+  const taskTimes = require('./taskchat').progressTimes(projectId, now, since).filter((t) => t >= since);
+  let fileTimes = null;
+  return (from) => {
+    const taskSteps = taskTimes.filter((t) => t >= from).length;
+    if (taskSteps < ROOM_PROGRESS_STEPS && fileTimes === null) fileTimes = require('./projects').changedFileTimes(projectId, since, now);
+    const fileSteps = taskSteps >= ROOM_PROGRESS_STEPS ? 0 : fileTimes.filter((t) => t >= from).length;
+    return Math.min(cap, (taskSteps + fileSteps) * Math.ceil(cap / ROOM_PROGRESS_STEPS));
+  };
 }
 
 /* #3224, the proactive half: a post that is NOT a reply (no in_reply_to), sent by an

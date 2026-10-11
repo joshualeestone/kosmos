@@ -66228,7 +66228,7 @@ function pjHeldAct(m) {
   if (!held || !m || m.kind !== 'valve' || m.at !== held.at) return '';
   const until = new Date(held.until || '');
   const by = Number.isNaN(until.getTime()) ? ''
-    : ' Otherwise it lifts on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
+    : ' Otherwise it should lift on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
   return '<div class="pj-held-why">Your agents\' posts are on hold. To let them through now, post something yourself or reopen the room.'
     + esc(by) + '</div>'
     + '<div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="1">Reopen the room</button>'
