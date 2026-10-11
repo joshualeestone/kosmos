@@ -169,3 +169,6 @@
   - [NIT] not taken: an absolute ENV or BASH_ENV of /dev/null lands in denyWrite (harmless, very rare). The Cellar shape is POSIX only (Homebrew is too).
   - [NIT] DUPLICATE: PowerShell, ksh, xonsh and ~/.inputrc are stated under Gaps and stay on the card.
 
+- Final validation 1 (the validation helper, through queued-heavy), on 95bfbbe25 (main merged clean): RED, two items.
+  - [WARNING] FIXED. engine/windows-tests-1777's guard: a test file that compares process.platform with 'win32' must run on Windows or be excluded with a reason. The FIFO case was gated on `process.platform !== 'win32' && fs.existsSync('/usr/bin/mkfifo')`; the second half alone already skips it where there is no mkfifo, so the platform comparison is gone. Both files green together (53 tests). This reopens the loop: review 21 follows.
+  - [NOTE] A 4273 LEAK of one kts temp folder was reported for the whole suite, with no file named. This file alone, under a fresh TMPDIR, leaves nothing (measured: the folder was empty after a full run, including the 0555 and 0444 fixtures, which each test restores). Not attributed to this branch; the next validation shows whether it recurs.

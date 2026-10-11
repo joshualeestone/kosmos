@@ -269,7 +269,7 @@ test('#5774 part 2 review 4: dumps that exist are denied by name in both layers;
   assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(zd, '.zcompdump-host-5.9')), 'an existing dump, to the shell');
   // A FIFO where .zshenv would be: the guard reads regular files only. Review 6: checked in a CHILD process with a
   // timeout, so a regression fails here instead of hanging this run; skipped where there is no mkfifo.
-  if (process.platform !== 'win32' && fs.existsSync('/usr/bin/mkfifo')) {
+  if (fs.existsSync('/usr/bin/mkfifo')) {
     const fifoHome = path.join(SANDBOX, 'fifo-home');
     fs.mkdirSync(fifoHome, { recursive: true });
     const zshenv = path.join(fifoHome, '.zshenv');
