@@ -1223,8 +1223,6 @@ const ZSH_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout'
 /* Review 1: zsh runs a compiled copy (<file>.zwc) in place of a startup file when it is newer, so each is denied with
    its .zwc; and compinit loads its dump file (.zcompdump, often with a host suffix) on every completing shell. */
 const zshFilesIn = (d) => ZSH_START_FILES.flatMap((f) => [path.join(d, f), path.join(d, f + '.zwc')]);
-/* A ZDOTDIR value: absolute, or home-relative through ~, $HOME or ${HOME}, or $XDG_CONFIG_HOME. Anything else (relative,
-   another variable) is null: Kosmos cannot say which folder zsh reads, so the caller names it. */
 /* A ZDOTDIR or XDG_CONFIG_HOME value, as the folders it can mean: absolute, or through ~, $HOME/${HOME}, or
    $XDG_CONFIG_HOME (each folder that variable can be, review 3). Anything else (relative, another variable) is null:
    Kosmos cannot say which folder it is, so the caller names it. An empty value is [] (unset: the default applies). */
@@ -1276,10 +1274,20 @@ const USER_WRITABLE_SHELL_DIRS = ['/opt/homebrew', '/usr/local'].flatMap((pre) =
 function shellStartPaths(home, env, opts = {}) {
   const e = env || {};
   const unsafe = [];
-  const readText = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+  /* Review 4: a regular file only (a FIFO there would block the guard), and its first 256 KB, which is far more than
+     any startup file's assignments need. */
+  const readText = (f) => {
+    try {
+      if (!fs.statSync(f).isFile()) return '';
+      const fd = fs.openSync(f, 'r');
+      try { const b = Buffer.alloc(256 * 1024); return b.toString('utf8', 0, fs.readSync(fd, b, 0, b.length, 0)); } finally { fs.closeSync(fd); }
+    } catch { return ''; }
+  };
   const homeZshenv = readText(path.join(home, '.zshenv'));
   const xdgs = new Set([path.join(home, '.config')]);
   if (typeof e.XDG_CONFIG_HOME === 'string' && path.isAbsolute(e.XDG_CONFIG_HOME)) xdgs.add(path.resolve(e.XDG_CONFIG_HOME));
+  // Review 4: relative, it is read from wherever a program runs, as a relative ZDOTDIR is: named, not dropped.
+  else if (typeof e.XDG_CONFIG_HOME === 'string' && e.XDG_CONFIG_HOME) unsafe.push(`XDG_CONFIG_HOME (${e.XDG_CONFIG_HOME}, in the environment), a configuration folder Kosmos cannot work out`);
   for (const v of assignmentsIn(homeZshenv, 'XDG_CONFIG_HOME')) {
     const f = v === null ? null : foldersOf(v, home, [path.join(home, '.config')]);
     if (f === null) unsafe.push(`XDG_CONFIG_HOME (${v === null ? 'a quoted value' : v}, set in .zshenv), a configuration folder Kosmos cannot work out`);
@@ -1302,7 +1310,10 @@ function shellStartPaths(home, env, opts = {}) {
     for (const d of todo) for (const v of assignmentsIn(readText(path.join(d, '.zshenv')), 'ZDOTDIR')) next.push(...zdotFrom(v, `set in ${path.join(d, '.zshenv')}`));
     todo = next;
   }
-  for (const d of zdots) { files.push(...zshFilesIn(d)); globs.push(path.join(d, '.zcompdump*')); }
+  /* Each folder's completion dumps: a glob for the file tools, and those that exist by name for both layers too (review
+     4: a ZDOTDIR outside the home folder can be inside the shell's write scope, where a glob does not reach). */
+  const dumpsIn = (d) => { try { return fs.readdirSync(d).filter((n) => n.startsWith('.zcompdump')).map((n) => path.join(d, n)); } catch { return []; } };
+  for (const d of [path.resolve(home), ...zdots]) { files.push(...dumpsIn(d)); if (d !== path.resolve(home)) { files.push(...zshFilesIn(d)); globs.push(path.join(d, '.zcompdump*')); } }
   for (const k of ['BASH_ENV', 'ENV']) {
     if (typeof e[k] !== 'string' || !e[k]) continue;
     if (path.isAbsolute(e[k])) files.push(path.resolve(e[k]));

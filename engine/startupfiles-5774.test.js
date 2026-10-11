@@ -255,3 +255,45 @@ test('#5774 part 2 review 3: user-writable startup folders outside the home (Hom
   // The list for the real host names both prefixes.
   assert.ok(setup.USER_WRITABLE_SHELL_DIRS.includes('/opt/homebrew/share/zsh/site-functions'));
 });
+
+test('#5774 part 2 review 4: dumps that exist are denied by name in both layers; a FIFO .zshenv does not block; a relative XDG is named', () => {
+  const zd = path.join(SANDBOX, 'zd-out');
+  fs.mkdirSync(zd, { recursive: true });
+  fs.writeFileSync(path.join(zd, '.zcompdump-host-5.9'), '');
+  const dir = agentDir('pilot-dump');
+  setup.guardTokenOnlyFolder(dir, 'pilot-dump', { ...DEPS, env: { ZDOTDIR: zd } });
+  const s = readSettings(dir);
+  assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(zd, '.zcompdump-host-5.9')), 'an existing dump, to the shell');
+  // A FIFO where .zshenv would be: the guard reads regular files only, so it returns rather than waiting on it.
+  const zshenv = path.join(HOME, '.zshenv');
+  fs.rmSync(zshenv, { force: true });
+  require('child_process').execFileSync('/usr/bin/mkfifo', [zshenv]);
+  try {
+    const t0 = Date.now();
+    const g = setup.guardTokenOnlyFolder(agentDir('pilot-fifo'), 'pilot-fifo', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(Date.now() - t0 < 20000, 'the guard waited on a FIFO');
+  } finally { fs.rmSync(zshenv, { force: true }); }
+  const gr = setup.guardTokenOnlyFolder(agentDir('pilot-xdgrel'), 'pilot-xdgrel', { ...DEPS, env: { XDG_CONFIG_HOME: 'cfg' } });
+  assert.equal(gr.ok, false, JSON.stringify(gr));
+  assert.match(String(gr.because), /XDG_CONFIG_HOME/);
+});
+
+test('#5774 part 2 review 4: a FOLDER linked inside fish (Stow folding) has its contents denied', () => {
+  const realDir = path.join(SANDBOX, 'stowdir', 'functions');
+  fs.mkdirSync(realDir, { recursive: true });
+  touch(path.join(realDir, 'fish_prompt.fish'));
+  const link = path.join(HOME, '.config', 'fish', 'functions');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.rmSync(link, { recursive: true, force: true });
+  fs.symlinkSync(realDir, link);
+  try {
+    const dir = agentDir('pilot-stowdir');
+    setup.guardTokenOnlyFolder(dir, 'pilot-stowdir', { ...DEPS, env: ENV0 });
+    const s = readSettings(dir);
+    const inside = path.join(fs.realpathSync.native(realDir), 'fish_prompt.fish');
+    assert.ok(editDeniedBy(s.permissions.deny, inside).length > 0, 'a file inside the linked folder, to the file tools');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, inside), 'and to the shell');
+    assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(SANDBOX, 'stowdir', 'README')), [], 'CONTROL: beside the linked folder');
+  } finally { fs.rmSync(link, { force: true }); }
+});
