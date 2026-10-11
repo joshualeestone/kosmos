@@ -45,10 +45,12 @@ an epoch it cannot read the reason for). Second: a file key is readable by any p
 mac_key already is.
 
 ## Not in this slice
-The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
+DEPENDENCY for the backup job (recorded on #5744): ensureMemberKey answers a registered key from disk without asking
+whether it is still current, so the job MUST compare the epoch it answers with each grant's `epoch` and treat a
+mismatch as "the member moved on"; until that job lands nothing detects it. The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at 266cfd43f: 18 tests, 18 pass)
+## Tests (measured at c9c9056e0: 20 tests, 20 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -60,7 +62,9 @@ the API doc's missing `member` field.
   a key another process registered mid-rotation is answered, not replaced; a non-canonical base64url key is not read
   (red without the check, 1 of 16, at 4db7061a0); a file made unreadable mid-rotation is left as it is; a key
   another process registered before a fresh-key refresh is answered (red without the check, 1 of 18); a file error
-  is said as a fixed sentence and its code, no path (red with the raw message, 1 of 18; both at 266cfd43f).
+  is said as a fixed sentence and its code, no path (red with the raw message, 1 of 18; both at 266cfd43f); a
+  wrong_epoch whose next is the epoch just sent resends the same key (red without the guard, 1 of 20, c9c9056e0);
+  a file for another org or with an epoch past 2^53 is not read.
 - Red-capable (each measured): without writing the key before sending, 1 fails (1be4a071f); without the 409 arm, 3
   fail (1be4a071f); without the epoch-0 arm, 1 fails (5052ecedd); without the reused refresh, 2 of 14 fail; without
   the re-read guard, 1 of 14 fails (both f3dbaeb74).
@@ -112,3 +116,11 @@ the API doc's missing `member` field.
   fixed sentence and the error code; tested with a thrown EACCES, red with the raw message.
 - NITs taken: one id rule (backupkeys.ID_RE exported and used); the company key's epoch is named as deliberately
   unread; the constructed test state is labelled as one the premise excludes.
+
+## Review 5 (sonnet)
+- FIXED: a wrong_epoch whose next equals the epoch just sent (the current epoch moved under the send) deleted the key
+  it had just stored and sent `undefined`; it now resends the same key; tested, red without the guard.
+- FIXED: an epoch past 2^53 in the file lost precision in Number(); such a file is not read; tested with an
+  org-mismatch arm too.
+- RECORDED (dependency, not a defect here): the backup job must compare epochs (Not in this slice, and on #5744).
+- NIT taken: `!!err &&` removed inside the catch.
