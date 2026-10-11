@@ -1315,7 +1315,10 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
       try {
         const real = real0 || fs.realpathSync.native(p);
         // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
-        (fs.statSync(real).isDirectory() ? res.dirs : res.files).push(real);
+        const isDir = fs.statSync(real).isDirectory();
+        (isDir ? res.dirs : res.files).push(real);
+        // Review 19: links inside a linked folder too (Stow folds a whole functions/ folder), within the same depth and budget.
+        if (isDir && depth > 1) { const sub = linkTargetsIn(real, depth - 1, budget); res.files.push(...sub.files); res.dirs.push(...sub.dirs); res.hops.push(...sub.hops); }
       } catch {
         /* Review 12: dangling. The target is not there YET, and anything that creates it (the agent's own tools) makes
            the link run it, so the target as it would resolve is denied, as withTarget does for a dangling file. */
@@ -1768,6 +1771,20 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const shellStartFiles = [...new Set(shellStart.files.flatMap(linkAware(false)))];
   const shellStartDirs = [...new Set([...shellStart.dirs.flatMap(linkAware(true)), ...storeHits])];
   editOnlyLinks.push(...(shellStart.hops || []));
+  /* Review 19: a target found inside a startup folder, or a link on the way, whose path the rule syntax cannot carry is
+     NAMED and left out of the file tools' rules, as withTarget does for a dotfile (review 5); left to the generic drop
+     below, it stops the whole guard being written and blames the agent's folder. The sandbox list keeps it. When the
+     home itself cannot be carried, the generic message is the right one, so nothing is named here. */
+  const homeCarries = !ruleHasPatternChar(`Edit(${ruleAbs(home)}/**)`);
+  const carries = (what) => (p) => {
+    if (!homeCarries || !ruleHasPatternChar(`Edit(${ruleAbs(p)}/**)`)) return true;
+    configUnsafe.push(`${p} (${what}, a path the permission rules cannot carry)`);
+    return false;
+  };
+  const shellEditFiles = shellStartFiles.filter(carries('a shell startup file or where its link leads'));
+  const shellEditDirs = shellStartDirs.filter(carries('a shell startup folder or where its link leads'));
+  const linkEditFiles = [...new Set(editOnlyLinks)].filter(carries('a link on the way to a shell startup file'));
+  const linkEditDirs = [...new Set(editOnlyLinkDirs)].filter(carries('a link on the way to a shell startup folder'));
   const commandScripts = [];
   for (const f of startCmds.files) {
     if (coveredWhole(f)) continue;
@@ -1801,7 +1818,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   ];
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
-    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellStartFiles.map((p) => ({ f: p })), ...editOnlyLinks.map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
+    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellEditFiles.map((p) => ({ f: p })), ...linkEditFiles.map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
     { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorFiles)].map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
@@ -1861,8 +1878,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
-    ...shellStartDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 part 2: fish's folder, read whole
-    ...editOnlyLinkDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 11: a linked folder whose target is read-only
+    ...shellEditDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 part 2: fish's folder, read whole
+    ...linkEditDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 11: a linked folder whose target is read-only
     ...shellStart.globs.map((g) => `Edit(${ruleAbs(g)})`),   // review 1: zsh's completion dump; the shell cannot write there anyway
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
     ...siblingRules,

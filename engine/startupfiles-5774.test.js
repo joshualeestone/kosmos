@@ -888,3 +888,47 @@ test('#5774 part 2 review 18: a link a chain passes through is denied to the fil
     if (process.getuid && process.getuid() !== 0) assert.ok(!deny.some((r) => r.includes('rohops18')), 'a hop in a read-only folder was listed');
   } finally { for (const f of [zshrc, bashrc, fishLink, zprofile]) fs.rmSync(f, { force: true }); fs.chmodSync(roHops, 0o755); }
 });
+
+test('#5774 part 2 review 19: a target in a startup folder, or a link on the way, the rules cannot carry is NAMED and the rest is written; links inside a linked folder', () => {
+  const mk = (link, to) => { fs.mkdirSync(path.dirname(link), { recursive: true }); fs.rmSync(link, { force: true }); fs.symlinkSync(to, link); };
+  const odd = path.join(HOME, 'dots (x19)');
+  touch(path.join(odd, 'config.fish'));
+  const fishLink = path.join(HOME, '.config', 'fish', 'config19.fish');
+  mk(fishLink, path.join(odd, 'config.fish'));
+  fs.mkdirSync(path.join(HOME, 'dd (z19)', 'fn'), { recursive: true });
+  const dirLink = path.join(HOME, '.config', 'fish', 'fn19');
+  mk(dirLink, path.join(HOME, 'dd (z19)', 'fn'));
+  const zshrc = path.join(HOME, '.zshrc');
+  const mid = path.join(HOME, 'mid (y19)');
+  touch(path.join(HOME, 'real19'));
+  mk(path.join(mid, 'l'), path.join(HOME, 'real19'));
+  mk(zshrc, path.join(mid, 'l'));
+  try {
+    const d = agentDir('pilot-oddchar19');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-oddchar19', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false, 'not whole');
+    const said = JSON.stringify(g);
+    assert.ok(said.includes('dots (x19)') && said.includes('cannot carry'), `the fish target is not named: ${said}`);
+    assert.ok(said.includes('mid (y19)'), `the hop is not named: ${said}`);
+    assert.ok(said.includes('dd (z19)'), `the linked folder is not named: ${said}`);
+    assert.ok(fs.existsSync(path.join(d, '.claude', 'settings.json')), 'the rest of the guard was not written');
+    const s = readSettings(d);
+    assert.ok(editDeniedBy(s.permissions.deny, zshrc).length > 0, 'the link itself');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(odd, 'config.fish')), 'the sandbox still carries the target');
+  } finally { for (const l of [fishLink, zshrc, dirLink]) fs.rmSync(l, { force: true }); }
+  // Stow folds a whole folder: a link inside a linked folder is followed too.
+  const fns = path.join(HOME, 'dots19', 'functions');
+  touch(path.join(HOME, 'other19', 'foo.fish'));
+  mk(path.join(fns, 'foo.fish'), path.join(HOME, 'other19', 'foo.fish'));
+  const fnLink = path.join(HOME, '.config', 'fish', 'functions19');
+  mk(fnLink, fns);
+  try {
+    const d = agentDir('pilot-foldedlink19');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-foldedlink19', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(d);
+    const t = fs.realpathSync.native(path.join(HOME, 'other19', 'foo.fish'));
+    assert.ok(editDeniedBy(s.permissions.deny, t).length > 0, 'a link inside a linked folder, file tools');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, t), 'a link inside a linked folder, sandbox');
+  } finally { fs.rmSync(fnLink, { force: true }); }
+});
