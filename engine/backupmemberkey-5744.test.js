@@ -414,3 +414,19 @@ test('#5744 2b: an ok answer naming the same key with padding is taken', async (
   const r = await mk.ensureMemberKey({ macRequest: padded });
   assert.deepEqual([r.ok, r.epoch], [true, 1], JSON.stringify(r));
 });
+
+// An answer a healthy coordinator never gives (its current epoch below this computer's registered one), as after a
+// rollback: the registered key must survive it.
+test('#5744 2b: under lostEpoch, a current epoch at or below the stale one never moves onto the registered key', async () => {
+  const c = fakeCoordinator();
+  const first = await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
+  for (const currentEpoch of [0, 1]) {
+    const r = await mk.ensureMemberKey({ lostEpoch: 1, macRequest: async (m, route, b) => {
+      if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
+      return { ok: false, because: 'wrong epoch', refusal: { status: 400, code: 'member_key_wrong_epoch', currentEpoch } };
+    } });
+    assert.equal(r.ok, false, String(currentEpoch));
+    const file = JSON.parse(fs.readFileSync(keyFile(), 'utf8'));
+    assert.deepEqual([file.keys['1'].pk, file.keys['1'].registered], [first.publicKey.toString('base64url'), true], 'the registered key was overwritten at currentEpoch ' + currentEpoch);
+  }
+});
