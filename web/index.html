@@ -7631,7 +7631,7 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    came from in the first place. */
 .dmbusy-room { display: flex; align-items: center; gap: 8px;
                font-size: .875rem; color: var(--k-ink-2); margin: 10px 0 0; }
-.pj-held-strip { margin: 10px 0 0; }   /* #5800: the hold notice, between the thread and the composer */
+.pj-held-strip { margin: 0; }   /* #5800: the hold notice, at the top of the sticky composer (its column gap spaces it) */
 .dmoff { margin-top: 12px; font-size: .8125rem; line-height: 1.45; color: var(--k-ink-2);
   border: 0.5px solid var(--border-strong); border-radius: var(--radius-control); padding: 8px 12px; }
 /* ⚠️ The question box is NOT red. It is a thing to answer, not a thing that has
@@ -16545,9 +16545,6 @@ window.kosmosMeasureScrollbarWidth();
            working" is a count; the point of this signal is WHICH one, and the
            agent page's grammar (face, dots, name) already answers that. -->
       <div class="dmbusy-room" id="pj-busy" hidden></div>
-      <!-- #5800: while the loop guard holds the room, why, who can end it, and Reopen. Out of the scrolling thread, so a
-           person scrolled up in the history still sees it against the box they type into. -->
-      <div class="pj-held-strip" id="pj-held" hidden></div>
       <!-- ⚠️ NO `+` BUTTON AND NO "drop a file anywhere" SENTENCE, and their
            absence is the decision rather than an omission. The pack draws both
            (.attachbtn, and a hint line whose first half promises drop-to-
@@ -16563,6 +16560,11 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3745: "Replying to <name>: <first words>" with an x, while a reply is being written. -->
       <div class="pj-replying" id="pj-reply" hidden></div>
       <div class="composer">
+        <!-- #5800: while the loop guard holds the room, why, who can end it, and Reopen. INSIDE the sticky composer, not
+             between the thread and it: the composer sticks to the window's bottom, so a strip placed above it in the
+             flow sat UNDER it whenever the page was not scrolled to its end, which is how a held room opens (the
+             first design shots showed exactly that). Here it stays against the box you type into, however you scroll. -->
+        <div class="pj-held-strip" id="pj-held" hidden></div>
         <div class="composerbox">
           <!-- ⚠️ THE PLACEHOLDER CARRIES THE @name MECHANISM (Josh, 6.59 QA
                #2919), AND THE ARIA-LABEL IS NOT THE PLACEHOLDER. The

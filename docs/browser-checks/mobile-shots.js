@@ -1197,13 +1197,13 @@ const SCREENS = [
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-held [data-reopen-room]', { state: 'visible', timeout: 10000 });
-    /* The shot is viewport-only, and the first shots of this screen framed the room with the strip out of view while
-       the wait above passed: visible is not seen (#4524). Bring the strip to the middle, then gate the SHOT here, as
-       the #4524 screen does: the runner calls verify only after the picture is taken, so a check there would read a
-       page that may have moved since. The point at the Reopen button's centre must be that button: anything drawn
-       over it (the sticky composer below it), or the button outside the viewport, fails before the shot. Polled for
-       up to 3 s, so a repaint between two reads is not a red; verify reads it again after the shot, so a move that is still there then fails too. */
-    await page.evaluate(() => document.getElementById('pj-held').scrollIntoView({ block: 'center', behavior: 'instant' }));
+    /* NO SCROLL, on purpose: the shot is taken where a held room OPENS, which is the case the strip exists for. The first
+       shots of this screen (strip then above the sticky composer in the flow) passed a visible-wait yet showed no strip,
+       because at the opening scroll the composer covered it: visible is not seen (#4524). The strip now sits inside the
+       composer; gate the SHOT here, as the #4524 screen does, since the runner calls verify only after the picture. The
+       point at the Reopen button's centre must be that button: anything drawn over it, or the button outside the
+       viewport, fails before the shot. Polled for up to 3 s, so a repaint between two reads is not a red; verify reads
+       it again after the shot, so a move that is still there then fails too. */
     // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
     if (COVER_CONTROL === 'overlay') {
       await page.evaluate(() => { const d = document.createElement('div'); d.id = 'cover-control';
