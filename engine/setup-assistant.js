@@ -1381,18 +1381,22 @@ function shellStartPaths(home, env, opts = {}) {
     .filter((c) => { try { return fs.statSync(c).isDirectory(); } catch { return false; } });
   const realCellars = cellars.map((c) => { try { return fs.realpathSync.native(c); } catch { return c; } });
   // Review 8: a link into a Cellar or Caskroom does not spend the budget: the one stable rule below covers it.
-  const budget = { n: 500, seen: 50000, out: false, free: (t) => realCellars.some((c) => t === c || t.startsWith(c + path.sep)) };
+  const budget = { n: 500, seen: 50000, out: false, free: (t) => realCellars.some((c) => t === c || t.startsWith(c + path.sep)) || /\/(?:Cellar|Caskroom)\/[^/]+\/[^/]+(?:\/|$)/.test(t) };
   const linked = dirs.map((d) => linkTargetsIn(d, 3, budget));
   if (budget.out) unsafe.push('the links inside the shell startup folders (more than Kosmos follows), so some of their targets are not denied');
   /* Review 5: Homebrew's links point into its Cellar by VERSION, and the deny lists only grow (only launch rules are
      pruned, #5663), so each upgrade would add new versioned paths for good. Each prefix's Cellar is denied whole
      instead, one stable rule; targets elsewhere are kept one by one. */
   const inCellar = (t, c) => t === c || t.startsWith(c + path.sep);
-  const outsideCellar = (t) => !realCellars.some((c) => inCellar(t, c));
+  /* Review 10: a Homebrew under another prefix (Linuxbrew, ~/homebrew) keeps the same <prefix>/Cellar/<name>/<version>/
+     shape; such a Cellar is found from the target itself and gets the same one stable rule. */
+  const cellarOf = (t) => { const m = /^(.*\/(?:Cellar|Caskroom))\/[^/]+\/[^/]+(?:\/|$)/.exec(t); return m ? m[1] : null; };
+  const outsideCellar = (t) => !realCellars.some((c) => inCellar(t, c)) && !cellarOf(t);
   const linkedFiles = linked.flatMap((l) => l.files);
   const linkedDirs = linked.flatMap((l) => l.dirs);
   // Review 7: only the Cellar or Caskroom a target is in, not every one that exists.
-  const hitCellars = realCellars.filter((c) => [...linkedFiles, ...linkedDirs].some((t) => inCellar(t, c)));
+  const hitCellars = [...new Set([...realCellars.filter((c) => [...linkedFiles, ...linkedDirs].some((t) => inCellar(t, c))),
+    ...[...linkedFiles, ...linkedDirs].map(cellarOf).filter(Boolean)])];
   /* Review 6: a folder that is the root, the home folder, or contains the agent's folder would get a rule over the
      agent's own work (Edit(<home>/**)); it is named instead, so the guard is not whole rather than over-broad. Applied
      below to every folder denied whole, linked ones and the startup folders alike. */
@@ -1622,8 +1626,22 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A
      path that is not there yet is kept: the agent could create it. */
   const writableOrAbsent = (p) => { try { fs.accessSync(p, fs.constants.W_OK); return true; } catch (e) { return !!e && e.code === 'ENOENT'; } };
-  const shellStartFiles = [...new Set(shellStart.files.flatMap((p) => withTarget(p, configUnsafe)))].filter(writableOrAbsent);
-  const shellStartDirs = [...new Set(shellStart.dirs.flatMap((p) => withTarget(p, configUnsafe)))].filter(writableOrAbsent);
+  /* Review 10: the LINK itself is always kept (it sits in a folder the user can write, so a tool could replace it);
+     only its target is judged, and before withTarget, so a read-only target is never named as uncarriable either. */
+  const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
+  /* A link whose target is read-only goes to the FILE TOOLS only, by its own path: the sandbox side resolves a path to
+     its target (realOrLeaf), which would put the hashed store path back into denyWrite, and the shell can write
+     neither the home folder nor that target anyway. */
+  const editOnlyLinks = [];
+  const linkAware = (p) => {
+    if (!isLink(p)) return writableOrAbsent(p) ? [p] : [];
+    let real = null;
+    try { real = fs.realpathSync.native(p); } catch { /* dangling: the link alone */ }
+    if (real && !writableOrAbsent(real)) { editOnlyLinks.push(p); return []; }
+    return withTarget(p, configUnsafe);
+  };
+  const shellStartFiles = [...new Set(shellStart.files.flatMap(linkAware))];
+  const shellStartDirs = [...new Set(shellStart.dirs.flatMap(linkAware))];
   const commandScripts = [];
   for (const f of startCmds.files) {
     if (coveredWhole(f)) continue;
@@ -1657,7 +1675,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   ];
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
-    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellStartFiles.map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
+    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellStartFiles.map((p) => ({ f: p })), ...editOnlyLinks.map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
     { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorFiles)].map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the

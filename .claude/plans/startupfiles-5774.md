@@ -12,11 +12,12 @@
   - Links inside the whole folders are followed (3 levels deep; one budget of 500 links and 50,000 entries read, which names itself when spent), and every file goes through withTarget, so each target is denied too: a linked folder gets a whole-folder rule. Targets in a Homebrew Cellar or Caskroom are covered by one stable rule for that folder, only for the one a target is in.
   - Files are read as regular files only, up to 256 KB.
   - ${XDG_CONFIG_HOME:-default}, ${HOME:-default} and ${ZDOTDIR:-default} are read as both arms, with a plain ${HOME} or ${XDG_CONFIG_HOME} inside the default unbraced first; a brace left over is named.
-  - A target the user cannot write (a read-only store such as /nix/store, a root-owned file) is not listed: it protects nothing and its hashed name would pile up.
+  - A target the user cannot write (a read-only store such as /nix/store, a root-owned file) is not listed: it protects nothing and its hashed name would pile up. The LINK to it is kept, for the file tools only (review 10).
+  - A Homebrew Cellar or Caskroom under any prefix is found from a target's <prefix>/Cellar/<name>/<version>/ shape (Linuxbrew, ~/homebrew), not only under /opt/homebrew and /usr/local.
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 19 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 20 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -33,7 +34,8 @@
 - A link inside a folder that is itself reached through a link is not followed further.
 - Other guard tests that pass neither deps.env nor deps.userShellDirs read this host's environment and Homebrew folders. Decided, not pinned in their nine files: only a relative BASH_ENV, path-like ENV, ZDOTDIR or XDG_CONFIG_HOME in the host's environment can change their result, and it fails closed. Homebrew targets are now covered by a stable Cellar rule rather than by name.
 - A completion dump that does not exist yet, in a ZDOTDIR the shell can write, is covered by the file tools' glob only.
-- A second assignment on one line (`export A=1 ZDOTDIR=x`) is not read.
+- A second assignment on one line (`export A=1 ZDOTDIR=x`) is not read; a quoted value with a space (`ZDOTDIR="$HOME/my zsh"`) is named, so the guard is not whole.
+- A WRITABLE linked target whose path has a rule-syntax character (a dotfiles repo under `~/Dropbox (Personal)`) is named, so the guard is not whole and creation fails. DECIDED, not changed: the file tools cannot be denied that target, so it is a real gap, and config files already behave the same way. The sandbox layer still carries it.
 - ZDOTDIR set in .zshenv by `typeset -x ZDOTDIR=...` or `: ${ZDOTDIR:=...}`, or in /etc/zshenv, is not read; the conventional XDG folder is covered regardless.
 - Route 3 and on stay on the card.
 
@@ -95,4 +97,9 @@
   - [WARNING] FIXED. nix home-manager links dotfiles into /nix/store/<hash>-..., and the hash changes at every switch, so the targets piled up (the reviewer measured 2, then 4, then 6 entries). That store is read-only. Targets the user cannot write are now dropped; a path not there yet is kept. Tested with a read-only store simulated by chmod; mutation red.
   - [WARNING] FIXED with the above: a braced-default test.
   - NITs taken: the plan's budget sentence, a re-measured cost with the commit named, and one realpath per link.
+- Iteration 10 (Sonnet), on c84bff9a4:
+  - [WARNING] FIXED, and it was MY regression from iteration 9. The writability filter followed links, so for a home-manager ~/.zshrc linked into the read-only store it dropped the LINK too, and a tool replacing the link would write a new ~/.zshrc (a silent miss). My iteration-9 test asserted only that the store path was absent, so it could not see this. The link is now always kept. A link whose target is read-only goes to the file tools only, by its own path: the sandbox side would resolve it back to the hashed store path (my first fix did exactly that, and the test caught it). Writability is judged before withTarget, so a read-only target is never named. Tests now assert that the link is still denied; three mutations, each red.
+  - [WARNING] DECIDED (stated under Gaps): a writable target with a rule-syntax character is named.
+  - [WARNING] FIXED. A Homebrew under another prefix listed versioned paths. A Cellar or Caskroom is now detected from the target's shape. Tested with an unlisted prefix; mutation red.
+  - NITs taken: the space-in-path case is stated under Gaps.
 

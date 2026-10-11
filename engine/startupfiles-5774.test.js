@@ -515,8 +515,25 @@ test('#5774 part 2 review 9: braced defaults (${XDG_CONFIG_HOME:-${HOME}/.config
     assert.equal(g.ok, true, JSON.stringify(g));
     const s = readSettings(dir);
     assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes('abc123-home-manager-files')), 'a read-only store path was listed');
+    // Review 10: the LINK itself stays denied to the file tools (a tool that replaces the link would write a new ~/.zshrc).
+    assert.ok(s.permissions.deny.some((r) => r.endsWith(`${link})`) || r.endsWith(`${fs.realpathSync.native(HOME)}/.zshrc)`)), '~/.zshrc itself was dropped');
   } finally {
     fs.rmSync(link, { force: true });
     fs.chmodSync(store, 0o755);
   }
+});
+
+test('#5774 part 2 review 10: a Homebrew under any prefix gets the one stable Cellar rule', () => {
+  const pre = path.join(SANDBOX, 'linuxbrew');
+  const sf = path.join(pre, 'share', 'zsh', 'site-functions');
+  fs.mkdirSync(sf, { recursive: true });
+  const v = path.join(pre, 'Cellar', 'tool', '3.2', 'share', '_tool');
+  touch(v);
+  fs.rmSync(path.join(sf, '_tool'), { force: true });
+  fs.symlinkSync(v, path.join(sf, '_tool'));
+  const dir = agentDir('pilot-anyprefix');
+  setup.guardTokenOnlyFolder(dir, 'pilot-anyprefix', { ...DEPS, env: ENV0, userShellDirs: [sf], homebrewPrefixes: [] });
+  const s = readSettings(dir);
+  assert.deepEqual([...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].filter((r) => r.includes('/3.2/')), [], 'a versioned path from an unlisted prefix');
+  assert.ok(editDeniedBy(s.permissions.deny, fs.realpathSync.native(v)).length > 0, 'its Cellar rule covers the target');
 });
