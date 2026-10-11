@@ -909,3 +909,47 @@ test('#5774 review 25: a nested line starts where its command runs; a cd anchors
   // ... and does not move the next stage: make runs where the line was before that stage, /opt, not /plug.
   assert.match(String(line('cd /opt && cd /plug | make').unsafe), /make run in \/opt /, 'a pipeline stage\'s cd moved the next stage');
 });
+
+test('#5774 review 27: a script linked INTO a folder denied whole, from outside it, has its real target denied', () => {
+  const dir = agentDir('pilot-dotlink');
+  const real = path.join(SANDBOX, 'dotfiles', 'hook.sh');
+  touch(real);
+  const link = path.join(HOME, '.claude', 'hooks', 'dot-hook.sh');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(real, link);
+  const plain = path.join(HOME, '.claude', 'hooks', 'plain-hook.sh');
+  touch(plain);
+  writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${link}; bash ${plain}` }] }] } });
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-dotlink', DEPS);
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(dir);
+    const target = fs.realpathSync.native(real);
+    assert.ok(editDeniedBy(s.permissions.deny, target).length > 0, 'the file tools can rewrite the dotfiles script the hook runs');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, target), 'and so can the shell');
+    // CONTROL: a plain script in the same folder is left to the folder's own rule (no per-file rule of its own).
+    assert.ok(editDeniedBy(s.permissions.deny, plain).length > 0, 'the plain script is not covered at all');
+    assert.ok(!s.permissions.deny.includes(`Edit(/${plain})`) && !s.permissions.deny.includes(`Edit(${plain})`), 'the plain script got a rule of its own');
+    // The same for a folder runner: make in a folder linked into hooks/ from outside reads that outside folder.
+    const repo = path.join(SANDBOX, 'dotrepo');
+    fs.mkdirSync(repo, { recursive: true });
+    const linkedDir = path.join(HOME, '.claude', 'hooks', 'linked-repo');
+    fs.rmSync(linkedDir, { force: true });
+    fs.symlinkSync(repo, linkedDir);
+    try {
+      writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cd ${linkedDir} && make` }] }] } });
+      const g2 = setup.guardTokenOnlyFolder(dir, 'pilot-dotlink', DEPS);
+      assert.equal(g2.ok, false, 'make in a folder linked in from outside was treated as covered');
+      assert.match(String(g2.because), /make/);
+      // CONTROL: make in a plain folder inside hooks/ is covered.
+      const inside = path.join(HOME, '.claude', 'hooks', 'plain-dir');
+      fs.mkdirSync(inside, { recursive: true });
+      writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cd ${inside} && make` }] }] } });
+      assert.equal(setup.guardTokenOnlyFolder(dir, 'pilot-dotlink', DEPS).ok, true, 'make inside hooks/ itself was named');
+    } finally { fs.rmSync(linkedDir, { force: true }); }
+  } finally {
+    fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true });
+    fs.rmSync(link, { force: true });
+  }
+});

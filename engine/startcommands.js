@@ -888,8 +888,17 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   }
   /* Review 15: a folder runner is named wherever it runs, unless that folder is one the guard denies whole anyway (a
      plugin's own folder, a config home's code folders): then the code it reads there is covered. */
-  const coveredDirs = [...covered, ...plugins.map((p) => p.dir)].map((d) => path.resolve(d));
-  const isCovered = (w) => w !== UNKNOWN_RUN_CWD && coveredDirs.some((d) => w === d || w.startsWith(d + path.sep));
+  // Each as written and where it really is (review 27: the real path of a runner's folder is compared below).
+  const realDir = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };
+  const coveredDirs = [...new Set([...covered, ...plugins.map((p) => p.dir)].map((d) => path.resolve(d)).flatMap((d) => [d, realDir(d)]))];
+  const inCovered = (w) => coveredDirs.some((d) => w === d || w.startsWith(d + path.sep));
+  // Review 27: and where it really is, so a linked folder inside a covered one that points out is not covered by it.
+  const isCovered = (w) => {
+    if (w === UNKNOWN_RUN_CWD || !inCovered(w)) return false;
+    let real = w;
+    try { real = fs.realpathSync.native(w); } catch { /* absent: as written */ }
+    return inCovered(real);
+  };
   for (const x of runnerSeen) {
     if (isCovered(x.where)) continue;
     unsafe.push(`${x.say || runnerSay(x.name, x.place)} (in ${x.from})`);

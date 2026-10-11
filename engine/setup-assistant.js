@@ -1392,13 +1392,21 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      whose script path is built when it runs cannot be read and is named. See engine/startcommands.js. */
   const wholeDenied = [...pluginDirs, ...ancestorDirs, ...CONFIG_HOME_CODE_DIRS.map((d) => path.join(settingsDir, d))];
   const underDenied = (p) => wholeDenied.some((d) => p === d || p.startsWith(d + path.sep));
+  /* Review 27: covered only when the file it really is sits inside one too. A link inside a denied folder that points
+     out (a hook script kept in a dotfiles repo and linked into hooks/) is denied by its link path only, and the file
+     tools write the target by its own path; so it gets its own rules, both layers, through withTarget below. */
+  const coveredWhole = (p) => {
+    if (!underDenied(p)) return false;
+    const real = realOrLeaf(p);
+    return wholeDenied.some((d) => [d, realOrLeaf(d)].some((x) => real === x || real.startsWith(x + path.sep)));
+  };
   // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
   // guard says it is not whole.
   let startCmds;
   try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied }); } catch (e) { startCmds = { files: [], pluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...startCmds.unsafe);
   for (const d of startCmds.pluginDirs) {
-    if (underDenied(d)) continue;
+    if (coveredWhole(d)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (an installed plugin's folder, whose path the permission rules cannot carry)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
@@ -1406,7 +1414,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   }
   const commandScripts = [];
   for (const f of startCmds.files) {
-    if (underDenied(f)) continue;
+    if (coveredWhole(f)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) {
       let there = false;
       try { fs.lstatSync(f); there = true; } catch { there = false; }
