@@ -122,6 +122,7 @@ test('#5774 route 5: another agent\'s config home outside ~/.claude*, read from 
     assert.ok(editDeniedBy(s.permissions.deny, t).length > 0, `${t}: file tools`);
   }
   assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(other, 'settings.json')), 'settings.json: sandbox');
+  fs.rmSync(jobfix.jobPath(sib), { force: true });   // review 3: later tests do not inherit this home
 });
 
 test('#5774 route 5 review 1: the startup files, other accounts\' homes, the runner filter, links and too-wide folders', () => {
@@ -214,3 +215,45 @@ test('#5774 route 5 review 2: a plugin folder that is (or holds) a config home i
   assert.equal(g.ok, false);
   assert.ok(JSON.stringify(g).includes('.claude-acct (a plugin folder a Claude Code variable names, too wide'), JSON.stringify(g));
 });
+
+test('#5774 route 5 review 3: the append idiom is read; a backtick is named; ~/.claude above the agent is that home\'s tier; the 50-home cap; the per-pass cache is used', () => {
+  const zshrc = path.join(HOME, '.zshrc');
+  const K = 'CLAUDE_CODE_PLUGIN_DIRS';
+  for (const [body, want] of [[`export ${K}="$${K}${path.delimiter}$HOME/app1"\n`, 'app1'], [`export ${K}="\${${K}:+$${K}${path.delimiter}}$HOME/app2"\n`, 'app2']]) {
+    fs.writeFileSync(zshrc, body);
+    try {
+      const d = agentDir(`pilot-append-${want}`);
+      const g = setup.guardTokenOnlyFolder(d, path.basename(d), { ...DEPS, env: ENV0 });
+      assert.equal(g.ok, true, `${body}: ${JSON.stringify(g)}`);
+      assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, want, 'x')).length > 0, want);
+    } finally { fs.rmSync(zshrc, { force: true }); }
+  }
+  fs.writeFileSync(zshrc, `export ${K}=\`echo /opt/p\`\n`);
+  try {
+    const g = setup.guardTokenOnlyFolder(agentDir('pilot-backtick'), 'pilot-backtick', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false);
+    assert.ok(JSON.stringify(g).includes('a plugin folder Kosmos cannot work out'), JSON.stringify(g));
+  } finally { fs.rmSync(zshrc, { force: true }); }
+  // An agents' folder INSIDE the home, so ~/.claude/settings.json is also read as a folder-above tier: for an agent on
+  // another account it is that home's tier, so its relative cache folder is not read as this agent's.
+  const workersIn = path.join(HOME, 'workers-r5');
+  const d = path.join(workersIn, 'pilot-onacct');
+  fs.mkdirSync(d, { recursive: true });
+  const homeSt = path.join(HOME, '.claude', 'settings.json');
+  writeJson(homeSt, { env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: 'relcache' } });
+  try {
+    setup.guardTokenOnlyFolder(d, 'pilot-onacct', { ...DEPS, env: ENV0, workersRoot: workersIn, accountConfigDir: path.join(HOME, '.claude-acct') });
+    assert.ok(!editDeniedBy(readSettings(d).permissions.deny, path.join(d, 'relcache', 'x')).length, 'the default home\'s relative cache read as this agent\'s');
+  } finally { fs.rmSync(homeSt, { force: true }); }
+  // More than 50 config homes outside ~/.claude* from jobs: the rest are named.
+  const many = Array.from({ length: 51 }, (_, i) => path.join(SANDBOX, 'many-homes', `h${i}`));
+  const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-manyhomes'), 'pilot-manyhomes', { ...DEPS, env: ENV0, agentConfigDirs: many });
+  assert.ok(JSON.stringify(g2).includes('more than 50 outside'), JSON.stringify(g2));
+  // The pass's cache is used: a home seeded there is covered without any job file naming it.
+  const seeded = path.join(SANDBOX, 'seeded-home');
+  const cache = new Map([[`#5774 route 5 job homes ${path.resolve(DEPS.workersRoot)}`, [seeded]]]);
+  const d3 = agentDir('pilot-cache');
+  setup.guardTokenOnlyFolder(d3, 'pilot-cache', { ...DEPS, env: ENV0, launchCache: cache });
+  assert.ok(editDeniedBy(readSettings(d3).permissions.deny, path.join(seeded, 'settings.json')).length > 0, 'the cached job homes were not used');
+});
+

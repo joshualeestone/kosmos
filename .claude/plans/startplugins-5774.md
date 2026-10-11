@@ -20,6 +20,7 @@
 - The shell startup files read are part 2's zsh and bash files (the home's and each ZDOTDIR's), on top-level lines only, as part 2 reads its assignments: fish (`set -x`) and nushell syntax, and an export inside an `if` or a function, are not read (review 2).
 - The tmux server's own environment is not read (asking tmux at every refresh is a process per refresh); the shell startup files are, which is where such an export is usually set.
 - A hook's `$VAR` is expanded with every tier's agreed value, other accounts' homes included (part 1's rule, kept on purpose: a hook in a home expands with THAT home's env). The job homes add tiers, so a variable two homes set differently makes a hook that uses it named, not whole: fails closed. Expanding each home's hooks with that home's own env is the fix, a change of its own (review 1).
+- A plugin folder a variable names is denied by name and, like every guard rule, never pruned: a value that changes (a per-run temp folder, a versioned path, a link whose target moves at an upgrade) leaves its old rule behind (review 3).
 - A job's config home is listed whether or not it exists, and like every guard rule it is never pruned; a removed agent's job file goes with it, so only a moved account leaves its old home's rules behind.
 - `~\` is expanded on Windows as `~/` is elsewhere; the Windows spelling was not measured in the bundle.
 - A config home that no Kosmos job names (a person's own `CLAUDE_CONFIG_DIR` used only outside Kosmos) is not found, nor one whose agent's folder is outside the agents' folder (a connected agent).
@@ -28,7 +29,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 6 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
+engine/startplugins-5774.test.js, 7 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
 - each of the three variables dropped;
 - a relative CLAUDE_CODE_PLUGIN_DIRS part kept;
 - no ~ expansion;
@@ -59,4 +60,13 @@ engine/startplugins-5774.test.js, 6 tests, using the production job reader again
   - [NIT] TAKEN: a relative job configDir is skipped.
   - [NIT] not taken: ownHome. When it is not passed the agent is on the default account, whose home is ~/.claude (the fallback).
   - [NIT] not taken: the $ check after assignmentsIn rejects single-quoted values is a harmless double filter.
+- Iteration 3 (Opus), on b3184807a:
+  - [WARNING] FIXED (reproduced by the reviewer). The append idiom (`export K="$K:$HOME/x"`, and `${K:+$K:}...`) was named: a false not-whole on a harmless setup. A part that only refers back to the variable is dropped (every earlier value is already gathered and covered). Tested, both spellings; two mutations red.
+  - [WARNING] FIXED (reproduced). A backtick command substitution passed silently (only $ was checked). It is now named. Tested; mutation red.
+  - [WARNING] FIXED (reproduced). The home folder's ~/.claude/settings.json is ALSO read as a folder-above tier (an agents' folder inside the home), and that entry carried no home, so its relative cache counted as every non-default agent's own. A folder-above tier whose .claude is a config home is now tagged as that home's, by either spelling (the first fix matched the given spelling only, and the /var link hid it: the test went red until both were compared). Tested with an agents' folder inside the home; two mutations red. My earlier test could not see this: its home was not above its agents' folder.
+  - [WARNING] STATED under Gaps: variable-named plugin folders are never pruned.
+  - [NIT] TAKEN: $HOME is matched with balanced braces only.
+  - [NIT] TAKEN: the dead outputs (settingsEnvAll, settingsEnvOwn, settingsEnvOther, the pluginVarDirs export) are removed.
+  - [NIT] TAKEN: tests for the 50-home cap and for the per-pass cache being used; two mutations red.
+  - [NIT] TAKEN: the job-home test removes its job file, so later tests do not inherit it.
 

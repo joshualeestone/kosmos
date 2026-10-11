@@ -1805,8 +1805,14 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     for (const k of PLUGIN_VARS) {
       if (!text.includes(k)) continue;   // review 2: most files name none of them
       for (const v of assignmentsIn(text, k)) {
-        const plain = v === null ? null : v.split(path.delimiter).map((part) => part.replace(/^\$\{?HOME\}?(?=\/|$)/, home)).join(path.delimiter);
-        if (plain === null || plain.includes('$')) { configUnsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
+        /* Review 3: the append idiom refers back to the variable itself (`$K:$HOME/x`, `${K:+$K:}...`): every earlier
+           value is already gathered and covered, so those parts are dropped. $HOME (balanced braces) is replaced at the
+           start of each part. A backtick or any other variable is a value Kosmos cannot work out: named. */
+        const selfRef = new RegExp(`\\$\\{${k}:\\+\\$\\{?${k}\\}?${path.delimiter}\\}`, 'g');
+        const plain = v === null ? null : v.replace(selfRef, '').split(path.delimiter)
+          .filter((part) => part !== `$${k}` && part !== `\${${k}}`)
+          .map((part) => part.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, home)).join(path.delimiter);
+        if (plain === null || plain.includes('$') || plain.includes('`')) { configUnsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
         (pluginVars[k] = pluginVars[k] || []).push(plain);
       }
     }

@@ -689,7 +689,11 @@ function configSources(dir, homes, home, deps = {}) {
     // is kept as a dated copy and replaced, #4491 review 18), so their old text never loads: unreadable there is not a gap.
     // Review 12 asked to skip the agent's own two: not done, since the guard keeps every key outside the sandbox block
     // in both (settings.json is merged; cleanLocalSettings leaves process-starting keys), so their commands still run.
-    for (const f of ['settings.json', 'settings.local.json']) out.push({ file: path.join(d, '.claude', f), pick: whole, settings: true, rewritten: own.includes(d) });
+    // #5774 route 5 review 3: a folder above the agent whose .claude IS a config home (the home folder's ~/.claude) is that
+    // home's tier, tagged so its env is not read as this agent's when the agent runs on another account.
+    const realOf = (x) => { try { return fs.realpathSync.native(x); } catch { return path.resolve(x); } };   // either spelling (a linked /var)
+    const asHome = homes.map((h) => path.resolve(h)).find((h) => h === path.resolve(d, '.claude') || realOf(h) === realOf(path.join(d, '.claude')));
+    for (const f of ['settings.json', 'settings.local.json']) out.push({ file: path.join(d, '.claude', f), pick: whole, settings: true, rewritten: own.includes(d), ...(asHome ? { home: asHome } : {}) });
     out.push({ file: path.join(d, '.mcp.json'), pick: whole });
   }
   /* The global config: its own servers, and its project entries for the agent folder and the folders above (never
@@ -836,10 +840,9 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   }
   const settingsEnv = {};
   for (const [k, vs] of envValues) if (vs.size === 1 && !vs.has('\0not a string')) settingsEnv[k] = [...vs][0];
-  // #5774 route 5: every string value a tier gives a variable, for a caller that must cover each one (the plugin
-  // folder variables), not only the value the tiers agree on: this agent's tiers, and other accounts' homes apart.
+  // #5774 route 5: every string value a tier gives a variable (the plugin folder variables below must cover each one,
+  // not only the value the tiers agree on): this agent's tiers, and other accounts' homes apart.
   const strings = (m) => { const o = {}; for (const [k, vs] of m) o[k] = [...vs].filter((v) => v !== '\0not a string'); return o; };
-  const settingsEnvAll = strings(envValues);
   const settingsEnvOther = strings(envOther);
   const settingsEnvOwn = strings(envOwn);
   /* #5774 route 5: the plugin folders the three variables name: this agent's values (the caller's environment and shell
@@ -945,7 +948,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     if (isCovered(x.where)) continue;
     unsafe.push(`${x.say || runnerSay(x.name, x.place)} (in ${x.from})`);
   }
-  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], settingsEnvAll, settingsEnvOwn, settingsEnvOther, envPluginDirs, unsafe: [...new Set(unsafe)] };
+  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], envPluginDirs, unsafe: [...new Set(unsafe)] };
 }
 
-module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS, pluginVarDirs };
+module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS };
