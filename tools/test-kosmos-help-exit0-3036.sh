@@ -75,8 +75,9 @@ fi
 # #4451: each case may gain verbs (connect joined the exit-0 case, connections the read-only one), so the
 # lists are matched as prefixes. What the guard is FOR is then asserted directly: no read-only verb
 # (adopt, whoami, connections) sits on the exit-0 case's line.
-EXIT0_RE='^[[:space:]]*msg\|reply\|post\|react\|report\|room\|feedback\|community\|task\|project\|agent(\|[a-z]+)*\)'
-READONLY_RE='^[[:space:]]*adopt\|whoami(\|[a-z]+)*\)'
+# kosmos#5805: a verb added to a case may carry a hyphen (reply-channel), so the added verbs are [a-z][a-z-]*.
+EXIT0_RE='^[[:space:]]*msg\|reply\|post\|react\|report\|room\|feedback\|community\|task\|project\|agent(\|[a-z][a-z-]*)*\)'
+READONLY_RE='^[[:space:]]*adopt\|whoami(\|[a-z][a-z-]*)*\)'
 exit0_line="$(grep -E "$EXIT0_RE" "$K" | head -1)"
 if [ -n "$exit0_line" ] && grep -Eq "$READONLY_RE" "$K" \
    && ! printf '%s' "$exit0_line" | grep -Eq '(^|[|[:space:]])(adopt|whoami|connections)[|)]'; then

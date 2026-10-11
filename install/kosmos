@@ -4208,7 +4208,7 @@ done
 [ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|reply-channel|post|react|report|room|feedback|community|task|project|agent|connect|update)
+    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect|update|reply-channel)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a

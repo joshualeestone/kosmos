@@ -135,3 +135,12 @@ declared channel where the reminder would have been, rather than staying silent.
 - FIXED (NIT): the nudge's comment now says an agent that clears its channel is reminded on the next sweep.
 - FIXED (NIT): "the screen sets nothing" claimed more than the code enforces; reworded (a page carries no pane).
 - GONE (NIT): the "no upper bound at now" note was about the removed direct-thread code.
+
+## Final validation 1 (full suite on b9d007592, after main merged in): RED, fixed
+- The node suite was clean (18891 tests, 0 fail). The shell part failed one check: tools/test-kosmos-help-exit0-3036.sh
+  pins the `--help` exit-0 case as starting `msg|reply|post|...`, and its pattern for added verbs was `[a-z]+`. Putting
+  `reply-channel` between reply and post broke the pinned prefix, and the hyphen could not match anyway.
+- FIXED: `reply-channel` moves to the end of that case, and the test's added-verb pattern is `[a-z][a-z-]*` (both
+  regexes). The guard still goes red when a read-only verb joins the exit-0 case (mutation checked).
+- Lesson: the targeted runs covered the node CLI tests but not the shell tests that read install/kosmos. All 15 of
+  those (minus the install, release and queue ones) now pass alone.
