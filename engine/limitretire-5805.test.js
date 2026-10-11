@@ -159,6 +159,11 @@ test('#5805 3b review 3: a second copy of the same row (a redraw) never re-times
   status.noteLimitRows('casey', limitScreen(weekly), Date.parse('2026-10-10T22:00:00Z'));
   status.noteLimitRows('casey', twice(weekly), Date.parse('2026-10-10T22:01:00Z'));
   assert.equal(status.limitFirstSeenOf('casey', weekly), null, 'a duplicated late row was timed');
+  // A2. A late SESSION row (first capture at 15:00 CDT), drawn twice past its 4pm: still late (the session rule alone
+  // would re-time it).
+  status.noteLimitRows('ann', limitScreen(session), Date.parse('2026-10-10T20:00:00Z'));
+  status.noteLimitRows('ann', twice(session), Date.parse('2026-10-10T21:35:00Z'));
+  assert.equal(status.limitFirstSeenOf('ann', session), null, 'a duplicated late session row was timed');
   // B. A weekly row timed, retired at its reset, then drawn twice: the same time, so it stays retired.
   status.noteLimitRows('kim', STATUS_LINE, t0 - 60e3);
   status.noteLimitRows('kim', limitScreen(weekly), t0);
