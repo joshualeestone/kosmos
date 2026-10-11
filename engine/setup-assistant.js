@@ -1699,9 +1699,16 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      check pass), not once per agent: N agents would otherwise read N job files each. A failure is named (never a silent
      loss), and past 50 homes the rest are named, not listed (each home adds its members to the profile). */
   let jobHomes = [];
+  /* Review 8: the job files are read only where they belong to THIS home (the launch folder inside it), or an explicit
+     sandbox names their folder: a caller that passes another home (a test) without one never reads the machine's real
+     jobs, and so never adds real config homes to its rules. Production's launch folder is inside the home. */
+  const jobsHere = () => {
+    if (process.env.AGENT_WORKFORCE_LAUNCH) return true;
+    try { const a = realOrLeaf(create.AGENTS_DIR), hh = realOrLeaf(home); return a === hh || a.startsWith(hh + path.sep); } catch { return false; }
+  };
   try {
     if (deps.agentConfigDirs !== undefined) jobHomes = deps.agentConfigDirs;
-    else {
+    else if (jobsHere()) {
       const root = path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir());
       const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
       const key = `#5774 route 5 job homes ${root}`;
@@ -1725,12 +1732,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // went through when it was listed.
     if (concreteHomes.includes(h) || listedReal.has(hr)) continue;
     if (h === path.parse(h).root || hr === homeRealJ) { configUnsafe.push(`${h} (a config home an agent's job names, which is the root or the home folder itself)`); continue; }
-    // Review 5: one holding this agent's own folder would have its code members denied over the agent's own work: named.
-    if (dirRealJ === hr || dirRealJ.startsWith(hr + path.sep)) { configUnsafe.push(`${h} (a config home an agent's job names, which holds this agent's own folder)`); continue; }
-    // Review 5: the same home by another spelling (a linked /var) is not a second one.
-    if (listedReal.has(hr)) continue;
-    if (!concreteHomes.includes(h) && ++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
-    if (concreteHomes.includes(h)) continue;
+    /* Review 5, narrowed by review 8: named only when a member it denies WHOLE (its code and memory folders) would hold
+       this agent's folder or sit inside it, which would take the agent's own work away; a home that merely contains the
+       agent's folder elsewhere is covered as any home (otherwise one odd job file stopped every agent's creation). */
+    const holdsJ = (a, b) => a === b || b.startsWith(a + path.sep);
+    if ([...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].some((m) => { const mr = path.join(hr, m); return holdsJ(mr, dirRealJ) || holdsJ(dirRealJ, mr); })) { configUnsafe.push(`${h} (a config home an agent's job names, whose code folders would cover this agent's own folder)`); continue; }
+    if (++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
     if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (a config home an agent's job names, whose path the permission rules cannot carry)`); continue; }
     listedReal.add(hr);
     concreteHomes.push(h);
@@ -1814,19 +1821,21 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      settings tiers' values are read in the start-command scan, which parses them all (startcommands.pluginVarDirs) and
      counts those folders as covered for a folder runner inside one (review 2). */
   const PLUGIN_VARS = startcommands.PLUGIN_VARS;
+  const STARTUP_FILE_MAX_BYTES = 4194304;   // as the import scan's limit: a file larger than this is not read
   const envNow = deps.env || process.env;
   const pluginVars = {};
   for (const k of PLUGIN_VARS) if (typeof envNow[k] === 'string' && envNow[k]) (pluginVars[k] = pluginVars[k] || []).push(envNow[k]);
   // Review 4: the startup files are the same for every agent on this home, so they are read once per pass (the pass's
   // launchCache, as the job homes are).
   const fileCache = deps.launchCache instanceof Map ? deps.launchCache : null;
-  const fileKey = `#5774 route 5 plugin variables in startup files ${home}`;
+  // Review 8: keyed by the very files read (they follow ZDOTDIR and the agent), not the home alone.
+  const fileKey = `#5774 route 5 plugin variables in startup files ${home}\0${shellStart.files.join('\0')}`;
   let fromFiles = fileCache && fileCache.get(fileKey);
   if (!fromFiles) {
     fromFiles = { vals: {}, unsafe: [] };
     for (const f of shellStart.files.filter((x) => /(?:^|[\\/])\.(?:zshenv|zprofile|zshrc|zlogin|profile|bash_profile|bash_login|bashrc)$/.test(x))) {
       let text = '';
-      try { const st = fs.statSync(f); if (st.isFile() && st.size <= 4194304) text = fs.readFileSync(f, 'utf8'); } catch { text = ''; }
+      try { const st = fs.statSync(f); if (st.isFile() && st.size <= STARTUP_FILE_MAX_BYTES) text = fs.readFileSync(f, 'utf8'); } catch { text = ''; }
       for (const k of PLUGIN_VARS) {
         if (!text.includes(k)) continue;   // review 2: most files name none of them
         // Review 4: a quoted ~ is kept literal by the shell and expanded by Claude Code, so it is read here.
@@ -1879,6 +1888,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // Review 7: one INSIDE the agent's own folder (a plugin it is developing) is named, not denied whole, as an installed
     // plugin there is: denying it would take the agent's own work away.
     if (r.startsWith(dirRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the agent's own folder, so Kosmos does not deny it whole)`); continue; }
+    // Review 8: one inside the temp folder is a per-run place: its rule would pile up at every refresh (never pruned).
+    if (r.startsWith(tmpRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
     if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || holdsP(r, dataRealP) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data or a config home)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);

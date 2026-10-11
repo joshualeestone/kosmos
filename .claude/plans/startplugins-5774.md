@@ -18,6 +18,8 @@
 
 ## Gaps, stated
 - The shell startup files read are part 2's zsh and bash rc files by name; part 2's other files (the ~/.bashrc.d folder, the BASH_ENV and ENV files) are not read for the variables (review 7). The files read are part 2's zsh and bash files (the home's and each ZDOTDIR's), on top-level lines only, as part 2 reads its assignments: fish (`set -x`) and nushell syntax, and an export inside an `if` or a function, are not read (review 2).
+- A self-reference other than `$K`, `${K}`, `${K:+$K:}` and `${K:+:$K}` (`${K:-}`, `$K` mid-value) is named: fails closed (review 8).
+- The job files are read only when the launch folder is inside the home (production) or an explicit sandbox names it; a caller passing another home with neither (a test) reads no jobs (review 8). That arm is not tested (the tests set the sandbox).
 - An agent of ANOTHER named Kosmos (world) shares the agents' folder but its job carries that world's key; readJob(name) reads this world's, so its config home is not found, and nothing names that (review 5; #5516 states the same for its account settings).
 - System startup files (/etc/zshenv, /etc/profile) and `launchctl setenv` values are not read for the plugin variables: an administrator's value is not seen (review 5).
 - The tmux server's own environment is not read (asking tmux at every refresh is a process per refresh); the shell startup files are, which is where such an export is usually set.
@@ -31,7 +33,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 10 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
+engine/startplugins-5774.test.js, 11 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on b7d167941:
@@ -100,4 +102,13 @@ engine/startplugins-5774.test.js, 10 tests, using the production job reader agai
   - [NIT] STATED under Gaps: part 2's .bashrc.d and BASH_ENV/ENV files are not read for the variables.
   - [NIT] not taken (design note): another account's relative cache could be resolved under each agent the job homes say run on it; it is named instead (fails closed).
   - [NIT] not taken: an uncarriable job home spends one of the 50 places (harmless at today's sizes).
+- Iteration 8 (Sonnet), on 75587de67: no BLOCKER.
+  - [WARNING] FIXED. Tests that pass a home but no workers root read the machine's REAL agents' folder, and through readJob the real jobs, adding real config homes to their rules. The job files are now read only when the launch folder is inside the home or an explicit sandbox names it. Mutation (jobs never read): red, four tests.
+  - [WARNING] FIXED. The startup-file cache was keyed by the home alone; it is keyed by the files read (they follow ZDOTDIR and the agent). Its test now proves reuse with two agents in one pass and the file changed between them.
+  - [WARNING] STATED under Gaps: other self-reference spellings are named (fail closed).
+  - [WARNING] NOT A DEFECT: the cache value is not trimmed because 2.1.296 does not trim it (measured; a comment says so).
+  - [WARNING] FIXED in part. A plugin folder inside the temp folder (a per-run place, whose rule would pile up at every refresh, never pruned) is named, not denied. The test file now passes a temp folder of its own (its sandbox lives inside the real one). Tested; mutation red. Cross-pass growth of stable values stays under the pruning gap.
+  - [WARNING] FIXED. A job home holding this agent's folder was refused, so one odd job file stopped every agent's creation. It is now refused only when a member it denies whole (its code and memory folders) would hold the agent's folder or sit inside it. Tested both ways; two mutations red (the old broad rule and no rule).
+  - [NIT] TAKEN: the repeated checks in the job-home loop are gone; the startup-file size limit is a named constant.
+  - [NIT] not taken: the "Review N" notes in comments are this codebase's convention.
 

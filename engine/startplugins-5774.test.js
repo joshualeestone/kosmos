@@ -69,6 +69,10 @@ const ENV0 = {};   // no ZDOTDIR, BASH_ENV or ENV unless a test sets one
 const USERDIRS = [path.join(SANDBOX, 'brew', 'share', 'zsh', 'site-functions'), path.join(SANDBOX, 'brew', 'share', 'fish', 'vendor_conf.d')];
 DEPS.userShellDirs = USERDIRS;
 DEPS.homebrewPrefixes = [];   // review 12: this host's own Homebrew is not read either (tests that need one pass theirs)
+// Review 8: this sandbox lives inside the system temp folder, which the guard treats as a per-run place; the guard is
+// given a temp folder of its own that does not hold the sandbox (one test passes another).
+DEPS.tmpDir = path.join(SANDBOX, 'tmp-fixed');
+fs.mkdirSync(DEPS.tmpDir, { recursive: true });
 const create = require('./create');
 const jobfix = require('../test-support/jobfixture');   // review 1: the platform's own job file (a plist on macOS, a unit on Linux)
 
@@ -272,12 +276,17 @@ test('#5774 route 5 review 4: a quoted ~ is read; the startup files are read onc
     assert.equal(g.ok, true, JSON.stringify(g));
     assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, 'qplug', 'x')).length > 0, 'a quoted ~');
   } finally { fs.rmSync(zshrc, { force: true }); }
-  // The pass's cache of the startup files' values is used (seeded here with no file naming the folder).
-  const seededPlug = path.join(SANDBOX, 'seeded-plug');
-  const cache = new Map([[`#5774 route 5 plugin variables in startup files ${HOME}`, { vals: { CLAUDE_CODE_PLUGIN_DIRS: [seededPlug] }, unsafe: [] }]]);
-  const d1 = agentDir('pilot-filecache');
-  setup.guardTokenOnlyFolder(d1, 'pilot-filecache', { ...DEPS, env: ENV0, launchCache: cache });
-  assert.ok(editDeniedBy(readSettings(d1).permissions.deny, path.join(seededPlug, 'x')).length > 0, 'the cached startup-file values were not used');
+  // The pass's cache of the startup files' values is used: two agents in one pass, the file changed between them, and
+  // the second still sees the first read (review 8: the key is the files themselves, so it is not seeded by hand).
+  const cache = new Map();
+  fs.writeFileSync(zshrc, `export CLAUDE_CODE_PLUGIN_DIRS=${path.join(SANDBOX, 'first-read')}\n`);
+  try {
+    setup.guardTokenOnlyFolder(agentDir('pilot-filecache0'), 'pilot-filecache0', { ...DEPS, env: ENV0, launchCache: cache });
+    fs.writeFileSync(zshrc, `export CLAUDE_CODE_PLUGIN_DIRS=${path.join(SANDBOX, 'second-read')}\n`);
+    const d1 = agentDir('pilot-filecache');
+    setup.guardTokenOnlyFolder(d1, 'pilot-filecache', { ...DEPS, env: ENV0, launchCache: cache });
+    assert.ok(editDeniedBy(readSettings(d1).permissions.deny, path.join(SANDBOX, 'first-read', 'x')).length > 0, 'the cached startup-file values were not used');
+  } finally { fs.rmSync(zshrc, { force: true }); }
   // More than 50 plugin folders: the rest are named.
   const many = Array.from({ length: 51 }, (_, i) => path.join(SANDBOX, 'many-plugs', `p${i}`)).join(path.delimiter);
   const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-manyplugs'), 'pilot-manyplugs', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_DIRS: many } });
@@ -336,10 +345,11 @@ test('#5774 route 5 review 5: Kosmos\'s data is too wide as production runs (no 
   const g3 = setup.guardTokenOnlyFolder(agentDir('pilot-coveredplugs'), 'pilot-coveredplugs', { ...DEPS, env: { [K]: inside } });
   assert.ok(!JSON.stringify(g3).includes('(more than 50)'), JSON.stringify(g3));
   assert.ok(editDeniedBy(readSettings(agentDir('pilot-coveredplugs')).permissions.deny, path.join(HOME, '.claude', 'plugins', 'c0', 'x')).length > 0, 'the folders were seen (and covered)');
-  // A job home that holds this agent's own folder is named, never a whole-folder deny over the agent's work.
+  // A job home that holds this agent's folder only elsewhere (the agents' folder itself) is covered as any home; review 8
+  // narrowed the refusal to one whose code folders would cover the agent (tested in review 8's test).
   const d4 = agentDir('pilot-holdsme');
   const g4 = setup.guardTokenOnlyFolder(d4, 'pilot-holdsme', { ...DEPS, env: ENV0, agentConfigDirs: [path.join(SANDBOX, 'workers')] });
-  assert.ok(JSON.stringify(g4).includes('which holds this agent\'s own folder'), JSON.stringify(g4));
+  assert.ok(!JSON.stringify(g4).includes('would cover this agent'), JSON.stringify(g4));
 });
 
 test('#5774 route 5 review 7: the plugins inside the folders the variables name are read (a dev plugin\'s hook, a cache\'s installed plugin); a folder inside the agent\'s own is named; an own home listed first is not re-judged', () => {
@@ -373,5 +383,23 @@ test('#5774 route 5 review 7: the plugins inside the folders the variables name 
   fs.mkdirSync(d3, { recursive: true });
   const g3 = setup.guardTokenOnlyFolder(d3, 'pilot-outer', { ...DEPS, env: ENV0, accountConfigDir: outer, agentConfigDirs: [outer] });
   assert.ok(!JSON.stringify(g3).includes('which holds this agent\'s own folder'), JSON.stringify(g3));
+});
+
+test('#5774 route 5 review 8: a plugin folder inside the temp folder is named (a per-run place); a job home is refused only when its code folders would cover this agent\'s folder', () => {
+  const tmpPlug = path.join(DEPS.tmpDir, 'run-123', 'plug');
+  const g = setup.guardTokenOnlyFolder(agentDir('pilot-tmpplug'), 'pilot-tmpplug', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_DIRS: tmpPlug } });
+  assert.ok(JSON.stringify(g).includes('inside the temp folder: a per-run place'), JSON.stringify(g));
+  // A home that merely contains the agents' folder elsewhere is covered; one whose skills/ folder is the agent's is named.
+  const holder = path.join(SANDBOX, 'holder-r8');
+  const d1 = path.join(holder, 'work', 'agent');
+  fs.mkdirSync(d1, { recursive: true });
+  const g1 = setup.guardTokenOnlyFolder(d1, 'pilot-holder', { ...DEPS, env: ENV0, agentConfigDirs: [holder] });
+  assert.ok(!JSON.stringify(g1).includes('would cover this agent'), JSON.stringify(g1));
+  assert.ok(editDeniedBy(readSettings(d1).permissions.deny, path.join(holder, 'settings.json')).length > 0, 'the holding home is covered');
+  const holder2 = path.join(SANDBOX, 'holder2-r8');
+  const d2 = path.join(holder2, 'skills', 'agent');
+  fs.mkdirSync(d2, { recursive: true });
+  const g2 = setup.guardTokenOnlyFolder(d2, 'pilot-holder2', { ...DEPS, env: ENV0, agentConfigDirs: [holder2] });
+  assert.ok(JSON.stringify(g2).includes('whose code folders would cover this agent'), JSON.stringify(g2));
 });
 
