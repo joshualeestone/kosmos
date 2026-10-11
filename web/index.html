@@ -20855,6 +20855,11 @@ function stateReason(a, opts) {
   if (Number.isFinite(poolAt)) {
     return 'Waiting for the shared Google quota, reported to reset at ' + quotaResetWords(poolAt, Date.now()) + '.';
   }
+  /* #5805 slice 3: a Claude agent out of usage, with the reset its limit line printed (engine claudeLimitUntil, dated
+     or not). Said only while it is ahead: past it, the line stays on its screen until something is typed, and a past
+     time is not said (as the quota arms above). */
+  const limitAt = typeof a.limitUntil === 'string' ? Date.parse(a.limitUntil) : NaN;
+  if (limitAt > Date.now()) return 'Out of usage until ' + quotaResetWords(limitAt, Date.now()) + '.';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks
      about"). "Its screen mentions" named our instrument, a regex over a pane.
