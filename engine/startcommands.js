@@ -904,8 +904,16 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   /* Review 7: the plugins inside the folders the variables name are read too: a CLAUDE_CODE_PLUGIN_DIRS entry is a plugin
      root (its hooks, servers and manifest, as an installed plugin's), and a cache or seed folder holds installed plugins
      and marketplaces as <home>/plugins does. Otherwise a hook there running a script outside the folder was missed. */
-  const pluginFolders = [...homes.map((h) => ({ folder: path.join(h, 'plugins'), home: h })),
-    ...envKinds.filter((x) => x.kind === 'folder').map((x) => ({ folder: x.dir, home: agentHome }))];
+  // Review 10: once each (a cache folder set to <home>/plugins is that home's plugins folder, read once).
+  const pluginFolders = [];
+  const seenFolders = new Set();
+  for (const pf of [...homes.map((h) => ({ folder: path.join(h, 'plugins'), home: h })),
+    ...envKinds.filter((x) => x.kind === 'folder').map((x) => ({ folder: x.dir, home: agentHome }))]) {
+    const k = realOf(pf.folder);
+    if (seenFolders.has(k)) continue;
+    seenFolders.add(k);
+    pluginFolders.push(pf);
+  }
   const installed = installedPlugins(homes, unsafe, pluginFolders);
   // A root is parsed for its commands here but denied (or named: too wide, the data folder, inside the agent's own, past
   // the cap) by the caller's own checks, so it is tagged and kept out of the installed plugins' list and filter.
@@ -959,8 +967,8 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
      plugin's own folder, a config home's code folders): then the code it reads there is covered. */
   // Each as written and where it really is (review 27: the real path of a runner's folder is compared below).
   const realDir = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };
-  // envPluginDirs: every one is either denied whole by the caller or named there (too wide, uncarriable, past the cap),
-  // so a runner inside one is never a silent miss, though "covered" means denied only for the first kind (review 6).
+  // envPluginDirs: every one is denied whole by the caller, already inside a folder denied whole, or NAMED there (too
+  // wide, temp, inside the agent, uncarriable, past the cap): "covered or named", never a deny list (reviews 6 and 10).
   const coveredDirs = [...new Set([...covered, ...plugins.map((p) => p.dir), ...envPluginDirs].map((d) => path.resolve(d)).flatMap((d) => [d, realDir(d)]))];
   const inCovered = (w) => coveredDirs.some((d) => w === d || w.startsWith(d + path.sep));
   // Review 27: and where it really is, so a linked folder inside a covered one that points out is not covered by it.

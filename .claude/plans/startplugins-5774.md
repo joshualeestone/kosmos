@@ -18,6 +18,8 @@
 
 ## Gaps, stated
 - The shell startup files read are part 2's zsh and bash rc files by name; part 2's other files (the ~/.bashrc.d folder, the BASH_ENV and ENV files) are not read for the variables (review 7). The files read are part 2's zsh and bash files (the home's and each ZDOTDIR's), on top-level lines only, as part 2 reads its assignments: fish (`set -x`) and nushell syntax, and an export inside an `if` or a function, are not read (review 2).
+- A plugin-variable value in a startup file with another variable in it (`$XDG_CACHE_HOME/...`, `$(brew --prefix)/...`) is named, so the guard is not whole: fails closed; the message names the variable and the file to change (review 10).
+- A plugin found inside a folder that is REFUSED (too wide, temp, inside the agent) gets its own rule as an installed plugin's folder, which is never pruned (review 10).
 - A self-reference other than `$K`, `${K}`, `${K:+$K:}` and `${K:+:$K}` (`${K:-}`, `$K` mid-value) is named: fails closed (review 8).
 - The job files are read only when the launch folder is inside the home (production) or an explicit sandbox names it; a caller passing another home with neither (a test) reads no jobs (review 8). That arm is not tested (the tests set the sandbox).
 - An agent of ANOTHER named Kosmos (world) shares the agents' folder but its job carries that world's key; readJob(name) reads this world's, so its config home is not found, and nothing names that (review 5; #5516 states the same for its account settings).
@@ -33,7 +35,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 12 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
+engine/startplugins-5774.test.js, 13 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on b7d167941:
@@ -120,4 +122,11 @@ engine/startplugins-5774.test.js, 12 tests, using the production job reader agai
   - [NIT] TAKEN (plan): another account's relative value is named, not just uncounted.
   - [NIT] not taken: CLAUDE_PLUGIN_DATA for a cached plugin points under the agent's home; both that folder and the cache are denied whole, so nothing is missed.
   - [NIT] ALREADY covered: the review-8 holder test has its positive arm (the holding home's settings.json is denied).
+- Iteration 10 (Sonnet), on bf5078baf: no BLOCKER.
+  - [WARNING] FIXED. A job file that exists but cannot be read folded into "no job" (readJob), a silent loss of that agent's config home. readJobVerdict's reason is now used (Linux, Windows), and on macOS, whose reader says only job-or-null, a job file that is there yet reads as no job is named. Tested (a folder where the job file should be); two mutations red.
+  - [WARNING] FIXED. A relative configDir in a job was dropped silently; it is named. Tested; mutation red.
+  - [WARNING] STATED under Gaps: another variable in a startup-file value fails closed.
+  - [NIT] TAKEN: a cache folder that is a home's own plugins folder is read once.
+  - [NIT] TAKEN: the coveredDirs comment says "covered or named".
+  - [NIT] STATED under Gaps: plugins inside a refused folder get their own rules.
 

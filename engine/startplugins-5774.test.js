@@ -425,3 +425,18 @@ test('#5774 route 5 review 9: a plugin installed inside a cache folder is covere
   } finally { fs.rmSync(zshrc, { force: true }); }
 });
 
+
+test('#5774 route 5 review 10: a job file that exists but cannot be read is named; a relative config home in a job is named', () => {
+  const sib = 'sib-badjob';
+  fs.mkdirSync(path.join(SANDBOX, 'workers', sib), { recursive: true });
+  const jp = jobfix.jobPath(sib);
+  fs.rmSync(jp, { recursive: true, force: true });
+  fs.mkdirSync(jp, { recursive: true });   // a folder where the job file should be: it cannot be read as a job
+  try {
+    // Linux and Windows readers say why; on macOS the guard sees the file is there yet reads as no job. Named either way.
+    const g = setup.guardTokenOnlyFolder(agentDir('pilot-badjob'), 'pilot-badjob', { ...DEPS, env: ENV0 });
+    assert.ok(JSON.stringify(g).includes(`the job of the agent ${sib}`), JSON.stringify(g));
+  } finally { fs.rmSync(jp, { recursive: true, force: true }); }
+  const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-relhome'), 'pilot-relhome', { ...DEPS, env: ENV0, agentConfigDirs: ['rel/home'] });
+  assert.ok(JSON.stringify(g2).includes('rel/home (a config home an agent\'s job names, not a full path'), JSON.stringify(g2));
+});

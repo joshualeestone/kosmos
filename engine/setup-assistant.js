@@ -732,8 +732,16 @@ function agentJobConfigDirs(workersRoot) {
   // Review 4: a linked agent folder too (a dirent of a link is not a directory).
   try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory() || (d.isSymbolicLink() && (() => { try { return fs.statSync(path.join(workersRoot, d.name)).isDirectory(); } catch { return false; } })())).map((d) => d.name); } catch (e) { if (e && e.code === 'ENOENT') return out; out.unreadable = (e && e.code) || String(e); return out; }
   for (const name of names) {
-    let job = null;
-    try { job = create.readJob(name); } catch { job = null; }
+    /* Review 10: readJobVerdict tells a job that is absent (fine) from one that could not be read (an unreadable unit, a
+       failed task read): the latter is named, never a silent loss of that agent's config home. */
+    let v = null;
+    try { v = create.readJobVerdict(name); } catch (e) { v = { job: null, because: (e && e.message) || String(e) }; }
+    const job = v && v.job;
+    if (!job && v && v.because && !v.absent) (out.failed = out.failed || []).push(`${name} (${v.because})`);
+    // On macOS the reader says only job-or-null: a job file that EXISTS there and still read as none could not be read.
+    else if (!job && v && !v.absent && !v.because && !v.win32 && !v.linux) {
+      try { fs.lstatSync(create.plistPath(name)); (out.failed = out.failed || []).push(`${name} (its job file is there but does not read as a job)`); } catch { /* absent: no job */ }
+    }
     if (job && job.configDir && (job.runner || 'claude') === 'claude') out.push(job.configDir);
   }
   return out;
@@ -1719,6 +1727,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     }
   } catch (e) { jobHomes = []; configUnsafe.push(`other agents' config homes (they could not be read: ${(e && e.message) || e})`); }
   if (jobHomes.unreadable) configUnsafe.push(`the agents' folder (it could not be read: ${jobHomes.unreadable}), so other agents' config homes are not found`);
+  for (const x of jobHomes.failed || []) configUnsafe.push(`the job of the agent ${x}, which could not be read, so its config home is not known`);
   const JOB_HOMES_MAX = 50;
   let jobHomesTaken = 0;
   // Review 6: each real path once (this agent's folder, the homes listed so far), not per job home.
@@ -1726,7 +1735,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const homeRealJ = realOrLeaf(home);
   const listedReal = new Set(concreteHomes.map((c) => realOrLeaf(c)));
   for (const h0 of jobHomes) {
-    if (typeof h0 !== 'string' || !path.isAbsolute(h0)) continue;   // review 2: a relative configDir names no folder Kosmos can place
+    // Review 2: a relative configDir names no folder Kosmos can place; review 10: named, never dropped silently.
+    if (typeof h0 !== 'string' || !path.isAbsolute(h0)) { configUnsafe.push(`${String(h0)} (a config home an agent's job names, not a full path, which Kosmos cannot place)`); continue; }
     const h = path.resolve(h0);
     // Review 4: a job home that is the root or the home itself is no config home Kosmos can place: named.
     const hr = realOrLeaf(h);
