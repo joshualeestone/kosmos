@@ -96,7 +96,7 @@ test('#5842: a message kept for an agent out of usage says when, in local time, 
   // The route's real shape on limittask-5805: state 'held', heldUntil an ISO time, because carrying that same raw time.
   const until = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
   const r = await send([{ agent: 'casey', state: 'held', heldUntil: until, because: 'held: casey is out of usage until ' + until + '; Kosmos types it after the reset' }]);
-  assert.match(r.said, /^casey is out of usage until .+\. Kosmos will try to send it your message after that\.$/);
+  assert.match(r.said, /^casey is out of usage until .+\. Kosmos will try to send your message to casey after that\.$/);
   assert.ok(!r.said.includes(until) && !/\dT\d/.test(r.said), 'the raw UTC time reached the screen: ' + r.said);
   const behind = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey still has messages kept from while it was out of usage; Kosmos types this one after them' }]);
   assert.equal(behind.said, 'Kosmos will try to send your message to casey after the ones already waiting for it.');
@@ -110,10 +110,10 @@ test('#5842: a message kept for an agent out of usage says when, in local time, 
   assert.doesNotMatch(r.said + behind.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
 });
 
-test('#5842: the board still words a line kept behind earlier ones as the page reads it (armed once heldReceipt exists)', () => {
+test('#5842: the board still words a line kept behind earlier ones as the page reads it', () => {
   /* The page tells "kept behind earlier lines" from the board's wording, since the task route does not forward
-     `behind`. A reworded reason falls to a sentence that stays true, but this keeps the two in step. heldReceipt
-     arrives with limittask-5805 (#5805): until then engine/messages.js has none, and this asserts that and no more. */
+     `behind`. A reworded reason falls to a sentence that stays true, but this keeps the two in step. heldReceipt is on
+     main since #5822 (kosmos msg's kept lines); the task route uses it once limittask-5805 lands. */
   const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'messages.js'), 'utf8');
   const start = src.indexOf('function heldReceipt(');
   if (start < 0) { assert.doesNotMatch(src, /still has messages kept/); return; }
