@@ -2,10 +2,12 @@
 # kosmos#4911 (Mona Lisa's finding, 2026-10-02): the pre-commit "$? after a pipe" lint (#632) refused
 # tools/test-light-side-4911.sh on six correct lines, so any commit staging that file (a merge of main into an
 # older branch) was refused. Two shapes were misread:
-#   - "cmd || sed ..." : the "|" of "||" was read as a pipe into sed;
-#   - "cmd; rc=$?" one or two lines after an unrelated pipe: that $? is cmd's own status.
+#   - "cmd || sed ...": the "|" of "||" was read as a pipe into sed. Fixed exactly: "||" is never a pipe.
+#   - "cmd; rc=<status>" one or two lines after an unrelated pipe: that status is cmd's own. A line-based lint cannot
+#     tell this from the hazard (nine review rounds of heuristics each let a real hazard through), so the author says
+#     so on the line: "# pipe-status-ok". Without it the line is still refused.
 # This runs the hook's OWN program (the region between PIPE-LINT-BEGIN and PIPE-LINT-END in .githooks/pre-commit),
-# not a copy, against each shape, and against the real hazard it exists for, which must still be caught.
+# not a copy, under /bin/sh, against each shape and against the hazards the lint exists for, which must still be caught.
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$HERE/.githooks/pre-commit"
@@ -40,12 +42,18 @@ printf '%s\n' "sed -i '' '6d' f 2>/dev/null || sed -i '6d' f" "rc=$Q" > "$T/oror
 [ -z "$(lint "$T/oror.sh")" ] && ok "a 'cmd || sed' fallback is not a pipe" || bad "'|| sed' read as a pipe: $(lint "$T/oror.sh")"
 
 printf '%s\n' "echo \"calls=\$(grep -c . f $P tr -d x)\"" 'true' "run_it --flag 2> err; rc=$Q" > "$T/ownstatus.sh"
-[ -z "$(lint "$T/ownstatus.sh")" ] && ok "'cmd; rc=\$?' reads cmd's own status, whatever pipe came before" || bad "'cmd; rc=\$?' after an unrelated pipe was refused"
+flags "$T/ownstatus.sh" && ok "without the marker, 'cmd; rc=' after a pipe is still refused (a line lint cannot tell)" || bad "an unmarked 'cmd; rc=' after a pipe was accepted"
+printf '%s\n' "echo \"calls=\$(grep -c . f $P tr -d x)\"" 'true' "run_it --flag 2> err; rc=$Q  # pipe-status-ok" > "$T/marked.sh"
+[ -z "$(lint "$T/marked.sh")" ] && ok "with the marker, 'cmd; rc=' after an unrelated pipe is accepted" || bad "a marked own-status line was refused: $(lint "$T/marked.sh")"
+printf '%s\n' "x=\$(make $P tail -1); rc=$Q  # pipe-status-ok" > "$T/markedsame.sh"
+flags "$T/markedsame.sh" && ok "the marker does not excuse a pipe on its own line" || bad "the marker excused a same-line pipe"
+printf '%s\n' "yarn test $P tail -5" "true  # pipe-status-ok" "[ $Q -eq 0 ] || exit 1" > "$T/markedother.sh"
+flags "$T/markedother.sh" && ok "a marker on a line that reads no status excuses nothing" || bad "a marker on another line excused the read"
 
-printf '%s\n' "x $P grep y" 'true' "out=\"\$(run_it 2>&1)\"; rc=$Q" "V=1 run_it; rc=$Q" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q" > "$T/assigncmd.sh"
-[ -z "$(lint "$T/assigncmd.sh")" ] && ok "an assignment from a command, or before one, still owns its status" || bad "an assignment from or before a command was refused: $(lint "$T/assigncmd.sh")"
-printf '%s\n' "x $P grep y" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q" > "$T/assignsubst.sh"
-[ -z "$(lint "$T/assignsubst.sh")" ] && ok "an assignment from a prefixed command, right after a pipe, owns its status" || bad "an assignment from a prefixed command was refused: $(lint "$T/assignsubst.sh")"
+printf '%s\n' "x $P grep y" 'true' "out=\"\$(run_it 2>&1)\"; rc=$Q  # pipe-status-ok" "V=1 run_it; rc=$Q  # pipe-status-ok" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q  # pipe-status-ok" > "$T/assigncmd.sh"
+[ -z "$(lint "$T/assigncmd.sh")" ] && ok "marked assignments from or before a command are accepted" || bad "an assignment from or before a command was refused: $(lint "$T/assigncmd.sh")"
+printf '%s\n' "x $P grep y" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q  # pipe-status-ok" > "$T/assignsubst.sh"
+[ -z "$(lint "$T/assignsubst.sh")" ] && ok "a marked assignment from a prefixed command, right after a pipe, is accepted" || bad "an assignment from a prefixed command was refused: $(lint "$T/assignsubst.sh")"
 
 printf '%s\n' 'set -o pipefail' "yarn test $P tail -5" "[ $Q -eq 0 ]" > "$T/pipefail.sh"
 [ -z "$(lint "$T/pipefail.sh")" ] && ok "CONTROL: under pipefail the shape is accepted, as before" || bad "pipefail no longer accepted"

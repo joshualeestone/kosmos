@@ -7,50 +7,34 @@ and, across all 243 linted files, it flags 14 lines in 3 files. All 14 are false
 - `cmd || sed ...`: the pattern `\| *sed` matched the second `|` of `||`;
 - `cmd; rc=$?` one or two lines after an unrelated pipe: that `$?` is `cmd`'s own status.
 
-## The fix (.githooks/pre-commit)
-1. Remove every `||` from a copy of the line before looking for a pipe.
-2. A `$?` that follows a command on its own line (`<command>; var=$?`) clears a pipe seen on an EARLIER line. A pipe
-   on the SAME line still counts, because `x=$(a | tail); rc=$?` is the #632 hazard itself.
-The program now sits between `# PIPE-LINT-BEGIN` and `# PIPE-LINT-END`, so the test runs the hook's own text.
+## The fix (.githooks/pre-commit), as it stands after review 9
+1. Remove every "||" from a copy of the line before looking for a pipe. Exact: "||" is never a pipe.
+2. An explicit opt-out: a line that reads the status AND ends in "# pipe-status-ok" clears a pipe seen on an EARLIER
+   line. A pipe on the same line still counts. The refusal message names the marker.
+3. The 11 correct lines the lint still refused (cmd; rc=<status>, two lines after an unrelated pipe, in
+   test-feedback-digest-daily.sh, test-light-side-4911.sh and test-test-leak-guard-4273.sh) carry the marker. Each
+   was read and is its own command's status. Comment-only edits.
+
+## Why not a heuristic (decided at review 9; the review sections below are the evidence)
+Rounds 1 to 9 built an "own-status" rule that tried to tell "cmd; rc=" (its own status) from the hazard by reading
+lines. Every round found a real filter-status read it let through (closers, continuations, quotes, functions,
+wrappers, aliases, bash -c, quote-parity tricks), and the rule grew from 1 line to about 50. Loosening a guard with a
+line-based shell parser keeps producing escapes, and an escape here reads a failing suite as green. Review 9 named
+the trade; the marker removes the escape surface: the lint is as strict as before except for "||" and lines an
+author marks in plain sight.
 
 ## Tests (tools/test-precommit-pipe-lint-4911.sh, in test:shell)
-(The mutation results recorded in this plan were run BY HAND, one at a time; the test file itself runs only the
-fixtures. They are not standing coverage.)
-The hazard, the same-line hazard and `grep -c || echo 0` are still caught; pipefail is still accepted; `|| sed` and
-`cmd; rc=$?` are accepted; the real test-light-side-4911.sh is accepted. Mutations: dropping either rule, or letting
-the own-status rule clear a same-line pipe, each turns a check BAD. Whole-repo comparison: old 14 flagged lines, new
-0, and each of the 14 was read (every one is `cmd; rc=$?` or `|| sed`).
+(Mutation results recorded in this plan were run BY HAND, one at a time; the test file runs only the fixtures.)
+Runs the hook's own region under /bin/sh. Every hazard shape found in rounds 1 to 9 is a must-flag fixture (the old
+lint flags each, and so does this one). Accepted: "|| sed", and marked own-status lines. Marker limits: an unmarked
+line is refused; the marker does not excuse a same-line pipe; a marker on a line that reads no status excuses
+nothing. Mutations: no "||" strip, no marker rule, marker excusing its own line, marker on any line: each BAD.
+Whole-tree sweep: 0 flagged under BSD awk and mawk, with a hazard/clean control in each.
 
 ## Weakest premise
-The own-status rule clears an earlier pipe for a line "<plain command> ...; var=<status>". It is refused (the pipe
-stays live) for: a compound closer on the status line (done fi esac then else elif do wait, or a line starting with }
-or )); a builtin that always succeeds (local declare typeset readonly export set unset shift true alias builtin
-command eval exec time); a status read, or a pipe of its own, before the ";"; a ";" inside quotes; a comment; a line
-continued from the pipe's (trailing backslash or trailing lone pipe, CRLF or not); and a status line whose previous
-non-blank line ends a function (starts with } or ), or defines one on one line). Each is a must-flag fixture with a
-red mutant.
-
-**Also refused (review 5):** a pipe line ending in "||" or "&&" (the next line is its fallback or chain); a closer as
-its own word anywhere on the pipe line; echo, printf, source and "." as status owners; assignment-only lines in every
-common form (arithmetic, arrays, +=, element, mixed quotes); a ";" after a "#".
-
-**A second residual, stated:** a "cmd; rc=<status>" line inside an unquoted heredoc body is read as owning its status,
-though the body is text whose status expands at the heredoc's command. Contrived; not handled.
-
-**Rebuilt at review 6:** own() now requires everything before the ";" to be ONE simple command (no other ";", "&&"
-or "||"), and checks the command word after any VAR=x prefixes, against keywords, always-zero builtins, wrappers
-(sudo env nice nohup xargs timeout stdbuf caffeinate) and source. A line that closes more ( or { than it opens ends
-a body.
-
-**A third residual, stated:** the first-character rule refuses a status line whose command word is quoted or a
-variable ("$BIN" --x; rc=...), and one that starts with "[" or "~". Those are false positives (the safe direction);
-none occurs in the tree today (sweep: 0).
-
-**The residual, stated:** a function defined elsewhere in the file whose last command is a pipe, called as
-"fn; rc=<status>" with some unrelated line between its end and the call. The lint reads lines, not a parse, so it
-cannot know what fn returns. The old lint caught that only when the call sat within two lines of the pipe, which the
-function-end rule above still does. Quote parity counts each quote kind separately, so a stray quote inside the other
-kind refuses a correct line: a false positive, the safe direction for a guard.
+An author can put the marker on a real hazard. That is a deliberate, visible act a reviewer can question, unlike a
+heuristic silently accepting it. What would change my mind: markers appearing on lines that are not their own
+command's status.
 
 ## Review 1 (opus, blind, on cee6c0863)
 - FIXED (BLOCKER): the first own-status rule let real hazards through: "done; rc=", "fi; rc=", "}; rc=",
@@ -137,3 +121,8 @@ kind refuses a correct line: a false positive, the safe direction for a guard.
 - NO CHANGE (NIT): an apostrophe in a comment or a double-quoted string makes opens() keep a pipe live, refusing a
   correct line (the old lint refused it too; the safe direction; the tree sweep is 0). Covered by the quote-parity
   residual above.
+
+## Review 9 (opus, blind, on 001dbc563)
+- Two more real escapes (quote parity fooled by an escaped or cross-kind quote; a pipeline held in a string run by
+  bash -c or an alias), and the holistic WARNING that the trade does not pay. DECIDED: removed the heuristic
+  (own, opens, closes, cont, shut) and replaced it with the explicit marker above. Rejected: another heuristic round.

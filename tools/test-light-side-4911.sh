@@ -143,7 +143,7 @@ KOSMOS_WAIT_SLEEP=: KOSMOS_WAIT_MAX_S=60 kosmos_wait_until_clear "this light run
   && pass "--side gives a queued run its side turn and leaves its marker for the take" \
   || fail "--side did not give the side turn (rc=$rc, lane=$KOSMOS_WAIT_LANE, calls=$(grep -c . "$T/sidecalls" 2>/dev/null), markers=$(ls "$M" | tr '\n' ' '), $(cat "$T/w1"))"
 kosmos_unmark_suite_waiting
-KOSMOS_WAIT_SLEEP=: KOSMOS_WAIT_MAX_S=60 kosmos_wait_until_clear "this light run" --suite-queue nope 2> "$T/w2"; rc=$?
+KOSMOS_WAIT_SLEEP=: KOSMOS_WAIT_MAX_S=60 kosmos_wait_until_clear "this light run" --suite-queue nope 2> "$T/w2"; rc=$?  # pipe-status-ok
 { [ "$rc" -eq 1 ] && [ "$KOSMOS_WAIT_LANE" = main ] && [ ! -e "$M/suitewait.$$" ]; } && pass "CONTROL: without --side the run waits out its bound" \
   || fail "CONTROL: the run went without a side check (rc=$rc, lane=$KOSMOS_WAIT_LANE)"
 # A run that still holds a live marker (a side take that lost) resumes that place on its next wait.
@@ -294,7 +294,7 @@ rm -f "$M/browser.$R"; kill "$R" 2>/dev/null; wait "$R" 2>/dev/null
 bash -c 'sleep 60 </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & R2=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do KID="$(pgrep -P "$R2" | head -1)"; [ -n "$KID" ] && break; sleep 0.1; done
 printf 'mine\n%s\n' "$(ps -ww -o command= -p "$KID")" > "$M/browser.$KID"
-out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R2")"; rc=$?
+out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R2")"; rc=$?  # pipe-status-ok
 { [ -n "$KID" ] && [ "$rc" -eq 1 ]; } && pass "intruder check: a marked browser run by a DESCENDANT of the side command -> stay" || fail "intruder check yielded to its own descendant's run (kid=$KID rc=$rc, $out)"
 sleep 60 </dev/null >/dev/null 2>&1 & R3=$!
 out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R3")"; rc=$?
@@ -502,7 +502,7 @@ else
   { [ "$rc" -eq 1 ] && ! has "$out" "side turn" && ! has "$out" "waiting for it" && ! has "$out" GUARD-PASSED; } \
     && pass "CONTROL: with no side turn, the guard refuses beside another browser run at once, as before" \
     || fail "CONTROL: the guard changed its refusal with no side turn (rc=$rc, $(printf '%s' "$out" | tail -3))"
-  out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/quiet" bcguard)"; rc=$?
+  out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/quiet" bcguard)"; rc=$?  # pipe-status-ok
   { [ "$rc" -eq 0 ] && has "$out" GUARD-PASSED; } && pass "CONTROL: with nothing live the guard block passes" \
     || fail "CONTROL: the extracted guard refused on a clear box (rc=$rc, $out)"
 fi

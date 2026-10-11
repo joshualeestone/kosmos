@@ -27,75 +27,15 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
   # kosmos#4911: the program sits between these two markers so tools/test-precommit-pipe-lint-4911.sh runs THIS text.
   # PIPE-LINT-BEGIN
   hits="$(git show ":$f" | awk '
-    # own(l): l is "<one simple command>; var=<exit status>", so that status is the command'"'"'s own and a pipe on an
-    # earlier line cannot reach it. Everything before the ";" must be ONE simple command: no other ";", "&&" or "||"
-    # (the status would be the last segment'"'"'s), no pipe, no comment, no status read, balanced quotes, and a first word
-    # (after any VAR=x prefixes) that is a plain command: not a keyword or closer, not a builtin whose status is not the work (most always succeed),
-    # not a wrapper of another command, not a sourced file. Assignments alone run no command, so own nothing.
-    # (These comments never write the status variable itself: this hook lints its own text.)
-    function own(l,   i, w, pre, t, t2) {
-      if (l !~ /^[[:space:]]*[A-Za-z_.\/]/) return 0
-      i = match(l, /;[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/)
-      if (!i) return 0
-      pre = substr(l, 1, i - 1)
-      if (pre ~ /;|&&|\|\||\$\?/) return 0                     # more than one command, or a status read first
-      if (pre ~ /\|/) return 0                                 # a pipe of its own (any filter)
-      if (pre ~ /(^|[[:space:]])#/) return 0                   # the ";" is inside a comment
-      t = pre; if (gsub(/"/, "", t) % 2) return 0
-      t = pre; if (gsub(/'"'"'/, "", t) % 2) return 0
-      # Strip leading assignments (scalars, arrays, +=, elements, quoted, arithmetic, $()) to reach the command word.
-      t = pre
-      while (sub(/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=(\([^)]*\)|("[^"]*"|'"'"'[^'"'"']*'"'"'|\$\(\([^)]*\)\)|\$\([^)]*\)|[^[:space:]"'"'"'(\\]+)*)/, "", t)) { }
-      if (t ~ /^[[:space:]]*$/) {                              # assignments alone: owned only if one ran a command
-        t2 = pre; gsub(/\$\(\(/, "", t2)                         # arithmetic $(( )) runs no command
-        gsub(/'"'"'[^'"'"']*'"'"'/, "", t2); gsub(/\$\{[^}]*\}/, "", t2)    # nor a literal in single quotes, nor a ${...} default
-        return (t2 ~ /\$\(|`/) ? 1 : 0
-      }
-      w = t; sub(/^[[:space:]]*/, "", w); sub(/[^A-Za-z0-9_.\/-].*$/, "", w); sub(/.*\//, "", w)   # /usr/bin/true is true
-      if (w == "") return 0
-      if (w ~ /^(done|fi|esac|then|else|elif|do|if|for|while|until|case|select|function|wait)$/) return 0
-      if (w ~ /^(local|declare|typeset|readonly|export|set|unset|shift|true|alias|unalias|builtin|command|eval|exec|time|echo|printf|trap|hash|ulimit|shopt|umask|pushd|popd|dirs|enable|getopts|let|coproc|disown|jobs|bg|fg|break|continue|return|exit|pwd|type|history|false)$/) return 0
-      if (w ~ /^(sudo|env|nice|nohup|xargs|timeout|stdbuf|caffeinate)$/) return 0
-      if (w ~ /^(source|\.)$/) return 0
-      return 1
-    }
-    # The mirror of closes(): an odd count of either quote, or more ( than ), leaves the line open onto the next.
-    function opens(l,   a, o, c) {
-      a = l; if (gsub(/"/, "", a) % 2) return 1
-      a = l; if (gsub(/'"'"'/, "", a) % 2) return 1
-      a = l; o = gsub(/\(/, "", a); a = l; c = gsub(/\)/, "", a)
-      return o > c
-    }
-    function closes(l,   a, o, c) {
-      a = l; gsub(/\$\{/, "", a); o = gsub(/[({]/, "", a)
-      a = l; gsub(/\$\{[^}]*\}/, "", a); c = gsub(/[)}]/, "", a)
-      return c > o
-    }
-    # A file saved with CRLF endings: read each line without its CR, so a trailing backslash still reads as one.
-    { sub(/\r$/, "") }
     /^[^#]*set -o pipefail|^[^#]*set -[a-zA-Z]*o pipefail/ { pf = 1 }
     # "a || b" is not a pipe: drop every || before looking for one (a "cmd || sed" fallback was read as "| sed").
     { s = $0; gsub(/\|\|/, "  ", s) }
     s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
-    # A "$?" straight after a plain command on its own line is that command'"'"'s status, so a pipe on an EARLIER line
-    # cannot reach it (own() above). A pipe on the same line, or a line continued from the pipe'"'"'s, still counts.
-    # Nor after a function'"'"'s end: a function whose last command is the pipe returns the filter'"'"'s status, so "fn; rc=..."
-    # reads it. "shut" is set by a previous non-blank line holding a closer } or ) as its own word (at its start, or after
-    # the last command), or a function definition on one line, or a "function" line.
-    p && p != NR && !cont && !shut && own($0) { p = 0 }
+    # The author'"'"'s word, written where a reviewer sees it: a line ending in "# pipe-status-ok" reads its OWN
+    # command'"'"'s status, so a pipe on an EARLIER line is not what it reads. A pipe on the same line still counts.
+    p && p != NR && /\$\?/ && /#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
-    # A line ending in a backslash, or in a lone pipe, continues onto the next, so the next line is still the pipeline.
-    # The ends are read on the line as written AND with a trailing comment removed ("| # keep a copy" still continues);
-    # a line that leaves a quote or a "(" open also continues (its argument closes on a later line).
-    # Blank and comment-only lines are skipped by both, since a pipeline continues across them.
-    /^[[:space:]]*(#.*)?$/ { next }
-    # Also "a | tail ||" or "&&": the next line is the fallback, and it reads the filter'"'"'s status.
-    { c0 = $0; sub(/[[:space:]]#.*$/, "", c0); cs = c0; gsub(/\|\|/, "  ", cs)
-      cont = ($0 ~ /\\$/ || s ~ /\|[[:space:]]*$/ || $0 ~ /(\|\||&&|\|&)[[:space:]]*$/ || cs ~ /\|[[:space:]]*$/ || c0 ~ /(\|\||&&|\|&)[[:space:]]*$/ || opens($0)) }
-    # A closer as its own word anywhere on the line ("; }", "} # end", "} 2>/dev/null", "tail -1 )") also ends a body.
-    # And any line that closes more ( or { than it opens ("tail -1)" with no space) ends a body begun above.
-    { shut = ($0 ~ /^[[:space:]]*[})]/ || $0 ~ /[;[:space:]][})]([[:space:];<>&|#]|$)/ || $0 ~ /\(\)[[:space:]]*[{(]/ || $0 ~ /^[[:space:]]*function[[:space:]]/ || closes($0)) }
   ')"
   # PIPE-LINT-END
   if [ -n "$hits" ]; then
@@ -106,6 +46,7 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
 done
 if [ "$shape_reds" -ne 0 ]; then
   echo "  turn on pipefail, read \${PIPESTATUS[0]} on the next line, or redirect to a file and test the command's own status." >&2
+  echo "  If the status line runs its OWN command (cmd; rc=...) and the pipe above is unrelated, end it with: # pipe-status-ok" >&2
   exit 1
 fi
 
