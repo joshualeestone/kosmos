@@ -144,16 +144,31 @@ test('both CLIs: task told sends the words given, or none (the board then uses t
   assert.equal('value' in w.calls[0].body, false);
 });
 
-test('both CLIs: told refuses a stray word or option and a --value with no words, before calling the board', async () => {
+// Review 1: an option is never taken as the reading (`--value --unchanged` used to store "--unchanged").
+const REFUSED = [['task', 'told', 'p1', '3', '--note', 'x'], ['task', 'told', 'p1', '3', '--value'], ['task', 'ran', 'p1', '3', '--value'],
+  ['task', 'ran', 'p1', '3', '--value', '--unchanged'], ['task', 'told', 'p1', '3', '--value', '--note']];
+test('both CLIs: told takes bare words as what was told (as ran takes its note)', async () => {
   const home = makeHome();
   await withStub(async (port, seen) => {
-    for (const args of [['task', 'told', 'p1', '3', 'extra'], ['task', 'told', 'p1', '3', '--note', 'x'], ['task', 'told', 'p1', '3', '--value'], ['task', 'ran', 'p1', '3', '--value']]) {
+    const r = await sh(port, home, ['task', 'told', 'p1', '3', 'price', 'went', 'up']);
+    assert.equal(r.code, 0, r.out);
+    assert.equal(seen[0].body.value, 'price went up');
+  });
+  const w = await win(['task', 'told', 'p1', '3', 'price', 'went', 'up']);
+  assert.equal(w.code, 0, w.out);
+  assert.equal(w.calls[0].body.value, 'price went up');
+});
+
+test('both CLIs: told refuses an option, and --value with no words or with an option, before calling the board', async () => {
+  const home = makeHome();
+  await withStub(async (port, seen) => {
+    for (const args of REFUSED) {
       const r = await sh(port, home, args);
       assert.equal(r.code, 2, args.join(' ') + ': ' + r.out);
     }
     assert.equal(seen.length, 0, 'a refused command reached the board');
   });
-  for (const args of [['task', 'told', 'p1', '3', 'extra'], ['task', 'told', 'p1', '3', '--note', 'x'], ['task', 'told', 'p1', '3', '--value'], ['task', 'ran', 'p1', '3', '--value']]) {
+  for (const args of REFUSED) {
     const w = await win(args);
     assert.equal(w.code, 2, args.join(' ') + ': ' + w.out);
     assert.equal(w.calls.length, 0);

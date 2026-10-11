@@ -146,3 +146,38 @@ test('#5836: told is refused with a sentence: nothing verified yet, a one-off ta
   assert.equal(r.status, 403, JSON.stringify(r.json));
   assert.equal(stored(n).told, undefined, 'a refused told recorded something');
 });
+
+/* Review 1: a second report inside the minute from the same agent counts once (RUN_DEDUP_MS), but its reading is what the
+   agent now sees: the check answers for the reading SENT, and keeps it as last verified. Was: a false "same". */
+test('#5836: a run absorbed as a duplicate still answers for the reading it sent, and keeps it', async () => {
+  const n = newTask('Error count check');
+  const mona = sendertoken.mint('mona').token;
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, { 'x-kosmos-agent-token': mona });
+  await post(`/api/project/${projectId}/task/${n}/ran`, { value: '2 errors' }, { 'x-kosmos-agent-token': mona });
+  await post(`/api/project/${projectId}/task/${n}/told`, {}, { 'x-kosmos-agent-token': mona });
+  const r = await post(`/api/project/${projectId}/task/${n}/ran`, { value: '3 errors' }, { 'x-kosmos-agent-token': mona });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.duplicate, true, 'fixture: the second run inside the minute is absorbed as a duplicate');
+  assert.equal(r.json.vs_told.state, 'changed', 'a duplicate answered for the thrown-away reading');
+  assert.equal(stored(n).verified.value, '3 errors', 'the new reading was not kept');
+});
+
+/* Review 1: a bare told records the latest reading only when it is the caller's own: two agents on one task. */
+test('#5836: a bare told after ANOTHER agent recorded the latest reading is refused; with --value it is taken', async () => {
+  const n = newTask('Shared check');
+  const mona = sendertoken.mint('mona').token;
+  const fixture = sendertoken.mint('fixture').token;
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, { 'x-kosmos-agent-token': mona });
+  await post(`/api/project/${projectId}/task/${n}/ran`, { value: '4' }, { 'x-kosmos-agent-token': fixture });
+  let r = await post(`/api/project/${projectId}/task/${n}/told`, {}, { 'x-kosmos-agent-token': mona });
+  assert.equal(r.status, 400, JSON.stringify(r.json));
+  assert.match(r.json.error, /recorded by fixture, not by you: say what you told the person with --value/);
+  assert.equal(stored(n).told, undefined);
+  r = await post(`/api/project/${projectId}/task/${n}/told`, { value: '3' }, { 'x-kosmos-agent-token': mona });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(stored(n).told.value, '3');
+  // CONTROL: the agent that recorded it can take the default.
+  r = await post(`/api/project/${projectId}/task/${n}/told`, {}, { 'x-kosmos-agent-token': fixture });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(stored(n).told.value, '4');
+});

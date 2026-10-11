@@ -35,3 +35,9 @@ test('#5836: CONTROL: a task with neither field adds nothing (the line reads as 
   assert.doesNotMatch(before, /told|reading/);
   assert.match(before, /Repeats every day at 9am\. Last run /, 'control: the sentence did run');
 });
+
+test('#5836 review 1: told AFTER the reading, in other words, says the order as it happened (not "changed since")', () => {
+  const s = lib.tskRepeatSentence({ ...base, verified: { value: 'price is $45', at: hoursAgo(3) }, told: { value: 'up to forty-five', at: hoursAgo(1) } }, NOW);
+  assert.match(s, /You were last told \u201cup to forty-five\u201d \([^)]*\), after its latest reading, \u201cprice is \$45\u201d\./);
+  assert.doesNotMatch(s, /has changed since/);
+});

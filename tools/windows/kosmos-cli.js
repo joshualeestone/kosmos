@@ -1091,7 +1091,10 @@ async function taskRan(ctx, args) {
   let past = false, want = false, unchanged = false, wantValue = false, value;
   for (const a of args.slice(2)) {
     if (want) { words.push(a); want = false; continue; }
-    if (wantValue) { value = a; wantValue = false; continue; }   // kosmos#5836, as install/kosmos
+    if (wantValue) {   // kosmos#5836, as install/kosmos (review 1: an option is not a reading)
+      if (/^--/.test(a)) { ctx.err('--value needs the reading, not ' + a + '. ' + RAN_USAGE); return 2; }
+      value = a; wantValue = false; continue;
+    }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--note') { want = true; continue; }
     if (!past && a === '--value') { wantValue = true; continue; }
@@ -1104,17 +1107,23 @@ async function taskRan(ctx, args) {
   return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), unchanged, run_id: require('node:crypto').randomBytes(8).toString('hex'), ...(value !== undefined ? { value } : {}), from_pane: '' }, false);
 }
 /* kosmos#5836, as install/kosmos cmd_task told: what the person was just told (default: the task's last --value reading). */
-const TOLD_USAGE = 'Usage: kosmos task told <project-id> <task-number> [--value "<what you told the person>"]';
+const TOLD_USAGE = 'Usage: kosmos task told <project-id> <task-number> ["<what you told the person>"]   (or --value "...")';
 async function taskTold(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err(TOLD_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   let want = false, value;
+  const words = [];
   for (const a of args.slice(2)) {
-    if (want) { value = a; want = false; continue; }
+    if (want) {
+      if (/^--/.test(a)) { ctx.err('--value needs the words, not ' + a + '. ' + TOLD_USAGE); return 2; }
+      words.push(a); want = false; continue;
+    }
     if (a === '--value') { want = true; continue; }
-    refuseOption(ctx, 'task told', TOLD_USAGE, a); return 2;
+    if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task told', TOLD_USAGE, a); return 2; }
+    words.push(a);   // review 1: bare words are what was told, as install/kosmos
   }
+  if (words.length) value = words.join(' ');
   if (want) { ctx.err('--value needs the words. ' + TOLD_USAGE); return 2; }
   return taskRepeatCall(ctx, project, num, 'told', { ...(value !== undefined ? { value } : {}), from_pane: '' }, false);
 }

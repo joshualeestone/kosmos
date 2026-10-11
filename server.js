@@ -20168,7 +20168,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
-      const vsTold = taskRepeat[3] === 'ran' && typeof body.value === 'string' && task && task.verified ? tasks.versusTold(task, task.verified.value) : null;
+      // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
+      // answers for what it found.
+      const vsTold = taskRepeat[3] === 'ran' && typeof body.value === 'string' && task ? tasks.versusTold(task, guideMasked(viaScreen ? null : by, body.value)) : null;
       sendJson(res, 200, { task, ...(vsTold ? { vs_told: vsTold } : {}), ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });

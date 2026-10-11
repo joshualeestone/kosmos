@@ -1226,6 +1226,11 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) {
       duplicate = true;
       if (idKey) t.recentRunIds = keptIds;   // remembered, so a late attempt of this command is absorbed too
+      /* kosmos#5836 review 1: a second report inside the minute still counts once, but a DIFFERENT reading is what the
+         agent now sees: kept as last verified, or the check would answer for a reading that was thrown away. */
+      if (reading && !(t.verified && t.verified.value === reading)) {
+        t.verified = { value: reading, at: new Date(at).toISOString(), ...(isPerson ? { person: true } : { by: runner }) };
+      }
       changed = t; return p;
     }
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
@@ -1298,6 +1303,12 @@ function setTold(projectId, n, by, value, at = Date.now(), opts = {}) {
     if (!t) throw new Error('there is no task by that number on this project');
     if (!t.repeat) throw new Error('that task does not repeat; what the person was told is kept for a repeating check');
     if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
+    /* Review 1: the default is the last reading only when it is the CALLER's own. Two agents on one task: A tells the
+       person "3", B then records "4", A's bare `told` would mark "4" as told and B's next "4" would read as the same. */
+    if (typeof value !== 'string' && t.verified && t.verified.value) {
+      const mine = isPerson ? t.verified.person === true : (t.verified.person !== true && t.verified.by === teller);
+      if (!mine) throw new Error('the latest reading was recorded by ' + (t.verified.person === true ? 'the person' : (t.verified.by || 'someone else')) + ', not by you: say what you told the person with --value');
+    }
     const said = typeof value === 'string' ? taskrepeat.normValue(value) : (t.verified && t.verified.value) || '';
     if (!said) throw new Error('no reading is recorded for that task yet: say what the person was told with --value, or record a run with --value first');
     changed = { ...t, told: { value: said, at: new Date(at).toISOString(), ...(isPerson ? { person: true } : { by: teller }) } };

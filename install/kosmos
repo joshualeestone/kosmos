@@ -4433,7 +4433,7 @@ cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran>"
+      say "Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran|told>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
@@ -4601,20 +4601,22 @@ cmd_task() {
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _n _npast=0 _nwant=0   # #4787 review 1: --note is ran's one option; any other --word is refused
       for _n in "${@:3}"; do
+        if [ "$_nwant" = 2 ]; then case "$_n" in --*) say "--value needs the reading, not $_n. $_ranusage"; exit 2 ;; esac; _nwant=0; continue; fi   # review 1
         if [ "$_nwant" = 1 ]; then _nwant=0; continue; fi
         if [ "$_npast" = 1 ]; then break; fi
-        case "$_n" in --) _npast=1 ;; --note|--value) _nwant=1 ;; --unchanged) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task ran" "$_ranusage" "$_n" ;; esac   # #5643: --unchanged; #5836: --value
+        case "$_n" in --) _npast=1 ;; --note) _nwant=1 ;; --value) _nwant=2 ;; --unchanged) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task ran" "$_ranusage" "$_n" ;; esac   # #5643: --unchanged; #5836: --value
       done
       [ "$_nwant" = 0 ] || { say "--note and --value each need words. $_ranusage"; exit 2; } ;;
     told)
       # kosmos#5836: what the person was just told about a repeating task (default: its last --value reading).
-      local _toldusage="Usage: kosmos task told <project-id> <task-number> [--value \"<what you told the person>\"]"
+      local _toldusage="Usage: kosmos task told <project-id> <task-number> [\"<what you told the person>\"]   (or --value \"...\")"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_toldusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _t _twant=0 _tval=0
       for _t in "${@:3}"; do
-        if [ "$_twant" = 1 ]; then _twant=0; _tval=1; continue; fi
-        case "$_t" in --value) _twant=1 ;; *) _refuse_option "task told" "$_toldusage" "$_t" ;; esac
+        if [ "$_twant" = 1 ]; then case "$_t" in --*) say "--value needs the words, not $_t. $_toldusage"; exit 2 ;; esac; _twant=0; _tval=1; continue; fi
+        # Review 1: bare words are what was told (as ran's note); only --value is an option here.
+        case "$_t" in --value) _twant=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task told" "$_toldusage" "$_t" ;; esac
       done
       [ "$_twant" = 0 ] || { say "--value needs the words. $_toldusage"; exit 2; } ;;
     hold|unhold)
@@ -4892,7 +4894,7 @@ cmd_task() {
         else
           case "$_wnext" in note) note="${note:+$note }$_w"; _wnext=""; continue ;; value) value="$_w"; _hasval=true; _wnext=""; continue ;; esac
           if [ "$_w" = "--value" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=value; continue; fi   # kosmos#5836
-          if [ "$sub" = told ]; then continue; fi   # told takes only --value (checked above)
+          if [ "$sub" = told ]; then value="${value:+$value }$_w"; _hasval=true; continue; fi   # review 1: bare words are what was told
           if [ "$_w" = "--note" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=note; continue; fi
           if [ "$_w" = "--unchanged" ] && [ "${_rpast:-0}" = 0 ]; then unchanged=true; continue; fi   # kosmos#5643
           if [ "$_w" = "--" ] && [ "${_rpast:-0}" = 0 ]; then _rpast=1; continue; fi
@@ -4970,7 +4972,7 @@ cmd_task() {
               *) say "Recorded a run of task $num on ${project:-the project}." ;; esac
             # kosmos#5836: the reading against what the PERSON was last told, never against the last run.
             if [ "$_hasval" = true ]; then
-              local _told; _told=$(printf '%s' "$body" | LC_ALL=C perl -ne 'if (/"vs_told":\{"state":"[a-z]+","told":\{"value":"((?:[^"\\]|\\.)*)"/) { my $v=$1; $v =~ s/\\(.)/$1/g; print $v }' 2>/dev/null)
+              local _told; _told=$(printf '%s' "$body" | LC_ALL=C perl -ne 'if (/"vs_told":\{"state":"[a-z]+","told":\{"value":"((?:[^"\\]|\\.)*)"/) { my $v=$1; $v =~ s/\\(.)/$1/g; print $v }' 2>/dev/null || true)   # review 1: no perl must not end a CLI whose run is already recorded
               case "$body" in
                 *'"vs_told":{"state":"never"'*) say "The person has never been told this task's reading, so this is news: tell them, then run: kosmos task told $project $num" ;;
                 *'"vs_told":{"state":"same"'*) say "It is the same as what the person was last told${_told:+ (\"$_told\")}: nothing new to tell them." ;;

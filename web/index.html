@@ -60917,6 +60917,8 @@ function tskToldSentence(t, now) {
   const when = told ? (agoWords(now - Date.parse(told.at || '')) || 'just now') : '';
   if (!told) return ' Its latest reading, \u201c' + v + '\u201d, has not been recorded as told to you.';
   if (!v || v === told.value) return ' You were last told \u201c' + told.value + '\u201d (' + when + ')' + (v ? ', the same as its latest reading.' : '.');
+  // Review 1: told AFTER the reading (in the agent's own words) is not "changed since": say the order as it happened.
+  if (Date.parse(told.at || '') >= Date.parse(t.verified.at || '')) return ' You were last told \u201c' + told.value + '\u201d (' + when + '), after its latest reading, \u201c' + v + '\u201d.';
   return ' Its latest reading, \u201c' + v + '\u201d, has changed since you were last told \u201c' + told.value + '\u201d (' + when + ').';
 }
 /* slice 2: "Missed the run due today at 9am." or "Missed 3 runs, the latest due today at 9am.", or '' when none is. */
