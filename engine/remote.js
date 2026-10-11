@@ -975,7 +975,8 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
     const resultFor = (code) => {
       if (code === 0) { finish({ ok: true, because: null, said: out.trim() }); return; }
       /* kosmos#5744: a {"refusal":...} line (mac-request prints one on stdout when refused) is data, never words
-         for a person, so for any verb and from either stream it is never `because`, even when stderr is empty. */
+         for a person, so for any verb and from either stream it is never `because`, even when stderr is empty.
+         A line of only spaces is skipped too, so it cannot be `because` either. */
       const words = (t) => t.split('\n').filter((l) => l.trim() && !isRefusalLine(l));
       const errLines = words(errOut.trim());
       const lines = errLines.length ? errLines : words(out.trim());
@@ -1022,13 +1023,13 @@ function holdsKey() {
   return ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(dir, f)));
 }
 const KEY_ONLY_ROUTE = '/v1/mac/standing';
+/* The one refusal that carries current_epoch (the coordinator's 400). */
+const WRONG_EPOCH_CODE = 'member_key_wrong_epoch';
 /* kosmos#5744: the `{"refusal":{"status","code","current_epoch"}}` line a failed mac-request prints on stdout, as
    { status, code, currentEpoch }, or null when there is none (an older tunnel, an outage, a check that refused
    before sending). Each field is checked: status a whole number 100 to 599, code letters, digits and _ (at most
-   40), currentEpoch a safe whole number of 0 or more; anything else reads as null. Only the last stdout line is
-   read, as for an answer. */
-/* The one refusal that carries current_epoch (the coordinator's 400). */
-const WRONG_EPOCH_CODE = 'member_key_wrong_epoch';
+   40), currentEpoch a safe whole number of 0 or more beside WRONG_EPOCH_CODE; anything else reads as null. The
+   last JSON line on stdout is read, as for an answer (lastJsonLine). */
 function refusalOf(said) {
   const got = lastJsonLine(said);
   const r = got && got.value && typeof got.value === 'object' ? got.value.refusal : null;

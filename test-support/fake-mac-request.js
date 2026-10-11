@@ -16,6 +16,7 @@
  *   refusal:<json>        print <json> on stdout and a refusal sentence on stderr, exit 1 (kosmos#5744: a tunnel
  *                         since relay epochfield-5744 prints a {"refusal":...} line when refused)
  *   refusal-quiet:<json>  the same <json> on stdout with an empty stderr, exit 1
+ *   refusal-err:<json>    <json> on stderr alone, exit 1 (a refusal line where none should be)
  *
  * Point AGENT_WORKFORCE_TUNNEL_BIN at `bin` BEFORE the first call; it is also the
  * seam the suite guards in mac-standing.js and updating.js key on.
@@ -53,6 +54,7 @@ process.stdin.on('end', () => {
   // stderr, exit 1. refusal-quiet: the same line with an empty stderr.
   if (mode.startsWith('refusal:')) { process.stdout.write(mode.slice(8) + '\\n'); process.stderr.write('Error: Kosmos+ refused this Mac: no (HTTP 400 on /v1/org/backup/member-key, code member_key_wrong_epoch)\\n'); process.exit(1); }
   if (mode.startsWith('refusal-quiet:')) { process.stdout.write(mode.slice(14) + '\\n'); process.exit(1); }
+  if (mode.startsWith('refusal-err:')) { process.stderr.write(mode.slice(12) + '\\n'); process.exit(1); }
   process.stderr.write('fake tunnel: unknown mode ' + mode + '\\n'); process.exit(3);
 });
 `, { mode: 0o755 });
