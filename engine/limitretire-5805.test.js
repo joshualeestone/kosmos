@@ -264,3 +264,17 @@ test('#5805 3b review 8: a quoted limit line ending a turn never retires the rea
   const real = '> hello\n' + `  ⎿  ${weekly}\n` + FOOTER + '> again\n' + `  ⎿  ${quoted}\n` + NEW_FOOTER + STATUS_LINE;
   assert.ok(!status.retireResetLimits(real, t0, () => null).includes('weekly limit'), 'CONTROL: a newer limit under a prompt did not retire the older row');
 });
+
+test('#5805 3b review 9: a quoted limit line ending a turn is never timed, so a free agent is never held on it', () => {
+  const t0 = Date.parse('2026-10-10T16:00:00Z');   // 11:00 CDT
+  const quoted = `You've hit your session limit · resets 4pm ${Z}`;
+  const grep = "● Bash(grep 'hit your' engine/status.test.js)\n" + `  ⎿  ${quoted}\n` + '✻ Cooked for 3s · done 11:02 AM\n' + STATUS_LINE;
+  status.noteLimitRows('casey', STATUS_LINE, t0 - 30e3);
+  status.noteLimitRows('casey', grep, t0);
+  assert.equal(status.limitFirstSeenOf('casey', quoted), null, 'a quoted limit line in a tool result was timed');
+  assert.equal(status.claudeLimitUntil('casey', quoted, t0), null);
+  // CONTROL: the same row straight under the person's prompt is a limit Claude Code printed, and is timed.
+  status.noteLimitRows('kim', STATUS_LINE, t0 - 30e3);
+  status.noteLimitRows('kim', '> hello\n' + `  ⎿  ${quoted}\n` + '✻ Cooked for 3s · done 11:02 AM\n' + STATUS_LINE, t0);
+  assert.equal(status.limitFirstSeenOf('kim', quoted), t0, 'CONTROL: a real limit under the prompt was not timed');
+});

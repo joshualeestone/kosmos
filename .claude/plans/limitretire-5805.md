@@ -34,8 +34,10 @@ Slice 3a added the time on the card but deliberately left these alone.
   restart, an agent first appearing, or the first capture after a gap of more than five minutes) is marked late: no time, no hold, no retirement, as before 3b. Review 1: timed
   from the restart, a weekly last-day line already past its printed time would read as tomorrow's and hold every
   automatic line for most of a day while the agent was free.
-- Only Claude Code's own limit rows are recorded (a "hit your ... limit" row with its turn footer, the rule classify
-  and retireResetLimits use), so a quoted line in a tool result never sets a time.
+- Only Claude Code's own limit rows are recorded: a "hit your ... limit" row with its turn footer below it and the
+  person's prompt as the nearest column-0 row above it, so a quoted line in a tool result never sets a time, even when
+  the turn ends on it (review 9). A real limit hit mid-turn (after the agent's own text) is not timed either: not
+  held, as before 3b.
 - More rows with one key than at the last capture is a new limit printing the same words (yesterday's retired row
   still in the scrollback above today's) only for a SESSION row that was timed, whose reset has passed, and whose new
   copy ends a turn the entry has not seen (a turn footer it has not seen); then its first-seen time starts again. Never for a late row or one ahead of its reset (a redraw drawing the row twice), and
@@ -122,3 +124,10 @@ Slice 3a added the time on the card but deliberately left these alone.
   whose nearest column-0 row above is the person's prompt ("> ...") supersedes older rows. A limit hit mid-turn after
   the agent's own text does not, and the older row then stays (capped, the safe direction). Tested with a control.
 - FIXED (NIT): the comment says "hit your" rows, not every limit row.
+
+## Review 9 (opus)
+- FIXED (WARNING): review 8's prompt rule applied only to retirement, so a quoted limit line ending a turn (an agent
+  grepping these very fixtures) was still timed and held a free agent for up to five hours (a day for the weekly
+  wording). noteLimitRows applies the same rule (underPromptAt, now at module scope). Tested with a control.
+- Checked by the reviewer: "> " at column 0 is how Claude Code draws the person's turn in the only captured screens
+  (status.test.js, 2026-10-02); the agent's text and tool output are under "●" or indented.

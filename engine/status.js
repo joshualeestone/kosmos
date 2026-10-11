@@ -2838,8 +2838,9 @@ function limitRowKey(agent, text) {
 }
 /* The screen pass: record each dateless limit row on `agent`'s screen, and end the agent's rows that have been gone for
    LIMIT_ROW_GONE_MS. `text` not a string (the capture failed): nothing recorded, nothing ended. Only Claude Code's own
-   limit rows count (review 1): a "hit your ... limit" row followed by its turn footer (vendorFooterAt), the rule classify
-   and retireResetLimits use, so a quoted limit line in a tool result or a catted file never sets a time. More rows with
+   limit rows count (reviews 1 and 9): a "hit your ... limit" row with its turn footer below it (vendorFooterAt) and the
+   person's prompt as the nearest column-0 row above it (underPromptAt), so a quoted limit line in a tool result never
+   sets a time, even when the turn ends on that tool result. More rows with
    one key than at the last capture means a NEW limit printed the same words (review 1: yesterday's retired row still in
    the scrollback above today's): its first-seen time starts again. */
 function noteLimitRows(agent, text, nowMs) {
@@ -2857,7 +2858,9 @@ function noteLimitRows(agent, text, nowMs) {
   const footers = new Map();   // key -> the turn footers under its rows this capture
   rows.forEach((row, i) => {
     const f = HIT_YOUR_LIMIT.test(row) ? vendorFooterAt(rows, i) : -1;
-    if (f < 0) return;
+    // Review 9: and straight under the person's prompt, so a quoted limit line ending a turn (under a tool call) is
+    // never timed, and so never held. A limit hit mid-turn goes untimed too: not held, as before 3b.
+    if (f < 0 || !underPromptAt(rows, i)) return;
     const key = limitRowKey(agent, row);
     if (!key) return;
     counts.set(key, (counts.get(key) || 0) + 1);
@@ -2952,6 +2955,17 @@ function claudeLimitMenuUp(text) {
    "Stop" (usage-based billing) or "Wait for limit to reset" (the spend-limit menu), all under that one title, which
    it uses only for the limit, spend-limit and trial-ended menus (review round 3). The reset gets a minute's grace:
    the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
+/* #5805 slice 3b review 8/9: is row i straight under the person's prompt? The nearest column-0 row above it is "> ..."
+   (Claude Code draws the person's turn that way, observed 2026-10-02 in status.test.js's captured screens), not a "●"
+   row (the agent's text or a tool call, whose output is indented under it). A limit Claude Code printed for a turn the
+   person started sits there; a quoted limit line in a tool result does not. */
+function underPromptAt(rows, i) {
+  for (let k = i - 1; k >= 0; k--) {
+    if (!rows[k].trim() || /^\s/.test(rows[k])) continue;
+    return /^>\s/.test(rows[k]);
+  }
+  return false;
+}
 function retireResetLimits(text, nowMs, firstSeenOf) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -2964,15 +2978,8 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
      straight under a prompt counts as the newer limit; a quoted limit line in a tool result (under a "●" row) that
      happens to end a turn must never retire the real, binding row above it. A limit hit mid-turn (after the agent's
      own text) does not count either, and then the older row stays, as before. */
-  const underPrompt = (i) => {
-    for (let k = i - 1; k >= 0; k--) {
-      if (!rows[k].trim() || /^\s/.test(rows[k])) continue;
-      return /^>\s/.test(rows[k]);
-    }
-    return false;
-  };
   let lastLimit = -1;
-  rows.forEach((row, i) => { if (HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0 && underPrompt(i)) lastLimit = i; });
+  rows.forEach((row, i) => { if (HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0 && underPromptAt(rows, i)) lastLimit = i; });
   const drop = new Set();
   rows.forEach((row, i) => {
     if (!HIT_YOUR_LIMIT.test(row)) return;
