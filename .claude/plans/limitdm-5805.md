@@ -82,3 +82,13 @@ the way out when that is wrong.
   (tested; a 409 still repaints, not an error).
 - Rebased onto limitmsg-5805 807b2a4ae (2a converged at iteration 20); claim() uses 2a's claim Map (stale after an hour).
 - NITs declined: setRow retry for permanent misses, same-millisecond `at`, member-panel button, settle on could_not.
+
+## Residuals, stated
+- A person's kept messages share the queue's caps with agents' kosmos msg traffic (20 per sender, 200 per agent). Past
+  a cap the message cannot be kept and is typed as before, into a capped session, with no held row.
+
+## Review 4 (sonnet)
+- NO NEW ISSUES. CONVERGED at iteration 4.
+- STATED (residual): past the queue's caps a person's message is typed as before, with no held row.
+- NIT not taken: a stuck reason read off a hold verdict says "tried" when nothing was typed; the row is still true
+  about why it waits.
