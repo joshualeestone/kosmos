@@ -81,3 +81,17 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - FIXED (NIT): a time past Date's range (periodOf NaN-WNaN) is refused, never compared. Test; mutant red.
 - Process: rounds 2 to 4 each corrected the rule before (clever-ahead, then too-wide, then source-blind). The rule now
   takes the label's source as an input instead of inferring it.
+
+## Review 5 (sonnet, blind, on 1bcbbd8a9): NOT CONVERGED
+- FIXED (WARNING): the rule kept a stored LATER period but not an EARLIER one, so with the coordinator BEHIND, each run
+  past Monday 00:00 started W42, was granted in W41, and made W41 fresh again: a new naming key and a re-upload every
+  run for the hour. Rounds 2, 4 and 5 had each patched one side; now the rule is takeSnapshot's own acceptance: for a
+  clock label, the STORED period is kept whenever it is in periodsNear (this clock's period, an hour either way). A
+  granted label still always wins.
+- FIXED (WARNING): no test ran the caller loop. Added: runs every 10 minutes from Sunday 22:30 to Monday 01:40 with the
+  coordinator 30 minutes ahead and behind; no period ever gets a second naming key, at most one extra attempt per run.
+  Mutants red: either side of the window removed (the simulation fails), the keep removed.
+- FIXED (NIT): a label not granted must be this clock's own (periodOf(nowMs)); otherwise a caller mistake throws. Test;
+  mutant red.
+- NO CHANGE (NIT): forPeriod's nowMs and takeSnapshot's now() are read separately; a run starting at the exact edge can
+  disagree, which costs one newPeriod answer (the granted path), never a loop.
