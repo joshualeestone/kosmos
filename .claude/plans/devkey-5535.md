@@ -95,3 +95,15 @@ fixed sentence, never a path or a byte. Read on each call, never cached or writt
 - Tests: 7. Mutants, each red: mac_id existence, the empty-file retry, the transient retry, the absolute-path check,
   JS trim, the canonical check, isFile. (Three of my first mutant runs were a split multi-line pattern that no longer
   parsed; node --check caught them; redone as a one-line swap: red.)
+
+## Review 5 (sonnet, blind, on 19d62fe4d): NOT CONVERGED
+- FIXED (WARNING): the contract named something that does not exist: Kosmos+ records an upload by org and account only
+  (backup.rs member_of; backup_manifests has no device column). Now: a manifest is checked against EVERY device key the
+  account has had, current and retired, so Kosmos+ must keep retired device public keys (posted on #5535).
+- FIXED (WARNING): EPERM/EACCES were retry everywhere; on macOS and Linux they are a lasting misconfiguration, so
+  retry only on Windows (sharing violations). Mutant red.
+- FIXED (WARNING): existsSync(mac_id) read an unreadable folder as "never set up", which would send the person to
+  register over a good identity. statSync; only ENOENT is missing. Mutant red.
+- FIXED (WARNING): the Windows-only lines ran nowhere (POSIX reaches ELOOP first). Stub tests reach the lstat link check,
+  the dev/ino mismatch and the oversize read on any OS; the folder case runs on Windows too. Each line's mutant red.
+- FIXED (NIT): the header says when ENOENT is retry (between the open and the lstat).
