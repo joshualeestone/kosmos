@@ -279,6 +279,7 @@ test('#5744 2b: a file error is said without its path', async () => {
   assert.equal(r.because, 'the backup key could not be set up on this computer (EACCES)');
 });
 
+// An IMPOSSIBLE answer (the real route reads the current epoch once): pins the defensive guard, not a real race.
 test('#5744 2b: a wrong_epoch whose next is the epoch just sent resends the same key, keeping it', async () => {
   const c = fakeCoordinator();
   // A kept, unregistered key for epoch 2 (as after a rotation that waited).
@@ -318,7 +319,8 @@ test('#5744 2b: a key file for another company or member, or an epoch past 2^53,
   }
 });
 
-test('#5744 2b: a wrong_epoch naming the epoch just sent (a race between sends) is answered, not a move', async () => {
+// An IMPOSSIBLE answer as well: pins the guard, not coordinator behaviour.
+test('#5744 2b: a wrong_epoch naming the epoch just sent is answered, not a move', async () => {
   const c = fakeCoordinator();
   const sent = [];
   const r = await mk.ensureMemberKey({ macRequest: async (m, route, b) => {
@@ -328,4 +330,30 @@ test('#5744 2b: a wrong_epoch naming the epoch just sent (a race between sends) 
   } });
   assert.equal(r.ok, false);
   assert.deepEqual(sent, [1], 'it moved on a race');
+});
+
+test('#5744 2b: lostEpoch (the job saw a grant for another epoch) treats the registered key as lost and moves once', async () => {
+  const c = fakeCoordinator();
+  const first = await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
+  c.setCurrent(2, backupkeys.newMemberKey().pk.toString('base64url'));    // the member's current epoch is now 2
+  const same = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.equal(same.epoch, 1, 'CONTROL: without lostEpoch the registered key is answered from disk');
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
+  assert.deepEqual([r.ok, r.epoch], [true, 3], JSON.stringify(r));
+  assert.equal(r.publicKey.equals(first.publicKey), false);
+  // A lostEpoch that is not this file's registered epoch changes nothing.
+  const other = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
+  assert.equal(other.epoch, 3);
+});
+
+test('#5744 2b: a kept pair whose public half is not the private half\'s is not read', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });
+  const file = keyFile();
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  kept.keys['1'].pk = backupkeys.newMemberKey().pk.toString('base64url');
+  fs.writeFileSync(file, JSON.stringify(kept));
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /could not be read/);
 });

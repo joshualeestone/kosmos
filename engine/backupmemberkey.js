@@ -72,6 +72,8 @@ function readKeys(org, member) {
   for (const [e, k] of Object.entries(got.keys)) {
     const sk = unb64(k && k.sk), pk = unb64(k && k.pk);
     if (!/^[1-9][0-9]*$/.test(e) || !Number.isSafeInteger(Number(e)) || !sk || !pk) return { ok: false, keys: {} };
+    // The pair must be a pair: a public half that is not the private half's would be sealed to and never opened.
+    if (!backupkeys.publicKeyOf(sk).equals(pk)) return { ok: false, keys: {} };
     keys[e] = { sk, pk, registered: k.registered === true };
   }
   return { ok: true, keys };
@@ -122,10 +124,19 @@ async function ensureNow(opts) {
     if (!read.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
     const keys = read.keys;
     const epochs = Object.keys(keys).map(Number).sort((a, b) => b - a);
+    /* opts.lostEpoch: the backup job saw a grant for another epoch than this registered key's (one computer per member,
+       so this file is stale, e.g. a restored data root). That key is treated as lost: a new key goes the same way a
+       lost key's does (one move, the day respected). Its secret is dropped from this file; its backups stay readable
+       through the company's escrow, as any lost key's do. */
+    let lost = null;
+    if (Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= 1 && newestRegistered(keys) === opts.lostEpoch) {
+      lost = opts.lostEpoch;
+      for (const e of Object.keys(keys)) delete keys[e];
+    }
     const done = newestRegistered(keys);
     if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk };
     // The newest key not yet taken (kept before an earlier send), else a new one for epoch 1.
-    let epoch = epochs.length ? epochs[0] : 1;
+    let epoch = lost !== null ? lost : (epochs.length ? epochs[0] : 1);
     if (!keys[epoch]) {
       keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
       writeKeys(company.org, company.member, keys);
@@ -167,7 +178,8 @@ async function ensureNow(opts) {
       else if (code === 'member_key_wrong_epoch' && Number.isSafeInteger(r.refusal.currentEpoch) && r.refusal.currentEpoch >= 0) {
         // 0: no key is registered for this member at all (a kept key from an earlier epoch), so start at 1; if this send
         // was already epoch 1, there is nothing to move to and the refusal is answered.
-        // currentEpoch equal to the epoch just sent can only be a race between sends: answer it, do not move.
+        // currentEpoch equal to the epoch just sent: the coordinator never answers this (it reads the current epoch
+        // once); handled so an unexpected answer cannot start an epoch.
         next = r.refusal.currentEpoch === epoch ? null
           : r.refusal.currentEpoch === 0 ? (epoch === 1 ? null : 1) : r.refusal.currentEpoch + 1;
       }
@@ -181,7 +193,8 @@ async function ensureNow(opts) {
       if (theirs !== undefined) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
       // The write below comes before the next send, so the key is on disk before Kosmos+ can take it at `next`.
       // The lost epoch's key is not this computer's; the new epoch gets the same unregistered key, kept before it is sent.
-      // next can equal epoch (the current epoch moved under this send): then it is the same key again, nothing moved.
+      // next equal to epoch: the coordinator never answers this either; handled so an unexpected answer cannot delete
+      // the stored key (it is the same key again, nothing moved).
       if (next !== epoch) {
         keys[next] = { sk: keys[epoch].sk, pk: keys[epoch].pk, registered: false };
         delete keys[epoch];
