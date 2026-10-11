@@ -230,3 +230,6 @@ Note on 6.0: no local full suite (the shared Agent1s queue); the full suite ran 
 - FIXED: limitqueue exports isTyping and isDone for its tests only; engine.reachable (#265) refused isTyping (isDone
   escaped only because another module has a reachable isDone). Both are file-keyed test seams in SEAMS_5548 now.
 - Not this branch: remove.test.js #4006 timed out under load 18.7 on 12 cores; 93/93 alone.
+
+### After the PR opened
+Rebased onto main after #5821 (#5812) and #5824 (slice 3a) merged: two append/append conflicts in test guard lists (records.fsync-5434: filewriters.js and limitqueue.js both listed; engine.reachable: both slices' seams kept). No product code changed in the rebase; the 2a tests and both guards pass (97/97). The Mortals validation above was on the pre-rebase head c157c6fb0; PR CI covers the rebased one.
