@@ -293,6 +293,23 @@ async function plusSigningInEnd(page) {
   await page.evaluate(() => { PLUS_SI_REGISTERING = false; PLUS_SIGNIN_ACTIVE = false; if (typeof plusSiKStop === 'function') plusSiKStop(); });
 }
 
+/* #5800: what is at the centre of the held room's Reopen button: '' when the point is the button, else why not (gone,
+   not laid out, outside the viewport, or the layer covering it). Read in project-room-held-5800's go, before the shot,
+   and again in its verify, after it: the page re-renders on its tick, so the two are different reads, as the leak
+   guard's two scans are. */
+const heldReopenAt = () => {
+  const b = document.querySelector('#pj-held [data-reopen-room]');
+  if (!b) return 'gone (no Reopen button)';
+  const r = b.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return 'not laid out (' + Math.round(r.width) + 'x' + Math.round(r.height) + ')';
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
+  const top = document.elementFromPoint(x, y);
+  if (top && b.contains(top)) return '';
+  const named = top && (top.id ? top : top.closest('[id]'));   // the nearest element with an id names the layer
+  return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
+};
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -1185,29 +1202,21 @@ const SCREENS = [
        the #4524 screen does: the runner calls verify only after the picture is taken, so a check there would read a
        page that may have moved since. The point at the Reopen button's centre must be that button: anything drawn
        over it (the sticky composer below it), or the button outside the viewport, fails before the shot. Polled for
-       up to 3 s, so a repaint between two reads is not a red; the shot follows the read that passed. */
-    await page.evaluate(() => document.getElementById('pj-held').scrollIntoView({ block: 'center' }));
+       up to 3 s, so a repaint between two reads is not a red; verify reads it again after the shot. */
+    await page.evaluate(() => document.getElementById('pj-held').scrollIntoView({ block: 'center', behavior: 'instant' }));
     // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
     if (COVER_CONTROL === 'overlay') {
       await page.evaluate(() => { const d = document.createElement('div'); d.id = 'cover-control';
         d.style.cssText = 'position:fixed;inset:0;z-index:2147483647'; document.body.appendChild(d); });
     }
-    const whatIsAt = () => {
-      const b = document.querySelector('#pj-held [data-reopen-room]');
-      if (!b) return 'gone (no Reopen button)';
-      const r = b.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) return 'not laid out (' + Math.round(r.width) + 'x' + Math.round(r.height) + ')';
-      const x = r.left + r.width / 2, y = r.top + r.height / 2;
-      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
-      const top = document.elementFromPoint(x, y);
-      if (top && b.contains(top)) return '';
-      const named = top && (top.id ? top : top.closest('[id]'));   // the nearest element with an id names the layer
-      return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
-    };
-    let hit = await page.evaluate(whatIsAt);
-    for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(whatIsAt)) await page.waitForTimeout(200);
+    let hit = await page.evaluate(heldReopenAt);
+    for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(heldReopenAt)) await page.waitForTimeout(200);
     if (hit) throw new Error('the Reopen button is not seen: ' + hit);
   }, verify: async (page) => {
+    // After the shot, one read, no poll: a failure here deletes the shot, so a re-render that moved the strip between
+    // the read in go and the picture cannot pass.
+    const seen = await page.evaluate(heldReopenAt);
+    if (seen) throw new Error('the Reopen button is not seen after the shot: ' + seen);
     const t = await page.evaluate(() => { const b = document.querySelector('#pj-held [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
     for (const want of ['Your agents\' posts will most likely not go through until you post something yourself or reopen the room.', 'Reopen the room']) {
       if (!t.includes(want)) throw new Error('the hold strip does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
@@ -1862,9 +1871,11 @@ async function run() {
   }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
-  // The overlay control is planted by allow-card only; on any other screen it would arm nothing and pass.
-  if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
-    throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
+  // The overlay control is planted by allow-card and (#5800) project-room-held-5800 only; spill by allow-card only. On
+  // any other screen it would arm nothing and pass.
+  const armsControl = COVER_CONTROL === 'overlay' ? ['allow-card', 'project-room-held-5800'] : ['allow-card'];
+  if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => armsControl.includes(s.name))) {
+    throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the ' + armsControl.join(' or ') + ' screen');
   }
   // The long code is about 450px wide (1.9rem mono), inside the desktop card, so spill with no phone size would arm nothing and pass.
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
