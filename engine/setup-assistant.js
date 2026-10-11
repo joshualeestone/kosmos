@@ -1227,8 +1227,19 @@ const zshFilesIn = (d) => ZSH_START_FILES.flatMap((f) => [path.join(d, f), path.
    $XDG_CONFIG_HOME (each folder that variable can be, review 3). Anything else (relative, another variable) is null:
    Kosmos cannot say which folder it is, so the caller names it. An empty value is [] (unset: the default applies). */
 function foldersOf(value, home, xdgs) {
-  const v = String(value).trim();
+  let v = String(value).trim();
   if (!v) return [];
+  /* Review 5: ${XDG_CONFIG_HOME:-default} and ${HOME:-...}, the common way to write these, are both arms: each folder
+     the variable can be, and the default resolved the same way. */
+  const dflt = /^\$\{(XDG_CONFIG_HOME|HOME):-([^}]*)\}(.*)$/.exec(v);
+  if (dflt) {
+    const rest = dflt[3];
+    const set = dflt[1] === 'HOME' ? [home] : xdgs;
+    const viaDefault = foldersOf(dflt[2] + rest, home, xdgs);
+    if (viaDefault === null) return null;
+    const viaSet = set.map((x) => x + rest).map((o) => (path.isAbsolute(o) && !o.includes('$') ? path.resolve(o) : null));
+    return viaSet.includes(null) ? null : [...new Set([...viaSet, ...viaDefault])];
+  }
   const viaXdg = /^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/.test(v);
   const outs = (viaXdg ? xdgs : [null]).map((x) => v.replace(/^~(?=\/|$)/, home).replace(/^\$\{?HOME\}?(?=\/|$)/, home)
     .replace(/^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/, x || ''));
@@ -1247,22 +1258,31 @@ function assignmentsIn(text, name) {
 }
 /* Links inside a folder denied whole point somewhere its rule does not reach (review 3: GNU Stow links each file, as
    ~/.config/fish/config.fish -> ~/dotfiles/config.fish): each target is returned, a few levels deep and bounded. */
-function linkTargetsIn(dir, depth = 3, budget = { n: 500 }) {
-  const out = [];
+function linkTargetsIn(dir, depth = 3, budget = { n: 500, out: false }) {
+  const res = { files: [], dirs: [] };
   let names = [];
-  try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return res; }
   for (const d of names) {
-    if (--budget.n < 0) break;
+    if (--budget.n < 0) { budget.out = true; break; }   // review 5: the caller names a scan cut short
     const p = path.join(dir, d.name);
-    if (d.isSymbolicLink()) { try { out.push(fs.realpathSync.native(p)); } catch { /* dangling: nothing there to write */ } }
-    else if (d.isDirectory() && depth > 1) out.push(...linkTargetsIn(p, depth - 1, budget));
+    if (d.isSymbolicLink()) {
+      try {
+        const real = fs.realpathSync.native(p);
+        // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
+        (fs.statSync(real).isDirectory() ? res.dirs : res.files).push(real);
+      } catch { /* dangling: nothing there to write */ }
+    } else if (d.isDirectory() && depth > 1) {
+      const sub = linkTargetsIn(p, depth - 1, budget);
+      res.files.push(...sub.files); res.dirs.push(...sub.dirs);
+    }
   }
-  return out;
+  return res;
 }
 /* Startup code outside the home folder that the user, not root, can write (review 3): Homebrew's zsh site-functions
    (on zsh's default fpath, run on tab-complete in the person's own terminal) and fish's vendor folders, which fish
    reads at every start. Denied whole where they exist; on this fleet the Homebrew prefix is the user's. */
-const USER_WRITABLE_SHELL_DIRS = ['/opt/homebrew', '/usr/local'].flatMap((pre) => [path.join(pre, 'share', 'zsh', 'site-functions'),
+const HOMEBREW_PREFIXES = ['/opt/homebrew', '/usr/local'];
+const USER_WRITABLE_SHELL_DIRS = HOMEBREW_PREFIXES.flatMap((pre) => [path.join(pre, 'share', 'zsh', 'site-functions'),
   ...['vendor_conf.d', 'vendor_functions.d', 'vendor_completions.d'].map((v) => path.join(pre, 'share', 'fish', v))]);
 /* The files, the folders read whole, and the globs (permission layer only) for this home and environment.
    - zsh: the home's files with their compiled copies, and those of every ZDOTDIR found: in the environment, in
@@ -1296,10 +1316,14 @@ function shellStartPaths(home, env, opts = {}) {
   const files = [...SHELL_START_FILES.map((f) => path.join(home, f)), ...zshFilesIn(home)];
   const globs = [path.join(home, '.zcompdump*')];
   const zdots = new Set([...xdgs].map((x) => path.join(x, 'zsh')));   // the conventional folder, whatever names it
+  const readZshenvs = new Set();
   const zdotFrom = (v, from) => {
     const f = v === null ? null : foldersOf(v, home, [...xdgs]);
     if (f === null) { unsafe.push(`ZDOTDIR (${v === null ? 'a quoted value' : v}, ${from}), a folder of zsh startup files Kosmos cannot work out`); return []; }
-    return f.filter((d) => d !== path.resolve(home) && !zdots.has(d)).map((d) => (zdots.add(d), d));
+    // Review 5: one that something SETS has its own .zshenv read, even when it is already listed (the conventional one).
+    const fresh = f.filter((d) => d !== path.resolve(home) && !readZshenvs.has(d));
+    fresh.forEach((d) => { zdots.add(d); readZshenvs.add(d); });
+    return fresh;
   };
   let todo = [];
   if (typeof e.ZDOTDIR === 'string') todo.push(...zdotFrom(e.ZDOTDIR, 'in the environment'));
@@ -1327,7 +1351,21 @@ function shellStartPaths(home, env, opts = {}) {
   const dirs = [...[...xdgs].flatMap((x) => [path.join(x, 'fish'), path.join(x, 'nushell')]), path.join(home, 'Library', 'Application Support', 'nushell')];
   const userDirs = (opts.userShellDirs || USER_WRITABLE_SHELL_DIRS).filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
   dirs.push(...userDirs);
-  files.push(...dirs.flatMap((d) => linkTargetsIn(d)));
+  const budget = { n: 500, out: false };
+  const linked = dirs.map((d) => linkTargetsIn(d, 3, budget));
+  if (budget.out) unsafe.push('the links inside the shell startup folders (more than Kosmos follows), so some of their targets are not denied');
+  /* Review 5: Homebrew's links point into its Cellar by VERSION, and the deny lists only grow (only launch rules are
+     pruned, #5663), so each upgrade would add new versioned paths for good. Each prefix's Cellar is denied whole
+     instead, one stable rule; targets elsewhere are kept one by one. */
+  const cellars = (opts.homebrewPrefixes || HOMEBREW_PREFIXES).map((pre) => path.join(pre, 'Cellar')).filter((c) => { try { return fs.statSync(c).isDirectory(); } catch { return false; } });
+  const realCellars = cellars.map((c) => { try { return fs.realpathSync.native(c); } catch { return c; } });
+  const outsideCellar = (t) => !realCellars.some((c) => t === c || t.startsWith(c + path.sep));
+  const linkedFiles = linked.flatMap((l) => l.files);
+  const linkedDirs = linked.flatMap((l) => l.dirs);
+  const hitsCellar = [...linkedFiles, ...linkedDirs].some((t) => !outsideCellar(t));
+  files.push(...linkedFiles.filter(outsideCellar));
+  dirs.push(...linkedDirs.filter(outsideCellar));
+  if (hitsCellar) dirs.push(...realCellars);
   return { files: [...new Set(files)], dirs: [...new Set(dirs)], globs: [...new Set(globs)], unsafe };
 }
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
@@ -1531,7 +1569,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
-  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs });
+  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes });
   configUnsafe.push(...shellStart.unsafe);
   const shellStartFiles = [...new Set(shellStart.files.flatMap((p) => withTarget(p, configUnsafe)))];
   const shellStartDirs = [...new Set(shellStart.dirs.flatMap((p) => withTarget(p, configUnsafe)))];

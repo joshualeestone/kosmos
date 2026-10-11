@@ -297,3 +297,77 @@ test('#5774 part 2 review 4: a FOLDER linked inside fish (Stow folding) has its 
     assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(SANDBOX, 'stowdir', 'README')), [], 'CONTROL: beside the linked folder');
   } finally { fs.rmSync(link, { force: true }); }
 });
+
+test('#5774 part 2 review 5: Homebrew links into its Cellar give ONE stable Cellar rule, never versioned paths (they would pile up)', () => {
+  const pre = path.join(SANDBOX, 'hb');
+  const sf = path.join(pre, 'share', 'zsh', 'site-functions');
+  fs.mkdirSync(sf, { recursive: true });
+  const v1 = path.join(pre, 'Cellar', 'tool', '1.0', 'share', 'zsh', 'site-functions', '_tool');
+  touch(v1);
+  fs.rmSync(path.join(sf, '_tool'), { force: true });
+  fs.symlinkSync(v1, path.join(sf, '_tool'));
+  const deps = { ...DEPS, env: ENV0, userShellDirs: [sf], homebrewPrefixes: [pre] };
+  const dir = agentDir('pilot-cellar');
+  setup.guardTokenOnlyFolder(dir, 'pilot-cellar', deps);
+  let s = readSettings(dir);
+  assert.deepEqual(s.permissions.deny.filter((r) => r.includes('/1.0/')), [], 'a versioned Cellar path became a rule');
+  assert.deepEqual(s.sandbox.filesystem.denyWrite.filter((r) => r.includes('/1.0/')), [], 'a versioned Cellar path in denyWrite');
+  // brew upgrade: the link now points at 2.0. Still no versioned path, and the new target is covered by the one rule.
+  const v2 = path.join(pre, 'Cellar', 'tool', '2.0', 'share', 'zsh', 'site-functions', '_tool');
+  touch(v2);
+  fs.rmSync(path.join(sf, '_tool'));
+  fs.symlinkSync(v2, path.join(sf, '_tool'));
+  setup.guardTokenOnlyFolder(dir, 'pilot-cellar', deps);
+  s = readSettings(dir);
+  assert.deepEqual(s.permissions.deny.filter((r) => /\/[12]\.0\//.test(r)), [], 'versioned paths piled up over an upgrade');
+  assert.ok(editDeniedBy(s.permissions.deny, fs.realpathSync.native(v2)).length > 0, 'the upgraded target, to the file tools');
+  assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, v2), 'and to the shell');
+  // CONTROL: a folder with no Cellar link adds no Cellar rule.
+  const dir0 = agentDir('pilot-cellar0');
+  setup.guardTokenOnlyFolder(dir0, 'pilot-cellar0', { ...DEPS, env: ENV0, homebrewPrefixes: [pre] });
+  assert.deepEqual(editDeniedBy(readSettings(dir0).permissions.deny, fs.realpathSync.native(v2)), []);
+});
+
+test('#5774 part 2 review 5: a link scan cut short is named; a linked folder gets a /** rule; ${XDG_CONFIG_HOME:-...} is understood', () => {
+  // More links than the scan follows: named, so not whole.
+  const many = path.join(SANDBOX, 'many', 'fish');
+  fs.mkdirSync(many, { recursive: true });
+  for (let i = 0; i < 510; i++) { const l = path.join(many, `l${i}.fish`); if (!fs.existsSync(l)) fs.symlinkSync('/dev/null', l); }
+  const gm = setup.guardTokenOnlyFolder(agentDir('pilot-many'), 'pilot-many', { ...DEPS, env: ENV0, userShellDirs: [many] });
+  assert.equal(gm.ok, false, JSON.stringify(gm));
+  assert.match(String(gm.because), /links inside the shell startup folders/);
+  // A linked folder: its rule is a whole-folder one, not a bare path.
+  const realDir = path.join(SANDBOX, 'stow2', 'functions');
+  fs.mkdirSync(realDir, { recursive: true });
+  const link = path.join(HOME, '.config', 'fish', 'functions');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.rmSync(link, { recursive: true, force: true });
+  fs.symlinkSync(realDir, link);
+  try {
+    const dir = agentDir('pilot-dirrule');
+    setup.guardTokenOnlyFolder(dir, 'pilot-dirrule', { ...DEPS, env: ENV0 });
+    const real = fs.realpathSync.native(realDir);
+    assert.ok(readSettings(dir).permissions.deny.some((r) => r.endsWith(`${real}/**)`)), 'no /** rule for the linked folder');
+  } finally { fs.rmSync(link, { force: true }); }
+  // The common default form, for both variables: whole, and the folder it means is covered.
+  const zshenv = path.join(HOME, '.zshenv');
+  fs.writeFileSync(zshenv, 'export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"\nexport ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"\n');
+  try {
+    const dir = agentDir('pilot-default');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-default', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(HOME, '.config', 'zsh', '.zshrc')).length > 0);
+  } finally { fs.rmSync(zshenv, { force: true }); }
+});
+
+test('#5774 part 2 review 5: the conventional zsh folder, when something sets ZDOTDIR to it, has its own .zshenv read', () => {
+  const conv = path.join(HOME, '.config', 'zsh');
+  const further = path.join(SANDBOX, 'zfurther');
+  fs.mkdirSync(conv, { recursive: true });
+  fs.writeFileSync(path.join(conv, '.zshenv'), `ZDOTDIR=${further}\n`);
+  try {
+    const dir = agentDir('pilot-conv');
+    setup.guardTokenOnlyFolder(dir, 'pilot-conv', { ...DEPS, env: { ZDOTDIR: conv } });
+    assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(further, '.zshrc')).length > 0, 'the folder the conventional one moves to');
+  } finally { fs.rmSync(path.join(conv, '.zshenv'), { force: true }); }
+});

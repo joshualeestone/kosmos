@@ -9,14 +9,17 @@
   - bash and sh: .bashrc .bash_profile .bash_login .profile .bash_logout .bash_aliases, and the file $BASH_ENV or $ENV names. csh and tcsh: .cshrc .tcshrc .login .logout.
   - XDG_CONFIG_HOME: ~/.config always, plus the environment's, plus one ~/.zshenv sets. fish's and nushell's folders are denied whole under each, with nushell's macOS default (~/Library/Application Support/nushell).
   - User-writable startup folders outside the home, where they exist: Homebrew's zsh site-functions and fish vendor_conf.d, vendor_functions.d and vendor_completions.d, under /opt/homebrew and /usr/local.
-  - Links inside the whole folders are followed (3 levels, 500 entries), and every file through withTarget, so each target is denied too.
+  - Links inside the whole folders are followed (3 levels deep; one 500-entry budget, which names itself when spent), and every file goes through withTarget, so each target is denied too: a linked folder gets a whole-folder rule. Targets in a Homebrew Cellar are covered by one stable rule for that Cellar.
   - Files are read as regular files only, up to 256 KB.
+  - ${XDG_CONFIG_HOME:-default} and ${HOME:-default} are read as both arms.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
 - Tests: engine/startupfiles-5774.test.js, 11 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
-- Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host (review 4: with its real Homebrew folders, 17 zsh completion links and fish's vendor_completions.d, plus a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV): 78 more denyWrite entries (152 against 74; 9.9 KB against 4.6 KB as JSON) and 86 more deny rules. The guard's own profile-size check (#5663) still passes. Homebrew's links point into its Cellar, which the user can write, so their targets are real exposure and stay denied; the 500-entry scan budget caps a host with many formulae.
+- Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host with its real Homebrew folders (17 zsh completion links, and fish's vendor_completions.d), a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 57 more denyWrite entries (131 against 74; 8.3 KB against 4.6 KB as JSON) and 65 more deny rules. The guard's own profile-size check (#5663) still passes.
+- Homebrew's links point into its Cellar by VERSION (review 5). The deny lists only grow, and only launch rules are pruned, so following each target would add new versioned paths at every upgrade, for good. Each prefix's Cellar is denied whole instead: one stable rule, in both layers, which covers every version. Neither the agent's file tools nor its shell has any business writing there, and brew's own writes are not governed by deny rules (the sandboxed shell cannot write /opt/homebrew anyway).
+- Link scanning shares one budget of 500 entries across all the startup folders. When it runs out, the guard says it is not whole.
 - The environment read is the board's own (deps.env or process.env): agents are launched from it, so it is what their shells see. Weakest premise: a launch that sets ZDOTDIR or BASH_ENV differently for one agent is not seen.
 - Claude Code's own writes are not affected: deny rules govern its tools, not the app's own code (an installer or updater adding a PATH line still works).
 - Not covered here: system-wide startup files under /etc (root-owned, not writable by the agent), and files a startup file pulls in (`source ~/x`), which is route 3 ("what start-time files pull in"). User-writable startup folders outside the home (Homebrew's zsh site-functions and fish vendor folders, review 3) ARE covered, where they exist.
@@ -25,6 +28,9 @@
 - A shell beyond zsh, bash, sh, csh and tcsh, fish and nushell is not listed (ksh's .kshrc, xonsh, PowerShell profiles); nor ~/.inputrc (key bindings, not code).
 - ENV=rc (a bare name with no slash) is read as a label and skipped (review 2), which fails open, but only for an interactive sh.
 - A ZDOTDIR or XDG_CONFIG_HOME set conditionally (`[[ -d x ]] && ZDOTDIR=x`, inside an if) is not read: only an assignment at the start of a line is. The conventional XDG folder is covered regardless.
+- A link inside a folder that is itself reached through a link is not followed further.
+- The FIFO test cannot go red on a regression: the read is synchronous, so the test hangs until the job's timeout instead.
+- Other guard tests that pass neither deps.env nor deps.userShellDirs read this host's environment and Homebrew folders. Decided, not pinned in their nine files: only a relative BASH_ENV, path-like ENV, ZDOTDIR or XDG_CONFIG_HOME in the host's environment can change their result, and it fails closed. Homebrew targets are now covered by a stable Cellar rule rather than by name.
 - A completion dump that does not exist yet, in a ZDOTDIR the shell can write, is covered by the file tools' glob only.
 - ZDOTDIR set in .zshenv by `typeset -x ZDOTDIR=...` or `: ${ZDOTDIR:=...}`, or in /etc/zshenv, is not read; the conventional XDG folder is covered regardless.
 - Route 3 and on stay on the card.
@@ -58,4 +64,11 @@
   - [WARNING] TESTED. A folder linked inside fish (Stow folding) has its contents denied in both layers.
   - NITs taken: the stale comment above foldersOf; the plan's top sections rewritten to match the code. Not taken: .zsh_sessions (state, not code).
   - Mutations: existing dumps not named, red; a relative XDG dropped, red; reading a FIFO hung the run until an alarm killed it (counted red). That orphaned one test child blocked on the FIFO; I killed it by its pid after checking its command line.
+- Iteration 5 (Opus), on deb555750:
+  - [BLOCKER] FIXED. Following Homebrew's links wrote versioned Cellar paths into deny lists that only grow (the #5663 pattern), so each brew upgrade would add more for good. Each prefix's Cellar is now denied whole, one stable rule in both layers, and Cellar targets are no longer listed one by one. The test simulates an upgrade (1.0, then 2.0) and asserts that no versioned path appears in either layer and that the new target is covered. Two mutations, each red.
+  - [WARNING] FIXED. A spent link-scan budget failed open. The budget is now shared, and when it runs out the guard is not whole (tested with 510 links; mutation red).
+  - [WARNING] FIXED. `${XDG_CONFIG_HOME:-$HOME/.config}`, the most common form, made every guard not whole. Both arms are now read (tested; mutation red).
+  - [WARNING] FIXED. A linked folder got a bare-path rule, where every other folder gets /**; whether Claude Code reads a bare rule as covering contents was never measured. It now gets /** (the test asserts the exact rule; mutation red).
+  - [WARNING] DECIDED, stated under Gaps: other guard test files read the host's environment and Homebrew folders.
+  - NITs taken: a ZDOTDIR something sets explicitly has its .zshenv read, even when it is the conventional folder (tested; mutation red); the budget is now one shared budget, and the plan says so. Stated: links inside a linked folder; the FIFO test hangs rather than going red.
 
