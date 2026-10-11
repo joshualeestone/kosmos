@@ -897,12 +897,6 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat, askedMono)
   }
   return r;
 }
-/** #5191: hold a sealed post to an owner whose edges were not checked in the last
-    EDGE_FRESH_MS, and ask (once per room per EDGE_FRESH_MS). True when the post was taken.
-    A post is held only if it would be shown now: it opens, is inside the time window and
-    has not been shown, and is not already held (by its sealed id). Anything else goes
-    straight to the usual refusal and takes no place. Held posts live in this seat's
-    memory: a board restart while they wait loses them. */
 /** #5191: whether this room's last check was asked before this screen last removed someone. On the
     monotonic clock when the check's moment is known there, since a remove and its own check share a
     millisecond; otherwise by wall time, counting the same millisecond as before (the safe side). */
@@ -911,6 +905,12 @@ function checkedBeforeRemove(s) {
   if (typeof s.edgesCheckedMono === 'bigint') return s.edgesCheckedMono <= s.removedMono;
   return s.edgesCheckedAt <= s.removedAt;
 }
+/** #5191: hold a sealed post to an owner whose edges were not checked in the last
+    EDGE_FRESH_MS, and ask (once per room per EDGE_FRESH_MS). True when the post was taken.
+    A post is held only if it would be shown now: it opens, is inside the time window and
+    has not been shown, and is not already held (by its sealed id). Anything else goes
+    straight to the usual refusal and takes no place. Held posts live in this seat's
+    memory: a board restart while they wait loses them. */
 function holdForCheck(projectId, s, sealed, env, line, now) {
   if (!Object.keys(sealed.peers || {}).length) return false;   // nobody pinned: no revoke to wait for
   if (isFresh(s.edgesCheckedAt, now) && !checkedBeforeRemove(s)) return false;
@@ -1186,7 +1186,7 @@ async function ensureAll() {
       continue;
     }
     if (!link || link.role !== 'owner') continue;
-    try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id)); } catch { /* retried on the next pass */ }
+    try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id), () => (pendingMono > 0n ? pendingMono : undefined)); } catch { /* retried on the next pass */ }
   }
   // #5192: the pass flushes after its own revoke check (a connect or a pin flushes at once, as a
   // live post would go at once).
