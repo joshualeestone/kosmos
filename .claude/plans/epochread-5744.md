@@ -72,3 +72,10 @@ holds only that line; a tunnel built before slice 1 prints no line at all, which
 - NITs taken: a refusal line on stderr is tested (a third fake mode); the comment says the last JSON line is read;
   WRONG_EPOCH_CODE sits above refusalOf's doc block; the because filter's comment says whitespace-only lines are
   skipped too (before, one could be `because`).
+
+## Review 5 (sonnet): converged (no new finding; NITs only)
+- Its one WARNING repeats Review 1's deferral (a failed result's `refusal` key under a whole-result response). Now
+  measured, not only read: in engine/orgenroll.js no function but `signed()` returns a signed result whole (grep of
+  `return r|st|got`); of server.js's ten `sendJson(res, 200, <result>)` sites, the one fed by a macRequest wrapper
+  (`/api/remote/computers`, accountComputers.fetchComputers) builds a new object. The other nine were not traced to
+  their producers. Every field in `refusal` is validated either way.
