@@ -277,8 +277,8 @@ const CTRL_LOOK = `(() => {
         const was = d.disabled; d.disabled = true; const D2 = getComputedStyle(d);
         const r = { disabledFound: true, disabledBg: D2.backgroundColor, disabledEdge: D2.borderTopColor }; d.disabled = was; return r; })(),
       outsideDangerEdge: getComputedStyle(danger).borderTopColor, plainFocus: (() => {
-        /* Round 2: with the edge gone the focus ring is the pill's only cue beyond its label; focused as a keyboard
-           would focus it, read, and let go. */
+        /* Round 2: the focus ring is the keyboard's cue (option B keeps the gold edge as well, #5551); focused as a
+           keyboard would focus it, read, and let go. */
         const sec = plain.closest('.dsec'), secHidden = sec ? sec.hidden : false; if (sec) sec.hidden = false;
         const was = document.activeElement; plain.focus({ focusVisible: true });
         const o = document.activeElement === plain ? getComputedStyle(plain).outlineStyle : 'not focused';
@@ -712,7 +712,8 @@ const AGENTS_LOOK = `(() => {
   const home = { workingBg: wk ? getComputedStyle(wk).backgroundColor : 'absent', workingImg: wk ? getComputedStyle(wk).backgroundImage : 'absent',
     workingLayer: wk ? getComputedStyle(wk, '::before').content : 'absent', idleBg: idleCard ? getComputedStyle(idleCard).backgroundColor : 'absent',
     pillEdge: wkPill ? getComputedStyle(wkPill).borderTopColor : 'absent', pillBg: wkPill ? getComputedStyle(wkPill).backgroundColor : 'absent',
-    pillLayer: wkPill ? getComputedStyle(wkPill, '::before').content : 'absent', pillWord: wkPill ? wkPill.textContent.trim() : 'absent' };
+    pillLayer: wkPill ? getComputedStyle(wkPill, '::before').content : 'absent', pillWord: wkPill ? wkPill.textContent.trim() : 'absent',
+    dot: wkPill && wkPill.querySelector('.act i') ? getComputedStyle(wkPill.querySelector('.act i')).backgroundColor : 'absent' };
   /* The Issue filter at rest, shown for the read (the fixture has nobody needing you) and hidden again in the same tick. */
   const at = document.getElementById('st-attn-tile');
   if (at) { const h = at.hidden; at.hidden = false; const cs = getComputedStyle(at); home.attnTile = { edge: cs.borderTopColor, bg: cs.backgroundColor, padL: cs.paddingLeft }; at.hidden = h; }
@@ -1027,7 +1028,7 @@ const AGENTS_LOOK = `(() => {
       chk(agOn.home.workingBg !== 'absent' && agOn.home.workingBg === agOn.home.idleBg && agOn.home.workingImg === 'none'
         && (agOn.home.workingLayer === 'none' || agOn.home.workingLayer === 'normal')
         && agOn.home.pillEdge === 'rgba(0, 0, 0, 0)' && agOn.home.pillBg === 'rgba(0, 0, 0, 0)' && (agOn.home.pillLayer === 'none' || agOn.home.pillLayer === 'normal')
-        && /Working/.test(agOn.home.pillWord),
+        && /Working/.test(agOn.home.pillWord) && agOn.home.dot === ({ light: 'rgb(46, 154, 90)', dark: 'rgb(48, 209, 88)' })[theme],   // --nl-green: 3:1 or more on the card (review 4)
         `${tag} On, Home: the working card is the idle card's grey with no wash or pulse, its state a word with no pill`, JSON.stringify(agOn.home));
       /* The count row is plain text: the Issue filter loses its red box and rests on the soft grey ground of a control.
          Review 3: only the EDGE half guards the change today (the tile's new-look fill is already this grey); the ground
@@ -1048,9 +1049,9 @@ const AGENTS_LOOK = `(() => {
         const out = { found: true };
         /* Review 2: each card carries the state pill boardMods gives it, so the pills Home keeps (Issue's white one,
            could-not-read's dashed one) and the ones it turns into a mark and a word (Question, idle) are read too. */
-        const PILL = { attn: 'st-attn', question: 'st-question', unk: 'st-unknown', '': 'st-idle' };   // boardMods: astate st-${m.st}, and m.st IS 'question' (review 3)
-        for (const c of ['attn', 'question', 'unk', '']) {
-          const d = document.createElement('div'); d.className = ('acard ' + c).trim();
+        const PILL = { attn: 'st-attn', question: 'st-question', unk: 'st-unknown', '': 'st-idle', restarting: 'st-restarting' };   // boardMods: astate st-${m.st}, and m.st IS 'question' (review 3)
+        for (const c of ['attn', 'question', 'unk', '', 'restarting']) {
+          const d = document.createElement('div'); d.className = c === 'restarting' ? 'acard' : ('acard ' + c).trim();   // a restarting card has no state class of its own
           const pl = document.createElement('div'); pl.className = 'astate ' + PILL[c]; pl.innerHTML = '<b>x</b>'; d.append(pl); g.append(d);
           const cs = getComputedStyle(d), ps = getComputedStyle(pl);
           out[c || 'idle'] = { color: cs.borderTopColor, style: cs.borderTopStyle, img: cs.backgroundImage, ratio: new Function(`return (${ratioFn})`)()(d),
@@ -1061,8 +1062,8 @@ const AGENTS_LOOK = `(() => {
       chk(strokes.found && ['attn', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed' && strokes.unk.ratio >= 1.5,
         `${tag} On, Agents page: Issue and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
       chk(strokes.found && strokes.attn.pill.bg !== 'rgba(0, 0, 0, 0)' && strokes.unk.pill.style === 'dashed' && strokes.unk.pill.edge !== 'rgba(0, 0, 0, 0)'
-        && ['question', 'idle'].every((c) => strokes[c].pill.edge === 'rgba(0, 0, 0, 0)' && strokes[c].pill.bg === 'rgba(0, 0, 0, 0)'),
-        `${tag} On, Home: the Issue pill keeps its fill and the could-not-read pill its dash; Question and idle are a mark and a word, no pill`, JSON.stringify(strokes));
+        && ['question', 'idle', 'restarting'].every((c) => strokes[c].pill.edge === 'rgba(0, 0, 0, 0)' && strokes[c].pill.bg === 'rgba(0, 0, 0, 0)'),
+        `${tag} On, Home: the Issue pill keeps its fill and the could-not-read pill its dash; Question, idle and restarting are a mark and a word, no pill`, JSON.stringify(strokes));
       /* #5551, Home as drawn: the card asking you something is warm (the project room question box's --warn-bg over the
          card's grey), not stroked; the Issue card keeps today's red wash. */
       /* The warm ground is named by its colour (--warn-bg), so a green or red wash cannot pass for it (review 1). */
@@ -1126,6 +1127,19 @@ const AGENTS_LOOK = `(() => {
       });
       chk(pressed.found && pressed.bg !== 'rgba(0, 0, 0, 0)' && pressed.border !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents page: a pressed Messages filter still shows its pressed ground and border`, JSON.stringify(pressed));
+      /* Review 4: a pressed Issue filter keeps today's gold (the grey-at-rest rule skips it), and pressing it does not
+         move its padding, so nothing in the row jumps. Shown and pressed by hand, then restored. */
+      const attnPressed = await page.evaluate(() => {
+        const t = document.getElementById('st-attn-tile'); if (!t) return { found: false };
+        const was = { hidden: t.hidden, pressed: t.getAttribute('aria-pressed') }; t.hidden = false;
+        const restPad = getComputedStyle(t).paddingLeft;
+        t.setAttribute('aria-pressed', 'true'); const cs = getComputedStyle(t);
+        const out = { found: true, bg: cs.backgroundColor, border: cs.borderTopColor, restPad, pressedPad: cs.paddingLeft };
+        t.hidden = was.hidden; if (was.pressed === null) t.removeAttribute('aria-pressed'); else t.setAttribute('aria-pressed', was.pressed);
+        return out;
+      });
+      chk(attnPressed.found && attnPressed.border === 'rgb(184, 137, 32)' && attnPressed.bg !== GREY_OF[theme] && attnPressed.bg !== 'rgba(0, 0, 0, 0)' && attnPressed.restPad === attnPressed.pressedPad,
+        `${tag} On, Home: a pressed Issue filter keeps today's gold edge and tint, at the same padding as at rest`, JSON.stringify(attnPressed));
       const listOn = await listLook(page);
       chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && ['left', 'start'].includes(listOn.nameAlign),
         `${tag} On, Agents list: a plain row loses its border, takes 16px corners, and its name sits left`, JSON.stringify(listOn));
@@ -1305,8 +1319,9 @@ const AGENTS_LOOK = `(() => {
          selected is gold). The working card's stroke used to be here too; #5551 (Home as drawn) takes it away. */
       /* #5551: the look takes the working card's stroke away (Home as drawn); with it off, today's green stroke stays (the control). */
       chk(agOff.working !== 'rgba(0, 0, 0, 0)' && agOff.working !== 'absent' && agOn.working === 'rgba(0, 0, 0, 0)' && agOff.home.workingImg !== 'none'
-        && agOff.home.attnTile !== 'absent' && agOff.home.attnTile.edge !== 'rgba(0, 0, 0, 0)',
-        `${tag} the working card keeps today's green stroke and wash, and the Issue filter its red box, with the look off (the control)`, JSON.stringify({ on: agOn.working, off: agOff.working, offImg: agOff.home.workingImg }));
+        && agOff.home.attnTile !== 'absent' && agOff.home.attnTile.edge !== 'rgba(0, 0, 0, 0)'
+        && agOff.home.pillEdge !== 'rgba(0, 0, 0, 0)' && agOff.home.pillBg !== 'rgba(0, 0, 0, 0)' && agOff.home.dot === 'rgb(47, 125, 90)',   // review 4: today's pill and dots
+        `${tag} the working card keeps today's green stroke and wash, the Issue filter its red box, and the state its pill and today's dots, with the look off (the control)`, JSON.stringify({ on: agOn.working, off: agOff.working, offImg: agOff.home.workingImg }));
       chk(agOn.seg === agOff.seg && agOff.seg !== 'rgba(0, 0, 0, 0)', `${tag} the current view's fill is today's gold with the look on`, JSON.stringify({ on: agOn.seg, off: agOff.seg }));
       if (width >= 1088) {
         const tabsOff = await page.evaluate(TABS);
