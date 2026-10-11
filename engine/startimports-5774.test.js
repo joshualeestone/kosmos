@@ -366,14 +366,18 @@ test('#5774 route 3 review 5: an @ just after any token edge is an import, cut w
     assert.ok(si.importsIn(line, f, '/h').includes(path.join(dir, want)), `${line}: ${JSON.stringify(si.importsIn(line, f, '/h'))}`);
   }
   assert.deepStrictEqual(si.importsIn('mail me@f.io or x@e.md', f, '/h'), [], 'a letter before the @ is not an edge');
-  assert.deepStrictEqual(si.importsIn('install `@playwright/mcp` first', f, '/h'), [], 'a backtick before the @ is never an edge');
+  assert.deepStrictEqual(si.importsIn('install `@playwright/mcp` first', f, '/h'), [], 'an opening backtick before the @ is never an edge');
+  // Review 6: punctuation inside one text token is not an edge (marked's text runs on through / : and merges neighbours).
+  for (const line of ['see https://x.com/@user', 'a/@b.md', 'node_modules/@types/node', 'key:@x.md']) assert.deepStrictEqual(si.importsIn(line, f, '/h'), [], line);
   // Agent-written text cannot stall the guard: an unclosed comment opener repeated, and backtick runs of many lengths.
+  // Review 6: inputs large enough that a quadratic strip takes tens of seconds, so a generous bound (3 s) survives a
+  // loaded machine and still fails on the old forms (about 28 s and 6 s at these sizes).
   let t0 = Date.now();
-  si.proseOf('<!--'.repeat(40000));
-  assert.ok(Date.now() - t0 < 500, `comments: ${Date.now() - t0} ms`);
+  si.proseOf('<!--'.repeat(200000));
+  assert.ok(Date.now() - t0 < 3000, `comments: ${Date.now() - t0} ms`);
   t0 = Date.now();
-  si.proseOf(Array.from({ length: 1000 }, (_, i) => '`'.repeat(i + 1) + ' x ').join(''));
-  assert.ok(Date.now() - t0 < 500, `code spans: ${Date.now() - t0} ms`);
+  si.proseOf(Array.from({ length: 3000 }, (_, i) => '`'.repeat(i + 1) + ' x ').join(''));
+  assert.ok(Date.now() - t0 < 3000, `code spans: ${Date.now() - t0} ms`);
 });
 
 test('#5774 route 3 review 5: a link on the way, or a store reached through one, the rules cannot carry is named and the rest written', () => {

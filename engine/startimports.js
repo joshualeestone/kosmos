@@ -112,16 +112,16 @@ function stripComments(t) {
    or is a bare name starting with a letter, digit, ., _ or -; resolved from the file's folder. */
 function importsIn(text, file, home) {
   const out = new Set();
-  /* Review 5: Claude Code runs (?:^|\s)@ on each marked TEXT token, so an @ just after any token edge (inline HTML, a
-     link's closing ), an image, an escape, an autolink) starts an import. Any character that is not a letter or digit
-     is taken as a possible edge: a superset, and an e-mail address (a letter before the @) still is not one. A BACKTICK
-     never is: inside a code span in a paragraph the span is skipped, and in a list item's raw text the @ follows the
-     backtick, not a space (measured on this fleet: `@playwright/mcp` in a code span would otherwise be denied). */
-  const re = /(?:^|[^A-Za-z0-9`])@((?:[^\s\\]|\\ )+)/g;
-  /* Review 3: the subset does not model list items, where Claude Code scans an item's RAW text (code spans and comments
-     included), nor a fence that an item's end closes. So the raw text is scanned too, nothing stripped, and the union
-     kept: any difference from the lexer now errs toward denying more, never less. */
-  const prose = proseOf(text) + '\n' + String(text);
+  /* Claude Code makes two passes, and each is matched here as it is:
+     - Review 3: a list item's RAW text (code spans and comments included) with its own pattern, (?:^|\s)@: whitespace
+       only. The raw text is scanned the same way, nothing stripped, which also covers a fence an item's end closes.
+     - Review 5: each marked TEXT token, which can START at an @ just after another token ends: inline HTML or an
+       autolink (>), a link or image ()), an emphasis mark (* _), a closing code span (stripped to a space here), or an
+       escaped character (\#). Review 6: those edges only, not any punctuation: in "a/@b" or "https://x.com/@u" the @ is
+       inside one text token (marked's text breaks before \ < ! [ ` * _ and merges neighbours), so it is not an import.
+     An e-mail address (a letter before the @) is neither. */
+  const raw = /(?:^|\s)@((?:[^\s\\]|\\ )+)/g;
+  const tok = /(?:^|[\s>)*_]|\\.)@((?:[^\s\\]|\\ )+)/g;
   /* Review 1: resolved from the folder the file REALLY is in, as Claude Code does (it parses with the resolved path).
      The folder as given too, when only a FOLDER on the way is linked: both name one file, which the agent's tools can
      write by either spelling. */
@@ -144,9 +144,13 @@ function importsIn(text, file, home) {
     if (p.startsWith('~/')) out.add(path.join(home, p.slice(2)));
     else for (const b of bases) out.add(path.resolve(b, p));
   };
+  const found = [];
   let m;
-  while ((m = re.exec(prose)) !== null) {
-    const p = m[1];
+  const text0 = String(text);
+  while ((m = raw.exec(text0)) !== null) found.push(m[1]);
+  const prose = proseOf(text0);
+  while ((m = tok.exec(prose)) !== null) found.push(m[1]);
+  for (const p of found) {
     addPath(p);
     /* Review 5: Claude Code's text token also ENDS at the next token, so the path stops there: at inline HTML or an
        autolink (<), a code span (`), a link or image ([ ] !), or a closing emphasis mark (**@a.md**, _@b.md_). Each such
