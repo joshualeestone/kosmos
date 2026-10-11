@@ -6,7 +6,7 @@
 ## The change
 - `shellStartPaths(home, env, opts)` in engine/setup-assistant.js returns the files, the folders read whole, the permission-layer globs, and what it cannot work out:
   - zsh: .zshenv .zprofile .zshrc .zlogin .zlogout, each with its compiled .zwc, in the home folder and in every ZDOTDIR found. ZDOTDIR comes from the environment, from ~/.zshenv, and from each ZDOTDIR's own .zshenv (bounded to 8 rounds), and the conventional <XDG>/zsh is always included. Completion dumps (.zcompdump*): a glob in the home and each ZDOTDIR (the file tools), plus existing dumps by name in a ZDOTDIR that is not anywhere under the home (both layers).
-  - ~/.ssh/rc (run by sshd outside any sandbox; review 13). tmux's config is already denied as a launch rule (#5516).
+  - ~/.ssh/rc (run by sshd outside any sandbox; review 13) and ~/.ssh/config (ProxyCommand, LocalCommand and Match exec run code; review 15). tmux's config is already denied as a launch rule (#5516).
   - bash and sh: .bashrc .bash_profile .bash_login .profile .bash_logout .bash_aliases, and the file $BASH_ENV or $ENV names. csh and tcsh: .cshrc .tcshrc .login .logout.
   - XDG_CONFIG_HOME: ~/.config always, plus the environment's, plus one ~/.zshenv sets. fish's and nushell's folders are denied whole under each, with nushell's macOS default (~/Library/Application Support/nushell).
   - User-writable startup folders outside the home, where they exist: Homebrew's zsh site-functions and fish vendor_conf.d, vendor_functions.d and vendor_completions.d, under /opt/homebrew and /usr/local.
@@ -44,6 +44,8 @@
 - A content-addressed store other than /nix/store (a custom Nix store path, Guix's /gnu/store) is not recognised: a writable target there is listed by name and can pile up (review 17; read-only ones are filtered either way).
 - Per-user drop-in folders other than ~/.bashrc.d (Fedora's default .bashrc runs it, review 16) are each a person's own convention (~/.zshrc.d, ~/.profile.d): not listed. Login items (~/Library/LaunchAgents, ~/.config/environment.d) are not shell startup files and stay with route 3 on the card.
 - A link a chain passes through (review 18) is denied to the FILE TOOLS only: the sandbox side resolves every path to the chain's final target, so it cannot name the link itself. The sandboxed shell cannot write the home folder; a hop outside the home inside the shell's own write scope is not covered by the sandbox layer. Chains are followed 8 hops, and only at the leaf (a linked parent is resolved, not listed).
+- An absolute BASH_ENV or ENV that is a file is listed by name; a board started with a per-run temp file there would add a new name at each start (review 24). Not seen on this fleet, whose environment is stable.
+- A startup folder holding more than 500 links outside a Cellar, Caskroom or store (a plugin checkout with a node_modules/.bin) makes the guard not whole, with a named reason (review 24; fails closed).
 - Route 3 and on stay on the card.
 
 ## Challenge loop notes
@@ -189,4 +191,9 @@
   - [NIT] TAKEN, it failed open. A # inside a word (ZDOTDIR=$HOME/z#1) is literal in the shell, but ended the value, which read as a different folder with nothing named. # now ends a value only where a comment can start: at a word's start, after a space or ; & | (. Both arms tested (z#23 read whole; `;# ZDOTDIR=...` is a comment). Two mutations red.
   - [NIT] TAKEN (plan only): the Windows sentence above.
   - [NIT] not taken: tooWide and tooBroad are two copies of one rule (each tested); chainHops' read-only folder check is not injectable (its test uses a real 0555 folder); the refusal's heading names start-time files generally.
+- Iteration 24 (Sonnet), on 9322c0c71: no BLOCKER, no WARNING (CONVERGED again). The reviewer probed 15 common setups in scratch homes (nvm's `${XDG_CONFIG_HOME-}`, conda init, conditional assignments, ENV=production, BASH_ENV=/dev/null and more): all whole.
+  - [NIT] TAKEN (plan only): a per-run temp BASH_ENV would pile up; stated under Gaps.
+  - [NIT] TAKEN (plan only): the 500-link budget on a plugin tree fails closed; stated under Gaps.
+  - [NIT] TAKEN (plan only): the change list now names ~/.ssh/config.
+  - [NIT] DUPLICATE: the Cellar shape match (decided in reviews 10, 18 and 20).
 
