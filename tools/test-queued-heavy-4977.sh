@@ -286,8 +286,15 @@ side5331() {   # $1 the copy, $2 its marker dir: writes 0 (reaped in time), 1 (h
 }
 side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
 r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
-ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
-ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
+# kosmos#5839: a 2 is a run that never reached its side turn (a busy runner past the 40 s setup), not a teardown that
+# released: one more try before judging, for either copy. A 0 or 1 is judged as it came.
+if [ "$r5331" = 2 ]; then rm -rf $S/m5331 $S/m5331.log; side5331 $S/qh-nojc5331.sh $S/m5331; r5331="$(cat $S/m5331.r)"; fi
+if [ "$c5331" = 2 ]; then rm -rf $S/m5331c $S/m5331c.log; side5331 $S/qh-old5331.sh $S/m5331c; c5331="$(cat $S/m5331c.r)"; fi
+o="$(tail -8 $S/m5331.log 2>/dev/null)"
+ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once (got $r5331: 0 reaped, 1 hung, 2 never started)" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
+# kosmos#5839: the value and the control's own log are printed on a BAD, so a red says which shape it was.
+o="$(tail -8 $S/m5331c.log 2>/dev/null)"
+ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous) (got $c5331: 0 reaped, 1 hung, 2 never started)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
 # #5467: a WAITING run must not carry its wrapped command in its own command line (a `pgrep -f browser-checks.sh` in a
 # release read a waiter as a running check and waited on it while the waiter waited on the release, 0.7.27). The real
 # run, once its turn comes, IS matched. The control runs a copy without the re-exec: there the waiter is matched, so the
