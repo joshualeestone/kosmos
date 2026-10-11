@@ -3410,10 +3410,6 @@ function swarmSweepDeps(roster) {
    before it starts, so this holds even when the seed's name record was never written), or it is the
    seeded name in its marked folder. The name compared WITHOUT case: a route can be asked for "Josh"
    or "josh" and reach the same thread, and a case-sensitive miss would skip the mask. */
-/* kosmos#5841: what the person sees of a direct thread's rows, decided ONCE for both readers (the thread route's
-   latest 200 and the older route's earlier pages), so the earlier pages can never show what the latest ones hide:
-   in the setup guide's thread every row is masked (#3769), the person's reactions ride as pills (#3650), and
-   previews are attached. The live question and account rows are NOT added here: they belong to the tail only. */
 function isSetupGuide(name) {
   if (typeof name !== 'string' || !name) return false;
   try { if (setupAssistant.isGuideFolder(name)) return true; } catch { /* then the recorded name decides */ }
@@ -3426,6 +3422,10 @@ function isSetupGuide(name) {
 
 /** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */
 const DM_OLDER_PAGE = 200;
+/* kosmos#5841: what the person sees of a direct thread's rows, decided ONCE for both readers (the thread route's
+   latest 200 and the older route's earlier pages), so the earlier pages can never show what the latest ones hide:
+   in the setup guide's thread every row is masked (#3769), the person's reactions ride as pills (#3650), and
+   previews are attached. The live question and account rows are NOT added here: they belong to the tail only. */
 function dmServeRows(rows, name, card) {
   if (!Array.isArray(rows)) return rows;
   const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));

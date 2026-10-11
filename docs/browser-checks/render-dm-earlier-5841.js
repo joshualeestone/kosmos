@@ -31,6 +31,7 @@ const at = (i) => new Date(Date.UTC(2026, 9, 1, 0, 0, i)).toISOString();
 // Eight messages kept: 0..4 older, 5..7 the latest the thread shows.
 const ALL = Array.from({ length: 8 }, (_, i) => (i % 2 ? { from: 'April', at: at(i), text: 'm' + i } : { at: at(i), text: 'm' + i }));
 ALL[4].replyTo = at(3);   // a reply whose original sits beside it in the earlier section
+ALL[3].reactions = [{ emoji: '\u{1F44D}', count: 1, who: ['you'], mine: true }];   // a pill, a control in the thread
 const TAIL = (older) => ({
   messages: ALL.slice(5), olderCount: older, historyBecause: null, historyUnfilable: false,
   presence: 'on', presenceBecause: null, asking: false, question: null, questionBecause: null, options: null,
@@ -47,10 +48,12 @@ const TAIL = (older) => ({
       window.__tail = null;
       window.__asked = [];
       window.__failThread = null;   // a session whose thread read fails (a 404 that stands, a tmux blip)
+      window.__calls = 0;   // every request the page makes
       window.__olderDelay = 0;
       const enc = (o, s) => new Response(JSON.stringify(o), { status: s || 200, headers: { 'content-type': 'application/json' } });
       window.setInterval = () => 0;
       window.fetch = async (url) => {
+        window.__calls += 1;
         const u = String(url);
         const m = u.match(/\/thread\/older\?before=(-?\d+)/);
         if (m) {
@@ -84,6 +87,8 @@ const TAIL = (older) => ({
         olderText: older.hidden ? '' : older.textContent.trim(),
         showBtn: (() => { const b = document.getElementById('d-talk-older-show'); return !!(b && !b.hidden && !older.hidden); })(),
         earlierButtons: document.querySelectorAll('#d-talk-earlier-rows button').length,
+        actingControls: document.querySelectorAll('#d-talk-earlier-rows :is(.rxn-quick, .rxn-speak, .asp-speak, .dm-held-send)').length,
+        focus: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : '',
         // Under its original the header is the screen-reader line (.vh); elsewhere the visible .msg-replyto (#3745's rule).
         replyHead: (document.querySelector('#d-talk-earlier-rows .msg-replyto, #d-talk-earlier-rows .vh') || {}).textContent || '',
         open: !box.hidden, rows, moreShown: !more.hidden,
@@ -111,6 +116,7 @@ const TAIL = (older) => ({
 
     await page.click('#d-talk-older-show'); await settle();
     s = await state();
+    chk(s.focus === 'd-talk-earlier-note', 'opening moves focus to the section\'s note (the pressed button is gone)', s.focus);
     chk(s.open && s.aboveThread && s.rows.join(',') === 'm3,m4' && s.asked.join(',') === '5',
       'pressing it opens "Earlier messages" above the thread with the page just before the latest (before=5), oldest first', JSON.stringify(s));
     chk(s.moreShown && /3 older still kept/.test(s.note) && !s.showBtn, 'it says how many are older still and offers "Show earlier"; the line\'s button is gone', JSON.stringify(s));
@@ -118,7 +124,15 @@ const TAIL = (older) => ({
     await page.click('#d-talk-earlier-more'); await settle();
     s = await state();
     chk(s.rows.join(',') === 'm1,m2,m3,m4' && s.asked.join(',') === '5,3', '"Show earlier" pages back with before=3 and keeps the order', JSON.stringify(s));
-    chk(s.earlierButtons === 0, 'the earlier rows are read-only: no button is left in them (their controls are wired to the thread)', JSON.stringify(s));
+    chk(s.earlierButtons === 0 && s.actingControls === 0, 'the earlier rows are read-only: no button, and no hover bar, read aloud or Send now anyway (their handlers match by class on document)', JSON.stringify(s));
+    {
+      // Clicking anything in an earlier row reaches no document handler: no request goes out.
+      const before = await page.evaluate(() => window.__calls);
+      await page.evaluate(() => { for (const x of document.querySelectorAll('#d-talk-earlier-rows .msg *')) x.click(); });
+      await settle();
+      const after = await page.evaluate(() => window.__calls);
+      chk(after === before, 'a click on anything in an earlier row sends no request', `${before} -> ${after}`);
+    }
     chk(/m3/.test(s.replyHead) && !/further back|unavailable/i.test(s.replyHead), 'a reply whose original is beside it in the earlier section names it (m3), not "further back"', JSON.stringify(s.replyHead));
 
     // The thread's own repaint, as the 5 s poll does it.
@@ -134,6 +148,7 @@ const TAIL = (older) => ({
     await page.click('#d-talk-earlier-hide'); await settle();
     s = await state();
     chk(!s.open && s.showBtn, '"Hide earlier messages" closes it and the line\'s button comes back', JSON.stringify(s));
+    chk(s.focus === 'd-talk-older-show', 'hiding moves focus back to "Show earlier messages"', s.focus);
 
     // Open again, then another agent comes on screen.
     await page.click('#d-talk-older-show'); await settle();

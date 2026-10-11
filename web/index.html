@@ -12737,7 +12737,7 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#5841: the conversation's EARLIER messages, opened from the "older messages are still kept" line below.
          Its own element, above the thread, so the thread's 5 s repaint (which draws only the latest 200) never wipes it. -->
     <div class="dmearlier" id="d-talk-earlier" hidden>
-      <p class="dhint" id="d-talk-earlier-note" style="margin:0 0 6px;"></p>
+      <p class="dhint" id="d-talk-earlier-note" style="margin:0 0 6px;" tabindex="-1" role="status" aria-live="polite"></p>
       <div class="dmthread" id="d-talk-earlier-rows"></div>
       <p class="dhint" style="margin:6px 0 10px;"><button type="button" class="btn quiet" id="d-talk-earlier-more">Show earlier</button> <button type="button" class="btn quiet" id="d-talk-earlier-hide">Hide earlier messages</button></p>
     </div>
@@ -37887,8 +37887,13 @@ function earlierPaint() {
     ? pjSentence(EARLIER.because)
     : (n ? 'Earlier messages: ' + n + ' shown' + (EARLIER.before ? ', ' + EARLIER.before + ' older still kept.' : ', back to the start of this conversation.') : 'Loading earlier messages…');
   /* Drawn by the thread's own renderer, with the earlier rows in the reply lookup for this one render (so a reply
-     whose original is beside it here finds it), then READ-ONLY: the thread's reactions, reply and copy controls are
-     wired to #d-dmthread, so here every button becomes plain text (its words kept, nothing to press). */
+     whose original is beside it here finds it), then made READ-ONLY, in three steps (review 2: classes alone did not):
+     1. the controls that ACT are removed outright: the hover bar (.rxn-quick: copy, react, reply), read aloud
+        (.rxn-speak, .asp-speak) and "Send now anyway" (.dm-held-send), whose handlers sit on document and match by
+        class, so a span keeping the class still fired them;
+     2. every other button (reply header, reaction pills) becomes text, its label kept as words a screen reader hears;
+     3. clicks inside the section stop here (the listener on #d-talk-earlier-rows below), so no document handler that
+        matches a class it still carries can act on an earlier row. */
   const saved = { rows: DM_ROWS, older: DM_ROWS_OLDER, oldest: DM_ROWS_OLDEST };
   try {
     DM_ROWS = new Map(saved.rows);
@@ -37898,10 +37903,19 @@ function earlierPaint() {
     const adj = dmReplyAdjacency(EARLIER.rows, false, null);
     const el = document.getElementById('d-talk-earlier-rows');
     setLive(el, EARLIER.rows.map((m, i) => dmRow(m, EARLIER.name, adj.rows[i])).join(''));
+    for (const x of el.querySelectorAll('.rxn-quick, .rxn-speak, .asp-speak, .dm-held-send')) x.remove();
     for (const b of el.querySelectorAll('button')) {
       const span = document.createElement('span');
       span.className = b.className; span.innerHTML = b.innerHTML;
-      b.replaceWith(span);
+      const label = b.getAttribute('aria-label') || b.getAttribute('title') || '';
+      if (label && label.trim() !== b.textContent.trim()) {
+        span.setAttribute('aria-hidden', 'true');
+        const words = document.createElement('span');
+        words.className = 'vh'; words.textContent = label;
+        b.replaceWith(span, words);
+      } else {
+        b.replaceWith(span);
+      }
     }
   } finally { DM_ROWS = saved.rows; DM_ROWS_OLDER = saved.older; DM_ROWS_OLDEST = saved.oldest; }
   const more = document.getElementById('d-talk-earlier-more');
@@ -37925,6 +37939,8 @@ async function earlierLoad() {
   } catch { if (current()) EARLIER.because = 'we could not read the earlier messages'; }
   finally { if (current()) { EARLIER.loading = false; earlierPaint(); } }
 }
+/* Step 3 above: nothing in an earlier row is pressable, and no document-level handler gets to act on one. */
+document.getElementById('d-talk-earlier-rows').addEventListener('click', (e) => { e.stopPropagation(); });   // a link's own default still opens it
 document.addEventListener('click', (e) => {
   const t = e.target;
   if (!t || !t.id) return;
@@ -37934,11 +37950,14 @@ document.addEventListener('click', (e) => {
     EARLIER.open = true; EARLIER.rows = []; EARLIER.before = DM_ROWS_OLDER;
     t.hidden = true;
     earlierLoad();
+    document.getElementById('d-talk-earlier-note').focus();   // the pressed button is gone: focus where the answer is
   } else if (t.id === 'd-talk-earlier-more') {
     earlierLoad();
   } else if (t.id === 'd-talk-earlier-hide') {
     earlierReset(EARLIER.session);
-    document.getElementById('d-talk-older-show').hidden = !DM_ROWS_OLDER;   // the line's button back, no refetch
+    const back = document.getElementById('d-talk-older-show');
+    back.hidden = !DM_ROWS_OLDER;   // the line's button back, no refetch
+    if (!back.hidden) back.focus();   // the pressed button went with the section: focus the way back in
   }
 });
 
