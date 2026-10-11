@@ -90,3 +90,6 @@ occurrence of that time after the board first saw the line.
 ## Review 5 (opus)
 - FIXED (NIT): three comments still promised "Out of usage until"; every Claude card is a screen reading today, so
   they now name "Looks like a usage limit until" and say the plain form is for a reported reading.
+
+## Review 6 (sonnet)
+- NO NEW ISSUES. CONVERGED at iteration 6.
