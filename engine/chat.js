@@ -1963,7 +1963,8 @@ function limitReleased(card) {
 /* #5805 slice 2a: the minute sweep types messages kept for a limit once this is true: released as limitReleased reads
    it, or no longer held on the limit (the limit test a fresh send meets). The sweep then types through
    deliverAutomaticAsync, so a question or permission menu on screen, or a quota hold, also keeps them waiting, which a
-   fresh `kosmos msg` (typed straight in) does not: decided, since a line typed into a menu answers it. */
+   fresh `kosmos msg` (typed straight in) does not: decided, since a line typed into a menu answers it. A limit line
+   with no date never holds (slice 1's stated gap), so it releases the backlog too, as it lets a fresh send through. */
 function limitQueueReleased(card, roster) {
   if (limitReleased(card)) return true;
   try { return !!card && limitHeldVerdict(card.sessionName, roster) === null; } catch { return false; }

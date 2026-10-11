@@ -52,6 +52,10 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - The pair valve counts a held message when it is sent, as it counts any message.
 - A held message whose recipient's card never reads released (a limit wording status never retires) is dropped a day
   past the reset, logged as held-dropped.
+- A drop notice goes through the automatic gate, so a sender that is itself limit-held, on a menu or quota-held
+  when its message is dropped is never told in its pane; the held-dropped row is then the only record.
+- A limit line with no date (a weekly limit's last day among them) never holds a fresh send, so kept messages are
+  released on the same test: a backlog can be typed into a session capped that way. Slice 3's first-seen time covers it.
 - A person's own messages are slice 2b (with a "Send now anyway" button), not this branch.
 
 ## Tests
@@ -229,3 +233,9 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - DEFERRED (checked): no reader treats a held message row as one awaiting a reply; every reader of message rows (the
   read rule, the pair valve, reply citation, the repeat fold, sender activity) counts what the sender did.
 - Covered by a stated residual: a hung paste holds its agent up to an hour.
+
+## Review 19 (opus)
+- STATED (residual): a drop notice to a sender that is itself held is never shown; the held-dropped row records it.
+- STATED (residual): a dateless limit line releases kept messages as it does fresh sends (slice 1's stated gap).
+- NITs not taken: the CLI wording for a held repeat; the repeat key built from the typed name (a different-case
+  retry can keep a second copy); the roster read twice a minute.
