@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: hookscripts-5774
-diff_hash: edc7b0af6c1c167cb32bcb1106ed0234da23b4164f209b37f71c371e3a572b3a
+diff_hash: 87965388c85722b3a7be5c44f38274ff01c167a9930c0d98d2c520da08368853
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-11T01:38:13Z
-iterations: 26
+timestamp: 2026-10-11T04:07:17Z
+iterations: 28
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 26 blind reviews, alternating Opus and Sonnet, plus one final-gate red (6j) that reopened the loop.
-**Converged:** Yes. First at review 24 (Sonnet, NITs only); the final validation then went red on two #1732 Windows guards; fixed, review 25 (Opus) found two real warnings, fixed; review 26 (Sonnet) found nothing new above NIT.
+**Iterations:** 28 blind reviews, alternating Opus and Sonnet, plus one final-gate red (6j) and one merge with main, each of which reopened the loop.
+**Converged:** Yes. First at review 24 (Sonnet, NITs only); the final validation then went red on two #1732 Windows guards; fixed, review 25 (Opus) found two real warnings, fixed; review 26 (Sonnet) found nothing new above NIT; main then moved and conflicted, the merge was resolved by hand, review 27 (Opus) found a real BLOCKER (a script linked into a denied folder from outside), fixed, and review 28 (Sonnet) found nothing new.
 **Findings:** every review's findings, fixes, decisions and mutation results are below, one section per review, taken from the plan's "Challenge loop notes" written as each review closed. Each fix was checked with a mutation that turned its test red; mutations that stayed green were sharpened until red, and the notes say which.
 **Asked (awaiting user):** 0
 
@@ -167,6 +167,26 @@ converged: true
 - [CONVENTION] the module is pinned to Claude Code 2.1.296 --> DUPLICATE: a stated gap in the plan
 - [CONVENTION] the file is large --> style, not changed
 - [NIT] engine/startcommands.js: an unused TMPDIR line; an identity helper
+**Converged** - then main moved and #5814 conflicted; see the merge section.
+
+#### Iteration merge
+**Reviewer model:** none (a merge with main, resolved by hand)
+**New findings:** 0 BLOCKERs, 0 WARNINGs (as recorded in the plan)
+- [WARNING] Merged main at 495061fe8 (#5814 conflicted). engine/setup-assistant.js keeps both sides: main's launchSecretDirs and trustedFiles, and this branch's commandScripts, in the return object and in both layers. The guard set passed (889, 0 fail).
+
+#### Iteration 27
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs (as recorded in the plan)
+- [NIT] Review 27 (Opus), on the merged tree:
+- [BLOCKER] FIXED. A script inside a folder the guard denies whole, but linked to a file outside it, was skipped as covered, so its real target got no rule, and the guard said whole. The reviewer measured it (a hook kept in a dotfiles repo and linked into ~/.claude/hooks, a common setup). It is covered now only when its real target sits inside a whole-denied folder too, comparing real paths on both sides; otherwise withTarget gives it rules in both layers. The same for a plugin folder. Same class, also fixed: a folder runner (make) in a folder linked into a covered one from outside was treated as covered; its real folder is now checked, and the covered folders carry their real paths (/var against /private/var). Test "review 27" with controls (a plain script in hooks/ keeps only the folder's rule; make in a plain folder there is covered). Three mutations, each red.
+- [WARNING] DECIDED, not changed: plutil per guard pass. It runs only when a managed-preferences plist exists (a stat first), and none exists on this fleet. On an MDM-managed Mac, reading the plist is the point.
+- [NIT] not taken: ancestor folders (file-tools-only) share the covered list. The comment states it, and the new real-path check applies to them too.
+
+#### Iteration 28
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs above what earlier reviews settled
+- [WARNING] engine/startcommands.js: the unused TMPDIR line and its comment --> DUPLICATE of review 26 (NIT, not taken; the effect is the safe direction: $TMPDIR reads as unknown)
+- [NIT] the identity helper; pathsOfWords takes nine positional parameters; a comment on config homes covered through pluginDirs
 **Converged** - no new actionable findings.
 
 ### Strengths (across all iterations)
