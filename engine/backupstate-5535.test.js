@@ -265,7 +265,7 @@ test('review 9: writeState never replaces a file that is not plainly this member
   // A corrupt or foreign file: refused, and left exactly as it was.
   for (const junk of ['{ not ours', JSON.stringify({ v: 1, org, member: 'someone else', job: {}, periods: [] })]) {
     fs.writeFileSync(f, junk);
-    assert.throws(() => bs.writeState(org, member, fresh), /not one this computer wrote; discardState it first/);
+    assert.throws(() => bs.writeState(org, member, fresh), (err) => /discardState it first/.test(err.message) && err.code === 'refused' && err.retry === false);
     assert.equal(fs.readFileSync(f, 'utf8'), junk);
   }
   // discardState, then the write goes through.
@@ -345,4 +345,9 @@ test('review 11: a failed write says why (code, cause) and is retry only for a p
   assert.equal(fs.readFileSync(bs.fileFor(org, member), 'utf8'), before, 'a refused write leaves the old file');
   bs.writeState(org, member, { job: { waits: 2 }, periods: [] });
   assert.deepEqual(bs.readState(org, member).state.job, { waits: 2 }, 'control: unstubbed it writes');
+});
+
+test('round 12: fileFor applies the same id check', () => {
+  assert.throws(() => bs.fileFor(1, 'x'), /non-empty strings/);
+  assert.throws(() => bs.fileFor('o\ud800', 'x'), /well-formed/);
 });

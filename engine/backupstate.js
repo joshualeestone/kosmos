@@ -35,8 +35,9 @@
  *   so a write costs one read first (measured: 251 ms for one full slot; about half a second at two, 70 MB). The window between that read and the rename is covered by
  *   the one-run-at-a-time duty (the folder is 0700: only this user can put a file there meanwhile). A passing error
  *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too, and every
- *   write error carries the underlying `code` and `cause` (a full disk, a read-only folder), so the caller can tell the
- *   person why. EACCES and EPERM are retry on write as on read, and the same bounded-retry duty applies.
+ *   error FROM THE WRITE ITSELF carries the underlying `code` and `cause` (a full disk, a read-only folder), so the
+ *   caller can tell the person why. The refusal to replace a file not ours carries code 'refused' (and retry when the
+ *   read was passing); a state that would not read back throws with no code (a caller mistake). EACCES and EPERM are retry on write as on read, and the same bounded-retry duty applies.
  * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the stored period whose label IS `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
  *   costing a run) and, defensively, of locks already ended (uploadManifest's own floor is stricter: a chunk must
@@ -108,6 +109,7 @@ const MAX_INDEX = 200000;   // backupsnapshot's CHUNK_ALLOWANCE; withRun caps th
 
 function dir() { return path.join(store.ROOT, 'backupstate'); }
 function fileFor(org, member) {
+  ids(org, member);
   const h = crypto.createHash('sha256').update(String(org) + '\u0000' + String(member)).digest('hex').slice(0, 24);
   return path.join(dir(), h + '.json');
 }
@@ -177,7 +179,7 @@ function mayReplace(org, member) {
   const r = readState(org, member);
   if (r.ok) return;
   throw Object.assign(new Error(r.retry ? 'backupstate: the existing state file could not be read just now; try again'
-    : 'backupstate: the existing state file is not one this computer wrote; discardState it first'), { retry: r.retry === true });
+    : 'backupstate: the existing state file is not one this computer wrote; discardState it first'), { code: 'refused', retry: r.retry === true });
 }
 
 function writeState(org, member, state) {

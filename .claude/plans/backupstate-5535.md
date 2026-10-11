@@ -179,3 +179,12 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - FIXED (NIT): a lone surrogate in org or member is refused (it hashed to U+FFFD's file). Tests; mutant red.
 - FIXED (NITs): the header says the bounded-retry duty applies to writes; a run-on sentence re-wrapped.
 - Now: 17 tests pass.
+
+## Review 12 (opus, blind, on 9717fb34f): CONVERGED, NITs only
+- Checked: Node (engines >=26, isWellFormed safe), a bucket kept beside an empty index (harmless), wrong-period
+  chunks never leak, an index pruned to empty still writes, cleanJob mirrors backupjob's, the header against
+  takeSnapshot's staleIndex/outlastsChunks/otherBucket paths.
+- FIXED (NIT): the "every write error carries code and cause" sentence narrowed to errors from the write itself; the
+  refusal to replace a file not ours now carries code 'refused' (test asserts it).
+- FIXED (NIT): fileFor runs the same id check (test).
+- Now: 18 tests; backup*.test.js + reachable: 379 pass.
