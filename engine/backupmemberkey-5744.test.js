@@ -341,6 +341,10 @@ test('#5744 2b: lostEpoch (the job saw a grant for another epoch) treats the reg
   const r = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
   assert.deepEqual([r.ok, r.epoch], [true, 3], JSON.stringify(r));
   assert.equal(r.publicKey.equals(first.publicKey), false);
+  // The stale key is KEPT: it still opens epoch 1's backups on this computer.
+  const file = JSON.parse(fs.readFileSync(keyFile(), 'utf8'));
+  assert.equal(file.keys['1'].pk, first.publicKey.toString('base64url'), 'the stale registered key was deleted');
+  assert.equal(file.keys['1'].registered, true);
   // A lostEpoch that is not this file's registered epoch changes nothing.
   const other = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
   assert.equal(other.epoch, 3);
@@ -356,4 +360,30 @@ test('#5744 2b: a kept pair whose public half is not the private half\'s is not 
   const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.equal(r.ok, false);
   assert.match(r.because, /could not be read/);
+});
+
+test('#5744 2b: lostEpoch inside the day keeps the stale key and the new pending one', async () => {
+  const c = fakeCoordinator({ day: false });
+  const first = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  const wait = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 1 });
+  assert.deepEqual([wait.ok, wait.waiting], [false, true], JSON.stringify(wait));
+  const file = JSON.parse(fs.readFileSync(keyFile(), 'utf8'));
+  assert.equal(file.keys['1'].pk, first.publicKey.toString('base64url'), 'the stale key was deleted while waiting');
+  assert.equal(file.keys['2'].registered, false, 'the new key was not kept');
+});
+
+test('#5744 2b: Kosmos+ took the key but the note could not be written: ok false, and the next call is a repeat', async () => {
+  const c = fakeCoordinator();
+  const sw = require('./securewrite');
+  const real = sw.writeSecret;
+  let writes = 0;
+  sw.writeSecret = (...a) => { writes += 1; if (writes === 2) { const e = new Error('ENOSPC'); e.code = 'ENOSPC'; throw e; } return real(...a); };
+  let r;
+  try { r = await mk.ensureMemberKey({ macRequest: c.macRequest }); } finally { sw.writeSecret = real; }
+  assert.equal(r.ok, false);
+  assert.match(r.because, /took the backup key/);
+  assert.equal(c.kept.size, 1);
+  const again = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.deepEqual([again.ok, again.epoch], [true, 1], JSON.stringify(again));
+  assert.equal(c.kept.size, 1, 'a second epoch was started');
 });

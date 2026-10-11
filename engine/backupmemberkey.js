@@ -31,8 +31,9 @@
  * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected).
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
- * base64url. This code keeps at most one entry there, the newest: a move deletes the old epoch's, a fresh key replaces
- * its slot. A file with more (hand-edited, restored) is answered by its newest registered key.
+ * base64url. This code keeps one unregistered entry at most, the newest: a move deletes the epoch it left (never a
+ * registered one), a fresh key replaces its slot; a registered key the job called stale (lostEpoch) stays. A call
+ * answers the newest registered key. On Windows the file modes do nothing; the profile's ACLs are what protect it.
  * The backup job must seal ONLY under a key answered ok here: an unregistered key may be replaced by a fresh one
  * (member_key_reused), and anything sealed under it would then open only through escrow.
  * Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
@@ -126,17 +127,18 @@ async function ensureNow(opts) {
     const epochs = Object.keys(keys).map(Number).sort((a, b) => b - a);
     /* opts.lostEpoch: the backup job saw a grant for another epoch than this registered key's (one computer per member,
        so this file is stale, e.g. a restored data root). That key is treated as lost: a new key goes the same way a
-       lost key's does (one move, the day respected). Its secret is dropped from this file; its backups stay readable
-       through the company's escrow, as any lost key's do. */
+       lost key's does (one move, the day respected). The stale key stays in the file, so this computer still opens
+       its own backups from that epoch; nothing is deleted on the job's word. */
     let lost = null;
-    if (Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= 1 && newestRegistered(keys) === opts.lostEpoch) {
+    if (Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= 1 && opts.lostEpoch < EPOCH_MAX && newestRegistered(keys) === opts.lostEpoch) {
       lost = opts.lostEpoch;
-      for (const e of Object.keys(keys)) delete keys[e];
     }
-    const done = newestRegistered(keys);
+    const done = lost === null ? newestRegistered(keys) : undefined;
     if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk };
     // The newest key not yet taken (kept before an earlier send), else a new one for epoch 1.
-    let epoch = lost !== null ? lost : (epochs.length ? epochs[0] : 1);
+    // A stale registered key is KEPT (it still opens its own epoch's backups); the new key starts one past it, and the
+    // move path takes it to the member's current epoch + 1 if that is later.
+    let epoch = lost !== null ? lost + 1 : (epochs.length ? epochs[0] : 1);
     if (!keys[epoch]) {
       keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
       writeKeys(company.org, company.member, keys);
@@ -167,7 +169,7 @@ async function ensureNow(opts) {
         const now = readKeys(company.org, company.member);
         if (!now.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
         const theirsNow = newestRegistered(now.keys);
-        if (theirsNow !== undefined) return { ok: true, epoch: theirsNow, publicKey: now.keys[theirsNow].pk };
+        if (theirsNow !== undefined && theirsNow !== lost) return { ok: true, epoch: theirsNow, publicKey: now.keys[theirsNow].pk };
         keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
         writeKeys(company.org, company.member, keys);
         continue;
@@ -190,7 +192,7 @@ async function ensureNow(opts) {
       const fresh = readKeys(company.org, company.member);
       if (!fresh.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
       const theirs = newestRegistered(fresh.keys);
-      if (theirs !== undefined) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
+      if (theirs !== undefined && theirs !== lost) return { ok: true, epoch: theirs, publicKey: fresh.keys[theirs].pk };
       // The write below comes before the next send, so the key is on disk before Kosmos+ can take it at `next`.
       // The lost epoch's key is not this computer's; the new epoch gets the same unregistered key, kept before it is sent.
       // next equal to epoch: the coordinator never answers this either; handled so an unexpected answer cannot delete
