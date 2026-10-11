@@ -12,7 +12,7 @@ keeps the newest line per EXACT name (one exact name always has one slug, so thi
 changes no answer. No births, clocks or floor; the history grows with distinct names (not capped), not with events.
 endedSince's only reader is the token-only removal check (Angel confirmed).
 
-## How no end is lost (to this build, or to an older one that reads only ended-agents.jsonl)
+## How no end is lost (to this build; to an older one that reads only ended-agents.jsonl, except the two residuals under Weakest premise)
 - The live file `ended-agents.jsonl` is the history every build reads, and the only file appended to. noteEnded appends
   under a lock on it; if the lock cannot be had it still appends, unlocked, and does not compact.
 - compactEnded, inside that lock, when the live file has grown 64 KiB past its size after the last compaction
@@ -129,3 +129,15 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
   failed rename leaves everything as it was (drops its link and temp) and is said once.
 - FIXED (CONVENTION): the plan described the old order; rewritten to the code.
 - GONE (NITs): the always-true ternary (test rewritten); revoke's possible wait is stated at noteEnded.
+
+## Review 6 (sonnet, blind, on 54671c540): no BLOCKER
+- FIXED (WARNING): two comments still named compact.jsonl (gone in the second redesign).
+- FIXED (WARNING): a hard-link failure (a file system without them, a linked folder on another device) stopped every
+  compaction silently; it is said once now, like the stuck line and the failed rename (all three tested once each).
+- FIXED (WARNING): "still the file that was read" compared the inode only, which Windows can report imprecisely or as
+  0; it compares device, inode and birth time, and says it is best effort where none is reported.
+- FIXED (WARNING, wording): the plan's headline now points at the two residuals instead of claiming none for an older
+  build.
+- FIXED (NIT): a failed put-back after the replace no longer reports "not compacted" (the line stays in the sealed file).
+- NO CHANGE (NITs): stray temps are swept only after a successful compaction (harmless until then); the swap itself is
+  one atomic rename, which a test cannot interleave.

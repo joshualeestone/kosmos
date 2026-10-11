@@ -98,6 +98,10 @@ test('kosmos#5208: every way to stop leaves the live file as it was, and both bu
       writeLive([line('a', T0), line('b', T0 + 5)]);
       return () => { fs.renameSync = function (from, to) { if (to === LIVE()) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); return realRename.call(this, from, to); }; try { return sendertoken.compactEnded({ force: true }); } finally { fs.renameSync = realRename; } };
     },
+    'no hard link here (EXDEV)': () => {
+      writeLive([line('a', T0), line('b', T0 + 5)]);
+      return () => { const realLink = fs.linkSync; fs.linkSync = () => { throw Object.assign(new Error('EXDEV'), { code: 'EXDEV' }); }; try { return sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; } };
+    },
     'the live file was replaced meanwhile (a compaction that slept)': () => {
       writeLive([line('a', T0), line('b', T0 + 5)]);
       return () => {
@@ -107,6 +111,8 @@ test('kosmos#5208: every way to stop leaves the live file as it was, and both bu
       };
     },
   };
+  sendertoken.resetCompactNotesForTests();
+  const allSaid = [];
   for (const [label, arm] of Object.entries(cases)) {
     reset();
     const go = arm();
@@ -116,11 +122,16 @@ test('kosmos#5208: every way to stop leaves the live file as it was, and both bu
     console.error = (m) => said.push(String(m));
     let r; let inoBefore;
     try { inoBefore = label.startsWith('the live file was replaced') ? null : ino(); r = go(); } finally { console.error = realErr; }
+    allSaid.push(...said);
     assert.equal(r.compacted, false, label + ': it compacted');
     if (inoBefore !== null) assert.equal(ino(), inoBefore, label + ': the live file was replaced');
     assert.deepEqual(sealed(), [], label + ': a sealed name was left for a file it did not replace');
     assert.deepEqual(temps(), [], label + ': a temp file was left behind');
     assert.deepEqual(views(names, times), before, label + ': an answer changed');
+  }
+  // The ways that would stop every compaction from then on are said, once each, so a history that keeps growing can be traced.
+  for (const re of [/no longer compacted/, /could not be replaced/, /no hard link: EXDEV/]) {
+    assert.equal(allSaid.filter((m) => re.test(m)).length, 1, 'not said exactly once: ' + re);
   }
 });
 

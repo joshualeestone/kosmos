@@ -319,8 +319,9 @@ const ENDED_COMPACT_AT_BYTES = 64 * 1024;
 const SEALED_KEEP_MS = 60 * 60 * 1000;
 let compactStuckSaid = false;
 let compactReplaceSaid = false;
+let compactLinkSaid = false;
 /* Tests only: the once-per-process notes start unsaid again. */
-function resetCompactNotesForTests() { compactStuckSaid = false; compactReplaceSaid = false; }
+function resetCompactNotesForTests() { compactStuckSaid = false; compactReplaceSaid = false; compactLinkSaid = false; }
 /* The newest line per exact name across `texts`, as the text of a history file, or null when any line cannot be read
    whole (endedSince refuses on such a line; dropping it would turn that refusal into an answer). */
 function newestPerName(texts) {
@@ -360,6 +361,11 @@ function compactEnded(opts = {}) {
     const atBytes = Number.isFinite(opts.atBytes) ? opts.atBytes : ENDED_COMPACT_AT_BYTES;
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     let st; try { st = fs.statSync(live); } catch { return { compacted: false }; }
+    /* The file's identity, to tell "still the file that was read" (step 3). The inode alone is not enough everywhere
+       (on Windows Node reports it as a Number that can lose precision, and some file systems report 0), so the device
+       and birth time go with it: a replaced file differs in at least one where they are reported. Best effort where
+       none is. */
+    const idOf = (x) => x.dev + ':' + x.ino + ':' + x.birthtimeMs;
     let base = 0; try { base = Number(fs.readFileSync(compactedBytesFile(), 'utf8')) || 0; } catch { base = 0; }
     if (opts.force !== true && st.size <= atBytes + base) return { compacted: false };
     // 1. Read and fold. Any failure leaves every file as it was.
@@ -386,9 +392,14 @@ function compactEnded(opts = {}) {
     try { writeFlushed(tmp, next, st.mode & 0o777); } catch { try { fs.unlinkSync(tmp); } catch { /* none */ } return { compacted: false }; }
     // 3. Only over the file that was read (a compaction that slept after its lock was stolen finds a newer one: stop).
     let cur; try { cur = fs.statSync(live); } catch { cur = null; }
-    if (!cur || cur.ino !== st.ino) { try { fs.unlinkSync(tmp); } catch { /* none */ } return { compacted: false }; }
+    if (!cur || idOf(cur) !== idOf(st)) { try { fs.unlinkSync(tmp); } catch { /* none */ } return { compacted: false }; }
     const sealedPath = path.join(endedDir(), 'sealed.' + Date.now() + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.jsonl');
-    try { fs.linkSync(live, sealedPath); } catch { try { fs.unlinkSync(tmp); } catch { /* none */ } return { compacted: false }; }
+    try { fs.linkSync(live, sealedPath); } catch (e) {
+      try { fs.unlinkSync(tmp); } catch { /* none */ }
+      // A file system without hard links (or a linked folder on another device) can never compact: say so once.
+      if (!compactLinkSaid) { compactLinkSaid = true; console.error('kosmos#5208: the history of ended agents cannot be compacted here (no hard link: ' + ((e && e.code) || 'failed') + '), so it will keep growing (' + endedDir() + ')'); }
+      return { compacted: false };
+    }
     try { fs.renameSync(tmp, live); } catch {
       // The live file is untouched; drop the extra name for it (the data stays under the live name) and the temp.
       try { fs.unlinkSync(sealedPath); } catch { /* still read; harmless */ }
@@ -402,9 +413,12 @@ function compactEnded(opts = {}) {
     let extra = '';
     try { const sealedText = fs.readFileSync(sealedPath, 'utf8'); extra = sealedText.startsWith(liveText) ? sealedText.slice(liveText.length) : sealedText; } catch { extra = ''; }
     if (extra) {
-      fs.appendFileSync(live, '\n' + extra, 'utf8');
-      const fd = fs.openSync(live, 'r+');
-      try { securewrite.flushOrThrow(fd); } finally { fs.closeSync(fd); }
+      // The live file is already replaced; a failure here leaves the line in the sealed file, which this build reads.
+      try {
+        fs.appendFileSync(live, '\n' + extra, 'utf8');
+        const fd = fs.openSync(live, 'r+');
+        try { securewrite.flushOrThrow(fd); } finally { fs.closeSync(fd); }
+      } catch { /* see above */ }
     }
     try { fs.writeFileSync(compactedBytesFile(), String(fs.statSync(live).size)); } catch { /* the trigger only */ }
     // 5. Old sealed files, now folded into the flushed live file. Stray temps from a compaction that died, too.

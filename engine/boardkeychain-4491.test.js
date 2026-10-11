@@ -280,7 +280,7 @@ test('#4475: the records the board trusts, and the sender-token folder, are writ
       assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(p)})`), f + ' under ' + root + ' is writable: a forged birth or an erased end');
       assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(p)), f + ' under ' + root + ' is not in sandbox denyWrite');
     }
-    // kosmos#5208: the rest of the history of ended agents (compact.jsonl, the sealed files) lives in ended-agents.d.
+    // kosmos#5208: the rest of the history of ended agents (the sealed files) lives in ended-agents.d.
     const endedD = path.join(root, 'ended-agents.d');
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(endedD)}/**)`), 'ended-agents.d under ' + root + ' is writable: an agent could delete its own end');
     assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(endedD)), 'ended-agents.d under ' + root + ' is not in sandbox denyWrite');

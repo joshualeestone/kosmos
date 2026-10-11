@@ -1318,7 +1318,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      the supervisor (outside this sandbox): a token-only agent that could write them could forge a birth naming itself
      the creator, erase an ended identity, list itself token-only or not, or plant a token for another name. */
   const trustedFiles = tokenRoots.flatMap((r) => ['created.jsonl', 'ended-agents.jsonl', 'agent-token-only.json'].map((f) => path.join(r, f)));
-  /* kosmos#5208: the rest of the history of ended agents (compact.jsonl and the sealed files the live file becomes) lives
+  /* kosmos#5208: the rest of the history of ended agents (the sealed files, each a file the live one replaced) lives
      in this folder. An agent that could write there could delete its own end and be removable again. */
   const trustedDirs = tokenRoots.flatMap((r) => [path.join(r, 'ended-agents.d'),
     // and the lock taken to append an end: an agent holding it would delay every revoke by the lock's wait
