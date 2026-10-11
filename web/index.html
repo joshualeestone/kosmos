@@ -7631,6 +7631,7 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    came from in the first place. */
 .dmbusy-room { display: flex; align-items: center; gap: 8px;
                font-size: .875rem; color: var(--k-ink-2); margin: 10px 0 0; }
+.pj-held-strip { margin: 10px 0 0; }   /* #5800: the hold notice, between the thread and the composer */
 .dmoff { margin-top: 12px; font-size: .8125rem; line-height: 1.45; color: var(--k-ink-2);
   border: 0.5px solid var(--border-strong); border-radius: var(--radius-control); padding: 8px 12px; }
 /* ⚠️ The question box is NOT red. It is a thing to answer, not a thing that has
@@ -16544,6 +16545,9 @@ window.kosmosMeasureScrollbarWidth();
            working" is a count; the point of this signal is WHICH one, and the
            agent page's grammar (face, dots, name) already answers that. -->
       <div class="dmbusy-room" id="pj-busy" hidden></div>
+      <!-- #5800: while the loop guard holds the room, why, who can end it, and Reopen. Out of the scrolling thread, so a
+           person scrolled up in the history still sees it against the box they type into. -->
+      <div class="pj-held-strip" id="pj-held" hidden></div>
       <!-- ⚠️ NO `+` BUTTON AND NO "drop a file anywhere" SENTENCE, and their
            absence is the decision rather than an omission. The pack draws both
            (.attachbtn, and a hint line whose first half promises drop-to-
@@ -65453,7 +65457,7 @@ async function pjHeldReopenClick(e) {
   const composer = document.getElementById('pj-post');
   if (composer) composer.focus();
 }
-document.getElementById('pj-room').addEventListener('click', pjHeldReopenClick);
+document.getElementById('pj-held').addEventListener('click', pjHeldReopenClick);
 document.getElementById('pj-room').addEventListener('click', async (e) => {
   const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
   if (!box) return;
@@ -66218,17 +66222,17 @@ let PJ_ROOM_POSTS_OF = null;   // which project PJ_ROOM_POSTS was painted for
 let PJ_ROOM_PARTIAL = false;   // the last room read could not read everything (ok:false)
 /* #5800: the hold the last room read reported (body.held: { at, because, until }), or null when the room is open. */
 let PJ_ROOM_HELD = null;
-/* #5800: while the room is held, one notice at the foot of the room, beside the composer: why, who can end it and
-   how, and the Reopen button. A room hold used to be only a sentence in the scrollback (its band can be an hour up the
-   room) with no way out on the screen: the release (#2710) was only on the command line, and nothing said that
-   posting here also ends it. The bands in the scrollback stay a record. */
+/* #5800: while the room is held, one notice in the strip between the thread and the composer (#pj-held): why, who can
+   end it and how, and the Reopen button. A room hold used to be only a sentence in the scrollback (its band can be an
+   hour up the room) with no way out on the screen: the release (#2710) was only on the command line, and nothing said
+   that posting here also ends it. The bands in the scrollback stay a record. */
 function pjHeldNotice(held) {
   if (!held) return '';
   const until = new Date(held.until || '');
   const by = Number.isNaN(until.getTime()) ? ''
     : ' Otherwise it should lift on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
   return '<div class="msg-valve pj-held">This room is on hold because it went back and forth without landing. '
-    + 'Your agents\' posts are on hold. To let them through now, post something yourself or reopen the room.' + esc(by)
+    + 'Your agents cannot post here until you post something yourself or reopen the room.' + esc(by)
     + '<div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="1">Reopen the room</button>'
     + '<span class="pj-refused-msg" role="status"></span></div></div>';
 }
@@ -68475,7 +68479,14 @@ function paintRoom(body) {
         : (p.sharedRoom === true
           ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and it shows in this room on the other computer too, where its agents read it.</p>'
           : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>')));
-  const html = note + (rows || empty) + pjHeldNotice(PJ_ROOM_HELD);   // #5800
+  const html = note + (rows || empty);
+  /* #5800: the hold notice, written only when it changes (it holds a button the person may be focused on). */
+  const heldEl = document.getElementById('pj-held');
+  if (heldEl) {
+    const heldHtml = pjHeldNotice(PJ_ROOM_HELD);
+    if (heldEl.__lastHeld !== heldHtml) { heldEl.innerHTML = heldHtml; heldEl.__lastHeld = heldHtml; }
+    heldEl.hidden = !heldHtml;
+  }
   /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
      the floor is a fact about the DOM as it stands right now, and the markup is
      about to be replaced. holdFloorOnResize keeps a flag for the resize case,

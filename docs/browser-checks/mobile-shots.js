@@ -1160,11 +1160,10 @@ const SCREENS = [
     fs.writeFileSync(file, kept.join('\n'));
     data.refusedLine = null;
   } },
-  /* kosmos#5800 (Angel): the loop guard is holding the room, and the notice at the foot of the room says who can end it,
-     with a Reopen button.
-     A hold is a valve row plus agent posts filling the room's budget (engine/messages.js roomHeld), so both are
-     appended in the shapes sendPost writes, and `after` takes exactly those lines out again, as the #5752 screen
-     above does. */
+  /* kosmos#5800 (Angel): the loop guard is holding the room, and the strip above the composer (#pj-held) says why and
+     who can end it, with a Reopen button. A hold is a valve row plus agent posts filling the room's budget
+     (engine/messages.js roomHeld), so both are appended in the shapes sendPost writes, and `after` takes exactly those
+     lines out again, as the #5752 screen above does. */
   { name: 'project-room-held-5800', owner: 'Angel', go: async (page, data) => {
     const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
     const cap = require(path.join(REPO, 'engine', 'limits')).caps().roomArrivalsPerWindow;
@@ -1180,12 +1179,11 @@ const SCREENS = [
     fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLines.join('\n') + '\n');
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
-    await page.waitForSelector('#pj-room [data-reopen-room]', { state: 'visible', timeout: 10000 });
-    await page.evaluate(() => { const b = document.querySelector('#pj-room [data-reopen-room]'); if (b) b.closest('.msg-valve').scrollIntoView({ block: 'center' }); });
+    await page.waitForSelector('#pj-held [data-reopen-room]', { state: 'visible', timeout: 10000 });
     await page.waitForTimeout(300);
   }, verify: async (page) => {
-    const t = await page.evaluate(() => { const b = document.querySelector('#pj-room [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
-    for (const want of ['Your agents\' posts are on hold. To let them through now, post something yourself or reopen the room.', 'Reopen the room']) {
+    const t = await page.evaluate(() => { const b = document.querySelector('#pj-held [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
+    for (const want of ['Your agents cannot post here until you post something yourself or reopen the room.', 'Reopen the room']) {
       if (!t.includes(want)) throw new Error('the held band does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
     }
   }, after: async (page, data) => {

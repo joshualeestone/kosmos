@@ -3,7 +3,7 @@
 Card: joshualeestone/kosmos#5800 (feedback 10-10). Item 2 (who changed a file last) split to #5812.
 
 ## Finished looks like
-- The room page, while the loop guard holds the room, shows on the hold's band who can end it and how (post, or Reopen), when it ends by itself, and a working Reopen button. An older band in the scrollback shows none of that.
+- The room page, while the loop guard holds the room, shows in a strip between the thread and the composer (out of the scroll, so a person scrolled up still sees it) why, who can end it and how (post, or Reopen), when it should lift by itself, and a working Reopen button. The hold bands in the scrollback stay plain records.
 - An agent reading `kosmos room <id>` sees one `[kosmos]` hold line at the top while the room is held, before it posts, saying who can release it and that it should not send its post another way.
 - With the room open, neither appears.
 
@@ -16,8 +16,8 @@ Card: joshualeestone/kosmos#5800 (feedback 10-10). Item 2 (who changed a file la
 ## Steps
 1. engine/messages.js `roomHeld` + export. Done.
 2. server.js room route: `held` in JSON, hold line atop `?as=text`. Done.
-3. web/index.html: `PJ_ROOM_HELD`, `pjHeldAct` on the valve band, `pjHeldReopenClick`, one style line. Done.
-4. Tests: server.room-held-5800.test.js (engine + route + reopen clears), web.post-receipt.test.js (#5800 paint test). Mutation checks on the band call and the window check both went red. Done.
+3. web/index.html: `PJ_ROOM_HELD`, `pjHeldNotice` in the `#pj-held` strip above the composer, `pjHeldReopenClick`, one style line. Done.
+4. Tests: server.room-held-5800.test.js (engine, allowance, route, reopen clears), web.post-receipt.test.js (#5800 strip paint test and the Reopen click). Mutation checks on each rule went red. Done.
 5. Design shots, challenge loop, PR, merge on green.
 
 ## Validation

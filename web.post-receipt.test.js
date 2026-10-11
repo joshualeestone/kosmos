@@ -566,7 +566,7 @@ test('#5752 slice 3: pressing Add adds that agent, repaints the room from what i
   assert.doesNotMatch(addRule[0], /nowrap/);
 });
 
-test('#5800: a held room ends with one notice beside the composer (why, who can end it, Reopen); an open room has none', () => {
+test('#5800: a held room shows one notice in the strip above the composer (why, who can end it, Reopen); an open room has none', () => {
   const scope = pageScope();
   scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
   const because = 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.';
@@ -574,19 +574,20 @@ test('#5800: a held room ends with one notice beside the composer (why, who can 
   const later = { kind: 'post', operator: false, from: 'rick', at: ago(2), outcomes: {}, text: 'still going' };
   const until = new Date(Date.now() + 20 * 60 * 1000).toISOString();
   scope.paintRoom({ ok: true, rows: [band, later], held: { at: band.at, because, until } });
-  const html = scope.written['pj-room'];
-  assert.equal((html.match(/data-reopen-room/g) || []).length, 1, 'exactly one Reopen: ' + html);
-  assert.ok(html.indexOf('still going') < html.indexOf('data-reopen-room'), 'the notice is not below the newest post, where the person is');
-  assert.ok(html.indexOf('bring you in') < html.indexOf('still going'), 'the old band moved: it stays a record in its place');
-  assert.match(html, /This room is on hold because it went back and forth without landing\. Your agents' posts are on hold\. To let them through now, post something yourself or reopen the room\. Otherwise it should lift on its own by /);
-  assert.match(html, />Reopen the room<\/button>/);
+  const thread = scope.written['pj-room'];
+  const strip = scope.written['pj-held'];
+  assert.equal((strip.match(/data-reopen-room/g) || []).length, 1, 'exactly one Reopen in the strip: ' + strip);
+  assert.doesNotMatch(thread, /data-reopen-room/, 'the notice is in the scrolling thread, where a person scrolled up cannot see it');
+  assert.ok(thread.indexOf('bring you in') < thread.indexOf('still going'), 'the old band moved: it stays a record in its place');
+  assert.match(strip, /This room is on hold because it went back and forth without landing\. Your agents cannot post here until you post something yourself or reopen the room\. Otherwise it should lift on its own by /);
+  assert.match(strip, />Reopen the room<\/button>/);
 
   scope.paintRoom({ ok: true, rows: [band, later], held: { at: band.at, because, until: null } });
-  assert.doesNotMatch(scope.written['pj-room'], /should lift/, 'no until: no time promised');
-  assert.match(scope.written['pj-room'], /data-reopen-room/, 'CONTROL: still held, still the button');
+  assert.doesNotMatch(scope.written['pj-held'], /should lift/, 'no until: no time promised');
+  assert.match(scope.written['pj-held'], /data-reopen-room/, 'CONTROL: still held, still the button');
 
   scope.paintRoom({ ok: true, rows: [band, later] });
-  assert.doesNotMatch(scope.written['pj-room'], /data-reopen-room|on hold/, 'CONTROL: with no held in the read, no notice');
+  assert.equal(scope.written['pj-held'], '', 'CONTROL: with no held in the read, the strip is emptied');
 });
 
 test('#5800: Reopen posts the release for the room it was pressed in, then rereads it; a refusal says why and re-arms', async () => {
