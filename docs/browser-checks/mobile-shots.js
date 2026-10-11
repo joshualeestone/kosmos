@@ -1160,6 +1160,32 @@ const SCREENS = [
     fs.writeFileSync(file, kept.join('\n'));
     data.refusedLine = null;
   } },
+  /* kosmos#5800 (Angel): the loop guard is holding the room, and its band says who can end it with a Reopen button.
+     The valve row is the one sendPost writes (engine/messages.js, kind 'valve' with to = project), appended to this
+     throwaway board's log and taken out again by `after`, as the #5752 screen above does. */
+  { name: 'project-room-held-5800', owner: 'Angel', go: async (page, data) => {
+    const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
+    data.heldLine = JSON.stringify({ kind: 'valve', from: data.outsider || 'kosmos', to: data.projectId, project: data.projectId,
+      because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.',
+      stopped: true, at: new Date(Date.now() - 4 * 60 * 1000).toISOString() });
+    fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLine + '\n');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-room [data-reopen-room]', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => { const b = document.querySelector('#pj-room [data-reopen-room]'); if (b) b.closest('.msg-valve').scrollIntoView({ block: 'center' }); });
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => { const b = document.querySelector('#pj-room [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
+    for (const want of ['Your agents cannot post here until you step in', 'Reopen the room']) {
+      if (!t.includes(want)) throw new Error('the held band does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
+    }
+  }, after: async (page, data) => {
+    if (!data.heldLine) return;
+    const file = path.join(require(path.join(REPO, 'engine', 'store')).ROOT, 'messages.jsonl');
+    const kept = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l !== data.heldLine);
+    fs.writeFileSync(file, kept.join('\n'));
+    data.heldLine = null;
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
