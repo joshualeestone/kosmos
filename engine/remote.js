@@ -931,7 +931,9 @@ function status() {
     register` path pipes the session token in this way, so the 30-day credential
     never sits on argv); when it is null the child gets no stdin, exactly as
     before -- so every existing caller is unaffected. */
-function setupRun(args, stdin = null, timeoutMs = 0) {
+/* `opts.keepStdout` (kosmos#5744, mac-request only): a failed run's stdout is kept as `said`. Other verbs print
+   their logs there, so no other caller gets it on a failure. */
+function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
   return new Promise((resolve) => {
     let spawned;
     let timer = null;
@@ -972,10 +974,15 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
     }
     const resultFor = (code) => {
       if (code === 0) { finish({ ok: true, because: null, said: out.trim() }); return; }
-      const lines = (errOut.trim() || out.trim()).split('\n').filter(Boolean);
+      /* kosmos#5744: mac-request prints a refusal's fields as a {"refusal":...} line on stdout. It is data, never
+         words for a person, so it is never `because`, even when stderr is empty. */
+      const words = (t) => t.split('\n').filter((l) => l.trim() && !l.trim().startsWith('{"refusal"'));
+      const errLines = words(errOut.trim());
+      const lines = errLines.length ? errLines : words(out.trim());
       /* `stderr` is the WHOLE of it: a caller that must recognise a message clap prints
          across several lines (an unknown subcommand, #3660) cannot use the last line. */
-      finish({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')'), stderr: errOut, code });
+      finish({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')'), stderr: errOut, code,
+        ...(opts && opts.keepStdout ? { said: out.trim() } : {}) });
     };
     spawned.on('exit', (code) => {
       if (settled) return;
@@ -1013,6 +1020,21 @@ function holdsKey() {
   return ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(dir, f)));
 }
 const KEY_ONLY_ROUTE = '/v1/mac/standing';
+/* kosmos#5744: the `{"refusal":{"status","code","current_epoch"}}` line a failed mac-request prints on stdout, as
+   { status, code, currentEpoch }, or null when there is none (an older tunnel, an outage, a check that refused
+   before sending). Each field is checked: status a whole number 100 to 599, code letters, digits and _ (at most
+   40), currentEpoch a safe whole number of 0 or more; anything else reads as null. Only the last stdout line is
+   read, as for an answer. */
+function refusalOf(said) {
+  const got = lastJsonLine(said);
+  const r = got && got.value && typeof got.value === 'object' ? got.value.refusal : null;
+  if (!r || typeof r !== 'object' || !Number.isInteger(r.status) || r.status < 100 || r.status > 599) return null;
+  return {
+    status: r.status,
+    code: typeof r.code === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(r.code) ? r.code : null,
+    currentEpoch: Number.isSafeInteger(r.current_epoch) && r.current_epoch >= 0 ? r.current_epoch : null,
+  };
+}
 async function macRequest(method, routePath, body, opts) {
   const keyOnly = !!(opts && opts.keyOnly);
   // keyOnly opens ONE route, the report's, and nothing else, whatever a future caller passes.
@@ -1030,8 +1052,12 @@ async function macRequest(method, routePath, body, opts) {
   // out (it would sign with a key being replaced or retired), and Forget waits for
   // one already out (it carries its own bound).
   { const b = busy(); if (b) return Object.assign({}, b, { notSent: true }); }
-  const r = await tracked(setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout));
-  if (!r.ok) return { ok: false, because: r.because };
+  const r = await tracked(setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout, { keepStdout: true }));
+  if (!r.ok) {
+    // kosmos#5744: a coordinator refusal's fields, from a tunnel that prints them (an older one prints none).
+    const refusal = refusalOf(r.said);
+    return refusal ? { ok: false, because: r.because, refusal } : { ok: false, because: r.because };
+  }
   const got = lastJsonLine(r.said);
   if (got) return { ok: true, data: got.value };
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };

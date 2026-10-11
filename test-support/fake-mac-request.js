@@ -46,6 +46,10 @@ process.stdin.on('end', () => {
   if (mode === 'garbage') { process.stdout.write('this is not json\\n'); process.exit(0); }
   if (mode === 'old-tunnel') { process.stderr.write("error: unrecognized subcommand 'mac-request'\\n"); process.exit(2); }
   if (mode.startsWith('ok:')) { process.stdout.write(mode.slice(3) + '\\n'); process.exit(0); }
+  // kosmos#5744: a refusal as a tunnel since relay epochfield-5744 prints it: the JSON line on stdout, the error on
+  // stderr, exit 1. refusal-quiet: the same line with an empty stderr.
+  if (mode.startsWith('refusal:')) { process.stdout.write(mode.slice(8) + '\\n'); process.stderr.write('Error: Kosmos+ refused this Mac: no (HTTP 400 on /v1/org/backup/member-key, code member_key_wrong_epoch)\\n'); process.exit(1); }
+  if (mode.startsWith('refusal-quiet:')) { process.stdout.write(mode.slice(14) + '\\n'); process.exit(1); }
   process.stderr.write('fake tunnel: unknown mode ' + mode + '\\n'); process.exit(3);
 });
 `, { mode: 0o755 });
