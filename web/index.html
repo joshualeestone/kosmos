@@ -60953,7 +60953,7 @@ function paintProjectTasks(p) {
     let who;
     if (!assigned.length) {
       /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
-      // Held (the task, or its paused project) wins here; the Tasks view (tasks.taskState) differs only for a BUILT task in a paused project, which it shows as built (#5864).
+      // A held task (its own hold, or its paused project) does not say On a schedule.
       who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && p.paused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
@@ -61071,7 +61071,7 @@ const TSK_GROUPS = [
      for anyone and is not counted as unassigned. After Josh's five open groups and before On hold (decided, overridable). */
   { k: 'scheduled', l: 'On a schedule', c: 'var(--tsk-scheduled)',
     why: 'Repeating tasks with nobody named on them. If a scheduler of yours runs them, nothing is needed; if an agent should, give one to an agent.' },
-  /* #4771: on hold, the task or its whole project unless the task is built (#5864) (the engine's `held` state): Kosmos neither nudges nor hands these out.
+  /* #4771: on hold: the task, or its whole project when the task is not built (#5864); the engine's `held` state: Kosmos neither nudges nor hands these out.
      Placed after Josh's own five open groups and before Completed, so his order is unchanged (decided, overridable). */
   { k: 'held', l: 'On hold', c: 'var(--tsk-held)',
     why: 'On hold, or not yet built in a paused project. Kosmos does not nudge anyone about them or hand them out.' },
@@ -61370,6 +61370,9 @@ function tskRow(t, at) {
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
+    /* #5864: a BUILT task in a paused project sits in Built but waiting, so its row says the project is paused (the CLI
+       prints [project paused]); a held row needs no note, its group already says it. */
+    + (t.projectPaused === true && t.state === 'built' ? '<span class="tsk-paused">project paused</span>' : '')
     + (added ? '<span>added ' + esc(added) + '</span>' : '')
     /* #1307: inline for the same reason as the task card's tkcard-from line. */
     + (t.addedVia === 'webhook' ? '<span class="tsk-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
