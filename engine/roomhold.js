@@ -365,8 +365,8 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
    report can come while its own timers are still held (the pool refills one agent at a time), and then the idle flush
    is held too and its ids are put back, with no further idle report until the agent's next turn. So once a minute,
    each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
-   same gated path (a held verdict puts the ids back again). `isAgy` picks the cards; only they are retried here, so a
-   #4624 hold for any other runner is exactly as before. Never throws. */
+   same gated path (a held verdict puts the ids back again). `isAgy` picks those cards; #5805 adds a Claude member
+   holding an ask a usage limit kept (see the loop). Every other #4624 hold is exactly as before. Never throws. */
 async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
   const out = [];
   if (off(env)) return out;
@@ -374,6 +374,8 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
     try {
       if (!card || !card.sessionName) continue;
       const agy = isAgy(card);
+      // Read from the card before any file: only a capped or released Claude card has anything for #5805 below.
+      if (!agy && card.state !== 'rate_limited' && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
       /* #5805: no idle report comes once a Claude usage limit resets, so a Claude member is retried here too, but only
          while `isLimitable` says its card reads idle off its screen (the server's predicate; never while it reads capped
          or busy) and only when it holds an ask a usage limit kept (limitKept). Every other hold on such a member waits

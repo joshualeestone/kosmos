@@ -177,3 +177,13 @@ behaviour), never the reverse.
 ## After review 12 (found by a full-suite run on a stacked branch, not a reviewer)
 - FIXED: the golden agent card (docs/browser-checks/fixtures/agent-card.json, #2519) had no `screenState`, the pane
   card field review 5 added, so render-talk-goldencard-2519 failed on drift. Added as null, where the card builds it.
+
+## Review 13 (opus)
+- FIXED: past the printed reset the page told the person the agent was still out of usage, when the hold then lasts
+  only while its limit screen is up; it now says the usage has reset and to answer the screen in its window (tested).
+- FIXED: stale comments (flushReleased's header said only Antigravity cards are retried; three comments listing the
+  hold kinds left out the usage limit).
+- NIT taken: flushReleased reads the card's state before any file, so a card neither capped nor released costs nothing.
+  Not taken: anchoring claudeLimitMenuUp below the limit row (it fails toward holding longer); the held-by wording
+  helper (as before); stating that a second limit within a day carries a still-kept ask forward (it is the same ask,
+  still unanswered).

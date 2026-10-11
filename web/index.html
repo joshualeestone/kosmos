@@ -57827,7 +57827,11 @@ function wakeHeldLine(manualText, delivery) {
   if (delivery && delivery.heldBy === 'limit') {
     const reset = typeof delivery.limitReset === 'string' ? Date.parse(delivery.limitReset) : NaN;
     const until = reset > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(reset, Date.now()) : '';
-    return manualText + ' ' + (until ? 'It is out of usage until ' + until + ', so Kosmos sent nothing.' : 'It is out of usage, so Kosmos sent nothing.');
+    if (until) return manualText + ' It is out of usage until ' + until + ', so Kosmos sent nothing.';
+    // Past the printed reset the hold lasts only while its limit screen is still up (the menu waits for a key).
+    return manualText + (reset <= Date.now()
+      ? ' Its usage has reset, but its limit screen is still up, so Kosmos sent nothing; answer it in its window first.'
+      : ' It is out of usage, so Kosmos sent nothing.');
   }
   const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';

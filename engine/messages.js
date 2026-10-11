@@ -2162,7 +2162,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, or #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu), nothing typed. The post is kept for this member like a #4624
          hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless staleHeld drops it) in one line by the
-         idle flush, the next typed arrival here, or (a quota hold only) roomhold.flushReleased after the reset. Could not keep it: not
+         idle flush, the next typed arrival here, or (a quota or #5805 usage-limit hold) roomhold.flushReleased after the reset. Could not keep it: not
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
       if (sent && sent.held === true) {

@@ -65,6 +65,9 @@ test('#5805: a hello held on a Claude usage limit says it is out of usage (until
   assert.doesNotMatch(said, /quota/i);
   // Past the reset (the card still reads capped): heldUntil is the next look, which is not a reset time to promise.
   await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'limit', heldUntil: soon, limitReset: new Date(Date.now() - 600e3).toISOString() }), { bob: 8 })('bob', 8, (t) => { said = t; }, 'SAID', 'MANUAL');
+  assert.equal(said, 'MANUAL Its usage has reset, but its limit screen is still up, so Kosmos sent nothing; answer it in its window first.');
+  // No reset at all on the verdict: out of usage, with no time.
+  await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'limit' }), { bob: 9 })('bob', 9, (t) => { said = t; }, 'SAID', 'MANUAL');
   assert.equal(said, 'MANUAL It is out of usage, so Kosmos sent nothing.');
 });
 test('#5743: a hello held because the agent shows a question says that, never that the quota is out', async () => {
