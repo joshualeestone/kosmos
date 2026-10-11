@@ -92,3 +92,8 @@ the way out when that is wrong.
 - STATED (residual): past the queue's caps a person's message is typed as before, with no held row.
 - NIT not taken: a stuck reason read off a hold verdict says "tried" when nothing was typed; the row is still true
   about why it waits.
+
+## After review 4 (found by the Mortals full suite, not a reviewer)
+- FIXED: the menu check (review 3 fix 1) read the pane on EVERY person DM, not only one that would be held, so a
+  scripted-runner test (server.projects "a button answer that never reached the pane") lost a runner entry and an
+  ordinary send cost an extra capture. The check runs only when the message would otherwise be held.
