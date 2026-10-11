@@ -1,8 +1,8 @@
 'use strict';
 /**
- * kosmos#5855: once kosmos#5841 merges, a conversation that reaches its message cap will roll over: the full file is
- * set aside as `<thread file>.<stamp>.<pid>.<ms>[.<n>].full` and a fresh file carries a copy of its newest rows. The
- * daily-log compiler does not read that chain yet. Compiling from the current files alone would rewrite a day that straddles
+ * kosmos#5855: kosmos#5841's rollover. When a conversation rolls over at its message cap, the full file is set aside
+ * as `<thread file>.<stamp>.<pid>.<ms>[.<n>].full` and a fresh file carries a copy of its newest rows and names the
+ * file it continues. The daily-log compiler does not read that chain. Compiling from the current files alone would rewrite a day that straddles
  * the rollover with fewer rows and prune every day whose rows live only in a `.full` file, so with such a file
  * present the compiler refuses the run: nothing written, nothing pruned, and it says why.
  *
@@ -34,10 +34,11 @@ const WHOLE = [
   { at: '2026-09-15T10:00:00Z', text: 'day15 late, carried', from: null },
 ];
 
-/* A conversation compiled whole, then rolled over the way kosmos#5841 does it: the full file aside under `asideName`,
-   and a fresh current file carrying a copy of the newest row plus one new message. Returns the dirs and the three day
+/* A conversation compiled whole, then rolled over the way kosmos#5841 does it: the full file aside under `asideName`
+   (null: gone from the folder), and a fresh current file carrying a copy of the newest row plus one new message, and
+   naming the file it continues unless `opts.names` is false. Returns the dirs and the three day
    files' bytes from before the rollover. */
-function rolledOver(label, asideName) {
+function rolledOver(label, asideName, opts = {}) {
   const chatsDir = path.join(SANDBOX, 'chats-' + label);
   const outDir = path.join(SANDBOX, 'daily-' + label);
   fs.mkdirSync(chatsDir, { recursive: true });
@@ -48,11 +49,10 @@ function rolledOver(label, asideName) {
   const before = {};
   for (const d of first.written) before[d] = fs.readFileSync(path.join(outDir, d + '.md'), 'utf8');
   if (asideName) fs.renameSync(file, path.join(chatsDir, asideName)); else fs.rmSync(file);
-  fs.writeFileSync(file, JSON.stringify({ continues: asideName || 'gone', carried: 1, messages: [
-    WHOLE[3],
-    { at: '2026-09-16T09:00:00Z', text: 'day16, after the rollover', from: null },
-  ] }));
-  return { chatsDir, outDir, before };
+  const fresh = { messages: [WHOLE[3], { at: '2026-09-16T09:00:00Z', text: 'day16, after the rollover', from: null }] };
+  if (opts.names !== false) Object.assign(fresh, { continues: asideName || ASIDE, carried: 1 });
+  fs.writeFileSync(file, JSON.stringify(fresh));
+  return { chatsDir, outDir, before, file };
 }
 const dayFiles = (outDir) => fs.readdirSync(outDir).filter((n) => n.endsWith('.md')).sort();
 
@@ -68,12 +68,12 @@ test('isRolledOverFileName: a thread file moved aside at the cap, and nothing el
   }
 });
 
-test('CONTROL (the hazard): compiled from the current file alone, a rollover shrinks one day and deletes two', () => {
-  // BY PROXY: the full file is deleted here, not left under its aside name, because with the fix in place there is no
-  // name under which this compiler would overlook it. What this shows is what compiling from the current file alone
-  // does; that a `.full` file used to be overlooked is shown by the tests below failing without the fix. It asserts
+test('CONTROL (the hazard, by proxy): compiled from a current file alone, one day shrinks and two are deleted', () => {
+  // BY PROXY: the full file is deleted and the fresh file does not name it, because with the fix in place there is no
+  // sign of a rollover this compiler would overlook. What this shows is what compiling from the current file alone
+  // does; that a real rollover used to be overlooked is shown by the tests below failing without the fix. It asserts
   // nothing this change added, so it passes on the compiler from before the change too.
-  const { chatsDir, outDir, before } = rolledOver('hazard', null);
+  const { chatsDir, outDir, before } = rolledOver('hazard', null, { names: false });
   const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
   assert.deepEqual(s.pruned, ['2026-09-13', '2026-09-14'], 'the days that live only in the full file were pruned');
   assert.deepEqual(dayFiles(outDir), ['2026-09-15.md', '2026-09-16.md']);
@@ -112,6 +112,7 @@ test('with a rolled-over file present the run is refused: nothing written, nothi
   const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
   assert.equal(s.refused, 'rolled-over');
   assert.equal(s.rolledOver, 1);
+  assert.equal(s.continued, 1);
   assert.deepEqual(s.written, []);
   assert.deepEqual(s.pruned, []);
   assert.equal(s.days, 0);
@@ -122,6 +123,42 @@ test('with a rolled-over file present the run is refused: nothing written, nothi
   }
   // the originals are untouched, the aside included
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(chatsDir, ASIDE), 'utf8')).messages, WHOLE);
+});
+
+test('the other sign alone refuses too: a current file that names an earlier file, with no .full file in the folder', () => {
+  // a person moved the full file away, or a rollover landed after the folder was listed
+  const { chatsDir, outDir, before } = rolledOver('named', null);
+  const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.equal(s.refused, 'rolled-over');
+  assert.equal(s.rolledOver, 0);
+  assert.equal(s.continued, 1);
+  assert.deepEqual(dayFiles(outDir), ['2026-09-13.md', '2026-09-14.md', '2026-09-15.md']);
+  for (const d of Object.keys(before)) assert.equal(fs.readFileSync(path.join(outDir, d + '.md'), 'utf8'), before[d], d + ' changed');
+  // an empty or non-string `continues` is not a sign (chat.js reads only a non-empty string)
+  for (const junk of ['', null, 7, {}]) {
+    const c = path.join(SANDBOX, 'chats-junk-' + String(typeof junk) + String(junk).length);
+    fs.mkdirSync(c, { recursive: true });
+    fs.writeFileSync(path.join(c, 'direct..p.json'), JSON.stringify({ continues: junk, messages: [WHOLE[0]] }));
+    assert.equal(dl.compileAll({ chatsDir: c, outDir: path.join(SANDBOX, 'daily-junk'), dayOf, timeOf }).refused, null, 'continues=' + JSON.stringify(junk));
+  }
+});
+
+test('the states an interrupted rollover can leave are refused too', () => {
+  // (1) the rollover hard-links the full file aside and stopped before writing the fresh one: both names, same bytes
+  const a = rolledOver('linked', null, { names: false });
+  fs.writeFileSync(a.file, JSON.stringify({ messages: WHOLE }));
+  fs.linkSync(a.file, path.join(a.chatsDir, ASIDE));
+  const s1 = dl.compileAll({ chatsDir: a.chatsDir, outDir: a.outDir, dayOf, timeOf });
+  assert.equal(s1.refused, 'rolled-over');
+  assert.deepEqual([s1.rolledOver, s1.continued], [1, 0]);
+  assert.deepEqual(dayFiles(a.outDir), ['2026-09-13.md', '2026-09-14.md', '2026-09-15.md']);
+  // (2) where it renames instead, and stopped there: the full file aside and NO current file at all
+  const b = rolledOver('renamed', ASIDE);
+  fs.rmSync(b.file);
+  const s2 = dl.compileAll({ chatsDir: b.chatsDir, outDir: b.outDir, dayOf, timeOf });
+  assert.equal(s2.refused, 'rolled-over');
+  assert.deepEqual([s2.rolledOver, s2.continued, s2.conversations], [1, 0, 0]);
+  assert.deepEqual(dayFiles(b.outDir), ['2026-09-13.md', '2026-09-14.md', '2026-09-15.md'], 'an empty-looking folder with a full file in it pruned everything');
 });
 
 test('a targeted onlyDay run is refused too: that day may be the one that straddles the rollover', () => {
@@ -155,7 +192,7 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  assert.match(no.stderr, /dailylog: not compiled\. One file in the chats folder holds the earlier part of a conversation/);
+  assert.match(no.stderr, /dailylog: not compiled\. A conversation in the chats folder reached its message limit and started a new file/);
   assert.match(no.stderr, /Nothing was written or removed/);
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
@@ -164,19 +201,23 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.equal(day.status, 3);
   assert.equal(day.stdout, '');
   assert.ok(!fs.existsSync(other), 'a refused run created its output folder');
-  fs.writeFileSync(path.join(chatsDir, 'proj1.b.json.x.full'), '{}');
-  assert.match(run().stderr, /not compiled\. 2 files in the chats folder hold the earlier part/);
+  assert.match(no.stderr, /There is nothing to fix in the folder/);
 });
 
-test('pin (convention 5): the SUFFIX this compiler looks for is the one engine/chat.js sets a full file aside under', () => {
-  // The suffix only. If the rollover came to keep its files in another folder, this would not notice: the compiler
-  // looks in the chats folder itself, where engine/chat.js's supersede puts every aside today.
+test('pin (convention 5): what this compiler takes as the signs of a rollover is what engine/chat.js writes', () => {
   const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  // WHERE and HOW an aside is named, for every kind: beside the thread file, the file's own name first, the kind last.
+  // This holds before and after the rollover lands (supersede builds every aside), so it is asserted either way.
+  assert.ok(src.includes('const stem = `${file}.${stamp}.${process.pid}.${Date.now()}`;'), 'engine/chat.js no longer builds an aside name from the thread file\'s own path: check where rolled-over files live');
+  assert.ok(src.includes('let aside = `${stem}.${suffix}`;'), 'engine/chat.js no longer ends an aside name with its kind');
   const kind = /^const ROLL_KIND = '([^']+)';$/m.exec(src);
   if (kind) {
-    // the rollover (kosmos#5841 piece 2) is in this tree: its suffix must be the one recognised here
+    // the rollover (kosmos#5841 piece 2) is in this tree: its suffix, its rule for following a file, and the field a
+    // fresh file names its predecessor in must be the ones this compiler reads
     assert.equal(kind[1], 'full');
     assert.equal(dl.isRolledOverFileName('direct..p.json.x.' + kind[1]), true);
+    assert.ok(src.includes("n.startsWith(base + '.') && n.endsWith('.' + ROLL_KIND)"), 'engine/chat.js follows a rolled-over file by a different rule now');
+    assert.ok(src.includes("continues: typeof parsed.continues === 'string' && parsed.continues ? parsed.continues : null"), 'engine/chat.js reads `continues` differently now');
   } else {
     // it is not in this tree yet: chat.js must still be refusing at the cap, or this pin has gone blind
     assert.match(src, /this conversation has reached the \$\{MAX_MESSAGES\} messages Kosmos keeps, so we did not add to it/,
