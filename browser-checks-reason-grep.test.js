@@ -368,6 +368,7 @@ const SITE_COUNTS = {
   'render-device-signed-out-401-718.js': [1, 0],
   'render-dialog-gutter-4506.js': [3, 2],
   'render-disconnect-stop-2570.js': [2, 1],
+  'render-dm-earlier-5841.js': [1, 0],
   'render-dm-emoji-3744.js': [2, 1],
   'render-dm-owes-4340.js': [1, 1],
   'render-dm-reactions-3650.js': [1, 1],

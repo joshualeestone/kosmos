@@ -3419,6 +3419,27 @@ function isSetupGuide(name) {
     return setupAssistant.isGuideFolder(guide);
   } catch { return false; }
 }
+
+/** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */
+const DM_OLDER_PAGE = 200;
+/* kosmos#5841: what the person sees of a direct thread's rows, decided ONCE for both readers (the thread route's
+   latest 200 and the older route's earlier pages), so the earlier pages can never show what the latest ones hide:
+   in the setup guide's thread every row is masked (#3769), the person's reactions ride as pills (#3650), and
+   previews are attached. The live question and account rows are NOT added here: they belong to the tail only. */
+function dmServeRows(rows, name, card) {
+  if (!Array.isArray(rows)) return rows;
+  const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
+  const guideName = guideThread ? ((card && card.sessionName) || name) : null;
+  const masked = guideThread
+    ? rows.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
+    : rows;
+  const reacted = masked.map((m) => {
+    if (!m || m.from !== name) return m;
+    const { reactionsTold, ...rest } = m;
+    return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
+  });
+  return withPreviews(reacted);
+}
 /* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js).
    Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
 function guideMasked(who, text) {
@@ -15917,6 +15938,38 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   /**
+   * kosmos#5841: the EARLIER messages of the thread between the person and ONE agent, a page at a time. The thread
+   * route below sends only the latest 200 and says how many older ones are kept ("N older messages are still kept");
+   * this is how the person reaches them. `?before=<n>` is a position counted from the OLDEST message (the thread
+   * route's `olderCount` is exactly the first one it showed), so a message arriving meanwhile, which a thread only
+   * ever gains at the newest end, cannot shift a page. The answer is the up-to-200 messages before it, oldest first,
+   * and `olderCount`, how many remain before those. Read-only, the thread route's own gate (nameRefusal), the same
+   * file, and the same serving rules (dmServeRows: the guide mask included).
+   */
+  const dmOlder = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/older$/);
+  if (dmOlder && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(dmOlder[1]);
+    if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
+    const refusal = nameRefusal(name);
+    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal)); return; }
+    let beforeRaw = null;
+    try { beforeRaw = new URL(req.url, ROUTING_BASE).searchParams.get('before'); } catch { beforeRaw = null; }
+    const before = typeof beforeRaw === 'string' && /^\d{1,9}$/.test(beforeRaw) ? Number(beforeRaw) : NaN;   // digits only
+    if (!Number.isInteger(before) || before < 0) { sendJson(res, 400, { error: 'before must be a whole number, 0 or more' }); return; }
+    let rows;
+    try { rows = chat.readThread(chat.DIRECT, name).messages || []; } catch (err) {
+      // No file can ever exist (BAD_THREAD) reads as nothing older; anything else is a read that failed, said so.
+      if (err && err.code === 'BAD_THREAD') { sendJson(res, 200, { messages: [], olderCount: 0 }); return; }
+      sendJson(res, 503, { error: String((err && err.message) || 'we cannot read what you have sent this agent') });
+      return;
+    }
+    const end = Math.min(before, rows.length);
+    const start = Math.max(0, end - DM_OLDER_PAGE);
+    const card = ourCardByName(safeRoster(), name);
+    sendJson(res, 200, { messages: dmServeRows(rows.slice(start, end), name, card), olderCount: start });
+    return;
+  }
+  /**
    * --- the thread between the person and ONE agent -------------------------
    *
    * The project thread's sibling, and the difference is what it is FOR: that
@@ -16214,16 +16267,7 @@ const server = http.createServer(async (req, res) => {
        name, so a differently-cased URL cannot skip it. */
     const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
     const guideName = guideThread ? ((card && card.sessionName) || name) : null;
-    const maskedMessages = guideThread && Array.isArray(servedMessages)
-      ? servedMessages.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
-      : servedMessages;
-    const reactedMessages = Array.isArray(maskedMessages)
-      ? maskedMessages.map((m) => {
-        if (!m || m.from !== name) return m;
-        const { reactionsTold, ...rest } = m;
-        return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
-      })
-      : maskedMessages;
+    const servedRows = dmServeRows(servedMessages, name, card);   // kosmos#5841: shared with the older route
     /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
     const cqNow = view && view.text ? require('./engine/status').claudeQuestionMenu(view.text) : null;
     const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
@@ -16234,7 +16278,7 @@ const server = http.createServer(async (req, res) => {
       && cqNow.options.length === options.length
       && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
     sendJson(res, 200, {
-      messages: withPreviews(reactedMessages),
+      messages: servedRows,
       olderCount,
       historyBecause,
       historyUnfilable,
