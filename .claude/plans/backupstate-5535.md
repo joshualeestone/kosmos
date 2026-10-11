@@ -23,3 +23,21 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
   staleIndex, another bucket dropping the index, the member check, the duplicate check, the link check, forPeriod's
   reuse. (One mutant line was a no-op swap after a pattern split; not counted.)
 - engine.reachable.test.js excuses forPeriod and withRun by name with the reason (the guard flagged them; its run now passes 7/7).
+
+## Review 1 (sonnet, blind, on 29d70fdda): NOT CONVERGED
+- FIXED (BLOCKER): withRun read takeSnapshot's bucket null as "another bucket" and dropped the index, but null comes
+  back on EVERY failure before the index is read (a bad root, the clock, a key, a context): one transient failure
+  would wipe a week's index and the next runs re-upload it all. Now only staleIndex or a DIFFERENT non-null bucket drops
+  it. Test (the early failure keeps it); mutant red.
+- FIXED (WARNING): no way out of a refused file. discardState renames it aside (.bad-<time>), never deletes it; the
+  next read is a fresh start. Test; mutant red.
+- FIXED (WARNING): withRun folded unchecked rows, so writeState could throw after a finished upload. Rows are checked
+  as on read (a bad one left out) and the index is capped at MAX_INDEX. Tests (a bad row, another period's row, the cap
+  at 200000); mutants red.
+- FIXED (WARNING): resuming a period now prunes entries sealed to another member key (#5744 rotation) or whose lock has
+  ended, which takeSnapshot would refuse as a stale index. forPeriod takes { memberKeyId, nowMs }. Test; two mutants red.
+- FIXED (WARNING): the header states the caller's duties: write the new period (its naming key) BEFORE the snapshot,
+  write after, one run at a time per (org, member); and what a killed run costs.
+- FIXED (NITs): the chmod-after-trust comment; MAX_INDEX enforced in withRun.
+- MEASURED (NIT, read cost): 200000 entries = 34.6 MB; writeState 283 ms, readState 251 ms on this Mac, once each per
+  run, blocking. Acceptable for an hourly run; the run may move it off the event loop later.
