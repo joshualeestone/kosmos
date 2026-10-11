@@ -75,10 +75,10 @@ test('#3796 (reverses #1012): with no devices, the recovery block IS still offer
   const w = world(connected([]));
   await paint(w);
   assert.equal(w.el('plus-devempty').hidden, false, 'the "None yet" line should be showing');
-  // #4080: the reset is behind "Lost your phone?" in the enrolled-only bottom row (#plus-forget); that row is the gate.
-  w.el('plus-forget').hidden = true;   // a stub starts visible; only paintPlus may show it
+  // #4080: the reset is behind "Lost your phone?"; #5791 moved it into the enrolled-only devices block (#plus-devices), which is the gate now.
+  w.el('plus-devices').hidden = true;   // a stub starts visible; only paintPlus may show it
   await paint(w);
-  assert.equal(w.el('plus-forget').hidden, false,
+  assert.equal(w.el('plus-devices').hidden, false,
     '"Lost your phone?" is hidden with no devices, so an authenticator-only account has no recovery');
 });
 
@@ -86,9 +86,9 @@ test('#1012: once a device exists, the recovery block IS offered', async () => {
   const w = world(connected([{ device_id: 'd1', allowed_at: 1, last_seen: 2 }]));
   await paint(w);
   assert.equal(w.el('plus-devempty').hidden, true);
-  w.el('plus-forget').hidden = true;   // #4080: only paintPlus may show the row with "Lost your phone?"
+  w.el('plus-devices').hidden = true;   // #4080, #5791: only paintPlus may show the block with "Lost your phone?"
   await paint(w);
-  assert.equal(w.el('plus-forget').hidden, false,
+  assert.equal(w.el('plus-devices').hidden, false,
     'a person with a phone can no longer reach the reset');
 });
 

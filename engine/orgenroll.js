@@ -153,7 +153,7 @@ function isEnrolledHere(opts) {
 /* 🛑 THE GATE FOR EVERY SENDER (E0.3 rollup, E0.6 backup): mayReport, NOT isEnrolledHere. A record can be enrolled here
    with no consent recorded on this side: one re-adopted by refresh after a move that could not be written, or rebuilt
    from the company's answer after a last-admin refusal. Those carry no consentHash, and nothing is sent under them
-   until the person has seen and accepted the words here (review 27). isEnrolledHere answers "is this the work Kosmos";
+   until the company's words are accepted here (review 27; since #5791 the board accepts them itself, reacceptWords). isEnrolledHere answers "is this the work Kosmos";
    mayReport answers "may it send". */
 function mayReport(opts) {
   if (!isEnrolledHere(opts)) return false;
@@ -300,9 +300,23 @@ function acceptedConsent(opts) {
   return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)),
     everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)) };
 }
+/* #5791 (Josh 10-10: the company decided; no member consent step): the board takes the company's current words and
+   re-accepts them itself, with no screen: the same codeless enroll a person's Accept used to send (review: true),
+   under the hash the company serves now. Called after a report is refused because the words changed, and by the
+   rollup's own retry (engine/orgrollup.js tick) for a Kosmos with no words on record, or whose words ask for no
+   reports and so never send anything the company could refuse (review 1). Words the company still serves under the
+   hash already on record here are left as they are ({ ok: true, same: true }, nothing sent). Best effort: a refusal
+   leaves things as they were, and the next try is the rollup's. */
+async function reacceptWords(opts) {
+  const r = await reviewHere(opts);
+  if (!r.ok) return { ok: false, because: r.because };
+  const rec = readEnrollment(opts);
+  if (rec && rec.consentHash && rec.consentHash === r.served && acceptedConsent(opts)) return { ok: true, same: true };
+  return enroll(null, true, Object.assign({}, opts, { consentHash: r.served, consent: r.consent, orgId: r.org && r.org.id, computerSalt: r.salt || null, review: true }));
+}
 /* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
-   the words on record here are no longer accepted words, so this Kosmos stops reporting until the person accepts the
-   new ones (the joined view then says it sends nothing). The membership is untouched. */
+   the words on record here are no longer accepted words, so nothing is sent under them. The membership is untouched,
+   and the caller then re-accepts the company's current words (reacceptWords, #5791). */
 function consentWithdrawn(opts, hash) {
   return oneAtATime(async () => {
     const rec = readEnrollment(opts);
@@ -327,9 +341,9 @@ const SAY = Object.freeze({
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
-  org_already_member: 'You are already in this company. Check the code again to see what moving your work Kosmos here means.',
+  org_already_member: 'You are already in this company. Press Connect Account again to make this Kosmos your work Kosmos.',
   // v1.4: the words changed after this screen showed them (the enroll carried the hash of the old ones). Nothing joined.
-  org_consent_changed: 'Your company changed what it would see since you checked. Nothing was joined. Check the code again to read the new words.',
+  org_consent_changed: 'Your company changed its terms just now. Nothing was joined. Press Connect Account again.',
 });
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
 const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
@@ -473,8 +487,8 @@ async function enrollNow(code, accepted, opts) {
   const salt = opts && typeof opts.computerSalt === 'string' ? opts.computerSalt : null;
   if (salt && opts.orgId) {
     const pf = printFields(salt, opts.orgId);
-    // In a review the button is Accept (rollup review 33), as the no-confirm answer below already says.
-    if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; press ' + (asReview ? 'Accept' : 'Join') + ' again in a minute.' };
+    // A review is the board's own (#5791): it says Kosmos tries again, as the no-confirm answer below does.
+    if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; ' + (asReview ? 'Kosmos tries again on its own.' : 'press Connect Account again in a minute.') };
     if (pf.send === 'error') return { ok: false, because: 'This Kosmos could not make its computer print, so nothing was sent.' };
     Object.assign(body, pf.fields, { computerSalt: salt });
   }
@@ -489,22 +503,22 @@ async function enrollNow(code, accepted, opts) {
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
   /* A review's Accept (this world already named here before it was pressed) is never a join, so none of the join words
-     below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and points at Accept or at the
-     Review button, never at a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
+     below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and say Kosmos tries again on its own
+     (#5791: there is no screen for it), never a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
      "here" was true either way, so nothing is recorded; accepting again is harmless. */
   const review = asReview;   // no code, so always a move; checked against this world's record before sending (above)
   if (!r.ok && review) {
     const c = codeOf(r.because);
-    if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed what it asks of this Kosmos since you read it. Nothing changed here. Press Review what your company sees to read the new words.' };
+    if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed its terms again since Kosmos read them. Nothing changed here; Kosmos tries again on its own.' };
     // No longer in that company: a Review would be refused too, so do not send the person there (review 3).
     if (c === 'org_not_member' || c === 'org_other_org') return { ok: false, code: c, because: 'Your company says this account is no longer in it. Nothing changed on this computer.' };
-    if (c) return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer. Press Review what your company sees to try again.' };
-    if (r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; press Accept again in a minute.' };
-    return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; press Accept again in a minute.' };
+    if (c) return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer; Kosmos tries again on its own.' };
+    if (r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; Kosmos tries again on its own.' };
+    return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; Kosmos tries again on its own.' };
   }
   const secretCode = typeof code === 'string' ? code.trim() : null;
   // A move refused because the words changed: no code was typed, so say how to see them again (consenthash review 2).
-  if (!r.ok && move && codeOf(r.because) === 'org_consent_changed') return { ok: false, code: 'org_consent_changed', because: 'Your company changed what it would see since you checked. Nothing moved. Type your join code again to read the new words.' };
+  if (!r.ok && move && codeOf(r.because) === 'org_consent_changed') return { ok: false, code: 'org_consent_changed', because: 'Your company changed its terms just now. Nothing moved. Press Connect Account again.' };
   if (!r.ok && codeOf(r.because)) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', secretCode) };   // refused with a reason: nothing bound
   /* Refused on this computer before anything was sent (not connected to Kosmos+, a register or Forget out, no
      Kosmos+ here): certainly nothing was joined, and the ticket stays (review 27). */
@@ -545,8 +559,8 @@ async function enrollNow(code, accepted, opts) {
   const otherOrg = !!(org && opts && typeof opts.orgId === 'string' && opts.orgId && org.id !== opts.orgId);
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
-    if (review) return { ok: false, because: 'Your company did not confirm this Kosmos, so nothing changed. Press Accept again in a minute.' };
-    if (move) return { ok: false, because: NOCONFIRM + ' Press Join again in a minute.' };
+    if (review) return { ok: false, because: 'Your company did not confirm this Kosmos, so nothing changed. Kosmos tries again on its own.' };
+    if (move) return { ok: false, because: NOCONFIRM + ' Press Connect Account again in a minute.' };
     return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint }));
   }
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
@@ -571,8 +585,8 @@ async function enrollNow(code, accepted, opts) {
          Leave (review 12). A FIRST join is undone with a leave. A MOVE is not: the person was a member before, and a
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
-      if (review) return { ok: false, because: NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder, then press Accept again.' };
-      if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Join again.' };
+      if (review) return { ok: false, because: NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder; Kosmos then tries again on its own.' };
+      if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.' };
       return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint }));
     }
   }
@@ -951,5 +965,5 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };

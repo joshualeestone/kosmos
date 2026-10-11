@@ -471,6 +471,104 @@ test('#5532 wiring: a rollup refused because the company\'s words changed stops 
   assert.equal(t2.sent, false, 'a rollup went out after the words changed and before they were accepted again');
 });
 
+test('#5791: a rollup refused because the company changed its words takes the new ones on at once, with no code (CONTROL: the wiring test above, whose company serves no words, stays stopped)', async (t) => {
+  const root = world(t);
+  const H2 = 'cd'.repeat(32);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const refusing = { sent: c.sent, macRequest: async (m, route, body) => {
+    if (route === r.ROUTE) { c.sent.push({ route, body }); return { ok: false, because: '409 {"because":"org_consent_changed"}' }; }
+    const a = await c.macRequest(m, route, body);
+    if (route === oe.ROUTES.status) return { ok: true, data: Object.assign({}, a.data, { consent: { reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], backsUp: [], readers: ['you'], never: [] }, consentHash: H2 }) };
+    return a;
+  } };
+  const n = c.sent.length;
+  const t1 = await r.tick({ root, remote: refusing, sources: sources(), now: Date.UTC(2026, 9, 7, 12) });
+  assert.equal(t1.sent, false);
+  const reEnroll = c.sent.slice(n).find((x) => x.route === oe.ROUTES.enroll);
+  assert.ok(reEnroll && !('code' in reEnroll.body) && reEnroll.body.consentHash === H2, 'no codeless re-acceptance under the served hash: ' + JSON.stringify(c.sent.slice(n).map((x) => x.route)));
+  assert.equal(oe.readEnrollment({ root }).consentHash, H2, 'the new words are not on record');
+  assert.equal(oe.mayReport({ root }), true, 'the rollup is still not reporting');
+});
+
+test('#5791: a work Kosmos left with no terms on record asks for them again on its own, at most once per window, and reports once it has them', async (t) => {
+  const root = world(t);
+  const NEWHASH = 'cd'.repeat(32);
+  const TERMS = { reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], backsUp: [], readers: ['you'], never: ['keys and passwords'] };
+  let reachable = false;
+  const c = coordinator();
+  const remote = { sent: c.sent, macRequest: async (m, route, body) => {
+    if (route === oe.ROUTES.status) {
+      c.sent.push({ route, body });
+      if (!reachable) return { ok: false, because: 'the company could not be reached' };
+      const st = await c.macRequest(m, route, body);
+      c.sent.pop();
+      return { ok: true, data: Object.assign({}, st.data, { consent: TERMS, consentHash: NEWHASH }) };
+    }
+    return c.macRequest(m, route, body);
+  } };
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  // The company changed its terms, and the re-accept right after could not reach it: no terms on record here.
+  assert.equal(await oe.consentWithdrawn({ root }, HASH), true, 'precondition: the old terms are withdrawn');
+  assert.equal(oe.mayReport({ root }), false, 'precondition: nothing on record');
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  const statuses = () => c.sent.filter((x) => x.route === oe.ROUTES.status).length;
+  // Review 4: the ask runs before the run lock, so it must not read-modify-write the shared rollup state.
+  const stateFile = path.join(root, r.STATE_FILE);
+  fs.writeFileSync(stateFile, JSON.stringify({ marker: 'another run wrote this' }));
+  const t1 = await r.tick({ root, remote, sources: sources(), now: T0 });
+  assert.equal(t1.sent, false);
+  assert.equal(statuses(), 1, 'the first tick did not ask the company for its terms');
+  assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), { marker: 'another run wrote this' }, 'the ask rewrote the shared rollup state');
+  assert.ok(fs.existsSync(path.join(root, r.RETAKE_FILE)), 'the ask was not stamped in its own file');
+  reachable = true;
+  const t2 = await r.tick({ root, remote, sources: sources(), now: T0 + r.RETAKE_EVERY_MS - 60e3 });
+  assert.equal(t2.sent, false);
+  assert.equal(statuses(), 1, 'the company was asked again inside the window (a tick every few minutes would ask it every time)');
+  // Review 5: the first ask missed (no terms recorded), so the window doubled: not asked again at one window either.
+  await r.tick({ root, remote, sources: sources(), now: T0 + r.RETAKE_EVERY_MS + 60e3 });
+  assert.equal(statuses(), 1, 'asked again one window after a miss; the window did not double');
+  const t3 = await r.tick({ root, remote, sources: sources(), now: T0 + 2 * r.RETAKE_EVERY_MS + 60e3 });
+  assert.equal(statuses(), 2, 'the company was never asked again after the doubled window');
+  assert.equal(oe.readEnrollment({ root }).consentHash, NEWHASH, 'the terms the company serves now are not on record');
+  const lastEnroll = c.sent.filter((x) => x.route === oe.ROUTES.enroll).pop();
+  assert.ok(lastEnroll && !('code' in lastEnroll.body) && lastEnroll.body.consentHash === NEWHASH, 'the re-accept did not go out with no code under the served hash');
+  assert.equal(t3.sent, true, 'with the terms on record again, the rollup still did not go out: ' + JSON.stringify(t3));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, r.RETAKE_FILE), 'utf8')).misses, 0, 'a recorded answer did not reset the misses');
+});
+
+test('#5791 review 1: terms that ask for no reports are checked once a day; the same terms send nothing, new ones are taken on', async (t) => {
+  const root = world(t);
+  const LINE = 'agent names, the AI provider and model each uses, and whether each is working, waiting or stopped';
+  // Valid terms that ask for no reports (a backed-up line; terms with nothing at all are no terms, engine/orgenroll.js cleanConsent).
+  let served = { consent: { reports: [], backsUp: ['agent folders'], readers: ['you'], never: [] }, consentHash: HASH };
+  const c = coordinator();
+  const remote = { sent: c.sent, macRequest: async (m, route, body) => {
+    const a = await c.macRequest(m, route, body);
+    return route === oe.ROUTES.status ? { ok: true, data: Object.assign({}, a.data, served) } : a;
+  } };
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, []);
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  const asked = () => c.sent.filter((x) => x.route === oe.ROUTES.status).length;
+  const enrolls = () => c.sent.filter((x) => x.route === oe.ROUTES.enroll).length;
+  const e0 = enrolls();
+  await r.tick({ root, remote, sources: sources(), now: T0 });
+  assert.equal(asked(), 1, 'a Kosmos whose terms ask for no reports never asked whether they changed');
+  assert.equal(enrolls(), e0, 'the same terms were accepted again (an enroll every day for nothing)');
+  await r.tick({ root, remote, sources: sources(), now: T0 + r.RECHECK_NO_REPORTS_MS - 60e3 });
+  assert.equal(asked(), 1, 'asked again inside the day');
+  // The company now asks for reports, under new terms.
+  const H2 = 'cd'.repeat(32);
+  served = { consent: { reports: [LINE], backsUp: [], readers: ['you'], never: [] }, consentHash: H2 };
+  const t3 = await r.tick({ root, remote, sources: sources(), now: T0 + r.RECHECK_NO_REPORTS_MS + 60e3 });
+  assert.equal(asked(), 2, 'not asked again after the day');
+  assert.equal(oe.readEnrollment({ root }).consentHash, H2, 'the new terms were not taken on');
+  assert.equal(t3.sent, true, 'under terms that now ask for reports, no rollup went out: ' + JSON.stringify(t3));
+});
+
 test('#5532 rollup review 9: an agent whose provider is known only while it runs is still not a change on start or stop', async (t) => {
   const root = world(t);
   const c = coordinator();

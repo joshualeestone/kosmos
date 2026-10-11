@@ -30,8 +30,10 @@ function world(fetchImpl) {
 
 test('the control lives behind "Lost your phone?" under Plus, hidden until enrolled (#4080: a dialog, not the essay)', () => {
   const sec = PAGE.slice(PAGE.indexOf('id="s-sec-plus"'), PAGE.indexOf('</section>', PAGE.indexOf('id="plus-flow"')));
-  // #4080 (Josh, 22:06: the essay "probably doesnt belong on that page"): the pane carries one link, in the row that shows only when enrolled.
-  assert.match(sec, /<div class="plus-foot" id="plus-forget" hidden>[\s\S]*?id="plus-lost-open">Lost your phone\?<\/button>/, 'the Lost your phone? link is not in the enrolled-only bottom row');
+  // #4080 (Josh, 22:06: the essay "probably doesnt belong on that page"): the pane carries one link, in a block that shows only when enrolled.
+  // #5791 (Josh 10-10): out of the bottom row, into the devices block (also enrolled-only), under the device list.
+  assert.match(sec, /<div id="plus-devices" hidden[^>]*>[\s\S]*?id="plus-lost-open">Lost your phone\?<\/button>\s*<\/div>/, 'the Lost your phone? link is not in the enrolled-only devices block');
+  assert.doesNotMatch(sec.slice(sec.indexOf('id="plus-forget"'), sec.indexOf('id="plus-forget-ask"')), /plus-lost-open/, '#5791: the link is back in the bottom row');
   assert.doesNotMatch(sec, /<p class="setname">I lost my phone<\/p>/, 'the essay is back on the pane');
   const dAt = PAGE.indexOf('<div class="rm-back" id="plus-lost-modal" hidden>');
   const dlg = dAt > 0 ? PAGE.slice(dAt, PAGE.indexOf('</section>', dAt)) : '';
@@ -44,7 +46,7 @@ test('the control lives behind "Lost your phone?" under Plus, hidden until enrol
   // sentence used to say "this computer can ... Nobody else can", which read as this Mac alone.
   assert.match(sec2, /this computer, or any other computer connected to this account, can switch the second step off/, 'kosmos#3860: the sentence says only this computer can reset the step');
   const paint = SCRIPT.slice(SCRIPT.indexOf('async function paintPlus('), SCRIPT.indexOf("document.getElementById('plus-switch').addEventListener"));
-  assert.match(paint, /getElementById\('plus-forget'\); if \(fg\) fg\.hidden = r\.enrolled !== true/, 'the row with the link is not gated on enrolled; an unenrolled Mac cannot sign the request');
+  assert.match(paint, /getElementById\('plus-devices'\)\.hidden = r\.enrolled !== true/, 'the block with the link is not gated on enrolled; an unenrolled Mac cannot sign the request');
   assert.match(paint, /plusSecondDisarm\(\)/, 'a repaint leaves a half-taken click armed');
 });
 

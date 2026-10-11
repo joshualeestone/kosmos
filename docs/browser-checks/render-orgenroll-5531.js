@@ -1,34 +1,35 @@
 #!/usr/bin/env node
 /*
- * #5531 (Enterprise E0.2, umbrella #5529): Settings > Kosmos+ > Your company, the block where a person joins this
+ * #5531 (Enterprise E0.2, umbrella #5529), reshaped by #5791: Settings > Kosmos+, the block where a person joins this
  * Kosmos to a company. Runs the real page (web/index.html, file://) with fetch answered by a stand-in for the board's
  * /api/org routes, so nothing reaches a board or a coordinator, and drives the block directly.
  *
- *   O0  no company: only a one-line opener shows; no heading, code field, consent or joined line (10-08).
- *   O1  opened: the heading and the code field show; the consent and the joined line do not.
- *   O17 on a fresh page: a failed /api/org read still shows only the opener; an already joined Kosmos shows its joined
- *       view and heading at once, with no opener (review 1).
- *   O2  Check code shows the company, the role and the four consent lists, drawn as TEXT (a string with markup in it
- *       stays visible text, no element is made), and moves focus to Join.
- *   O3  Not now sends NOTHING more (no enroll request) and says nothing was sent about this Kosmos.
- *   O4  Join sends exactly { code, accepted: true, ticket } to /api/org/enroll, and the block then says this is the work Kosmos.
+ * #5791 (Josh 10-10): the company decided, so there is no consent preview. "Join Corporate Account" opens a code field
+ * with an X Cancel; Connect Account joins at once.
+ *
+ *   O0  no company: only the "Join Corporate Account" button shows; no heading, code field or joined line.
+ *   O1  opened: the X Cancel, the copy and the code field show, with no "Your company" heading and no opener.
+ *   O16 Cancel (and Escape) closes it, clears the code, sends nothing, and puts focus back on the button; an empty code
+ *       sends nothing and says what to do.
+ *   O2  Connect Account sends /api/org/preview { code } and then, with nothing shown between, exactly
+ *       { code, accepted: true, ticket } to /api/org/enroll; the block then says this is the work Kosmos, and never
+ *       mentions "other Kosmoses on this computer".
+ *   O3  a code the company refuses at the preview shows the refusal under the field, and nothing is enrolled.
+ *   O4  Enter in the code field connects too.
  *   O5  Leave asks first; Leave then posts /api/org/leave and the code field returns.
  *   O6  no page errors.
- *   O7  a member moving here sees the consent as a move, and Join sends no code.
- *   O8  a Kosmos the company stopped naming says so (stoppedFor from /api/org), as text.
+ *   O7  a member moving here joins with no code.
+ *   O8  a Kosmos the company stopped naming says so (stoppedFor from /api/org), as text; Cancel closes it for good.
  *   O9  a leave that ends only on this computer (localOnly) says the membership goes on, never "You left".
- *   O10 a company consent with an EMPTY never list still shows this Kosmos's own line: other Kosmoses are not part of it.
- *   O11 a leave refused before anything was done (the route's "not your work Kosmos", the screen check's { error })
- *       keeps the joined view and says why, never "stopped reporting" (#5531 review 19).
- *   O15 a joined Kosmos that sends nothing offers "Review what your company sees": the consent, Accept with no code, and a
- *       Not now that changes nothing; words open too long point back at the Review button; a Kosmos that reports is not
- *       offered it (#5531 follow-up).
- *   O14 a join whose outcome is not known yet, or whose undo is still to send, goes back to the code field and says so:
- *       the consent (and its "Not now", which would say nothing was joined) is gone (#5531 review 25).
- *   O12 a retried leave the company refused as the last admin (leaveRefused from /api/org) says so, as text, with the
- *       joined view back: the person was told it had stopped (#5531 review 21).
- *   O13 a company that SAID it backs up nothing (backsUpNone) gets "Nothing is backed up." under its heading, muted and
- *       unbulleted; an empty list it did not state (backsUpNone false) hides the group; with a list, the list.
+ *   O11 a leave refused before anything was done keeps the joined view and says why, never "stopped reporting".
+ *   O12 a retried leave the company refused as the last admin says so, as text, with the joined view back; an undo says
+ *       so in undo words; a Kosmos that does not report yet is never told it reports.
+ *   O14 an enroll whose outcome is not known yet, whose terms changed just then, or whose undo is still to send, says
+ *       so under the code field, which stays.
+ *   O15 a joined Kosmos that does not report yet offers no button (the board takes the terms on itself) and says
+ *       which wait it is in.
+ *   O17 on a fresh page: a failed /api/org read still shows only the button; an already joined Kosmos shows its joined
+ *       view and heading at once; a company note opens the block.
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -42,7 +43,7 @@ function chk(ok, label, extra) {
 }
 
 const CONSENT = {
-  reports: ['agent names, the AI provider and model each uses', 'project names <b>bold?</b>'],
+  reports: ['agent names, the AI provider and model each uses', 'project names'],
   backsUp: ['agent folders and their files', 'transcripts'],
   readers: ['you', "your company's recovery role, only by restoring it, and every restore is logged and shown to you"],
   never: ['your other Kosmoses on this computer', 'keys and passwords'],
@@ -56,13 +57,15 @@ function harness() {
     window.fetch = async (url, init) => {
       const u = String(url);
       const body = init && init.body ? JSON.parse(init.body) : null;
-      if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
-      if (u.endsWith('/api/org/preview') && window.__reviewRefuse) return enc(window.__reviewRefuse);
-      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : window.__noBackup ? Object.assign({}, consent, { backsUp: [], backsUpNone: window.__noBackup === 'said' }) : consent, ticket: 't-' + Date.now() }, window.__review ? { move: true, review: true } : window.__move ? { move: true } : {}));
-      if (u.endsWith('/api/org/enroll')) return enc(window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
-      if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
+      if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body, at: performance.now() });
+      if (u.endsWith('/api/org/preview') && window.__previewAnswer) return enc(window.__previewAnswer);
+      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
+      // The stand-in remembers a join and a leave, so the page's read-back after either answers as the engine would.
+      if (u.endsWith('/api/org/enroll')) { const a = window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' }; if (a.ok) window.__joined = true; return enc(a); }
+      if (u.endsWith('/api/org/leave')) { const a = window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }); if (a.ok) window.__joined = false; return enc(a); }
       if (u.endsWith('/api/org') && window.__orgFail) throw new Error('offline');
       if (u.endsWith('/api/org') && window.__orgState) return enc(window.__orgState);
+      if (u.endsWith('/api/org') && window.__joined && !window.__refused) return enc({ enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-10T00:00:00.000Z' });
       if (u.endsWith('/api/org')) return enc(window.__refused
         ? { enrolled: true, reporting: window.__notReporting !== true && window.__printWait !== true, reportingWait: window.__printWait === true ? 'print' : null, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
         : { enrolled: false, stoppedFor: window.__stopped || null, leaveRefused: null, org: null, role: null, enrolledAt: null });
@@ -73,6 +76,7 @@ function harness() {
   };
 }
 const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementById(i); return !!el && !el.hidden && el.getClientRects().length > 0; }, id);
+const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textContent, id);
 
 (async () => {
   const browser = await chromium.launch();
@@ -89,98 +93,137 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     // Wait for the paint itself (review 1): the page's first read of /api/org, then a frame.
     await page.waitForFunction(() => (window.__org || []).some((x) => x.path === '/api/org' && x.method === 'GET'), null, { timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(200);
-    // A person with no company sees ONE quiet line, not an Enterprise box (Splinter/Josh 10-08, before 0.7.29 ships).
-    const o0 = { opener: await shown(page, 'plus-org-open'), heading: await shown(page, 'plus-org-title'), out: await shown(page, 'plus-org-out'), consent: await shown(page, 'plus-org-consent'), in: await shown(page, 'plus-org-in') };
-    chk(o0.opener && !o0.heading && !o0.out && !o0.consent && !o0.in, 'O0 no company: only the one-line opener shows, no "Your company" box', JSON.stringify(o0));
+    const sentSince = (n) => page.evaluate((k) => window.__org.slice(k).filter((x) => x.method === 'POST'), n);
+    const mark = () => page.evaluate(() => window.__org.length);
+    // Connect with a code and wait until the press settles: joined, or a line under the field.
+    const connect = async (code) => {
+      await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+      await page.fill('#plus-org-code', code);
+      await page.click('#plus-org-check');
+      await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden || document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    };
+    const leave = async () => {   // settles on the leave's own answer: a line still on screen from before must not count
+      await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+      await page.click('#plus-org-leave');
+      await page.click('#plus-org-leave-yes');
+      await page.waitForFunction(() => !document.getElementById('plus-org-out').hidden || document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    };
+
+    // O0: a person with no company sees ONE button (Josh 10-10: outlined, with a tiny icon), not an Enterprise box.
+    const o0 = { opener: await shown(page, 'plus-org-open'), label: (await text(page, 'plus-org-open')).trim(), icon: await page.evaluate(() => !!document.querySelector('#plus-org-open svg')),
+      outlined: await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('plus-org-open')); return cs.borderStyle !== 'none' && parseFloat(cs.borderWidth) > 0; }),
+      heading: await shown(page, 'plus-org-title'), out: await shown(page, 'plus-org-out'), in: await shown(page, 'plus-org-in') };
+    chk(o0.opener && o0.label === 'Join Corporate Account' && o0.icon && o0.outlined && !o0.heading && !o0.out && !o0.in,
+      'O0 no company: only the outlined "Join Corporate Account" button, with its icon', JSON.stringify(o0));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-opener.png') });
+
     await page.click('#plus-org-open');
     await page.waitForFunction(() => { const el = document.getElementById('plus-org-out'); return el && !el.hidden && el.getClientRects().length > 0; }, null, { timeout: 10000 }).catch(() => {});
-    const o1 = { out: await shown(page, 'plus-org-out'), consent: await shown(page, 'plus-org-consent'), in: await shown(page, 'plus-org-in'), heading: await shown(page, 'plus-org-title'), opener: await shown(page, 'plus-org-open') };
-    chk(o1.out && o1.heading && !o1.opener && !o1.consent && !o1.in, 'O1 opened: the heading and code field show, and neither the consent nor the joined line', JSON.stringify(o1));
+    const o1 = { out: await shown(page, 'plus-org-out'), cancel: await shown(page, 'plus-org-cancel'), cancelText: (await text(page, 'plus-org-cancel')).replace(/\s+/g, ' ').trim(),
+      copy: await page.evaluate(() => document.getElementById('plus-org-out').textContent.replace(/\s+/g, ' ')), button: (await text(page, 'plus-org-check')).trim(),
+      placeholder: await page.getAttribute('#plus-org-code', 'placeholder'), focus: await page.evaluate(() => document.activeElement && document.activeElement.id),
+      in: await shown(page, 'plus-org-in'), heading: await shown(page, 'plus-org-title'), opener: await shown(page, 'plus-org-open') };
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-connect.png') });
+    chk(o1.out && o1.cancel && o1.cancelText === '✕ Cancel' && o1.copy.includes("Enter your company's code to connect your Kosmos to your corporate enterprise account.")
+        && o1.button === 'Connect Account' && o1.placeholder === 'Company code' && o1.focus === 'plus-org-code' && !o1.heading && !o1.opener && !o1.in,
+      'O1 opened: X Cancel, the copy, the code field (focused) and Connect Account; no heading, no button, no joined line', JSON.stringify(o1));
 
-    await page.fill('#plus-org-code', 'ACME-JOIN-1234');
+    // O16: Cancel closes and clears; Escape in the field does the same; an empty code says what to do. Nothing is posted.
+    const m16 = await mark();
+    await page.fill('#plus-org-code', 'HALF-TYPED');
+    await page.click('#plus-org-cancel');
+    const c1 = { out: await shown(page, 'plus-org-out'), opener: await shown(page, 'plus-org-open'), code: await page.inputValue('#plus-org-code'), focus: await page.evaluate(() => document.activeElement && document.activeElement.id) };
+    await page.click('#plus-org-open');
+    await page.fill('#plus-org-code', 'HALF-TYPED');
+    await page.press('#plus-org-code', 'Escape');
+    const c2 = { out: await shown(page, 'plus-org-out'), opener: await shown(page, 'plus-org-open'), code: await page.inputValue('#plus-org-code') };
+    await page.click('#plus-org-open');
     await page.click('#plus-org-check');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    const o2 = await page.evaluate(() => ({
-      ask: document.getElementById('plus-org-ask').textContent,
-      reports: [...document.querySelectorAll('#plus-org-reports li')].map((li) => li.textContent),
-      readers: [...document.querySelectorAll('#plus-org-readers li')].length,
-      never: [...document.querySelectorAll('#plus-org-never li')].length,
-      bold: document.querySelectorAll('#plus-org-reports b').length,
-      local: (() => { const el = document.getElementById('plus-org-local'); return !!el && el.getClientRects().length > 0 && /other Kosmoses on this computer/.test(el.textContent); })(),
-      focus: document.activeElement && document.activeElement.id,
-      outHidden: document.getElementById('plus-org-out').hidden,
+    const empty = await text(page, 'plus-org-msg');
+    const posted16 = await sentSince(m16);
+    chk(!c1.out && c1.opener && c1.code === '' && c1.focus === 'plus-org-open' && !c2.out && c2.opener && c2.code === ''
+        && empty === 'Type or paste the code your company sent you.' && posted16.length === 0,
+      'O16 Cancel and Escape close and clear, focus returns to the button; an empty code says what to do; nothing is posted', JSON.stringify({ c1, c2, empty, posted16 }));
+
+    // O3: the company refuses the code at the preview: its sentence under the field, and no enroll.
+    await page.evaluate(() => { window.__previewAnswer = { ok: false, because: 'That code has expired. Ask your company for a new one.' }; });
+    const m3 = await mark();
+    await connect('ACME-OLD-0001');
+    const o3 = { msg: await text(page, 'plus-org-msg'), sent: (await sentSince(m3)).map((x) => x.path), out: await shown(page, 'plus-org-out'), in: await shown(page, 'plus-org-in') };
+    chk(o3.msg === 'That code has expired. Ask your company for a new one.' && JSON.stringify(o3.sent) === '["/api/org/preview"]' && o3.out && !o3.in,
+      'O3 a code refused at the preview says why under the field, and nothing is enrolled', JSON.stringify(o3));
+    await page.evaluate(() => { window.__previewAnswer = null; });
+
+    // O2: Connect Account: preview, then enroll with exactly { code, accepted: true, ticket }, nothing shown between.
+    const m2 = await mark();
+    const between = page.evaluate(() => new Promise((res) => {   // anything the page shows while the two calls run
+      const seen = []; const ob = new MutationObserver(() => { const o = document.getElementById('plus-org');
+        seen.push([...o.querySelectorAll('ul, li, [id*="consent"]')].filter((e) => e.getClientRects().length > 0).length); });
+      ob.observe(document.getElementById('plus-org'), { subtree: true, childList: true, attributes: true, characterData: true });
+      setTimeout(() => { ob.disconnect(); res(seen); }, 1500);
     }));
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-consent.png') });
-    chk(/Acme invites you to join\. Joining makes this Kosmos your work Kosmos\. Here is what that means:/.test(o2.ask) && o2.reports.length === 2 && o2.reports[1].includes('<b>bold?</b>') && o2.bold === 0
-        && o2.readers === 2 && o2.never === 2 && o2.focus === 'plus-org-join' && o2.outHidden && o2.local,
-      'O2 Check code shows the company and the four lists as text (markup stays text), with focus on Join', JSON.stringify(o2));
-
-    const before = await page.evaluate(() => window.__org.length);
-    await page.click('#plus-org-notnow');
-    const o3 = await page.evaluate((n) => ({ sent: window.__org.slice(n), msg: document.getElementById('plus-org-msg').textContent, consent: !document.getElementById('plus-org-consent').hidden }), before);
-    chk(o3.sent.length === 0 && /none of this Kosmos's data was sent/.test(o3.msg) && !o3.consent,
-      'O3 Not now sends nothing more and says so', JSON.stringify(o3));
-
-    await page.click('#plus-org-check');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    await page.click('#plus-org-join');
-    await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden);
-    const o4 = await page.evaluate(() => ({ enroll: window.__org.filter((r) => r.path === '/api/org/enroll'), say: document.getElementById('plus-org-say').textContent }));
+    await connect('ACME-JOIN-1234');
+    const shownBetween = await between;
+    const o2 = { sent: await sentSince(m2), say: await text(page, 'plus-org-say'), block: await page.evaluate(() => document.getElementById('plus-org').textContent),
+      heading: await shown(page, 'plus-org-title'), out: await shown(page, 'plus-org-out'), code: await page.inputValue('#plus-org-code') };
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-joined.png') });
-    chk(o4.enroll.length === 1 && o4.enroll[0].body.code === 'ACME-JOIN-1234' && o4.enroll[0].body.accepted === true && /^t-/.test(o4.enroll[0].body.ticket) && Object.keys(o4.enroll[0].body).length === 3
-        && /work Kosmos for Acme/.test(o4.say),
-      'O4 Join sends exactly { code, accepted: true, ticket }, and the block says this is the work Kosmos', JSON.stringify(o4));
+    const [pv, en] = o2.sent;
+    chk(o2.sent.length === 2 && pv.path === '/api/org/preview' && JSON.stringify(pv.body) === '{"code":"ACME-JOIN-1234"}'
+        && en.path === '/api/org/enroll' && en.body.code === 'ACME-JOIN-1234' && en.body.accepted === true && /^t-/.test(en.body.ticket) && Object.keys(en.body).length === 3
+        && shownBetween.every((n) => n === 0) && /work Kosmos for Acme/.test(o2.say) && !/other Kosmoses/.test(o2.block) && o2.heading && !o2.out && o2.code === '',
+      'O2 Connect Account previews, then enrolls with exactly { code, accepted: true, ticket }, shows nothing between, and says this is the work Kosmos',
+      JSON.stringify({ sent: o2.sent.map((x) => [x.path, x.body]), shownBetween, say: o2.say }));
+
+    // O2b (review 3): after the join the page reads the engine's own answer (whether it reports yet) at once.
+    await page.waitForFunction((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m2, { timeout: 3000 }).catch(() => {});
+    const reads2 = await page.evaluate((k) => window.__org.slice(k).filter((x) => x.path === '/api/org' && x.method === 'GET').length, m2);
+    chk(reads2 >= 1, 'O2 after joining, the page reads the engine\'s answer at once (no 5-second repaint here: setInterval is stubbed)', JSON.stringify({ reads2 }));
 
     await page.click('#plus-org-leave');
     const asked = await shown(page, 'plus-org-leave-ask');
-    const leftBefore = await page.evaluate(() => window.__org.filter((r) => r.path === '/api/org/leave').length);
+    const m5 = await mark();
     await page.click('#plus-org-leave-yes');
     await page.waitForFunction(() => !document.getElementById('plus-org-out').hidden);
-    const o5 = await page.evaluate(() => ({ leave: window.__org.filter((r) => r.path === '/api/org/leave').length, msg: document.getElementById('plus-org-msg').textContent }));
-    chk(asked && leftBefore === 0 && o5.leave === 1 && /You left/.test(o5.msg), 'O5 Leave asks first, then leaves, and the code field returns', JSON.stringify({ asked, leftBefore, ...o5 }));
+    const o5 = { leave: (await sentSince(m5)).filter((r) => r.path === '/api/org/leave').length, msg: await text(page, 'plus-org-msg') };
+    chk(asked && o5.leave === 1 && /You left/.test(o5.msg), 'O5 Leave asks first, then leaves, and the code field returns', JSON.stringify({ asked, ...o5 }));
 
-    // O7: already a member of that company: the same consent, worded as a move, and Join sends no code.
+    // O4: Enter in the code field connects, the same two calls.
+    const m4 = await mark();
+    await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-4444');
+    await page.press('#plus-org-code', 'Enter');
+    await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden, null, { timeout: 5000 }).catch(() => {});
+    const o4 = (await sentSince(m4)).map((x) => x.path);
+    chk(JSON.stringify(o4) === '["/api/org/preview","/api/org/enroll"]' && await shown(page, 'plus-org-in'), 'O4 Enter in the code field connects', JSON.stringify(o4));
+    await leave();
+
+    // O7: already a member of that company: the join is a move, and the enroll carries no code.
     await page.evaluate(() => { window.__move = true; });
-    await page.fill('#plus-org-code', 'ACME-JOIN-9999');
-    await page.click('#plus-org-check');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    const askMove = await page.evaluate(() => document.getElementById('plus-org-ask').textContent);
-    await page.click('#plus-org-join');
-    await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden);
-    const lastEnroll = await page.evaluate(() => window.__org.filter((r) => r.path === '/api/org/enroll').at(-1));
-    chk(/already in Acme\. Make this Kosmos your work Kosmos/.test(askMove) && lastEnroll.body.accepted === true && !('code' in lastEnroll.body) && /^t-/.test(lastEnroll.body.ticket),
-      'O7 a member moving here sees the consent as a move, and Join sends no code', JSON.stringify({ askMove, lastEnroll }));
+    const m7 = await mark();
+    await connect('ACME-JOIN-9999');
+    const e7 = (await sentSince(m7)).find((r) => r.path === '/api/org/enroll');
+    chk(!!e7 && e7.body.accepted === true && !('code' in e7.body) && /^t-/.test(e7.body.ticket) && await shown(page, 'plus-org-in'),
+      'O7 a member moving here joins with no code', JSON.stringify(e7));
+    await page.evaluate(() => { window.__move = false; });
 
     // O9: the company enrolls another world or computer, so leave ends only here: the membership goes on.
     await page.evaluate(() => { window.__localOnly = true; });
-    await page.click('#plus-org-leave');
-    await page.click('#plus-org-leave-yes');
-    await page.waitForFunction(() => !document.getElementById('plus-org-out').hidden);
-    const o9 = await page.evaluate(() => document.getElementById('plus-org-msg').textContent);
+    await leave();
+    const o9 = await text(page, 'plus-org-msg');
     chk(o9 === 'This Kosmos has stopped reporting. You are still in Acme: your work Kosmos is elsewhere, so leave from there.' && !/You left/.test(o9),
       'O9 a leave that ends only on this computer says the membership goes on', JSON.stringify(o9));
     await page.evaluate(() => { window.__localOnly = false; });
 
     // O11: joined again, then each refusal that changed nothing: the joined view stays, and the message is the refusal.
-    for (const [refusal, want] of [[{ ok: false, because: 'This Kosmos is not your work Kosmos. Leave from your work Kosmos.' }, 'This Kosmos is not your work Kosmos. Leave from your work Kosmos.'],
-      [{ error: 'This screen could not be checked. Reload the page.' }, 'This screen could not be checked. Reload the page.']]) {
-      await page.fill('#plus-org-code', 'ACME-JOIN-1234');
-      await page.click('#plus-org-check');
-      await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-      await page.click('#plus-org-join');
-      await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden);
+    for (const refusal of [{ ok: false, because: 'This Kosmos is not your work Kosmos. Leave from your work Kosmos.' }, { error: 'This screen could not be checked. Reload the page.' }]) {
+      await connect('ACME-JOIN-1234');
       await page.evaluate((x) => { window.__leaveRefused = x; document.getElementById('plus-org-msg').textContent = ''; }, refusal);
-      await page.click('#plus-org-leave');
-      await page.click('#plus-org-leave-yes');
-      await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '');
-      const o11 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, joined: !document.getElementById('plus-org-in').hidden, out: !document.getElementById('plus-org-out').hidden }));
-      chk(o11.msg === want && o11.joined && !o11.out && !/stopped reporting/.test(o11.msg),
+      await leave();
+      const o11 = { msg: await text(page, 'plus-org-msg'), joined: await shown(page, 'plus-org-in'), out: await shown(page, 'plus-org-out') };
+      chk(o11.msg === (refusal.because || refusal.error) && o11.joined && !o11.out && !/stopped reporting/.test(o11.msg),
         'O11 a leave refused before anything was done keeps the joined view and says why (' + Object.keys(refusal).join('+') + ')', JSON.stringify(o11));
-      // Back to not joined for the checks below.
       await page.evaluate(() => { window.__leaveRefused = null; });
-      await page.click('#plus-org-leave');
-      await page.click('#plus-org-leave-yes');
-      await page.waitForFunction(() => !document.getElementById('plus-org-out').hidden);
+      await leave();
     }
 
     // O12: a leave retried later was refused as the last admin: the next read says so once, and the joined view is back.
@@ -189,30 +232,27 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const o12 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, bold: document.querySelectorAll('#plus-org-msg b').length, joined: !document.getElementById('plus-org-in').hidden }));
     chk(o12.msg === 'Your leave from Acme <b>Co</b> was refused: you are its last admin. This Kosmos is your work Kosmos again and reports to it.' && o12.bold === 0 && o12.joined,
       'O12 a retried leave refused as the last admin says so, as text, with the joined view back', JSON.stringify(o12));
-    // O12b (review 31): an UNDO refused as the last admin says so in undo words, never "your leave was refused".
+    // An UNDO refused as the last admin says so in undo words, never "your leave was refused" (review 31).
     await page.evaluate(() => { window.__refusedUndo = true; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line'; plusOrgMaybe(); });
     await page.waitForFunction(() => /could not undo/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
-    const o12b = await page.evaluate(() => document.getElementById('plus-org-msg').textContent);
+    const o12b = await text(page, 'plus-org-msg');
     chk(o12b === 'Your company could not undo joining Acme <b>Co</b>: you are its last admin. This Kosmos is your work Kosmos and reports to it.',
       'O12 an undo refused as the last admin says so in undo words, not as a refused leave', JSON.stringify(o12b));
-    // O12c (review 33): when this Kosmos may not report (no consent recorded here), the note never says it reports.
+    // A Kosmos that does not report yet is never told it reports (review 33); #5791: it waits for the company's terms.
     await page.evaluate(() => { window.__notReporting = true; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line'; plusOrgMaybe(); });
-    await page.waitForFunction(() => /sends your company nothing/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
-    const o12c = await page.evaluate(() => document.getElementById('plus-org-msg').textContent);
-    const say12c = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
-    chk(/sends your company nothing: its words were not accepted on this computer\.$/.test(o12c) && !/reports to it/.test(o12c) && !/until you accept/.test(o12c)
-      && /It sends your company nothing/.test(say12c),
-      'O12 a Kosmos that may not report is never told it reports, and its joined view says it sends nothing', JSON.stringify({ o12c, say12c }));
-    // O12d (rollup review 29): a Kosmos whose words ARE accepted but whose rollup waits for the computer's identity is
-    // never told its words were not accepted; it is told it reports once that is read. CONTROL: O12c above.
+    await page.waitForFunction(() => /current terms/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+    const o12c = { msg: await text(page, 'plus-org-msg'), say: await text(page, 'plus-org-say') };
+    chk(/It reports to your company once Kosmos has your company's current terms\.$/.test(o12c.msg) && !/reports to it\./.test(o12c.msg)
+        && /It reports to your company once Kosmos has your company's current terms\./.test(o12c.say) && !/not accepted|Review/.test(o12c.msg + o12c.say),
+      'O12 a Kosmos that does not report yet is never told it reports, and is told it waits for the company\'s terms', JSON.stringify(o12c));
+    // CONTROL (rollup review 29): one waiting for this computer's identity is told that, not that it waits for terms.
     await page.evaluate(() => { window.__notReporting = false; window.__printWait = true; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line'; plusOrgMaybe(); });
     await page.waitForFunction(() => /identity/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
-    const o12d = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, say: document.getElementById('plus-org-say').textContent }));
-    chk(/It reports to your company once it has read this computer's identity\.$/.test(o12d.msg) && !/not accepted/.test(o12d.msg)
-      && /once it has read this computer's identity/.test(o12d.say) && !/not accepted/.test(o12d.say),
-      'O12 a Kosmos waiting for the computer\'s identity is told it reports once that is read, never that its words were not accepted', JSON.stringify(o12d));
-    await page.evaluate(() => { window.__printWait = false; });
-    await page.evaluate(() => { window.__notReporting = false; window.__refused = null; window.__refusedUndo = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
+    const o12d = { msg: await text(page, 'plus-org-msg'), say: await text(page, 'plus-org-say') };
+    chk(/It reports to your company once it has read this computer's identity\.$/.test(o12d.msg) && !/current terms/.test(o12d.msg)
+        && /once it has read this computer's identity/.test(o12d.say) && !/current terms/.test(o12d.say),
+      'O12 a Kosmos waiting for the computer\'s identity is told that, never that it waits for terms', JSON.stringify(o12d));
+    await page.evaluate(() => { window.__printWait = false; window.__notReporting = false; window.__refused = null; window.__refusedUndo = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.
     await page.evaluate(() => { window.__stopped = 'Acme <i>Co</i>'; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line still on screen'; plusOrgMaybe(); });
@@ -220,71 +260,63 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const o8 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, italics: document.querySelectorAll('#plus-org-msg i').length, out: !document.getElementById('plus-org-out').hidden }));
     chk(o8.msg === 'This Kosmos is no longer the work Kosmos for Acme <i>Co</i>, so it has stopped reporting.' && o8.italics === 0 && o8.out,
       'O8 a Kosmos the company stopped naming says so, as text, with the code field back', JSON.stringify(o8));
+    // O8b (#5791 review 1): Cancel closes the pane a company note opened, and the next read does not open it again.
+    await page.click('#plus-org-cancel');
+    await page.evaluate(() => { PLUS_ORG.at = 0; plusOrgMaybe(); });
+    await page.waitForFunction(() => (window.__org || []).filter((x) => x.path === '/api/org' && x.method === 'GET').length > 0, null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const o8b = { out: await shown(page, 'plus-org-out'), opener: await shown(page, 'plus-org-open'), msg: await text(page, 'plus-org-msg') };
+    chk(!o8b.out && o8b.opener && o8b.msg === '', 'O8 Cancel closes a pane a company note opened, and the next read leaves it closed', JSON.stringify(o8b));
+    // Review 2: once the engine no longer carries that note, a later stop by the same company shows again.
+    await page.evaluate(() => { window.__stopped = null; PLUS_ORG.at = 0; plusOrgMaybe(); });
+    await page.waitForTimeout(300);
+    await page.evaluate(() => { window.__stopped = 'Acme <i>Co</i>'; PLUS_ORG.at = 0; plusOrgMaybe(); });
+    await page.waitForFunction(() => /no longer the work Kosmos/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 3000 }).catch(() => {});
+    const o8c = { out: await shown(page, 'plus-org-out'), msg: await text(page, 'plus-org-msg') };
+    chk(o8c.out && /no longer the work Kosmos for Acme/.test(o8c.msg), 'O8 a later stop by the same company shows again after the first note was closed', JSON.stringify(o8c));
+    await page.click('#plus-org-cancel');
+    await page.evaluate(() => { window.__stopped = null; PLUS_ORG.at = 0; plusOrgMaybe(); });
+    await page.waitForTimeout(300);
+    await page.click('#plus-org-open');
 
-    // O10: the company sends no "never" lines; this Kosmos's own promise still shows under Never.
-    await page.evaluate(() => { window.__noNever = true; document.getElementById('plus-org-msg').textContent = ''; });
-    await page.fill('#plus-org-code', 'ACME-JOIN-5555');
-    await page.click('#plus-org-check');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    const o10 = await page.evaluate(() => ({
-      items: document.querySelectorAll('#plus-org-never li').length,
-      local: (() => { const el = document.getElementById('plus-org-local'); return !!el && el.getClientRects().length > 0; })(),
-    }));
-    chk(o10.items === 0 && o10.local, 'O10 an empty never list still shows this Kosmos\'s own line', JSON.stringify(o10));
-    await page.click('#plus-org-notnow');
-
-    // O14: an unknown outcome and an undo still to send each go back to the code field, with the engine's sentence.
+    // O14: an enroll that did not join says why under the field, which stays, and the joined view does not show.
     for (const ans of [{ ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes; if joining went through, this screen will show it.' },
-      { ok: false, code: 'org_consent_changed', because: 'Your company changed what it would see since you checked. Nothing was joined. Check the code again to read the new words.' },
+      { ok: false, code: 'org_consent_changed', because: 'Your company changed its terms just now. Nothing was joined. Press Connect Account again.' },
       { ok: false, code: 'org_undo_pending', because: 'Your company did not confirm this Kosmos, so it is not your work Kosmos. Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' }]) {
-      await page.evaluate((a) => { window.__enrollAnswer = a; document.getElementById('plus-org-msg').textContent = ''; }, ans);
-      await page.fill('#plus-org-code', 'ACME-JOIN-8888');
-      await page.click('#plus-org-check');
-      await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-      await page.click('#plus-org-join');
-      await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '');
-      const o14 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, consent: !document.getElementById('plus-org-consent').hidden, out: !document.getElementById('plus-org-out').hidden }));
-      chk(o14.msg === ans.because && !o14.consent && o14.out, 'O14 ' + ans.code + ' goes back to the code field and says so, with no consent (or Not now) left', JSON.stringify(o14));
+      await page.evaluate((a) => { window.__enrollAnswer = a; }, ans);
+      await connect('ACME-JOIN-8888');
+      const o14 = { msg: await text(page, 'plus-org-msg'), out: await shown(page, 'plus-org-out'), in: await shown(page, 'plus-org-in'), code: await page.inputValue('#plus-org-code') };
+      // Review 5: a spent code (outcome unknown, undo pending) leaves the field; a refusal that joined nothing keeps it.
+      const spent = ans.code === 'org_join_unknown' || ans.code === 'org_undo_pending';
+      chk(o14.msg === ans.because && o14.out && !o14.in && o14.code === (spent ? '' : 'ACME-JOIN-8888'),
+        'O14 ' + ans.code + ' says so under the code field, nothing shows as joined, and the field ' + (spent ? 'is cleared' : 'keeps the code'), JSON.stringify(o14));
     }
     await page.evaluate(() => { window.__enrollAnswer = null; });
 
-    // O13: a stated empty backsUp says "Nothing is backed up." under its heading; an unstated empty one hides the group.
-    // CONTROL: with the base consent's list, the list shows and the none line does not.
-    const backup = () => page.evaluate(() => ({ shown: !document.getElementById('plus-org-backsup').parentElement.hidden,
-      items: [...document.querySelectorAll('#plus-org-backsup li')].map((li) => li.textContent) }));
-    await page.evaluate(() => { window.__noNever = false; window.__noBackup = 'said'; document.getElementById('plus-org-msg').textContent = ''; });
-    await page.fill('#plus-org-code', 'ACME-JOIN-6666');
-    await page.click('#plus-org-check');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    const none = await backup();
-    const look = await page.evaluate(() => { const li = document.querySelector('#plus-org-backsup li.plus-org-none'); return li ? getComputedStyle(li).listStyleType : 'no line'; });
-    await page.click('#plus-org-notnow');
-    // Not stated (a missing field or lines cleaned to nothing reach the page as an empty list without the flag): hidden.
-    await page.evaluate(() => { window.__noBackup = 'unsaid'; });
-    await page.fill('#plus-org-code', 'ACME-JOIN-6667');
-    await page.click('#plus-org-check');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    const unsaid = await backup();
-    await page.click('#plus-org-notnow');
-    await page.evaluate(() => { window.__noBackup = false; });
-    await page.fill('#plus-org-code', 'ACME-JOIN-7777');
-    await page.click('#plus-org-check');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    const some = await backup();
-    await page.click('#plus-org-notnow');
-    chk(none.shown && none.items.length === 1 && none.items[0] === 'Nothing is backed up.' && look === 'none'
-      && !unsaid.shown && unsaid.items.length === 0
-      && some.shown && some.items.length === 2 && !some.items.includes('Nothing is backed up.'),
-      'O13 a stated empty backsUp says nothing is backed up (unbulleted); an unstated one hides; a list shows the list', JSON.stringify({ none, look, unsaid, some }));
+    // O15: a joined Kosmos that does not report yet has no button to press (the board takes the terms on itself), and
+    // says which wait it is in. CONTROL: one that reports says nothing more.
+    const joinedAs = (st) => page.evaluate((s) => { PLUS_ORG.at = Date.now(); PLUS_ORG.state = Object.assign({ enrolled: true, org: { name: 'Acme', slug: 'acme' }, role: 'member' }, s);
+      document.getElementById('plus-org-msg').textContent = ''; plusOrgPaint();
+      return { say: document.getElementById('plus-org-say').textContent,
+        buttons: [...document.querySelectorAll('#plus-org-in button')].filter((b) => b.getClientRects().length > 0).map((b) => b.textContent.trim()) }; }, st);
+    const o15 = { reporting: await joinedAs({ reporting: true }), terms: await joinedAs({ reporting: false, reportingWait: null }), print: await joinedAs({ reporting: false, reportingWait: 'print' }),
+      printError: await joinedAs({ reporting: false, reportingWait: 'printError' }), noReports: await joinedAs({ reporting: false, reportingWait: 'noReports' }) };
+    chk(o15.reporting.say === 'This Kosmos is your work Kosmos for Acme.'
+        && /once Kosmos has your company's current terms\.$/.test(o15.terms.say)
+        && /once it has read this computer's identity\.$/.test(o15.print.say)
+        && /cannot report to your company yet: Kosmos could not check this computer\.$/.test(o15.printError.say)
+        && /Your company asks it to report nothing\.$/.test(o15.noReports.say)
+        && Object.values(o15).every((v) => JSON.stringify(v.buttons) === '["Leave company"]'),
+      'O15 a joined Kosmos says which wait it is in, and offers only Leave company', JSON.stringify(o15));
+    await page.evaluate(() => { PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
-
-    // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the opener. (b) This Kosmos is
-    // already its company's work Kosmos: the heading and the joined view show at once, no opener.
+    // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the button. (b) This Kosmos is
+    // already its company's work Kosmos: the heading and the joined view show at once, no button. (c) A company note
+    // opens the block on its own (review 3).
     for (const [label, init, want] of [
       ['a read that fails', () => { window.__orgFail = true; }, { opener: true, title: false, out: false, in: false }],
       ['already joined', () => { window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-07T00:00:00.000Z' }; }, { opener: false, title: true, out: false, in: true }],
-      // (c) review 3: a company note opens the block on its own: the company stopped naming this Kosmos.
-      ['a company note (stopped)', () => { window.__stopped = 'Acme'; }, { opener: false, title: true, out: true, in: false }]]) {
+      ['a company note (stopped)', () => { window.__stopped = 'Acme'; }, { opener: false, title: false, out: true, in: false }]]) {
       const p2 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
       p2.on('pageerror', (e) => errs.push('O17 ' + label + ': ' + e.message));   // into O6, below
       await p2.addInitScript(harness(), [CONSENT]);
@@ -298,138 +330,6 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       chk(JSON.stringify(got) === JSON.stringify(want), 'O17 ' + label + ': ' + JSON.stringify(want), JSON.stringify(got));
       await p2.close();
     }
-    // O15: a joined Kosmos that sends nothing (its words were not accepted here) offers "Review what your company sees":
-    // the consent shows in place of the joined view, Accept sends no code, and Not now changes nothing.
-    // CONTROL: a Kosmos that reports does not offer it.
-    const joined = (reporting) => page.evaluate((rep) => { PLUS_ORG.at = Date.now(); PLUS_ORG.preview = null;
-      PLUS_ORG.state = { enrolled: true, reporting: rep, org: { name: 'Acme', slug: 'acme' }, role: 'member' };
-      document.getElementById('plus-org-msg').textContent = ''; plusOrgPaint(); }, reporting);
-    await joined(true);
-    const offeredWhenReporting = await shown(page, 'plus-org-review');
-    await joined(false);
-    const offered = await shown(page, 'plus-org-review');
-    // What the engine answers when the page reads back after a refusal: still joined, still sending nothing.
-    const JOINED_SILENT = { enrolled: true, reporting: false, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-01T00:00:00.000Z' };
-    await page.evaluate((st) => { window.__orgState = st; }, JOINED_SILENT);
-    await page.evaluate(() => { window.__review = true; });
-    await page.click('#plus-org-review');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    const rv = await page.evaluate(() => ({ ask: document.getElementById('plus-org-ask').textContent, join: document.getElementById('plus-org-join').textContent,
-      inView: !document.getElementById('plus-org-in').hidden, codeField: !document.getElementById('plus-org-out').hidden,
-      sent: window.__org.filter((x) => x.path === '/api/org/preview').pop() }));
-    await page.click('#plus-org-notnow');
-    const nn = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, inView: !document.getElementById('plus-org-in').hidden,
-      consent: !document.getElementById('plus-org-consent').hidden, enrolls: window.__org.filter((x) => x.path === '/api/org/enroll').length }));
-    // An Accept refused because the words were open too long points at the Review button, never at a code.
-    await page.evaluate(() => { window.__enrollAnswer = { ok: false, code: 'org_ticket', because: 'Check the code again first, so you can read what your company would see.' }; });
-    await page.click('#plus-org-review');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    await page.click('#plus-org-join');
-    await page.waitForFunction(() => document.getElementById('plus-org-consent').hidden);
-    const late = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent,
-      review: (() => { const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; })() }));
-    // Any other refusal with a reason (one the page does not list) also brings back the joined view and its Review button.
-    await page.evaluate(() => { window.__enrollAnswer = { ok: false, code: 'org_bad_world', because: 'Your company did not take the acceptance. Nothing changed on this computer. Press Review what your company sees to try again.' };
-      document.getElementById('plus-org-msg').textContent = ''; });
-    await page.click('#plus-org-review');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    await page.click('#plus-org-join');
-    await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '');
-    const other = await page.evaluate(() => ({ consent: !document.getElementById('plus-org-consent').hidden,
-      review: (() => { const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; })() }));
-    // org_not_here (the record went while the words were open): the view is read back, so the joined view and its
-    // Review button go, and the refusal's own line stays (review 7).
-    await page.evaluate(() => { window.__enrollAnswer = { ok: false, code: 'org_not_here', because: 'This Kosmos is no longer your work Kosmos, so nothing was sent.' };
-      window.__orgState = { enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null };
-      PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; PLUS_ORG.at = Date.now(); plusOrgPaint(); });
-    await page.click('#plus-org-review');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    await page.click('#plus-org-join');
-    await page.waitForFunction(() => document.getElementById('plus-org-in').hidden && document.getElementById('plus-org-consent').hidden, null, { timeout: 5000 }).catch(() => {});
-    const gone = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, inView: !document.getElementById('plus-org-in').hidden,
-      codeField: !document.getElementById('plus-org-out').hidden }));
-    // A refused Review press (another screen accepted meanwhile: "already reports") reads the state back too, keeping its
-    // line: the button and "sends nothing" go (review 9).
-    await page.evaluate(() => { window.__reviewRefuse = { ok: false, because: 'This Kosmos already has its company\'s words accepted here.' };
-      window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-01T00:00:00.000Z' };
-      PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; PLUS_ORG.at = Date.now(); PLUS_ORG.preview = null;
-      document.getElementById('plus-org-msg').textContent = ''; plusOrgPaint(); });
-    await page.click('#plus-org-review');
-    await page.waitForFunction(() => document.getElementById('plus-org-review').hidden, null, { timeout: 5000 }).catch(() => {});
-    const already = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, review: !document.getElementById('plus-org-review').hidden,
-      say: document.getElementById('plus-org-say').textContent }));
-    await page.evaluate(() => { window.__reviewRefuse = null; });
-    await page.evaluate((st) => { window.__orgState = st; }, JOINED_SILENT);
-    await page.evaluate(() => { window.__enrollAnswer = null; PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; plusOrgPaint(); });
-    const enrollsBefore = await page.evaluate(() => window.__org.filter((x) => x.path === '/api/org/enroll').length);
-    await page.click('#plus-org-review');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    // The engine now says it reports; the page must learn that by reading it back, not by assuming it (review 6).
-    const readsBefore = await page.evaluate(() => { window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-01T00:00:00.000Z' };
-      return window.__org.filter((x) => x.path === '/api/org' && x.method === 'GET').length; });
-    await page.click('#plus-org-join');
-    await page.waitForFunction(() => document.getElementById('plus-org-consent').hidden);
-    await page.waitForFunction((n) => window.__org.filter((x) => x.path === '/api/org' && x.method === 'GET').length > n, readsBefore, { timeout: 5000 }).catch(() => {});
-    await page.waitForFunction(() => document.getElementById('plus-org-review').hidden, null, { timeout: 5000 }).catch(() => {});
-    const acc = await page.evaluate((n) => ({ enroll: window.__org.filter((x) => x.path === '/api/org/enroll'), inView: !document.getElementById('plus-org-in').hidden,
-      join: document.getElementById('plus-org-join').textContent, reread: window.__org.filter((x) => x.path === '/api/org' && x.method === 'GET').length > n,
-      reviewGone: document.getElementById('plus-org-review').hidden, say: document.getElementById('plus-org-say').textContent }), readsBefore);
-    const last = acc.enroll[acc.enroll.length - 1];
-    chk(!offeredWhenReporting && offered && JSON.stringify(rv.sent.body) === '{"review":true}' && rv.join === 'Accept' && !rv.inView && !rv.codeField
-      && /^This is what Acme asks of this Kosmos/.test(rv.ask)
-      && nn.msg === 'Nothing changed on this computer.' && nn.inView && !nn.consent
-      && late.msg === 'These words were open too long. Press Review what your company sees to read them again.' && late.review
-      && !other.consent && other.review
-      && gone.msg === 'This Kosmos is no longer your work Kosmos, so nothing was sent.' && !gone.inView && gone.codeField
-      && already.msg === 'This Kosmos already has its company\'s words accepted here.' && !already.review && !/sends your company nothing/.test(already.say)
-      && acc.enroll.length === enrollsBefore + 1 && last.body.accepted === true && !('code' in last.body) && typeof last.body.ticket === 'string'
-      && acc.inView && acc.join === 'Join with this Kosmos' && acc.reread && acc.reviewGone && !/sends your company nothing/.test(acc.say),
-      'O15 a Kosmos that sends nothing reviews its company\'s words and accepts them with no code; Not now changes nothing; one that reports is not offered it',
-      JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, other, gone, already, last, acc: { inView: acc.inView, join: acc.join, reread: acc.reread, reviewGone: acc.reviewGone, say: acc.say } }));
-    // O15b (orgreview review 11): a review of words that say "Nothing is backed up." shows that line, as a code's consent
-    // does (the hash Accept records includes it), and the block stays open with the opener hidden while it is read.
-    // CONTROL: words with a backed-up list show the list.
-    const reviewBackup = async (said) => {
-      await page.evaluate((st) => { window.__orgState = st; PLUS_ORG.at = Date.now(); PLUS_ORG.state = st; PLUS_ORG.preview = null; document.getElementById('plus-org-msg').textContent = ''; plusOrgPaint(); }, JOINED_SILENT);
-      await page.evaluate((x) => { window.__review = true; window.__noBackup = x; }, said);
-      await page.click('#plus-org-review');
-      await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-      const got = await page.evaluate(() => ({ items: [...document.querySelectorAll('#plus-org-backsup li')].map((li) => li.textContent),
-        opener: !document.getElementById('plus-org-open').hidden, title: !document.getElementById('plus-org-title').hidden }));
-      await page.click('#plus-org-notnow');
-      return got;
-    };
-    // O15c (#5532 review 29): a Kosmos whose words are accepted and that only waits for this computer's identity is
-    // not offered Review (the engine refuses it as already reporting). CONTROL: the same view without the wait offers it.
-    const offeredWhen = (wait) => page.evaluate((w) => { PLUS_ORG.preview = null; PLUS_ORG.state = { enrolled: true, reporting: false, reportingWait: w, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; plusOrgPaint();
-      const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; }, wait);
-    const reviewWhenPrintWait = await offeredWhen('print');
-    // #5532 reviews 31, 32: words accepted that ask for no reports are said as that (never "not accepted"), and Review is
-    // offered (it is how such a Kosmos learns its company's words changed).
-    const reviewWhenNoReports = await offeredWhen('noReports');
-    const sayNoReports = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
-    // Rollup review 35: opening Review for words that ask for no reports does not promise reporting.
-    await page.evaluate(() => { window.__review = true; });
-    await page.click('#plus-org-review');
-    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
-    const askNoReports = await page.evaluate(() => document.getElementById('plus-org-ask').textContent);
-    await page.click('#plus-org-notnow');
-    await page.evaluate(() => { window.__review = false; });
-    chk(/Accept what it asks now:$/.test(askNoReports) && !/so this Kosmos can report/.test(askNoReports), 'O15c the Review prompt for words that ask for no reports promises no reporting', JSON.stringify(askNoReports));
-    // Rollup review 34: a print that cannot be made at all: not offered Review, and said as that (never "once it has read").
-    const reviewWhenPrintError = await offeredWhen('printError');
-    const sayPrintError = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
-    chk(!reviewWhenPrintError && /cannot report to your company yet/.test(sayPrintError) && !/once it has read/.test(sayPrintError),
-      'O15c a print that cannot be made is said as that, with no Review', JSON.stringify({ reviewWhenPrintError, sayPrintError }));
-    const reviewWhenNoWords = await offeredWhen(null);
-    chk(!reviewWhenPrintWait && reviewWhenNoReports && reviewWhenNoWords && /words ask it to report nothing/.test(sayNoReports) && !/not accepted/.test(sayNoReports),
-      'O15c Review is not offered while waiting for the computer\'s identity; it is for words that ask for no reports (the way to new words), said as that', JSON.stringify({ reviewWhenPrintWait, reviewWhenNoReports, sayNoReports, reviewWhenNoWords }));
-    const rvNone = await reviewBackup('said');
-    const rvList = await reviewBackup(false);
-    chk(rvNone.items.length === 1 && rvNone.items[0] === 'Nothing is backed up.' && !rvNone.opener && rvNone.title
-      && rvList.items.length === 2 && !rvList.items.includes('Nothing is backed up.'),
-      'O15b a review of words that back up nothing says "Nothing is backed up.", with the block open', JSON.stringify({ rvNone, rvList }));
-    await page.evaluate(() => { window.__review = false; window.__noBackup = false; window.__orgState = null; PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.preview = null; plusOrgPaint(); });
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {

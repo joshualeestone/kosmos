@@ -187,7 +187,7 @@ test('#5531 (review 15): already in that company at Join, the code is refused an
   const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
   assert.equal(r.ok, false, JSON.stringify(r));
   assert.equal(r.code, 'org_already_member');
-  assert.match(r.because, /Check the code again/);
+  assert.match(r.because, /Press Connect Account again/);   // #5791: no words to read; connect again
   assert.equal(sent.length, 1, 'the enrollment was moved on a first-join consent: ' + JSON.stringify(sent));
   assert.equal(org.isEnrolledHere({ root: a }), false);
   // The member's own path still moves, with no code, once the page has shown the move wording.
@@ -938,12 +938,12 @@ test('#5531 follow-up b review 1: an enroll refused because the words changed sa
   assert.deepEqual(asked, [org.ROUTES.enroll], 'status was asked about a join the company refused outright');
 });
 
-test('#5531 follow-up b review 2: a MOVE refused because the words changed says to type the code again (it typed none)', async (t) => {
+test('#5531 follow-up b review 2: a MOVE refused because the words changed says to connect again (#5791: no words to read)', async (t) => {
   const { a } = sandbox(t);
   const co = { macRequest: async (m, route) => (route === org.ROUTES.enroll ? { ok: false, because: '409 {"because":"org_consent_changed"}' } : { ok: true, data: { member: false } }) };
   const r = await org.enroll(null, true, { root: a, remote: co, consentHash: 'ab'.repeat(32) });
   assert.equal(r.code, 'org_consent_changed', JSON.stringify(r));
-  assert.match(r.because, /Nothing moved\. Type your join code again/, r.because);
+  assert.match(r.because, /Nothing moved\. Press Connect Account again/, r.because);
 });
 
 test('#5531 follow-up b review 3: what the enrollment records is exactly the hash the enroll sent', async (t) => {
@@ -1040,15 +1040,15 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   const lostAnswer = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => { lost.push(route);
     return route === org.ROUTES.enroll ? { ok: false, because: 'the tunnel program did not answer in time' } : withConsent().macRequest(m, route); } } });
   assert.equal(lostAnswer.ok, false, 'a lost Accept was taken as accepted: ' + JSON.stringify(lostAnswer));
-  assert.match(lostAnswer.because, /press Accept again/);
+  assert.match(lostAnswer.because, /tries again on its own/);
   assert.equal(org.mayReport({ root: a }), false, 'a lost Accept let this Kosmos report');
   assert.deepEqual(lost, [org.ROUTES.enroll], 'a lost Accept asked the company and trusted a "here" that was true before');
   // Every refusal of a review's Accept is said in review words: never a code to type, never "Nothing was joined" (review 2).
   for (const [ans, want] of [
-    [{ ok: false, because: '409 {"because":"org_consent_changed"}' }, /changed what it asks.*Press Review what your company sees/],
+    [{ ok: false, because: '409 {"because":"org_consent_changed"}' }, /changed its terms again.*tries again on its own/],
     [{ ok: false, because: '403 {"because":"org_not_member"}' }, /no longer in it\. Nothing changed/],
-    [{ ok: false, because: '400 {"because":"org_bad_world"}' }, /did not take the acceptance.*Press Review what your company sees/],
-    [{ ok: false, notSent: true, because: 'not connected' }, /Nothing was sent; press Accept again/]]) {
+    [{ ok: false, because: '400 {"because":"org_bad_world"}' }, /did not take the acceptance.*tries again on its own/],
+    [{ ok: false, notSent: true, because: 'not connected' }, /Nothing was sent; Kosmos tries again on its own/]]) {
     const refused = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => (route === org.ROUTES.enroll ? ans : withConsent().macRequest(m, route)) } });
     assert.equal(refused.ok, false, JSON.stringify(refused));
     assert.match(refused.because, want, JSON.stringify(ans));
@@ -1112,4 +1112,39 @@ test('#5685: a reviewer invite is offered with its role, and a role the coordina
   assert.equal(r.role, 'reviewer');
   const bad = await org.preview('ACME-JOIN-1234', { root: a, remote: as('auditor') });
   assert.equal(bad.ok, false, 'an unknown role was offered');
+});
+
+test('#5791: when the company changes its words, the board takes the new ones on itself (no screen) and binds their hash', async (t) => {
+  const { a } = sandbox(t);
+  const H1 = 'a'.repeat(64), H2 = 'b'.repeat(64);
+  const NEW = Object.assign({}, CONSENT, { reports: CONSENT.reports.concat(['the day you were last active']) });
+  const sent = [];
+  let served = H2;
+  const remote = { macRequest: async (m, route, body) => {
+    sent.push({ route, body: body == null ? null : JSON.parse(JSON.stringify(body)) });
+    if (route === org.ROUTES.redeem) return { ok: true, data: { org: ORG, role: 'member', consent: CONSENT, consentHash: H1 } };
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root: a }), thisComputer: true }, consent: NEW, ...(served ? { consentHash: served } : {}) } };
+    return { ok: false, because: 'unexpected ' + route };
+  } };
+  const opts = { root: a, remote };
+  const j = await org.enroll('ACME-JOIN-1234', true, Object.assign({}, opts, { consentHash: H1, consent: CONSENT, orgId: ORG.id }));
+  assert.equal(j.ok, true, JSON.stringify(j));
+  assert.equal(org.readEnrollment(opts).consentHash, H1);
+  assert.equal(await org.consentWithdrawn(opts, H1), true, 'precondition: the old words are withdrawn');
+  const before = sent.length;
+  const r = await org.reacceptWords(opts);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const e = sent.slice(before).find((x) => x.route === org.ROUTES.enroll);
+  assert.ok(e, 'no enroll was sent');
+  assert.equal(e.body.consentHash, H2, 'the enroll did not carry the hash the company serves now');
+  assert.ok(!('code' in e.body), 'a re-acceptance must send no code');
+  assert.equal(org.readEnrollment(opts).consentHash, H2, 'the new words are not on record');
+  // CONTROL: a company that serves no hash gets no blind re-acceptance; nothing is sent.
+  assert.equal(await org.consentWithdrawn(opts, H2), true);
+  served = null;
+  const n = sent.length;
+  const r2 = await org.reacceptWords(opts);
+  assert.equal(r2.ok, false, JSON.stringify(r2));
+  assert.equal(sent.slice(n).filter((x) => x.route === org.ROUTES.enroll).length, 0, 'an enroll was sent with no hash to echo');
 });

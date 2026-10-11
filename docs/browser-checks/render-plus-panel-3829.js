@@ -294,19 +294,29 @@ const STATES = {
              "Devices that can reach this computer" sits close under the sign-in box and the bottom row follows the list. */
           const gap = await page.evaluate(() => { const r = (el) => el.getBoundingClientRect(); const rows = [...document.querySelectorAll('#plus-devlist > *')].filter((e) => r(e).height > 0);
             return { top: Math.round(r(document.querySelector('#plus-devices .setname')).top - r(document.getElementById('plus-chip')).bottom),
-              /* #5531: the company section sits between the list and the foot; measure the foot from it when it shows, and it from the list. */
-              org: (() => { const o = document.getElementById('plus-org'); return o && r(o).height > 0 && rows.length ? Math.round(r(o).top - r(rows[rows.length - 1]).bottom) : null; })(),
-              bottom: rows.length ? Math.round(r(document.getElementById('plus-forget')).top - (() => { const o = document.getElementById('plus-org'); return o && r(o).height > 0 ? r(o) : r(rows[rows.length - 1]); })().bottom) : null }; });
+              /* #5531: the company section sits between the list and the foot; measure the foot from it when it shows, and it from the list.
+                 #5791: "Lost your phone?" now closes the devices block, so the list ends at it when it shows. */
+              org: (() => { const o = document.getElementById('plus-org'); const l = document.getElementById('plus-lost-open'); const end = l && r(l).height > 0 ? r(l) : rows.length ? r(rows[rows.length - 1]) : null;
+                return o && r(o).height > 0 && end ? Math.round(r(o).top - end.bottom) : null; })(),
+              bottom: rows.length ? Math.round(r(document.getElementById('plus-forget')).top - (() => { const o = document.getElementById('plus-org'); const l = document.getElementById('plus-lost-open');
+                return o && r(o).height > 0 ? r(o) : l && r(l).height > 0 ? r(l) : r(rows[rows.length - 1]); })().bottom) : null }; });
           chk(gap.top <= 20 && gap.bottom !== null && gap.bottom <= 22 && (gap.org === null || gap.org <= 22), `${t} the pane keeps the mock's spacing: no empty gap above the devices or below the list`, JSON.stringify(gap));
-          /* #4080: the bottom row, left to right: Remove this computer (red), Lost your phone?, View account. */
+          /* #4080: the bottom row: Remove this computer (red) at left, View account at right. #5791 (Josh 10-10): "Lost your
+             phone?" left that row; it sits in "Devices that can reach this computer", under the list, where a lost device is
+             looked for. */
           const foot = await page.evaluate(() => {
-            const r = (id) => { const e = document.getElementById(id); if (!e || e.closest('[hidden]')) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), text: e.textContent.trim(), color: getComputedStyle(e).color }; };
-            return { remove: r('plus-forget-go'), lost: r('plus-lost-open'), account: r('plus-account') };
+            const r = (id) => { const e = document.getElementById(id); if (!e || e.closest('[hidden]')) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), bottom: Math.round(b.bottom), text: e.textContent.trim(), color: getComputedStyle(e).color }; };
+            const rows = [...document.querySelectorAll('#plus-devlist > *')].filter((e) => e.getBoundingClientRect().height > 0);
+            const lostEl = document.getElementById('plus-lost-open');
+            return { remove: r('plus-forget-go'), lost: r('plus-lost-open'), account: r('plus-account'), inDevices: !!(lostEl && lostEl.closest('#plus-devices')), inFoot: !!(lostEl && lostEl.closest('#plus-forget')),
+              listBottom: rows.length ? Math.round(rows[rows.length - 1].getBoundingClientRect().bottom) : null };
           });
           const red = (c) => { const m = (c || '').match(/\d+/g) || []; return m.length >= 3 && Number(m[0]) > Number(m[1]) + 60 && Number(m[0]) > Number(m[2]) + 60; };
-          chk(foot.remove && foot.lost && foot.account && foot.remove.text === 'Remove this computer' && foot.account.text === 'View account'
-            && Math.abs(foot.remove.y - foot.account.y) <= 6 && foot.remove.x < foot.lost.x && foot.lost.x < foot.account.x && red(foot.remove.color),
-            `${t} #4080: the bottom row reads Remove this computer (red) at left, Lost your phone?, then View account at right`, JSON.stringify(foot));
+          chk(foot.remove && foot.account && foot.remove.text === 'Remove this computer' && foot.account.text === 'View account'
+            && Math.abs(foot.remove.y - foot.account.y) <= 6 && foot.remove.x < foot.account.x && red(foot.remove.color),
+            `${t} #4080: the bottom row reads Remove this computer (red) at left, then View account at right`, JSON.stringify(foot));
+          chk(foot.lost && foot.lost.text === 'Lost your phone?' && foot.inDevices && !foot.inFoot && foot.listBottom !== null && foot.lost.y >= foot.listBottom && foot.lost.bottom <= foot.remove.y,
+            `${t} #5791: Lost your phone? sits under the device list, off the bottom row`, JSON.stringify(foot));
           /* "Lost your phone?" opens the reset in a dialog, focus on Close; Escape closes it and focus comes back. */
           await page.click('#plus-lost-open');
           await page.waitForTimeout(150);
