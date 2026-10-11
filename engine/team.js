@@ -273,7 +273,12 @@ function createTeam(opts, deps) {
        BY the team, so a member that tries to name its own createdBy/purpose does
        not get to overwrite the truth -- the team is the authority on who built it
        and why, which is exactly the record's value. */
-    const out = doCreate(Object.assign({}, member, { createdBy: creator, purpose }));
+    /* #4475: `createdByName` is the exact token name of an agent that asked on its own token (not the person, not the
+       setup guide, which makes agents on the person's behalf), and `askedAt` when it asked; null otherwise. Set here
+       for every member, so a member cannot set them. The removal route lets that agent remove what it made. */
+    const byName = (opts.fromAgent === true && opts.fromGuide !== true && typeof opts.creatorTokenName === 'string' && opts.creatorTokenName) ? opts.creatorTokenName : null;
+    const askedAt = (byName && typeof opts.askedAt === 'string' && opts.askedAt) ? opts.askedAt : null;
+    const out = doCreate(Object.assign({}, member, { createdBy: creator, purpose, createdByName: byName, askedAt }));
     const memberName = String((member.name !== undefined && member.name !== null) ? member.name : '').slice(0, 120) || null;
     if (out && out.outcome === 'created') {
       /* The id is read back from the profile by the agent's canonical NAME (the
