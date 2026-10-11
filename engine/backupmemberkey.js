@@ -39,8 +39,8 @@ const backupkeys = require('./backupkeys');
 
 const BACKUP_KEY_ROUTE = '/v1/org/backup-key';
 const MEMBER_KEY_ROUTE = '/v1/org/backup/member-key';
-// The context id rule engine/backupkeys.js and the coordinator's keywrap share: 1 to 128 of letters, digits, . _ : -
-const ID = /^[A-Za-z0-9._:-]{1,128}$/;
+// The context id rule the wrap itself checks (engine/backupkeys.js, as the coordinator's keywrap valid_id).
+const ID = backupkeys.ID_RE;
 const EPOCH_MAX = Number.MAX_SAFE_INTEGER;
 
 function dir() { return path.join(store.ROOT, 'backupkeys'); }
@@ -77,7 +77,8 @@ function writeKeys(org, member, keys) {
   require('./securewrite').writeSecret(fileFor(org, member), JSON.stringify({ org, member, keys: out }), 0o600, { atomicOnly: true });
 }
 
-/* The backup-key answer, checked: { org, member, orgPublic } or null. */
+/* The backup-key answer, checked: { org, member, orgPublic } or null. Its `epoch` is the COMPANY key's epoch (1; the
+   coordinator wraps every member epoch to it, memberkey.rs), not the member's, so it is not read. */
 function companyOf(data) {
   if (!data || typeof data !== 'object') return null;
   const orgPublic = unb64(data.public_key);
@@ -142,6 +143,8 @@ async function ensureNow(opts) {
         refreshed = true;
         const now = readKeys(company.org, company.member);
         if (!now.ok) return { ok: false, because: 'the backup key file on this computer could not be read; it was left as it is' };
+        const theirsNow = Object.keys(now.keys).map(Number).sort((a, b) => b - a).find((e) => now.keys[e].registered);
+        if (theirsNow !== undefined) return { ok: true, epoch: theirsNow, publicKey: now.keys[theirsNow].pk };
         keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
         writeKeys(company.org, company.member, keys);
         continue;
@@ -170,7 +173,8 @@ async function ensureNow(opts) {
       moved = true;
     }
   } catch (err) {
-    return { ok: false, because: 'the backup key could not be set up: ' + String((err && err.message) || err) };
+    // A fixed sentence and the error code only: a file error's message carries the full path, home folder included.
+    return { ok: false, because: 'the backup key could not be set up on this computer' + (err && typeof err.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(err.code) ? ' (' + err.code + ')' : '') };
   }
 }
 

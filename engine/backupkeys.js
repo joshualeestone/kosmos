@@ -184,6 +184,8 @@ module.exports = {
   unwrapMemberKey,
   wrapNamingKey,
   unwrapNamingKey,
+  // The context id rule (org, member, epoch), so a caller checks an id the same way the wrap does (kosmos#5744).
+  ID_RE,
   // The associated-data bytes, exported for any other implementation of the unwrap service to match.
   memberContextBytes: memberContext,
   namingContextBytes: namingContext,
