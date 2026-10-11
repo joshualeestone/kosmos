@@ -20,6 +20,8 @@ Card #5842 (filed by Baron from the #5805 limittask review). Slice 1 of 2.
 - Rejected: showing `summary` or the reasons verbatim (above); a per-agent list UI (one line is enough for an exception the person rarely sees).
 - Weakest premise: the generic failure sentence drops the specific cause (a question waiting in the agent's window, say), so the person learns that it failed but not why. The agent's own page shows its state, and a person who wants detail can open it. If people ask "why", the next step is a short, page-written reason per known cause, not the board's text.
 - Deferred (review 4): "out of usage until <time>" is not refreshed, so a person who leaves the task open past the reset still reads it. It describes the moment of the send, sits under the message just sent, and clears on the next send or task change. A timer to rewrite it is more machinery than the line is worth.
+- Kept-behind wording is cross-checked against engine/messages.js by a test that arms itself once heldReceipt lands with limittask-5805 (review 6).
+- Deferred (review 6): aria-live "polite" for this line. #tk-say-msg also carries real send errors, which should stay assertive; splitting the element is more than this slice needs.
 - Also: role="alert" on #tk-say-msg announces "gets it later" as loudly as a failure. Left as is: both change what the person should expect.
 
 ## Slice 2 (waits on limittask-5805, Baron)

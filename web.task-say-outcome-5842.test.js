@@ -110,6 +110,15 @@ test('#5842: a message kept for an agent out of usage says when, in local time, 
   assert.doesNotMatch(r.said + behind.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
 });
 
+test('#5842: the board still words a line kept behind earlier ones as the page reads it (armed once heldReceipt exists)', () => {
+  /* The page tells "kept behind earlier lines" from the board's wording, since the task route does not forward
+     `behind`. A reworded reason falls to a sentence that stays true, but this keeps the two in step. heldReceipt
+     arrives with limittask-5805 (#5805): until then engine/messages.js has none, and this asserts that and no more. */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'messages.js'), 'utf8');
+  if (!/function heldReceipt\(/.test(src)) { assert.doesNotMatch(src, /still has messages kept/); return; }
+  assert.match(src, /still has messages kept from while it was out of usage/, 'heldReceipt reworded the kept-behind reason; update tkSayPost\'s match');
+});
+
 test('#5842: a delivery Kosmos could not confirm is never claimed either way', async () => {
   const r = await send([{ agent: 'casey', state: 'unconfirmed', because: 'part of it reached its window before the send failed, so it may be sitting there half-typed' }, { agent: 'dana' }]);
   assert.equal(r.said, 'Kosmos could not confirm that casey got it. Kosmos could not confirm that dana got it.');
