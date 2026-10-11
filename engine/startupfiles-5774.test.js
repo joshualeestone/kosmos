@@ -690,3 +690,38 @@ test('#5774 part 2 review 13: dangling chains and relative links in linked folde
   setup.guardTokenOnlyFolder(d, 'pilot-sshrc', { ...DEPS, env: ENV0 });
   assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, '.ssh', 'rc')).length > 0, '~/.ssh/rc');
 });
+
+test('#5774 part 2 review 14: one-line conditional forms are read; a read-only target linked INSIDE a startup folder is not listed', () => {
+  const zshenv = path.join(HOME, '.zshenv');
+  const forms = [['[[ -z $ZDOTDIR ]] && export ZDOTDIR=$HOME/.zc1', '.zc1'], ['typeset -x ZDOTDIR=$HOME/.zc2', '.zc2'],
+    ['export A=1 ZDOTDIR=$HOME/.zc3', '.zc3'], [': ${ZDOTDIR:=$HOME/.zc4}', '.zc4']];
+  try {
+    forms.forEach(([line, folder], i) => {
+      fs.writeFileSync(zshenv, line + '\n');
+      const d = agentDir('pilot-oneline' + i);
+      const g = setup.guardTokenOnlyFolder(d, path.basename(d), { ...DEPS, env: ENV0 });
+      assert.equal(g.ok, true, `${line}: ` + JSON.stringify(g));
+      assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, folder, '.zshrc')).length > 0, `${line}: ${folder} not denied`);
+    });
+    // CONTROL: a comment that mentions it is not read.
+    fs.writeFileSync(zshenv, '# export ZDOTDIR=$HOME/.zc5\n');
+    const d5 = agentDir('pilot-oneline5');
+    setup.guardTokenOnlyFolder(d5, 'pilot-oneline5', { ...DEPS, env: ENV0 });
+    assert.deepEqual(editDeniedBy(readSettings(d5).permissions.deny, path.join(HOME, '.zc5', '.zshrc')), []);
+  } finally { fs.rmSync(zshenv, { force: true }); }
+  // home-manager links a file inside fish's folder into a read-only store: the store path is not listed.
+  const fishDir = path.join(HOME, '.config', 'fish');
+  fs.mkdirSync(fishDir, { recursive: true });
+  const storeFile = path.join(SANDBOX, 'nix14', 'h1-config.fish');
+  touch(storeFile);
+  const link = path.join(fishDir, 'config14.fish');
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(storeFile, link);
+  try {
+    const dir = agentDir('pilot-inside14');
+    setup.guardTokenOnlyFolder(dir, 'pilot-inside14', { ...DEPS, env: ENV0, readOnlyTarget: (p) => p.includes('h1-config.fish') });
+    const s = readSettings(dir);
+    assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes('h1-config.fish')), 'a read-only store path inside a startup folder was listed');
+    assert.ok(editDeniedBy(s.permissions.deny, link).length > 0, "the link itself, by its folder's rule");
+  } finally { fs.rmSync(link, { force: true }); }
+});

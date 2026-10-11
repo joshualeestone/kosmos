@@ -1254,17 +1254,24 @@ function foldersOf(value, home, xdgs, zdotNow = []) {
    null for a value with a quote in the middle (review 2: ZDOTDIR="$HOME"/.zsh must not read as "$HOME"). */
 function assignmentsIn(text, name) {
   const out = [];
-  // Review 6: at the very start of a line only. Indented ones sit in if-blocks, functions or here-documents, which
-  // this does not evaluate; reading them would make a guard not whole over a mention (stated under Gaps).
-  /* Review 11: a value of joined quoted and bare parts with no space ("$HOME"/.zsh, the spelling shellcheck nudges
-     toward) is unquoted part by part. A quoted ~ stays literal and a single-quoted $ is not expanded, so either makes
-     the value one this cannot read (null, named). A space inside quotes is part of the value and is read. */
-  for (const m of String(text).matchAll(new RegExp(`^(?:export[ \\t]+)?${name}=((?:"[^"]*"|'[^']*'|[^\\s;#"']+)*)([^\\s;#]*)`, 'gm'))) {
-    if (m[2]) { out.push(null); continue; }   // an unbalanced quote or a quote mid-part
-    const parts = [...m[1].matchAll(/"([^"]*)"|'([^']*)'|([^"']+)/g)];
-    if (parts.length && (parts[0][1] !== undefined || parts[0][2] !== undefined) && /^~/.test(parts[0][1] ?? parts[0][2])) { out.push(null); continue; }
-    if (parts.some((q) => q[2] !== undefined && q[2].includes('$'))) { out.push(null); continue; }
-    out.push(parts.map((q) => q[1] ?? q[2] ?? q[3]).join(''));
+  /* Review 14: anywhere on a TOP-LEVEL line (not indented, not a comment): `export A=1 ZDOTDIR=x`,
+     `[[ -z $ZDOTDIR ]] && export ZDOTDIR=x`, `typeset -x ZDOTDIR=x`, and `: ${ZDOTDIR:=x}`. A conditional means "this
+     or what it was", and both are covered. Indented lines (if-blocks, functions, here-documents) stay unread (review 6). */
+  const val = '((?:"[^"]*"|\'[^\']*\'|[^\\s;#"\'&|)]+)*)([^\\s;#&|)]*)';
+  for (const line of String(text).split('\n')) {
+    if (!line || /^[\s#]/.test(line)) continue;
+    const forms = [new RegExp(`(?:^|[\\s;&|(])${name}=${val}`, 'g'), new RegExp(`\\$\\{${name}:?=([^}]*)\\}()`, 'g')];
+    for (const re of forms) {
+      for (const m of line.matchAll(re)) {
+        if (m[2]) { out.push(null); continue; }   // an unbalanced quote or a quote mid-part
+        /* Review 11: a value of joined quoted and bare parts with no space ("$HOME"/.zsh) is unquoted part by part. A
+           quoted ~ stays literal and a single-quoted $ is not expanded, so either is named; a quoted space is read. */
+        const parts = [...m[1].matchAll(/"([^"]*)"|'([^']*)'|([^"']+)/g)];
+        if (parts.length && (parts[0][1] !== undefined || parts[0][2] !== undefined) && /^~/.test(parts[0][1] ?? parts[0][2])) { out.push(null); continue; }
+        if (parts.some((q) => q[2] !== undefined && q[2].includes('$'))) { out.push(null); continue; }
+        out.push(parts.map((q) => q[1] ?? q[2] ?? q[3]).join(''));
+      }
+    }
   }
   return out;
 }
@@ -1299,6 +1306,15 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
     }
   }
   return res;
+}
+/* Review 13: "cannot write" means truly read-only: not writable now, NOT owned by this user (an owner can chmod it back),
+   and in a folder this user cannot write (a replace by rename needs only that). A read-only store is exactly that. */
+function isReadOnlyTarget(p) {
+  let st;
+  try { st = fs.statSync(p); } catch { return false; }   // absent: the agent could create it
+  try { fs.accessSync(p, fs.constants.W_OK); return false; } catch { /* not writable now */ }
+  if (typeof process.getuid === 'function' && st.uid === process.getuid()) return false;
+  try { fs.accessSync(path.dirname(p), fs.constants.W_OK); return false; } catch { return true; }
 }
 /* Startup code outside the home folder that the user, not root, can write (review 3): Homebrew's zsh site-functions
    (on zsh's default fpath, run on tab-complete in the person's own terminal) and fish's vendor folders, which fish
@@ -1403,8 +1419,11 @@ function shellStartPaths(home, env, opts = {}) {
      shape; such a Cellar is found from the target itself and gets the same one stable rule. */
   const cellarOf = (t) => { const m = /^(.*\/(?:Cellar|Caskroom))\/[^/]+\/[^/]+(?:\/|$)/.exec(t); return m ? m[1] : null; };
   const outsideCellar = (t) => !realCellars.some((c) => inCellar(t, c)) && !cellarOf(t);
-  const linkedFiles = linked.flatMap((l) => l.files);
-  const linkedDirs = linked.flatMap((l) => l.dirs);
+  /* Review 14: a read-only target found INSIDE a startup folder (home-manager links ~/.config/fish/config.fish into the
+     store) protects nothing and its hashed name would pile up; the link itself is under that folder's own rule. */
+  const ro = opts.readOnlyTarget || isReadOnlyTarget;
+  const linkedFiles = linked.flatMap((l) => l.files).filter((t) => !ro(t));
+  const linkedDirs = linked.flatMap((l) => l.dirs).filter((t) => !ro(t));
   // Review 7: only the Cellar or Caskroom a target is in, not every one that exists.
   const hitCellars = [...new Set([...realCellars.filter((c) => [...linkedFiles, ...linkedDirs].some((t) => inCellar(t, c))),
     ...[...linkedFiles, ...linkedDirs].map(cellarOf).filter(Boolean)])];
@@ -1631,7 +1650,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
-  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir });
+  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget });
   configUnsafe.push(...shellStart.unsafe);
   /* Review 9: a target the user cannot write (a read-only store such as /nix/store, whose hashed names change at every
      home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A
@@ -1639,13 +1658,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   /* Review 13: "cannot write" means truly read-only: not writable now, NOT owned by this user (an owner can chmod it
      back), and in a folder this user cannot write (a replace by rename needs only that). A read-only store is exactly
      that (root-owned, in a read-only folder); a 0444 file of the user's own is not. Tests pass deps.readOnlyTarget. */
-  const readOnlyTarget = deps.readOnlyTarget || ((p) => {
-    let st;
-    try { st = fs.statSync(p); } catch { return false; }   // absent: the agent could create it
-    try { fs.accessSync(p, fs.constants.W_OK); return false; } catch { /* not writable now */ }
-    if (typeof process.getuid === 'function' && st.uid === process.getuid()) return false;
-    try { fs.accessSync(path.dirname(p), fs.constants.W_OK); return false; } catch { return true; }
-  });
+  const readOnlyTarget = deps.readOnlyTarget || isReadOnlyTarget;
   const writableOrAbsent = (p) => !readOnlyTarget(p);
   /* Review 10: the LINK itself is always kept (it sits in a folder the user can write, so a tool could replace it);
      only its target is judged, and before withTarget, so a read-only target is never named as uncarriable either. */
