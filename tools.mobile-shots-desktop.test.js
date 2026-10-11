@@ -76,10 +76,11 @@ test('#4820: the page no longer builds the Community notice, and mobile-shots no
   assert.match(shots, /MSHOTS_COVER_CONTROL/);
 });
 
-test('MSHOTS_COVER_CONTROL=overlay without the allow-card screen is refused: it would plant nothing and pass', () => {
+test('MSHOTS_COVER_CONTROL=overlay without a screen that plants it is refused: it would plant nothing and pass', () => {
   const r = run(['--sizes', 'se', '--screens', 'home'], { MSHOTS_COVER_CONTROL: 'overlay' });
   assert.equal(r.status, 2, r.stderr);
-  assert.match(r.stderr, /MSHOTS_COVER_CONTROL=overlay needs the allow-card screen/);
+  // #5800: project-room-held-5800 plants the same layer over its Reopen button.
+  assert.match(r.stderr, /MSHOTS_COVER_CONTROL=overlay needs the allow-card or project-room-held-5800 screen/);
 });
 
 test('MSHOTS_COVER_CONTROL=spill without the allow-card screen is refused: it would plant nothing and pass', () => {

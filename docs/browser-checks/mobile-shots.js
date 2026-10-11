@@ -293,6 +293,23 @@ async function plusSigningInEnd(page) {
   await page.evaluate(() => { PLUS_SI_REGISTERING = false; PLUS_SIGNIN_ACTIVE = false; if (typeof plusSiKStop === 'function') plusSiKStop(); });
 }
 
+/* #5800: what is at the centre of the held room's Reopen button: '' when the point is the button, else why not (gone,
+   not laid out, outside the viewport, or the layer covering it). Read in project-room-held-5800's go, before the shot,
+   and again in its verify, after it: the page re-renders on its tick, so the two are different reads, as the leak
+   guard's two scans are. */
+const heldReopenAt = () => {
+  const b = document.querySelector('#pj-held [data-reopen-room]');
+  if (!b) return 'gone (no Reopen button)';
+  const r = b.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return 'not laid out (' + Math.round(r.width) + 'x' + Math.round(r.height) + ')';
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
+  const top = document.elementFromPoint(x, y);
+  if (top && b.contains(top)) return '';
+  const named = top && (top.id ? top : top.closest('[id]'));   // the nearest element with an id names the layer
+  return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
+};
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -1158,6 +1175,57 @@ const SCREENS = [
     fs.writeFileSync(file, kept.join('\n'));
     data.refusedLine = null;
   } },
+  /* kosmos#5800 (Angel): the loop guard is holding the room, and the strip at the top of the sticky composer (#pj-held) says why and
+     who can end it, with a Reopen button. A hold is a valve row plus agent posts filling the room's budget
+     (engine/messages.js roomHeld), so both are appended in the shapes sendPost writes, and `after` takes exactly those
+     lines out again, as the #5752 screen above does. */
+  { name: 'project-room-held-5800', owner: 'Angel', go: async (page, data) => {
+    const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
+    const cap = require(path.join(REPO, 'engine', 'limits')).caps().roomArrivalsPerWindow;
+    const to = Array.from({ length: cap }, (_, i) => 'member' + (i + 1));
+    const ago = (min) => new Date(Date.now() - min * 60 * 1000).toISOString();
+    data.heldLines = [
+      JSON.stringify({ kind: 'post', id: 'm5800001', from: data.chatAgent, project: data.projectId, to,
+        outcomes: Object.fromEntries(to.map((n) => [n, 'placed'])), text: 'Handing the draft back for one more pass.', at: ago(6) }),
+      JSON.stringify({ kind: 'valve', from: data.chatAgent, to: data.projectId, project: data.projectId,
+        because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.',
+        stopped: true, at: ago(4) }),
+    ];
+    fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLines.join('\n') + '\n');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-held [data-reopen-room]', { state: 'visible', timeout: 10000 });
+    /* NO SCROLL, on purpose: the shot is taken where a held room OPENS, which is the case the strip exists for. The first
+       shots of this screen (strip then above the sticky composer in the flow) passed a visible-wait yet showed no strip,
+       because at the opening scroll the composer covered it: visible is not seen (#4524). The strip now sits inside the
+       composer; gate the SHOT here, as the #4524 screen does, since the runner calls verify only after the picture. The
+       point at the Reopen button's centre must be that button: anything drawn over it, or the button outside the
+       viewport, fails before the shot. Polled for up to 3 s, so a repaint between two reads is not a red; verify reads
+       it again after the shot, so a move that is still there then fails too. */
+    // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
+    if (COVER_CONTROL === 'overlay') {
+      await page.evaluate(() => { const d = document.createElement('div'); d.id = 'cover-control';
+        d.style.cssText = 'position:fixed;inset:0;z-index:2147483647'; document.body.appendChild(d); });
+    }
+    let hit = await page.evaluate(heldReopenAt);
+    for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(heldReopenAt)) await page.waitForTimeout(200);
+    if (hit) throw new Error('the Reopen button is not seen: ' + hit);
+  }, verify: async (page) => {
+    // After the shot, one read, no poll: a failure here deletes the shot, so a move between the read in go and the
+    // picture that is still there now fails the row (one that reverted before this read is not seen).
+    const seen = await page.evaluate(heldReopenAt);
+    if (seen) throw new Error('the Reopen button is not seen after the shot: ' + seen);
+    const t = await page.evaluate(() => { const b = document.querySelector('#pj-held [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
+    for (const want of ['Your agents\' posts will most likely not go through until you post something yourself or reopen the room.', 'Reopen the room']) {
+      if (!t.includes(want)) throw new Error('the hold strip does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
+    }
+  }, after: async (page, data) => {
+    if (!data.heldLines) return;
+    const file = path.join(require(path.join(REPO, 'engine', 'store')).ROOT, 'messages.jsonl');
+    const kept = fs.readFileSync(file, 'utf8').split('\n').filter((l) => !data.heldLines.includes(l));
+    fs.writeFileSync(file, kept.join('\n'));
+    data.heldLines = null;
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
@@ -1801,9 +1869,11 @@ async function run() {
   }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
-  // The overlay control is planted by allow-card only; on any other screen it would arm nothing and pass.
-  if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
-    throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
+  // The overlay control is planted by allow-card and (#5800) project-room-held-5800 only; spill by allow-card only. On
+  // any other screen it would arm nothing and pass.
+  const armsControl = COVER_CONTROL === 'overlay' ? ['allow-card', 'project-room-held-5800'] : ['allow-card'];
+  if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => armsControl.includes(s.name))) {
+    throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the ' + armsControl.join(' or ') + ' screen');
   }
   // The long code is about 450px wide (1.9rem mono), inside the desktop card, so spill with no phone size would arm nothing and pass.
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {

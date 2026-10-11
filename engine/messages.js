@@ -516,6 +516,7 @@ function resetForTests() {
      inode/size/mtime invalidation cannot see; production never does that
      (the product only appends), and tests reset. */
   READ_CACHE = null;
+  HELD_MEMO.clear();   // #5800
   IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
   UNRECORDED_SENDS.clear();
   UNRECORDED_POSTS.length = 0;
@@ -1946,13 +1947,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      written since countFrom, synchronously. */
   let allowed = lim.roomArrivalsPerWindow;
   if (lim.on && operator !== true && arrivals + charged > allowed) {
-    const taskSteps = require('./taskchat').progressTimes(projectId, now, countFrom).filter((t) => t >= countFrom).length;
     /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
        same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
-       earn the most there is. */
-    const fileSteps = taskSteps >= ROOM_PROGRESS_STEPS ? 0 : projectsMod.changedFileTimes(projectId, countFrom, now).length;
-    const steps = taskSteps + fileSteps;
-    allowed += Math.min(lim.roomArrivalsPerWindow, steps * Math.ceil(lim.roomArrivalsPerWindow / ROOM_PROGRESS_STEPS));
+       earn the most there is. #5800: the count lives in roomProgressAllowance, shared with roomHeld. */
+    allowed += roomProgressAllowance(projectId, lim, now, countFrom)(countFrom);
   }
   if (operator !== true && arrivals + charged > allowed) {
     const because = lim.on
@@ -2908,6 +2906,95 @@ function reopenRoom(project, at) {
   return { ok: true, at: when };
 }
 
+/* #5800: is this room on hold right now? A room hold used to show only as a band in the scrollback, and an agent
+   learned of it only by being refused, so members with real work waited without knowing why or who could clear it.
+   This answers it for the room page (the strip above its composer, with Reopen) and for `kosmos room` (one line at
+   the top).
+
+   It runs the valve's own decision (sendPost) for the next agent post: the limit is on, and the agent arrivals
+   counted since the person last posted or reopened the room (countFrom), plus the next post's charge, are over the
+   budget plus the #4786 allowance for work moving (roomProgressAllowance, the valve's own function).
+   Estimated, not known:
+   - the next post's charge, taken as the latest counted post's (a room post costs one arrival per member it reaches);
+     a member switched off or added since changes it;
+   - `until`, when enough counted posts age out for such a post to land, counting only steps already taken, so
+     further work moving can end the hold sooner. Null when one post alone is over the budget (only the person can
+     end that hold).
+   Returns { at, because, until } (at and because are the latest valve row's since countFrom, or null) or null.
+   The allowance reads task and file times, so it is read only for a room already over its plain budget, and the
+   answer is kept for HELD_MEMO_MS per room while the record has not grown, so the page's poll does not re-read the
+   folder every few seconds through a long hold. An unreadable record reads as not held: a screen hint, never a gate. */
+const HELD_MEMO_MS = 4000;
+/* Keyed on the record's row count: the log is append-only, so a changed record is a longer one. Were it ever trimmed to
+   the same length with new rows, a stale answer could stand for HELD_MEMO_MS, as a hint, never a gate. */
+const HELD_MEMO = new Map();   // project id -> { t, rows, out }
+function roomHeld(project, now) {
+  const projectId = String(project == null ? '' : project).trim();
+  if (!projectId) return null;
+  const at = Number.isFinite(now) ? now : Date.now();
+  const lim = limits.caps();
+  if (!lim.on) return null;
+  const rec = record();
+  if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
+  const memo = HELD_MEMO.get(projectId);
+  if (memo && memo.rows === rec.rows.length && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
+  const out = roomHeldRead(projectId, at, lim, rec.rows);
+  if (HELD_MEMO.size > 200) HELD_MEMO.clear();
+  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, out });
+  return out;
+}
+function roomHeldRead(projectId, at, lim, rows) {
+  let lastOperatorAt = 0;
+  for (const m of rows) {
+    if (!m || m.project !== projectId) continue;
+    if ((m.kind === 'post' && m.operator === true) || m.kind === 'reopen') {
+      const t = Date.parse(m.at);
+      if (Number.isFinite(t) && t > lastOperatorAt) lastOperatorAt = t;
+    }
+  }
+  const countFrom = Math.max(at - lim.windowMs, lastOperatorAt);
+  let band = null;          // the latest valve row since countFrom, for the record only
+  const counted = [];
+  for (const m of rows) {
+    if (!m || m.project !== projectId) continue;
+    const t = Date.parse(m.at);
+    if (!Number.isFinite(t) || t > at || t < countFrom) continue;
+    if (m.kind === 'valve' && (!band || t >= band.t)) band = { t, at: m.at, because: m.because || null };
+    else if (m.kind === 'post' && !m.operator) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
+  }
+  counted.sort((a, b) => a.t - b.t);
+  const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
+  let arrivals = counted.reduce((n, c) => n + c.n, 0);
+  const cap = lim.roomArrivalsPerWindow;
+  if (arrivals + charge <= cap) return null;
+  const allowanceFrom = roomProgressAllowance(projectId, lim, at, countFrom);
+  if (arrivals + charge <= cap + allowanceFrom(countFrom)) return null;
+  let freeAt = null;
+  for (const c of counted) {
+    arrivals -= c.n;
+    /* When c ages out the window starts at c.t, and only steps from then on still earn room. */
+    if (arrivals + charge <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
+  }
+  return { at: band ? band.at : null, because: band ? band.because : null, until: freeAt === null ? null : new Date(freeAt).toISOString() };
+}
+
+/* #4786 / #5260: the extra room a project earns by work moving since countFrom, the valve's allowance. Reads the task
+   and file times once (from `since`) and returns a function of the window start, so sendPost asks it once and roomHeld
+   can ask it again for a later window start without reading again. Each first-time task step and each changed file
+   (files read only when task steps alone do not already earn the most there is) adds a quarter of the cap, up to the
+   cap. */
+function roomProgressAllowance(projectId, lim, now, since) {
+  const cap = lim.roomArrivalsPerWindow;
+  const taskTimes = require('./taskchat').progressTimes(projectId, now, since).filter((t) => t >= since);
+  let fileTimes = null;
+  return (from) => {
+    const taskSteps = taskTimes.filter((t) => t >= from).length;
+    if (taskSteps < ROOM_PROGRESS_STEPS && fileTimes === null) fileTimes = require('./projects').changedFileTimes(projectId, since, now);
+    const fileSteps = taskSteps >= ROOM_PROGRESS_STEPS ? 0 : fileTimes.filter((t) => t >= from).length;
+    return Math.min(cap, (taskSteps + fileSteps) * Math.ceil(cap / ROOM_PROGRESS_STEPS));
+  };
+}
+
 /* #3224, the proactive half: a post that is NOT a reply (no in_reply_to), sent by an
  * agent that owes the person an answer in a DIFFERENT room, is the likeliest shape of
  * the misroute Josh reported. This finds that owed question, so /api/post can ask the
@@ -3024,7 +3111,7 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   suspectedMisrouteCount, confirmedNewPostCount,
-  resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
+  resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests, mentionedMembers, ambiguousNote,
 };

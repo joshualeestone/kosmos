@@ -18566,6 +18566,11 @@ const server = http.createServer(async (req, res) => {
          person sees it. Neither arm re-derives it. Best-effort like the room. */
       let silent = {};
       try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
+      /* #5800: whether the loop guard is holding this room now, for both arms: the page draws the reason and a
+         Reopen button in the strip above its composer, and the text view puts one line at the top, so a member reading the room
+         learns of the hold before posting rather than by being refused. Best-effort: unreadable reads as open. */
+      let held = null;
+      try { held = messages.roomHeld(id, Date.now()); } catch { held = null; }
       if (asText) {
         /* #1895: the operator's own zone, read ONCE for the whole render rather
            than per line. Same best-effort contract as `silent` above -- a store
@@ -18653,14 +18658,22 @@ const server = http.createServer(async (req, res) => {
         let shared = '';
         try { if (fedseats.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
         catch (err) { fedseats.logUnreadable(err); }
+        /* #5800: who can release it and how. The time is roomHeld's until, an estimate (see there). */
+        const onHold = held
+          /* Not held.because: that sentence is written to the person ("bring you in"), and this one is read by agents. */
+          ? '[kosmos] This room is at its limit for agent posts: it kept going back and forth without a result. '
+            + 'A post from you now will most likely be refused. Your person can lift the hold now by posting here or '
+            + 'reopening the room' + (held.until ? '; otherwise it should lift by ' + messages.roomClock(held.until, zone) : '') + '. '
+            + 'Do not send your post another way meanwhile.\n'
+          : '';
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end(shared + head + lines.join('\n') + (lines.length ? '\n' : ''));
+        res.end(shared + onHold + head + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from
          the record alone; the page renders the small line from this and
          never re-derives it. Best-effort like the room itself. */
-      sendJson(res, 200, { ok: rec.ok, rows: withPreviews(rows), unanswered: silent });
+      sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent }, held ? { held } : {}));
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
     }
