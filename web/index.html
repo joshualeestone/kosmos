@@ -39284,7 +39284,8 @@ function paintDetailState(card) {
      when it changes (this runs every poll), like the token notice above. */
   const rcl = document.getElementById('d-replychan');
   if (rcl) {
-    const ch = card && typeof card.replyChannel === 'string' && card.replyChannel ? card.replyChannel : '';
+    // Absent for most agents (only one that declared a channel carries it), so asked with `in`, never read blind.
+    const ch = card && 'replyChannel' in card && typeof card.replyChannel === 'string' && card.replyChannel ? card.replyChannel : '';
     const on = ch !== '';
     if (rcl.hidden === on) rcl.hidden = !on;
     if (on) {
