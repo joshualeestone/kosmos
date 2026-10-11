@@ -43,7 +43,9 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     # counts only after a ";", "&&" or "||" on the line. q counts the code lines since the pipe. Best-effort: it refuses
     # a marker that is provably false there, and trusts the author otherwise (a quoted ";", or an assignment, passes).
     { first = substr(c, 1, index(c, "$" "?") - 1); ran = (q > 0 || first ~ /;|&&|\|\|/) }
-    p && p != NR && ran && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
+    # And a marked line with a pipe into a filter of its own, however it is followed ("| sort;", "| sort)"), is never
+    # excused: its status is that filter'"'"'s.
+    p && p != NR && ran && s !~ /\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([^A-Za-z0-9_-]|$)/ && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     p && NR > p && $0 !~ /^[[:space:]]*(#.*)?$/ { q++ }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
@@ -57,7 +59,7 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
 done
 if [ "$shape_reds" -ne 0 ]; then
   echo "  turn on pipefail, read \${PIPESTATUS[0]} on the next line, or redirect to a file and test the command's own status." >&2
-  echo "  If the status line runs its OWN command (cmd; rc=...) and the pipe above is unrelated, end it with: # pipe-status-ok" >&2
+  echo "  If the status line runs its OWN command (cmd; rc=...) and the pipe above is unrelated, end it with the comment  # pipe-status-ok  (lowercase, last on the line)" >&2
   exit 1
 fi
 

@@ -8,7 +8,8 @@ and, across all 243 linted files, it flags 14 lines in 3 files. All 14 are false
 - `cmd; rc=$?` one or two lines after an unrelated pipe: that `$?` is `cmd`'s own status.
 
 ## The fix (.githooks/pre-commit), as it stands after review 9
-1. Remove every "||" from a copy of the line before looking for a pipe. Exact: "||" is never a pipe.
+1. Remove escaped backslashes, then every escaped "\|", then every "||" from a copy of the line before looking
+   for a pipe: none of them is a pipe.
 2. An explicit opt-out: a line that reads the status AND ends in "# pipe-status-ok" clears a pipe seen on an EARLIER
    line. A pipe on the same line still counts. The refusal message names the marker.
 3. The 11 correct lines the lint still refused (cmd; rc=<status>, two lines after an unrelated pipe, in
@@ -187,3 +188,10 @@ command's status.
 - FIXED (NIT): the test now lints all three marked files, not one; removing one marker makes it fail (checked).
 - The reviewer confirmed: old vs new over all 244 files differ on exactly 14 lines (3 "||" lines, 11 marked); with
   the markers stripped from copies, the new lint flags exactly those 11 again.
+
+## Review 16 (sonnet, blind, on a80150a0e): no BLOCKER
+- FIXED (WARNING): "a pipe on the same line still counts" held only for pipes the main regex recognises (whitespace
+  after the filter). A marked "z | sort; rc=" or "y=$(z | sort); rc=" was excused. The marker rule now refuses a line
+  with a pipe into a known filter followed by any non-word character. Two fixtures; the mutant turns both BAD.
+- FIXED (NIT): this plan's fix list now names the escaped-pipe change; the refusal message says the marker is
+  lowercase and last on the line.
