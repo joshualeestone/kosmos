@@ -4547,9 +4547,9 @@ function taskMessageSummary(delivered, assigned) {
   const list = Array.isArray(delivered) ? delivered : [];
   if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
   if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
-  /* One outcome per agent, the worst winning (not told, then may have been told, then told), so an agent listed twice
-     never gets two sentences that contradict each other. A name that cleans to nothing is still said. */
-  // #5805: kept for an agent out of usage sits between told and may have been told: nothing was typed yet, on purpose.
+  /* One outcome per agent, the worst winning (not told, then may have been told, then kept for an agent out of usage
+     (#5805), then told), so an agent listed twice never gets two sentences that contradict each other. A name that
+     cleans to nothing is still said. */
   const rank = (st) => (st === chat.DELIVERY.COULD_NOT ? 3 : st === chat.DELIVERY.PLACED ? 0 : st === messages.HELD_STATE ? 1 : 2);
   const byName = new Map();
   for (const d of list) {
@@ -20405,11 +20405,12 @@ const server = http.createServer(async (req, res) => {
         for (const one of recipients) {
           let outcome;
           /* #5805: an assignee out of usage (or with messages still kept from then) is not typed into: the line is kept
-             and the minute sweep types it after the reset, as for `kosmos msg`. */
+             and the minute sweep types it after the reset, as for `kosmos msg`, through the automatic gate
+             (limitqueue.sweepHooks), so a kept line also waits on that gate's menu and quota holds. */
           const kept = messages.keepTaskLine(one, line, roster, viaScreen ? '' : senderName, 'task ' + t.number + ' in ' + projName);
-          // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
           if (kept) outcome = kept;
           else {
+            // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
             try { outcome = await chat.deliverAsync(one, line, roster); }
             catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           }
