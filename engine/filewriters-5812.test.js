@@ -74,3 +74,18 @@ test('#5812: undo.ownedBy, the token-only narrowing the keep route applies to th
   assert.equal(undo.ownedBy({ name: 'mona' }, 'uri'), false, 'a token-only agent noted another agent\'s write');
   assert.equal(undo.ownedBy({ byKey: true, key: store.safeKey('uri') }, 'uri'), true);
 });
+
+test('#5812 review 1: the deepest project folder wins; the agent lookup runs only for a project file', () => {
+  const now = Date.now();
+  const inner = path.join(folder, 'drafts');
+  const nested = [{ id: 'lease', folder }, { id: 'drafts-p', folder: inner }];
+  assert.equal(fw.noteWrite(path.join(inner, 'n.md'), 'uri', { now, projects: nested }), true);
+  const [row] = fw.annotate('drafts-p', [{ name: 'n.md', modified: iso(now + 500) }]);
+  assert.equal(row.changedBy, 'uri', 'the inner project did not get the record');
+  let asked = 0;
+  assert.equal(fw.noteWrite(path.join(real, 'elsewhere.md'), () => { asked += 1; return 'uri'; }, { now, projects: PROJECTS }), false);
+  assert.equal(asked, 0, 'the agent was looked up for a file in no project');
+  assert.equal(fw.noteWrite(path.join(folder, 'lazy.md'), () => { asked += 1; return 'uri'; }, { now, projects: PROJECTS }), true);
+  assert.equal(asked, 1);
+  assert.equal(fw.noteWrite(path.join(folder, 'nobody.md'), () => null, { now, projects: PROJECTS }), false, 'a lookup that found nobody was recorded');
+});

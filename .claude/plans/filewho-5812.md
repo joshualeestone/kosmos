@@ -17,9 +17,8 @@ and neither knew. Ask: show who changed a project file last, and when.
   agent edits is not. One small JSON file per project under the store; entries older than 30 days pruned on write.
 - server.js `/api/undo/keep`: before undo.keep, resolve the agent with undo.ownerOf (exported) and note the write. A
   token-only caller notes only for itself (the same narrowing undo.keep applies). It never changes the route's answer.
-- `writerOf(record, modifiedIso)`: the agent is shown only when its record is at most 10 minutes before the file's last
-  change and not more than 2 seconds after it. A change with no recent record (the person, an agent with no hook, a
-  record from a write that was refused) shows nobody: never a guess.
+- `writerOf(record, modifiedIso)`: the agent is shown only when its record is at most 2 minutes before the file's last
+  change and not more than 2 seconds after it. A change with no record that recent shows nobody.
 - The documents route annotates each row with `changedBy` (the agent's display name from the roster, or its session
   name when the roster has no card for it).
 - The project's Files page shows "changed by <agent>" after the date when a row has one.
@@ -28,12 +27,15 @@ and neither knew. Ask: show who changed a project file last, and when.
 - Attributing by time alone (the agent working when the mtime moved): wrong exactly when two agents work at once.
 - A Kosmos write verb agents must use: agents edit with their own tools.
 - A new PostToolUse hook event: it would be exact (after the write) but rewires every agent's settings for a fact
-  PreToolUse already carries; the 10-minute window bounds the difference.
+  PreToolUse already carries; the 2-minute window bounds the difference.
 
 ## Weakest premise
-That the write follows its PreToolUse record closely. A write that waits on a permission prompt while a second agent
-writes the same file in between is attributed to the second agent. Agents here run with permissions bypassed, so a
-prompt is rare; if it is not, a PostToolUse record is the fix.
+The record is made before the edit, so it is a heuristic, wrong in two ways inside the window:
+- an edit that then fails (an Edit whose old text no longer matches) leaves a record, and a change by anyone else in
+  the next 2 minutes (the person, an agent with no hook, a shell write) is named for the agent whose edit failed;
+- a write that waits on a permission prompt while a second agent writes the same file is named for the second agent.
+The window is 2 minutes, not longer, because a real write follows its record within seconds and a short window fails
+toward naming nobody. If either case shows up in practice, a PostToolUse record (after a completed write) is the fix.
 
 ## Gaps, stated
 - Claude Code agents on Mac and Linux only. The Windows hook does not send the path; other providers report no file
@@ -46,3 +48,14 @@ prompt is rare; if it is not, a PostToolUse record is the fix.
   note by another agent replaces the writer; pruning.
 - the keep route notes the writer with the switch off; a token-only caller cannot note for another agent.
 - the documents route carries changedBy; the page paints "changed by" (lifted-function test).
+
+## Review 1 (opus)
+- FIXED: the "never a guess" claim was false inside the window (a failed edit's record); the window is 2 minutes and
+  the plan states both ways it can be wrong.
+- FIXED: the token-only narrowing on the keep route is tested through the server (an agent cannot note a write in
+  another agent's name; its own is noted).
+- FIXED: the agent lookup is paid only for a file inside a project (noteWrite takes a lazy lookup).
+- DEFERRED: a lock on the per-project file. noteWrite is synchronous in the one board process, so two hook calls cannot
+  interleave its read and write.
+- NITs taken: the display name read once per request; the deepest project folder wins; realpathSync.native for the
+  letter case on macOS.

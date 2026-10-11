@@ -8954,11 +8954,13 @@ const server = http.createServer(async (req, res) => {
         const only = agentTokenOnlyCaller(req);
         if (only === '') { sendJson(res, 403, { kept: false, because: 'that agent token names nobody' }); return; }
         const undo = require('./engine/undo');
-        /* #5812: the same call, switch on or off, records which agent is about to write a project file. Never changes
-           the answer below. */
+        /* #5812: the same call, switch on or off, records which agent is about to write a project file (the agent is
+           looked up only for a file inside a project). Never changes the answer below. */
         try {
-          const who = undo.agentFor(body.cwd, body.session);
-          if (who && undo.ownedBy(only || null, who)) require('./engine/filewriters').noteWrite(body.path, who);
+          require('./engine/filewriters').noteWrite(body.path, () => {
+            const who = undo.agentFor(body.cwd, body.session);
+            return who && undo.ownedBy(only || null, who) ? who : null;
+          });
         } catch { /* the copy below goes ahead either way */ }
         sendJson(res, 200, undo.keep(body.path, { cwd: body.cwd, session: body.session, onlyFor: only || null }));
       })
@@ -18811,7 +18813,11 @@ const server = http.createServer(async (req, res) => {
     if (listed && listed.ok && Array.isArray(listed.files)) {
       try {
         // The display name, read only for a row that has a writer (no roster snapshot on this per-poll route).
-        const nameOf = (s) => require('./engine/status').readIdentity(s).displayName || s;
+        const names = new Map();
+        const nameOf = (s) => {
+          if (!names.has(s)) names.set(s, require('./engine/status').readIdentity(s).displayName || s);
+          return names.get(s);
+        };
         listed.files = require('./engine/filewriters').annotate(record.id, listed.files, nameOf);
       } catch { /* the list stands without writers */ }
     }

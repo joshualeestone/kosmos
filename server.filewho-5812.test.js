@@ -65,3 +65,43 @@ test('#5812: the keep call names the writer with undo off; the documents list sa
   assert.equal(by['notes.md'], null, 'a change nobody recorded was attributed');
   assert.equal(by['late.md'], null, 'a change twenty minutes after the record was attributed');
 });
+
+test('#5812 review 1: on an enforcing board a token-only agent notes only its own writes, never another agent\'s', async () => {
+  const { boardAuthState } = require('./server');
+  const sendertoken = require('./engine/sendertoken');
+  const store = require('./engine/store');
+  const projects = require('./engine/projects');
+  const mk = (name) => {
+    const folder = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+    fs.mkdirSync(folder, { recursive: true });
+    store.writeProfile(name, { displayName: name.toUpperCase() });
+    return fs.realpathSync(folder);
+  };
+  const wen = mk('wen');
+  mk('xia');
+  require('./engine/undo').resetForTests();
+  const wenTok = sendertoken.mint('wen').token;
+  const xiaTok = sendertoken.mint('xia').token;
+  const folder = path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'shared');
+  fs.mkdirSync(folder, { recursive: true });
+  projects.writeAll([...projects.readAll(), { id: 'fw-q', name: 'Shared', folder, agents: ['wen', 'xia'], tasks: [] }]);
+  const keepAs = (tok, body) => fetch(base + '/api/undo/keep', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok }, body: JSON.stringify(body) });
+  const forged = path.join(folder, 'forged.md');
+  const own = path.join(folder, 'own.md');
+  const was = { on: boardAuthState.on, token: boardAuthState.token };
+  boardAuthState.on = true;
+  boardAuthState.token = 'BOARD_TOKEN_5812_review_0123456789abcdef';
+  try {
+    assert.equal((await keepAs(xiaTok, { path: forged, cwd: wen, session: 's-wen' })).status, 200);   // xia claims wen's session
+    assert.equal((await keepAs(wenTok, { path: own, cwd: wen, session: 's-wen' })).status, 200);
+  } finally {
+    boardAuthState.on = was.on;
+    boardAuthState.token = was.token;
+  }
+  fs.writeFileSync(forged, 'x');
+  fs.writeFileSync(own, 'y');
+  const docs = await (await fetch(base + '/api/project/fw-q/documents?limit=50')).json();
+  const by = Object.fromEntries(docs.files.map((f) => [f.name, f.changedBy || null]));
+  assert.equal(by['forged.md'], null, 'a token-only agent noted a write in another agent\'s name');
+  assert.equal(by['own.md'], 'WEN', 'CONTROL: the agent\'s own write was not noted');
+});
