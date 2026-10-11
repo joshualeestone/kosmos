@@ -91,6 +91,7 @@ test('#5842: a message Kosmos could not keep says so and claims no cause (full, 
   // limittask-5805's keepTaskLine reasons: two caps, a store failure, the catch path, and the backlog variant.
   for (const because of [
     'casey is out of usage, and Kosmos could not keep this one for it (5 messages are kept for it already), so it was not told',
+    'casey is out of usage, and Kosmos could not keep this one for it (5 messages from this sender are kept for it already), so it was not told',
     'casey is out of usage, and Kosmos could not keep this one for it (its queue could not be read or written), so it was not told',
     'casey is out of usage, and Kosmos could not keep this one for it, so it was not told',
     'casey still has messages kept from while it was out of usage, and Kosmos could not keep this one for it, so it was not told',
@@ -135,10 +136,10 @@ test('#5842: a message kept for an agent out of usage says when, in local time, 
 test('#5842: the board still words a line kept behind earlier ones as the page reads it', () => {
   /* The page tells "kept behind earlier lines" from the board's wording, since the task route does not forward
      `behind`. A reworded reason falls to a sentence that stays true, but this keeps the two in step. heldReceipt is on
-     main since #5822 (kosmos msg's kept lines); the task route uses it once limittask-5805 lands. */
+     main (#5822) and the task route's keepTaskLine builds its kept lines with it (#5848), so its absence is a failure. */
   const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'messages.js'), 'utf8');
   const start = src.indexOf('function heldReceipt(');
-  if (start < 0) { assert.doesNotMatch(src, /still has messages kept/); return; }
+  assert.ok(start > -1, 'heldReceipt is gone from engine/messages.js; point this check at whatever words a kept-behind line');
   // Only heldReceipt's own body: the same phrase also sits in keepTaskLine's could_not reasons.
   let depth = 0; let end = -1;
   for (let k = src.indexOf('{', start); k < src.length; k += 1) {
