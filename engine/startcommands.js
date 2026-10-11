@@ -682,7 +682,7 @@ function configSources(dir, homes, home, deps = {}) {
   let own = [path.resolve(dir)];
   try { own = [...own, fs.realpathSync.native(dir)]; } catch { /* as given */ }
   for (const h of homes) {
-    for (const f of ['settings.json', 'settings.local.json', 'remote-settings.json']) out.push({ file: path.join(h, f), pick: whole, settings: true });
+    for (const f of ['settings.json', 'settings.local.json', 'remote-settings.json']) out.push({ file: path.join(h, f), pick: whole, settings: true, home: h });
   }
   for (const d of folders) {
     // The agent folder's own two settings files (by either path) are rewritten by the guard itself (an unreadable one
@@ -799,21 +799,32 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     else if (!r.missing) sources.push({ ...s, json: r.json });
   }
   /* The settings env, which hooks see: a variable every tier that sets it agrees on is known; one set two ways, or to
-     something other than a string, is not. */
+     something other than a string, is not. (Every tier, other accounts' homes included: a hook defined in a home expands
+     with THAT home's env, so a value only this agent's tiers agree on could be the wrong one. Disagreeing tiers fail
+     closed: the hook is named.) #5774 route 5: another account's home's values are also kept apart (envOther), for a
+     caller that must not read them as this agent's. */
+  const agentHome = path.resolve(ownHome || path.join(home || require('os').homedir(), '.claude'));
   const envValues = new Map();
+  const envOther = new Map();
+  const envOwn = new Map();
   for (const s of sources.filter((x) => x.settings)) {
     const env = s.json && typeof s.json.env === 'object' && s.json.env ? s.json.env : {};
+    const other = !!(s.home && path.resolve(s.home) !== agentHome);
     for (const [k, v] of Object.entries(env)) {
-      if (!envValues.has(k)) envValues.set(k, new Set());
-      envValues.get(k).add(typeof v === 'string' ? v : '\0not a string');
+      for (const target of other ? [envValues, envOther] : [envValues, envOwn]) {
+        if (!target.has(k)) target.set(k, new Set());
+        target.get(k).add(typeof v === 'string' ? v : '\0not a string');
+      }
     }
   }
   const settingsEnv = {};
   for (const [k, vs] of envValues) if (vs.size === 1 && !vs.has('\0not a string')) settingsEnv[k] = [...vs][0];
-  // #5774 route 5: every string value any tier gives a variable, for a caller that must cover each one (the plugin
-  // folder variables), not only the value the tiers agree on.
-  const settingsEnvAll = {};
-  for (const [k, vs] of envValues) settingsEnvAll[k] = [...vs].filter((v) => v !== '\0not a string');
+  // #5774 route 5: every string value a tier gives a variable, for a caller that must cover each one (the plugin
+  // folder variables), not only the value the tiers agree on: this agent's tiers, and other accounts' homes apart.
+  const strings = (m) => { const o = {}; for (const [k, vs] of m) o[k] = [...vs].filter((v) => v !== '\0not a string'); return o; };
+  const settingsEnvAll = strings(envValues);
+  const settingsEnvOther = strings(envOther);
+  const settingsEnvOwn = strings(envOwn);
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
   // Review 11: no PWD: a hook runs in the session's current folder, which the agent moves.
   // Review 9: the login's own name and temp folder, which hooks see unchanged.
@@ -907,7 +918,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     if (isCovered(x.where)) continue;
     unsafe.push(`${x.say || runnerSay(x.name, x.place)} (in ${x.from})`);
   }
-  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], settingsEnvAll, unsafe: [...new Set(unsafe)] };
+  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], settingsEnvAll, settingsEnvOwn, settingsEnvOther, unsafe: [...new Set(unsafe)] };
 }
 
 module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES };

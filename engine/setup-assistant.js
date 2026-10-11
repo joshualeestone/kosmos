@@ -726,7 +726,8 @@ function accountConfigHomes(home) {
 function agentJobConfigDirs(workersRoot) {
   const out = [];
   let names = [];
-  try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { return out; }
+  // Review 1: an agents' folder that cannot be read is named by the caller (never a silent loss).
+  try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch (e) { if (e && e.code === 'ENOENT') return out; out.unreadable = (e && e.code) || String(e); return out; }
   for (const name of names) {
     let job = null;
     try { job = create.readJob(name); } catch { job = null; }
@@ -1693,10 +1694,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      named. Tests pass deps.agentConfigDirs. */
   let jobHomes = [];
   try { jobHomes = deps.agentConfigDirs !== undefined ? deps.agentConfigDirs : agentJobConfigDirs(path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir())); } catch { jobHomes = []; }
+  if (jobHomes.unreadable) configUnsafe.push(`the agents' folder (it could not be read: ${jobHomes.unreadable}), so other agents' config homes are not found`);
   for (const h0 of jobHomes) {
     const h = path.resolve(String(h0));
     if (concreteHomes.includes(h)) continue;
-    if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (another agent's config home, whose path the permission rules cannot carry)`); continue; }
+    if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (a config home an agent's job names, whose path the permission rules cannot carry)`); continue; }
     concreteHomes.push(h);
   }
   const settingsFileDirs = [settingsDir, ...concreteHomes];
@@ -1787,20 +1789,50 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      Claude Code runs in, the agent's. Each is denied whole in both layers, as an installed plugin's folder is; one too
      wide to deny (the root, or one holding the home or the agent's folder) or one the rules cannot carry is named. */
   const envNow = deps.env || process.env;
-  const settingsEnvAll = startCmds.settingsEnvAll || {};
-  const valuesOf = (k) => [...new Set([...(typeof envNow[k] === 'string' && envNow[k] ? [envNow[k]] : []), ...(settingsEnvAll[k] || [])])];
-  const tilde = (v) => (v === '~' || v.startsWith('~/') ? path.join(home, v.slice(1)) : v);
+  const own = startCmds.settingsEnvOwn || startCmds.settingsEnvAll || {};
+  const other = startCmds.settingsEnvOther || {};
+  /* Review 1: the agent's Claude Code inherits the tmux server's environment, which carries the person's shell exports,
+     not only the board's: the home's startup files are read for these variables too (as part 2 reads XDG_*). A value
+     there that is not plain (another variable in it) is named. */
+  const PLUGIN_VARS = ['CLAUDE_CODE_PLUGIN_DIRS', 'CLAUDE_CODE_PLUGIN_CACHE_DIR', 'CLAUDE_CODE_PLUGIN_SEED_DIR'];
+  const fromFiles = {};
+  for (const fname of ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.profile', '.bash_profile', '.bash_login', '.bashrc']) {
+    let text = '';
+    try { const st = fs.statSync(path.join(home, fname)); if (st.isFile() && st.size <= 4194304) text = fs.readFileSync(path.join(home, fname), 'utf8'); } catch { text = ''; }
+    for (const k of PLUGIN_VARS) {
+      for (const v of assignmentsIn(text, k)) {
+        const plain = v === null ? null : v.replace(/^\$\{?HOME\}?(?=\/|$)/, home);
+        if (plain === null || plain.includes('$')) { configUnsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${fname}), a plugin folder Kosmos cannot work out`); continue; }
+        (fromFiles[k] = fromFiles[k] || []).push(plain);
+      }
+    }
+  }
+  // This agent's values (its environment, its startup files, its own tiers), and other accounts' homes' apart.
+  const valuesOf = (k) => [...new Set([...(typeof envNow[k] === 'string' && envNow[k] ? [envNow[k]] : []), ...(fromFiles[k] || []), ...(own[k] || [])])];
+  const otherOf = (k) => (other[k] || []).filter((v) => !valuesOf(k).includes(v));
+  // Review 1: ~ then the path separator (~/ everywhere, ~\ on Windows).
+  const tilde = (v) => (v === '~' || v.startsWith('~/') || (path.sep === '\\' && v.startsWith('~\\')) ? path.join(home, v.slice(1)) : v);
   const envPluginDirs = [];
-  for (const v of valuesOf('CLAUDE_CODE_PLUGIN_DIRS')) for (const part of v.split(path.delimiter)) { const t = tilde(part.trim()); if (t && path.isAbsolute(t)) envPluginDirs.push(path.resolve(t)); }
-  for (const v of valuesOf('CLAUDE_CODE_PLUGIN_CACHE_DIR')) { const t = tilde(v); if (t) envPluginDirs.push(path.resolve(dir, t)); }
-  for (const v of valuesOf('CLAUDE_CODE_PLUGIN_SEED_DIR')) for (const part of v.split(path.delimiter)) { if (part) envPluginDirs.push(path.resolve(dir, tilde(part))); }
+  const splitDirs = (v) => v.split(path.delimiter).map((part) => tilde(part.trim())).filter((t) => t && path.isAbsolute(t)).map((t) => path.resolve(t));
+  for (const v of [...valuesOf('CLAUDE_CODE_PLUGIN_DIRS'), ...otherOf('CLAUDE_CODE_PLUGIN_DIRS')]) envPluginDirs.push(...splitDirs(v));
+  // A relative cache or seed folder is read from the folder Claude Code runs in: this agent's for its own values; another
+  // account's relative value resolves under ITS agent's folder, which is not known here, so only its absolute ones count.
+  const cacheOrSeed = (vals, relativeOk) => { for (const v of vals) { const t = tilde(v); if (t && (relativeOk || path.isAbsolute(t))) envPluginDirs.push(path.resolve(dir, t)); } };
+  cacheOrSeed(valuesOf('CLAUDE_CODE_PLUGIN_CACHE_DIR'), true);
+  cacheOrSeed(otherOf('CLAUDE_CODE_PLUGIN_CACHE_DIR'), false);
+  const seeds = (vals) => vals.flatMap((v) => v.split(path.delimiter).filter(Boolean));
+  cacheOrSeed(seeds(valuesOf('CLAUDE_CODE_PLUGIN_SEED_DIR')), true);
+  cacheOrSeed(seeds(otherOf('CLAUDE_CODE_PLUGIN_SEED_DIR')), false);
   const homeRealP = realOrLeaf(home), dirRealP = realOrLeaf(dir);
+  // Review 1: also the temp folder and Kosmos's data folder: a sandbox deny over either would quietly break the shell.
+  const tmpRealP = realOrLeaf(deps.tmpDir || require('os').tmpdir());   // tests pass deps.tmpDir
+  const dataRealP = deps.dataRoot ? realOrLeaf(deps.dataRoot) : null;
   const holdsP = (r, x) => x === r || x.startsWith(r + path.sep);
   for (const d of new Set(envPluginDirs)) {
     if (coveredWhole(d)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
     const r = realOrLeaf(d);
-    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home or the agent's own folder)`); continue; }
+    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || (dataRealP && holdsP(r, dataRealP))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder or Kosmos's data)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
     wholeDenied.push(...both);
