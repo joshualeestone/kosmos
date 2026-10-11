@@ -13,10 +13,11 @@
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured (review 2) with a worst-case probe (a linked .zshrc, ZDOTDIR set in .zshenv, BASH_ENV): about 51 more denyWrite entries (125 against 74, 8.1 KB against 4.6 KB as JSON) and 59 more deny rules, and the guard's own profile-size check (#5663) still passes.
 - The environment read is the board's own (deps.env or process.env): agents are launched from it, so it is what their shells see. Weakest premise: a launch that sets ZDOTDIR or BASH_ENV differently for one agent is not seen.
 - Claude Code's own writes are not affected: deny rules govern its tools, not the app's own code (an installer or updater adding a PATH line still works).
-- Not covered here: system-wide startup files (/etc/zshenv and the like; root-owned, not writable by the agent), and files a startup file pulls in (`source ~/x`), which is route 3 ("what start-time files pull in").
+- Not covered here: system-wide startup files under /etc (root-owned, not writable by the agent), and files a startup file pulls in (`source ~/x`), which is route 3 ("what start-time files pull in"). User-writable startup folders outside the home (Homebrew's zsh site-functions and fish vendor folders, review 3) ARE covered, where they exist.
 
 ## Gaps, stated
 - A shell beyond zsh, bash, sh, csh and tcsh, fish and nushell is not listed (ksh's .kshrc, xonsh, PowerShell profiles); nor ~/.inputrc (key bindings, not code).
+- ENV=rc (a bare name with no slash) is read as a label and skipped (review 2), which fails open, but only for an interactive sh.
 - ZDOTDIR set in .zshenv by `typeset -x ZDOTDIR=...` or `: ${ZDOTDIR:=...}`, or in /etc/zshenv, is not read; the conventional XDG folder is covered regardless.
 - Route 3 and on stay on the card.
 
@@ -36,4 +37,10 @@
   - [WARNING] FIXED. `ZDOTDIR="$HOME"/.zsh` was read as "$HOME" and dropped silently (failing open). The whole value is now parsed, and a quote in the middle is named. My first mutation for this stayed green, because the fallback path also names it. The meaningful mutation, restoring the old regex, turned red.
   - [WARNING] FIXED. The plan's cost line was stale. It is now measured: 51 denyWrite entries in the worst case, and the size check passes.
   - NITs taken: .bash_aliases (its first mutation stayed green, because the test iterated the list it removes from; now named explicitly, red); a fresh folder per ZDOTDIR case; the typeset forms and other shells are stated under Gaps.
+- Iteration 3 (Opus), on 80dcceb66:
+  - [WARNING] FIXED (reproduced by the reviewer). XDG_CONFIG_HOME was read from the board's environment only, never from .zshenv, so `XDG_CONFIG_HOME=$HOME/.cfg; ZDOTDIR=$XDG_CONFIG_HOME/zsh` left ~/.cfg/zsh writable and the guard said whole. Also, an environment XDG replaced ~/.config, which the person's own terminal still reads. Now every candidate is used: ~/.config always, the environment's, and one .zshenv sets. $XDG_CONFIG_HOME in a ZDOTDIR value is expanded for each.
+  - [WARNING] FIXED. Links inside a folder denied whole (GNU Stow links fish's config.fish out) left the target writable. Links inside those folders are now followed, bounded to 3 levels and 500 entries, and their targets denied in both layers.
+  - [WARNING] FIXED. A ZDOTDIR's own .zshenv can move ZDOTDIR again. Each ZDOTDIR's .zshenv is now read, bounded to 8 rounds against a cycle.
+  - [WARNING] FIXED, not left as a gap. User-writable startup code outside the home: Homebrew's zsh site-functions (on zsh's default fpath) and fish's vendor_conf.d, vendor_functions.d and vendor_completions.d, under /opt/homebrew and /usr/local, are denied whole where they exist. Tests pin them to the sandbox (deps.userShellDirs).
+  - NITs taken: an empty ZDOTDIR is "unset", so the guard stays whole; ENV=rc is stated under Gaps; nushell's folders and a ZDOTDIR's .zcompdump are now asserted in both layers. Six mutations, each red.
 

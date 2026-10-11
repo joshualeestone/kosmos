@@ -1225,41 +1225,83 @@ const ZSH_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout'
 const zshFilesIn = (d) => ZSH_START_FILES.flatMap((f) => [path.join(d, f), path.join(d, f + '.zwc')]);
 /* A ZDOTDIR value: absolute, or home-relative through ~, $HOME or ${HOME}, or $XDG_CONFIG_HOME. Anything else (relative,
    another variable) is null: Kosmos cannot say which folder zsh reads, so the caller names it. */
-function zdotdirOf(value, home, xdg) {
-  let v = String(value).trim();
-  v = v.replace(/^~(?=\/|$)/, home).replace(/^\$\{?HOME\}?(?=\/|$)/, home).replace(/^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/, xdg);
-  return path.isAbsolute(v) && !v.includes('$') ? path.resolve(v) : null;
+/* A ZDOTDIR or XDG_CONFIG_HOME value, as the folders it can mean: absolute, or through ~, $HOME/${HOME}, or
+   $XDG_CONFIG_HOME (each folder that variable can be, review 3). Anything else (relative, another variable) is null:
+   Kosmos cannot say which folder it is, so the caller names it. An empty value is [] (unset: the default applies). */
+function foldersOf(value, home, xdgs) {
+  const v = String(value).trim();
+  if (!v) return [];
+  const viaXdg = /^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/.test(v);
+  const outs = (viaXdg ? xdgs : [null]).map((x) => v.replace(/^~(?=\/|$)/, home).replace(/^\$\{?HOME\}?(?=\/|$)/, home)
+    .replace(/^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/, x || ''));
+  return outs.every((o) => path.isAbsolute(o) && !o.includes('$')) ? outs.map((o) => path.resolve(o)) : null;
 }
-/* The files, the folders read whole, and the globs (permission layer only) for this home and environment. Review 1:
-   ZDOTDIR is read from the environment AND from .zshenv itself, where it is usually set (zsh then reads the rest of
-   its files there); fish's and nushell's folders honour XDG_CONFIG_HOME, and nushell's macOS default too; fish's
-   whole folder, since it autoloads functions and keeps universal variables (PATH among them) there. */
-function shellStartPaths(home, env) {
-  const e = env || {};
-  const xdg = typeof e.XDG_CONFIG_HOME === 'string' && path.isAbsolute(e.XDG_CONFIG_HOME) ? path.resolve(e.XDG_CONFIG_HOME) : path.join(home, '.config');
-  const files = [...SHELL_START_FILES.map((f) => path.join(home, f)), ...zshFilesIn(home)];
-  const globs = [path.join(home, '.zcompdump*')];
-  const unsafe = [];
-  const zdots = new Set();
-  const zdot = (value, from) => {
-    const d = zdotdirOf(value, home, xdg);
-    if (d) { if (d !== path.resolve(home)) zdots.add(d); }
-    else unsafe.push(`ZDOTDIR (${value}, ${from}), a folder of zsh startup files Kosmos cannot work out`);
-  };
-  if (typeof e.ZDOTDIR === 'string' && e.ZDOTDIR) zdot(e.ZDOTDIR, 'in the environment');
-  let zshenv = '';
-  try { zshenv = fs.readFileSync(path.join(home, '.zshenv'), 'utf8'); } catch { /* none: nothing set there */ }
-  /* Review 2: the whole value up to whitespace, ; or #, then unquoted only when it is ONE quoted string or no quotes at
-     all. ZDOTDIR="$HOME"/.zsh, a quote in the middle, is named rather than read as "$HOME" (which would drop it). */
-  for (const m of zshenv.matchAll(/^[ \t]*(?:export[ \t]+)?ZDOTDIR=([^\s;#]*)/gm)) {
+/* The assignments `[export] NAME=value` in a startup file, each value as written (one quoted string unquoted), or
+   null for a value with a quote in the middle (review 2: ZDOTDIR="$HOME"/.zsh must not read as "$HOME"). */
+function assignmentsIn(text, name) {
+  const out = [];
+  for (const m of String(text).matchAll(new RegExp(`^[ \\t]*(?:export[ \\t]+)?${name}=([^\\s;#]*)`, 'gm'))) {
     const raw = m[1];
     const one = /^"([^"]*)"$/.exec(raw) || /^'([^']*)'$/.exec(raw);
-    if (one) zdot(one[1], 'set in .zshenv');
-    else if (/["']/.test(raw)) unsafe.push(`ZDOTDIR (${raw}, set in .zshenv), a folder of zsh startup files Kosmos cannot work out`);
-    else zdot(raw, 'set in .zshenv');
+    out.push(one ? one[1] : /["']/.test(raw) ? null : raw);
   }
-  // The conventional XDG folder, whether or not anything above names it (a setting this cannot read may).
-  zdots.add(path.join(xdg, 'zsh'));
+  return out;
+}
+/* Links inside a folder denied whole point somewhere its rule does not reach (review 3: GNU Stow links each file, as
+   ~/.config/fish/config.fish -> ~/dotfiles/config.fish): each target is returned, a few levels deep and bounded. */
+function linkTargetsIn(dir, depth = 3, budget = { n: 500 }) {
+  const out = [];
+  let names = [];
+  try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const d of names) {
+    if (--budget.n < 0) break;
+    const p = path.join(dir, d.name);
+    if (d.isSymbolicLink()) { try { out.push(fs.realpathSync.native(p)); } catch { /* dangling: nothing there to write */ } }
+    else if (d.isDirectory() && depth > 1) out.push(...linkTargetsIn(p, depth - 1, budget));
+  }
+  return out;
+}
+/* Startup code outside the home folder that the user, not root, can write (review 3): Homebrew's zsh site-functions
+   (on zsh's default fpath, run on tab-complete in the person's own terminal) and fish's vendor folders, which fish
+   reads at every start. Denied whole where they exist; on this fleet the Homebrew prefix is the user's. */
+const USER_WRITABLE_SHELL_DIRS = ['/opt/homebrew', '/usr/local'].flatMap((pre) => [path.join(pre, 'share', 'zsh', 'site-functions'),
+  ...['vendor_conf.d', 'vendor_functions.d', 'vendor_completions.d'].map((v) => path.join(pre, 'share', 'fish', v))]);
+/* The files, the folders read whole, and the globs (permission layer only) for this home and environment.
+   - zsh: the home's files with their compiled copies, and those of every ZDOTDIR found: in the environment, in
+     ~/.zshenv, and in the .zshenv of each folder found that way (zsh reads $ZDOTDIR/.zshenv, which may move it again);
+     the conventional $XDG_CONFIG_HOME/zsh always.
+   - XDG_CONFIG_HOME (review 3): ~/.config always, AND the environment's, AND one ~/.zshenv sets, since a shell started
+     without that variable (the person's own terminal) still reads ~/.config.
+   - fish's and nushell's folders whole (functions, universal variables, autoload), links inside them followed. */
+function shellStartPaths(home, env, opts = {}) {
+  const e = env || {};
+  const unsafe = [];
+  const readText = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+  const homeZshenv = readText(path.join(home, '.zshenv'));
+  const xdgs = new Set([path.join(home, '.config')]);
+  if (typeof e.XDG_CONFIG_HOME === 'string' && path.isAbsolute(e.XDG_CONFIG_HOME)) xdgs.add(path.resolve(e.XDG_CONFIG_HOME));
+  for (const v of assignmentsIn(homeZshenv, 'XDG_CONFIG_HOME')) {
+    const f = v === null ? null : foldersOf(v, home, [path.join(home, '.config')]);
+    if (f === null) unsafe.push(`XDG_CONFIG_HOME (${v === null ? 'a quoted value' : v}, set in .zshenv), a configuration folder Kosmos cannot work out`);
+    else f.forEach((d) => xdgs.add(d));
+  }
+  const files = [...SHELL_START_FILES.map((f) => path.join(home, f)), ...zshFilesIn(home)];
+  const globs = [path.join(home, '.zcompdump*')];
+  const zdots = new Set([...xdgs].map((x) => path.join(x, 'zsh')));   // the conventional folder, whatever names it
+  const zdotFrom = (v, from) => {
+    const f = v === null ? null : foldersOf(v, home, [...xdgs]);
+    if (f === null) { unsafe.push(`ZDOTDIR (${v === null ? 'a quoted value' : v}, ${from}), a folder of zsh startup files Kosmos cannot work out`); return []; }
+    return f.filter((d) => d !== path.resolve(home) && !zdots.has(d)).map((d) => (zdots.add(d), d));
+  };
+  let todo = [];
+  if (typeof e.ZDOTDIR === 'string') todo.push(...zdotFrom(e.ZDOTDIR, 'in the environment'));
+  for (const v of assignmentsIn(homeZshenv, 'ZDOTDIR')) todo.push(...zdotFrom(v, 'set in .zshenv'));
+  // Each ZDOTDIR's own .zshenv may set ZDOTDIR again (review 3); bounded, since a cycle is possible.
+  for (let i = 0; i < 8 && todo.length; i++) {
+    const next = [];
+    for (const d of todo) for (const v of assignmentsIn(readText(path.join(d, '.zshenv')), 'ZDOTDIR')) next.push(...zdotFrom(v, `set in ${path.join(d, '.zshenv')}`));
+    todo = next;
+  }
   for (const d of zdots) { files.push(...zshFilesIn(d)); globs.push(path.join(d, '.zcompdump*')); }
   for (const k of ['BASH_ENV', 'ENV']) {
     if (typeof e[k] !== 'string' || !e[k]) continue;
@@ -1271,9 +1313,11 @@ function shellStartPaths(home, env) {
     // Relative: read from whatever folder the shell runs in, which the agent can choose, so it is named, not guessed.
     else unsafe.push(`$${k} (${e[k]}), a startup file named relative to the folder a shell runs in`);
   }
-  // Review 2: nushell reads login.nu and every file in its autoload folders too, so its folders are denied whole, as fish's.
-  const nu = [path.join(xdg, 'nushell'), path.join(home, 'Library', 'Application Support', 'nushell')];
-  return { files: [...new Set(files)], dirs: [path.join(xdg, 'fish'), ...nu], globs: [...new Set(globs)], unsafe };
+  const dirs = [...[...xdgs].flatMap((x) => [path.join(x, 'fish'), path.join(x, 'nushell')]), path.join(home, 'Library', 'Application Support', 'nushell')];
+  const userDirs = (opts.userShellDirs || USER_WRITABLE_SHELL_DIRS).filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
+  dirs.push(...userDirs);
+  files.push(...dirs.flatMap((d) => linkTargetsIn(d)));
+  return { files: [...new Set(files)], dirs: [...new Set(dirs)], globs: [...new Set(globs)], unsafe };
 }
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
    and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
@@ -1476,7 +1520,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
-  const shellStart = shellStartPaths(home, deps.env || process.env);
+  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs });
   configUnsafe.push(...shellStart.unsafe);
   const shellStartFiles = [...new Set(shellStart.files.flatMap((p) => withTarget(p, configUnsafe)))];
   const shellStartDirs = [...new Set(shellStart.dirs.flatMap((p) => withTarget(p, configUnsafe)))];
@@ -2580,7 +2624,7 @@ function mergeSetting(stored, patch) {
 }
 
 module.exports = {
-  shellStartPaths, SHELL_START_FILES,
+  shellStartPaths, SHELL_START_FILES, USER_WRITABLE_SHELL_DIRS,
   /* #5683: the token roots the guard denies, so engine/agentevents.js classes a refusal at them as the board's files. */
   tokenOnlyTokenRoots, kosmosHome, tokenOnlySettingsRules,
   ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host

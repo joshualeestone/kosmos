@@ -60,6 +60,9 @@ fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
 fs.mkdirSync(path.join(HOME, '.claude-acct'), { recursive: true });
 
 const ENV0 = {};   // no ZDOTDIR, BASH_ENV or ENV unless a test sets one
+// The Homebrew-style folders, pinned to the sandbox so this host's own are not read (review 3).
+const USERDIRS = [path.join(SANDBOX, 'brew', 'share', 'zsh', 'site-functions'), path.join(SANDBOX, 'brew', 'share', 'fish', 'vendor_conf.d')];
+DEPS.userShellDirs = USERDIRS;
 
 test('#5774 part 2: each shell startup file in the home folder is denied in both layers', () => {
   const dir = agentDir('pilot-rc');
@@ -186,4 +189,69 @@ test('#5774 part 2 review 1: fish and nushell follow XDG_CONFIG_HOME', () => {
   for (const p of [path.join(xdg, 'fish', 'config.fish'), path.join(xdg, 'nushell', 'env.nu'), path.join(xdg, 'zsh', '.zshrc')]) {
     assert.ok(editDeniedBy(deny, p).length > 0, `${p} not denied`);
   }
+});
+
+test('#5774 part 2 review 3: XDG_CONFIG_HOME set in .zshenv is followed; ~/.config is kept when the environment names another', () => {
+  const zshenv = path.join(HOME, '.zshenv');
+  fs.writeFileSync(zshenv, 'export XDG_CONFIG_HOME=$HOME/.cfg\nexport ZDOTDIR=$XDG_CONFIG_HOME/zsh\n');
+  try {
+    const dir = agentDir('pilot-xdgz');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-xdgz', { ...DEPS, env: { XDG_CONFIG_HOME: path.join(SANDBOX, 'elsewhere') } });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(dir);
+    for (const p of [path.join(HOME, '.cfg', 'zsh', '.zshrc'), path.join(HOME, '.cfg', 'fish', 'config.fish'),
+      path.join(HOME, '.config', 'fish', 'config.fish'), path.join(HOME, '.config', 'nushell', 'env.nu'), path.join(SANDBOX, 'elsewhere', 'fish', 'config.fish')]) {
+      assert.ok(editDeniedBy(s.permissions.deny, p).length > 0, `${p} not denied`);
+      assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, p), `${p} not in the sandbox denyWrite`);
+    }
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(HOME, '.cfg', 'zsh', '.zcompdump-host')).length > 0, "the ZDOTDIR's completion dump");
+  } finally { fs.rmSync(zshenv, { force: true }); }
+});
+
+test("#5774 part 2 review 3: a ZDOTDIR's own .zshenv that moves it again is followed; an empty ZDOTDIR is the default", () => {
+  const first = path.join(SANDBOX, 'zfirst');
+  const second = path.join(SANDBOX, 'zsecond');
+  fs.mkdirSync(first, { recursive: true });
+  fs.writeFileSync(path.join(first, '.zshenv'), `ZDOTDIR=${second}\n`);
+  const dir = agentDir('pilot-z2');
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-z2', { ...DEPS, env: { ZDOTDIR: first } });
+  assert.equal(g.ok, true, JSON.stringify(g));
+  assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(second, '.zshrc')).length > 0, 'the second folder');
+  // CONTROL: without the first folder's .zshenv naming it, the second is not denied.
+  fs.rmSync(path.join(first, '.zshenv'));
+  const dir0 = agentDir('pilot-z20');
+  setup.guardTokenOnlyFolder(dir0, 'pilot-z20', { ...DEPS, env: { ZDOTDIR: first } });
+  assert.deepEqual(editDeniedBy(readSettings(dir0).permissions.deny, path.join(second, '.zshrc')), []);
+  // ZDOTDIR= (empty) unsets it: whole, nothing named.
+  assert.equal(setup.guardTokenOnlyFolder(agentDir('pilot-zempty'), 'pilot-zempty', { ...DEPS, env: { ZDOTDIR: '' } }).ok, true);
+});
+
+test('#5774 part 2 review 3: a link inside a folder denied whole (GNU Stow) has its target denied', () => {
+  const real = path.join(SANDBOX, 'stow', 'config.fish');
+  touch(real);
+  const link = path.join(HOME, '.config', 'fish', 'config.fish');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(real, link);
+  try {
+    const dir = agentDir('pilot-stow');
+    setup.guardTokenOnlyFolder(dir, 'pilot-stow', { ...DEPS, env: ENV0 });
+    const s = readSettings(dir);
+    const target = fs.realpathSync.native(real);
+    assert.ok(editDeniedBy(s.permissions.deny, target).length > 0, 'the stowed target, to the file tools');
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, target), 'the stowed target, to the shell');
+    assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(SANDBOX, 'stow', 'other.fish')), [], 'CONTROL: an unlinked file beside it');
+  } finally { fs.rmSync(link, { force: true }); }
+});
+
+test('#5774 part 2 review 3: user-writable startup folders outside the home (Homebrew-style) are denied where they exist', () => {
+  fs.mkdirSync(USERDIRS[0], { recursive: true });   // zsh site-functions exists; fish vendor_conf.d does not
+  const dir = agentDir('pilot-brew');
+  setup.guardTokenOnlyFolder(dir, 'pilot-brew', { ...DEPS, env: ENV0 });
+  const s = readSettings(dir);
+  assert.ok(editDeniedBy(s.permissions.deny, path.join(USERDIRS[0], '_git')).length > 0, 'a completion function');
+  assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(USERDIRS[0], '_git')));
+  assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(USERDIRS[1], 'x.fish')), [], 'a folder that does not exist gets no rule');
+  // The list for the real host names both prefixes.
+  assert.ok(setup.USER_WRITABLE_SHELL_DIRS.includes('/opt/homebrew/share/zsh/site-functions'));
 });
