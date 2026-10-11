@@ -181,3 +181,11 @@ engine writes one, but a person could.
   so it is retried each minute until restart: one lock and one current-file read per minute, with no effect on
   data. Fixing it means changing limitqueue, which is outside this change. It would matter if limits were held
   for long and many rows arrived meanwhile.
+
+## Full validation, run 1 (Mortals, 794f204cb): FAILED, 1 of 19190
+- **The failure:** web.owes-line (#4340) pins `if (olderCount) messages = messages.slice(-TAIL);` by its spelling,
+  to prove owes is taken before the 200-row cut. This branch had respelled it as a length check.
+- **Fix:** the spelling is restored on both routes. It behaves the same in every state the engine writes:
+  olderCount > 0 whenever the file holds more than 200 rows, and slice(-TAIL) is a no-op at 200 or fewer.
+- **My miss:** my "related suites" list held no web test, and web tests pin server.js lines too. The full
+  web*.test.js sweep now passes: 349 files, 2678 of 2678. Run 2 is queued at dbe4a7325.
