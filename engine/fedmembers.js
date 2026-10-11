@@ -372,7 +372,9 @@ async function remove(remote, projectId, edgeId) {
   const line = sealed
     ? 'You removed ' + who + '. New messages here are sealed with a new key they do not have.'
     : 'You removed ' + who + '. They no longer get new messages from this room.';
-  return { status: 200, body: { removed: true }, roomLine: line };
+  /* #5191: the account the relay stamps on this member's posts, so the owner's seat refuses them from now. */
+  const memberAccount = typeof edge.member_account_id === 'string' ? edge.member_account_id : null;
+  return { status: 200, body: { removed: true }, roomLine: line, memberAccount };
 }
 
 /** Withdraw an unused invite (slice 2's coordinator route). */
