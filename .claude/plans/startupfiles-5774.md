@@ -18,7 +18,7 @@
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 27 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 28 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -39,7 +39,9 @@
 - A completion dump that does not exist yet, in a ZDOTDIR the shell can write, is covered by the file tools' glob only.
 - A WRITABLE linked target whose path has a rule-syntax character (a dotfiles repo under `~/Dropbox (Personal)`) is named, so the guard is not whole and creation fails. DECIDED, not changed: the file tools cannot be denied that target, so it is a real gap, and config files already behave the same way. The sandbox layer still carries it.
 - ZDOTDIR set in /etc/zshenv is not read (root-owned); the conventional XDG folder is covered regardless. A column-0 assignment inside a here-document is read (it may give a false "not whole" when relative).
-- A ZDOTDIR or XDG_CONFIG_HOME through any variable other than HOME, XDG_CONFIG_HOME and ZDOTDIR ($XDG_DATA_HOME/zsh, $XDG_CACHE_HOME/...) is named, so not whole (review 16). DECIDED: reading $XDG_DATA_HOME from the environment alone would be a silent miss whenever .zshenv sets it, and named fails closed; the convention is $XDG_CONFIG_HOME/zsh.
+- A ZDOTDIR or XDG folder through any variable other than HOME, XDG_CONFIG_HOME, XDG_DATA_HOME and ZDOTDIR ($XDG_CACHE_HOME/...) is named, so not whole (review 16). Review 17 made XDG_DATA_HOME readable: it is now read from the environment and from every startup file, so resolving it no longer misses a value .zshenv sets.
+- XDG_CONFIG_HOME and XDG_DATA_HOME are read from the home's .zshenv, .zprofile, .zshrc, .zlogin, .profile, .bash_profile, .bash_login and .bashrc, and from each ZDOTDIR's zsh files (review 17). A value set in a ZDOTDIR's files moves fish, nushell and the data folders, but does not add another conventional <xdg>/zsh folder (zsh has already chosen its folder by then).
+- A content-addressed store other than /nix/store (a custom Nix store path, Guix's /gnu/store) is not recognised: a writable target there is listed by name and can pile up (review 17; read-only ones are filtered either way).
 - Per-user drop-in folders other than ~/.bashrc.d (Fedora's default .bashrc runs it, review 16) are each a person's own convention (~/.zshrc.d, ~/.profile.d): not listed. Login items (~/Library/LaunchAgents, ~/.config/environment.d) are not shell startup files and stay with route 3 on the card.
 - Route 3 and on stay on the card.
 
@@ -141,4 +143,12 @@
   - [NIT] TAKEN: a dangling link whose would-be target is in a Cellar no longer spends the link budget (510 such links stay whole). Mutation red.
   - [NIT] TAKEN: the USER_WRITABLE_SHELL_DIRS comment no longer claims they are the user's on every host.
   - [NIT] not taken: other guard tests reading the host's Homebrew (decided in iteration 5).
+- Iteration 17 (Opus), on 8963afe41:
+  - [BLOCKER] FIXED (reproduced by the reviewer). `: ${ZDOTDIR:=${HOME}/.zsh}` was a silent miss: the second form's `[^}]*` cut the default at the inner brace, and foldersOf then read the lone `${HOME` as the home folder, which is skipped as already covered. The second form now captures balanced braces, and foldersOf accepts only `$HOME` exactly (`${HOME}` is unbraced first), so an unclosed brace is named. Two mutations, each red.
+  - [WARNING] FIXED. A single-user Nix store root is the user's own, so home-manager's two-hop links (a file directly in the store root) are not read-only, and the hashed name was listed and would pile up. A target in a known store (/nix/store; deps.storeRoots in tests) now gives one stable rule for the store in both layers, and the link stays with the file tools. Tested with a user-owned 0755 store holding a 0444 target, both through ~/.zshrc and a link inside fish; mutations of each path red. A store elsewhere is stated under Gaps.
+  - [WARNING] FIXED. XDG_CONFIG_HOME set in .zprofile, .zshrc, .profile or .bashrc, or in a ZDOTDIR's files, was not read (fails open). Now read from each. Two mutations red.
+  - [WARNING] FIXED. XDG_DATA_HOME: a relative value in the environment is named (it was dropped), and it is read from the startup files too, including the `${XDG_DATA_HOME:-$HOME/...}` form; ZDOTDIR=$XDG_DATA_HOME/zsh now resolves. Mutation red.
+  - [NIT] TAKEN: the lone-brace match (the blocker's cause).
+  - [NIT] TAKEN: the two comments that still described the removed owner check.
+  - [NIT] not taken: the Cellar shape match on a person's own folder named Cellar (accepted earlier; tooBroad bounds it).
 

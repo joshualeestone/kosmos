@@ -1227,27 +1227,29 @@ const zshFilesIn = (d) => ZSH_START_FILES.flatMap((f) => [path.join(d, f), path.
 /* A ZDOTDIR or XDG_CONFIG_HOME value, as the folders it can mean: absolute, or through ~, $HOME/${HOME}, or
    $XDG_CONFIG_HOME (each folder that variable can be, review 3). Anything else (relative, another variable) is null:
    Kosmos cannot say which folder it is, so the caller names it. An empty value is [] (unset: the default applies). */
-function foldersOf(value, home, xdgs, zdotNow = []) {
+function foldersOf(value, home, xdgs, zdotNow = [], datas = []) {
+  const sets = { HOME: [home], XDG_CONFIG_HOME: xdgs, ZDOTDIR: zdotNow, XDG_DATA_HOME: datas };
   // Review 9: a plain ${HOME} or ${XDG_CONFIG_HOME} inside a default (${XDG_CONFIG_HOME:-${HOME}/.config}) is the
   // unbraced form; done first, so the default is not cut at its inner brace.
-  let v = String(value).trim().replace(/\$\{(HOME|XDG_CONFIG_HOME|ZDOTDIR)\}/g, '$$$1');
+  let v = String(value).trim().replace(/\$\{(HOME|XDG_CONFIG_HOME|ZDOTDIR|XDG_DATA_HOME)\}/g, '$$$1');
   if (!v) return [];
   /* Review 5: ${XDG_CONFIG_HOME:-default} and ${HOME:-...}, the common way to write these, are both arms: each folder
      the variable can be, and the default resolved the same way. Review 7: ${ZDOTDIR:-default} too (the usual
      `export ZDOTDIR="${ZDOTDIR:-$HOME/.config/zsh}"`), whose first arm is each ZDOTDIR already known. */
   // Review 13: := , - and = too (assign or use the default); for these paths each has the same two arms as :-.
-  const dflt = /^\$\{(XDG_CONFIG_HOME|HOME|ZDOTDIR):?[-=]([^}]*)\}(.*)$/.exec(v);
+  const dflt = /^\$\{(XDG_CONFIG_HOME|HOME|ZDOTDIR|XDG_DATA_HOME):?[-=]([^}]*)\}(.*)$/.exec(v);
   if (dflt) {
     const rest = dflt[3];
-    const set = dflt[1] === 'HOME' ? [home] : dflt[1] === 'ZDOTDIR' ? zdotNow : xdgs;
-    const viaDefault = foldersOf(dflt[2] + rest, home, xdgs, zdotNow);
+    const set = sets[dflt[1]];
+    const viaDefault = foldersOf(dflt[2] + rest, home, xdgs, zdotNow, datas);
     if (viaDefault === null) return null;
     const viaSet = set.map((x) => x + rest).map((o) => (path.isAbsolute(o) && !/[$}{]/.test(o) ? path.resolve(o) : null));
     return viaSet.includes(null) ? null : [...new Set([...viaSet, ...viaDefault])];
   }
-  const viaXdg = /^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/.test(v);
-  const outs = (viaXdg ? xdgs : [null]).map((x) => v.replace(/^~(?=\/|$)/, home).replace(/^\$\{?HOME\}?(?=\/|$)/, home)
-    .replace(/^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/, x || ''));
+  /* Review 17: the variable exactly ($HOME; ${HOME} was unbraced above). A lone ${HOME with no closing brace is a form
+     this does not read, so it stays and is named below, never read as the home folder. */
+  const lead = /^\$(HOME|XDG_CONFIG_HOME|XDG_DATA_HOME)(?=\/|$)/.exec(v);
+  const outs = lead ? sets[lead[1]].map((x) => x + v.slice(lead[0].length)) : [v.replace(/^~(?=\/|$)/, home)];
   // Review 9: a brace left over means a form this does not read: named, never a path with a } in it.
   return outs.every((o) => path.isAbsolute(o) && !/[$}{]/.test(o)) ? outs.map((o) => path.resolve(o)) : null;
 }
@@ -1273,7 +1275,7 @@ function assignmentsIn(text, name) {
       else if (c === '\\') { i++; quoted[i] = false; }
       else if (c === '#' && /\s/.test(raw[i - 1] || '')) { line = raw.slice(0, i); break; }
     }
-    const forms = [new RegExp(`(?:^|[\\s;&|(])${name}=${val}`, 'g'), new RegExp(`\\$\\{${name}:?=([^}]*)\\}()`, 'g')];
+    const forms = [new RegExp(`(?:^|[\\s;&|(])${name}=${val}`, 'g'), new RegExp(`\\$\\{${name}:?=((?:[^{}]|\\{[^{}]*\\})*)\\}()`, 'g')];
     for (const [k, re] of forms.entries()) {
       for (const m of line.matchAll(re)) {
         if (k === 0 && quoted[line.indexOf(`${name}=`, m.index)]) continue;   // inside quotes: a mention
@@ -1326,8 +1328,8 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
   }
   return res;
 }
-/* Review 13: "cannot write" means truly read-only: not writable now, NOT owned by this user (an owner can chmod it back),
-   and in a folder this user cannot write (a replace by rename needs only that). A read-only store is exactly that. */
+/* Review 13: "cannot write" means truly read-only: not writable now, and in a folder this user cannot write (a replace
+   by rename needs only that). A read-only store is exactly that. */
 function isReadOnlyTarget(p) {
   let st;
   try { st = fs.statSync(p); } catch { return false; }   // absent: the agent could create it
@@ -1341,6 +1343,11 @@ function isReadOnlyTarget(p) {
    (on zsh's default fpath, run on tab-complete in the person's own terminal) and fish's vendor folders, which fish
    reads at every start. Denied whole where they exist; on this fleet the Homebrew prefix is the user's. */
 const HOMEBREW_PREFIXES = ['/opt/homebrew', '/usr/local'];
+/* Review 17: a content-addressed store (Nix) names every file by a hash that changes at each switch. A single-user store
+   root is the user's own and writable, so a target directly in it is not read-only; it gets ONE stable rule for the
+   store instead of its hashed name, as a Cellar does. */
+const STORE_ROOTS = ['/nix/store'];
+const storeIn = (roots, t) => roots.find((r) => t.startsWith(r + path.sep)) || null;
 const USER_WRITABLE_SHELL_DIRS = HOMEBREW_PREFIXES.flatMap((pre) => [path.join(pre, 'share', 'zsh', 'site-functions'),
   ...['vendor_conf.d', 'vendor_functions.d', 'vendor_completions.d'].map((v) => path.join(pre, 'share', 'fish', v))]);
 /* The files, the folders read whole, and the globs (permission layer only) for this home and environment.
@@ -1364,21 +1371,34 @@ function shellStartPaths(home, env, opts = {}) {
   };
   const homeZshenv = readText(path.join(home, '.zshenv'));
   const xdgs = new Set([path.join(home, '.config')]);
-  if (typeof e.XDG_CONFIG_HOME === 'string' && path.isAbsolute(e.XDG_CONFIG_HOME)) xdgs.add(path.resolve(e.XDG_CONFIG_HOME));
-  // Review 4: relative, it is read from wherever a program runs, as a relative ZDOTDIR is: named, not dropped.
-  else if (typeof e.XDG_CONFIG_HOME === 'string' && e.XDG_CONFIG_HOME) unsafe.push(`XDG_CONFIG_HOME (${e.XDG_CONFIG_HOME}, in the environment), a configuration folder Kosmos cannot work out`);
-  for (const v of assignmentsIn(homeZshenv, 'XDG_CONFIG_HOME')) {
-    const f = v === null ? null : foldersOf(v, home, [path.join(home, '.config')]);
-    if (f === null) unsafe.push(`XDG_CONFIG_HOME (${v === null ? 'a quoted value' : v}, set in .zshenv), a configuration folder Kosmos cannot work out`);
-    else f.forEach((d) => xdgs.add(d));
+  const datas = new Set([path.join(home, '.local', 'share')]);
+  const xdgVars = [['XDG_CONFIG_HOME', xdgs, 'a configuration folder'], ['XDG_DATA_HOME', datas, 'a data folder']];
+  for (const [k, set, what] of xdgVars) {
+    if (typeof e[k] === 'string' && path.isAbsolute(e[k])) set.add(path.resolve(e[k]));
+    // Review 4: relative, it is read from wherever a program runs, as a relative ZDOTDIR is: named, not dropped.
+    // Review 17: XDG_DATA_HOME the same way (it was dropped silently).
+    else if (typeof e[k] === 'string' && e[k]) unsafe.push(`${k} (${e[k]}, in the environment), ${what} Kosmos cannot work out`);
   }
+  /* Review 17: unlike ZDOTDIR (which zsh fixes in .zshenv), these are commonly set in any startup file, and the
+     person's terminal, and the fish or nushell it starts, use that value. Read from each, the default kept. */
+  const xdgFromFile = (file, label) => {
+    const text = readText(file);
+    for (const [k, set, what] of xdgVars) {
+      for (const v of assignmentsIn(text, k)) {
+        const f = v === null ? null : foldersOf(v, home, [path.join(home, '.config')], [], [path.join(home, '.local', 'share')]);
+        if (f === null) unsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${label}), ${what} Kosmos cannot work out`);
+        else f.forEach((d) => set.add(d));
+      }
+    }
+  };
+  for (const f of ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.profile', '.bash_profile', '.bash_login', '.bashrc']) xdgFromFile(path.join(home, f), f);
   const files = [...SHELL_START_FILES.map((f) => path.join(home, f)), ...zshFilesIn(home)];
   const globs = [path.join(home, '.zcompdump*')];
   const zdots = new Set([...xdgs].map((x) => path.join(x, 'zsh')));   // the conventional folder, whatever names it
   const readZshenvs = new Set();
   const explicitZdots = new Set();   // the ZDOTDIRs something set, for ${ZDOTDIR:-...} (review 7)
   const zdotFrom = (v, from) => {
-    const f = v === null ? null : foldersOf(v, home, [...xdgs], [...explicitZdots]);
+    const f = v === null ? null : foldersOf(v, home, [...xdgs], [...explicitZdots], [...datas]);
     if (f === null) { unsafe.push(`ZDOTDIR (${v === null ? 'a quoted value' : v}, ${from}), a folder of zsh startup files Kosmos cannot work out`); return []; }
     // Review 5: one that something SETS has its own .zshenv read, even when it is already listed (the conventional one).
     const fresh = f.filter((d) => d !== path.resolve(home) && !readZshenvs.has(d));
@@ -1415,6 +1435,11 @@ function shellStartPaths(home, env, opts = {}) {
   const realOf = (d) => { try { return fs.realpathSync.native(d); } catch { return path.resolve(d); } };
   const homeR = realOf(home);
   const underHome = (d) => { const r = realOf(d); return r === homeR || r.startsWith(homeR + path.sep); };
+  // Review 17: a ZDOTDIR's own startup files can set the XDG folders too (for fish, nushell and the data folders below).
+  for (const d of [...zdots]) {
+    if (d === path.resolve(home)) continue;
+    for (const f of ['.zshenv', '.zprofile', '.zshrc', '.zlogin']) xdgFromFile(path.join(d, f), path.join(d, f));
+  }
   for (const d of zdots) {
     if (d === path.resolve(home)) continue;
     files.push(...zshFilesIn(d));
@@ -1435,8 +1460,6 @@ function shellStartPaths(home, env, opts = {}) {
     path.join(home, '.bashrc.d')];   // review 16: Fedora's default .bashrc runs every file in it
   /* Review 15: the per-user data folders these shells load code from: fish's vendor folders (searched before the system
      ones; vendor_conf.d runs at every start), nushell's vendor autoload, and bash-completion's per-user completions. */
-  const datas = new Set([path.join(home, '.local', 'share')]);
-  if (typeof e.XDG_DATA_HOME === 'string' && path.isAbsolute(e.XDG_DATA_HOME)) datas.add(path.resolve(e.XDG_DATA_HOME));
   for (const dd of datas) {
     dirs.push(...['vendor_conf.d', 'vendor_functions.d', 'vendor_completions.d'].map((v) => path.join(dd, 'fish', v)),
       path.join(dd, 'nushell', 'vendor', 'autoload'), path.join(dd, 'bash-completion', 'completions'));
@@ -1457,7 +1480,7 @@ function shellStartPaths(home, env, opts = {}) {
   const inCellar = (t, c) => t === c || t.startsWith(c + path.sep);
   /* Review 10: a Homebrew under another prefix (Linuxbrew, ~/homebrew) keeps the same <prefix>/Cellar/<name>/<version>/
      shape; such a Cellar is found from the target itself and gets the same one stable rule. */
-  const cellarOf = (t) => { const m = /^(.*\/(?:Cellar|Caskroom))\/[^/]+\/[^/]+(?:\/|$)/.exec(t); return m ? m[1] : null; };
+  const cellarOf = (t) => { const m = /^(.*\/(?:Cellar|Caskroom))\/[^/]+\/[^/]+(?:\/|$)/.exec(t); return m ? m[1] : storeIn(opts.storeRoots || STORE_ROOTS, t); };
   const outsideCellar = (t) => !realCellars.some((c) => inCellar(t, c)) && !cellarOf(t);
   /* Review 14: a read-only target found INSIDE a startup folder (home-manager links ~/.config/fish/config.fish into the
      store) protects nothing and its hashed name would pile up; the link itself is under that folder's own rule. */
@@ -1690,14 +1713,13 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
-  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget });
+  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget, storeRoots: deps.storeRoots });
   configUnsafe.push(...shellStart.unsafe);
   /* Review 9: a target the user cannot write (a read-only store such as /nix/store, whose hashed names change at every
      home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A
      path that is not there yet is kept: the agent could create it. */
-  /* Review 13: "cannot write" means truly read-only: not writable now, NOT owned by this user (an owner can chmod it
-     back), and in a folder this user cannot write (a replace by rename needs only that). A read-only store is exactly
-     that (root-owned, in a read-only folder); a 0444 file of the user's own is not. Tests pass deps.readOnlyTarget. */
+  /* Review 13: "cannot write" means truly read-only: not writable now, and in a folder this user cannot write (a replace
+     by rename needs only that); review 15 dropped the owner test. Tests pass deps.readOnlyTarget. */
   const readOnlyTarget = deps.readOnlyTarget || isReadOnlyTarget;
   const writableOrAbsent = (p) => !readOnlyTarget(p);
   /* Review 10: the LINK itself is always kept (it sits in a folder the user can write, so a tool could replace it);
@@ -1710,14 +1732,18 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      still sits in a folder the user can write). Only a resolved TARGET is judged for writability. */
   const editOnlyLinks = [];
   const editOnlyLinkDirs = [];
+  const storeHits = new Set();
   const linkAware = (dirs) => (p) => {
     const real = realOrLeaf(p);
     if (real === path.resolve(p)) return [p];
     if (!writableOrAbsent(real)) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); return []; }
+    // Review 17: a writable target in a store: the link for the file tools, the store by one stable rule (both layers).
+    const st = storeIn(deps.storeRoots || STORE_ROOTS, real);
+    if (st) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); storeHits.add(st); return []; }
     return withTarget(p, configUnsafe);
   };
   const shellStartFiles = [...new Set(shellStart.files.flatMap(linkAware(false)))];
-  const shellStartDirs = [...new Set(shellStart.dirs.flatMap(linkAware(true)))];
+  const shellStartDirs = [...new Set([...shellStart.dirs.flatMap(linkAware(true)), ...storeHits])];
   const commandScripts = [];
   for (const f of startCmds.files) {
     if (coveredWhole(f)) continue;

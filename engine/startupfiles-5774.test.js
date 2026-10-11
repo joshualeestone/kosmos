@@ -797,3 +797,56 @@ test('#5774 part 2 review 16: a trailing comment or a quoted mention is not an a
   const g = setup.guardTokenOnlyFolder(agentDir('pilot-dangle16'), 'pilot-dangle16', { ...DEPS, env: ENV0, userShellDirs: [sf], homebrewPrefixes: [pre] });
   assert.equal(g.ok, true, JSON.stringify(g));
 });
+
+test('#5774 part 2 review 17: ${ZDOTDIR:=${HOME}/...} is read; a lone ${HOME is named; XDG folders set in any startup file; a writable store gets one rule', () => {
+  const zshenv = path.join(HOME, '.zshenv');
+  const bashrc = path.join(HOME, '.bashrc');
+  const withFiles = (map, name, extra = {}) => {
+    for (const [f, body] of Object.entries(map)) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.rmSync(f, { force: true }); fs.writeFileSync(f, body); }
+    const d = agentDir(name);
+    try { return { g: setup.guardTokenOnlyFolder(d, name, { ...DEPS, env: ENV0, ...extra }), s: readSettings(d) }; } finally { for (const f of Object.keys(map)) fs.rmSync(f, { force: true }); }
+  };
+  const denied = (s, p) => editDeniedBy(s.permissions.deny, p).length > 0;
+  // The silent miss: the inner ${HOME} cut the default at its brace, which then read as the home folder.
+  const a = withFiles({ [zshenv]: ': ${ZDOTDIR:=${HOME}/.zsh17}\n' }, 'pilot-nested17');
+  assert.equal(a.g.ok, true, JSON.stringify(a.g));
+  assert.ok(denied(a.s, path.join(HOME, '.zsh17', '.zshrc')), '${ZDOTDIR:=${HOME}/...}');
+  assert.equal(withFiles({ [zshenv]: 'export ZDOTDIR=${HOME\n' }, 'pilot-lone17').g.ok, false, 'a lone ${HOME read as the home folder');
+  // XDG_CONFIG_HOME in .bashrc, and in a ZDOTDIR's own .zshrc.
+  const zd = path.join(HOME, 'zd17');
+  const b = withFiles({ [bashrc]: 'export XDG_CONFIG_HOME=$HOME/cfg17\n', [zshenv]: 'export ZDOTDIR=$HOME/zd17\n', [path.join(zd, '.zshrc')]: 'export XDG_CONFIG_HOME="$HOME/cfg17b"\n' }, 'pilot-xdgrc17');
+  assert.equal(b.g.ok, true, JSON.stringify(b.g));
+  assert.ok(denied(b.s, path.join(HOME, 'cfg17', 'fish', 'config.fish')), 'XDG_CONFIG_HOME set in .bashrc');
+  assert.ok(denied(b.s, path.join(HOME, 'cfg17b', 'fish', 'config.fish')), "XDG_CONFIG_HOME set in a ZDOTDIR's .zshrc");
+  // XDG_DATA_HOME: set in .zshenv with the usual default form, read (and usable in ZDOTDIR); relative in the environment, named.
+  const c = withFiles({ [zshenv]: 'export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/dat17}"\nexport ZDOTDIR=$XDG_DATA_HOME/zsh\n' }, 'pilot-data17');
+  assert.equal(c.g.ok, true, JSON.stringify(c.g));
+  assert.ok(denied(c.s, path.join(HOME, 'dat17', 'fish', 'vendor_conf.d', 'x.fish')), 'XDG_DATA_HOME set in .zshenv');
+  assert.ok(denied(c.s, path.join(HOME, 'dat17', 'zsh', '.zshrc')), 'ZDOTDIR through $XDG_DATA_HOME');
+  assert.equal(withFiles({}, 'pilot-datarel17', { env: { XDG_DATA_HOME: 'rel17' } }).g.ok, false, 'a relative XDG_DATA_HOME was dropped');
+  // A single-user Nix store: the root is the user's (0755), the target a 0444 file directly in it, reached in two hops.
+  if (typeof process.getuid === 'function' && process.getuid() !== 0) {
+    fs.mkdirSync(path.join(SANDBOX, 'nix17', 'store'), { recursive: true });
+    const root = fs.realpathSync.native(path.join(SANDBOX, 'nix17', 'store'));
+    const target = path.join(root, 'h2abc-hm_.zshrc');
+    const files = path.join(root, 'h1abc-home-manager-files');
+    if (!fs.existsSync(target)) { touch(target); fs.chmodSync(target, 0o444); }
+    if (!fs.existsSync(files)) { fs.mkdirSync(files); }
+    if (!fs.existsSync(path.join(files, '.zshrc'))) { fs.symlinkSync(target, path.join(files, '.zshrc')); touch(path.join(root, 'h3abc-config.fish')); fs.symlinkSync(path.join(root, 'h3abc-config.fish'), path.join(files, 'config.fish')); fs.chmodSync(files, 0o555); }
+    const zshrc = path.join(HOME, '.zshrc');
+    const fishLink = path.join(HOME, '.config', 'fish', 'config17.fish');
+    fs.rmSync(zshrc, { force: true }); fs.symlinkSync(path.join(files, '.zshrc'), zshrc);
+    fs.mkdirSync(path.dirname(fishLink), { recursive: true }); fs.rmSync(fishLink, { force: true }); fs.symlinkSync(path.join(files, 'config.fish'), fishLink);
+    try {
+      const d = agentDir('pilot-nixstore17');
+      const g = setup.guardTokenOnlyFolder(d, 'pilot-nixstore17', { ...DEPS, env: ENV0, storeRoots: [root] });
+      assert.equal(g.ok, true, JSON.stringify(g));
+      const s = readSettings(d);
+      const all = [...s.permissions.deny, ...s.sandbox.filesystem.denyWrite];
+      assert.ok(!all.some((r) => /h[123]abc/.test(r)), `a hashed store name was listed: ${all.filter((r) => /h[123]abc/.test(r))}`);
+      assert.ok(denied(s, zshrc), 'the link itself');
+      assert.ok(denied(s, path.join(root, 'h9-new')), 'the store, file tools');
+      assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(root, 'h9-new')), 'the store, sandbox');
+    } finally { fs.rmSync(zshrc, { force: true }); fs.rmSync(fishLink, { force: true }); fs.chmodSync(files, 0o755); }
+  }
+});
