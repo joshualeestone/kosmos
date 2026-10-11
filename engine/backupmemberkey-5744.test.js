@@ -430,3 +430,37 @@ test('#5744 2b: under lostEpoch, a current epoch at or below the stale one never
     assert.deepEqual([file.keys['1'].pk, file.keys['1'].registered], [first.publicKey.toString('base64url'), true], 'the registered key was overwritten at currentEpoch ' + currentEpoch);
   }
 });
+
+test('#5744 2b: a lostEpoch that matches nothing is ignored and the answer says so', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest, lostEpoch: 5 });
+  assert.deepEqual([r.ok, r.epoch, r.lostEpochIgnored], [true, 1, true], JSON.stringify(r));
+  const plain = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.equal('lostEpochIgnored' in plain, false);
+});
+
+test('#5744 2b: a failure right after a move keeps the moved key, and the next call sends it at the new epoch', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
+  loseTheKey();
+  let n = 0;
+  const flaky = async (m, route, b) => {
+    if (route === mk.MEMBER_KEY_ROUTE && ++n === 2) return { ok: false, because: 'limited', refusal: { status: 429, code: 'rate_limited', currentEpoch: null } };
+    return c.macRequest(m, route, b);
+  };
+  const first = await mk.ensureMemberKey({ macRequest: flaky });   // 1 -> 409 -> move to 2 -> limited
+  assert.equal(first.ok, false);
+  const kept = JSON.parse(fs.readFileSync(keyFile(), 'utf8')).keys;
+  assert.deepEqual(Object.keys(kept), ['2'], 'the moved key is not kept at the new epoch');
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.deepEqual([r.ok, r.epoch, r.publicKey.toString('base64url')], [true, 2, kept['2'].pk], JSON.stringify(r));
+});
+
+test('#5744 2b: a key file left readable by others is made owner-only when read', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });
+  fs.chmodSync(keyFile(), 0o644);
+  await mk.ensureMemberKey({ macRequest: c.macRequest });
+  assert.equal(fs.statSync(keyFile()).mode & 0o777, 0o600);
+});

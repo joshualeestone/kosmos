@@ -59,7 +59,7 @@ job must pass the epoch ensureMemberKey answers (a Number; sealedEpoch converts 
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at eb1725125: 28 tests, 28 pass)
+## Tests (measured at review 15: 31 tests, 31 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -205,3 +205,10 @@ the API doc's missing `member` field.
   what a coordinator rollback looks like), deleting a key Kosmos+ took. A move never lands on a registered key, and
   on the lost path never at or below the stale epoch; tested with currentEpoch 0 and 1 (red without the guard).
 - NITs taken: a comment at `pending` names the file invariant it relies on.
+
+## Review 15 (sonnet)
+- DEFERRED, not an issue (W1): member_key_reused deletes the replaced private half; under the seal-only-under-ok rule
+  nothing this computer sealed is under a key it never recorded as registered. The header now says so.
+- FIXED: a lostEpoch that matches nothing answers `lostEpochIgnored: true`, so the job notices (tested).
+- FIXED (test): a non-wait failure right after a move keeps the moved key and the next call sends it there.
+- NITs taken: a looser key file is made 0600 on read (tested); the chain comment says in-process only.
