@@ -37485,13 +37485,24 @@ async function dmHeldSend(btn) {
   btn.textContent = 'Sending…';
   const session = CURRENT.sessionName;
   let ok = false;
+  let because = 'Kosmos could not reach the board to send it. Try again.';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread/held', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: btn.dataset.heldAt }),
     });
     ok = res.ok || res.status === 409;   // 409: it was sent or dropped meanwhile; the repaint shows which
+    if (!ok) {
+      const out = await res.json().catch(() => null);
+      because = out && typeof out.error === 'string' && out.error ? 'Not sent: ' + out.error.replace(/[.\s]+$/, '') + '.' : 'Not sent (the board answered ' + res.status + '). Try again.';
+    }
   } catch { ok = false; }
-  if (!ok) { btn.disabled = false; btn.textContent = 'Send now anyway'; return; }
+  if (!ok) {
+    btn.disabled = false; btn.textContent = 'Send now anyway';
+    // Said under the box, where the page says what happened to a send: a button that only re-enables says nothing.
+    const msg = document.getElementById('d-say-msg');
+    if (msg && CURRENT && CURRENT.sessionName === session) msg.textContent = because;
+    return;
+  }
   if (CURRENT && CURRENT.sessionName === session) await paintTalk(session, CURRENT.name);
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
@@ -69686,10 +69697,13 @@ function placedWords(d) {
 }
 /* #5805 slice 2b: what a person's held message says, on its row and under the box: why it is held and when it goes. */
 function dmHeldWords(name, d) {
-  if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.';
+  // Kosmos tried to send it and could not (the sweep recorded why): said after the reason it is held.
+  const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
+    ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
+  if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.' + stuck;
   const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
-  return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.';
+  return 'Held: ' + name + ' is out of usage' + (when ? ' until ' + when : '') + '. Kosmos sends it after the reset.' + stuck;
 }
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};

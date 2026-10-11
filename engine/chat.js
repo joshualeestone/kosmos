@@ -3769,7 +3769,9 @@ function markDmReactionsTold(agent, named) {
 }
 
 /* #5805 slice 2b: a person's held message was typed later (the minute sweep, or Send now anyway), or dropped: its row,
-   found by `at`, takes the new delivery. Only a row that is still held changes. Never throws; true when written. */
+   found by `at`, takes the new delivery. Only a row that is still held changes. A delivery that is itself 'held' (the
+   sweep tried and could not type it) keeps the row held, with its time and flags, and records why in `stuck` (not
+   rewritten when the reason is the same). Never throws; true when written. */
 function updateDmDelivery(agent, at, delivery) {
   const name = String(agent);
   if (typeof at !== 'string' || !delivery || typeof delivery.state !== 'string') return false;
@@ -3781,6 +3783,12 @@ function updateDmDelivery(agent, at, delivery) {
       const thread = readThread(DIRECT, name);
       const messages = thread.messages.map((m) => {
         if (!m || m.at !== at || m.from || !m.delivery || m.delivery.state !== 'held') return m;
+        if (delivery.state === 'held') {
+          const stuck = typeof delivery.stuck === 'string' && delivery.stuck ? delivery.stuck : null;
+          if (!stuck || (m.delivery.stuck && m.delivery.stuck.because === stuck)) return m;
+          wrote = true;
+          return { ...m, delivery: { ...m.delivery, stuck: { because: stuck, at: new Date().toISOString() } } };
+        }
         wrote = true;
         return { ...m, delivery: { state: delivery.state, because: delivery.because || null, paneState: delivery.paneState || null, paneNote: delivery.paneNote || null } };
       });

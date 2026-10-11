@@ -48,18 +48,20 @@ const RESET = new Date(Date.now() + 3 * 3600e3).toISOString();
 const PLACED = () => ({ state: chat.DELIVERY.PLACED, at: new Date().toISOString(), because: null, paneState: null, paneNote: null });
 
 /** One request with the deliver paths recorded and the limit verdict as given (null: not held). */
-async function call(pathSuffix, body, { held = true, headers = {} } = {}) {
+async function call(pathSuffix, body, { held = true, headers = {}, reset = RESET, menu = false, screen = null } = {}) {
   const calls = [];
-  const real = { a: chat.deliverAutomaticAsync, p: chat.deliverAsync, v: chat.limitHeldVerdict };
+  const real = { a: chat.deliverAutomaticAsync, p: chat.deliverAsync, v: chat.limitHeldVerdict, m: chat.menuHeld, vp: chat.viewport };
   const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
   try {
     chat.deliverAutomaticAsync = async (...a) => { calls.push(['automatic', a[1]]); return PLACED(); };
     chat.deliverAsync = async (...a) => { calls.push(['plain', a[1]]); return PLACED(); };
-    chat.limitHeldVerdict = () => (held ? { state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: RESET, limitReset: RESET } : null);
+    chat.limitHeldVerdict = () => (held ? { state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: reset, limitReset: reset } : null);
+    chat.menuHeld = () => menu;
+    chat.viewport = () => (screen === null ? null : { text: screen });
     const res = await fetch(`${base}/api/agent/${NAME}${pathSuffix}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
     return { status: res.status, out: await res.json().catch(() => null), calls };
   } finally {
-    chat.deliverAutomaticAsync = real.a; chat.deliverAsync = real.p; chat.limitHeldVerdict = real.v;
+    chat.deliverAutomaticAsync = real.a; chat.deliverAsync = real.p; chat.limitHeldVerdict = real.v; chat.menuHeld = real.m; chat.viewport = real.vp;
     board.restore();
   }
 }
@@ -188,4 +190,57 @@ test('#5805 2b review 2: Send now anyway keeps the message kept while it types i
   assert.equal(keptDuring, true, 'taken out before it was typed (a crash then loses it)');
   assert.deepEqual(limitqueue.list(NAME), []);
   assert.equal(limitqueue.isTyping('x'), false);
+});
+
+test('#5805 2b review 3: a message to an agent whose screen waits on an answer is typed, never held', async () => {
+  const t = new Date().toISOString();
+  limitqueue.add(NAME, { id: 'mx2', from: 'leo', envelope: 'earlier', at: t, reset: t });
+  const onMenu = await call('/thread', { text: 'yes, option 2' }, { menu: true });
+  assert.deepEqual(onMenu.calls, [['plain', 'yes, option 2']], 'held while a question or permission menu waits (capped, and with a backlog)');
+  limitqueue.remove(NAME, 'mx2');
+  const past = new Date(Date.now() - 5 * 60e3).toISOString();
+  const LIMIT_MENU = 'You have hit your limit\n   What do you want to do?\n   1. Stop and wait for limit to reset';
+  const answering = await call('/thread', { text: '1' }, { reset: past, screen: LIMIT_MENU });
+  assert.deepEqual(answering.calls, [['plain', '1']], 'held while the person may be answering the limit menu past the reset');
+  const noMenu = await call('/thread', { text: 'still capped' }, { reset: past, screen: 'You have hit your limit' });
+  assert.deepEqual(noMenu.calls, [], 'CONTROL: past the reset with no menu on screen, the slice 1 hold still holds');
+  assert.equal(noMenu.out.delivery.state, 'held');
+  const ahead = await call('/thread', { text: 'before the reset' }, { screen: LIMIT_MENU });
+  assert.deepEqual(ahead.calls, [], 'CONTROL: before the reset the limit menu does not release the hold');
+});
+
+test('#5805 2b review 3: the sweep records why it could not type a held message on its row, once per reason', async () => {
+  const held = await call('/thread', { text: 'stuck one' });
+  const at = held.out.delivery.at;
+  const hooks = limitqueue.sweepHooks({ chat, messages });
+  const realA = chat.deliverAutomaticAsync;
+  chat.deliverAutomaticAsync = async () => ({ state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'menu', because: 'held: its screen waits on a question' });
+  const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
+  let first;
+  try {
+    await limitqueue.flush(board.agents, { ...hooks, isReleased: () => true });
+    first = rowAt(at).delivery;
+    await limitqueue.flush(board.agents, { ...hooks, isReleased: () => true });
+  } finally { chat.deliverAutomaticAsync = realA; board.restore(); }
+  assert.equal(first.state, 'held', 'a message still kept stopped reading held');
+  assert.equal(first.heldUntil, RESET, 'the held time was lost');
+  assert.equal(first.stuck.because, 'its screen waits on a question');
+  assert.deepEqual(rowAt(at).delivery.stuck, first.stuck, 'the same reason was written again (a thread rewrite a minute)');
+  assert.equal(limitqueue.list(NAME).length, 1, 'CONTROL: it is still kept');
+});
+
+test('#5805 2b review 3: Send now anyway on a message already typed (its removal failed) answers 409 and types nothing', async () => {
+  const held = await call('/thread', { text: 'typed once' });
+  const id = limitqueue.list(NAME)[0].id;
+  const qdir = limitqueue.dir();
+  const file = limitqueue.fileFor(NAME);
+  fs.chmodSync(file, 0o400); fs.chmodSync(qdir, 0o500);   // the removal's write fails
+  try {
+    limitqueue.settle(NAME, id);
+    assert.equal(limitqueue.list(NAME).length, 1, 'CONTROL: the removal did fail');
+    assert.equal(limitqueue.isDone(id), true, 'CONTROL: remembered as typed');
+    const r = await call('/thread/held', { at: held.out.delivery.at });
+    assert.equal(r.status, 409, JSON.stringify(r.out));
+    assert.deepEqual(r.calls, [], 'typed twice');
+  } finally { fs.chmodSync(qdir, 0o700); fs.chmodSync(file, 0o600); }
 });

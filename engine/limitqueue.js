@@ -122,8 +122,9 @@ function keptNote(e) {
   return e && e.behind ? ' [kept behind earlier messages; sent ' + e.at + ']' : ' [kept for you while you were out of usage; sent ' + e.at + ']';
 }
 /* Send now anyway (slice 2b) takes the same claim while it types a kept message, so the sweep skips it and a crash
-   mid-typing leaves it kept (typed again, at worst) rather than lost. False when it is already claimed. */
-function claim(id) { if (claimedNow(id)) return false; typing.set(id, Date.now()); return true; }
+   mid-typing leaves it kept (typed again, at worst) rather than lost. False when it is already claimed, or already
+   typed (its removal from the file having failed), so Send now anyway answers 409 rather than type it twice. */
+function claim(id) { if (claimedNow(id) || done.has(id)) return false; typing.set(id, Date.now()); return true; }
 function release(id) { typing.delete(id); }
 /* A kept message typed by another path (Send now anyway): removed, or, when the removal fails, remembered as done so
    the sweep never types it again. */
@@ -144,7 +145,7 @@ async function flush(roster, opts) {
   // Only this run frees the guard: a stuck run that finishes late must not clear a newer run's.
   try { return await flushOnce(roster, opts); } finally { if (runToken === mine) flushingSince = 0; }
 }
-async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, now = Date.now() }) {
+async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, now = Date.now() }) {
   const out = [];
   for (const name of names()) {
     try {
@@ -182,7 +183,10 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         let v;
         try { v = await deliver(name, e.envelope + keptNote(e), roster, e); } catch { v = null; } finally { typing.delete(e.id); }
         const state = v && v.state;
-        if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) break;
+        if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) {
+          try { if (onStuck) onStuck(e, v); } catch { /* it stays kept either way */ }
+          break;
+        }
         if (!remove(name, e.id)) done.add(e.id);
         try { if (onDelivered) onDelivered(e, v); } catch { /* it was typed */ }
         out.push({ name, id: e.id, state });
@@ -218,6 +222,13 @@ function sweepHooks({ chat, messages }) {
     deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, isReleased: chat.limitQueueReleased,
     onDelivered: (e, v) => (e.kind === 'dm' ? setRow(e.to, e.at, v, chat) : messages.logHeldDelivered(e, v)),
+    // A person's message the sweep could not type: its row stays held and says why (a menu up, no window), so it does
+    // not read as merely waiting for the reset. Written straight, not retried: a later outcome replaces it anyway.
+    onStuck: (e, v) => {
+      if (e.kind !== 'dm') return;
+      const because = String((v && v.because) || 'it could not be typed').replace(/^held: /, '');
+      try { chat.updateDmDelivery(e.to, e.at, { state: 'held', stuck: because }); } catch { /* the row stays as it was */ }
+    },
     onDropped: (e, r) => {
       if (e.kind === 'dm') { setRow(e.to, e.at, { state: chat.DELIVERY.COULD_NOT, because: 'Kosmos kept it for a day and could not type it' }, chat); return; }
       messages.tellHeldDropped(e, r).catch(() => { /* recorded */ });

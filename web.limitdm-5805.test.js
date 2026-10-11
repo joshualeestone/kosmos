@@ -15,3 +15,44 @@ test('#5805 2b review 2: every non-automatic POST to a thread route says whether
   const anyway = posts.filter((b) => /anyway: true/.test(b));
   assert.equal(anyway.length, 2, 'the terminal composer and the assistant bar must send anyway: true: ' + JSON.stringify(posts));
 });
+
+/* The page's own function, lifted out of index.html and run (not a copy of it). */
+function lift(name, scope) {
+  const m = PAGE.match(new RegExp('\\n(async )?function ' + name + '\\([\\s\\S]*?\\n\\}\\n'));
+  assert.ok(m, 'CONTROL: ' + name + ' was not found in the page');
+  const keys = Object.keys(scope);
+  return new Function(...keys, m[0] + '\nreturn ' + name + ';')(...keys.map((k) => scope[k]));
+}
+
+test('#5805 2b review 3: a held row the sweep could not type says why, after why it is held', () => {
+  const words = lift('dmHeldWords', { quotaResetWords: undefined });
+  const plain = words('casey', { state: 'held', heldUntil: null });
+  assert.doesNotMatch(plain, /tried/, 'CONTROL: a row never tried says it was tried');
+  const stuck = words('casey', { state: 'held', stuck: { because: 'its screen waits on a question.', at: 'x' } });
+  assert.match(stuck, /out of usage\. Kosmos sends it after the reset\. Kosmos tried to send it and could not: its screen waits on a question\.$/);
+  assert.match(words('casey', { behind: true, stuck: { because: 'no window' } }), /while it was out of usage\. Kosmos tried to send it and could not: no window\.$/);
+});
+
+test('#5805 2b review 3: Send now anyway says the route\'s refusal under the box instead of silently re-enabling', async () => {
+  const say = { textContent: '' };
+  const run = async (res) => {
+    say.textContent = '';
+    const painted = [];
+    const send = lift('dmHeldSend', {
+      CURRENT: { sessionName: 'casey', name: 'Casey' },
+      fetch: async () => res,
+      document: { getElementById: (id) => (id === 'd-say-msg' ? say : null) },
+      paintTalk: async (s) => { painted.push(s); },
+    });
+    const btn = { disabled: false, textContent: 'Send now anyway', dataset: { heldAt: 't' } };
+    await send(btn);
+    return { btn, painted };
+  };
+  const failed = await run({ ok: false, status: 500, json: async () => ({ error: 'the thread is busy.' }) });
+  assert.equal(say.textContent, 'Not sent: the thread is busy.');
+  assert.equal(failed.btn.disabled, false);
+  assert.deepEqual(failed.painted, []);
+  const gone = await run({ ok: false, status: 409, json: async () => ({ error: 'no longer held' }) });
+  assert.equal(say.textContent, '', 'CONTROL: a 409 (sent or dropped meanwhile) repaints, it is not an error');
+  assert.deepEqual(gone.painted, ['casey']);
+});

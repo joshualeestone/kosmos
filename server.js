@@ -16600,7 +16600,18 @@ const server = http.createServer(async (req, res) => {
           const limitqueue = require('./engine/limitqueue');
           let hold = null;
           try { hold = chat.limitHeldVerdict(name, roster); } catch { hold = null; }
-          const behind = !hold && chat.addressable(name, roster).ok === true && limitqueue.list(name).length > 0;
+          /* Never held while the agent's screen waits on an answer: a question or permission menu, or, past the reset,
+             Claude Code's limit menu, which the person's message may be answering (held, nothing could dismiss it). */
+          let answering = false;
+          try { answering = chat.menuHeld(name, roster); } catch { answering = false; }
+          if (!answering && hold && !(Date.parse(hold.limitReset) > Date.now())) {
+            try {
+              const view = chat.viewport(name, roster);
+              answering = !!(view && typeof view.text === 'string' && require('./engine/status').claudeLimitMenuUp(view.text));
+            } catch { answering = false; }
+          }
+          if (answering) hold = null;
+          const behind = !answering && !hold && chat.addressable(name, roster).ok === true && limitqueue.list(name).length > 0;
           if (hold || behind) {
             const at = new Date().toISOString();
             const until = hold && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
