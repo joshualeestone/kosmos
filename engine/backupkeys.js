@@ -8,6 +8,8 @@
  *   member-key context (org, member, epoch) as associated data. One form serves every recipient v2.1 names: the org
  *   public key (escrow), the member's enrolled device sealing key (self-restore), and a restore destination (the
  *   unwrap service re-seals to it; restorerequest.js fingerprints that same raw 32-byte key).
+ *   DEVIATION (kosmos#5744 slice 2b): on the Mac, engine/backupmemberkey.js keeps the private half in a 0600 file,
+ *   as the tunnel keeps mac_key; the wrap to an enrolled device sealing key is not built yet.
  * - A NAMING key per period (HMAC key for chunk names) is 32 random bytes, kept wrapped to the member PUBLIC key
  *   with (org, member, epoch, period) as associated data, so it is recoverable after the Mac is lost.
  *
