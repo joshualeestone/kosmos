@@ -608,9 +608,10 @@ test('#5805 2a review 17: a queue file unreadable mid-run stops that agent, so n
   const good = fs.readFileSync(file, 'utf8');
   const typed = [];
   let reads = 0;
-  // The file reads garbage exactly once: when the sweep checks the first message just before typing it.
+  // The file reads garbage exactly once, on its third read (after names() and the sweep's own list): the check just
+  // before typing the first message.
   const realRead = fs.readFileSync;
-  fs.readFileSync = function (p, ...rest) { if (p === file && ++reads === 2) return '[{"cut'; return realRead.call(fs, p, ...rest); };
+  fs.readFileSync = function (p, ...rest) { if (p === file && ++reads === 3) return '[{"cut'; return realRead.call(fs, p, ...rest); };
   try {
     await limitqueue.flush(caseyRoster(), { deliver: async (n, env) => { typed.push(bare(env)); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY });
   } finally { fs.readFileSync = realRead; }
