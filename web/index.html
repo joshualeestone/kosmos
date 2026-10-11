@@ -63023,7 +63023,10 @@ async function tkSayPost() {
               ? lead + ' is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.'
               : /not on this project any more/.test(why) ? lead + ' is not on this project any more, so it was not told.'
               : /could not keep this one/.test(why) ? 'Kosmos could not keep your message for ' + who + ', so it was not told.'
-              : 'Kosmos could not reach ' + who + ', so it was not told. Your message stays on the task.');
+              : 'Kosmos could not reach ' + who + ', so it was not told.');
+            // Said every time: the message IS on the task, and a person who thinks it was lost sends it again,
+            // which records it twice and re-tells everyone already told.
+            lines[lines.length - 1] += ' Your message stays on the task.';
           } else if (d.state === 'held') {
             // Built from heldUntil, never from the reason: the board's reason carries the reset as a raw UTC time.
             const at = Date.parse(d.heldUntil || '');
