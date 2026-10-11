@@ -2712,6 +2712,40 @@ cmd_post() {
   esac
 }
 
+# ---- kosmos reply-channel <where> | --clear      (kosmos#5805 part 2)
+# An agent whose instructions say to answer the person somewhere other than `kosmos reply` (Discord, say) declares it,
+# so Kosmos stops reminding it that nothing reached the person: Kosmos cannot see that channel. --clear goes back.
+# Bare prints the usage and exits 2, like the other argument-taking verbs (the --help guard reuses it).
+cmd_reply_channel() {
+  local usage="Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)"
+  [ "$#" -gt 0 ] || { say "$usage"; exit 2; }
+  local channel _tok="" _bt rc=0 body because esc_ch esc_pane
+  if [ "$#" -eq 1 ] && [ "$1" = "--clear" ]; then channel=""; else channel="$*"; fi
+  # Refused here, in the board's own words, rather than flattened to a space: the Windows command sends it as typed and
+  # the board refuses it, so both commands answer the same.
+  case "$channel" in *[[:cntrl:]]*) say "Kosmos did not set your reply channel: say the channel on one line."; exit 1 ;; esac
+  # A leading option word is a mistyped flag (`--clear Discord`), never a channel: stored, it would be a silent wrong one.
+  # The channel with its leading spaces stripped (the board trims them), so " -x" is caught too.
+  case "${channel#"${channel%%[![:space:]]*}"}" in -*) say "Kosmos did not set your reply channel: a channel cannot start with -. To go back to kosmos reply: kosmos reply-channel --clear"; exit 1 ;; esac
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  _bt="$(agent_board_token || true)"
+  esc_ch=$(printf '%s' "$channel" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/agent/reply-channel" \
+    -H 'content-type: application/json' --data "{\"channel\":\"$esc_ch\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+  [ "$rc" -eq 0 ] || { say_unreached "set your reply channel" "$rc" write; exit 1; }
+  case "$body" in
+    '{"ok":true,"channel":null}'*) say "Cleared. Kosmos reminds you again when the person has heard nothing from you through kosmos reply." ;;
+    '{"ok":true'*) say "Set. Kosmos will not remind you that nothing reached the person, since you answer them on a channel it cannot see." ;;
+    '{"error":'*)
+      because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+      say "Kosmos did not set your reply channel: ${because:-it did not say why}."
+      token_refused_hint "$_tok" "$body"   # #5333
+      exit 1 ;;
+    *) say "Kosmos gave an answer we could not read when setting your reply channel."; exit 1 ;;
+  esac
+}
+
 # ---- kosmos connections      (#4451)
 # What is connected in Settings > Connections, read CHEAPLY: the board answers from its disk (is a
 # token stored?), never by checking with each service. The page's own read checks every service
@@ -4140,6 +4174,7 @@ kosmos_command_list() {
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
   printf '  kosmos reply         answer the person in your conversation with them\n'
+  printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
   printf '  kosmos react         react to a post in a project room\n'
   printf '  kosmos report        say what you are doing: working, blocked, waiting on someone\n'
@@ -4154,7 +4189,7 @@ kosmos_command_list() {
   printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
-  printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, inbox, react, report,\n'
+  printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, reply-channel, inbox, react, report,\n'
   printf '  room, feedback, community, task, project, agent and connect show their usage).\n'
 }
 
@@ -4182,7 +4217,7 @@ done
 [ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect|update)
+    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect|update|reply-channel)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -5352,6 +5387,7 @@ case "${1:-}" in
   update)  shift; cmd_update "$@" ;;   # #4382: the Mac app's update look on a computer with no board
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
+  reply-channel) shift; cmd_reply_channel "$@" ;;   # kosmos#5805 part 2
   post)    shift; cmd_post "$@" ;;
   react)   shift; cmd_react "$@" ;;
   report)  shift; cmd_report "$@" ;;

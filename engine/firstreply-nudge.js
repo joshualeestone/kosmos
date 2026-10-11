@@ -27,7 +27,9 @@
  *    sent you a message" is true of it;
  *  - that message is at least MIN_QUIET_MS old;
  *  - the book holds no earlier nudge for this session, and fewer than MAX_TRIES tries that
- *    reached nothing. ONE nudge per session per board run, ever.
+ *    reached nothing. ONE nudge per session per board run, ever;
+ *  - the agent has not declared another channel it answers the person on (kosmos#5805 part 2,
+ *    `kosmos reply-channel`): an answer there is out of Kosmos's sight.
  *
  * 🛑 WHY THE DIRECT THREAD AND NOT messages.owesReply. The first build keyed on owesReply, and
  * it could not see the case it was written for: the message log holds only agent-to-agent
@@ -53,7 +55,11 @@ const MAX_TRIES = 3;
    (messages.js operatorDirect), so the reminder names the command the agent was already shown. */
 const NUDGE_TEXT = 'Kosmos here, a one-time reminder: the person you work for sent you a message and '
   + 'nothing has reached them yet. Writing an answer here does not send it. To answer them, run: '
-  + 'kosmos reply "<your answer>". If their message did not reach you, read it with: kosmos inbox';
+  + 'kosmos reply "<your answer>". If their message did not reach you, read it with: kosmos inbox. '
+  /* kosmos#5805 part 2: the agent in the report was told to answer elsewhere and had no way to learn the opt-out;
+     this reminder is the moment it is needed, and it says what the command is not for. */
+  + 'Only if your instructions say to answer them somewhere else: answer there, then run kosmos reply-channel "<where>" '
+  + '(it stops this reminder for good, so never run it just to quiet it)';
 
 /* Has this session's one nudge been spent? A book entry with a nudge time, however it went. */
 function nudged(entry) {
@@ -129,8 +135,9 @@ function plan(card, fc, entry, now) {
 
 /*
  * One sweep. o = { roster, book (Map session -> entry), now, deliver: (session, text, roster) =>
- * result, DELIVERY, log, thread?, paused? }. paused is (session) => swarm.pauseOf's answer and defaults to
- * the real profile (pauseNow). thread is (session) => readThread result and defaults to the
+ * result, DELIVERY, log, thread?, paused?, replyChannel? }. paused is (session) => swarm.pauseOf's answer and defaults to
+ * the real profile (pauseNow); replyChannel is (session) => the declared channel or null (kosmos#5805 part 2) and
+ * defaults to the real profile too (replychannel.forAgent). thread is (session) => readThread result and defaults to the
  * real DIRECT store (directThread); tests inject one only for the planner-shaped cases.
  * Returns { results }. Never throws.
  *
@@ -148,6 +155,7 @@ function sweepOnce(o) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const read = typeof o.thread === 'function' ? o.thread : directThread;
     const pauseFor = typeof o.paused === 'function' ? o.paused : pauseNow;
+    const channelFor = typeof o.replyChannel === 'function' ? o.replyChannel : (s) => require('./replychannel').forAgent(s);
     const log = typeof o.log === 'function' ? o.log : null;
     const say = (r) => { if (log) { try { log(r); } catch { /* never breaks a sweep */ } } };
     for (const card of o.roster) {
@@ -165,6 +173,21 @@ function sweepOnce(o) {
       try { fc = firstContact(read(session), pz); } catch { fc = null; }
       const p = plan(card, fc, entry, now);
       if (p.act !== 'nudge') continue;
+      /* kosmos#5805 part 2: an agent that declared where it answers the person (kosmos reply-channel) may have answered
+         there, out of Kosmos's sight, so "nothing has reached them yet" would be a guess. It is never nudged. Read only
+         once a nudge is due, so a sweep does not read every profile. Only the channel last logged is booked (never a
+         nudge or a try), so an agent that clears its channel is reminded of a first message still unanswered on the
+         next sweep, as one that never declared is. The first skip per channel is logged, so a person asking why an
+         agent was never reminded finds the answer in the log. */
+      let declared = null;
+      try { declared = channelFor(session); } catch { declared = null; }
+      if (declared) {
+        if (!entry || entry.declaredSaid !== declared) {
+          book.set(session, { ...(entry || {}), declaredSaid: declared });
+          say({ name: card.name || session, session, act: 'declared', delivered: false, delivery: null, because: 'it answers its person on ' + declared + ' (kosmos reply-channel), out of Kosmos\'s sight' });
+        }
+        continue;
+      }
       const display = card.name || session;
       let state = null;
       let held = false;
@@ -193,7 +216,7 @@ function nudgeEnabled(allowed, env) {
 }
 
 /* The server's per-tick wrapper, separate so its gating is testable. deps = { allowed, env, paused?,
-   roster, deliver, DELIVERY, log, book, now, thread? }. Each call returns the sweep's result, or
+   roster, deliver, DELIVERY, log, book, now, thread?, replyChannel? }. Each call returns the sweep's result, or
    null when it did not run. Never throws. */
 function makeTick(deps) {
   return function tick() {
@@ -203,7 +226,7 @@ function makeTick(deps) {
       if (!Array.isArray(roster)) return null;
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
-        thread: deps.thread, paused: deps.paused, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+        thread: deps.thread, paused: deps.paused, replyChannel: deps.replyChannel, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
       });
     } catch { return null; }
   };

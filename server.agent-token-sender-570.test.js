@@ -165,7 +165,10 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   /* #4491 slice 6 added `kosmos community read`: public writing, framed; its handler needs a token the board issued. */
   /* #5153 (Baron's review) added POST /api/undo/keep, a WRITE: its handler names a token-only caller
      (agentTokenOnlyCaller) and keeps copies for that agent's own sessions only (engine/undo.js keep onlyFor). */
-  assert.deepEqual(routes, ['GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/undo/keep', 'POST /api/whoami'],
+  /* kosmos#5805 part 2 added POST /api/agent/reply-channel, a WRITE: its handler names the caller with processCaller and
+     sets only that agent's own channel; no name in the body is read.
+     Measured in server.reply-channel-5805.test.js. */
+  assert.deepEqual(routes, ['GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
