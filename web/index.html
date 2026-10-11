@@ -66129,6 +66129,11 @@ function openProject(id) {
   // work, and `pjThreadWho` would only catch it when that agent is not on
   // this project — so the dangerous half (it IS on both) would be silent.
   if (switching) {
+    /* #5800: the hold strip is the last room's: never shown (or pressed) under this room's name. First, so nothing
+       below can leave it standing. */
+    PJ_ROOM_HELD = null;
+    const heldStrip = document.getElementById('pj-held');
+    heldStrip.innerHTML = ''; heldStrip.__lastHeld = ''; heldStrip.hidden = true;
     PJ_WHO = null;
     PJ_SENT_LINE = null;
     document.getElementById('pj-thread-msg').textContent = '';
@@ -66159,10 +66164,6 @@ function openProject(id) {
     const roomBox = document.getElementById('pj-room');
     roomBox.__lastRoom = undefined;
     roomBox.__lastBody = undefined;
-    /* #5800: the hold strip is the last room's too: never shown (or pressed) under this room's name. */
-    PJ_ROOM_HELD = null;
-    const heldStrip = document.getElementById('pj-held');
-    heldStrip.innerHTML = ''; heldStrip.__lastHeld = ''; heldStrip.hidden = true;
     PJ_ROOM_POSTS_OF = null;   // #3745: the posts on screen are the last project's until this one paints
     PJ_JUMP_FOCUS = null;
     // A query is a reading posture, not project state: carried across
@@ -68444,7 +68445,7 @@ function paintRoom(body) {
   PJ_ROOM_POSTS = new Map(allRows.filter((r) => r && r.kind === 'post' && typeof r.id === 'string').map((r) => [r.id, r]));   // #3745
   PJ_ROOM_POSTS_OF = p ? p.id : null;
   PJ_ROOM_PARTIAL = body.ok === false;
-  PJ_ROOM_HELD = body.held && typeof body.held.at === 'string' ? body.held : null;   // #5800
+  PJ_ROOM_HELD = body.held && typeof body.held === 'object' ? body.held : null;   // #5800 (at may be null: no valve row in the window)
   /* #3745: a reply needs no header when the room already reads that way: it sits right under the
      post it answers, or right under another answer to the same post (three agents answering one
      question). Any other row in between (a refusal, a note, an unanswered line) shows it, and so

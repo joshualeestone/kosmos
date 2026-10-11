@@ -95,6 +95,7 @@ function pageScope(fetchImpl) {
              pjReceiptSentence, pjOldEnoughToJudge, pjRoomRow, pjFoldRoomRows, PJ_SILENCE_AFTER_MS,
              paintRoom, pjHeldReopenClick, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; },
              current: () => PJ_CURRENT, setCurrent: (id) => { PJ_CURRENT = id; },
+             openProject, setProjects: (list) => { PROJECTS = list; },
              setLast: (cards) => { LAST = cards; } };`,
   )(document, window, {}, fetchImpl || (() => new Promise(() => {})), () => 0, () => 0, () => {},
     function EventSource() {}, window.location, window.localStorage);
@@ -646,4 +647,19 @@ test('#5800: Reopen posts the release for the room it was pressed in, then rerea
   drawnFor = 'proj-2';
   await scope.pjHeldReopenClick(ev);
   assert.deepEqual(calls[0], ['/api/project/proj-2/room/reopen', 'POST'], 'CONTROL: a notice drawn for this room reopens it');
+});
+
+test('#5800: switching rooms empties the hold strip, so the last room\'s notice never shows (or is pressed) under the next', () => {
+  const scope = pageScope();
+  const p1 = { id: 'proj-1', name: 'One', agents: P.agents };
+  const p2 = { id: 'proj-2', name: 'Two', agents: P.agents };
+  scope.setProjects([p1, p2]);
+  try { scope.openProject('proj-1'); } catch { /* the stub, past the clear (below) */ }
+  scope.paintRoom({ ok: true, rows: [], held: { at: null, because: null, until: null } });
+  assert.match(scope.written['pj-held'], /data-reopen-room="proj-1"/, 'CONTROL: the held room drew its notice');
+  /* This stub cannot run the whole of openProject (its composer sizing reads layout the stub does not have); the
+     strip is cleared first in the switch, so a throw after that point does not decide this test. */
+  try { scope.openProject('proj-2'); } catch { /* the stub, past the clear */ }
+  assert.equal(scope.current(), 'proj-2', 'CONTROL: the switch began');
+  assert.equal(scope.written['pj-held'], '', 'the last room\'s hold notice stayed on screen under the next room');
 });
