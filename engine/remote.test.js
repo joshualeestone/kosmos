@@ -4285,6 +4285,9 @@ test('#5786 (b): the browser this computer opened is allowed by its vouch, once,
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(allowsOf().filter((x) => x === 'dev-safari').length, before + 1, 'a spent secret allowed again');
   remote.setOn(false);
+  // Switched off, the notice and its Undo still show (review 11).
+  const off = remote.pendingDevices().connected_here;
+  assert.equal(off && off.device_id, 'dev-safari', 'the notice vanished when Kosmos+ was switched off');
 });
 
 test('#5786 (b) CONTROLS: a wrong vouch, a joining computer and this computer\'s own sign-in are never allowed', async () => {

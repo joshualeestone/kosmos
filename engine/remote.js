@@ -1783,7 +1783,7 @@ function vouchTick() {
   const hit = rows.find((d) => (!v.matched || String(d.device_id) === v.matched) && vouchMatches(v.secret, d));
   if (!hit) return;
   const id = String(hit.device_id);
-  const name = typeof hit.name === 'string' && hit.name.trim() ? hit.name.trim().slice(0, 60) : '';
+  const name = typeof hit.name === 'string' && DEVICE_NAME.test(hit.name.trim()) ? hit.name.trim() : '';
   v.matched = id;
   v.allowing = true;
   let threw = false;
@@ -1810,8 +1810,9 @@ function vouchTick() {
       if (forgetting || v.epoch !== selfEpoch) return;
       // The person pressed Not me while this allow ran: their answer wins. Take the device back out, note nothing.
       if (Object.prototype.hasOwnProperty.call(read().denied || {}, id)) {
-        process.stderr.write('kosmos+: a device was refused while it was being allowed automatically; removing it\n');
-        return deviceRemove(id);
+        return deviceRemove(id).then((rr) => {
+          if (!rr || !rr.ok) process.stderr.write('kosmos+: a device refused while it was being allowed automatically could not be removed again (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
+        });
       }
       const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
         .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
@@ -1848,7 +1849,8 @@ const JOIN_CODE = /^\d{3} \d{3}$/;
     board with Plus off has nothing waiting. `snapshot` says which. */
 function pendingDevices() {
   const settings = read();
-  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '' };
+  // kosmos#5786 (b): a device allowed while Kosmos+ was being switched off still shows its notice and Undo.
+  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '', connected_here: recentlyVouched(settings) };
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { raw = null; }
   const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
@@ -1981,9 +1983,9 @@ async function deviceDeny(id) {
        lost when the settings file is damaged. Say so rather than drop it silently. */
     if (!saved.ok) process.stderr.write('remote: the device was refused, but this computer could not note it: ' + saved.because + '\n');
     // kosmos#5786 (b): Not me on a device this computer allowed automatically (the two raced) takes it back out.
-    if ((read().vouched || {})[id]) {
-      process.stderr.write('kosmos+: a device allowed automatically was refused; removing it\n');
-      await deviceRemove(id);
+    if (Object.prototype.hasOwnProperty.call(read().vouched || {}, id)) {
+      const rr = await deviceRemove(id);
+      if (!rr || !rr.ok) process.stderr.write('kosmos+: a device allowed automatically was refused, and could not be removed (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
     }
   }
   return r;
@@ -2014,7 +2016,7 @@ async function deviceRemove(id) {
 function forgetVouched(id, answer) {
   const vouched = read().vouched || {};
   // A remove that timed out may not have happened: the note stays, so the device keeps saying where it came from.
-  if (answer && answer.ok && vouched[id] && !(answer.data && answer.data.timed_out)) {
+  if (answer && answer.ok && Object.prototype.hasOwnProperty.call(vouched, id) && !(answer.data && answer.data.timed_out)) {
     const { [id]: _gone, ...rest } = vouched;
     const saved = write({ vouched: rest });
     if (!saved.ok) process.stderr.write('remote: removed, but this computer could not drop its "on this computer" note: ' + saved.because + '\n');
