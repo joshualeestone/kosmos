@@ -62774,22 +62774,29 @@ async function tkSayPost() {
       if (out && Array.isArray(out.delivered) && !list.length) {
         msg.textContent = 'No agent is on this task, so nobody was told.';
       } else {
+        /* The page's own sentences, never the board's reasons word for word: those were written for direct messages
+           and agents, so some say "send it again" (on a task that records it twice and re-tells everyone already told)
+           and some use terminal words. Two reasons the task route writes itself are recognised; a reworded one falls
+           to the plain sentence, which stays true. Agents and the CLI still get the board's full reason. */
         const lines = [];
         for (const [sn, d] of byName) {
           if (d.state === 'placed') continue;
           // The page's name for the agent (its card name), as the activity above uses; the board speaks in session names.
           const who = typeof tkMemberName === 'function' && p ? tkMemberName(p, sn) : sn;
-          const why = String(d.because == null ? '' : d.because).replace(/^held: /, '').trim().replace(/\.+$/, '');
-          const said = why.startsWith(sn + ' ') ? who + why.slice(sn.length) : '';   // the board's reason names the agent itself
-          if (d.state === 'could_not') lines.push(said ? said + '.' : who + ' was not told' + (why ? ': ' + why : '') + '.');
-          else if (d.state === 'held') {
-            // Built here, never from the reason: the board's reason carries the reset as a raw UTC time.
+          const why = String(d.because == null ? '' : d.because);
+          if (d.state === 'could_not') {
+            lines.push(/switched off in this project/.test(why)
+              ? who + ' is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.'
+              : /not on this project any more/.test(why) ? who + ' is not on this project any more, so it was not told.'
+              : 'Kosmos could not reach ' + who + ' just now, so it was not told. Your message stays on the task.');
+          } else if (d.state === 'held') {
+            // Built from heldUntil, never from the reason: the board's reason carries the reset as a raw UTC time.
             const at = Date.parse(d.heldUntil || '');
             const until = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
-            lines.push(until ? who + ' is out of usage until ' + until + '. Kosmos sends it your message then.'
-              : d.behind === true || /still has messages kept/.test(why) ? who + ' gets your message after the ones already waiting for it.'
-              : 'Kosmos is keeping your message for ' + who + ' and sends it later.');   // no time known: claim nothing more
-          } else lines.push('Kosmos could not confirm that ' + who + ' got it' + (said ? '. ' + said : why ? ': ' + why : '') + '.');
+            lines.push(until ? who + ' is out of usage until ' + until + '. Kosmos sends it your message after that.'
+              : /still has messages kept/.test(why) ? who + ' gets your message after the ones already waiting for it.'
+              : 'Kosmos is keeping your message for ' + who + ' to send later.');   // no time known: claim nothing more
+          } else lines.push('Kosmos could not confirm that ' + who + ' got it.');
         }
         msg.textContent = lines.join(' ');
       }

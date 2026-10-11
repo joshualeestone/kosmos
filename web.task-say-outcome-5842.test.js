@@ -50,58 +50,62 @@ test('#5842: a message every assignee was told says nothing more (the activity s
   assert.equal(r.painted, 1);
 });
 
-test('#5842: an assignee switched off in the project is named with the board\'s own reason', async () => {
+test('#5842: an assignee switched off in the project is named, with how to switch it on', async () => {
   const r = await send([
     { agent: 'mara', state: 'placed' },
     { agent: 'casey', state: 'could_not', because: 'casey is switched off in this project. Switch it on in the project\'s members to send it work here.' },
   ]);
-  assert.equal(r.said, 'casey is switched off in this project. Switch it on in the project\'s members to send it work here.');
+  assert.equal(r.said, 'casey is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.');
   assert.doesNotMatch(r.said, /mara/, 'an agent that was told is listed');
 });
 
-test('#5842: a reason that does not name the agent gets the name in front', async () => {
-  const r = await send([{ agent: 'casey', state: 'could_not', because: 'its window is scrolled back right now' }]);
-  assert.equal(r.said, 'casey was not told: its window is scrolled back right now.');
-  const bare = await send([{ agent: 'casey', state: 'could_not' }]);
-  assert.equal(bare.said, 'casey was not told.');
+test('#5842: an assignee no longer on the project is named', async () => {
+  const r = await send([{ agent: 'casey', state: 'could_not', because: 'casey is not on this project any more, so it was not told' }]);
+  assert.equal(r.said, 'casey is not on this project any more, so it was not told.');
+});
+
+test('#5842: any other failure gets the page\'s own words: no resend advice, no terminal words, no doubled name', async () => {
+  const agents = [{ sessionName: 'casey-bot', name: 'Casey Rivera' }];
+  const reasons = [
+    'its question is being handled right now, so this was not typed; send it again in a moment',
+    'Answer that question in its terminal with the arrow keys first, then send this',
+    'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent',
+    'Casey Rivera paused itself at today\'s token limit. It starts again tomorrow, or set it to Active in Swarm Settings to send it work now.',
+    undefined,
+  ];
+  for (const because of reasons) {
+    const r = await send([{ agent: 'casey-bot', state: 'could_not', because }], { agents });
+    assert.equal(r.said, 'Kosmos could not reach Casey Rivera just now, so it was not told. Your message stays on the task.', 'for: ' + because);
+  }
 });
 
 test('#5842: a message kept for an agent out of usage says when, in local time, never the board\'s UTC stamp', async () => {
   // The route's real shape on limittask-5805: state 'held', heldUntil an ISO time, because carrying that same raw time.
   const until = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
   const r = await send([{ agent: 'casey', state: 'held', heldUntil: until, because: 'held: casey is out of usage until ' + until + '; Kosmos types it after the reset' }]);
-  assert.match(r.said, /^casey is out of usage until .+\. Kosmos sends it your message then\.$/);
+  assert.match(r.said, /^casey is out of usage until .+\. Kosmos sends it your message after that\.$/);
   assert.ok(!r.said.includes(until) && !/\dT\d/.test(r.said), 'the raw UTC time reached the screen: ' + r.said);
   const behind = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey still has messages kept from while it was out of usage; Kosmos types this one after them' }]);
   assert.equal(behind.said, 'casey gets your message after the ones already waiting for it.');
-  const noTime = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey is out of usage; Kosmos types it after the reset' }]);
-  assert.equal(noTime.said, 'Kosmos is keeping your message for casey and sends it later.');
-  // A reworded reason must not turn "kept behind earlier lines" into a usage claim: with no time, nothing more is said.
-  const reworded = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey has earlier lines queued' }]);
-  assert.equal(reworded.said, 'Kosmos is keeping your message for casey and sends it later.');
-  const flagged = await send([{ agent: 'casey', state: 'held', heldUntil: null, behind: true, because: 'held: anything' }]);
-  assert.equal(flagged.said, 'casey gets your message after the ones already waiting for it.');
-  assert.doesNotMatch(r.said + behind.said + noTime.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
+  // No time known, or a reworded reason: nothing more is claimed.
+  for (const because of ['held: casey is out of usage; Kosmos types it after the reset', 'held: casey has earlier lines queued']) {
+    const r2 = await send([{ agent: 'casey', state: 'held', heldUntil: null, because }]);
+    assert.equal(r2.said, 'Kosmos is keeping your message for casey to send later.', 'for: ' + because);
+  }
+  const past = await send([{ agent: 'casey', state: 'held', heldUntil: new Date(Date.now() - 60000).toISOString(), because: 'held: casey is out of usage' }]);
+  assert.equal(past.said, 'Kosmos is keeping your message for casey to send later.', 'a reset already past was given as a time');
+  assert.doesNotMatch(r.said + behind.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
 });
 
 test('#5842: a delivery Kosmos could not confirm is never claimed either way', async () => {
-  const r = await send([{ agent: 'casey', state: 'unconfirmed' }, { agent: 'dana' }]);
+  const r = await send([{ agent: 'casey', state: 'unconfirmed', because: 'part of it reached its window before the send failed, so it may be sitting there half-typed' }, { agent: 'dana' }]);
   assert.equal(r.said, 'Kosmos could not confirm that casey got it. Kosmos could not confirm that dana got it.');
-  const why = await send([{ agent: 'casey', state: 'unconfirmed', because: 'part of it reached its window before the send failed, so it may be sitting there half-typed' }]);
-  assert.equal(why.said, 'Kosmos could not confirm that casey got it: part of it reached its window before the send failed, so it may be sitting there half-typed.');
 });
 
-test('#5842: an agent listed twice gets one line, the worst outcome', async () => {
-  const r = await send([{ agent: 'casey', state: 'placed' }, { agent: 'casey', state: 'could_not', because: 'casey is not on this project any more, so it was not told' }]);
-  assert.equal(r.said, 'casey is not on this project any more, so it was not told.');
-});
-
-test('#5842: the page names an agent by its card name, as the activity does, also inside the board\'s reason', async () => {
+test('#5842: an agent listed twice gets one line, the worst outcome, by its card name', async () => {
   const agents = [{ sessionName: 'casey-bot', name: 'Casey Rivera' }];
-  const r = await send([{ agent: 'casey-bot', state: 'could_not', because: 'casey-bot is not on this project any more, so it was not told' }], { agents });
+  const r = await send([{ agent: 'casey-bot', state: 'placed' }, { agent: 'casey-bot', state: 'could_not', because: 'casey-bot is not on this project any more, so it was not told' }], { agents });
   assert.equal(r.said, 'Casey Rivera is not on this project any more, so it was not told.');
-  const other = await send([{ agent: 'casey-bot', state: 'could_not', because: 'its window is scrolled back right now' }], { agents });
-  assert.equal(other.said, 'Casey Rivera was not told: its window is scrolled back right now.');
 });
 
 test('#5842: a task with no agent on it says nobody was told', async () => {
