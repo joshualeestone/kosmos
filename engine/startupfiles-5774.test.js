@@ -487,3 +487,36 @@ test('#5774 part 2 review 8: dumps under the home (the conventional ~/.config/zs
   const g = setup.guardTokenOnlyFolder(agentDir('pilot-cellarmany'), 'pilot-cellarmany', { ...DEPS, env: ENV0, userShellDirs: [sf], homebrewPrefixes: [pre] });
   assert.equal(g.ok, true, JSON.stringify(g));
 });
+
+test('#5774 part 2 review 9: braced defaults (${XDG_CONFIG_HOME:-${HOME}/.config}) are read; a read-only store target is not listed', () => {
+  const zshenv = path.join(HOME, '.zshenv');
+  fs.writeFileSync(zshenv, 'export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"\nexport ZDOTDIR="${XDG_CONFIG_HOME:-${HOME}/.config}/zsh"\n');
+  try {
+    const dir = agentDir('pilot-nested');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-nested', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(dir);
+    assert.deepEqual([...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].filter((r) => /[{}]/.test(r)), [], 'a path with a brace was written');
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(HOME, '.config', 'zsh', '.zshrc')).length > 0);
+  } finally { fs.rmSync(zshenv, { force: true }); }
+  // A dotfile linked into a read-only store (home-manager's /nix/store/<hash>-...): its target is not listed, since it
+  // protects nothing and the hash changes at every switch. CONTROL: the earlier linked-dotfile test (a writable repo).
+  const store = path.join(SANDBOX, 'nixstore', 'abc123-home-manager-files');
+  const target = path.join(store, 'zshrc');
+  touch(target);
+  fs.chmodSync(target, 0o444);
+  fs.chmodSync(store, 0o555);
+  const link = path.join(HOME, '.zshrc');
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(target, link);
+  try {
+    const dir = agentDir('pilot-nix');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-nix', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(dir);
+    assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes('abc123-home-manager-files')), 'a read-only store path was listed');
+  } finally {
+    fs.rmSync(link, { force: true });
+    fs.chmodSync(store, 0o755);
+  }
+});

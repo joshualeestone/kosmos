@@ -1227,7 +1227,9 @@ const zshFilesIn = (d) => ZSH_START_FILES.flatMap((f) => [path.join(d, f), path.
    $XDG_CONFIG_HOME (each folder that variable can be, review 3). Anything else (relative, another variable) is null:
    Kosmos cannot say which folder it is, so the caller names it. An empty value is [] (unset: the default applies). */
 function foldersOf(value, home, xdgs, zdotNow = []) {
-  let v = String(value).trim();
+  // Review 9: a plain ${HOME} or ${XDG_CONFIG_HOME} inside a default (${XDG_CONFIG_HOME:-${HOME}/.config}) is the
+  // unbraced form; done first, so the default is not cut at its inner brace.
+  let v = String(value).trim().replace(/\$\{(HOME|XDG_CONFIG_HOME|ZDOTDIR)\}/g, '$$$1');
   if (!v) return [];
   /* Review 5: ${XDG_CONFIG_HOME:-default} and ${HOME:-...}, the common way to write these, are both arms: each folder
      the variable can be, and the default resolved the same way. Review 7: ${ZDOTDIR:-default} too (the usual
@@ -1238,13 +1240,14 @@ function foldersOf(value, home, xdgs, zdotNow = []) {
     const set = dflt[1] === 'HOME' ? [home] : dflt[1] === 'ZDOTDIR' ? zdotNow : xdgs;
     const viaDefault = foldersOf(dflt[2] + rest, home, xdgs, zdotNow);
     if (viaDefault === null) return null;
-    const viaSet = set.map((x) => x + rest).map((o) => (path.isAbsolute(o) && !o.includes('$') ? path.resolve(o) : null));
+    const viaSet = set.map((x) => x + rest).map((o) => (path.isAbsolute(o) && !/[$}{]/.test(o) ? path.resolve(o) : null));
     return viaSet.includes(null) ? null : [...new Set([...viaSet, ...viaDefault])];
   }
   const viaXdg = /^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/.test(v);
   const outs = (viaXdg ? xdgs : [null]).map((x) => v.replace(/^~(?=\/|$)/, home).replace(/^\$\{?HOME\}?(?=\/|$)/, home)
     .replace(/^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/, x || ''));
-  return outs.every((o) => path.isAbsolute(o) && !o.includes('$')) ? outs.map((o) => path.resolve(o)) : null;
+  // Review 9: a brace left over means a form this does not read: named, never a path with a } in it.
+  return outs.every((o) => path.isAbsolute(o) && !/[$}{]/.test(o)) ? outs.map((o) => path.resolve(o)) : null;
 }
 /* The assignments `[export] NAME=value` in a startup file, each value as written (one quoted string unquoted), or
    null for a value with a quote in the middle (review 2: ZDOTDIR="$HOME"/.zsh must not read as "$HOME"). */
@@ -1275,7 +1278,7 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
       try { real0 = fs.realpathSync.native(p); } catch { /* dangling */ }
       if (!(real0 && budget.free && budget.free(real0)) && --budget.n < 0) { budget.out = true; break; }
       try {
-        const real = fs.realpathSync.native(p);
+        const real = real0 || fs.realpathSync.native(p);
         // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
         (fs.statSync(real).isDirectory() ? res.dirs : res.files).push(real);
       } catch { /* dangling: nothing there to write */ }
@@ -1615,8 +1618,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   }
   const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir });
   configUnsafe.push(...shellStart.unsafe);
-  const shellStartFiles = [...new Set(shellStart.files.flatMap((p) => withTarget(p, configUnsafe)))];
-  const shellStartDirs = [...new Set(shellStart.dirs.flatMap((p) => withTarget(p, configUnsafe)))];
+  /* Review 9: a target the user cannot write (a read-only store such as /nix/store, whose hashed names change at every
+     home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A
+     path that is not there yet is kept: the agent could create it. */
+  const writableOrAbsent = (p) => { try { fs.accessSync(p, fs.constants.W_OK); return true; } catch (e) { return !!e && e.code === 'ENOENT'; } };
+  const shellStartFiles = [...new Set(shellStart.files.flatMap((p) => withTarget(p, configUnsafe)))].filter(writableOrAbsent);
+  const shellStartDirs = [...new Set(shellStart.dirs.flatMap((p) => withTarget(p, configUnsafe)))].filter(writableOrAbsent);
   const commandScripts = [];
   for (const f of startCmds.files) {
     if (coveredWhole(f)) continue;

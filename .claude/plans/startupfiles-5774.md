@@ -11,16 +11,17 @@
   - User-writable startup folders outside the home, where they exist: Homebrew's zsh site-functions and fish vendor_conf.d, vendor_functions.d and vendor_completions.d, under /opt/homebrew and /usr/local.
   - Links inside the whole folders are followed (3 levels deep; one budget of 500 links and 50,000 entries read, which names itself when spent), and every file goes through withTarget, so each target is denied too: a linked folder gets a whole-folder rule. Targets in a Homebrew Cellar or Caskroom are covered by one stable rule for that folder, only for the one a target is in.
   - Files are read as regular files only, up to 256 KB.
-  - ${XDG_CONFIG_HOME:-default}, ${HOME:-default} and ${ZDOTDIR:-default} are read as both arms.
+  - ${XDG_CONFIG_HOME:-default}, ${HOME:-default} and ${ZDOTDIR:-default} are read as both arms, with a plain ${HOME} or ${XDG_CONFIG_HOME} inside the default unbraced first; a brace left over is named.
+  - A target the user cannot write (a read-only store such as /nix/store, a root-owned file) is not listed: it protects nothing and its hashed name would pile up.
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 18 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 19 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
-- Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host with its real Homebrew folders (17 zsh completion links, and fish's vendor_completions.d), a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 57 more denyWrite entries (131 against 74; 8.3 KB against 4.6 KB as JSON) and 65 more deny rules. The guard's own profile-size check (#5663) still passes.
+- Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
 - Homebrew's links point into its Cellar by VERSION (review 5). The deny lists only grow, and only launch rules are pruned, so following each target would add new versioned paths at every upgrade, for good. Each prefix's Cellar is denied whole instead: one stable rule, in both layers, which covers every version. Neither the agent's file tools nor its shell has any business writing there, and brew's own writes are not governed by deny rules (the sandboxed shell cannot write /opt/homebrew anyway).
-- Link scanning shares one budget of 500 entries across all the startup folders. When it runs out, the guard says it is not whole.
+- Link scanning shares one budget: 500 links (links into a Cellar or Caskroom do not count) and 50,000 entries read. When it runs out, the guard says it is not whole.
 - The environment read is the board's own (deps.env or process.env): agents are launched from it, so it is what their shells see. Weakest premise: a launch that sets ZDOTDIR or BASH_ENV differently for one agent is not seen.
 - Claude Code's own writes are not affected: deny rules govern its tools, not the app's own code (an installer or updater adding a PATH line still works).
 - Not covered here: system-wide startup files under /etc (root-owned, not writable by the agent), and files a startup file pulls in (`source ~/x`), which is route 3 ("what start-time files pull in"). User-writable startup folders outside the home (Homebrew's zsh site-functions and fish vendor folders, review 3) ARE covered, where they exist.
@@ -89,4 +90,9 @@
   - [WARNING] FIXED. Review 7's dump fix excluded only a ZDOTDIR equal to the home, so the conventional ~/.config/zsh, under the home, still had its dumps named (the pile-up again). Dumps are now named only for a folder not anywhere under the home, compared by real path. Tested; mutation red.
   - [WARNING] FIXED. Links into a Cellar or Caskroom spent the shared link budget though one stable rule covers them, so a heavy Homebrew host could get a false "not whole". They are no longer counted. Tested with 510 Cellar links (whole); the control is review 5's 510 links elsewhere (named). Mutation red.
   - NITs taken: .bash_completion is listed and named in the test. Stated under Gaps: a second assignment on one line. Not taken: other guard tests reading the host's Homebrew (decided in iteration 5).
+- Iteration 9 (Opus), on 618fdb5e6:
+  - [BLOCKER] FIXED (measured by the reviewer end to end). `${XDG_CONFIG_HOME:-${HOME}/.config}`, a common spelling, was cut at its inner brace, which gave paths with a literal } that the deny filter dropped, so the guard was not whole and creation failed. A plain ${HOME}, ${XDG_CONFIG_HOME} or ${ZDOTDIR} is now unbraced before parsing, and any brace left over makes the value named rather than a path. Tested with both nested lines (whole, and no brace in any rule); mutation red.
+  - [WARNING] FIXED. nix home-manager links dotfiles into /nix/store/<hash>-..., and the hash changes at every switch, so the targets piled up (the reviewer measured 2, then 4, then 6 entries). That store is read-only. Targets the user cannot write are now dropped; a path not there yet is kept. Tested with a read-only store simulated by chmod; mutation red.
+  - [WARNING] FIXED with the above: a braced-default test.
+  - NITs taken: the plan's budget sentence, a re-measured cost with the commit named, and one realpath per link.
 
