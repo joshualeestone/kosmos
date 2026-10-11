@@ -7,7 +7,7 @@
 - `SHELL_START_FILES` and `shellStartPaths(home, env)` in engine/setup-assistant.js: .zshenv .zprofile .zshrc .zlogin .zlogout .bashrc .bash_profile .bash_login .profile .bash_logout .cshrc .tcshrc .login .logout in the home folder; zsh's under $ZDOTDIR when it names another folder; the file $BASH_ENV or $ENV names; fish's config.fish and its conf.d folder whole; nushell's config.nu and env.nu.
 - Denied in both layers (the file tools' Edit rules and the sandbox's denyWrite), links followed with withTarget, so a dotfile linked from a dotfiles repo has its target denied too.
 - A relative $BASH_ENV or $ENV is read from whatever folder the shell runs in, which the agent can choose: named, so the guard says it is not whole.
-- Tests: engine/startupfiles-5774.test.js (each file both layers; a linked dotfile's target; ZDOTDIR, BASH_ENV, ENV from the environment with a control; a relative value named; controls: an ordinary home file and the agent's own .zshrc stay writable). Six mutations, each red.
+- Tests: engine/startupfiles-5774.test.js, 5 tests (each file in both layers; a linked dotfile's target; ZDOTDIR, BASH_ENV and ENV from the environment, in both layers, with a control; relative values named; ZDOTDIR set inside .zshenv; XDG_CONFIG_HOME; controls: an ordinary home file and the agent's own .zshrc stay writable). Each piece was mutated and turned red: 6 at first, 9 more after review 1.
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. The cost is about 16 denyWrite entries against the profile size limit (#5663), which the guard measures.
@@ -20,3 +20,13 @@
 - Route 3 and on stay on the card.
 
 ## Challenge loop notes
+- Iteration 1 (Opus), on 5f7efbc22:
+  - [WARNING] FIXED. ZDOTDIR is usually set INSIDE ~/.zshenv, and zsh then reads its other files from there; only the board's environment was read. Now ZDOTDIR is read from .zshenv as well (absolute, ~, $HOME or $XDG_CONFIG_HOME forms), and the conventional $XDG_CONFIG_HOME/zsh folder is always covered. A value it cannot work out is named, so not whole.
+  - [WARNING] FIXED. fish and nushell ignored XDG_CONFIG_HOME, and nushell's macOS default is ~/Library/Application Support/nushell. Both are now covered.
+  - [WARNING] FIXED. fish also autoloads functions/ and keeps universal variables (PATH among them) in fish_variables. Its whole folder is now denied, in both layers.
+  - [WARNING] FIXED. zsh runs a newer compiled <file>.zwc in place of a startup file, and compinit loads .zcompdump (often host-suffixed). Each zsh file is denied with its .zwc, and .zcompdump* by a glob in the permission layer only (the guard's own glob, added to ruleHasPatternChar's list; the shell cannot write the home folder anyway).
+  - [WARNING] FIXED. A relative ZDOTDIR was ignored while a relative BASH_ENV was named. Both are now named, and ENV too, each tested.
+  - [WARNING] FIXED. The sandbox layer was untested for the environment paths and the folders. Now asserted; dropping the folders from denyWrite turns a test red.
+  - My own error, caught at once: a comment I wrote held "*/" and closed itself (a syntax error the test run showed).
+  - NITs taken: the new block no longer sits between CONFIG_HOME_CODE_DIRS and its comment; the plan's mutation line is exact. Not taken: an absolute BASH_ENV with a pattern character is caught by the generic "not whole" message rather than named (rare; still not whole).
+

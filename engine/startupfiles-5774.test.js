@@ -71,10 +71,22 @@ test('#5774 part 2: each shell startup file in the home folder is denied in both
     assert.ok(editDeniedBy(s.permissions.deny, p).length > 0, `${f}: the file tools can rewrite it`);
     assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, p), `${f}: not in the sandbox denyWrite`);
   }
+  // Review 1: fish's whole folder (it autoloads functions and keeps universal variables, PATH among them, there).
   const fish = path.join(HOME, '.config', 'fish');
-  assert.ok(editDeniedBy(s.permissions.deny, path.join(fish, 'config.fish')).length > 0, 'fish config.fish');
-  assert.ok(editDeniedBy(s.permissions.deny, path.join(fish, 'conf.d', 'later.fish')).length > 0, "a file fish reads from conf.d, even one not there yet");
-  for (const f of ['config.nu', 'env.nu']) assert.ok(editDeniedBy(s.permissions.deny, path.join(HOME, '.config', 'nushell', f)).length > 0, `nushell ${f}`);
+  for (const f of ['config.fish', 'conf.d/later.fish', 'functions/fish_prompt.fish', 'fish_variables']) {
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(fish, f)).length > 0, `fish ${f}`);
+    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(fish, f)), `fish ${f}: not in the sandbox denyWrite`);
+  }
+  // nushell's XDG folder and its macOS default.
+  for (const d of [path.join(HOME, '.config', 'nushell'), path.join(HOME, 'Library', 'Application Support', 'nushell')]) {
+    for (const f of ['config.nu', 'env.nu']) assert.ok(editDeniedBy(s.permissions.deny, path.join(d, f)).length > 0, `nushell ${d}/${f}`);
+  }
+  // Review 1: zsh runs a newer compiled copy in place of a startup file, and compinit loads its dump.
+  for (const f of ['.zshenv.zwc', '.zshrc.zwc', '.zcompdump', '.zcompdump-host-5.9', '.zcompdump.zwc']) {
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(HOME, f)).length > 0, `${f}`);
+  }
+  // The conventional XDG folder for zsh's files, set in a file Kosmos may not read.
+  assert.ok(editDeniedBy(s.permissions.deny, path.join(HOME, '.config', 'zsh', '.zshrc')).length > 0, '~/.config/zsh/.zshrc');
   // CONTROL: an ordinary file in the home folder, and one in the agent's own folder, stay writable.
   for (const p of [path.join(HOME, 'notes.txt'), path.join(HOME, '.zshrc.bak'), path.join(dir, '.zshrc')]) {
     assert.deepEqual(editDeniedBy(s.permissions.deny, p), [], `${p} was denied`);
@@ -108,15 +120,59 @@ test('#5774 part 2: $ZDOTDIR, $BASH_ENV and $ENV are read from the environment t
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-rcenv', { ...DEPS, env: { ZDOTDIR: zd, BASH_ENV: benv, ENV: shenv } });
   assert.equal(g.ok, true, JSON.stringify(g));
   const deny = readSettings(dir).permissions.deny;
-  for (const p of [path.join(zd, '.zshenv'), path.join(zd, '.zshrc'), benv, shenv]) assert.ok(editDeniedBy(deny, p).length > 0, `${p} not denied`);
+  const dw = readSettings(dir).sandbox.filesystem.denyWrite;
+  for (const p of [path.join(zd, '.zshenv'), path.join(zd, '.zshrc'), path.join(zd, '.zshrc.zwc'), benv, shenv]) {
+    assert.ok(editDeniedBy(deny, p).length > 0, `${p} not denied to the file tools`);
+    assert.ok(sandboxDenies(dw, p), `${p} not in the sandbox denyWrite`);
+  }
   // CONTROL: without them in the environment, those paths are not denied.
   const dir2 = agentDir('pilot-rcenv0');
   setup.guardTokenOnlyFolder(dir2, 'pilot-rcenv0', { ...DEPS, env: ENV0 });
   const deny2 = readSettings(dir2).permissions.deny;
   for (const p of [path.join(zd, '.zshenv'), benv, shenv]) assert.deepEqual(editDeniedBy(deny2, p), [], `${p} denied with nothing naming it`);
   // A relative value is read from whatever folder the shell runs in (the agent can choose it): named, so not whole.
-  const dir3 = agentDir('pilot-rcrel');
-  const g3 = setup.guardTokenOnlyFolder(dir3, 'pilot-rcrel', { ...DEPS, env: { BASH_ENV: 'rel.sh' } });
-  assert.equal(g3.ok, false, JSON.stringify(g3));
-  assert.match(String(g3.because), /BASH_ENV/);
+  for (const [k, v] of [['BASH_ENV', 'rel.sh'], ['ENV', 'rel.sh'], ['ZDOTDIR', 'reldir']]) {
+    const d3 = agentDir('pilot-rcrel-' + k);
+    const g3 = setup.guardTokenOnlyFolder(d3, 'pilot-rcrel-' + k, { ...DEPS, env: { [k]: v } });
+    assert.equal(g3.ok, false, `${k}=${v}: ` + JSON.stringify(g3));
+    assert.match(String(g3.because), new RegExp(k));
+  }
+  // ZDOTDIR naming the home folder itself adds nothing beyond the home files (no duplicate set), and is whole.
+  assert.equal(setup.shellStartPaths(HOME, { ZDOTDIR: HOME }).unsafe.length, 0);
+});
+
+test('#5774 part 2 review 1: ZDOTDIR set inside .zshenv (where it usually is) moves zsh to that folder, and it is denied', () => {
+  const dir = agentDir('pilot-zdot');
+  const zshenv = path.join(HOME, '.zshenv');
+  const cases = [['export ZDOTDIR="$HOME/dots/zsh"', path.join(HOME, 'dots', 'zsh')], ["ZDOTDIR='~/zd2'", path.join(HOME, 'zd2')], ['export ZDOTDIR=${XDG_CONFIG_HOME}/zz', path.join(SANDBOX, 'xdg', 'zz')]];
+  try {
+    for (const [line, folder] of cases) {
+      fs.writeFileSync(zshenv, `# a comment\n${line}\n`);
+      const g = setup.guardTokenOnlyFolder(dir, 'pilot-zdot', { ...DEPS, env: { XDG_CONFIG_HOME: path.join(SANDBOX, 'xdg') } });
+      assert.equal(g.ok, true, `${line}: ` + JSON.stringify(g));
+      assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(folder, '.zshrc')).length > 0, `${line}: ${folder}/.zshrc not denied`);
+    }
+    // One it cannot work out is named, so the guard is not whole.
+    fs.writeFileSync(zshenv, 'export ZDOTDIR="$SOMETHING/zsh"\n');
+    const g = setup.guardTokenOnlyFolder(dir, 'pilot-zdot', { ...DEPS, env: {} });
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.match(String(g.because), /ZDOTDIR/);
+    // CONTROL: a .zshenv that sets nothing is whole, and the folder above is not denied.
+    // (A fresh folder: the guard keeps rules it wrote before, so the one above would still carry them.)
+    fs.writeFileSync(zshenv, 'export PATH="$HOME/bin:$PATH"\n');
+    const dir0 = agentDir('pilot-zdot0');
+    const g0 = setup.guardTokenOnlyFolder(dir0, 'pilot-zdot0', { ...DEPS, env: {} });
+    assert.equal(g0.ok, true, JSON.stringify(g0));
+    assert.deepEqual(editDeniedBy(readSettings(dir0).permissions.deny, path.join(HOME, 'dots', 'zsh', '.zshrc')), []);
+  } finally { fs.rmSync(zshenv, { force: true }); }
+});
+
+test('#5774 part 2 review 1: fish and nushell follow XDG_CONFIG_HOME', () => {
+  const dir = agentDir('pilot-xdg');
+  const xdg = path.join(SANDBOX, 'xdg2');
+  setup.guardTokenOnlyFolder(dir, 'pilot-xdg', { ...DEPS, env: { XDG_CONFIG_HOME: xdg } });
+  const deny = readSettings(dir).permissions.deny;
+  for (const p of [path.join(xdg, 'fish', 'config.fish'), path.join(xdg, 'nushell', 'env.nu'), path.join(xdg, 'zsh', '.zshrc')]) {
+    assert.ok(editDeniedBy(deny, p).length > 0, `${p} not denied`);
+  }
 });

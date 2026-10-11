@@ -722,9 +722,10 @@ function accountConfigHomes(home) {
 /* #4491 reviews 14 and 15: true when a rule's PATH has a character the rule syntax reads as a pattern (the guide's #4752
    RULE_SYNTAX). The separator is made '/' first, as the guide does, so a Windows path's backslashes are not read as
    pattern characters (review 15: without that every Windows rule was dropped); the globs this file adds itself are
-   taken out before testing. */
+   taken out before testing (a trailing /** or .*, a single-star segment, .claude-*, and .zcompdump with a star). */
 function ruleHasPatternChar(rule, sep = path.sep) {
-  const ownGlobs = String(rule).replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x');
+  const ownGlobs = String(rule).replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x')
+    .replace(/\/\.zcompdump\*\)$/, '/.zcompdump)');   // #5774 part 2: zsh's completion dump, any host suffix
   const inner = ownGlobs.replace(/^\w+\(/, '').replace(/\)$/, '').split(sep).join('/');
   return RULE_SYNTAX.test(inner.replace(/\*\*$/, '').replace(/\/\*$/, ''));
 }
@@ -1211,9 +1212,6 @@ function writeLaunchRecord(file, rec) {
 
 /* #5516 part 2: the names Claude Code gives its global config file (engine/startcommands.js keeps the one list). */
 const CLAUDE_GLOBAL_CONFIG_SUFFIXES = startcommands.CLAUDE_GLOBAL_CONFIG_SUFFIXES;
-/* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
-   and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
-   (shell-snapshots, session-env, projects, backups). Folders denied whole; files by name. */
 /* #5774 part 2: the shell startup files in the home folder. A token-only agent's file tools could rewrite them, and
    every shell the same user starts OUTSIDE the sandbox reads them: anything that runs zsh (.zshenv, even
    non-interactive), a login shell, the person's own terminal, and each agent's shell snapshot. The sandboxed shell
@@ -1222,24 +1220,52 @@ const CLAUDE_GLOBAL_CONFIG_SUFFIXES = startcommands.CLAUDE_GLOBAL_CONFIG_SUFFIXE
 const SHELL_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.bashrc', '.bash_profile', '.bash_login', '.profile', '.bash_logout',
   '.cshrc', '.tcshrc', '.login', '.logout'];
 const ZSH_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout'];
-/* The files, and the folders read whole (fish's conf.d), for this home and environment: zsh's under $ZDOTDIR too when
-   it names another folder, and the file $BASH_ENV or $ENV names (a non-interactive bash, an interactive sh). */
+/* Review 1: zsh runs a compiled copy (<file>.zwc) in place of a startup file when it is newer, so each is denied with
+   its .zwc; and compinit loads its dump file (.zcompdump, often with a host suffix) on every completing shell. */
+const zshFilesIn = (d) => ZSH_START_FILES.flatMap((f) => [path.join(d, f), path.join(d, f + '.zwc')]);
+/* A ZDOTDIR value: absolute, or home-relative through ~, $HOME or ${HOME}, or $XDG_CONFIG_HOME. Anything else (relative,
+   another variable) is null: Kosmos cannot say which folder zsh reads, so the caller names it. */
+function zdotdirOf(value, home, xdg) {
+  let v = String(value).trim();
+  v = v.replace(/^~(?=\/|$)/, home).replace(/^\$\{?HOME\}?(?=\/|$)/, home).replace(/^\$\{?XDG_CONFIG_HOME\}?(?=\/|$)/, xdg);
+  return path.isAbsolute(v) && !v.includes('$') ? path.resolve(v) : null;
+}
+/* The files, the folders read whole, and the globs (permission layer only) for this home and environment. Review 1:
+   ZDOTDIR is read from the environment AND from .zshenv itself, where it is usually set (zsh then reads the rest of
+   its files there); fish's and nushell's folders honour XDG_CONFIG_HOME, and nushell's macOS default too; fish's
+   whole folder, since it autoloads functions and keeps universal variables (PATH among them) there. */
 function shellStartPaths(home, env) {
-  const files = SHELL_START_FILES.map((f) => path.join(home, f));
   const e = env || {};
-  if (typeof e.ZDOTDIR === 'string' && path.isAbsolute(e.ZDOTDIR) && path.resolve(e.ZDOTDIR) !== path.resolve(home)) {
-    files.push(...ZSH_START_FILES.map((f) => path.join(e.ZDOTDIR, f)));
-  }
+  const xdg = typeof e.XDG_CONFIG_HOME === 'string' && path.isAbsolute(e.XDG_CONFIG_HOME) ? path.resolve(e.XDG_CONFIG_HOME) : path.join(home, '.config');
+  const files = [...SHELL_START_FILES.map((f) => path.join(home, f)), ...zshFilesIn(home)];
+  const globs = [path.join(home, '.zcompdump*')];
   const unsafe = [];
+  const zdots = new Set();
+  const zdot = (value, from) => {
+    const d = zdotdirOf(value, home, xdg);
+    if (d) { if (d !== path.resolve(home)) zdots.add(d); }
+    else unsafe.push(`ZDOTDIR (${value}, ${from}), a folder of zsh startup files Kosmos cannot work out`);
+  };
+  if (typeof e.ZDOTDIR === 'string' && e.ZDOTDIR) zdot(e.ZDOTDIR, 'in the environment');
+  let zshenv = '';
+  try { zshenv = fs.readFileSync(path.join(home, '.zshenv'), 'utf8'); } catch { /* none: nothing set there */ }
+  for (const m of zshenv.matchAll(/^[ \t]*(?:export[ \t]+)?ZDOTDIR=(?:"([^"]*)"|'([^']*)'|([^\s;#]*))/gm)) zdot(m[1] ?? m[2] ?? m[3], 'set in .zshenv');
+  // The conventional XDG folder, whether or not anything above names it (a setting this cannot read may).
+  zdots.add(path.join(xdg, 'zsh'));
+  for (const d of zdots) { files.push(...zshFilesIn(d)); globs.push(path.join(d, '.zcompdump*')); }
   for (const k of ['BASH_ENV', 'ENV']) {
     if (typeof e[k] !== 'string' || !e[k]) continue;
     if (path.isAbsolute(e[k])) files.push(path.resolve(e[k]));
     // Relative: read from whatever folder the shell runs in, which the agent can choose, so it is named, not guessed.
     else unsafe.push(`$${k} (${e[k]}), a startup file named relative to the folder a shell runs in`);
   }
-  files.push(path.join(home, '.config', 'fish', 'config.fish'), path.join(home, '.config', 'nushell', 'config.nu'), path.join(home, '.config', 'nushell', 'env.nu'));
-  return { files: [...new Set(files)], dirs: [path.join(home, '.config', 'fish', 'conf.d')], unsafe };
+  const nu = [path.join(xdg, 'nushell'), path.join(home, 'Library', 'Application Support', 'nushell')];
+  files.push(...nu.flatMap((d) => [path.join(d, 'config.nu'), path.join(d, 'env.nu')]));
+  return { files: [...new Set(files)], dirs: [path.join(xdg, 'fish')], globs: [...new Set(globs)], unsafe };
 }
+/* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
+   and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
+   (shell-snapshots, session-env, projects, backups). Folders denied whole; files by name. */
 const CONFIG_HOME_CODE_DIRS = ['plugins', 'skills', 'agents', 'commands', 'hooks', 'workflows', 'routines', 'rules', 'output-styles', 'cowork_plugins',
   // Review 5: a locally installed claude, and the scheduled jobs and daemon it runs. Review 7: cached skill archives
   // (instructions) and the IDE lock files (servers it connects to).
@@ -1535,7 +1561,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
-    ...shellStartDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 part 2: fish's conf.d, read whole
+    ...shellStartDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 part 2: fish's folder, read whole
+    ...shellStart.globs.map((g) => `Edit(${ruleAbs(g)})`),   // review 1: zsh's completion dump; the shell cannot write there anyway
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
     ...siblingRules,
     ...[...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),   // review 9: memory for a later home too
