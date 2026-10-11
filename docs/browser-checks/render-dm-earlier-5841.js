@@ -90,7 +90,8 @@ const TAIL = (older) => ({
         actingControls: document.querySelectorAll('#d-talk-earlier-rows :is(.rxn-quick, .rxn-speak, .asp-speak, .dm-held-send)').length,
         focus: document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : '',
         // Under its original the header is the screen-reader line (.vh); elsewhere the visible .msg-replyto (#3745's rule).
-        replyHead: (document.querySelector('#d-talk-earlier-rows .msg-replyto, #d-talk-earlier-rows .vh') || {}).textContent || '',
+        // Every reply header or screen-reader line in the earlier rows (a reaction pill's kept label is a .vh too).
+        replyHead: [...document.querySelectorAll('#d-talk-earlier-rows .msg-replyto, #d-talk-earlier-rows .vh')].map((x) => x.textContent.trim()).join(' | '),
         open: !box.hidden, rows, moreShown: !more.hidden,
         note: document.getElementById('d-talk-earlier-note').textContent.trim(),
         aboveThread: !!(box.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING),
@@ -133,7 +134,7 @@ const TAIL = (older) => ({
       const after = await page.evaluate(() => window.__calls);
       chk(after === before, 'a click on anything in an earlier row sends no request', `${before} -> ${after}`);
     }
-    chk(/m3/.test(s.replyHead) && !/further back|unavailable/i.test(s.replyHead), 'a reply whose original is beside it in the earlier section names it (m3), not "further back"', JSON.stringify(s.replyHead));
+    chk(/Answers [^|]*m3/.test(s.replyHead) && !/further back|unavailable/i.test(s.replyHead), 'a reply whose original is beside it in the earlier section names it (m3), not "further back"', JSON.stringify(s.replyHead));
 
     // The thread's own repaint, as the 5 s poll does it.
     await page.evaluate(() => paintTalk('april', 'April')); await settle();
