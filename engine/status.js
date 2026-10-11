@@ -2808,10 +2808,12 @@ function limitResetTimeOnlyAt(line, firstSeenMs) {
     return null;
   } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
 }
-/* When each agent's dateless limit line was first seen, keyed by agent and the line itself (a new limit is a new
-   line). In memory: a board restart sees it again from then, which the span above bounds. */
+/* When each agent's dateless limit line was first seen, keyed by agent and the line itself. In memory: a board
+   restart sees it again from then, which the span above bounds. An entry lasts only while the line keeps being read
+   (the board reads every card every few seconds): a line not read for LIMIT_LINE_GONE_MS is a limit that ended, so the
+   same words tomorrow are a new limit, first seen tomorrow, never read against yesterday's time. */
 const limitFirstSeen = new Map();
-const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;
+const LIMIT_LINE_GONE_MS = 10 * 60 * 1000;
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
    this can read. A dated line is read as limitResetAt reads it; a dateless one from when it was first seen. */
 function claudeLimitUntil(agent, evidence, nowMs) {
@@ -2820,10 +2822,11 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   const dated = limitResetAt(line, now);
   if (dated !== null) return dated;
   if (!LIMIT_RESET_TIME_ONLY.test(line)) return null;
-  for (const [k, v] of limitFirstSeen) if (now - v.at > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
+  for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_LINE_GONE_MS) limitFirstSeen.delete(k);
   const key = String(agent) + '\u0000' + line;
   let seen = limitFirstSeen.get(key);
-  if (!seen) { seen = { at: now }; limitFirstSeen.set(key, seen); }
+  if (!seen) { seen = { at: now, last: now }; limitFirstSeen.set(key, seen); }
+  seen.last = Math.max(seen.last, now);
   return limitResetTimeOnlyAt(line, seen.at);
 }
 function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); }

@@ -24,6 +24,9 @@ occurrence of that time after the board first saw the line.
   wrong time; a restart inside the span re-reads from the restart, which can only move a dateless reset LATER by up
   to a day for a weekly line whose printed time already passed today. Weakest premise: Claude Code always dates a
   reset a day or more away (observed on the weekly form; the session form is always under five hours).
+- A first-seen entry lasts only while its line keeps being read (the board reads every card every few seconds): a
+  line not read for ten minutes is a limit that ended, so the same words the next day are a new limit, never read
+  against yesterday's time (caught before review: the first version kept entries for two days).
 - Rejected: the turn footer's time ("done 10:35 PM") as the anchor. It has no date either, and is absent on some
   screens.
 - Not in this slice (3b): holding and retiring on a dateless line. That changes classification for every agent and

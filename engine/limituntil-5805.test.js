@@ -70,10 +70,16 @@ test('#5805 slice 3: claudeLimitUntil keeps the first-seen time, so the reset do
   const line = `You've hit your session limit · resets 4pm ${Z}`;
   const t0 = at('2026-10-10T16:00:00Z');
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0)), '2026-10-10T21:00:00.000Z');
-  // Read again at 16:30 CDT, after the printed 4pm (the line stays on screen): still today's 4pm, not tomorrow's.
+  // The board reads the card every few seconds while the line stays on screen; read every five minutes to 16:30 CDT,
+  // after the printed 4pm: still today's 4pm, not tomorrow's.
+  for (let t = t0; t <= t0 + 5.5 * 3600e3; t += 5 * 60e3) status.claudeLimitUntil('casey', line, t);
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.5 * 3600e3)), '2026-10-10T21:00:00.000Z', 'the reset moved with the clock');
   // CONTROL: the same line first seen by another agent at the later time reads differently (the key is the agent).
   assert.equal(status.claudeLimitUntil('leo', line, t0 + 7 * 3600e3), null);
+  // The same words after the line was gone for more than ten minutes (the limit ended, a new one the next day) are a
+  // new limit, read from then.
+  const nextDay = at('2026-10-11T16:00:00Z');
+  assert.equal(iso(status.claudeLimitUntil('casey', line, nextDay)), '2026-10-11T21:00:00.000Z', 'read against yesterday\'s first-seen time');
   // A dated line needs no first-seen time.
   assert.equal(iso(status.claudeLimitUntil('casey', `You've hit your weekly limit · resets Oct 12 at 3pm ${Z}`, t0)), '2026-10-12T20:00:00.000Z');
   assert.equal(status.claudeLimitUntil('casey', 'Looks like nothing', t0), null);
