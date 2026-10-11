@@ -4479,7 +4479,10 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read',
-  'POST /api/undo/keep']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler
+  'POST /api/undo/keep', 'POST /api/agent/reply-channel']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler
+/* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
+   (processCaller) and sets only that agent's own channel. A token-presenting caller is never the screen (isViaScreen),
+   so it cannot name another agent. Every Windows agent holds a token and no board token, and the report came from there. */
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
@@ -19871,6 +19874,49 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       sendJson(res, 200, { ok: true, role: out.role });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
+    return;
+  }
+
+  /* kosmos#5805 part 2: an agent declares where it answers the person (`kosmos reply-channel`). Body { channel }
+     (empty, or "kosmos", clears it). With one declared, the first-reply nudge and the room's #185 reminder stay quiet
+     for it (engine/replychannel.js says why). The caller is identified as on the role route above: a token names it
+     exactly, a pane (from_pane) is taken as given, and the screen names the agent (`name`). Display and reminders
+     only; it decides no routing. */
+  if (pathname === '/api/agent/reply-channel' && req.method === 'POST') {
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      let name = null;
+      if (viaScreen) {
+        name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
+        if (!name) { sendJson(res, 400, { error: 'say which agent' }); return; }
+        // A profile is written for this name, so it must be an agent here: a typed name never makes a stray profile.
+        if (roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so the reply channel was not set' }); return; }
+        const card = roster.find((c) => c && c.sessionName === name);
+        if (!card) { sendJson(res, 404, { error: 'there is no agent by that name here' }); return; }
+      } else {
+        const caller = processCaller(req, body, roster, false, 'the reply channel was not set');
+        if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
+        name = (caller.card && caller.card.sessionName) || null;
+        if (!name && roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so the reply channel was not set' }); return; }
+        if (!name) { sendJson(res, 403, { error: 'run this as an agent: Kosmos could not tell which agent you are' }); return; }
+      }
+      let channel;
+      try { channel = require('./engine/replychannel').set(name, body.channel === undefined ? null : body.channel); }
+      catch (err) {
+        const because = String((err && err.message) || '');
+        // Only the module's own sentences go back; a failed write is ours, said without its details.
+        if (/^say the channel |^keep the channel to /.test(because)) { sendJson(res, 400, { error: because }); return; }
+        sendJson(res, 500, { error: 'Kosmos could not save that reply channel just now' });
+        return;
+      }
+      sendJson(res, 200, { ok: true, channel });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });

@@ -81,6 +81,7 @@ const WRONG_WORLD_STATUS = 421;
    subcommand it has (the parity test pins that against SUBCOMMANDS). */
 const USAGE = {
   msg: 'Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written)',
+  'reply-channel': 'Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)',
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
@@ -1189,6 +1190,27 @@ async function projectPause(ctx, args) {
   return 1;
 }
 
+/* kosmos#5805 part 2, as install/kosmos cmd_reply_channel: an agent declares where it answers the person, for itself
+   only (the board names the caller from its token). --clear goes back to kosmos reply. */
+async function verbReplyChannel(ctx, args) {
+  if (!args.length) { ctx.err(USAGE['reply-channel']); return 2; }
+  const channel = (args.length === 1 && args[0] === '--clear') ? '' : args.join(' ');
+  const r = await ctx.call('POST', '/api/agent/reply-channel', { channel });
+  if (!r.reached) {
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+      : ctx.unreachable('set your reply channel');
+  }
+  if (r.status === 200 && r.json && r.json.ok === true) {
+    ctx.out(r.json.channel === null
+      ? 'Cleared. Kosmos reminds you again when the person has heard nothing from you through kosmos reply.'
+      : 'Set. Kosmos will not remind you that nothing reached the person, since you answer them on a channel it cannot see.');
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not set your reply channel: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when setting your reply channel.');
+  return 1;
+}
+
 /* #5300, as install/kosmos cmd_project role: an agent says what it does on one project, for itself only (the board
    names the caller from its token). An empty role clears it. */
 async function projectRole(ctx, args) {
@@ -1904,6 +1926,7 @@ function subcommandRequired(verb) {
 const VERB_HANDLERS = {
   msg: verbMsg,
   reply: verbReply,
+  'reply-channel': verbReplyChannel,
   post: verbPost,
   react: verbReact,
   report: verbReport,
@@ -1946,6 +1969,7 @@ const BANNER = 'Usage: kosmos <' + VERBS.join('|') + '> ...   (this is the Windo
 const DESCRIBE = {
   msg: 'send a message to one agent',
   reply: 'answer the person in your conversation with them',
+  'reply-channel': 'say where you answer the person, when it is not kosmos reply',
   inbox: 'read your recent messages with the person (a notice can arrive without them)',
   post: 'post in a project room',
   react: 'react to a post in a project room',
@@ -1961,7 +1985,10 @@ const DESCRIBE = {
   accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
 };
-const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(13) + DESCRIBE[v]).join('\n');
+/* kosmos#5805 part 2: padEnd(13) ran `reply-channel` (13 letters) into its words. The Mac's column (14), widened if a
+   verb is ever longer, so a verb is always followed by at least one space. */
+const COMMAND_COLUMN = Math.max(14, ...VERBS.map((v) => v.length + 1));
+const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(COMMAND_COLUMN) + DESCRIBE[v]).join('\n');
 
 /**
  * Run one command. `io` carries every seam: env, fetch, out/err writers, the

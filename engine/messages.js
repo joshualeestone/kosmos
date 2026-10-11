@@ -2517,6 +2517,15 @@ function answeredDirectly(name, askAt) {
   return replies.some((t) => t <= personSince);
 }
 
+/* kosmos#5805 part 2: is an ask to `name` at `askAt` answered somewhere other than the room? Either the agent declared
+   another channel it answers the person on (kosmos reply-channel: an answer there is out of Kosmos's sight, so it is
+   never called silent), or it answered on the person's direct thread (answeredDirectly). The one test unanswered and
+   owedElsewhere share, so the room line, its nudge and the which-room question cannot disagree. */
+function answeredOffRoom(name, askAt) {
+  if (require('./replychannel').forAgent(name, store)) return true;
+  return answeredDirectly(name, askAt);
+}
+
 function unanswered(projectId, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const rec = record();
@@ -2545,7 +2554,7 @@ function unanswered(projectId, now) {
          read in the other direction. */
       return !rows.some((m) => m.kind === 'post' && m.operator !== true && m.from === name
         && Date.parse(m.at) >= Date.parse(p.at))
-        && !answeredDirectly(name, Date.parse(p.at));
+        && !answeredOffRoom(name, Date.parse(p.at));
     });
     if (silent.length) out[p.id] = silent;
   }
@@ -2648,9 +2657,9 @@ function sweepUnanswered(roster, now) {
    delivered (TYPED, not could_not -- an undelivered ask is not owed), and NO room
    post from W in B in [askAt, postAt). This mirrors `unanswered`'s own definition
    of an owed answer (operator + mentioned + typed), bounded to the post's instant,
-   with one difference kept on purpose: it does not read direct threads (kosmos#5805
-   part 2, answeredDirectly), so an ask W answered on the person's direct thread
-   still counts here. It is an aggregate "suspected" count over the whole record,
+   with one difference kept on purpose: it does not read direct threads or declared
+   channels (kosmos#5805 part 2, answeredOffRoom), so an ask W answered on the
+   person's direct thread, or W's declared channel, still counts here. It is an aggregate "suspected" count over the whole record,
    and reading every agent's thread for every day compiled is not worth it.
 
    ⚠️ AS-OF-POST-TIME is deliberate, and it is why this does NOT reuse `unanswered`
@@ -2958,9 +2967,9 @@ function reopenRoom(project, at) {
  *
  * "Owed" is the same test the #185 nudge (`unanswered`) uses: an operator post that
  * mentioned this agent and reached its pane (anything but could_not), with no room post
- * from the agent in that project since and no answer to the person on their direct
- * thread (answeredDirectly, kosmos#5805 part 2). The daily misroute count uses it without
- * the direct-thread part (see suspectedMisrouteCount). Two bounds keep
+ * from the agent in that project since, no answer to the person on their direct thread,
+ * and no declared reply channel (answeredOffRoom, kosmos#5805 part 2). The daily misroute
+ * count uses it without that last part (see suspectedMisrouteCount). Two bounds keep
  * the cost of a wrong guess to one rerun, and rarely:
  * - only questions from the last WHICH_ROOM_WINDOW_MS count, so an ask the agent
  *   ignored yesterday does not hold every post it makes today;
@@ -3006,8 +3015,9 @@ function owedElsewhere(agent, targetProject, now, opts) {
      ask at or before the agent's latest --new post is treated as acknowledged. That is
      slightly wider than "was put to it": a question landing between the hold and the
      --new rerun is cleared too. Accepted: the window is one rerun long. */
-  // kosmos#5805 part 2: an ask answered on the person's direct thread is not owed (as unanswered reads it).
-  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt && !answeredDirectly(who, a.t));
+  // kosmos#5805 part 2: an ask answered off the room (a declared channel, or the person's direct thread) is not owed,
+  // as unanswered reads it.
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt && !answeredOffRoom(who, a.t));
   const elsewhere = owed.filter((a) => a.project !== target && (() => {
     try { return canPostIn(a.project) === true; } catch { return false; }
   })());

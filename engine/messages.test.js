@@ -3530,3 +3530,41 @@ test('kosmos#5805 part 2: an ask answered on the person\'s direct thread is not 
     }
   });
 });
+
+test('kosmos#5805 part 2: an agent that declared another reply channel is not called silent on a room ask, and is not nudged', () => {
+  const replychannel = require('./replychannel');
+  withFleet(room3(), (board) => {
+    messages.setUnansweredAfterForTests(1000);
+    try {
+      const ask = () => {
+        fs.rmSync(messages.LOG, { force: true });
+        try { fs.rmSync(chat.threadFile(chat.DIRECT, 'mara'), { force: true }); } catch { /* fresh */ }
+        arm([]);
+        const sent = messages.sendPost({ operator: true, project: 'henderson-lease', projectName: 'Henderson Lease', text: '@mara where is the draft?' }, board.agents, MEMBERS);
+        assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+        const row = messages.record().rows.find((m) => m.kind === 'post');
+        return { id: row.id, at: Date.parse(row.at) };
+      };
+      // CONTROL: nothing declared, no answer anywhere: owed, on all three readings.
+      replychannel.set('mara', '');
+      let a = ask();
+      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), { [a.id]: ['mara'] }, 'CONTROL: an unanswered ask did not read unanswered');
+      assert.ok(messages.owedElsewhere('mara', 'other-room', a.at + 5000), 'CONTROL: the which-room question does not see the ask as owed');
+      arm([]);
+      assert.deepEqual((messages.sweepUnanswered(board.agents, a.at + 5000).nudged || []).filter((n) => n.to === 'mara').map((n) => n.post), [a.id], 'CONTROL: the sweep does not nudge an owed ask');
+      // Declared: Kosmos cannot see that channel, so it calls her silent nowhere.
+      replychannel.set('mara', 'Discord');
+      a = ask();
+      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), {}, 'an agent with a declared channel still reads unanswered');
+      assert.equal(messages.owedElsewhere('mara', 'other-room', a.at + 5000), null, 'the which-room question still treats the ask as owed');
+      arm([]);
+      assert.deepEqual((messages.sweepUnanswered(board.agents, a.at + 5000).nudged || []).filter((n) => n.to === 'mara'), [], 'an agent with a declared channel was nudged');
+      // Cleared again: the reminder is back.
+      replychannel.set('mara', 'kosmos');
+      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), { [a.id]: ['mara'] }, 'clearing the channel did not bring the reminder back');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+      try { replychannel.set('mara', ''); } catch { /* best effort */ }
+    }
+  });
+});

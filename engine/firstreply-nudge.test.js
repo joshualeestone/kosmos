@@ -309,3 +309,44 @@ test('#4354 real store: a swarm the PERSON switched off (no notice) is left alon
     fs.rmSync(path.join(require('./store').ROOT, require('./store').PROFILES_DIRNAME), { recursive: true, force: true });
   }
 });
+
+/* kosmos#5805 part 2: the report. An agent told to answer on another channel answered there, and this nudge then said
+   nothing had reached the person. With the channel declared (kosmos reply-channel), the sweep's own default reader
+   (replychannel.forAgent on the real profile; nothing injected) leaves it alone. */
+test('kosmos#5805 real store: an agent that declared another reply channel is not nudged; the same case undeclared is', () => {
+  const replychannel = require('./replychannel');
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  try {
+    // CONTROL: the card's own case, nothing declared: nudged.
+    replychannel.set(s, '');
+    freshStore(s);
+    personDm(s);
+    assert.equal(realSweep(roster).sent.length, 1, 'CONTROL: the undeclared case was not nudged, so the arm below proves nothing');
+    // Declared: the same fixture, not nudged.
+    replychannel.set(s, 'Discord');
+    assert.equal(replychannel.forAgent(s), 'Discord', 'fixture: the declaration was not stored where the sweep reads it');
+    freshStore(s);
+    personDm(s);
+    assert.equal(realSweep(roster).sent.length, 0, 'an agent that declared another channel was told nothing reached the person');
+  } finally {
+    try { replychannel.set(s, ''); } catch { /* best effort */ }
+  }
+});
+
+test('kosmos#5805: an injected replyChannel is honoured, and a throwing one is no declaration', () => {
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  const run = (replyChannel) => {
+    const sent = [];
+    nudge.sweepOnce({
+      roster, book: new Map(), now: NOW, DELIVERY, replyChannel, paused: () => null,
+      thread: () => ({ messages: [{ text: 'hi', at: HEARD, delivery: { state: 'placed' } }] }),
+      deliver: (session, text) => { sent.push(session); return { state: DELIVERY.PLACED }; },
+    });
+    return sent.length;
+  };
+  assert.equal(run(() => null), 1, 'CONTROL: nothing declared, nudged');
+  assert.equal(run(() => 'Slack'), 0, 'a declared channel was nudged');
+  assert.equal(run(() => { throw new Error('unreadable'); }), 1, 'a profile that cannot be read silenced the nudge');
+});

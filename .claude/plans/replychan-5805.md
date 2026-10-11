@@ -12,23 +12,56 @@ unanswered() (the room line and, through it, sweepUnanswered's nudge) and owedEl
 both use it. Parsed threads are cached by file mtime and size. suspectedMisrouteCount (the daily "suspected" figure)
 does not read threads, on purpose, and says so.
 
-## Decided
-- Counted automatically; nothing for the agent to declare. The card asked to "let an agent declare its reply channel".
-  Rejected: a per-agent setting and a command to set it. The reminder exists so the person who asked hears back; a
-  direct reply to that same person does that whatever was declared, and a declaration is one more thing an agent
-  must remember to do before the reminder stops lying.
-- Only the person's direct thread. Discord or another outside channel is not visible to Kosmos (out of scope), and a
-  `kosmos msg` to a colleague is not an answer to the person.
-- Bounded to an hour after the ask, and to before the person speaks again on that thread (review 1: unbounded, a
-  chatty agent cleared every room ask the moment it sent any direct message).
-- Weakest premise: a reply inside that hour may still be about an earlier direct message from the person. What would
-  change it: reports of room asks cleared that way; then match on in_reply_to.
-- An unreadable thread counts as no answer (today's behaviour).
+## Decided (PigeonPete took this over at 34aedd9ef; the call changed, reasons below)
+- **The agent declares it, as the report asked: `kosmos reply-channel "<where>"`** (empty, or "kosmos", clears it), on
+  the Mac and Windows CLIs, POST /api/agent/reply-channel, stored as `replyChannel` on the agent's profile
+  (engine/replychannel.js). With one declared, neither reminder speaks for that agent: the first-reply nudge
+  (firstreply-nudge.js) and the room's #185 reminder, its "has not answered" line and the which-room question
+  (messages.answeredOffRoom, shared by unanswered and owedElsewhere).
+- **Why the call changed.** The collected 10-10 report, read at the source, says the agent's instructions told it to
+  answer through a different channel, it answered there, and a reminder then said *nothing had reached the person*.
+  That wording is the first-reply nudge, and the channel is one Kosmos cannot see. Automatic counting cannot see an
+  answer that never touches a Kosmos thread, so on its own it does not fix the reported case.
+- **Kept: Baron's automatic counting** (a `kosmos reply` to the person inside the hour, before they speak again,
+  answers a room ask). A real false reminder of the same family; it needs no declaration.
+- Only the person's direct thread counts automatically. A `kosmos msg` to a colleague is not an answer to the person.
+- Bounded to an hour after the ask, and to before the person speaks again on that thread (review 1).
+- An unreadable thread or profile counts as no answer and no declaration (today's behaviour).
+- The route is in AGENT_TOKEN_ROUTES (every Windows agent holds a token and no board token). Its handler names the
+  caller with processCaller and sets only that agent's own channel; a token-presenting caller is never the screen.
+  The screen must name an agent on the roster, so a typed name never writes a stray profile.
+
+## Rejected
+- Automatic only (34aedd9ef's call): blind to the reported case.
+- Reading the channel out of the agent's instructions: free text, guessed.
+- Rewording the operator envelope's "to answer, run: kosmos reply" hint (the report calls it wrong for such an agent):
+  engine/musefront.js recognises that envelope by its exact text, so a change breaks a parser silently. Follow-up.
+
+## Weakest premise
+A declared agent that does not answer on its channel is never reminded: the declaration removes the safety net and
+nothing checks the claim. What would change it: a missed message from an agent that declared a channel; then show the
+declared channel where the reminder would have been, rather than staying silent.
+
+Also: a reply inside the hour may still be about an earlier direct message (Baron's premise, unchanged).
+
+## Incidental fixes
+- Windows help padded verbs to 13 columns, so `reply-channel` ran into its words; now the Mac's 14, widened for a
+  longer verb.
+- cli.help-lines-4785 and the CLI parity test read verbs with `[a-z]+`, which can never match a hyphenated verb;
+  widened, with the two internal Mac arms (board-run, keep-copy) excluded by name and asserted present.
 
 ## Tests
-engine/messages.test.js: an ask stays unanswered with mara's earlier reply and Kosmos's own notice in her name
-(controls); her direct reply clears the room line, the nudge (control: an owed ask is nudged) and the which-room
-question; a reply after a newer person message, or past the hour, does not clear it.
+- engine/messages.test.js: Baron's direct-thread test (controls included), and a declared-channel test (control: the
+  same ask undeclared is owed, nudged and asked about; declared it is none of those; cleared, it is back).
+- engine/firstreply-nudge.test.js: the real store, the sweep's own default reader, the card's own case nudged
+  undeclared and not declared; an injected reader honoured, a throwing one no declaration.
+- engine/replychannel.test.js: normalize, of (a hand-edited value the command would refuse is no declaration), set.
+- server.reply-channel-5805.test.js: over HTTP, an agent sets only its own; refusals; the screen names a real agent.
+- cli.reply-channel-5805.test.js: Mac against a stub board, Windows with fetch captured: set, --clear, bare, --help.
+- Mutations (13, each restored and byte-compared): every one went red. Skip in the nudge; ignore the declaration in
+  the room; old predicate in owedElsewhere; old predicate in unanswered; screen accepts any name; agent names
+  another; of() unvalidated; "kosmos" not clearing; Mac --clear; Windows --clear; Mac help guard; token set; Windows
+  help column.
 
 ## Review 1 (opus)
 - FIXED (WARNING): unbounded window; see Decided.

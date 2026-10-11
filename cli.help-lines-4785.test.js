@@ -46,7 +46,8 @@ function dispatchVerbs() {
 /* `  kosmos <verb>   <words>` rows of a help text, as { verb: words }. */
 function rows(text) {
   const out = {};
-  for (const m of text.matchAll(/^ {2}kosmos ([a-z]+) +(\S.*)$/gm)) out[m[1]] = m[2].trim();
+  // kosmos#5805 part 2: [a-z-], so a hyphenated verb (reply-channel) has a row too; [a-z]+ never read one.
+  for (const m of text.matchAll(/^ {2}kosmos ([a-z][a-z-]*) +(\S.*)$/gm)) out[m[1]] = m[2].trim();
   return out;
 }
 

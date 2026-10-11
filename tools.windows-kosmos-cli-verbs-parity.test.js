@@ -63,8 +63,17 @@ function macVerbsFromDispatch(text) {
   const start = text.lastIndexOf('\ncase "${1:-}" in\n');
   assert.ok(start >= 0, 'install/kosmos has no top-level `case "${1:-}" in` dispatch any more; this test reads its verbs from there');
   const block = text.slice(start, text.indexOf('\nesac', start));
-  return [...block.matchAll(/^ {2}([a-z]+)\)/gm)].map((m) => m[1]);
+  /* kosmos#5805 part 2: a verb may carry a hyphen (`reply-channel`); `[a-z]+` read none, so a hyphenated verb was
+     invisible to every check here. The two internal arms are dropped by name, and asserted present so a rename
+     cannot leave the exclusion pointing at nothing. */
+  const verbs = [...block.matchAll(/^ {2}([a-z][a-z-]*)\)/gm)].map((m) => m[1]);
+  for (const v of MAC_INTERNAL_VERBS) assert.ok(verbs.includes(v), 'install/kosmos no longer dispatches ' + v + '; take it out of MAC_INTERNAL_VERBS');
+  return verbs.filter((v) => !MAC_INTERNAL_VERBS.has(v));
 }
+
+/* Dispatched, but not for people: the supervised board entry (#2956) and the report hook's copy (#5153). No help row
+   and no Windows twin, by design. */
+const MAC_INTERNAL_VERBS = new Set(['board-run', 'keep-copy']);
 
 /* The verbs its help lists: #4785 made it one row per command (`printf '  kosmos start   start Kosmos...'`)
    inside kosmos_command_list(), where it had been one `kosmos start | stop | ...` line. */
@@ -72,7 +81,7 @@ function macVerbsFromBanner(text) {
   const open = text.indexOf('\nkosmos_command_list() {\n');
   assert.ok(open >= 0, 'install/kosmos has no kosmos_command_list() any more; this test reads the help\'s verbs from there');
   const body = text.slice(open, text.indexOf('\n}\n', open));
-  const verbs = [...body.matchAll(/^\s*printf '  kosmos ([a-z]+) /gm)].map((m) => m[1]);
+  const verbs = [...body.matchAll(/^\s*printf '  kosmos ([a-z][a-z-]*) /gm)].map((m) => m[1]);   // kosmos#5805: hyphenated verbs too
   assert.ok(verbs.length > 0, 'kosmos_command_list() lists no `kosmos <verb>` rows');
   return verbs;
 }

@@ -27,7 +27,9 @@
  *    sent you a message" is true of it;
  *  - that message is at least MIN_QUIET_MS old;
  *  - the book holds no earlier nudge for this session, and fewer than MAX_TRIES tries that
- *    reached nothing. ONE nudge per session per board run, ever.
+ *    reached nothing. ONE nudge per session per board run, ever;
+ *  - the agent has not declared another channel it answers the person on (kosmos#5805 part 2,
+ *    `kosmos reply-channel`): an answer there is out of Kosmos's sight.
  *
  * 🛑 WHY THE DIRECT THREAD AND NOT messages.owesReply. The first build keyed on owesReply, and
  * it could not see the case it was written for: the message log holds only agent-to-agent
@@ -129,8 +131,9 @@ function plan(card, fc, entry, now) {
 
 /*
  * One sweep. o = { roster, book (Map session -> entry), now, deliver: (session, text, roster) =>
- * result, DELIVERY, log, thread?, paused? }. paused is (session) => swarm.pauseOf's answer and defaults to
- * the real profile (pauseNow). thread is (session) => readThread result and defaults to the
+ * result, DELIVERY, log, thread?, paused?, replyChannel? }. paused is (session) => swarm.pauseOf's answer and defaults to
+ * the real profile (pauseNow); replyChannel is (session) => the declared channel or null (kosmos#5805 part 2) and
+ * defaults to the real profile too (replychannel.forAgent). thread is (session) => readThread result and defaults to the
  * real DIRECT store (directThread); tests inject one only for the planner-shaped cases.
  * Returns { results }. Never throws.
  *
@@ -148,6 +151,7 @@ function sweepOnce(o) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const read = typeof o.thread === 'function' ? o.thread : directThread;
     const pauseFor = typeof o.paused === 'function' ? o.paused : pauseNow;
+    const channelFor = typeof o.replyChannel === 'function' ? o.replyChannel : (s) => require('./replychannel').forAgent(s);
     const log = typeof o.log === 'function' ? o.log : null;
     const say = (r) => { if (log) { try { log(r); } catch { /* never breaks a sweep */ } } };
     for (const card of o.roster) {
@@ -161,6 +165,11 @@ function sweepOnce(o) {
       let pz = null;
       try { pz = pauseFor(session); } catch { pz = null; }
       if (pz && pz.paused === true) continue;
+      /* kosmos#5805 part 2: an agent that declared where it answers the person (kosmos reply-channel) may have answered
+         there, out of Kosmos's sight, so "nothing has reached them yet" would be a guess. It is never nudged. */
+      let declared = null;
+      try { declared = channelFor(session); } catch { declared = null; }
+      if (declared) continue;
       let fc = null;
       try { fc = firstContact(read(session), pz); } catch { fc = null; }
       const p = plan(card, fc, entry, now);
@@ -203,7 +212,7 @@ function makeTick(deps) {
       if (!Array.isArray(roster)) return null;
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
-        thread: deps.thread, paused: deps.paused, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+        thread: deps.thread, paused: deps.paused, replyChannel: deps.replyChannel, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
       });
     } catch { return null; }
   };
