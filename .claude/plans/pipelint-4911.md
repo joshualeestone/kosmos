@@ -147,3 +147,13 @@ command's status.
   the line start or after a space. Fixture; mutant BAD.
 - The reviewer confirmed the 11 marked lines are exactly main's 11 remaining refusals and each is its own command's
   status (run, bcguard, leak_tmp_check, leak_launchd_check, kosmos_light_side_intruder, kosmos_wait_until_clear).
+
+## Review 12 (sonnet, blind, on 407755ac7): no BLOCKER
+- FIXED (WARNING): my review-11 "\|" strip regressed "a\\| tail" (an escaped backslash, then a REAL pipe), which main
+  catches. Escaped backslashes are now removed first, then "\|", then "||". Fixture; the mutant without the
+  backslash step turns it BAD.
+- FIXED (NIT): no must-accept fixture for a lone escaped pipe (sed 's/a\| head /x/'); added. The "no escaped-pipe
+  strip" mutant and a "narrowed to the adjacent case" mutant each turn it BAD.
+- FIXED (NIT): the marker on a continued line of the pipe is the stated residual; it is now a PINNED accept fixture,
+  so a change to it is deliberate.
+- NO CHANGE (NIT): a "#" inside a string before the status refuses a correctly marked line (the safe direction).

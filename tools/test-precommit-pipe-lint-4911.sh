@@ -59,6 +59,13 @@ printf '%s\n' "yarn test $P tail -5" "n=\${#a[@]} foo; rc=$Q  # pipe-status-ok" 
 [ -z "$(lint "$T/markedcount.sh")" ] && ok "a correctly marked line with \${#...} in its code is accepted" || bad "a \${#...} before the status hid the marker: $(lint "$T/markedcount.sh")"
 printf '%s\n' "echo a\\$P$P tail -1" "rc=$Q" > "$T/escapedpipe.sh"
 flags "$T/escapedpipe.sh" && ok "an escaped pipe right before a real one keeps the real pipe" || bad "an escaped pipe hid the real pipe after it"
+printf '%s\n' "echo a\\\\$P tail -1" "rc=$Q" > "$T/escapedbackslash.sh"
+flags "$T/escapedbackslash.sh" && ok "an escaped backslash before a real pipe keeps the pipe" || bad "an escaped backslash hid the real pipe"
+printf '%s\n' "sed 's/a\\$P head /x/' f" "rc=$Q" > "$T/lonescaped.sh"
+[ -z "$(lint "$T/lonescaped.sh")" ] && ok "a lone escaped pipe in a pattern is not a pipe" || bad "a lone escaped pipe was read as a pipe: $(lint "$T/lonescaped.sh")"
+# Pinned on purpose (the plan's weakest premise): the author's marker is trusted even on a continuation of the pipe.
+printf '%s\n' "make $P tail -1 \\" "true; rc=$Q  # pipe-status-ok" > "$T/markedcont.sh"
+[ -z "$(lint "$T/markedcont.sh")" ] && ok "PINNED: a marker is trusted even on a continued line (the stated residual)" || bad "the marker on a continued line changed behaviour; update the plan if deliberate"
 
 printf '%s\n' "x $P grep y" 'true' "out=\"\$(run_it 2>&1)\"; rc=$Q  # pipe-status-ok" "V=1 run_it; rc=$Q  # pipe-status-ok" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q  # pipe-status-ok" > "$T/assigncmd.sh"
 [ -z "$(lint "$T/assigncmd.sh")" ] && ok "marked assignments from or before a command are accepted" || bad "an assignment from or before a command was refused: $(lint "$T/assigncmd.sh")"

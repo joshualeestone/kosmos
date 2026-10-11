@@ -29,8 +29,9 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
   hits="$(git show ":$f" | awk '
     /^[^#]*set -o pipefail|^[^#]*set -[a-zA-Z]*o pipefail/ { pf = 1 }
     # "a || b" is not a pipe: drop every || before looking for one (a "cmd || sed" fallback was read as "| sed").
-    # An escaped "\|" is not a pipe either, and goes first so "a\|| tail" keeps its real pipe.
-    { s = $0; gsub(/\\\|/, "  ", s); gsub(/\|\|/, "  ", s) }
+    # An escaped "\|" is not a pipe either. Escaped backslashes go first ("a\\| tail" is a backslash, then a REAL
+    # pipe), then "\|", then "||", so "a\|| tail" keeps its real pipe too.
+    { s = $0; gsub(/\\\\/, "  ", s); gsub(/\\\|/, "  ", s); gsub(/\|\|/, "  ", s) }
     s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
     # The author'"'"'s word, written where a reviewer sees it: a line ending in "# pipe-status-ok" reads its OWN
     # command'"'"'s status, so a pipe on an EARLIER line is not what it reads. A pipe on the same line still counts.
