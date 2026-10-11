@@ -4120,7 +4120,7 @@ test('#5191: the remove\'s own check counts as after the remove on a timer too c
   assert.strictEqual(h.asked, asked, 'the remove\'s own check was taken as older than the remove');
 });
 
-test('#5191: a first remove\'s answer arriving after a second remove does not count as after the second', async (t) => {
+for (const coarse of [false, true]) test('#5191: a first remove\'s answer arriving after a second remove does not count as after the second' + (coarse ? ' (one timer reading for both removes)' : ''), async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
   t.after(() => harness());
   let edges = [];
@@ -4135,9 +4135,9 @@ test('#5191: a first remove\'s answer arriving after a second remove does not co
     projectCreatedAt: () => undefined, note: () => {},
   });
   const answerAll = async () => { while (calls.length) { calls.shift().go(); await settle(); } };
-  const id = 'proj-5191-tworm'; const ref = 'ref-tr'; const room = 'room-tr';
+  const id = 'proj-5191-tworm' + coarse; const ref = 'ref-tr' + coarse; const room = 'room-tr' + coarse;
   federation.recordLink(id, { role: 'owner', ref });
-  const invs = [newInvite('tr-0'), newInvite('tr-1'), newInvite('tr-2')];
+  const invs = [newInvite('tr' + coarse + '-0'), newInvite('tr' + coarse + '-1'), newInvite('tr' + coarse + '-2')];
   for (const [j, inv] of invs.entries()) {
     fedseal.stashInvite(ref, inv);
     edges.push({ id: 'edge-' + inv.invite, project_ref: ref, status: 'active', invite_id: inv.invite, member_account_id: 'acct-tr-' + j });
@@ -4148,12 +4148,17 @@ test('#5191: a first remove\'s answer arriving after a second remove does not co
   assert.strictEqual(Object.keys(fedseal.roomState(id).peers).length, 3, 'fixture: three pinned');
   const revoke = (j) => { edges = edges.map((e, k) => k === j ? Object.assign({}, e, { status: 'revoked' }) : e); };
   t.mock.timers.tick(20 * 1000);
-  revoke(0);
-  const first = fedseats.afterRemove(id); await settle();
-  const firstAsk = calls.shift(); assert.ok(firstAsk, 'fixture: the first remove asked');
-  t.mock.timers.tick(1000);
-  revoke(1);
-  const second = fedseats.afterRemove(id); await settle();
+  const real = process.hrtime.bigint;
+  if (coarse) process.hrtime.bigint = () => 5n;   // both removes read the same monotonic value
+  let first, second, firstAsk;
+  try {
+    revoke(0);
+    first = fedseats.afterRemove(id); await settle();
+    firstAsk = calls.shift(); assert.ok(firstAsk, 'fixture: the first remove asked');
+    t.mock.timers.tick(1000);
+    revoke(1);
+    second = fedseats.afterRemove(id); await settle();
+  } finally { process.hrtime.bigint = real; }
   t.mock.timers.tick(1000);
   say(seat, { event: 'message', member: 'acct-tr-1', data: fedseal.seal(fedseal.roomState(id).keys[0], 0, room, { from: 'G', kind: 'person', text: 'second removed, after its remove' }, Date.now()) });
   await settle();
