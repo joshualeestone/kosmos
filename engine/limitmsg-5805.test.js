@@ -235,3 +235,39 @@ test('#5805 2a review 1: a message dropped a day past its reset is told to its s
     assert.ok(rows().some((r) => r.kind === 'held-dropped' && r.of === 'm970'));
   });
 });
+
+test('#5805 2a review 2: the same send again long after (no recent row left) is still the kept copy, not a second one', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    const first = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'the go-ahead' }, board.agents);
+    fs.rmSync(messages.LOG, { recursive: true, force: true });   // past the repeat-send window: no row to fold on
+    messages.resetForTests();
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));   // resetForTests clears the sender lookup too
+    const again = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'the go-ahead' }, board.agents);
+    assert.deepEqual([again.held, again.id, again.duplicate], [true, first.id, true], JSON.stringify(again));
+    assert.equal(limitqueue.list('casey').length, 1, 'kept twice');
+  });
+});
+
+test('#5805 2a review 2: a dropped long message\'s spilled file is removed; at most MAX_KEPT are kept per agent', async () => {
+  const spill = path.join(SANDBOX, 'spilled-m980.txt');
+  fs.mkdirSync(SANDBOX, { recursive: true });
+  fs.writeFileSync(spill, 'a long body');
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'm980', from: 'leo', envelope: 'x', at: old, reset: old, spill });
+  const told = [];
+  await limitqueue.flush([], { deliver: async () => ({ state: chat.DELIVERY.PLACED }), isReleased: () => true, resolveCard: () => null, DELIVERY: chat.DELIVERY, onDropped: (e, r) => told.push(messages.tellHeldDropped(e, r)) });
+  await Promise.all(told);
+  assert.equal(fs.existsSync(spill), false, 'the spilled file was left behind');
+  const now = new Date().toISOString();
+  for (let i = 0; i < limitqueue.MAX_KEPT; i += 1) assert.equal(limitqueue.add('casey', { id: 'mc' + i, from: 'leo', envelope: 'e', at: now, reset: now }), true);
+  assert.equal(limitqueue.add('casey', { id: 'mc-over', from: 'leo', envelope: 'e', at: now, reset: now }), false, 'kept past the cap');
+});
+
+test('#5805 2a review 2: after an unconfirmed delivery the next kept message waits for the next minute', async () => {
+  const now = new Date().toISOString();
+  for (const id of ['m991', 'm992']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: now, reset: now });
+  const typed = [];
+  await limitqueue.flush([{ sessionName: 'casey' }], { deliver: async (n, env) => { typed.push(env); return { state: chat.DELIVERY.UNCONFIRMED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY });
+  assert.deepEqual(typed, ['m991'], 'typed on top of a message that may still be in the composer');
+  assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m992'], 'the unconfirmed one was kept (it would be typed twice)');
+});

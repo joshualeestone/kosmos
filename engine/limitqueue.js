@@ -13,6 +13,7 @@ const path = require('node:path');
 const store = require('./store');
 
 const DROP_AFTER_MS = 24 * 60 * 60 * 1000;
+const MAX_KEPT = 100;   // per agent: a sender retrying in a loop cannot grow it without bound
 
 function dir() { return path.join(store.ROOT, 'limitqueue'); }
 function fileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.json'); }
@@ -38,12 +39,16 @@ function add(name, entry) {
     if (!entry || typeof entry.id !== 'string' || typeof entry.envelope !== 'string') return false;
     if (store.safeKey(String(name)) !== String(name)) return false;
     const now = list(name).filter((e) => e.id !== entry.id);
-    now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset });
+    if (now.length >= MAX_KEPT) return false;
+    now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
+      key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null });
     return write(name, now);
   } catch { return false; }
 }
 
 function has(name, id) { return list(name).some((e) => e.id === id); }
+/* The kept message with this send key (sender, text and the message it answers), at any age, or null. */
+function keptByKey(name, key) { return (key && list(name).find((e) => e.key === key)) || null; }
 
 function remove(name, id) {
   try { return write(name, list(name).filter((e) => e.id !== id)); } catch { return false; }
@@ -54,6 +59,8 @@ function names() {
   try {
     return fs.readdirSync(dir()).filter((f) => f.endsWith('.json')).map((f) => {
       const first = list(f.slice(0, -5))[0];
+      // Nothing readable left in it: removed, so it is not looked at every minute for ever.
+      if (!first) { try { fs.rmSync(path.join(dir(), f), { force: true }); } catch { /* next minute */ } }
       return first ? first.to : null;
     }).filter(Boolean);
   } catch { return []; }
@@ -64,12 +71,14 @@ function names() {
    (placed or unconfirmed) is removed and reported (onDelivered); the first that is not stops that agent's run and
    stays. Returns [{ name, id, state }] for what was typed. */
 let flushing = false;
-async function flush(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, now = Date.now() }) {
-  const out = [];
+async function flush(roster, opts) {
   // One run at a time: a run still typing a backlog when the next minute starts would type each message twice.
-  if (flushing) return out;
+  if (flushing) return [];
   flushing = true;
-  try {
+  try { return await flushOnce(roster, opts); } finally { flushing = false; }
+}
+async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, now = Date.now() }) {
+  const out = [];
   for (const name of names()) {
     try {
       const kept = list(name).filter((e) => e.to === name);
@@ -92,11 +101,12 @@ async function flush(roster, { deliver, isReleased, resolveCard, DELIVERY, onDel
         remove(name, e.id);
         try { if (onDelivered) onDelivered(e, v); } catch { /* it was typed */ }
         out.push({ name, id: e.id, state });
+        // Unconfirmed: it may still be in the composer; the next one waits a minute rather than type on top of it.
+        if (state === DELIVERY.UNCONFIRMED) break;
       }
     } catch { /* this agent's messages stay for the next minute */ }
   }
-  } finally { flushing = false; }
   return out;
 }
 
-module.exports = { add, has, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS };
+module.exports = { add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT };

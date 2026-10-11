@@ -1360,7 +1360,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   let limitHold = null;
   try { limitHold = chat.limitHeldVerdict(toName, roster); } catch { limitHold = null; }
   if (limitHold) {
-    if (!require('./limitqueue').add(toName, { id, from, envelope, at, reset: limitHold.limitReset })) {
+    const limitqueue = require('./limitqueue');
+    /* The same send already kept, at any age (the fold above looks back minutes; a hold lasts days): that copy. */
+    const already = limitqueue.keptByKey(toName, msgKey);
+    if (already) { unspill(spillFile); return heldReceipt(toName, already.id, already.at, Date.parse(already.reset) > Date.parse(at) ? already.reset : null, true); }
+    if (!limitqueue.add(toName, { id, from, envelope, at, reset: limitHold.limitReset, key: msgKey, spill: spillFile })) {
       unspill(spillFile);
       return refuse(toName, 'this agent is out of usage, and Kosmos could not keep the message for after its reset');
     }
@@ -1421,6 +1425,7 @@ function logHeldDropped(entry) {
    the automatic gate (held or refused there, the dropped row still records it). */
 async function tellHeldDropped(entry, roster) {
   logHeldDropped(entry);
+  unspill(entry.spill);   // a long message's file, kept only for the line that was never typed
   const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: ' + entry.to
     + ' stayed out of usage for a day past its reset. Send it again, or to someone else, if it still matters.';
   try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }

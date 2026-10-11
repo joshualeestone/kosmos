@@ -65,3 +65,13 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   /api/messages in web/), so there is no "delivered" impression to correct there.
 - NIT taken: the bash CLI matches heldBy "limit" as the Windows CLI and the outbox predicate do. Not taken: a test of
   server.js's sweep wiring by running the server (a half-sandboxed server refuses to load; the predicate is tested).
+
+## Review 2 (sonnet)
+- FIXED: the repeat-send fold looks back minutes and a hold lasts days, so a later retry kept a second copy. The same
+  send (sender, text, the message it answers) already kept for that agent is that copy at any age; at most 100 are kept
+  per agent (one more is refused as could-not-keep). Both tested.
+- FIXED: a dropped long message left its spilled file behind; it is removed with the drop (tested).
+- FIXED: after an unconfirmed delivery the next kept message was typed on top of it; it waits for the next minute
+  (tested).
+- Covered by the first fix: two identical sends at once (the held branch is synchronous, so the second finds the first).
+- NITs taken: a queue file with nothing readable left is removed; the sweep's one-run guard wraps a separate function.
