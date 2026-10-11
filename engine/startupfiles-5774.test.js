@@ -837,16 +837,54 @@ test('#5774 part 2 review 17: ${ZDOTDIR:=${HOME}/...} is read; a lone ${HOME is 
     const fishLink = path.join(HOME, '.config', 'fish', 'config17.fish');
     fs.rmSync(zshrc, { force: true }); fs.symlinkSync(path.join(files, '.zshrc'), zshrc);
     fs.mkdirSync(path.dirname(fishLink), { recursive: true }); fs.rmSync(fishLink, { force: true }); fs.symlinkSync(path.join(files, 'config.fish'), fishLink);
+    // Review 18: a hop directly in the (writable) store root is covered by the store rule, never listed by its hash.
+    const hop = path.join(root, 'h4abc-link');
+    if (!fs.existsSync(hop)) fs.symlinkSync(path.join(root, 'h3abc-config.fish'), hop);
+    const zlogin = path.join(HOME, '.zlogin');
+    const fishHop = path.join(HOME, '.config', 'fish', 'config17b.fish');
+    for (const l of [zlogin, fishHop]) { fs.rmSync(l, { force: true }); fs.symlinkSync(hop, l); }
     try {
       const d = agentDir('pilot-nixstore17');
       const g = setup.guardTokenOnlyFolder(d, 'pilot-nixstore17', { ...DEPS, env: ENV0, storeRoots: [root] });
       assert.equal(g.ok, true, JSON.stringify(g));
       const s = readSettings(d);
       const all = [...s.permissions.deny, ...s.sandbox.filesystem.denyWrite];
-      assert.ok(!all.some((r) => /h[123]abc/.test(r)), `a hashed store name was listed: ${all.filter((r) => /h[123]abc/.test(r))}`);
+      assert.ok(!all.some((r) => /h[1-4]abc/.test(r)), `a hashed store name was listed: ${all.filter((r) => /h[1-4]abc/.test(r))}`);
       assert.ok(denied(s, zshrc), 'the link itself');
       assert.ok(denied(s, path.join(root, 'h9-new')), 'the store, file tools');
       assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(root, 'h9-new')), 'the store, sandbox');
-    } finally { fs.rmSync(zshrc, { force: true }); fs.rmSync(fishLink, { force: true }); fs.chmodSync(files, 0o755); }
+    } finally { for (const l of [zshrc, fishLink, zlogin, fishHop]) fs.rmSync(l, { force: true }); fs.chmodSync(files, 0o755); }
   }
+});
+
+test('#5774 part 2 review 18: a link a chain passes through is denied to the file tools, whether the target is read-only or not', () => {
+  const dots = path.join(HOME, 'dotfiles18');
+  fs.mkdirSync(dots, { recursive: true });
+  const dotsReal = fs.realpathSync.native(dots);
+  const ro = path.join(SANDBOX, 'ro18', 'zshrc');
+  touch(ro);
+  const roReal = fs.realpathSync.native(ro);
+  const zshrc = path.join(HOME, '.zshrc');
+  const bashrc = path.join(HOME, '.bashrc');
+  const fishLink = path.join(HOME, '.config', 'fish', 'conf.d', 'x18.fish');
+  const mk = (link, to) => { fs.mkdirSync(path.dirname(link), { recursive: true }); fs.rmSync(link, { force: true }); fs.symlinkSync(to, link); };
+  mk(path.join(dots, 'zshrc'), ro); mk(zshrc, path.join(dots, 'zshrc'));                       // -> hop -> read-only target
+  touch(path.join(dots, 'b2')); mk(path.join(dots, 'b1'), path.join(dots, 'b2')); mk(bashrc, path.join(dots, 'b1'));   // writable chain
+  touch(path.join(dots, 'f2.fish')); mk(path.join(dots, 'f1.fish'), path.join(dots, 'f2.fish')); mk(fishLink, path.join(dots, 'f1.fish'));   // inside fish
+  // A hop in a folder nobody here can write (a store's link farm) cannot be replaced, and is not listed.
+  const roHops = path.join(SANDBOX, 'rohops18');
+  const zprofile = path.join(HOME, '.zprofile');
+  touch(path.join(dots, 'p2'));
+  if (!fs.existsSync(roHops)) { fs.mkdirSync(roHops); fs.symlinkSync(path.join(dots, 'p2'), path.join(roHops, 'p1')); fs.chmodSync(roHops, 0o555); }
+  mk(zprofile, path.join(roHops, 'p1'));
+  try {
+    const d = agentDir('pilot-hops18');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-hops18', { ...DEPS, env: ENV0, readOnlyTarget: (t) => t === roReal });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const deny = readSettings(d).permissions.deny;
+    for (const h of ['zshrc', 'b1', 'f1.fish']) assert.ok(editDeniedBy(deny, path.join(dotsReal, h)).length > 0, `the hop ${h} is not denied`);
+    assert.ok(editDeniedBy(deny, zshrc).length > 0, 'the link itself');
+    assert.ok(!deny.some((r) => r.includes('ro18')), 'a read-only target was listed');
+    if (process.getuid && process.getuid() !== 0) assert.ok(!deny.some((r) => r.includes('rohops18')), 'a hop in a read-only folder was listed');
+  } finally { for (const f of [zshrc, bashrc, fishLink, zprofile]) fs.rmSync(f, { force: true }); fs.chmodSync(roHops, 0o755); }
 });

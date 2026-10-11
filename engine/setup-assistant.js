@@ -1296,7 +1296,7 @@ function assignmentsIn(text, name) {
 /* Links inside a folder denied whole point somewhere its rule does not reach (review 3: GNU Stow links each file, as
    ~/.config/fish/config.fish -> ~/dotfiles/config.fish): each target is returned, a few levels deep and bounded. */
 function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: false }) {
-  const res = { files: [], dirs: [] };
+  const res = { files: [], dirs: [], hops: [] };
   let names = [];
   try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return res; }
   for (const d of names) {
@@ -1311,6 +1311,7 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
       if (!real0) { try { dangle = realOrLeaf(danglingTarget(p)); } catch { /* unreadable link */ } }
       const t0 = real0 || dangle;
       if (!(t0 && budget.free && budget.free(t0)) && --budget.n < 0) { budget.out = true; break; }
+      res.hops.push(...chainHops(p, budget.free || (() => false)));   // review 18
       try {
         const real = real0 || fs.realpathSync.native(p);
         // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
@@ -1323,7 +1324,7 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
       }
     } else if (d.isDirectory() && depth > 1) {
       const sub = linkTargetsIn(p, depth - 1, budget);
-      res.files.push(...sub.files); res.dirs.push(...sub.dirs);
+      res.files.push(...sub.files); res.dirs.push(...sub.dirs); res.hops.push(...sub.hops);
     }
   }
   return res;
@@ -1510,7 +1511,9 @@ function shellStartPaths(home, env, opts = {}) {
     if (tooBroad(real)) unsafe.push(`${d} (a shell startup folder that leads to ${real}, too wide to deny: it holds the home or the agent's own folder)`);
     else keptDirs.push(d);
   }
-  return { files: [...new Set(files)], dirs: keptDirs, globs: [...new Set(globs)], unsafe };
+  // Review 18: the links a found link passes through, for the file tools (the caller lists them by their own path).
+  const hops = [...new Set(linked.flatMap((l) => l.hops).filter((h) => !cellarOf(h) && !realCellars.some((c) => inCellar(h, c))))];
+  return { files: [...new Set(files)], dirs: keptDirs, globs: [...new Set(globs)], hops, unsafe };
 }
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
    and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
@@ -1558,6 +1561,24 @@ function danglingTarget(p) {
     cur = path.resolve(realOrLeaf(path.dirname(cur)), to);   // a relative target is read from the link's real folder
   }
   return cur;
+}
+/* Review 18 (#5774 part 2): the links a chain passes THROUGH on the way to its target (neither the path itself nor the
+   target), each by its real folder. A tool that replaces one with a file changes what the first path runs, so each one
+   in a folder the user can write is denied to the file tools. One in a read-only folder cannot be replaced, and one the
+   caller covers otherwise (skip: a Cellar or store) would only pile up, so both are left out. */
+function chainHops(p, skip = () => false) {
+  const hops = [];
+  let cur = path.resolve(p);
+  for (let hop = 0; hop < 8; hop++) {
+    let to = null;
+    try { if (!fs.lstatSync(cur).isSymbolicLink()) break; to = fs.readlinkSync(cur); } catch { break; }
+    if (hop > 0) {
+      const h = path.join(realOrLeaf(path.dirname(cur)), path.basename(cur));   // an absolute link target may pass a linked folder
+      if (!skip(h)) { try { fs.accessSync(path.dirname(h), fs.constants.W_OK); hops.push(h); } catch { /* read-only folder */ } }
+    }
+    cur = path.resolve(realOrLeaf(path.dirname(cur)), to);
+  }
+  return hops;
 }
 function withTarget(p, unsafe) {
   // Resolved through the nearest existing parent when the member does not exist yet (review 6: a linked config home
@@ -1733,9 +1754,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const editOnlyLinks = [];
   const editOnlyLinkDirs = [];
   const storeHits = new Set();
+  const inStore = (t) => storeIn(deps.storeRoots || STORE_ROOTS, t) !== null;
   const linkAware = (dirs) => (p) => {
     const real = realOrLeaf(p);
     if (real === path.resolve(p)) return [p];
+    editOnlyLinks.push(...chainHops(p, inStore));   // review 18: every replaceable link on the way, file tools only
     if (!writableOrAbsent(real)) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); return []; }
     // Review 17: a writable target in a store: the link for the file tools, the store by one stable rule (both layers).
     const st = storeIn(deps.storeRoots || STORE_ROOTS, real);
@@ -1744,6 +1767,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   };
   const shellStartFiles = [...new Set(shellStart.files.flatMap(linkAware(false)))];
   const shellStartDirs = [...new Set([...shellStart.dirs.flatMap(linkAware(true)), ...storeHits])];
+  editOnlyLinks.push(...(shellStart.hops || []));
   const commandScripts = [];
   for (const f of startCmds.files) {
     if (coveredWhole(f)) continue;

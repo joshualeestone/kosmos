@@ -18,7 +18,7 @@
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 28 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 29 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -43,6 +43,7 @@
 - XDG_CONFIG_HOME and XDG_DATA_HOME are read from the home's .zshenv, .zprofile, .zshrc, .zlogin, .profile, .bash_profile, .bash_login and .bashrc, and from each ZDOTDIR's zsh files (review 17). A value set in a ZDOTDIR's files moves fish, nushell and the data folders, but does not add another conventional <xdg>/zsh folder (zsh has already chosen its folder by then).
 - A content-addressed store other than /nix/store (a custom Nix store path, Guix's /gnu/store) is not recognised: a writable target there is listed by name and can pile up (review 17; read-only ones are filtered either way).
 - Per-user drop-in folders other than ~/.bashrc.d (Fedora's default .bashrc runs it, review 16) are each a person's own convention (~/.zshrc.d, ~/.profile.d): not listed. Login items (~/Library/LaunchAgents, ~/.config/environment.d) are not shell startup files and stay with route 3 on the card.
+- A link a chain passes through (review 18) is denied to the FILE TOOLS only: the sandbox side resolves every path to the chain's final target, so it cannot name the link itself. The sandboxed shell cannot write the home folder; a hop outside the home inside the shell's own write scope is not covered by the sandbox layer. Chains are followed 8 hops, and only at the leaf (a linked parent is resolved, not listed).
 - Route 3 and on stay on the card.
 
 ## Challenge loop notes
@@ -151,4 +152,9 @@
   - [NIT] TAKEN: the lone-brace match (the blocker's cause).
   - [NIT] TAKEN: the two comments that still described the removed owner check.
   - [NIT] not taken: the Cellar shape match on a person's own folder named Cellar (accepted earlier; tooBroad bounds it).
+- Iteration 18 (Sonnet), on 71eb1c928:
+  - [WARNING] FIXED (reproduced by the reviewer). A link in the MIDDLE of a chain (`~/.zshrc -> ~/dotfiles/zshrc -> <target>`) was never denied, so a tool replacing it with a file changed what ~/.zshrc runs. New chainHops: every link a chain passes through, named by its real folder (an absolute link target can pass a linked folder like /var), is denied to the file tools, for the home's files and folders and for links found inside startup folders. A hop in a folder the user cannot write (a store's link farm) is left out, and so is one in a Cellar or store (the stable rule covers it, and its name would pile up). Tested: a hop to a read-only target, a writable chain, a chain inside fish, a hop in a 0555 folder, and a hop directly in a writable store root. Eight mutations, each red; the store-skip mutation stayed GREEN at first (the only store hop sat in a 0555 folder, so the read-only check hid it), and the test was sharpened with a hop directly in the store root until red. My first version also named hops by the link's literal spelling, which the test caught.
+  - [NIT] not taken: the greedy Cellar match on a nested Cellar folder (a second Cellar under a versioned one; not seen in Homebrew's layout).
+  - [NIT] not taken: the Cellar shape on a person's own folder (accepted earlier).
+  - [NIT] DUPLICATE: a writable target with a rule-syntax character gets the generic message (stated under Gaps).
 
