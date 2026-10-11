@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: linuxcopy-5862
-diff_hash: 67e4b9d4fb0a1fe1cdf562fb5a6732015ac20591cfc099271b557cfd9e334fe5
+diff_hash: 80ed05e1643458f333563c2fbe1250879590e1042c911b52901096568d67b60a
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-11T22:21:56Z
@@ -23,6 +23,13 @@ converged: true
   - Node: 19206 tests, 0 fail.
   - The validation log says PASSED for the whole run.
 - Every web*.test.js was run locally with the worktree as the cwd: 349 files, 2679/2679.
+- **Rebased 17:5x onto main after #5860 (April) merged, so this hash is NOT the one Mortals validated.**
+  - #5860 added its test at the same place in web.win32-board-copy.test.js. I resolved it as a union, keeping both
+    tests, with the shared closer restored. The file now runs 31 tests, mine and April's, all passing.
+  - The tree differs from the validated one only by that union, which shifts the diff's context lines and so the hash.
+  - After the rebase, every web*.test.js passes: 349 files, 2689/2689.
+  - The full suites run again on the PR's merge ref in GitHub CI, and merge-on-green merges only when all four
+    workflows are green. That CI run is the full validation for this exact head.
 - render-restart-screen-4343, run headless through queued-heavy: 78 passed. Every earlier run on record shows 72, so the six new [linux] assertions ran.
 - Browser-check gates: the coarse gate passes, because a check was updated. The surface gate passes.
 
