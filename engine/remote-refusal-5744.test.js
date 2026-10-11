@@ -84,3 +84,14 @@ test('#5744 CONTROL: an older tunnel (stderr only, no line) gives no refusal, an
   const ok = await ask('ok:{"epoch":1,"kept":true}');
   assert.deepEqual(ok, { ok: true, data: { epoch: 1, kept: true } });
 });
+
+test('#5744: another verb never gets a failed run\'s stdout, and a refusal line there is not its because either', async () => {
+  // company-start returns its failed setupRun result whole: no `said` (keepStdout is mac-request's alone).
+  process.env.FAKE_MAC_REQUEST_MODE = 'refusal-quiet:{"refusal":{"status":400,"code":"x","current_epoch":null}}';
+  let r;
+  try { r = await remote.companyStart('person@example.com'); } finally { delete process.env.FAKE_MAC_REQUEST_MODE; }
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.equal('said' in r, false, 'a failed run of another verb carried its stdout: ' + JSON.stringify(r));
+  assert.doesNotMatch(String(r.because), /refusal/, r.because);
+  assert.ok(fake.calls().some((c) => c.args.includes('company-start')), 'company-start never reached the fake');
+});
