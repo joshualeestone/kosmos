@@ -187,3 +187,9 @@ behaviour), never the reverse.
   Not taken: anchoring claudeLimitMenuUp below the limit row (it fails toward holding longer); the held-by wording
   helper (as before); stating that a second limit within a day carries a still-kept ask forward (it is the same ask,
   still unanswered).
+
+## Review 14 (sonnet)
+- FIXED: limitHeldVerdict's comment sat above the two constants instead of the function; it now sits on the function.
+- Duplicates: the sidecar lock (reviews 4 and 10), the pane read past the hour cap (review 8).
+- DEFERRED: flushReleased calls chat.limitHeldVerdict directly rather than through an injected option. It reads only
+  the card unless the card is capped past the hour cap, and roomhold already requires chat lazily (addressable).

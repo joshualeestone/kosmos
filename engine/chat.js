@@ -1920,6 +1920,9 @@ function menuHeldVerdict(sessionName, roster) {
 function limitable(card) {
   return !!card && card.isNamedOurs === true && String(card.runner || 'claude') === 'claude';
 }
+/* #5805: how often a held line looks again after the printed reset, and for how long (see limitHeldVerdict). */
+const LIMIT_RELOOK_MS = 60 * 1000;
+const LIMIT_RELOOK_MAX_MS = 60 * 60 * 1000;
 /* #5805: a timer's line for a Claude agent paused on a usage limit whose screen names a DATED reset (the weekly form
    status.limitResetAt reads) is HELD, the #4588 hold shape with heldBy 'limit': typed, it would reach a session that
    cannot answer and the sender would count it as delivered. Held while the reset is ahead (heldUntil the reset), and
@@ -1927,11 +1930,9 @@ function limitable(card) {
    passed dated line only while Claude Code's limit menu is on screen, where a typed line would land in the menu, or
    in its one-minute grace. Not past LIMIT_RELOOK_MAX_MS after the reset: a capped card whose line status never retires
    (another limit wording) would otherwise be held for good; after that, lines are typed as before, unless the limit
-   menu is still on screen (it holds the session until a key is pressed, and a typed line would land in it). A limit line with
-   no date (the 5-hour form) is not held: it stays on screen after its reset until something is typed, and holding on
+   menu is still on screen (it holds the session until a key is pressed, and a typed line would land in it). A limit
+   line with no date (the 5-hour form) is not held: it stays on screen after its reset until something is typed, and holding on
    it would mean nothing ever wakes the agent. */
-const LIMIT_RELOOK_MS = 60 * 1000;
-const LIMIT_RELOOK_MAX_MS = 60 * 60 * 1000;
 function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   if (!limitable(card) || card.state !== status.STATE.RATE_LIMITED) return null;
