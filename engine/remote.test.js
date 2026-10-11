@@ -344,6 +344,8 @@ if (args[0] === 'devices') {
     console.log(JSON.stringify({ removed: true, device_id: flag('--device-id'), local_cutoff: !mode.includes('remove-no-cutoff'), signed_out: !mode.includes('remove-not-told') }));
     process.exit(0);
   }
+  // kosmos#5786 (b): an allow the tunnel refuses (the vouch path's retry cap).
+  if (verb === 'allow' && mode.includes('allow-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
@@ -4271,6 +4273,7 @@ test('#5786 (b): the browser this computer opened is allowed by its vouch, once,
   await until(() => remote.read().vouched['dev-safari'], 'the vouched allow to be noted');
   assert.equal(allowsOf().filter((x) => x === 'dev-safari').length, before + 1, 'exactly one allow');
   assert.equal(remote.vouchSecretForTests(), null, 'the secret is spent');
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'the opened address, which carries S, outlived the secret');
   const c = remote.pendingDevices().connected_here;
   assert.equal(c && c.device_id, 'dev-safari');
   assert.equal(c && c.name, 'Mac · Safari');
@@ -4363,5 +4366,38 @@ test('#5786 (b): a register Try again with no sign-in session does not mint a ne
   assert.equal(again.ok, true, again.because);
   assert.equal(again.data && again.data.alreadySetUp, true, 'premise: the already-set-up path answered');
   assert.equal(remote.vouchSecretForTests(), secret, 'a Try again with no session minted a new secret');
+  remote.setOn(false);
+});
+
+test('#5786 (b): a device the person said Not me to is never allowed by a vouch, and a refused allow stops after three tries', async () => {
+  let r = await vouchSignedIn('vouchden');
+  const den = await remote.deviceDeny('dev-den');
+  assert.equal(den.ok, true, den.because);
+  // A denied device alone opens nothing (it is not eligible); another recent request does.
+  r.plant([{ device_id: 'dev-den', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a denied device alone opened the browser');
+  r.plant([{ device_id: 'dev-den', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' },
+    { device_id: 'dev-other', name: 'iPhone', first_seen: nowS(), code: 'K7-3M' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: a recent request opened the browser');
+  const before = allowsOf().length;
+  r.plant([{ device_id: 'dev-den', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(r.secret, 'dev-den') }]);
+  remote.vouchTickForTests();
+  await new Promise((res) => setTimeout(res, 150));
+  assert.ok(!allowsOf().slice(before).includes('dev-den'), 'a device turned away by Not me was allowed by a vouch');
+  remote.setOn(false);
+  // A refused allow: three tries, then the secret ends (no spawn every 3 s for ten minutes).
+  process.env.FAKE_TUNNEL_MODE = 'allow-fails';
+  try {
+    r = await vouchSignedIn('vouchcap');
+    r.plant([{ device_id: 'dev-cap', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+    remote.vouchTickForTests();
+    r.plant([{ device_id: 'dev-cap', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(r.secret, 'dev-cap') }]);
+    const tries = () => allowsOf().filter((x) => x === 'dev-cap').length;
+    for (let i = 0; i < 5; i += 1) { remote.vouchTickForTests(); await until(() => tries() >= Math.min(i + 1, 3), 'try ' + (i + 1)); await new Promise((res) => setTimeout(res, 60)); }
+    assert.equal(tries(), 3, 'a refused allow was tried more than three times');
+    assert.equal(remote.vouchSecretForTests(), null, 'the secret stayed live after three refused allows');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
   remote.setOn(false);
 });

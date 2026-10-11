@@ -1711,6 +1711,7 @@ let vouchTimer = null;
 let vouchOpenedUrl = '';   // the last address opened, for tests (the opener's own argv drops it under a test command)
 function stopVouch() {
   vouchState = null;
+  vouchOpenedUrl = '';   // it carries S
   if (vouchTimer) { clearInterval(vouchTimer); vouchTimer = null; }
 }
 /* The sign-in page's address: the coordinator's own origin (it serves the page at /). https only, or plain http on
@@ -1724,7 +1725,7 @@ function vouchUrl(secret) {
 }
 function startVouch() {
   stopVouch();
-  vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, opened: false, matched: '', allowing: false };
+  vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, opened: false, matched: '', allowing: false, tries: 0 };
   vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
   if (vouchTimer.unref) vouchTimer.unref();
 }
@@ -1734,8 +1735,12 @@ function vouchRows() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
   if (!raw || !Array.isArray(raw.devices)) return null;
-  const selves = ownDeviceIds();
+  const settings = read();
+  const selves = ownDeviceIds(settings);
+  // A device the person said Not me to is never allowed this way: that answer stands until they Allow it by hand.
+  const denied = settings.denied || {};
   return raw.devices.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
+    && !Object.prototype.hasOwnProperty.call(denied, String(d.device_id))
     && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait);
 }
 function vouchMatches(secret, d) {
@@ -1768,11 +1773,20 @@ function vouchTick() {
   const name = typeof hit.name === 'string' && hit.name.trim() ? hit.name.trim().slice(0, 60) : '';
   v.matched = id;
   v.allowing = true;
+  v.tries += 1;
   Promise.resolve()
     .then(() => deviceAllow(id, name || undefined))
     .then((r) => {
-      if (vouchState !== v || !r || !r.ok) return;
-      stopVouch();
+      if (!r || !r.ok) {
+        // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for ten minutes).
+        if (vouchState === v && v.tries >= 3) {
+          process.stderr.write('kosmos+: could not allow the browser this computer opened (' + String((r && r.because) || 'no answer') + '); the Allow card stays\n');
+          stopVouch();
+        }
+        return;
+      }
+      // Allowed: noted even if a Sign out or Forget landed while it ran, so the person still sees it and can Undo.
+      if (vouchState === v) stopVouch();
       const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
         .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
       const saved = write({ vouched: Object.fromEntries(kept) });

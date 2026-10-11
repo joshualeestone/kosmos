@@ -46982,6 +46982,9 @@ const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, sa
   /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id
      whose notice was put away, and what its Undo said. */
   here: null, hereGone: '', hereSaid: '' };
+/* kosmos#5786 (b): one connection's notice, by device AND when it was connected, so putting one away never hides a
+   later automatic Allow of the same browser. */
+function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
 /* kosmos#5786 (b): the browser in a device name ("Mac · Safari" is Safari), for "Safari on this computer". */
 function askBrowserWord(name) {
   const n = String(name || '');
@@ -47097,7 +47100,7 @@ function paintAsk() {
   const rows = ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state !== 'gone');
   const doneIds = Object.keys(ASK.done).filter((id) => ASK.done[id].state !== 'gone');
   /* kosmos#5786 (b): the browser this computer just connected without asking, until Got it, its Undo, or ten minutes. */
-  const here = ASK.here && ASK.here.device_id !== ASK.hereGone ? ASK.here : null;
+  const here = ASK.here && askHereKey(ASK.here) !== ASK.hereGone ? ASK.here : null;
   const anything = live.length || doneIds.length || here || ASK.hereSaid;
   /* #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the full cards render ABOVE the panel; on any
      other view the top card is one compact line linking there. */
@@ -47115,7 +47118,7 @@ function paintAsk() {
      whose Allow or Not me failed still waits (its sheet shows again, with the reason). */
   const answered = (id) => !!ASK.done[id] && (ASK.done[id].state === 'allowed' || ASK.done[id].state === 'denied');
   { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !rows.some((d) => !answered(d.device_id)); }   // the rows the sheets are drawn from
-  const hide = !anything || inPanel || (!onPlus && !live.length);
+  const hide = !anything || inPanel || (!onPlus && !live.length && !here);
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
   const dot = document.querySelector('#s-nav button[data-go="plus"]');
@@ -47127,7 +47130,9 @@ function paintAsk() {
     title.textContent = '';
     lead.hidden = true;
     const n = live.length;
-    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + (n === 1 ? askHead(live[0]) + '.' : n + ' devices want to connect to your Kosmos.') +
+    // kosmos#5786 (b): with nothing waiting, the browser this computer just connected, so its Undo is one tap away.
+    const line = !n && here ? askEsc(askBrowserWord(here.name)) + ' on this computer is connected.' : n === 1 ? askHead(live[0]) + '.' : n + ' devices want to connect to your Kosmos.';
+    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>');
     return;
   }
@@ -47224,13 +47229,14 @@ function paintAsk() {
 async function askAct(act, id) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
   if (act === 'open') { showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
-  if (act === 'here-ok') { ASK.hereGone = id; ASK.hereSaid = ''; paintAsk(); return; }
+  if (act === 'here-ok') { ASK.hereGone = ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone; ASK.hereSaid = ''; paintAsk(); return; }
   if (act === 'here-undo') {
     let res = null;
     try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
     const said = res && res.ok ? await res.json().catch(() => null) : null;
-    if (res && res.ok && !(said && said.timed_out)) { ASK.hereGone = id; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
-    else if (res && res.ok) { ASK.hereGone = id; ASK.hereSaid = 'Disconnecting is taking a while. Check it is gone under Devices.'; }
+    const gone = ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone;
+    if (res && res.ok && !(said && said.timed_out)) { ASK.hereGone = gone; ASK.hereSaid = 'Disconnected. That browser can ask again by signing in.'; }
+    else if (res && res.ok) { ASK.hereGone = gone; ASK.hereSaid = 'Disconnecting is taking a while. Check it is gone under Devices.'; }
     else ASK.hereSaid = 'We could not disconnect it. Try again, or remove it under Devices.';
     for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
     paintAsk();
