@@ -8,6 +8,7 @@
 #   - create refused (400)                          -> FAIL  (exit 1)
 #   - populated fleet, no override                  -> REFUSE(exit 2)   <- the safety guard
 #   - populated fleet WITH override + online        -> PASS  (exit 0)
+#   - the CALLER exports the override / the fixture -> same answers (#5849 controls)
 #   - a provider not signed in                      -> CANNOT-TELL (2)
 #   - no board.token                                -> CANNOT-TELL (2)
 #
@@ -167,10 +168,11 @@ run_case() {
   local root state outp rc
   root="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$root/board.token"
   state="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$state"
-  # kosmos#5849: a case means exactly the variables it names. The caller's own are cleared first, or a "no override"
-  # case inherits an exported KOSMOS_STAGING_VERIFY_ALLOW_LIVE (or a raised MAX_EXISTING), the guard stands down, and
-  # the case goes red with nothing naming why. The "caller exports" case below is the control for this line.
-  outp="$(env -u KOSMOS_STAGING_VERIFY_ALLOW_LIVE -u KOSMOS_AGENT_ONLINE_MAX_EXISTING \
+  # kosmos#5849: the caller's own values for these are cleared before the case's are applied, or a "no override" case
+  # inherits an exported KOSMOS_STAGING_VERIFY_ALLOW_LIVE, the guard stands down, and the case goes red with nothing
+  # naming why. The two "CALLER exports" cases below are the controls: between them each name on this list is exported
+  # by the caller, and dropping any one name turns one of them red.
+  outp="$(env -u KOSMOS_STAGING_VERIFY_ALLOW_LIVE -u KOSMOS_AGENT_ONLINE_MAX_EXISTING -u KOSMOS_HOME \
     -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING \
     "$@" MOCK_STATE="$state" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" \
     KOSMOS_STORE_ROOT="$root" KOSMOS_PORT=19999 \
@@ -199,11 +201,17 @@ run_case "slow/flapping online (idle once) -> cannot-tell (2)" 2  MOCK_ACCOUNTS=
 run_case "create refused (400, sign-in) -> do-not-promote" 1 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400
 run_case "unexpected create-400 (not sign-in) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400-other
 run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
-run_case "populated fleet, no override -> REFUSE"       2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
-run_case "garbage MAX_EXISTING still guards a populated fleet" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_AGENT_ONLINE_MAX_EXISTING=abc
-# kosmos#5849 control: the caller has the override exported and the limit raised; a case that names neither still refuses.
+run_case "populated fleet, no override -> REFUSE"       2 --expect "populated FLEET" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
+run_case "garbage MAX_EXISTING still guards a populated fleet" 2 --expect "populated FLEET" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_AGENT_ONLINE_MAX_EXISTING=abc
+# kosmos#5849 controls: each of these is run with its CALLER exporting values that would change the answer, and names
+# none of them itself. First the guard: the override exported and the limit raised, and the fleet is still refused.
 KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1 KOSMOS_AGENT_ONLINE_MAX_EXISTING=99 \
-  run_case "populated fleet, the CALLER exports the override and a raised limit -> still REFUSE" 2  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
+  run_case "populated fleet, the CALLER exports the override and a raised limit -> still REFUSE" 2 --expect "populated FLEET" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
+# Then the fixture's own variables and KOSMOS_HOME (a home whose bundled node answers nothing): a case that names no
+# scenario still gets the default one, both agents online.
+mkdir -p "$FIXDIR/badhome/runtime/bin"; printf '#!/bin/sh\nexit 0\n' > "$FIXDIR/badhome/runtime/bin/node"; chmod +x "$FIXDIR/badhome/runtime/bin/node"
+KOSMOS_HOME="$FIXDIR/badhome" MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=auth MOCK_CREATE=refuse400 MOCK_PREEXISTING=5 \
+  run_case "default scenario, the CALLER exports a broken home and every fixture variable -> still both online" 0
 run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 --expect "cannot count the fleet" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=status-garbage
 run_case "Claude ONLINE, OpenAI WEDGED -> PARTIAL (3, surface not auto-hold)" 3 --expect "PARTIAL" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=claude-ok-openai-wedge
 run_case "populated fleet WITH allow-live + online"     0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1
