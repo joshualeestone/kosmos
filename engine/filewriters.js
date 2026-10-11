@@ -20,6 +20,8 @@ const WRITE_WINDOW_MS = 2 * 60 * 1000;
 const SLACK_MS = 2000;
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ENTRIES = 2000;
+const REWRITE_MS = 5000;
+const ROOTS_TTL_MS = 10 * 1000;
 
 function dir() { return path.join(store.ROOT, 'filewriters'); }
 function fileFor(projectId) { return path.join(dir(), store.safeKey(String(projectId)) + '.json'); }
@@ -27,8 +29,9 @@ function fileFor(projectId) { return path.join(dir(), store.safeKey(String(proje
 function readRecord(projectId) {
   try {
     const got = JSON.parse(fs.readFileSync(fileFor(projectId), 'utf8'));
-    return got && typeof got === 'object' && !Array.isArray(got) ? got : {};
-  } catch { return {}; }
+    // No prototype: a file named __proto__ or constructor is an ordinary key here.
+    return got && typeof got === 'object' && !Array.isArray(got) ? Object.assign(Object.create(null), got) : Object.create(null);
+  } catch { return Object.create(null); }
 }
 
 /* The path with its links resolved, so ~/Kosmos/Projects reached through a link matches. The file, and even its
@@ -48,17 +51,11 @@ function resolved(p) {
 }
 
 /* The projects' folders, resolved, kept for ROOTS_TTL_MS: noteWrite runs on every edit an agent makes. */
-const ROOTS_TTL_MS = 10 * 1000;
 let rootsCache = { at: 0, roots: [] };
 function projectRoots(now) {
   if (now - rootsCache.at < ROOTS_TTL_MS && now >= rootsCache.at) return rootsCache.roots;
-  const roots = [];
-  for (const p of require('./projects').readAll()) {
-    if (!p || !p.id || typeof p.folder !== 'string' || !p.folder) continue;
-    try { roots.push({ id: p.id, root: fs.realpathSync.native(p.folder) }); } catch { /* a folder that is gone */ }
-  }
-  rootsCache = { at: now, roots };
-  return roots;
+  rootsCache = { at: now, roots: rootsOf(require('./projects').readAll()) };
+  return rootsCache.roots;
 }
 function resetForTests() { rootsCache = { at: 0, roots: [] }; }
 
@@ -74,7 +71,7 @@ function projectOf(file, roots) {
   }
   return best && { projectId: best.projectId, name: best.name };
 }
-/* `projects` given (tests): resolved now, not cached. */
+/* Each project's id and resolved folder (a folder that is gone is left out). */
 function rootsOf(projects) {
   const roots = [];
   for (const p of projects) {
@@ -83,7 +80,6 @@ function rootsOf(projects) {
   }
   return roots;
 }
-const REWRITE_MS = 5000;
 
 /* Record that `who` is about to write `file`. `who` may be a function, called only for a file inside a project (the
    agent lookup is not paid for any other edit). Returns true when recorded. */
@@ -96,8 +92,9 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
     if (typeof who !== 'string' || !who) return false;
     const rec = readRecord(at.projectId);
     const prev = rec[at.name];
+    const since = prev ? now - Date.parse(prev.at) : NaN;
     // The same agent again within REWRITE_MS (an edit in several steps): the record already says it.
-    if (prev && prev.agent === who && now - Date.parse(prev.at) >= 0 && now - Date.parse(prev.at) < REWRITE_MS) return true;
+    if (prev && prev.agent === who && since >= 0 && since < REWRITE_MS) return true;
     rec[at.name] = { agent: who, at: new Date(now).toISOString() };
     const kept = Object.entries(rec)
       .filter(([, v]) => v && typeof v === 'object' && now - Date.parse(v.at) <= KEEP_MS)

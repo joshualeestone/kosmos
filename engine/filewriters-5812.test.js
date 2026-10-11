@@ -111,3 +111,11 @@ test('#5812 review 2: the same agent again within seconds does not rewrite the r
   fw.noteWrite(f, 'mona', { now: now + 2000, projects: PROJECTS });
   assert.equal(JSON.parse(fs.readFileSync(fw.fileFor('lease'), 'utf8'))['steps.md'].agent, 'mona', 'another agent was skipped');
 });
+
+test('#5812 review 3: a file named __proto__ is recorded and read back like any other', () => {
+  const now = Date.now();
+  assert.equal(fw.noteWrite(path.join(folder, '__proto__'), 'uri', { now, projects: PROJECTS }), true);
+  const [row, other] = fw.annotate('lease', [{ name: '__proto__', modified: iso(now + 500) }, { name: 'constructor', modified: iso(now + 500) }]);
+  assert.equal(row.changedBy, 'uri', 'the __proto__ entry was lost');
+  assert.equal('changedBy' in other, false, 'an inherited property named a writer');
+});

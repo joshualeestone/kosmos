@@ -130,8 +130,8 @@ function agentFor(cwd, session, now = Date.now()) {
   if (!who && now - sessionsCache.at > 5000) { sessionsCache.at = 0; who = ownerOf(String(cwd || ''), String(session || ''), now); }
   return who;
 }
-/* Baron's review: a caller on an agent token alone (server.js agentTokenOnlyCaller) acts for its OWN sessions only: its
-   exact name, or its store key for an older token that carries only the key. No `onlyFor`: not narrowed. */
+/* Whether `who` is the agent a token-only caller (server.js agentTokenOnlyCaller) may act for: its exact name, or its
+   store key for an older token that carries only the key. No `onlyFor` (a board-token caller): not narrowed. */
 function ownedBy(onlyFor, who) {
   if (!onlyFor || typeof onlyFor !== 'object') return true;
   try { return onlyFor.byKey ? require('./store').safeKey(who) === onlyFor.key : who === onlyFor.name; } catch { return false; }

@@ -35,6 +35,8 @@ The record is made before the edit, so it is a heuristic, wrong in two ways insi
 - an edit that then fails (an Edit whose old text no longer matches) leaves a record, and a change by anyone else in
   the next 2 minutes (the person, an agent with no hook, a shell write) is named for the agent whose edit failed;
 - a write that waits on a permission prompt while a second agent writes the same file is named for the second agent.
+- a person who saves the file within 2 minutes after an agent's edit is not named: the agent is. The same holds for
+  anything that sets a file's time without an agent's record (touch, cp -p, a sync client), in either direction.
 The window is 2 minutes, not longer, because a real write follows its record within seconds and a short window fails
 toward naming nobody. If either case shows up in practice, a PostToolUse record (after a completed write) is the fix.
 
@@ -69,3 +71,13 @@ toward naming nobody. If either case shows up in practice, a PostToolUse record 
   it; the deepest folder that exists is resolved and the rest joined back (tested through a link).
 - Duplicate of review 1: "changed by" is approximate; the weakest premise above states how.
 - Not taken: removing a deleted project's record (bounded by 30 days and 2000 entries); the route's extra try/catch.
+
+## Review 3 (opus)
+- DECIDED, not built: the writer is not checked against the project's members. A token-only agent can name only
+  itself, and an agent writing in a project it is not on did make that change; a board-token caller can name anyone,
+  the trust the keep route already has. What would change it: a report of agents named for projects they never worked
+  in.
+- FIXED (in the premise above): a person's save within the window is named for the agent.
+- Duplicate of review 2: the cost on the hook path (now bounded by the roots cache and the rewrite skip).
+- NITs taken: records have no prototype (a file named __proto__ is kept; tested); one loop resolves the roots; the
+  constants sit together; ownedBy's comment describes the function.
