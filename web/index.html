@@ -37859,8 +37859,9 @@ document.addEventListener('click', (e) => {
 /**
  * kosmos#5841: a direct conversation's EARLIER messages, opened from the "older messages are still kept" line, a page
  * at a time from GET .../thread/older?before=<n>, and drawn IN the thread, before the latest 200, by the thread's own
- * paint. So they look and behave exactly like the rest (reactions, reply, copy, previews, search), and there is no
- * second box. `before` counts from the OLDEST message, so a send cannot shift a page; `end` is the position just after
+ * paint. So they look and act like the rest (reactions, reply, copy, search), and there is no second box. They are a
+ * SNAPSHOT, though: the 5 s poll refreshes only the latest, so a preview not cached when the page was fetched, or a
+ * reaction or delivery change made elsewhere, shows only after Hide and Show (a reaction made HERE is written in). `before` counts from the OLDEST message, so a send cannot shift a page; `end` is the position just after
  * the last earlier row, and messages that leave the latest 200 while this is open are fetched into it (earlierFillGap)
  * so nothing falls between. Per agent: another agent on screen resets it (paintTalk, before any await), and `opening`
  * drops an answer that belongs to a reset that came after it.
@@ -37882,6 +37883,7 @@ async function earlierFetch(session, before) {
 function earlierRepaint() {
   const thread = document.getElementById('d-dmthread');
   if (!thread || !thread.__lastBody || thread.__lastSession !== EARLIER.session) return;
+  if (thread.__readFailed) return;   // the last read FAILED and the thread says so: an earlier load does not draw over it
   paintTalkThread(thread.__lastBody, thread.__lastName);
   paintOlderLine(thread.__lastBody, thread.__lastSession);
 }
@@ -37902,7 +37904,7 @@ async function earlierMore() {
   const thread = document.getElementById('d-dmthread');
   const first = thread && thread.querySelector('[data-at="' + CSS.escape(String(r.rows[0].at || '')) + '"]');
   const rowEl = first && (first.closest('.msg') || first);
-  if (rowEl) { thread.__heldAtBottom = false; rowEl.scrollIntoView({ block: 'start' }); }
+  if (rowEl) { thread.__heldAtBottom = false; thread.scrollTop = rowEl.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop; }   // the thread only, never the page
   /* On the last page "Show earlier" goes: keep focus in the line, on Hide. */
   const show = document.getElementById('d-talk-older-show');
   if (show.hidden && (document.activeElement === show || document.activeElement === document.body)) document.getElementById('d-talk-older-hide').focus();
@@ -38250,6 +38252,7 @@ async function paintTalk(sessionName, agentName) {
   } catch (err) {
     if (mine !== TALK_LOAD) return;
     if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    { const th = document.getElementById('d-dmthread'); if (th) th.__readFailed = true; }   // kosmos#5841: earlier loads must not paint over this
     DM_CHOICES = null;   // #5406: no thread read, no choices
     DM_CHOICE_ANSWERED.delete(sessionName);
     /* ⚠️ WHERE THE PERSON IS STANDING, READ BEFORE ANYTHING HIDES OR DISABLES.
@@ -38598,8 +38601,9 @@ async function paintTalk(sessionName, agentName) {
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
   thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
+  thread.__readFailed = false;   // kosmos#5841
   /* kosmos#5841: a thread that SHRANK below the earlier rows' end (a file set aside) would duplicate them: close. */
-  if (earlierOn(sessionName) && (Number(body.olderCount) || 0) < EARLIER.end) earlierReset(sessionName);
+  if (earlierOn(sessionName) && Array.isArray(body.messages) && (Number(body.olderCount) || 0) < EARLIER.end) earlierReset(sessionName);   // a FAILED read reports olderCount 0: not a shrink
   paintTalkThread(body, name);
 
   paintOlderLine(body, sessionName);

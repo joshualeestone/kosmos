@@ -6,36 +6,44 @@
 - The engine also caps a thread at 1000 (`chat.js` MAX_MESSAGES). There, recording is refused for good. That is
   piece 2 (rollover), which builds on this reader.
 
-## Change
-- `GET /api/agent/<name>/thread/older?before=<n>` returns up to 200 messages before position n, oldest first, plus
-  `olderCount`.
-  - n is counted from the OLDEST message. The thread route's `olderCount` is exactly the first row it shows, so a send
-    in between cannot shift a page.
-  - It uses the thread route's gate (`nameRefusal`) and reads the same file.
-  - A missing or bad `before` is refused with 400. A position past the end is clamped.
-- `dmServeRows` is now the single rule for what a person sees of a direct thread's rows: the guide's mask (#3769),
-  reaction pills (#3650) and previews. The thread route and the older route both use it, so an earlier page can never
-  show what the latest one hides.
-- Page: the older line gains "Show earlier messages". It opens an "Earlier messages" section above the thread, in its
-  own element so the 5 s repaint cannot wipe it.
-  - The section is drawn with `dmRow`.
-  - "Show earlier" pages back to the start, and "Hide earlier messages" closes it.
-  - Another agent on screen resets it.
+## Change (as shipped; the review history below records how it got here)
+- **Server:** `GET /api/agent/<name>/thread/older?before=<n>` returns up to 200 messages before position n, oldest
+  first, plus `olderCount`.
+  - n counts from the OLDEST message. The thread route's `olderCount` is the first row it shows.
+  - The route uses the thread route's gate (`nameRefusal`) and reads the same file.
+  - `before` must be digits only, and a value past the end is clamped.
+- **Server:** `dmServeRows` is the single rule for a direct thread's rows, used by both routes: the guide's mask,
+  reaction pills and previews.
+- **Page:** the earlier rows are drawn IN `#d-dmthread`, before the latest, by `paintTalkThread`. EARLIER.rows is put
+  in front of the thread's rows when it is open for the agent on screen and the latest read succeeded.
+  - `paintOlderLine` draws the line with static "Show earlier messages" and "Hide earlier messages" buttons. While a
+    page loads, Show is aria-disabled and keeps focus.
+  - `earlierMore` loads one page older, puts it in front, scrolls the thread (never the page) to the first new row,
+    and pauses read-aloud.
+  - `earlierFillGap` fetches messages that left the latest 200 while the earlier rows are open.
+- **Isolation:**
+  - `earlierOn` draws earlier rows only for their own agent.
+  - `paintTalk` resets the earlier rows before any await, so each agent starts closed.
+  - The `opening` counter drops a stale answer.
+  - When the latest read fails, nothing draws earlier rows over the failure.
+- **Snapshot:** the earlier rows are not refreshed by the 5 s poll. A reaction made here is written in. A preview, or a
+  reaction or delivery change made elsewhere, shows after Hide and Show.
 
 ## Decided
-- The section opens above the thread in its own element, rather than prepending rows to the thread: the thread is
-  redrawn from the latest 200 every 5 s.
-- `before` is counted from the oldest end, not `skip` from the newest, because a thread only grows at the newest end.
-- The live question and account rows stay with the tail only.
+- **Inside the thread, not a second box** (review 3). A second box misses every rule and handler keyed on
+  `#d-dmthread`, and it left a gap.
+- **`before` counts from the oldest end, not the newest,** because a thread only grows at the newest end.
+- **The live question and account rows stay with the tail only.**
+- **A thread that shrinks below the earlier rows closes them,** so nothing doubles. The test is applied only to a
+  readable answer, because a failed read reports `olderCount` 0.
 
 ## Weakest premise
-That this 200-row view is the limit the reporter meant. The card records both limits; piece 2 handles the 1000 cap.
+That this 200-row view is the limit the reporter meant. The card records both limits; piece 2 is the 1000 cap.
 
 ## Verify
-- `node --test server.dm-older-5841.test.js`: paging, a send between pages, clamping and refusals, the guide mask
-  (with a control) and the name gate.
-- The existing thread-route suites still pass (guide-secrets-3769, guide-mask-4733, dm-owes-4340,
-  dm-notice-4354).
+- `node --test server.dm-older-5841.test.js`: paging, a send between pages, clamping, refusals, the guide mask with a
+  control, and a borrowed name with a control.
+- The existing thread-route suites still pass.
 - `docs/browser-checks/render-dm-earlier-5841.js`.
 
 ## Review 1 (opus): what changed and what was decided
@@ -99,3 +107,16 @@ search, styling. Gone: the separate box, its CSS extensions, the read-only conve
 - **Not covered by the browser check, said plainly:** the read-aloud pause, the scroll into view, and the reaction
   kept in a snapshot. The harness's 5-row thread does not scroll, and read-aloud needs the conversation feature on.
   Each is a few lines and was read by review, not measured.
+
+## Review 5 (opus)
+- **Fixed:**
+  - The two "read fails" arms could not fail for their guard: a 404 goes to paintTalk's catch arm, not the guard. The
+    own-read arm now uses the shape the guard sees, a 200 with `messages: null`.
+  - One failed poll closed the earlier rows, because the shrink test read a failed read's `olderCount` 0 as a shrink.
+    That test now applies only to a readable answer, and a new arm checks that the rows survive a failed poll.
+  - An earlier load finishing after a failed poll painted over the failure. `__readFailed` stops it.
+  - `scrollIntoView` could scroll the page. The thread's own `scrollTop` now moves instead.
+  - The "behave exactly like the rest" overclaim is now stated as a snapshot.
+  - This plan's top half described the abandoned design; it now matches what ships.
+- **Not taken (NITs):** the poll's cost with the whole kept thread open (up to 1000 rows through dmRow every 5 s),
+  and older-route tests for pills and `reactionsTold`, which is shared code.

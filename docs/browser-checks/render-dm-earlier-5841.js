@@ -46,7 +46,8 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' }
       // The kept messages, per agent; the thread route shows the last 3, the older route pages of 2.
       window.__all = {};
       window.__asked = [];
-      window.__failThread = null;
+      window.__failThread = null;   // a 404 read (a borrowed name): paintTalk's catch arm
+      window.__nullThread = null;   // a 200 read that FAILED: messages null + historyBecause (the shape the guard sees)
       window.__olderDelay = 0;
       const enc = (o, s) => new Response(JSON.stringify(o), { status: s || 200, headers: { 'content-type': 'application/json' } });
       window.setInterval = () => 0;
@@ -63,6 +64,10 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' }
           return enc({ messages: all.slice(start, before), olderCount: start });
         }
         if (who && window.__failThread === who) return enc({ error: 'no agent by that name', because: 'borrowed' }, 404);
+        if (who && window.__nullThread === who) {
+          return enc({ messages: null, olderCount: 0, historyBecause: 'we cannot read what you have sent this agent', historyUnfilable: false,
+            presence: 'on', presenceBecause: null, asking: false, question: null, questionBecause: null, options: null });
+        }
         if (who) {
           return enc({ messages: all.slice(-3), olderCount: Math.max(0, all.length - 3), historyBecause: null, historyUnfilable: false,
             presence: 'on', presenceBecause: null, asking: false, question: null, questionBecause: null, options: null });
@@ -148,18 +153,23 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' }
     await page.evaluate(() => { window.__failThread = 'mona'; });
     await open('mona', 'Mona'); await settle();
     s = await state();
-    chk(!s.rows.some((r) => /^m\d+$/.test(r)) && !s.hide, 'switching to an agent whose read fails shows none of the other agent\'s rows', JSON.stringify(s));
+    chk(!s.rows.some((r) => /^m\d+$/.test(r)) && !s.hide, 'switching to an agent whose read is refused (404) shows none of the other agent\'s rows', JSON.stringify(s));
 
-    // April's OWN latest read fails while her earlier rows are open: the failure shows, not old rows over it.
+    // April's OWN latest read FAILS (a 200 with messages null) while her earlier rows are open.
     await page.evaluate(() => { window.__failThread = null; });
     await open('april', 'April'); await settle();
     await page.click('#d-talk-older-show'); await settle();
-    await page.evaluate(() => { window.__failThread = 'april'; });
+    await page.evaluate(() => { window.__nullThread = 'april'; });
     await open('april', 'April'); await settle();
     s = await state();
     const note = await page.evaluate(() => document.getElementById('d-dmthread').textContent.trim());
-    chk(s.rows.length === 0 && note.length > 0, 'when the latest read fails while earlier rows are open, the thread shows the failure, not old rows', JSON.stringify({ rows: s.rows, note: note.slice(0, 80) }));
-    await page.evaluate(() => { window.__failThread = null; });
+    chk(s.rows.length === 0 && /cannot read/.test(note), 'when the latest read fails while earlier rows are open, the thread shows the failure, not old rows', JSON.stringify({ rows: s.rows, note: note.slice(0, 80) }));
+    // ...and one failed poll does not throw away the pages already loaded (a failed read reports olderCount 0).
+    await page.evaluate(() => { window.__nullThread = null; });
+    await open('april', 'April'); await settle();
+    s = await state();
+    chk(s.rows.length === 5 && s.hide, 'when the read recovers, the earlier rows are still open (a failed poll is not a shrink)', JSON.stringify(s));
+    await page.click('#d-talk-older-hide'); await settle();
 
     // The thread SHRINKS below the earlier rows' end (a file set aside): the earlier rows close, nothing doubles.
     await open('april', 'April'); await settle();
