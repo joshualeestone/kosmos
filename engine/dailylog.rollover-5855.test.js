@@ -25,8 +25,10 @@ const dayOf = (at) => (typeof at === 'string' && at.length >= 10 ? at.slice(0, 1
 const timeOf = (at) => (typeof at === 'string' && at.length >= 16 ? at.slice(11, 16) : '');
 
 const ASIDE = 'direct..p.json.20261011T180000Z.4242.1791741600000.full';
-// The refusal's last line: the two things that hold whatever the listed files are.
-const CLOSING = 'This tool does not compile when it finds either kind, and it changes none of them. They can be Kosmos\'s own files, so do not move or delete one unless you know it is not.\n';
+// The refusal's last line: three sentences that hold whatever the listed files are.
+const CLOSING = 'This tool does not compile while a file listed here is present, and it changes none of them. '
+  + 'If they come from a conversation that reached its message limit, this is expected: this version of the tool cannot compile such a conversation. '
+  + 'They can be Kosmos\'s own files, so do not move or delete one unless you know that it is not Kosmos\'s.\n';
 const WHOLE = [
   { at: '2026-09-13T09:00:00Z', text: 'day13 only in the full file', from: null },
   { at: '2026-09-14T09:00:00Z', text: 'day14 only in the full file', from: null },
@@ -241,8 +243,9 @@ test('the command says what it found and exits non-zero, so a scheduled run cann
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  // The whole message, word for word, for the plainest state (one .full file). Pinned whole so that a sentence about
-  // why a file is there, or what to do with it, cannot be added without this test saying so: the tool cannot tell.
+  // The whole message, word for word, for the plainest state (one .full file). Pinned whole so that a sentence which
+  // ASSERTS why a file is there, or tells the person to do something with it, cannot be added without this test
+  // saying so: the tool cannot tell which case it is.
   assert.equal(no.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
     + 'Found in ' + dl.shownName(chatsDir) + ':\n'
     + 'Files whose names end in .full after a conversation file\'s name:\n'

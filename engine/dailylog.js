@@ -548,15 +548,18 @@ if (require.main === module) {
       + (names.length > REFUSAL_NAMES_SHOWN ? `  and ${names.length - REFUSAL_NAMES_SHOWN} more\n` : '');
     const earlier = summary.rolledOverFiles;
     const pointing = summary.continuedFiles;
-    // What happened, where, which files, and two sentences that hold whatever the files are (a real rollover, an
-    // interrupted one, a stray copy): what this tool does on finding them, and not to remove one on this message's
-    // say-so. Nothing here says why a file is there or what to do with it; the tool cannot tell.
+    // What happened, where, which files, then three sentences that hold whatever the files are (a real rollover, an
+    // interrupted one, a stray copy): what this tool does on finding them; that IF they come from a rollover this is
+    // expected; and not to remove one on this message's say-so. The tool cannot tell which case it is, so nothing here
+    // asserts one.
     process.stderr.write('dailylog: not compiled. Nothing was written or removed.\n'
       + `Found in ${shownName(summary.chatsDir)}:\n`
       + (earlier.length ? 'Files whose names end in .full after a conversation file\'s name:\n' + list(earlier) : '')
       + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : '')
-      + 'This tool does not compile when it finds either kind, and it changes none of them. They can be Kosmos\'s '
-      + 'own files, so do not move or delete one unless you know it is not.\n');
+      + 'This tool does not compile while a file listed here is present, and it changes none of them. If they come '
+      + 'from a conversation that reached its message limit, this is expected: this version of the tool cannot '
+      + 'compile such a conversation. They can be Kosmos\'s own files, so do not move or delete one unless you know '
+      + 'that it is not Kosmos\'s.\n');
     // exitCode, not exit(): the process ends once stderr has drained, so a piped reader gets the whole message.
     process.exitCode = EXIT_REFUSED;
   } else {
