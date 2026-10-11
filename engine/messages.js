@@ -883,6 +883,11 @@ function rowShaped(m) {
       && typeof m.text === 'string'
       && Boolean(m.outcomes) && typeof m.outcomes === 'object' && !Array.isArray(m.outcomes);
   }
+  /* #5805 slice 2a: a kept `kosmos msg` message typed after its recipient's reset, or dropped a day past it; `of` is the
+     held message row's id. */
+  if (m.kind === 'held-delivered' || m.kind === 'held-dropped') {
+    return str(m.of) && str(m.from) && str(m.to);
+  }
   /* #2255: a reaction EVENT, exactly what react() writes. Given its own rule
      rather than riding the unknown-kind fallthrough below, so a malformed
      reaction row is dropped at read time like every other first-class kind --
@@ -972,7 +977,8 @@ function logRefusedSend(from, toWho, because, at) {
  * Returns { state: 'placed'|'unconfirmed'|'could_not', because, id, at } --
  * the delivery states are chat.DELIVERY's own, because the delivery IS
  * chat.deliver and inventing a second vocabulary for the same outcomes is
- * how two surfaces drift.
+ * how two surfaces drift. #5805 slice 2a: a message kept for an agent out of usage answers could_not with
+ * held: true (heldReceipt), and its log row's state is HELD_STATE ('held'), the one row state outside that set.
  */
 /* #3769: a filter on what an AGENT sender says, applied once the sender is known and before the
    text is checked, recorded or pasted anywhere. The board installs the setup guide's secret mask
@@ -1268,12 +1274,40 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      this function (the sender is always an agent's card: /api/msg and the outbox drain), so no person guard is
      needed here, unlike the post path. */
   const cleaned = chat.cleanMessage(text);
+  /* #5805 slice 2a: the queue is keyed by the agent the message routes to (its card's own name), so two spellings the
+     router folds together share one queue and its order. */
+  const qName = limitQueueName(toName, roster);
   const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
-  if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true, ...(sameMsg.queued === true ? { queued: true } : {}) };
+  /* #5805 slice 2a: the same send again while its first copy is still kept for an agent out of usage answers with
+     that copy's held receipt; nothing is kept twice. */
+  if (sameMsg && sameMsg.state === HELD_STATE) {
+    const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
+    const keptCopy = typed ? null : require('./limitqueue').list(qName).find((e) => e.id === sameMsg.id);
+    if (keptCopy) {
+      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true);
+    }
+    // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
+    // As the fold below: only while the two have not spoken since (#4580); after that the same words are a new message.
+    if (typed && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) {
+      return { state: typed.state, because: typed.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+    }
+  }
+  if (sameMsg && sameMsg.state !== HELD_STATE && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true, ...(sameMsg.queued === true ? { queued: true } : {}) };
   const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
   // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
   const msgTwin = deliverToPane !== chat.deliver ? inFlightTwin(msgKey) : null;
   if (msgTwin) return msgTwin.then(asDuplicate);
+  /* #5805 slice 2a: the same send already kept for an agent out of usage, at any age (the fold above looks back minutes;
+     a hold lasts days), is that copy: answered here, before the pair valve (whose count already holds the first copy)
+     and before an id or a spill file is made. */
+  const keptEarly = require('./limitqueue').keptByKey(qName, msgKey);
+  // Typed already (its removal from the file failed): not held. Answered as the delivery when the log has it.
+  if (keptEarly && require('./limitqueue').isDone(keptEarly.id)) {
+    const typedRow = log.find((r) => r && r.kind === 'held-delivered' && r.of === keptEarly.id);
+    if (typedRow) return { state: typedRow.state, because: null, id: keptEarly.id, at: keptEarly.at, duplicate: true };
+  } else if (keptEarly) {
+    return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true);
+  }
 
   /* THE VALVE, split per the person's control (limits.js): crossing the
      budget ALWAYS logs the tell, once per pair per window (the counter
@@ -1342,6 +1376,37 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     + ' · ' + id
     + (replyTo ? ' · answers ' + replyTo : '')
     + '] ' + body;
+  /* #5805 slice 2a: the recipient is out of usage (slice 1's hold): typed now, the message would land on its limit
+     screen and be counted delivered. It is kept and typed after the reset by the minute sweep (limitqueue.flush). */
+  let limitHold = null;
+  try { limitHold = chat.limitHeldVerdict(toName, roster); } catch { limitHold = null; }
+  /* Released, but messages kept while it was out of usage are still waiting for the minute sweep: this one goes
+     behind them, so nothing it says arrives ahead of what was sent before it. */
+  // One small file read per send to an agent not held (a missing file is a failed open): the price of keeping order.
+  const queued = limitHold || chat.addressable(toName, roster).ok !== true ? { ok: true, entries: [] } : require('./limitqueue').readEntries(qName);
+  const waiting = queued.entries.filter((e) => !require('./limitqueue').isDone(e.id));
+  // Its own day counts from now (limitReset is the drop clock): a reset inherited from the backlog could drop it at once.
+  // A queue that cannot be read now may hold a backlog: never typed ahead of it (keeping it then fails, and says so).
+  if (!limitHold && (waiting.length || !queued.ok)) limitHold = { limitReset: at, behind: true };
+  if (limitHold) {
+    const limitqueue = require('./limitqueue');
+    /* The drop clock: the printed reset, or now when that is already past (a limit menu left up overnight would
+       otherwise drop the message at the next sweep). */
+    const dropFrom = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : at;
+    const why = limitqueue.addOrWhy(qName, { id, from, envelope, at, reset: dropFrom, key: msgKey, spill: spillFile, behind: limitHold.behind === true });
+    if (why) {
+      unspill(spillFile);
+      const situation = limitHold.behind ? 'still has messages kept from while it was out of usage' : 'is out of usage';
+      return refuse(toName, toName + ' ' + situation + ', and Kosmos ' + (why === 'sender-cap'
+        ? 'is already keeping ' + limitqueue.MAX_PER_SENDER + ' messages from you for it; wait for those to arrive before sending more'
+        : why === 'agent-cap' ? 'is already keeping ' + limitqueue.MAX_KEPT + ' messages for it; try again after its reset'
+          : 'could not keep this one for it (its queue could not be read or written); try again in a minute'));
+    }
+    // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
+    const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
+    return heldReceipt(toName, id, at, until, false, limitHold.behind === true);
+  }
 
   const finish = (sent) => {
     if (sent.state === chat.DELIVERY.COULD_NOT) {
@@ -1364,8 +1429,49 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   return sent && typeof sent.then === 'function' ? trackInFlight(msgKey, sent.then(finish)) : finish(sent);
 }
 
+/* #5805 slice 2a: the name a kept message's queue is filed under: the card the router resolves `toName` to, else the
+   name as written. */
+function limitQueueName(toName, roster) {
+  try { const card = chat.resolveCard(roster, toName); return (card && card.sessionName) || toName; } catch { return toName; }
+}
+
 function send(input, roster) {
   return sendWithDelivery(input, roster, chat.deliver);
+}
+
+/* #5805 slice 2a: a `kosmos msg` message kept for an agent out of usage. Its row's state, and the sender's answer:
+   nothing was typed (could_not), it is held (the chat held shape, heldBy 'limit'), and when it will be typed. */
+const HELD_STATE = 'held';
+function heldReceipt(toName, id, at, heldUntil, duplicate, behind) {
+  return {
+    state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: (!behind && heldUntil) || null, id, at,
+    because: behind
+      ? 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them'
+      : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
+    ...(behind ? { behind: true } : {}),
+    ...(duplicate ? { duplicate: true } : {}),
+  };
+}
+/* A send answer that is a kept message (held on a usage limit, with its id): accepted, so never sent again. */
+function heldAccepted(delivery) {
+  return !!delivery && delivery.held === true && delivery.heldBy === 'limit' && typeof delivery.id === 'string' && !!delivery.id;
+}
+/* The minute sweep's two outcomes for a kept message, each its own row pointing back at the held one (the log is
+   append-only). */
+function logHeldDelivered(entry, verdict) {
+  appendLog({ kind: 'held-delivered', of: entry.id, from: entry.from, to: entry.to, at: new Date().toISOString(), state: verdict && verdict.state });
+}
+function logHeldDropped(entry) {
+  appendLog({ kind: 'held-dropped', of: entry.id, from: entry.from, to: entry.to, at: new Date().toISOString() });
+}
+/* A dropped message's sender was told it was accepted, so it is told, in its own pane, that it never arrived. Through
+   the automatic gate (held or refused there, the dropped row still records it). */
+async function tellHeldDropped(entry, roster) {
+  logHeldDropped(entry);
+  unspill(entry.spill);   // a long message's file, kept only for the line that was never typed
+  const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: Kosmos kept it for a'
+    + ' day and could not type it. Send it again, or to someone else, if it still matters.';
+  try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
 }
 
 function sendAsync(input, roster) {
@@ -3092,6 +3198,7 @@ function projectOfPost(id) {
 }
 
 module.exports = {
+  HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
