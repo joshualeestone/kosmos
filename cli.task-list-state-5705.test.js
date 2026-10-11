@@ -73,7 +73,9 @@ const WANT = ['open2', 'open1', 'built', 'heldbuilt', 'held', 'done'];
 test('engine: each task is in one group, and the marks decide it (done, then on hold, then built)', () => {
   assert.deepEqual(tasks.LIST_GROUPS, ['open', 'built', 'held', 'done']);
   assert.equal(tasks.listGroup({ isClosed: true, builtAt: 'x', onHold: true }), 'done');
-  assert.equal(tasks.listGroup({ builtAt: '2026-10-09T00:00:00Z', projectPaused: true }), 'held');
+  assert.equal(tasks.listGroup({ builtAt: '2026-10-09T00:00:00Z', projectPaused: true }), 'built');   // #5864: a pause does not hide finished work
+  assert.equal(tasks.listGroup({ projectPaused: true }), 'held');   // #5864 control: not built, a paused project's task is held
+  assert.equal(tasks.listGroup({ builtAt: '2026-10-09T00:00:00Z', onHold: true, projectPaused: true }), 'held');   // its own hold still wins
   assert.equal(tasks.listGroup({ builtAt: '2026-10-09T00:00:00Z' }), 'built');
   assert.equal(tasks.listGroup({ builtAt: '' }), 'open');
   assert.equal(tasks.listGroup({}), 'open');
