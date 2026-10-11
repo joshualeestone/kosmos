@@ -21,7 +21,7 @@
 - A plugin-variable value in a startup file with another variable in it (`$XDG_CACHE_HOME/...`, `$(brew --prefix)/...`) is named, so the guard is not whole: fails closed; the message names the variable and the file to change (review 10).
 - A plugin found inside a folder that is REFUSED (too wide, temp, inside the agent) gets its own rule as an installed plugin's folder, which is never pruned (review 10).
 - Every job home joins the homes the start-command scan reads, so another account's unreadable plugin record, or a hook variable two homes set differently, makes every token-only agent not whole (fails closed). One unusual job file (an old plist layout that does not read as a job) does the same, named (review 11).
-- A self-reference other than `$K`, `${K}`, `${K:+$K:}` and `${K:+:$K}` (`${K:-}`, `$K` mid-value) is named: fails closed (review 8).
+- A self-reference other than `$K`, `${K}`, `${K:+$K:}`, `${K:+:$K}` and a whole `${K:-x}` or `${K:=x}` (read as x since review 11) is named, `$K` mid-value for one: fails closed (review 8).
 - The job files are read only when the launch folder is inside the home (production) or an explicit sandbox names it; a caller passing another home with neither (a test) reads no jobs (review 8). That arm is not tested (the tests set the sandbox).
 - An agent of ANOTHER named Kosmos (world) shares the agents' folder but its job carries that world's key; readJob(name) reads this world's, so its config home is not found, and nothing names that (review 5; #5516 states the same for its account settings).
 - System startup files (/etc/zshenv, /etc/profile) and `launchctl setenv` values are not read for the plugin variables: an administrator's value is not seen (review 5).
@@ -138,4 +138,11 @@ engine/startplugins-5774.test.js, 15 tests, using the production job reader agai
   - [NIT] TAKEN: the plugin-variable block now sits above startCommandScripts' doc comment, which names envPluginDirs among its returns. My first move of it went to the end of the file (the comment opens with /*, not /**); restored from the backup and moved by its first line.
   - [NIT] not taken: the own-home-spelling arms rely on macOS's /var link; on Linux they pass either way.
   - [NIT] TAKEN: the comment claiming a Windows Task Scheduler cost is corrected (the guard does not run on Windows).
+- Iteration 12 (Sonnet), on 45ddfafb9: no BLOCKER.
+  - [WARNING] TAKEN: a variable-named folder under the agent's own folder whose value has a $ in it (a shell-style $HOME in a settings env value, which Claude Code takes literally) now says so in its message. Still fails closed.
+  - [WARNING] TAKEN: the agent names are sorted before the 50-home cap, so the same homes are taken at every refresh.
+  - [WARNING] TAKEN: a plugin-variable folder found in both this agent's tiers and another account's is read once.
+  - [NIT] TAKEN (plan): the self-reference gap no longer lists `${K:-}`, read as its default since review 11.
+  - [NIT] not taken: jobsHere's two realpaths per call are cheap beside the cached reads.
+  - [NIT] DUPLICATE of stated gaps: the /var-dependent arms and the untested jobsHere Linux arm.
 

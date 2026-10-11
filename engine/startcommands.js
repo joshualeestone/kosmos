@@ -869,6 +869,8 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const otherRelative = [];
   const envKinds = [];
   const envPluginDirs = [...new Set([...pluginVarDirs(ownVals, agentDir, homeDir, true, [], envKinds), ...pluginVarDirs(otherVals, agentDir, homeDir, false, otherRelative, envKinds)])];
+  // Review 12: each folder once (the same value in this agent's tiers and another account's), so no plugin is read twice.
+  { const seenK = new Set(); for (let i = envKinds.length - 1; i >= 0; i--) { const k = envKinds[i].kind + '\0' + envKinds[i].dir; if (seenK.has(k)) envKinds.splice(i, 1); else seenK.add(k); } }
   for (const t of new Set(otherRelative)) unsafe.push(`${t} (a relative plugin folder another account's settings name, read from that account's agent folder, which Kosmos does not know)`);
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
   // Review 11: no PWD: a hook runs in the session's current folder, which the agent moves.

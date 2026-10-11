@@ -729,7 +729,8 @@ function agentJobConfigDirs(workersRoot, platform) {   // platform: the guard's 
   let names = [];
   // Review 1: an agents' folder that cannot be read is named by the caller (never a silent loss).
   // Review 4: a linked agent folder too (a dirent of a link is not a directory).
-  try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory() || (d.isSymbolicLink() && (() => { try { return fs.statSync(path.join(workersRoot, d.name)).isDirectory(); } catch { return false; } })())).map((d) => d.name); } catch (e) { if (e && e.code === 'ENOENT') return out; out.unreadable = (e && e.code) || String(e); return out; }
+  // Review 12: sorted, so the 50-home cap picks the same homes at every refresh.
+  try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory() || (d.isSymbolicLink() && (() => { try { return fs.statSync(path.join(workersRoot, d.name)).isDirectory(); } catch { return false; } })())).map((d) => d.name).sort(); } catch (e) { if (e && e.code === 'ENOENT') return out; out.unreadable = (e && e.code) || String(e); return out; }
   for (const name of names) {
     /* Review 10: readJobVerdict tells a job that is absent (fine) from one that could not be read (an unreadable unit, a
        failed task read): the latter is named, never a silent loss of that agent's config home. */
@@ -1905,7 +1906,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     const r = realOrLeaf(d);
     // Review 7: one INSIDE the agent's own folder (a plugin it is developing) is named, not denied whole, as an installed
     // plugin there is: denying it would take the agent's own work away.
-    if (r.startsWith(dirRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the agent's own folder, so Kosmos does not deny it whole)`); continue; }
+    // Review 12: a "$" in it means a variable Claude Code did not expand (a settings env value is taken literally).
+    if (r.startsWith(dirRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the agent's own folder, so Kosmos does not deny it whole${d.includes('$') ? '; it has a $ in it: Claude Code does not expand variables in a settings env value, so it reads as a folder under the agent\'s own' : ''})`); continue; }
     // Review 8: one inside the temp folder is a per-run place: its rule would pile up at every refresh (never pruned).
     if (r.startsWith(tmpRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
     if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || holdsP(r, dataRealP) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data or a config home)`); continue; }
