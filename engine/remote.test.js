@@ -4622,3 +4622,21 @@ test('#5786 (b): an automatic allow that lands across a re-register of the SAME 
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   remote.setOn(false);
 });
+
+test('#5786 (b): a Not me the tunnel refuses BEFORE the automatic allow answers still wins', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchnmref');
+  plant([{ device_id: 'dev-nr', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-allow,deny-fails';
+  try {
+    plant([{ device_id: 'dev-nr', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-nr') }]);
+    remote.vouchTickForTests();
+    await until(() => allowsOf().includes('dev-nr'), 'the allow to start');
+    const den = await remote.deviceDeny('dev-nr');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+    const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-nr')).length;
+    await until(() => removes() >= 1, 'the device to be taken back out after the allow answered');
+    assert.equal(remote.read().vouched['dev-nr'], undefined, 'a device the person said Not me to was noted as on this computer');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});
