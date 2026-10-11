@@ -887,6 +887,24 @@ const AGENTS_LOOK = `(() => {
         && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === RAISE_OF[theme] && ctlOn.quietEdge !== CLEAR && ctlOn.quietEdge === ctlBefore.quietEdge && ctlOn.quietRadius === '999px'
         && ctlOn.plainFocus !== 'none' && ctlOn.plainFocus !== 'not focused' && ctlOn.outsideDangerEdge !== CLEAR,
         `${tag} On, the controls: plain and quiet buttons are raised pills that keep today's gold edge and no shadow (#5551 option B), the main one a pill that keeps its fill, a danger one a pill that keeps its edge`, JSON.stringify({ on: ctlOn, before: ctlBefore }));
+      /* #5551 review 2: option B's hover is today's gold tint over the raised fill. Forced through the devtools
+         protocol, since the button sits in a hidden panel a real pointer cannot reach; a lost hover rule fails here. */
+      const ctlHover = await (async () => {
+        const cdp = await page.context().newCDPSession(page);
+        try {
+          await cdp.send('DOM.enable'); await cdp.send('CSS.enable');
+          const { root } = await cdp.send('DOM.getDocument');
+          const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#d-file-btn' });
+          if (!nodeId) return { found: false };
+          await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: ['hover'] });
+          const bg = await page.evaluate(() => getComputedStyle(document.getElementById('d-file-btn')).backgroundImage);
+          await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
+          const rest = await page.evaluate(() => getComputedStyle(document.getElementById('d-file-btn')).backgroundImage);
+          return { found: true, bg, rest };
+        } catch (e) { return { found: false, error: String(e && e.message || e).slice(0, 120) }; } finally { await cdp.detach().catch(() => {}); }
+      })();
+      chk(ctlHover.found && ctlHover.bg.includes('rgba(198, 154, 50, 0.14)') && !ctlHover.rest.includes('rgba(198, 154, 50, 0.14)'),
+        `${tag} On, the controls: a plain button under the pointer takes today's gold tint over its fill, and drops it after (#5551 option B)`, JSON.stringify(ctlHover));
       const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
       chk(setOn.found && setOn.dotBg !== OLD_DOT && setOn.dotBg !== CLEAR && setOn.dotBg !== 'absent' && setOn.plusNavBg !== GREY_OF[theme] && setOn.plusOnEdge !== CLEAR,
         `${tag} On, Settings: the current item's needs-you dot is not the gold-era dark red, and the Kosmos+ section keeps today's nav`, JSON.stringify(setOn));
@@ -1024,16 +1042,25 @@ const AGENTS_LOOK = `(() => {
       const strokes = await page.evaluate((ratioFn) => {
         const g = document.getElementById('grid'); if (!g) return { found: false };
         const out = { found: true };
-        for (const c of ['attn', 'question', 'unk']) {
-          const d = document.createElement('div'); d.className = 'acard ' + c; d.textContent = 'x'; g.append(d);
-          const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle, img: cs.backgroundImage, ratio: new Function(`return (${ratioFn})`)()(d) }; d.remove();
+        /* Review 2: each card carries the state pill boardMods gives it, so the pills Home keeps (Issue's white one,
+           could-not-read's dashed one) and the ones it turns into a mark and a word (Question, idle) are read too. */
+        const PILL = { attn: 'st-attn', question: 'st-blocked', unk: 'st-unknown', '': 'st-idle' };
+        for (const c of ['attn', 'question', 'unk', '']) {
+          const d = document.createElement('div'); d.className = ('acard ' + c).trim();
+          const pl = document.createElement('div'); pl.className = 'astate ' + PILL[c]; pl.innerHTML = '<b>x</b>'; d.append(pl); g.append(d);
+          const cs = getComputedStyle(d), ps = getComputedStyle(pl);
+          out[c || 'idle'] = { color: cs.borderTopColor, style: cs.borderTopStyle, img: cs.backgroundImage, ratio: new Function(`return (${ratioFn})`)()(d),
+            pill: { edge: ps.borderTopColor, style: ps.borderTopStyle, bg: ps.backgroundColor } }; d.remove();
         }
         return out;
       }, EDGE_RATIO);
       chk(strokes.found && ['attn', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed' && strokes.unk.ratio >= 1.5,
         `${tag} On, Agents page: Issue and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
+      chk(strokes.found && strokes.attn.pill.bg !== 'rgba(0, 0, 0, 0)' && strokes.unk.pill.style === 'dashed' && strokes.unk.pill.edge !== 'rgba(0, 0, 0, 0)'
+        && ['question', 'idle'].every((c) => strokes[c].pill.edge === 'rgba(0, 0, 0, 0)' && strokes[c].pill.bg === 'rgba(0, 0, 0, 0)'),
+        `${tag} On, Home: the Issue pill keeps its fill and the could-not-read pill its dash; Question and idle are a mark and a word, no pill`, JSON.stringify(strokes));
       /* #5551, Home as drawn: the card asking you something is warm (the project room question box's --warn-bg over the
-         page), not stroked; the Issue card keeps today's red wash. */
+         card's grey), not stroked; the Issue card keeps today's red wash. */
       /* The warm ground is named by its colour (--warn-bg), so a green or red wash cannot pass for it (review 1). */
       const WARN_OF = { light: 'rgba(176, 116, 0, 0.1)', dark: 'rgba(255, 190, 60, 0.12)' };
       chk(strokes.found && strokes.question.color === 'rgba(0, 0, 0, 0)' && strokes.question.img.includes(WARN_OF[theme]) && /gradient/.test(strokes.attn.img) && !strokes.attn.img.includes(WARN_OF[theme]),
@@ -1196,8 +1223,10 @@ const AGENTS_LOOK = `(() => {
       const agOff = await page.evaluate(AGENTS_LOOK);
       /* #5551 control: with the look off a Question card keeps today's blue stroke (drawn by hand, as above). */
       const qStrokeOff = await page.evaluate(() => { const g = document.getElementById('grid'); if (!g) return 'absent';
-        const d = document.createElement('div'); d.className = 'acard question'; d.textContent = 'x'; g.append(d); const c = getComputedStyle(d).borderTopColor; d.remove(); return c; });
-      chk(qStrokeOff !== 'absent' && qStrokeOff !== 'rgba(0, 0, 0, 0)', `${tag} Off, Home: the Question card keeps today's blue stroke (the control)`, qStrokeOff);
+        const d = document.createElement('div'); d.className = 'acard question'; d.textContent = 'x'; g.append(d); const cs = getComputedStyle(d);
+        const r = { edge: cs.borderTopColor, img: cs.backgroundImage }; d.remove(); return r; });
+      chk(qStrokeOff !== 'absent' && qStrokeOff.edge !== 'rgba(0, 0, 0, 0)' && !/rgba\(176, 116, 0, 0\.1\)|rgba\(255, 190, 60, 0\.12\)/.test(qStrokeOff.img),
+        `${tag} Off, Home: the Question card keeps today's blue stroke and no warm ground (the control)`, JSON.stringify(qStrokeOff));
       chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.tile !== 'rgba(0, 0, 0, 0)' && agOff.plus && agOff.plus.round !== '50%',
         `${tag} Off, Agents page: today's bordered idle card, Agents tile and New agent tile`, JSON.stringify(agOff));
       /* Control for the agent-page arms: with the look off, today's conversation (the surface behind it, a tinted bubble of
