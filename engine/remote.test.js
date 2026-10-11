@@ -4486,3 +4486,23 @@ test('#5786 (b): Not me pressed while the automatic allow runs wins: the device 
   assert.equal(remote.read().vouched['dev-race'], undefined, 'a device the person refused was noted as on this computer');
   remote.setOn(false);
 });
+
+test('#5786 (b): Not me arriving just AFTER an automatic allow still takes the device back out', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchlate');
+  plant([{ device_id: 'dev-late', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-late', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-late') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-late'], 'the vouched allow to be noted');
+  const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-late')).length;
+  const before = removes();
+  const den = await remote.deviceDeny('dev-late');
+  assert.equal(den.ok, true, den.because);
+  assert.equal(removes(), before + 1, 'a refused device that was allowed automatically stayed allowed');
+  assert.equal(remote.read().vouched['dev-late'], undefined, 'its note survived');
+  // CONTROL: Not me on a device that was NOT allowed automatically removes nothing.
+  const den2 = await remote.deviceDeny('dev-plain');
+  assert.equal(den2.ok, true, den2.because);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-plain')).length, 0);
+  remote.setOn(false);
+});

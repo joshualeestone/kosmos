@@ -1765,7 +1765,7 @@ function vouchTick() {
   if (!v.opened) {
     const now = Math.floor(Date.now() / 1000);
     if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
-    v.opened = true;
+    v.opened = true;   // an opener still running after 5 s counts as opened (runCompanyOpener); the window still bounds S
     // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
     const url = vouchUrl(v.secret);
     if (!url) { stopVouch(); return; }
@@ -1980,6 +1980,11 @@ async function deviceDeny(id) {
     /* #4308: the coordinator has the answer either way; only this computer's own note of it (used to word a re-ask) is
        lost when the settings file is damaged. Say so rather than drop it silently. */
     if (!saved.ok) process.stderr.write('remote: the device was refused, but this computer could not note it: ' + saved.because + '\n');
+    // kosmos#5786 (b): Not me on a device this computer allowed automatically (the two raced) takes it back out.
+    if ((read().vouched || {})[id]) {
+      process.stderr.write('kosmos+: a device allowed automatically was refused; removing it\n');
+      await deviceRemove(id);
+    }
   }
   return r;
 }

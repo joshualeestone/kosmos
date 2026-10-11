@@ -47214,7 +47214,7 @@ function paintAsk() {
   if (here) {
     const word = askEsc(askBrowserWord(here.name));
     after.unshift('<div class="askrow done"><p class="askok">' + word + ' on this computer is connected.</p>' +
-      '<p>This computer opened it, signed in to your account, so it did not ask you. Not yours? Undo turns it away.</p>' +
+      '<p>It was opened from this computer and is signed in to your account, so Kosmos did not ask you. Not yours? Undo turns it away.</p>' +
       (ASK.hereSaid && ASK.hereSaidFor === askHereKey(here) ? '<p class="askwait">' + askEsc(ASK.hereSaid) + '</p>' : '') +
       '<div class="acts"><button class="btn quiet" type="button" data-ask="here-undo" data-id="' + askEsc(here.device_id) + '" data-at="' + askEsc(String(here.at)) + '" aria-label="Undo: disconnect ' + word + ' on this computer"' + (ASK.removing ? ' disabled' : '') + '>' + (ASK.removing === here.device_id ? 'Disconnecting' : 'Undo') + '</button>' +
       '<button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(here.device_id) + '" data-at="' + askEsc(String(here.at)) + '">Got it</button></div></div>');
