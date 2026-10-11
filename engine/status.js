@@ -7268,13 +7268,14 @@ function quotaPauseUntil(reported, nowMs) {
   return at > (Number.isFinite(nowMs) ? nowMs : Date.now()) ? at : null;
 }
 
-// #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
 /* #5805: Claude Code's StopFailure self-report for a usage limit (kosmos-report-hook.js: an automatic blocked on
    "provider api (rate_limit)"). */
 function providerLimitReport(reported) {
   return !!reported && reported.state === 'blocked' && reported.by === 'auto'
     && /^provider api \(rate_limit\)$/.test(String(reported.on || ''));
 }
+
+// #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a

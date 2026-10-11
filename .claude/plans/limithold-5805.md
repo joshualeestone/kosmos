@@ -144,3 +144,9 @@ behaviour), never the reverse.
 - FIXED: this plan, which had stopped at review 4. NITs taken: the idle flush records addressed asks only; the menu
   helper no longer splits retireResetLimits from its comment. Not taken: a shared helper for the held-by wording, and
   one menu test for both readers (a quoted menu title past the cap would only hold lines longer, never type them).
+
+## Review 8 (sonnet)
+- FIXED: the minute sweep asked for the limit verdict before checking the member held anything; the held check is first.
+- DEFERRED: past the hour cap a capped card's delivery reads the pane for the limit menu. Only a card whose dated line
+  never retires reaches it, and the menu hold already reads the pane per delivery for needs-you and working cards.
+- NIT taken: providerLimitReport no longer splits the #4588 part 3 comment from reconcileReport.

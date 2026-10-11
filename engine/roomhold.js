@@ -379,6 +379,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          or busy) and only when it holds an ask a usage limit kept (limitKept). Every other hold on such a member waits
          for its next wake, as before. */
       const name = String(card.sessionName);
+      if (!heldProjects(name).length) continue;
       /* #5805 review 7: a turn that fails on the limit ends with StopFailure, not Stop, so no idle flush runs for the
          asks held while it worked, and no arrival may come to record them. While the member is limit-held, record the
          limit for each held ask that has no record yet (once per ask: noteLimit is skipped for ids already kept). */
@@ -393,7 +394,6 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
         }
       }
       if (!agy && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
-      if (!heldProjects(name).length) continue;
       if (!agy && !heldProjects(name).some((p) => heldIn(name, p).some((x) => isAddressed(x) && limitKept(name, p, x)))) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;
       /* #4624 follow-up (review 1/2): an idle member holding only posts that ask nothing of it waits for its next wake,
