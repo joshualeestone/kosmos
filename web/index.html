@@ -45489,10 +45489,11 @@ function restartFailureLine(out) {
    to lose, so this is a direct action. Guarded on the open agent still being this
    one, so a mid-wait switch never lands a line in another agent's panel. */
 /* #5820: when each agent's channel was last cleared from this page, so a poll that started before the Clear (and
-   still carries the channel) does not paint it back. Longer than one poll (5 s) plus a slow answer. */
+   still carries the channel) does not paint it back. A status poll is abandoned after STATUS_POLL_TIMEOUT_MS, so no
+   answer older than that is applied: the window is that plus a margin, and follows it if it changes. */
 // `var`, not const: paintDetailState (defined earlier) reads it through typeof, which throws on a const not yet run.
 var REPLYCHAN_CLEARED = new Map();
-var REPLYCHAN_STALE_MS = 12000;
+var REPLYCHAN_STALE_MS = STATUS_POLL_TIMEOUT_MS + 2000;
 /* #5820: Clear the agent's declared reply channel. Acts on the agent the line was painted for (data-agent), never
    only on CURRENT, and says nothing once the page shows another agent. Named so a page test can run it. */
 async function detailReplyChanClear(e) {
@@ -45510,13 +45511,13 @@ async function detailReplyChanClear(e) {
     ok = res.ok && out && out.ok === true;
     because = (out && out.because) || '';
   } catch { ok = false; }
+  if (ok) REPLYCHAN_CLEARED.set(name, Date.now());   // remembered even if the person moved away: coming back paints from LAST
   if (!here()) { b.disabled = false; return; }   // re-armed, so coming back to this agent does not find it stuck
   if (!ok) {
     if (m) m.textContent = 'We could not clear it' + (because ? ': ' + because : '') + '. Try again.';
     b.disabled = false;
     return;
   }
-  REPLYCHAN_CLEARED.set(name, Date.now());
   const line = document.getElementById('d-replychan');
   if (line) line.hidden = true;
   b.dataset.agent = '';   // so the next paint that shows a channel again re-arms the button

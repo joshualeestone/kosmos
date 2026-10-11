@@ -137,7 +137,9 @@ function pageWithCleared(cleared) {
   const doc = { getElementById: (id) => (els[id] = els[id] || { className: '', innerHTML: '', textContent: '', hidden: true, disabled: false, dataset: {} }) };
   // eslint-disable-next-line no-new-func
   const paint = new Function('document', 'DM_SPOKE_AT', 'LAST_AT', 'REPLYCHAN_CLEARED', [
-    'const REPLYCHAN_STALE_MS = 12000;',
+    // The page's own window, not a copy: STATUS_POLL_TIMEOUT_MS and the var line, verbatim.
+    RAW.match(/^const STATUS_POLL_TIMEOUT_MS = [^;\n]*;/m)[0],
+    RAW.match(/^var REPLYCHAN_STALE_MS = [^;\n]*;/m)[0],
     'const esc = (s) => String(s);',
     'const stateCopyOf = (a) => ({ label: a.state });',
     'const cardStOf = (a) => ({ st: a.state });',
@@ -162,7 +164,9 @@ test('#5820: a poll that started before a Clear does not paint the channel back;
     assert.equal(els['d-replychan'].hidden, true, 'a stale poll painted the cleared channel back');
     assert.match(els['d-replychan-msg'].textContent, /^Cleared\./, 'a stale poll wiped the Cleared answer');
     // CONTROL: once the window has passed, a channel on the card is a real declaration and shows.
-    cleared.set(ada.sessionName, Date.now() - 13000);
+    const windowMs = paintWindow();
+    assert.ok(windowMs >= 10000, 'the window is shorter than a status poll can take: ' + windowMs);
+    cleared.set(ada.sessionName, Date.now() - windowMs - 1000);
     paint({ ...ada, replyChannel: 'Discord' });
     assert.equal(els['d-replychan'].hidden, false, 'a real declaration after the window stayed hidden');
   } finally { fleet.restore(); }
@@ -218,5 +222,23 @@ test('#5820: an answer that arrives after the person moved to another agent says
     await h.run(ada.sessionName);
     assert.equal(h.els['d-replychan-msg'].textContent, '', 'ada\'s answer was written on bo\'s page');
     assert.equal(h.els['d-replychan-clear'].disabled, false, 'the button stayed disabled for when the person comes back');
+  } finally { fleet.restore(); }
+});
+
+/* The page's stale window as the page computes it. */
+function paintWindow() {
+  // eslint-disable-next-line no-new-func
+  return new Function([RAW.match(/^const STATUS_POLL_TIMEOUT_MS = [^;\n]*;/m)[0], RAW.match(/^var REPLYCHAN_STALE_MS = [^;\n]*;/m)[0], 'return REPLYCHAN_STALE_MS;'].join('\n'))();
+}
+
+test('#5820: a Clear that worked is remembered even when its answer arrives after the person moved away', async () => {
+  try {
+    const { ada, bo } = cards();
+    let cur = ada;
+    const h = clearHandler({ answer: async () => { cur = bo; return { ok: true, status: 200, json: async () => ({ ok: true, channel: null }) }; },
+      current: () => cur });
+    await h.run(ada.sessionName);
+    assert.ok(h.cleared.has(ada.sessionName), 'coming back to ada would paint the cleared channel from a stale card');
+    assert.equal(h.els['d-replychan-msg'].textContent, '', 'ada\'s answer was written on bo\'s page');
   } finally { fleet.restore(); }
 });
