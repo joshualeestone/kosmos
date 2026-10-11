@@ -635,11 +635,12 @@ function afterRemove(projectId) {
   try { link = linkFor(projectId); } catch { link = null; }
   if (!link || link.role !== 'owner') return Promise.resolve(false);
   const s = seats.get(projectId);
-  // Kept until the next remove: once a later check succeeds, checkedBeforeRemove is false again. With no
-  // seat there is nowhere to keep it; the check below still runs (plan: Not covered).
-  // Strictly after the previous remove's token, so an earlier remove's own check (token + 1) never
-  // counts as after this one on a timer too coarse to separate them.
+  // The remove's moment is kept on the seat until the next remove: once a later check succeeds,
+  // checkedBeforeRemove is false again. With no seat there is nowhere to keep it; the check below
+  // still runs (plan: Not covered).
   if (s) {
+    // Strictly after the previous remove's token, so an earlier remove's own check (token + 1) never
+    // counts as after this one on a timer too coarse to separate them.
     const m = mono();
     s.removedMono = typeof s.removedMono === 'bigint' && m <= s.removedMono + 1n ? s.removedMono + 1n : m;
     s.removedAt = Date.now();
