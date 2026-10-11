@@ -21,10 +21,15 @@
  *   stored; only deduplication against them is. The caller decides when (a refused read, said to the person once).
  * writeState(org, member, state): atomic (securewrite, owner-only). Throws on a state this module would not read back.
  * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the state's period when it is `label`, its index
- *   pruned of entries sealed to another member key (a #5744 rotation) or whose lock has ended (both of which
- *   takeSnapshot would refuse as a stale index, costing a run); else a fresh period with a new naming key and an empty
- *   index. A new period never inherits the old index or key.
- * withRun(state, period, result) -> state: the period after a takeSnapshot result. The index is dropped ONLY when the
+ *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
+ *   costing a run) and, defensively, of locks already ended (takeSnapshot's own check is stricter, against the manifest's
+ *   lock; every row withRun accepts has passed it for its period); else a fresh period with a new naming key and an empty
+ *   index. A new period never inherits the old index or key. A label EARLIER than the stored one returns the STORED
+ *   (later) period: the coordinator may grant in the next week while this Mac's clock is still in this one
+ *   (takeSnapshot's grantedPeriod), and starting the earlier week fresh would throw away the later week's naming key
+ *   and index for good. The caller builds its context from the returned label, never from the one it asked for.
+ * withRun(state, period, result) -> state: the period after a takeSnapshot result, plus `leftOut` (how many `added`
+ *   rows it did not keep: malformed, another period's, or past the cap; not persisted), so a caller bug shows. The index is dropped ONLY when the
  *   result says so: staleIndex, or chunks stored under a DIFFERENT non-null bucket. A null bucket is not "another
  *   bucket": takeSnapshot returns null on every failure before it reads the index (a bad root, the clock, a key), and
  *   that run touched nothing. `added` rows are checked as readState checks them; a malformed one is left out (it is
@@ -36,6 +41,8 @@
  *   - Write after the run. A run killed before that loses its `added` (those chunks are stored, locked, and named by no
  *     manifest; the next run uploads them again and spends allowance again).
  *   - One run at a time per (org, member): two runs reading and writing this file lose one run's `added`.
+ *   - Files discardState set aside (<file>.bad-<time>, 0600, each holding that period's naming key) are never removed
+ *     here; they are kept for a person to look at.
  *
  * `because` is a fixed sentence, never a path or a byte of the file.
  */
@@ -133,6 +140,8 @@ function forPeriod(state, label, opts = {}) {
   if (!PERIOD_RE.test(label)) throw new Error('backupstate: a period label is an ISO week, such as 2026-W41');
   if (!HEX32_RE.test(opts.memberKeyId) || !Number.isSafeInteger(opts.nowMs)) throw new Error('backupstate: forPeriod needs the member key id and the time');
   const p = state && state.period;
+  // ISO-week labels (YYYY-Www) compare correctly as strings.
+  if (p && p.label > label) label = p.label;
   if (p && p.label === label) {
     const index = new Map();
     for (const [name, e] of p.index) if (e.memberKeyId === opts.memberKeyId && e.lockedUntilMs > opts.nowMs) index.set(name, e);
@@ -144,7 +153,7 @@ function forPeriod(state, label, opts = {}) {
 
 function withRun(state, period, result) {
   const r = result || {};
-  let index = period.index, bucket = period.bucket;
+  let index = period.index, bucket = period.bucket, leftOut = 0;
   if (r.staleIndex) index = new Map();
   if (typeof r.bucket === 'string' && r.bucket && r.bucket !== bucket) {
     // The run's chunks are under ANOTHER bucket: the old index named chunks this period can no longer use.
@@ -154,11 +163,11 @@ function withRun(state, period, result) {
   if (r.added instanceof Map && r.added.size && bucket) {
     index = new Map(index);
     for (const [name, e] of r.added) {
-      if (index.size >= MAX_INDEX) break;
-      if (goodEntry(name, e, period.label)) index.set(name, { key: e.key, lockedUntilMs: e.lockedUntilMs, memberKeyId: e.memberKeyId });
+      if (index.size < MAX_INDEX && goodEntry(name, e, period.label)) index.set(name, { key: e.key, lockedUntilMs: e.lockedUntilMs, memberKeyId: e.memberKeyId });
+      else leftOut++;
     }
   }
-  return Object.assign({}, state, { period: { label: period.label, namingKey: period.namingKey, bucket, index } });
+  return Object.assign({}, state, { period: { label: period.label, namingKey: period.namingKey, bucket, index }, leftOut });
 }
 
 function discardState(org, member) {
