@@ -21,7 +21,8 @@ const mk = require('./backupmemberkey');
 
 const ORG = 'org1', MEMBER = 'acct1';
 
-/* A coordinator with the route's rules: first key is epoch 1; the same key again is a repeat; a new key only at
+/* (Its checks give the route's answers for every case these tests reach, but not in the route's own order.)
+   A coordinator with the route's rules: first key is epoch 1; the same key again is a repeat; a new key only at
    current + 1 and only when `day` allows; another key at the current epoch is 409 member_key_exists; any other epoch
    is 400 member_key_wrong_epoch with currentEpoch. Every wrap must open to member_public for (org, member, epoch). */
 function fakeCoordinator({ day = true } = {}) {
@@ -386,4 +387,16 @@ test('#5744 2b: Kosmos+ took the key but the note could not be written: ok false
   const again = await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.deepEqual([again.ok, again.epoch], [true, 1], JSON.stringify(again));
   assert.equal(c.kept.size, 1, 'a second epoch was started');
+});
+
+test('#5744 2b: lostEpoch twice inside the day sends the same pending key both times', async () => {
+  const c = fakeCoordinator({ day: false });
+  await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
+  const sent = [];
+  const watch = async (m, route, b) => { if (route === mk.MEMBER_KEY_ROUTE) sent.push(b); return c.macRequest(m, route, b); };
+  const a = await mk.ensureMemberKey({ macRequest: watch, lostEpoch: 1 });
+  const b = await mk.ensureMemberKey({ macRequest: watch, lostEpoch: 1 });
+  assert.deepEqual([a.waiting, b.waiting], [true, true], JSON.stringify([a, b]));
+  assert.equal(new Set(sent.map((x) => x.member_public)).size, 1, 'a different key was sent on the second call');
+  assert.equal(sent.length, 2, 'more sends than one a call');
 });

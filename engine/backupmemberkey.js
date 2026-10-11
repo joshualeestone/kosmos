@@ -128,7 +128,8 @@ async function ensureNow(opts) {
     /* opts.lostEpoch: the backup job saw a grant for another epoch than this registered key's (one computer per member,
        so this file is stale, e.g. a restored data root). That key is treated as lost: a new key goes the same way a
        lost key's does (one move, the day respected). The stale key stays in the file, so this computer still opens
-       its own backups from that epoch; nothing is deleted on the job's word. */
+       its own backups from that epoch; nothing is deleted on the job's word. The job passes lostEpoch on EVERY call
+       until a newer key is registered: without it, a call answers the stale key from disk. */
     let lost = null;
     if (Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= 1 && opts.lostEpoch < EPOCH_MAX && newestRegistered(keys) === opts.lostEpoch) {
       lost = opts.lostEpoch;
@@ -138,7 +139,9 @@ async function ensureNow(opts) {
     // The newest key not yet taken (kept before an earlier send), else a new one for epoch 1.
     // A stale registered key is KEPT (it still opens its own epoch's backups); the new key starts one past it, and the
     // move path takes it to the member's current epoch + 1 if that is later.
-    let epoch = lost !== null ? lost + 1 : (epochs.length ? epochs[0] : 1);
+    // A pending key already kept above the stale one (an earlier call that waited out the day) is the one to send again.
+    const pending = epochs.length && !keys[epochs[0]].registered ? epochs[0] : null;
+    let epoch = lost !== null ? (pending !== null && pending > lost ? pending : lost + 1) : (epochs.length ? epochs[0] : 1);
     if (!keys[epoch]) {
       keys[epoch] = { ...backupkeys.newMemberKey(), registered: false };
       writeKeys(company.org, company.member, keys);
