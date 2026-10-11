@@ -66,6 +66,8 @@ test('#5774 part 2: each shell startup file in the home folder is denied in both
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-rc', { ...DEPS, env: ENV0 });
   assert.equal(g.ok, true, JSON.stringify(g));
   const s = readSettings(dir);
+  // Named here, not only through the exported list (a list the test reads cannot catch a name dropped from it).
+  for (const f of ['.zshenv', '.zshrc', '.bashrc', '.bash_profile', '.profile', '.bash_aliases', '.cshrc', '.tcshrc']) assert.ok(setup.SHELL_START_FILES.includes(f), f);
   for (const f of setup.SHELL_START_FILES) {
     const p = path.join(HOME, f);
     assert.ok(editDeniedBy(s.permissions.deny, p).length > 0, `${f}: the file tools can rewrite it`);
@@ -79,7 +81,7 @@ test('#5774 part 2: each shell startup file in the home folder is denied in both
   }
   // nushell's XDG folder and its macOS default.
   for (const d of [path.join(HOME, '.config', 'nushell'), path.join(HOME, 'Library', 'Application Support', 'nushell')]) {
-    for (const f of ['config.nu', 'env.nu']) assert.ok(editDeniedBy(s.permissions.deny, path.join(d, f)).length > 0, `nushell ${d}/${f}`);
+    for (const f of ['config.nu', 'env.nu', 'login.nu', 'autoload/x.nu']) assert.ok(editDeniedBy(s.permissions.deny, path.join(d, f)).length > 0, `nushell ${d}/${f}`);
   }
   // Review 1: zsh runs a newer compiled copy in place of a startup file, and compinit loads its dump.
   for (const f of ['.zshenv.zwc', '.zshrc.zwc', '.zcompdump', '.zcompdump-host-5.9', '.zcompdump.zwc']) {
@@ -131,12 +133,15 @@ test('#5774 part 2: $ZDOTDIR, $BASH_ENV and $ENV are read from the environment t
   const deny2 = readSettings(dir2).permissions.deny;
   for (const p of [path.join(zd, '.zshenv'), benv, shenv]) assert.deepEqual(editDeniedBy(deny2, p), [], `${p} denied with nothing naming it`);
   // A relative value is read from whatever folder the shell runs in (the agent can choose it): named, so not whole.
-  for (const [k, v] of [['BASH_ENV', 'rel.sh'], ['ENV', 'rel.sh'], ['ZDOTDIR', 'reldir']]) {
-    const d3 = agentDir('pilot-rcrel-' + k);
-    const g3 = setup.guardTokenOnlyFolder(d3, 'pilot-rcrel-' + k, { ...DEPS, env: { [k]: v } });
+  for (const [k, v] of [['BASH_ENV', 'rel.sh'], ['BASH_ENV', 'staging'], ['ENV', './rel.sh'], ['ZDOTDIR', 'reldir']]) {
+    const d3 = agentDir('pilot-rcrel-' + k + v.replace(/[^a-z]/g, ''));
+    const g3 = setup.guardTokenOnlyFolder(d3, path.basename(d3), { ...DEPS, env: { [k]: v } });
     assert.equal(g3.ok, false, `${k}=${v}: ` + JSON.stringify(g3));
     assert.match(String(g3.because), new RegExp(k));
   }
+  // Review 2: ENV=staging is a label, not a file: it does not make the guard not whole (CONTROL: ENV=./rel.sh above does).
+  const dl = agentDir('pilot-rclabel');
+  assert.equal(setup.guardTokenOnlyFolder(dl, 'pilot-rclabel', { ...DEPS, env: { ENV: 'staging' } }).ok, true);
   // ZDOTDIR naming the home folder itself adds nothing beyond the home files (no duplicate set), and is whole.
   assert.equal(setup.shellStartPaths(HOME, { ZDOTDIR: HOME }).unsafe.length, 0);
 });
@@ -146,12 +151,18 @@ test('#5774 part 2 review 1: ZDOTDIR set inside .zshenv (where it usually is) mo
   const zshenv = path.join(HOME, '.zshenv');
   const cases = [['export ZDOTDIR="$HOME/dots/zsh"', path.join(HOME, 'dots', 'zsh')], ["ZDOTDIR='~/zd2'", path.join(HOME, 'zd2')], ['export ZDOTDIR=${XDG_CONFIG_HOME}/zz', path.join(SANDBOX, 'xdg', 'zz')]];
   try {
-    for (const [line, folder] of cases) {
+    cases.forEach(([line, folder], i) => {
       fs.writeFileSync(zshenv, `# a comment\n${line}\n`);
-      const g = setup.guardTokenOnlyFolder(dir, 'pilot-zdot', { ...DEPS, env: { XDG_CONFIG_HOME: path.join(SANDBOX, 'xdg') } });
+      const d = agentDir('pilot-zdot-' + i);   // a fresh folder per case (the guard keeps rules it wrote before)
+      const g = setup.guardTokenOnlyFolder(d, path.basename(d), { ...DEPS, env: { XDG_CONFIG_HOME: path.join(SANDBOX, 'xdg') } });
       assert.equal(g.ok, true, `${line}: ` + JSON.stringify(g));
-      assert.ok(editDeniedBy(readSettings(dir).permissions.deny, path.join(folder, '.zshrc')).length > 0, `${line}: ${folder}/.zshrc not denied`);
-    }
+      assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(folder, '.zshrc')).length > 0, `${line}: ${folder}/.zshrc not denied`);
+    });
+    // Review 2: a quote in the middle (ZDOTDIR="$HOME"/.zsh) is named, never read as "$HOME" and dropped.
+    fs.writeFileSync(zshenv, 'export ZDOTDIR="$HOME"/.zsh\n');
+    const gq = setup.guardTokenOnlyFolder(agentDir('pilot-zdotq'), 'pilot-zdotq', { ...DEPS, env: {} });
+    assert.equal(gq.ok, false, JSON.stringify(gq));
+    assert.match(String(gq.because), /ZDOTDIR/);
     // One it cannot work out is named, so the guard is not whole.
     fs.writeFileSync(zshenv, 'export ZDOTDIR="$SOMETHING/zsh"\n');
     const g = setup.guardTokenOnlyFolder(dir, 'pilot-zdot', { ...DEPS, env: {} });

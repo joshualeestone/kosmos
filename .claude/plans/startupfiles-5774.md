@@ -10,13 +10,14 @@
 - Tests: engine/startupfiles-5774.test.js, 5 tests (each file in both layers; a linked dotfile's target; ZDOTDIR, BASH_ENV and ENV from the environment, in both layers, with a control; relative values named; ZDOTDIR set inside .zshenv; XDG_CONFIG_HOME; controls: an ordinary home file and the agent's own .zshrc stay writable). Each piece was mutated and turned red: 6 at first, 9 more after review 1.
 
 ## Decided
-- Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. The cost is about 16 denyWrite entries against the profile size limit (#5663), which the guard measures.
+- Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured (review 2) with a worst-case probe (a linked .zshrc, ZDOTDIR set in .zshenv, BASH_ENV): about 51 more denyWrite entries (125 against 74, 8.1 KB against 4.6 KB as JSON) and 59 more deny rules, and the guard's own profile-size check (#5663) still passes.
 - The environment read is the board's own (deps.env or process.env): agents are launched from it, so it is what their shells see. Weakest premise: a launch that sets ZDOTDIR or BASH_ENV differently for one agent is not seen.
 - Claude Code's own writes are not affected: deny rules govern its tools, not the app's own code (an installer or updater adding a PATH line still works).
 - Not covered here: system-wide startup files (/etc/zshenv and the like; root-owned, not writable by the agent), and files a startup file pulls in (`source ~/x`), which is route 3 ("what start-time files pull in").
 
 ## Gaps, stated
-- A shell beyond zsh, bash, sh, csh and tcsh, fish and nushell is not listed.
+- A shell beyond zsh, bash, sh, csh and tcsh, fish and nushell is not listed (ksh's .kshrc, xonsh, PowerShell profiles); nor ~/.inputrc (key bindings, not code).
+- ZDOTDIR set in .zshenv by `typeset -x ZDOTDIR=...` or `: ${ZDOTDIR:=...}`, or in /etc/zshenv, is not read; the conventional XDG folder is covered regardless.
 - Route 3 and on stay on the card.
 
 ## Challenge loop notes
@@ -29,4 +30,10 @@
   - [WARNING] FIXED. The sandbox layer was untested for the environment paths and the folders. Now asserted; dropping the folders from denyWrite turns a test red.
   - My own error, caught at once: a comment I wrote held "*/" and closed itself (a syntax error the test run showed).
   - NITs taken: the new block no longer sits between CONFIG_HOME_CODE_DIRS and its comment; the plan's mutation line is exact. Not taken: an absolute BASH_ENV with a pattern character is caught by the generic "not whole" message rather than named (rare; still not whole).
+- Iteration 2 (Sonnet), on cc8b4e8ae:
+  - [WARNING] FIXED. ENV is also a common label (ENV=staging), and naming any relative value would have made every guard not whole. ENV is now read only when it looks like a path. BASH_ENV stays strict, since every non-interactive bash reads it. Tested both ways; the mutation turned red.
+  - [WARNING] FIXED. nushell also reads login.nu and its autoload folders, so its folders are now denied whole, as fish's.
+  - [WARNING] FIXED. `ZDOTDIR="$HOME"/.zsh` was read as "$HOME" and dropped silently (failing open). The whole value is now parsed, and a quote in the middle is named. My first mutation for this stayed green, because the fallback path also names it. The meaningful mutation, restoring the old regex, turned red.
+  - [WARNING] FIXED. The plan's cost line was stale. It is now measured: 51 denyWrite entries in the worst case, and the size check passes.
+  - NITs taken: .bash_aliases (its first mutation stayed green, because the test iterated the list it removes from; now named explicitly, red); a fresh folder per ZDOTDIR case; the typeset forms and other shells are stated under Gaps.
 

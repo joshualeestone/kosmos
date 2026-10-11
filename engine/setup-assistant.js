@@ -1218,7 +1218,7 @@ const CLAUDE_GLOBAL_CONFIG_SUFFIXES = startcommands.CLAUDE_GLOBAL_CONFIG_SUFFIXE
    cannot write the home folder already (its write scope), so this is the file tools' gap; they are denied in both
    layers anyway, links followed, since the target of a linked dotfile is what gets written. */
 const SHELL_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.bashrc', '.bash_profile', '.bash_login', '.profile', '.bash_logout',
-  '.cshrc', '.tcshrc', '.login', '.logout'];
+  '.bash_aliases', '.cshrc', '.tcshrc', '.login', '.logout'];   // review 2: .bash_aliases, sourced by the common default .bashrc
 const ZSH_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout'];
 /* Review 1: zsh runs a compiled copy (<file>.zwc) in place of a startup file when it is newer, so each is denied with
    its .zwc; and compinit loads its dump file (.zcompdump, often with a host suffix) on every completing shell. */
@@ -1249,19 +1249,31 @@ function shellStartPaths(home, env) {
   if (typeof e.ZDOTDIR === 'string' && e.ZDOTDIR) zdot(e.ZDOTDIR, 'in the environment');
   let zshenv = '';
   try { zshenv = fs.readFileSync(path.join(home, '.zshenv'), 'utf8'); } catch { /* none: nothing set there */ }
-  for (const m of zshenv.matchAll(/^[ \t]*(?:export[ \t]+)?ZDOTDIR=(?:"([^"]*)"|'([^']*)'|([^\s;#]*))/gm)) zdot(m[1] ?? m[2] ?? m[3], 'set in .zshenv');
+  /* Review 2: the whole value up to whitespace, ; or #, then unquoted only when it is ONE quoted string or no quotes at
+     all. ZDOTDIR="$HOME"/.zsh, a quote in the middle, is named rather than read as "$HOME" (which would drop it). */
+  for (const m of zshenv.matchAll(/^[ \t]*(?:export[ \t]+)?ZDOTDIR=([^\s;#]*)/gm)) {
+    const raw = m[1];
+    const one = /^"([^"]*)"$/.exec(raw) || /^'([^']*)'$/.exec(raw);
+    if (one) zdot(one[1], 'set in .zshenv');
+    else if (/["']/.test(raw)) unsafe.push(`ZDOTDIR (${raw}, set in .zshenv), a folder of zsh startup files Kosmos cannot work out`);
+    else zdot(raw, 'set in .zshenv');
+  }
   // The conventional XDG folder, whether or not anything above names it (a setting this cannot read may).
   zdots.add(path.join(xdg, 'zsh'));
   for (const d of zdots) { files.push(...zshFilesIn(d)); globs.push(path.join(d, '.zcompdump*')); }
   for (const k of ['BASH_ENV', 'ENV']) {
     if (typeof e[k] !== 'string' || !e[k]) continue;
     if (path.isAbsolute(e[k])) files.push(path.resolve(e[k]));
+    /* Review 2: ENV is also a common label (ENV=staging), and only an interactive sh reads it; a value that does not
+       look like a path is not read as one, so a label never makes every guard not whole. BASH_ENV is read by every
+       non-interactive bash, so any relative value is named. */
+    else if (k === 'ENV' && !/[\/\\]/.test(e[k]) && !/^[~.]/.test(e[k])) continue;
     // Relative: read from whatever folder the shell runs in, which the agent can choose, so it is named, not guessed.
     else unsafe.push(`$${k} (${e[k]}), a startup file named relative to the folder a shell runs in`);
   }
+  // Review 2: nushell reads login.nu and every file in its autoload folders too, so its folders are denied whole, as fish's.
   const nu = [path.join(xdg, 'nushell'), path.join(home, 'Library', 'Application Support', 'nushell')];
-  files.push(...nu.flatMap((d) => [path.join(d, 'config.nu'), path.join(d, 'env.nu')]));
-  return { files: [...new Set(files)], dirs: [path.join(xdg, 'fish')], globs: [...new Set(globs)], unsafe };
+  return { files: [...new Set(files)], dirs: [path.join(xdg, 'fish'), ...nu], globs: [...new Set(globs)], unsafe };
 }
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
    and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
