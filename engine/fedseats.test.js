@@ -3964,6 +3964,7 @@ test('#5191: an account id that is an Object prototype name is recorded and refu
 
 test('#5191: a check already out when this screen removes someone does not release a post that arrived after the remove', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  t.after(() => harness());   // put the shared harness back for later tests, even if an assertion fails
   let edges = [];
   const calls = [];
   const recorded = [];
@@ -4005,7 +4006,6 @@ test('#5191: a check already out when this screen removes someone does not relea
   assert.strictEqual(await removed, true);
   await settle();
   assert.deepStrictEqual(recorded, ['before the remove'], 'the revoked member\'s post was shown');
-  harness();   // put the shared harness back for any later test
 });
 
 test('#5191: the remove\'s own check counts as after the remove, though both fall in one millisecond', async (t) => {
@@ -4019,5 +4019,46 @@ test('#5191: the remove\'s own check counts as after the remove, though both fal
   await settle();
   assert.deepStrictEqual(shown(h), ['remaining, just after the remove'], 'the post was not shown at once');
   assert.strictEqual(h.asked, asked, 'the remove\'s own check was taken as older than the remove, and the post waited for another');
+});
+
+test('#5191: a pass answer asked before a remove does not count as after it when the clock steps back between them', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  t.after(() => harness());
+  let edges = [];
+  const calls = [];
+  const recorded = [];
+  let seat = null;
+  fedseats.stopAll();
+  fedseats.configure({
+    spawnSeat: () => { seat = fakeChild(); return seat; },
+    macRequest: () => { const snap = JSON.parse(JSON.stringify(edges)); let res; const p = new Promise((r) => { res = r; }); calls.push({ go: () => res({ ok: true, data: { as_owner: snap, as_member: [] } }) }); return p; },
+    recordExternal: (pid, m) => recorded.push(m.text), onStatus: () => {}, enrolled: () => true, projectExists: () => true,
+    projectCreatedAt: () => undefined, note: () => {},
+  });
+  const answerAll = async () => { while (calls.length) { calls.shift().go(); await settle(); } };
+  const id = 'proj-5191-clockback'; const ref = 'ref-cb'; const room = 'room-cb';
+  federation.recordLink(id, { role: 'owner', ref });
+  const invs = [newInvite('cb-0'), newInvite('cb-1')];
+  for (const [j, inv] of invs.entries()) {
+    fedseal.stashInvite(ref, inv);
+    edges.push({ id: 'edge-' + inv.invite, project_ref: ref, status: 'active', invite_id: inv.invite, member_account_id: 'acct-cb-' + j });
+  }
+  const p = fedseats.ensure(id); await settle(); await answerAll(); await p; await settle();
+  say(seat, { event: 'connected', room, expires_at: 9 }); await settle();
+  for (const inv of invs) { say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), room) }); await settle(); await answerAll(); }
+  assert.strictEqual(Object.keys(fedseal.roomState(id).peers).length, 2, 'fixture: both pinned');
+  t.mock.timers.tick(20 * 1000);
+  const pass = fedseats.ensureAll(); await settle();
+  const passAsk = calls.shift(); assert.ok(passAsk, 'fixture: the pass asked for edges');
+  assert.strictEqual(calls.length, 0, 'fixture: only the pass asked');
+  t.mock.timers.setTime(Date.now() - 60 * 1000);   // the clock is corrected backwards after the pass asked
+  edges = edges.map((e, j) => j === 0 ? Object.assign({}, e, { status: 'revoked' }) : e);
+  const removed = fedseats.afterRemove(id); await settle();
+  say(seat, { event: 'message', member: 'acct-cb-0', data: fedseal.seal(fedseal.roomState(id).keys[0], 0, room, { from: 'G', kind: 'person', text: 'revoked, after the remove' }, Date.now()) });
+  await settle();
+  passAsk.go(); await settle(); await settle();   // the pass's answer, asked before the remove, arrives
+  assert.deepStrictEqual(recorded, [], 'a pass answer asked before the remove released a post that arrived after it');
+  await answerAll(); await pass; await removed; await settle();
+  assert.deepStrictEqual(recorded, [], 'the revoked member\'s post was shown');
 });
 

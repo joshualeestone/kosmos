@@ -47,8 +47,11 @@ new-key posts show.
 - `revokedAccounts` is never pruned: one entry per account ever revoked from the room, so it is
   bounded by the room's invites, and it goes when the room is forgotten.
 - Between the remove and its own check answering (the room's sealing steps already queued, plus
-  one request), the revoked member is still pinned and nothing is recorded yet. afterRemove drops
-  the Mac's shared edges answer first, so if its own check fails, the next post's check asks again.
+  one request), the revoked member is still pinned and nothing is recorded yet. If its own check
+  fails, the next post is held and its check asks for an answer newer than the remove.
+- The remove's moment lives on the room's seat: a seat replaced after a remove whose own check
+  failed forgets it, and its first post's check may use a shared answer up to 15 s old from before
+  the remove (the 90 s grace still bounds it).
 
 ## Tests (engine/fedseats.test.js, server.fedmembers-4649.test.js)
 Each run against a perturbation that turns it red (recorded in the commit messages):

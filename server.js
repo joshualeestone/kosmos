@@ -19173,7 +19173,7 @@ const server = http.createServer(async (req, res) => {
           : await fedmembers.withdraw(remote, body.project, body.invite_id);
         if (out.roomLine) { try { messages.roomNote(body.project, out.roomLine); } catch { /* the note is furniture */ } }
         // #5191: rotate the room now, not at the next edge check, so the removed member's posts are refused from now.
-        if (out.status === 200 && pathname === '/api/federation/remove') fedseats.afterRemove(body.project).catch(() => {});
+        if (out.status === 200 && pathname === '/api/federation/remove') { try { fedseats.afterRemove(body.project).catch(() => {}); } catch { /* the remove itself succeeded */ } }
         sendJson(res, out.status, out.body);
       })
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
