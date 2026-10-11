@@ -1052,7 +1052,9 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
     "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
     chk "CONTROL: the connect computer's board is down before the look" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
     _pkg="$SB/home/app/package.json"
-    _older() { sed 's/"version":[[:space:]]*"[^"]*"/"version": "0.0.1"/' "$_pkg" > "$_pkg.t" && mv "$_pkg.t" "$_pkg"; }
+    # #4449: this harness installs with KOSMOS_READONLY_APP=1, so the fixture lifts that for its own edit first (a
+    # failed redirect here would end the whole run under set -e with no tally). The next update replaces app/.
+    _older() { chmod u+w "$SB/home/app" "$_pkg" && sed 's/"version":[[:space:]]*"[^"]*"/"version": "0.0.1"/' "$_pkg" > "$_pkg.t" && mv "$_pkg.t" "$_pkg"; }
     _older
     chk "CONTROL: the install now reads as older" "grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
     # Updates off: offered, nothing installed, the board stays down.
@@ -2370,7 +2372,7 @@ D918_NOARGS
 
 # Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
 # convention #918 is about, never running --uninstall against it.
-# #4449: its app is installed read-only, so a direct delete lifts that first, as a person deleting the folder by
+# #4449: its app may be read-only (KOSMOS_READONLY_APP, on for this harness), so a direct delete lifts that first, as a person deleting the folder by
 # hand would have to (a plain rm -rf is refused inside it, and under set -e that ended this whole harness).
 chmod -R u+w "$D918_KHOME_A" 2>/dev/null || true
 rm -rf "$D918_KHOME_A"
