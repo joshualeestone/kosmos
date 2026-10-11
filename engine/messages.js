@@ -1529,9 +1529,11 @@ function keepTaskLine(toName, line, roster, from, about, where) {
    was carried on it records nothing. Best-effort, like every taskchat record. */
 function recordTaskLineOutcome(entry, v, dropped) {
   if (!entry || typeof entry.projectId !== 'string' || !entry.projectId || !Number.isSafeInteger(entry.task)) return false;
+  // `behind`: kept behind earlier messages rather than for a usage reset, so the page does not speak of a reset.
+  const behind = entry.behind === true ? { behind: true } : {};
   return require('./taskchat').record(entry.projectId, entry.task, dropped
-    ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || '') }
-    : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || '') });
+    ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || ''), ...behind }
+    : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || ''), ...behind });
 }
 /* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane, and (#5842) the task's
    conversation records it, which is where the person sees it. */
