@@ -143,7 +143,8 @@ const TAIL = (older) => ({
     chk(!s.open && s.rows.length === 0 && s.showBtn, 'another agent on screen starts with the earlier section closed and empty', JSON.stringify(s));
 
     // Review 1's blocker: another agent whose thread read FAILS must not show this agent's earlier rows, not for a moment.
-    await page.evaluate(() => { CURRENT = { sessionName: 'april', name: 'April' }; window.__tail = null; });
+    // Each arm from here starts from a clean section (test setup), so an earlier arm's state cannot decide it.
+    await page.evaluate(() => { earlierReset(null); CURRENT = { sessionName: 'april', name: 'April' }; window.__tail = null; });
     await page.evaluate((t) => { window.__tail = t; }, TAIL(5));
     await page.evaluate(() => paintTalk('april', 'April'));
     await page.click('#d-talk-older-show'); await settle();
@@ -155,7 +156,7 @@ const TAIL = (older) => ({
     chk(!s.open && s.rows.length === 0, 'switching to an agent whose read fails clears the earlier section (no cross-agent rows)', JSON.stringify(s));
 
     // Hide then Show while a page is loading draws it once.
-    await page.evaluate(() => { window.__failThread = null; CURRENT = { sessionName: 'april', name: 'April' }; window.__olderDelay = 400; });
+    await page.evaluate(() => { earlierReset(null); window.__failThread = null; CURRENT = { sessionName: 'april', name: 'April' }; window.__olderDelay = 400; });
     await page.evaluate(() => paintTalk('april', 'April')); await settle();
     await page.click('#d-talk-older-show');
     await page.click('#d-talk-earlier-hide');
