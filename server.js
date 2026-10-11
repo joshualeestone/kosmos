@@ -8965,7 +8965,19 @@ const server = http.createServer(async (req, res) => {
            the board token (the person, every agent's CLI today) is not narrowed, as before. */
         const only = agentTokenOnlyCaller(req);
         if (only === '') { sendJson(res, 403, { kept: false, because: 'that agent token names nobody' }); return; }
-        sendJson(res, 200, require('./engine/undo').keep(body.path, { cwd: body.cwd, session: body.session, onlyFor: only || null }));
+        const undo = require('./engine/undo');
+        sendJson(res, 200, undo.keep(body.path, { cwd: body.cwd, session: body.session, onlyFor: only || null }));
+        /* #5812: the same call, switch on or off, records which agent is about to write a project file (the agent is
+           looked up only for a file inside a project). After the answer, so the hook (which waits at most 3 s, before
+           the edit) never waits on it. */
+        setImmediate(() => {
+          try {
+            require('./engine/filewriters').noteWrite(body.path, () => {
+              const who = undo.agentFor(body.cwd, body.session);
+              return who && undo.ownedBy(only || null, who) ? who : null;
+            });
+          } catch { /* the record is best-effort */ }
+        });
       })
       .catch(() => sendJson(res, 400, { kept: false, because: 'unreadable request' }));
     return;
@@ -18813,7 +18825,20 @@ const server = http.createServer(async (req, res) => {
        the view asks for up to 500, and an unbounded ask cannot be minted. */
     let fileCap = 10;
     try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) fileCap = Math.min(Math.floor(l), 500); } catch { fileCap = 10; }
-    sendJson(res, 200, projects.listFiles(record.folder, fileCap));
+    const listed = projects.listFiles(record.folder, fileCap);
+    /* #5812: each row says which agent changed it last, when the board recorded one close enough to the change. */
+    if (listed && listed.ok && Array.isArray(listed.files)) {
+      try {
+        // The display name, read only for a row that has a writer (no roster snapshot on this per-poll route).
+        const names = new Map();
+        const nameOf = (s) => {
+          if (!names.has(s)) names.set(s, require('./engine/status').readIdentity(s).displayName || s);
+          return names.get(s);
+        };
+        listed.files = require('./engine/filewriters').annotate(record.id, listed.files, nameOf);
+      } catch { /* the list stands without writers */ }
+    }
+    sendJson(res, 200, listed);
     return;
   }
 
