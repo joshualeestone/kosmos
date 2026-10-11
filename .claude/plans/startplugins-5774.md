@@ -210,4 +210,10 @@ engine/startplugins-5774.test.js (see the iteration notes for what each test cov
   - [NIT] FIXED: jobsHere's Linux arm also takes AGENT_WORKFORCE_LAUNCH as a sandbox, as linuxjob.unitDir does.
   - [NIT] FIXED (comment): the unparseable-job fallback has no runner filter because only CLAUDE_CONFIG_DIR is read.
   - [NIT] DUPLICATE of review 15: CLAUDE_PLUGIN_DATA tagged with this agent's home for variable-named caches.
+- Iteration 22 (Sonnet), on 462eb7376: no BLOCKER, nothing new above NIT. CONVERGED.
+  - [WARNING] NOT A DEFECT: "a bare K=/x later exported is not read". The dropped form is `K=/x cmd`, a prefix assignment, which never sets the shell's own K, so a later `export K` or `set -a` cannot export /x. A bare `K=/x` alone is read.
+  - [WARNING] NOT A DEFECT: a `~user/x` settings value for the cache or seed variable resolves under the agent's folder and is named as inside it. Claude Code reads it as relative too, so the folder named is the one it uses. Rare; fails closed.
+  - [WARNING] DUPLICATE of a stated gap (review 8): jobsHere reads no jobs when the job folder is outside the home and no sandbox variable names it.
+  - [WARNING] CONFIRMED BY DESIGN: plugins inside a read-only folder get no rule (unwritable, and versioned).
+  - [NIT] not taken: the startup-file name list beside shellStartPaths (the filter keeps only the zsh and bash files part 2 lists); long lines; review comments; the Windows `~\` branch.
 
