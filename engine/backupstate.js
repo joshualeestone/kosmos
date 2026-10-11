@@ -31,10 +31,11 @@
  *   index. A new period never inherits the old index or key. Where a label comes from matters:
  *   - granted: true, a label the COORDINATOR named (takeSnapshot's grantedPeriod): always honoured, earlier or later,
  *     since its clock decides where chunks are filed (backupsnapshot's contract).
- *   - otherwise a label read from this Mac's clock: when the stored period is LATER and is the period this clock reaches
- *     within takeSnapshot's own skew (SKEW_MS, an hour), the stored one is returned, so a retry near Monday 00:00 does
- *     not throw away the week the coordinator already granted in. Anything further ahead (written under a wrong clock)
- *     is not kept: takeSnapshot would refuse it on every run.
+ *   - otherwise the label must be this clock's own (periodOf(nowMs)), and the STORED period is kept whenever
+ *     takeSnapshot would accept it as a context: any period within its skew (SKEW_MS, an hour, either way), earlier or
+ *     later. Near Monday 00:00 that keeps the week the coordinator is actually granting in, whichever side of this clock
+ *     its clock is, so a run does not throw away that week's key and index (review 5 simulated both signs). A stored
+ *     period outside the skew (written under a wrong clock, or simply last week) starts fresh.
  *   Starting fresh costs deduplication against the abandoned period, never a restore: its naming key is inside every
  *   manifest stored in it. The caller builds its context from the returned label.
  * withRun(state, period, result) -> state: the period after a takeSnapshot result, plus `leftOut` (how many `added`
@@ -159,8 +160,12 @@ function forPeriod(state, label, opts = {}) {
     throw new Error('backupstate: forPeriod needs the member key id and a usable time');
   }
   const p = state && state.period;
-  // ISO-week labels (YYYY-Www, weeks 01 to 53) compare correctly as strings.
-  if (!opts.granted && p && p.label > label && p.label === snap.periodOf(opts.nowMs + snap.SKEW_MS)) label = p.label;
+  if (!opts.granted) {
+    if (label !== snap.periodOf(opts.nowMs)) throw new Error('backupstate: a label not granted by the coordinator must be this clock\'s own period');
+    // takeSnapshot's own acceptance (periodsNear): this clock's period, an hour either way.
+    const near = new Set([snap.periodOf(opts.nowMs - snap.SKEW_MS), label, snap.periodOf(opts.nowMs + snap.SKEW_MS)]);
+    if (p && near.has(p.label)) label = p.label;
+  }
   if (p && p.label === label) {
     const index = new Map();
     for (const [name, e] of p.index) if (e.memberKeyId === opts.memberKeyId && e.lockedUntilMs > opts.nowMs) index.set(name, e);
