@@ -81,3 +81,17 @@ reach, telling a person on a server to use a window or a folder it does not have
   installed board.
 - **NIT, not taken:** `sinceAfter` in the same test lifts paintRestartScreen with no `restartHowText`. It returns
   before reaching it, as it did before this branch, which never touched that path.
+
+## Review 3 (opus): NITs only. CONVERGED.
+- **NIT, taken (plan):** the offline note and the restart screen name `kosmos restart` for EVERY Linux board, even
+  though review 1 took it out of the world-switch fallback because a board that is not installed has no such command.
+  - **Decided:** the two differ on purpose. The fallback is reached ONLY by a board that is not installed (the server
+    has already worked that out), so the command there is always wrong.
+  - A board with nothing answering cannot say which kind it is, and nearly every Linux board is installed (setup.sh).
+    So the command is the right default there, and "the way you started it" would be vaguer for the common case.
+  - Would change my mind: the page learning, before the board goes quiet, that it was started from source.
+- **NIT, not taken:** a board run from source on a machine that ALSO has the install can take the slow-reconnect
+  path through the installed CLI. There, `kosmos restart` repeats a step that did not help. This is a developer-only
+  setup.
+- The reviewer ran 81 of 81 across the five affected web test files. Its own mutant (worldswStuckStep's Linux arm
+  forced off) turned the #5862 arm red.
