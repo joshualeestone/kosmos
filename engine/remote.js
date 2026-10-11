@@ -1780,7 +1780,8 @@ function vouchTick() {
   if (!v.opened) {
     const now = Math.floor(Date.now() / 1000);
     if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
-    v.opened = true;   // an opener still running after 5 s counts as opened (runCompanyOpener); the window still bounds S
+    v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
+    // error (runCompanyOpener), it just logs nothing. The window still bounds S.
     // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
     const url = vouchUrl(v.secret);
     if (!url) {
@@ -1826,6 +1827,7 @@ function vouchTick() {
       if (vouchState === v) stopVouch();
       // Not during a Forget (it clears the notes), and not under another identity (the note would describe a device of
       // the account before it).
+      // (The identity is the mac_id file: a Forget mints a new one, and `forgetting` covers the Forget itself.)
       // An allow that lands after a sign-in under ANOTHER identity is not ours to note. A re-register of the same identity
       // also moves the epoch, but the device is in all the same, so it is still noted (and Not me can still take it out).
       if (forgetting || (v.epoch !== selfEpoch && !(v.ident && macIdHere() === v.ident))) return;
