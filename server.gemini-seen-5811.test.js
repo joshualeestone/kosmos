@@ -1,7 +1,7 @@
 'use strict';
 /*
- * #5811: `geminiSeen` is the snapshot's input to the #5804 "(set to X)" decision, not a card field. The route takes it
- * off every row before the page gets it, and still sends the decision (settingModelName). CONTROL: the snapshot the
+ * #5811: `geminiSeen` is the snapshot's input to the #5804 "(set to X)" decision. /api/status takes it off every row
+ * before the page gets it (and safeRoster off every roster row), and still sends the decision (settingModelName). CONTROL: the snapshot the
  * route reads DOES carry the key, so its absence on the page is the route's doing.
  */
 const fs = require('node:fs');
@@ -25,7 +25,7 @@ process.on('exit', () => {
   }
 });
 
-const { start, server } = require('./server');
+const { start, server, safeRoster } = require('./server');
 const fleet = require('./test-support/fleet');
 
 test.before(async () => { await start(0); });
@@ -45,4 +45,13 @@ test('#5811: /api/status rows never carry geminiSeen, and still carry settingMod
     assert.ok(!('geminiSeen' in row), `${row.name}'s page row carries geminiSeen`);
     assert.ok('settingModelName' in row, `${row.name}'s page row lost settingModelName`);
   }
+});
+
+test('#5811: the roster the project routes read carries no geminiSeen either', (t) => {
+  const b = fleet.install([fleet.agent('Ida', { state: 'idle' }), fleet.agent('Gem', { state: 'idle', runner: 'gemini', command: 'node' })]);
+  t.after(() => b.restore());
+  assert.ok('geminiSeen' in b.agents.find((a) => a.name === 'Gem'), 'CONTROL: the snapshot card carries the key');
+  const rows = (safeRoster() || []).filter((a) => a.name === 'Ida' || a.name === 'Gem');
+  assert.equal(rows.length, 2, 'both agents are on the roster');
+  for (const row of rows) assert.ok(!('geminiSeen' in row), `${row.name}'s roster row carries geminiSeen`);
 });

@@ -60,8 +60,8 @@ function settingModelName(name, deps) {
 }
 
 /* #5811: the decision for one snapshot row (engine/status.js), from what that tick's ONE session read already put on it:
-   `a.model` (the raw id the newest reply named) and the row's `geminiSeen` ({ modelAt, planned }), passed as `seen`
-   because server.js takes it off the row before the page gets it. No job read and no session read here. No `seen`
+   the row's `geminiSeen` ({ model, modelAt, planned }), passed as `seen` because server.js takes it off the row before
+   the page gets it. No job read and no session read here. No `seen`
    means the snapshot could not read the session, so there is nothing to say. `deps` reaches only the run start and the
    display name: the planned model and the session always come from the row. */
 function settingModelNameOfRow(a, seen, deps) {
@@ -69,7 +69,7 @@ function settingModelNameOfRow(a, seen, deps) {
   return settingModelName(a.sessionName, {
     ...(deps || {}),
     planned: () => seen.planned,
-    session: () => ({ found: true, model: a.model, modelAt: seen.modelAt }),
+    session: () => ({ found: true, model: seen.model, modelAt: seen.modelAt }),
   });
 }
 

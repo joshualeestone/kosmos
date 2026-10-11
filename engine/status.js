@@ -8711,11 +8711,11 @@ function snapshot() {
       context,
       model,
       modelName: modelDisplayName(model),
-      /* #5811: what the #5804 "(set to X)" decision needs, from this tick's ONE session read (geminiSess above), so
+      /* #5811: what the #5804 "(set to X)" decision needs, all from this tick's ONE session read (geminiSess above), so
          server.js decides it without reading the job or the session again. Gemini panes only; null when the session
          was not found. server.js takes it off the row before the page gets it. */
       geminiSeen: (tied && isGeminiPane && geminiSess && geminiSess.found)
-        ? { modelAt: Number.isFinite(geminiSess.modelAt) ? geminiSess.modelAt : null, planned: geminiSess.planned || null }
+        ? { model: sessModel(geminiSess), modelAt: Number.isFinite(geminiSess.modelAt) ? geminiSess.modelAt : null, planned: geminiSess.planned || null }
         : null,
       /* #149/#150: no launch file for a pane TIED to the name. The screen's
          wording branches on this rather than re-deriving it, so the card, the
