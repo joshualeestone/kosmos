@@ -300,6 +300,7 @@ const INVENTORY = [
   // --- benign non-path ':' (IPv6 hextets in the SSRF guard) ---
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "hex.split(':').filter(Boolean)", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "const parts = low.split(':')", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
+  { file: 'engine/startcommands.js', family: 'path-delimiter-literal', count: 1, contains: "for (const c of value.split(':')) {", disposition: 'benign-nonpath', why: "a PATH= assignment parsed out of a POSIX shell command line (a hook or server command): : is the separator of that shell syntax, Git Bash on Windows included, not the host's path.delimiter (#5774)" },
   { file: 'engine/restoresink.js', family: 'path-delimiter-literal', count: 1, contains: "const [name, , id, members = ''] = line.split(':')", disposition: 'benign-nonpath', why: "an /etc/group line (name:password:gid:members); ':' is that file's field separator, not a path list. isPrivateGroup is called only on the non-win32 branch of restoresink's root check (#5536)" },
   { file: 'engine/backupupload.js', family: 'path-delimiter-literal', count: 1, contains: ".toLowerCase().split(';')", disposition: 'benign-nonpath', why: "AWS SigV4's X-Amz-SignedHeaders: header names joined by ';', fixed by the protocol on every platform; not a path list (#5535)" },
   // --- name sanitizer (already handles backslash) ---
