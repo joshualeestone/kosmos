@@ -143,6 +143,7 @@ async function ensureNow(opts) {
     // A stale registered key is KEPT (it still opens its own epoch's backups); the new key starts one past it, and the
     // move path takes it to the member's current epoch + 1 if that is later.
     // A pending key already kept above the stale one (an earlier call that waited out the day) is the one to send again.
+    // This relies on the file invariant in the header: at most one unregistered entry, and it is the newest.
     const pending = epochs.length && !keys[epochs[0]].registered ? epochs[0] : null;
     let epoch = lost !== null ? (pending !== null && pending > lost ? pending : lost + 1) : (epochs.length ? epochs[0] : 1);
     if (!keys[epoch]) {
@@ -193,6 +194,9 @@ async function ensureNow(opts) {
         next = r.refusal.currentEpoch === epoch ? null
           : r.refusal.currentEpoch === 0 ? (epoch === 1 ? null : 1) : r.refusal.currentEpoch + 1;
       }
+      // Never onto a registered key, and on the lost path never at or below the stale epoch (an answer like that is what
+      // a coordinator rollback looks like): moving there would delete a key Kosmos+ took.
+      if (next !== null && ((keys[next] && keys[next].registered) || (lost !== null && next <= lost))) next = null;
       if (moved || next === null || next > EPOCH_MAX) {
         return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer', ...(r && r.refusal ? { refusal: r.refusal } : {}) };
       }
