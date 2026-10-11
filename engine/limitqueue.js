@@ -70,8 +70,11 @@ function addOrWhy(name, entry) {
       ...(entry.behind === true ? { behind: true } : {}),
       // #5805 slice 2b: a person's own message: its text and trailer are typed with the envelope, as the route types them.
       ...(entry.kind === 'dm' ? { kind: 'dm', text: String(entry.text || ''), trailer: String(entry.trailer || '') } : {}),
-      // A task message's line: typed as it is, and on a drop its sender is told which task it was in.
-      ...(entry.kind === TASK_KIND ? { kind: TASK_KIND, about: String(entry.about || '') } : {}) });
+      // A task message's line: typed as it is, and on a drop its sender is told which task it was in. #5842: the task
+      // itself (project id and number), so its conversation records the line sent or dropped; absent on older entries.
+      ...(entry.kind === TASK_KIND ? { kind: TASK_KIND, about: String(entry.about || ''),
+        ...(typeof entry.projectId === 'string' && entry.projectId && Number.isSafeInteger(entry.task) && entry.task > 0
+          ? { projectId: entry.projectId, task: entry.task } : {}) } : {}) });
     return write(name, now) ? '' : 'store';
   } catch { return 'store'; }
 }
@@ -226,8 +229,8 @@ function sweepHooks({ chat, messages }) {
   return {
     deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, isReleased: chat.limitQueueReleased,
-    // A task line has no message-log row to point back at: the task's own conversation is its record.
-    onDelivered: (e, v) => (e.kind === 'dm' ? setRow(e.to, e.at, v, chat) : e.kind === TASK_KIND ? undefined : messages.logHeldDelivered(e, v)),
+    // A task line has no message-log row to point back at: the task's own conversation is its record (#5842).
+    onDelivered: (e, v) => (e.kind === 'dm' ? setRow(e.to, e.at, v, chat) : e.kind === TASK_KIND ? messages.recordTaskLineOutcome(e, v) : messages.logHeldDelivered(e, v)),
     // A person's message the sweep could not type: its row stays held and says why (a menu up, no window), so it does
     // not read as merely waiting for the reset. Written straight, not retried: a later outcome replaces it anyway.
     onStuck: (e, v) => {

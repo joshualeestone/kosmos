@@ -226,3 +226,19 @@ test('#3951: marked built (by an agent, with its note; by the person) and the ma
   assert.match(html, /You took the built mark off/);
   assert.doesNotMatch(html, />built<|>unbuilt</, 'a bare kind word leaked through');
 });
+
+/* #5842 slice 2: a message kept for an agent out of usage, then sent after the reset or dropped a day later, reads as
+   such in the task's activity, from the person (no `from`) or from an agent. */
+test('#5842: a kept message sent after the reset, or dropped, reads plainly with names resolved', async () => {
+  const html = (await render([
+    { at: minsAgo(30), kind: 'kept-sent', to: 'mona', from: '', state: 'placed' },
+    { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', state: 'unconfirmed' },
+    { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '' },
+    { at: minsAgo(5), kind: 'kept-dropped', to: 'mona', from: 'mona' },
+  ])).innerHTML;
+  assert.match(html, /Your message to Mona was sent after its usage reset</);
+  assert.match(html, /Your message to Mona was sent after its usage reset, but Kosmos could not confirm Mona got it/);
+  assert.match(html, /Your message to Mona was never sent: Kosmos kept it for a day while Mona was out of usage/);
+  assert.match(html, /Mona’s message to Mona was never sent/);
+  assert.doesNotMatch(html, /kept-sent|kept-dropped/, 'a raw event kind reached the screen');
+});
