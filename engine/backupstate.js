@@ -14,8 +14,12 @@
  *     index      Map name -> { key, lockedUntilMs, memberKeyId }: the chunks stored this period (takeSnapshot's `index`)
  *
  * readState(org, member) -> { ok: true, state } | { ok: false, because }
- *   A missing file is ok and empty ({ job: {}, period: null }). A file that is a link, unreadable, malformed, or for
- *   another (org, member) is NOT ok, and is never overwritten in place. The way out is discardState.
+ *   A missing file is ok and empty ({ job: {}, period: null }). A file that is a link, malformed, or for another
+ *   (org, member) is NOT ok, and is never overwritten in place; the way out is discardState. A file that could not be
+ *   read for a passing reason (EBUSY, EAGAIN, EPERM, EACCES: a scanner, or a rename in progress on Windows) is NOT ok
+ *   with `retry`: NEVER discard on a retry, the file may be good.
+ * org and member must be non-empty strings in every function (a number would hash to the same file and then read as
+ *   another member's): a caller mistake throws.
  * discardState(org, member) -> { ok, because? }: renames the file aside (<file>.bad-<time>), never deleting it, so the
  *   next run starts a fresh period with a new naming key. Its chunks are not lost: the manifests that name them are
  *   stored; only deduplication against them is. The caller decides when (a refused read, said to the person once).
@@ -27,7 +31,9 @@
  *   index. A new period never inherits the old index or key. A label EARLIER than the stored one returns the STORED
  *   (later) period: the coordinator may grant in the next week while this Mac's clock is still in this one
  *   (takeSnapshot's grantedPeriod), and starting the earlier week fresh would throw away the later week's naming key
- *   and index for good. The caller builds its context from the returned label, never from the one it asked for.
+ *   and index for good. Only up to a day ahead of nowMs (the coordinator's clock may be an hour off this one): a stored
+ *   period further ahead (a clock that was wrong) is not kept, so it cannot hold every later run in the wrong week.
+ *   The caller builds its context from the returned label, never from the one it asked for.
  * withRun(state, period, result) -> state: the period after a takeSnapshot result, plus `leftOut` (how many `added`
  *   rows it did not keep: malformed, another period's, or past the cap; not persisted), so a caller bug shows. The index is dropped ONLY when the
  *   result says so: staleIndex, or chunks stored under a DIFFERENT non-null bucket. A null bucket is not "another
@@ -52,7 +58,13 @@ const crypto = require('crypto');
 const store = require('./store');
 const backupkeys = require('./backupkeys');
 
-const PERIOD_RE = /^[0-9]{4}-W[0-9]{2}$/;
+// Weeks 01 to 53 only (what periodOf writes), so labels compare correctly as strings.
+const PERIOD_RE = /^[0-9]{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$/;
+const AHEAD_MS = 24 * 60 * 60 * 1000;
+const TRANSIENT = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES']);
+function ids(org, member) {
+  if (typeof org !== 'string' || !org || typeof member !== 'string' || !member) throw new TypeError('backupstate: org and member must be non-empty strings');
+}
 const NAME_RE = /^[0-9a-f]{64}$/;
 const HEX32_RE = /^[0-9a-f]{32}$/;
 const KEY_SEG_RE = /^[A-Za-z0-9._:-]+$/;
@@ -104,12 +116,13 @@ function periodFrom(p) {
 }
 
 function readState(org, member) {
+  ids(org, member);
   const f = fileFor(org, member);
   try { if (fs.lstatSync(f).isSymbolicLink()) return { ok: false, because: 'the backup state file is a link, so it was not read' }; } catch { /* missing: the read decides */ }
   let raw;
   try { raw = fs.readFileSync(f, 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, state: { job: {}, period: null } };
-    return { ok: false, because: 'the backup state file could not be read' };
+    return Object.assign({ ok: false, because: 'the backup state file could not be read' }, err && TRANSIENT.has(err.code) ? { retry: true } : {});
   }
   let got;
   try { got = JSON.parse(raw); } catch { return { ok: false, because: 'the backup state file is not one this computer wrote' }; }
@@ -123,6 +136,7 @@ function readState(org, member) {
 }
 
 function writeState(org, member, state) {
+  ids(org, member);
   const p = state && state.period;
   const period = p ? {
     label: p.label, namingKey: b64(p.namingKey), namingKeyId: backupkeys.namingKeyId(p.namingKey), bucket: p.bucket,
@@ -140,8 +154,8 @@ function forPeriod(state, label, opts = {}) {
   if (!PERIOD_RE.test(label)) throw new Error('backupstate: a period label is an ISO week, such as 2026-W41');
   if (!HEX32_RE.test(opts.memberKeyId) || !Number.isSafeInteger(opts.nowMs)) throw new Error('backupstate: forPeriod needs the member key id and the time');
   const p = state && state.period;
-  // ISO-week labels (YYYY-Www) compare correctly as strings.
-  if (p && p.label > label) label = p.label;
+  // ISO-week labels (YYYY-Www, weeks 01 to 53) compare correctly as strings. Kept only up to a day ahead of this clock.
+  if (p && p.label > label && p.label <= require('./backupsnapshot').periodOf(opts.nowMs + AHEAD_MS)) label = p.label;
   if (p && p.label === label) {
     const index = new Map();
     for (const [name, e] of p.index) if (e.memberKeyId === opts.memberKeyId && e.lockedUntilMs > opts.nowMs) index.set(name, e);
@@ -171,8 +185,9 @@ function withRun(state, period, result) {
 }
 
 function discardState(org, member) {
+  ids(org, member);
   const f = fileFor(org, member);
-  try { fs.renameSync(f, `${f}.bad-${Date.now()}`); return { ok: true }; } catch (err) {
+  try { fs.renameSync(f, `${f}.bad-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`); return { ok: true }; } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true };
     return { ok: false, because: 'the backup state file could not be set aside' };
   }
