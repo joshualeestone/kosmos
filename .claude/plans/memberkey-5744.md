@@ -48,7 +48,7 @@ mac_key already is.
 The backup job that calls this and takeSnapshot; telling the member and the owner on the board about a rotation;
 the API doc's missing `member` field.
 
-## Tests (measured at 4db7061a0: 16 tests, 16 pass)
+## Tests (measured at 266cfd43f: 18 tests, 18 pass)
 - engine/backupmemberkey-5744.test.js, against a fake coordinator with the route's rules (wrap opened first, key
   uniqueness across epochs, answers naming epoch and member_public) that opens every wrap with the company secret for
   the exact context: first key at epoch 1, 0600 in 0700; a taken key answered from disk; a lost key gets epoch 2, the
@@ -58,7 +58,9 @@ the API doc's missing `member` field.
   gets one fresh key at the same epoch and a code-less 429 nothing; a loose existing folder is made 0700; a kept key
   already held at an older epoch gets a fresh key at the next; an ok answer not naming what was sent is not taken;
   a key another process registered mid-rotation is answered, not replaced; a non-canonical base64url key is not read
-  (red without the check, 1 of 16, at 4db7061a0); a file made unreadable mid-rotation is left as it is.
+  (red without the check, 1 of 16, at 4db7061a0); a file made unreadable mid-rotation is left as it is; a key
+  another process registered before a fresh-key refresh is answered (red without the check, 1 of 18); a file error
+  is said as a fixed sentence and its code, no path (red with the raw message, 1 of 18; both at 266cfd43f).
 - Red-capable (each measured): without writing the key before sending, 1 fails (1be4a071f); without the 409 arm, 3
   fail (1be4a071f); without the epoch-0 arm, 1 fails (5052ecedd); without the reused refresh, 2 of 14 fail; without
   the re-read guard, 1 of 14 fails (both f3dbaeb74).
@@ -102,3 +104,11 @@ the API doc's missing `member` field.
   computer gets backup keys (Weakest premise above).
 - CONVENTION fixed: the header says the coordinator's own wrap check bounds the unsigned answer. NITs taken: the
   `theirs` sentinel; a comment pinning write-before-send at the move; a test asserts the offline key was kept.
+
+## Review 4 (opus)
+- FIXED: the fresh-key refresh now answers a key another process registered, as the epoch move already did (the
+  header claimed both); tested, red without it.
+- FIXED: the catch-all put the raw error message, a full file path with the home folder, into `because`; it is now a
+  fixed sentence and the error code; tested with a thrown EACCES, red with the raw message.
+- NITs taken: one id rule (backupkeys.ID_RE exported and used); the company key's epoch is named as deliberately
+  unread; the constructed test state is labelled as one the premise excludes.
