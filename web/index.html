@@ -22378,12 +22378,26 @@ function paintUpdateAbort(ab) {
     if (slot.dataset.n) { slot.dataset.n = ''; slot.innerHTML = ''; }
     return;
   }
-  // Re-render only on a changed count: this is an aria-live region, so rewriting
+  // Re-render only on a changed count or reason: this is an aria-live region, so rewriting
   // identical markup every 5s poll would re-announce it to a screen reader.
-  const key = String(count);
+  // #4675: the reason is part of the key, so a streak that changes cause without changing count still repaints.
+  const reason = typeof ab.reason === 'string' ? ab.reason : '';
+  const key = count + ' ' + reason;
   if (slot.dataset.n === key) return;
   slot.dataset.n = key;
   const times = count === 1 ? 'once' : count + ' times';
+  // #4675: the stops after the pause are not "Kosmos was busy", so they get their own words. Each ends in something a
+  // person can do without typing a command (as #2055 requires), and none claims a cause this notice cannot know.
+  // Any other reason, 'board-would-not-pause' and 'port-still-held' included, keeps #2055's sentence.
+  const UPDATE_ABORT_WHY = {
+    'port-check-failed': 'this computer could not check whether Kosmos had stopped, so the update changed nothing. '
+      + 'Quit and reopen Kosmos, and the next update will try again. If this notice is still here after that, please '
+      + 'tell us: the check itself may not work on this computer. Your agents keep working, they do not live in this window.',
+    'port-unreachable': 'something was still using the connection Kosmos runs on and the update could not tell what, '
+      + 'so it changed nothing. Quit and reopen Kosmos, and the next update will try again. If this notice is still '
+      + 'here after that, restart this computer. Your agents keep working, they do not live in this window.',
+  };
+  const why = Object.prototype.hasOwnProperty.call(UPDATE_ABORT_WHY, reason) ? UPDATE_ABORT_WHY[reason] : '';
   slot.innerHTML = '<div class="utoast stale" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>A new version of Kosmos is ready.</b>'
@@ -22391,6 +22405,7 @@ function paintUpdateAbort(ab) {
     /* win32-board-copy (W-26): there is no Kosmos window to Quit on Windows. */
     + (onWindows()
       ? windowsCopy('updateAbortRemedy')
+      : why ? why
       : 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
         + 'was holding the update, so the next one can finish. Your agents keep working, they do '
         + 'not live in this window.')

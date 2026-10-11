@@ -37,6 +37,13 @@ case "$BLOCK" in
   *) echo "FAIL: extracted block is missing the our-board die (truncated?)" >&2; exit 1 ;;
 esac
 
+# #4675: the arm records through a function defined above it in setup.sh; lift that too.
+NOTE="$(awk '/^_kosmos_note_pause_abort\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$SETUP")"
+case "$NOTE" in
+  *'reason=%s'*) : ;;
+  *) echo "FAIL: could not extract _kosmos_note_pause_abort (anchor drift?)" >&2; exit 1 ;;
+esac
+
 PASS=0; FAIL=0
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/pause964.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
@@ -53,6 +60,7 @@ run_arm() { # pausebody kosmoshome port logdir
     set -eu
     _pausebody="$1"; KOSMOS_HOME="$2"; PORT="$3"; LOG_DIR="$4"
     die() { printf 'DIE:%s\n' "$*"; exit 77; }
+    eval "$NOTE"
     eval "$BLOCK"
     printf 'NODIE\n'
   )

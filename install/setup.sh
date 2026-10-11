@@ -2944,6 +2944,29 @@ _kosmos_mode_keeps_board_off() {
 # BEGIN #4818 put-back
 _kosmos_was_running=no
 _kosmos_paused_board=no
+# #2055, #4675: record a stop at the update's pause, durably and with a CONSECUTIVE count, in the same logs/ dir the
+# board reads install.status from. On the automatic update path the die that follows goes to stderr and install.log,
+# which nobody reads (one machine stopped there 155 times unseen), so this file is the only thing a screen can show.
+# One streak across reasons: it means "stuck at the pause, N times", and reason is the latest stop's. It is cleared
+# once an update gets past the pause. A file that cannot be written is not an error: the stop still stops.
+_kosmos_note_pause_abort() { # reason
+  _abortf="$LOG_DIR/update-abort"
+  _abortn=0
+  if [ -f "$_abortf" ]; then
+    _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+  fi
+  case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
+  _abortn=$((_abortn + 1))
+  { printf 'count=%s\nreason=%s\nport=%s\nts=%s\n' \
+      "$_abortn" "$1" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
+      > "$_abortf"; } 2>/dev/null || true
+}
+# #4675: whether the board started this run (engine/update.js sets KOSMOS_UPDATE_BY_BOARD). Read once and taken out of
+# the environment here, because this script goes on to start the board: a board that inherited it would hand it to
+# its agents, and their pasted install lines would then pass for the board's own.
+_kosmos_by_board=no
+if [ "${KOSMOS_UPDATE_BY_BOARD:-}" = 1 ]; then _kosmos_by_board=1; fi
+unset KOSMOS_UPDATE_BY_BOARD
 _kosmos_putback_unsure=no   # #4651: set at the port-check stops, where this run cannot tell whether its stop stopped anything
 _kosmos_put_board_back() {
   [ "$_kosmos_paused_board" = yes ] || return 0
@@ -3054,24 +3077,9 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         esac
       fi
       if [ "$_ourboard" = yes ]; then
-        # OUR board is genuinely running and did not pause -- the #2055 behavior.
-        # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
-        # in-process updater spawned this curl|sh, so the message goes to stderr /
-        # install.log and nobody reads it. One machine aborted here 155 times before
-        # anyone noticed. Record the abort durably (in the same logs/ dir the board
-        # reads install.status from) with a CONSECUTIVE count, so the board can surface
-        # "this machine keeps failing to update". The count is cleared below once an
-        # update gets past the pause, so a machine that recovers stops showing it.
-        _abortf="$LOG_DIR/update-abort"
-        _abortn=0
-        if [ -f "$_abortf" ]; then
-          _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
-        fi
-        case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
-        _abortn=$((_abortn + 1))
-        { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
-            "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
-            > "$_abortf"; } 2>/dev/null || true
+        # OUR board is genuinely running and did not pause -- the #2055 behavior. Recorded whoever ran this
+        # (a person's paste too), as it always was.
+        _kosmos_note_pause_abort board-would-not-pause
         die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again. If this is an agent's shell, do both from a normal Terminal."
       else
         # #964: our own board is not running, so a DIFFERENT Kosmos is holding this
@@ -3138,13 +3146,16 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       fi
       _tries=$((_tries + 1)); sleep 1
     done
-    # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
-    # reopen it", which is not the remedy for the stops below (#4675).
+    # #4675: the three stops below are recorded in the pause streak too, each with its own reason, so the board can say
+    # what stopped the update (it chooses its words by reason). Only when the BOARD started this run
+    # (_kosmos_by_board): a person or an agent who pasted the install line reads the words below in their own shell,
+    # and an agent's sandboxed attempt must not leave "this computer keeps failing to update" on the board.
     # #4651 x #4818: the two stops below follow a port check that failed (a sandboxed shell, or a holder this shell's
     # curl cannot reach). The put-back still runs on exit, since an automatic update runs this script where it CAN start
     # the board and nobody reads these words; only its words change if the start fails (_kosmos_putback_unsure).
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
       _kosmos_putback_unsure=yes
+      if [ "$_kosmos_by_board" = 1 ]; then _kosmos_note_pause_abort port-check-failed; fi
       _lsofsaid="$(printf '%s\n' "$_lsofout" | sed -n '/./{p;q;}')"
       die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message."
     fi
@@ -3157,8 +3168,10 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       case "$_pauserc" in
         0|1|22|28|52|56) ;;
         *) _kosmos_putback_unsure=yes
+           if [ "$_kosmos_by_board" = 1 ]; then _kosmos_note_pause_abort port-unreachable; fi
            die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again." ;;
       esac
+      if [ "$_kosmos_by_board" = 1 ]; then _kosmos_note_pause_abort port-still-held; fi
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
   fi

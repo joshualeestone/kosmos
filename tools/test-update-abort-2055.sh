@@ -15,18 +15,17 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 SETUP="$HERE/install/setup.sh"
 [ -f "$SETUP" ] || { echo "FAIL: cannot find install/setup.sh at $SETUP" >&2; exit 1; }
 
-# Extract the record block: from the `_abortf=` line up to (not including) the
-# `die "A Kosmos board is still running` line that follows it.
-BLOCK="$(awk '
-  /_abortf="\$LOG_DIR\/update-abort"/ { f=1 }
-  f && /die "A Kosmos board is still running/ { exit }
-  f { print }
-' "$SETUP")"
+# Extract the record function (#4675 moved the block into one function that every stop at the pause calls with its
+# own reason): from its opening line to the first closing brace at column 0.
+BLOCK="$(awk '/^_kosmos_note_pause_abort\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$SETUP")"
 
 case "$BLOCK" in
-  *"reason=board-would-not-pause"*) : ;;
-  *) echo "FAIL: could not extract the #2055 record block (anchor drift?)" >&2; exit 1 ;;
+  *'reason=%s'*'"$_abortf"'*) : ;;
+  *) echo "FAIL: could not extract the #2055 record function (anchor drift?)" >&2; exit 1 ;;
 esac
+# The stop it was written for still records under its own reason.
+grep -q '^        _kosmos_note_pause_abort board-would-not-pause$' "$SETUP" \
+  || { echo "FAIL: the board-would-not-pause stop no longer records itself (anchor drift?)" >&2; exit 1; }
 
 # The reset line, extracted so a change to its path is caught here too.
 RESET="$(awk '/#2055: got past the pause/{f=1} f && /rm -f "\$LOG_DIR\/update-abort"/{print; exit}' "$SETUP")"
@@ -41,8 +40,8 @@ trap 'rm -rf "$TMP"' EXIT
 
 # Run the extracted record block once with LOG_DIR/PORT set. It runs under a
 # `set -eu` subshell so an errexit-unsafe line is caught.
-record() { # logdir port
-  ( set -eu; LOG_DIR="$1"; PORT="$2"; eval "$BLOCK" )
+record() { # logdir port [reason]
+  ( set -eu; LOG_DIR="$1"; PORT="$2"; eval "$BLOCK"; _kosmos_note_pause_abort "${3:-board-would-not-pause}" )
 }
 reset() {  # logdir
   ( set -eu; LOG_DIR="$1"; eval "$RESET" )
@@ -77,6 +76,16 @@ L2="$TMP/logs2"; mkdir -p "$L2"; M2="$L2/update-abort"
 printf 'count=not-a-number\nreason=x\n' > "$M2"
 record "$L2" 16180
 chk "corrupt count resets to 1, not blank/garbage"   sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 1 ]' _ "$M2"
+
+# ---- #4675: one streak across reasons; the reason is the latest stop's -------
+L3="$TMP/logs3"; mkdir -p "$L3"; M3="$L3/update-abort"
+record "$L3" 16180
+record "$L3" 16180 port-check-failed
+chk "a stop of another kind continues the same count" sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 2 ]' _ "$M3"
+chk "the reason is the latest stop's"                 sh -c 'grep -q "^reason=port-check-failed$" "$1"' _ "$M3"
+chk "only one reason line is kept"                    sh -c '[ "$(grep -c "^reason=" "$1")" = 1 ]' _ "$M3"
+# ---- a logs dir that cannot be written is not an error (the stop still stops) -
+chk "an unwritable logs dir does not fail the caller" record "$TMP/no-such-dir" 16180
 
 # ---- negative control: prove chk can fail -----------------------------------
 NEG=0

@@ -1189,7 +1189,9 @@ function beginInstall(opts) {
     // #2969: the POINTER the offer came from (prod, when a staging subscriber is offered a newer
     // prod build), and separately the channel to STAMP, so taking a prod hotfix does not quietly
     // turn a staging subscriber into a prod one. setup.sh reads KOSMOS_SOURCE_CHANNEL for the stamp.
-    env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: installPointer(), KOSMOS_SOURCE_CHANNEL: updateChannel() },
+    // #4675: KOSMOS_UPDATE_BY_BOARD tells setup.sh that nobody is reading this run's output, so a stop at its pause
+    // must be recorded where the board can show it. A pasted install line does not carry it.
+    env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: installPointer(), KOSMOS_SOURCE_CHANNEL: updateChannel(), KOSMOS_UPDATE_BY_BOARD: '1' },
   });
   wireChild(child, opts);
   child.unref();
