@@ -3571,3 +3571,33 @@ test('kosmos#5805 part 2: an agent that declared another reply channel is not ca
     }
   });
 });
+
+test('kosmos#5805 part 2: a Kosmos notice on the direct thread is not the person speaking again', () => {
+  withFleet(room3(), (board) => {
+    messages.setUnansweredAfterForTests(1000);
+    try {
+      const ask = () => {
+        fs.rmSync(messages.LOG, { force: true });
+        try { fs.rmSync(chat.threadFile(chat.DIRECT, 'mara'), { force: true }); } catch { /* fresh */ }
+        arm([]);
+        const sent = messages.sendPost({ operator: true, project: 'henderson-lease', projectName: 'Henderson Lease', text: '@mara where is the draft?' }, board.agents, MEMBERS);
+        assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+        const row = messages.record().rows.find((m) => m.kind === 'post');
+        return { id: row.id, at: Date.parse(row.at) };
+      };
+      const dm = (fields, ms) => assert.equal(chat.appendMessage(chat.DIRECT, 'mara', { text: 'x', ...fields, at: new Date(ms).toISOString() }).recorded, true, 'precondition: the row was kept');
+      // A Kosmos notice with no `from` between the ask and mara's reply: the reply still answers the ask.
+      let a = ask();
+      dm({ kosmos: true, text: 'Kosmos: a notice' }, a.at + 1000);
+      dm({ from: 'mara', text: 'in the folder' }, a.at + 2000);
+      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), {}, 'a Kosmos notice ended the answer window');
+      // CONTROL: the person speaking in the same place does end it.
+      a = ask();
+      dm({ text: 'also, lunch?' }, a.at + 1000);
+      dm({ from: 'mara', text: 'sure' }, a.at + 2000);
+      assert.deepEqual(messages.unanswered('henderson-lease', a.at + 5000), { [a.id]: ['mara'] }, 'CONTROL: the person speaking did not end the window');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+    }
+  });
+});

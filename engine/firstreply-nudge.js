@@ -168,15 +168,16 @@ function sweepOnce(o) {
       let pz = null;
       try { pz = pauseFor(session); } catch { pz = null; }
       if (pz && pz.paused === true) continue;
-      /* kosmos#5805 part 2: an agent that declared where it answers the person (kosmos reply-channel) may have answered
-         there, out of Kosmos's sight, so "nothing has reached them yet" would be a guess. It is never nudged. */
-      let declared = null;
-      try { declared = channelFor(session); } catch { declared = null; }
-      if (declared) continue;
       let fc = null;
       try { fc = firstContact(read(session), pz); } catch { fc = null; }
       const p = plan(card, fc, entry, now);
       if (p.act !== 'nudge') continue;
+      /* kosmos#5805 part 2: an agent that declared where it answers the person (kosmos reply-channel) may have answered
+         there, out of Kosmos's sight, so "nothing has reached them yet" would be a guess. It is never nudged. Read only
+         once a nudge is due, so a sweep does not read every profile. */
+      let declared = null;
+      try { declared = channelFor(session); } catch { declared = null; }
+      if (declared) continue;
       const display = card.name || session;
       let state = null;
       let held = false;

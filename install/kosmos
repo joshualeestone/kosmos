@@ -2716,6 +2716,7 @@ cmd_reply_channel() {
   # the board refuses it, so both commands answer the same.
   case "$channel" in *[[:cntrl:]]*) say "Kosmos did not set your reply channel: say the channel on one line."; exit 1 ;; esac
   # A leading option word is a mistyped flag (`--clear Discord`), never a channel: stored, it would be a silent wrong one.
+  # The channel with its leading spaces stripped (the board trims them), so " -x" is caught too.
   case "${channel#"${channel%%[![:space:]]*}"}" in -*) say "Kosmos did not set your reply channel: a channel cannot start with -. To go back to kosmos reply: kosmos reply-channel --clear"; exit 1 ;; esac
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
   _bt="$(agent_board_token || true)"

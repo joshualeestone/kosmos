@@ -2502,6 +2502,8 @@ function answeredDirectly(name, askAt) {
     if (!m) continue;
     const t = Date.parse(m.at);
     if (!Number.isFinite(t) || t < askAt) continue;
+    // Kosmos's own rows (a notice in the agent's name, its derived kinds) are neither the person nor the agent.
+    if (m.kosmos === true || m.kind === 'kosmos' || m.kind === 'question') continue;
     if (!m.from) { if (t < personSince) personSince = t; continue; }
     if (m.from === name && m.kosmos !== true && t - askAt <= DIRECT_ANSWER_WINDOW_MS) replies.push(t);
   }

@@ -124,3 +124,13 @@ Also: a reply inside the hour may still be about an earlier direct message (Baro
 - FIXED (NIT): the direct-thread cache is keyed by the thread file's path, not the agent's name.
 - FIXED (NIT): a comment line past the block's wrap; rewrapped.
 - FIXED (NIT): a refused declaration on a stale token now prints the #5333 way-back hint, on both commands.
+
+## Review 6 (sonnet, blind, on ff5d72aa1)
+- FIXED (WARNING): a Kosmos row on the direct thread with no `from` counted as the person speaking again, ending the
+  answer window early. Kosmos's own rows are now skipped there. Test with a control (the person speaking still ends
+  it); the mutation goes red, so it was a real latent case, not only a theoretical one.
+- DUPLICATE (WARNING): automatic direct-thread counting reaches every agent (Baron's design, in Decided).
+- DUPLICATE (WARNING): only the agent can clear a declaration (review 2 deferral; kosmos#5820).
+- FIXED (NIT): the first-reply sweep read every idle agent's profile; it now reads one only once a nudge is due.
+- FIXED (NIT): the Mac's leading-space strip gets a one-line comment.
+- NO CHANGE (NIT): the cache comment claims no exactness ("while the file's mtime and size stand").
