@@ -783,7 +783,7 @@ function revokeCheck(projectId, link, edges) {
     const keptAccounts = new Set(keptList.filter(Boolean));
     // A Map, written out with Object.fromEntries, so any account id is an own key of the record.
     const prior = st.revokedAccounts && typeof st.revokedAccounts === 'object' ? st.revokedAccounts : {};
-    const revoked = new Map(Object.keys(prior).filter((a) => Number.isInteger(prior[a])).map((a) => [a, prior[a]]));
+    const revoked = new Map(Object.keys(prior).filter((a) => Number.isInteger(prior[a]) && prior[a] >= 0).map((a) => [a, prior[a]]));
     // A kept peer whose account cannot be named might share a dropped one's: then nothing is recorded,
     // and the grace bounds this revoke as before, rather than refusing that peer's in-flight posts.
     if (!keptList.includes(null)) for (const pub of gone) {
@@ -861,8 +861,9 @@ function sharedEdges(now, notBeforeMono) {
     held, except on the 60 s pass (`pass`), which shows them unchecked. `askedAt()` is when
     the answer used was asked for; the room counts as checked from then, not from when the
     answer arrived. */
-async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
+async function checkRoom(projectId, link, edges, pass, askedAt, seat, askedMono) {
   const started = Date.now();
+  const startedMono = mono();
   const r = await revokeCheck(projectId, link, edges);
   const s = seats.get(projectId);
   // A seat replaced while the check was out (an id reused) is not credited with it.
@@ -870,6 +871,9 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
   if (r && r.checked) {
     const at = typeof askedAt === 'function' ? askedAt() : 0;
     s.edgesCheckedAt = at > 0 ? Math.min(at, started) : started;
+    // #5191: the same moment on the monotonic clock when the caller knows it (a remove compares on it).
+    const am = typeof askedMono === 'function' ? askedMono() : undefined;
+    s.edgesCheckedMono = typeof am === 'bigint' ? (am < startedMono ? am : startedMono) : (at > 0 ? undefined : startedMono);
   }
   // The pass shows them unchecked, but not while the rooms record is unreadable: then every
   // one would be refused for that, so they wait for a pass that can read it.
@@ -881,7 +885,7 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
     // release (Kosmos+ cannot answer) shows them all, as before.
     let coversUntil = r && r.checked ? s.edgesCheckedAt + EDGE_FRESH_MS : Infinity;
     // An answer asked before this screen removed someone covers only posts that arrived before it.
-    if (r && r.checked && Number.isFinite(s.removedAt) && s.edgesCheckedAt <= s.removedAt) coversUntil = Math.min(coversUntil, s.removedAt - 1);
+    if (r && r.checked && checkedBeforeRemove(s)) coversUntil = Math.min(coversUntil, s.removedAt - 1);
     const held = s.held.filter((h) => h.at <= coversUntil);
     s.held = s.held.filter((h) => h.at > coversUntil);
     s.heldIds = new Set(s.held.map((h) => h.id));
@@ -899,9 +903,17 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
     has not been shown, and is not already held (by its sealed id). Anything else goes
     straight to the usual refusal and takes no place. Held posts live in this seat's
     memory: a board restart while they wait loses them. */
+/** #5191: whether this room's last check was asked before this screen last removed someone. On the
+    monotonic clock when the check's moment is known there, since a remove and its own check share a
+    millisecond; otherwise by wall time, counting the same millisecond as before (the safe side). */
+function checkedBeforeRemove(s) {
+  if (typeof s.removedMono !== 'bigint') return false;
+  if (typeof s.edgesCheckedMono === 'bigint') return s.edgesCheckedMono <= s.removedMono;
+  return s.edgesCheckedAt <= s.removedAt;
+}
 function holdForCheck(projectId, s, sealed, env, line, now) {
   if (!Object.keys(sealed.peers || {}).length) return false;   // nobody pinned: no revoke to wait for
-  if (isFresh(s.edgesCheckedAt, now) && !(Number.isFinite(s.removedAt) && s.edgesCheckedAt <= s.removedAt)) return false;
+  if (isFresh(s.edgesCheckedAt, now) && !checkedBeforeRemove(s)) return false;
   const opened = s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, env) : null;
   if (!opened || now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS || (s.seen && s.seen.has(opened.id))) return false;
   // An unreadable link record still holds the post (failing open would show a revoked
@@ -927,7 +939,7 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
     const ask = sharedEdges(now, s.removedMono);
     // The answer's own ask time: one joined from another room may be older than this post.
     s.edgeAskedAt = ask.askedAt;
-    s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s).catch(() => {}).then(() => { s.edgeAsk = null; });
+    s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s, () => ask.mono).catch(() => {}).then(() => { s.edgeAsk = null; });
   }
   return true;
 }
