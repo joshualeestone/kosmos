@@ -22,7 +22,7 @@
  *     reordered the times, or one cut off long ago, whose key the connector itself then signs with under the wrong id,
  *     so Kosmos+ refuses its grants and no backup uploads), and refusing it would stop backups for good. Measured on
  *     two folders the connector wrote on this Mac: the key 76 and 100 microseconds older than the id. The connector
- *     writing its identity atomically is the real fix (card filed).
+ *     writing its identity atomically is the real fix (kosmos#5871).
  *   - An empty file is one being rewritten (the truncation before the write): refused with `retry`.
  *   - No `mac_id` is `missing`, as the connector (MacState::open) and remote.holdsKey treat it: write_identity writes
  *     mac_key first, so a registration cut off between the two leaves a key that was never finished.

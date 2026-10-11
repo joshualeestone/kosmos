@@ -217,3 +217,25 @@ test('round 3: a registration caught between its two writes (new key, old id) is
     assert.equal(old.ok, true, old.because);
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
+
+test('round 3: mac_id rewritten mid-read with the SAME text (a later time) is refused too', () => {
+  const d = tmp();
+  const realOpen = fs.openSync;
+  try {
+    writeKey(d, connectorKey().seed);
+    let swapped = false;
+    fs.openSync = function (file, ...rest) {
+      const fd = realOpen.call(fs, file, ...rest);
+      if (String(file).endsWith('mac_key') && !swapped) {
+        swapped = true;
+        const id = path.join(d, 'mac_id'), later = new Date(Date.now() + 2000);
+        fs.writeFileSync(id, fs.readFileSync(id));
+        fs.utimesSync(id, later, later);
+      }
+      return fd;
+    };
+    const r = deviceKey({ stateDir: d });
+    assert.equal(swapped, true);
+    assert.equal(r.ok, false); assert.equal(r.retry, true); assert.match(r.because, /registered again/);
+  } finally { fs.openSync = realOpen; fs.rmSync(d, { recursive: true, force: true }); }
+});
