@@ -74,3 +74,15 @@ occurrence of that time after the board first saw the line.
   the real card builder at set clocks (capped, stray, capped, stray, capped keeps the limit; two strays three minutes
   apart end it).
 - FIXED (NIT): both maps are pruned on every card read (a gone agent's entries last two days at most).
+
+## Review 4 (sonnet)
+- FIXED (WARNING): a capped line with no reset this reads (a relative "resets in 4m") did not end an earlier dateless
+  limit, as the comments promised; any other line now does (tested). The comment naming which function forgets what
+  is corrected.
+- FIXED (NIT): no array built per not-capped card to ask whether an agent has entries (hasLimitLines), and
+  forgetLimitLines takes no "null" sentinel line.
+- STATED (test limit): the two tests that base times on the real clock can fail in the one hour a year before the
+  Chicago fall-back repeat (a target in the repeated hour reads as its later instance, by design). The fixed-clock
+  tests cover that hour.
+- NIT not taken: "until 1:00 AM" with no "tomorrow" for a reset past midnight; it is within five hours and matches the
+  existing quota wording (quotaResetWords names the day past 20 hours).

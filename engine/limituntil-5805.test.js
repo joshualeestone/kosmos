@@ -101,6 +101,11 @@ test('#5805 slice 3: claudeLimitUntil keeps the first-seen time, so the reset do
   idleRead(t0 + 6 * 3600e3 + 3 * 60e3);
   const nextDay = at('2026-10-11T16:00:00Z');
   assert.equal(iso(status.claudeLimitUntil('casey', line, nextDay)), '2026-10-11T21:00:00.000Z', 'read against yesterday\'s first-seen time');
+  // A line with no reset this reads (a relative one) is another limit too.
+  const fresh = at('2026-10-13T17:00:00Z');
+  status.claudeLimitUntil('casey', line, fresh);
+  status.claudeLimitUntil('casey', "You've hit your fast limit · resets in 4m", fresh + 60e3);
+  assert.equal(iso(status.claudeLimitUntil('casey', line, at('2026-10-14T17:00:00Z'))), '2026-10-14T21:00:00.000Z', 'an unread line between did not end the dateless limit');
   // A dated line on the screen is another limit too: after it, the dateless words are read afresh.
   status.claudeLimitUntil('casey', `You've hit your weekly limit · resets Oct 14 at 3pm ${Z}`, nextDay + 60e3);
   assert.equal(iso(status.claudeLimitUntil('casey', line, at('2026-10-12T17:00:00Z'))), '2026-10-12T21:00:00.000Z', 'a dated limit between did not end the dateless one');

@@ -2811,7 +2811,8 @@ function limitResetTimeOnlyAt(line, firstSeenMs) {
 }
 /* When each agent's dateless limit line was first seen, keyed by agent and the line itself. In memory: a board
    restart sees it again from then, which the span above bounds. An entry ends when the line does: claudeLimitUntilIso
-   forgets an agent's entries when its card is read not capped, or capped on another line, so the same words tomorrow
+   forgets an agent's entries once its card has read not capped for LIMIT_ENDED_AFTER_MS, and claudeLimitUntil when
+   it reads capped on any other line, so the same words tomorrow
    are a new limit, never read against yesterday's time. NOT on a gap in reads (review 1): a Mac that slept through
    the reset is still showing the same line, and restarting its clock then would name tomorrow's time. A day past
    the longest span is only a memory backstop, for an agent that is gone. */
@@ -2827,9 +2828,16 @@ function pruneLimitMaps(now) {
   for (const [k, v] of limitFirstSeen) if (now - v.last > LIMIT_FIRST_SEEN_KEEP_MS) limitFirstSeen.delete(k);
   for (const [k, since] of limitNotCappedSince) if (now - since > LIMIT_FIRST_SEEN_KEEP_MS) limitNotCappedSince.delete(k);
 }
+/* Forget an agent's first-seen times, all of them or all but `keepLine`'s. */
 function forgetLimitLines(agent, keepLine) {
   const prefix = String(agent) + '\u0000';
-  for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix) && k !== prefix + keepLine) limitFirstSeen.delete(k);
+  const keep = typeof keepLine === 'string' ? prefix + keepLine : null;
+  for (const k of [...limitFirstSeen.keys()]) if (k.startsWith(prefix) && k !== keep) limitFirstSeen.delete(k);
+}
+function hasLimitLines(agent) {
+  const prefix = String(agent) + '\u0000';
+  for (const k of limitFirstSeen.keys()) if (k.startsWith(prefix)) return true;
+  return false;
 }
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
    this can read. A dated line is read as limitResetAt reads it; a dateless one from when it was first seen. */
@@ -2837,10 +2845,10 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const line = String(evidence == null ? '' : evidence);
   const dated = limitResetAt(line, now);
-  if (dated !== null) { forgetLimitLines(agent, line); return dated; }   // a dated line is another limit too
-  if (!LIMIT_RESET_TIME_ONLY.test(line)) return null;
+  // Any other line on this agent's screen (dated, dateless, or one with no reset this reads) is another limit.
+  if (dated !== null || !LIMIT_RESET_TIME_ONLY.test(line)) { forgetLimitLines(agent, line); return dated; }
   pruneLimitMaps(now);
-  forgetLimitLines(agent, line);   // another line on this agent's screen is another limit
+  forgetLimitLines(agent, line);
   const key = String(agent) + '\u0000' + line;
   let seen = limitFirstSeen.get(key);
   if (!seen) { seen = { at: now, last: now }; limitFirstSeen.set(key, seen); }
@@ -2855,8 +2863,7 @@ function claudeLimitUntilIso(pane, status) {
   pruneLimitMaps(now);
   if (!status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') {
     // Not capped now: its limit (if any) ended, once that has held for LIMIT_ENDED_AFTER_MS.
-    const prefix = String(pane.name) + '\u0000';
-    if (![...limitFirstSeen.keys()].some((k) => k.startsWith(prefix))) { limitNotCappedSince.delete(pane.name); return null; }
+    if (!hasLimitLines(pane.name)) { limitNotCappedSince.delete(pane.name); return null; }
     const since = limitNotCappedSince.get(pane.name);
     if (since === undefined) limitNotCappedSince.set(pane.name, now);
     else if (now - since >= LIMIT_ENDED_AFTER_MS) { forgetLimitLines(pane.name, null); limitNotCappedSince.delete(pane.name); }
