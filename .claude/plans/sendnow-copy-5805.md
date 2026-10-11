@@ -7,7 +7,7 @@ Follow-up to #5830 (#5805 slice 2b), from Mona Lisa's copy note on that PR (it m
 - web.limitdm-5805.test.js asserts that text and that no digit reaches the screen, and fails on the old wording (measured: fail 1, actual "Not sent (the board answered 503). Try again.").
 
 ## Call
-- Wording: "Kosmos could not send it. Try again." matches the line just above it (the could-not-reach case). Rejected: "Not sent. Try again." (fine too, but two different phrasings for two failures a person cannot tell apart reads as two problems).
+- Wording: "Kosmos could not send it. Try again." parallels the line just above it ("Kosmos could not reach the board to send it. Try again."). Rejected: "Not sent. Try again." (it reads like the "Not sent: <reason>." line with its reason missing).
 - A refusal WITH a reason keeps "Not sent: <reason>." unchanged.
 - Weakest premise: the status number had debugging value for someone reading a screenshot. Nothing on main shows one on screen today, and the server logs the refusal.
 

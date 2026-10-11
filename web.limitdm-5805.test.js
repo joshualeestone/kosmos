@@ -72,8 +72,12 @@ test('#5805 2b review 3: Send now anyway says the route\'s refusal under the box
   // A refusal with no reason in it says so in words: never a bare status number on screen.
   const bare = await run({ ok: false, status: 503, json: async () => { throw new Error('not json'); } });
   assert.equal(say.textContent, 'Kosmos could not send it. Try again.');
-  assert.doesNotMatch(say.textContent, /\d/, 'a status number reached the screen');
+  assert.doesNotMatch(say.textContent, /\d/, 'a status number reached the screen');   // holds if the exact text above is ever loosened
   assert.equal(bare.btn.disabled, false);
+  for (const out of [{}, { error: '' }, { error: 42 }]) {
+    await run({ ok: false, status: 500, json: async () => out });
+    assert.equal(say.textContent, 'Kosmos could not send it. Try again.', 'a reply with no usable reason: ' + JSON.stringify(out));
+  }
   const gone = await run({ ok: false, status: 409, json: async () => ({ error: 'no longer held' }) });
   assert.equal(say.textContent, '', 'CONTROL: a 409 (sent or dropped meanwhile) repaints, it is not an error');
   assert.deepEqual(gone.painted, ['casey']);
