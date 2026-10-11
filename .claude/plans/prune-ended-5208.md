@@ -255,3 +255,13 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
   unexpected throw past the size check backs off like every other stop; deletion and the temp sweep use lstat.
 - My own slip, caught by the tests at once: the new identity line first sat above the declarations it used (a temporal
   dead zone its own catch turned into a quiet "not compacted"); moved below them.
+
+## Review 16 (sonnet, blind, on df83a2d19): no BLOCKER, no fail-open beyond the named residuals
+- FIXED (WARNING, by statement): a compaction runs synchronously inside revoke, so on a slow disk it can hold the event
+  loop for up to the 6 s budget on the rare end that triggers one; stated in the code and here.
+- FIXED (WARNING): a skewed or coarse lock-folder mtime could trip the budget on every try (fail closed, said once); the
+  note now says the time is counted from the lock folder's mtime, so the cause is visible.
+- DUPLICATE (WARNING): a folder that cannot be made leaves no back-off marker (recorded at review 14).
+- FIXED (NIT): why no liveExecutionAllowed gate is needed (it deletes only files it made; tests use a throwaway root).
+- NO CHANGE (NITs): plan file name (repo practice is <branch>.md); the Windows job is the first real Windows run of the
+  test file (no Windows machine here).

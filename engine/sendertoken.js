@@ -328,6 +328,10 @@ const ENDED_COMPACT_AT_BYTES = 64 * 1024;
 const SEALED_KEEP_MS = 60 * 60 * 1000;
 const COMPACT_READ_BUDGET_MS = 3000;
 const COMPACT_TOTAL_BUDGET_MS = 6000;   // well inside filelock's 10 s LOCK_STALE_MS
+/* Cost, stated: a compaction runs synchronously inside revoke (create and remove reach it), so on a slow or scanned
+   disk it can hold the board's event loop for up to this budget, on the rare end that triggers one; typically
+   milliseconds. It deletes only files it made itself (sealed links and temps under ENDED_DIRNAME), so it needs no
+   liveExecutionAllowed gate: a test process already runs on a throwaway data root. */
 let compactStuckSaid = false;
 let compactReplaceSaid = false;
 let compactLinkSaid = false;
@@ -420,7 +424,7 @@ function compactEnded(opts = {}) {
     /* The lock this runs under is stolen after filelock's LOCK_STALE_MS (10 s). A read that alone took a good part of
        that (a slow disk, a scanner) stops here and backs off, rather than run the rest past the bound. */
     if (Date.now() - startedAt > COMPACT_READ_BUDGET_MS) {
-      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: reading the history of ended agents took over ' + COMPACT_READ_BUDGET_MS + ' ms, so it is not compacted this time (' + endedDir() + ')'); }
+      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: reading the history of ended agents took over ' + COMPACT_READ_BUDGET_MS + ' ms (counted from the lock folder\'s time, so a skewed clock on its file system also trips this), so it is not compacted this time (' + endedDir() + ')'); }
       return gaveUp({ compacted: false });
     }
     const next = newestPerName([...read.map((r) => r.text), liveText]);
@@ -450,7 +454,7 @@ function compactEnded(opts = {}) {
     // The write, flush and read-back too: past the total budget, stop before anything is linked or replaced.
     if (Date.now() - startedAt > COMPACT_TOTAL_BUDGET_MS) {
       try { fs.unlinkSync(tmp); } catch { /* none */ }
-      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: compacting the history of ended agents took over ' + COMPACT_TOTAL_BUDGET_MS + ' ms, so it is not compacted this time (' + endedDir() + ')'); }
+      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: compacting the history of ended agents took over ' + COMPACT_TOTAL_BUDGET_MS + ' ms (counted from the lock folder\'s time, so a skewed clock on its file system also trips this), so it is not compacted this time (' + endedDir() + ')'); }
       return gaveUp({ compacted: false });
     }
     // 3. Only over the file that was read (a compaction that slept after its lock was stolen finds a newer one: stop).
@@ -482,7 +486,7 @@ function compactEnded(opts = {}) {
     if (Date.now() - startedAt > COMPACT_TOTAL_BUDGET_MS) {
       try { fs.unlinkSync(sealedPath); } catch { /* still read; harmless */ }
       try { fs.unlinkSync(tmp); } catch { /* none */ }
-      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: compacting the history of ended agents took over ' + COMPACT_TOTAL_BUDGET_MS + ' ms, so it is not compacted this time (' + endedDir() + ')'); }
+      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: compacting the history of ended agents took over ' + COMPACT_TOTAL_BUDGET_MS + ' ms (counted from the lock folder\'s time, so a skewed clock on its file system also trips this), so it is not compacted this time (' + endedDir() + ')'); }
       return gaveUp({ compacted: false });
     }
     try { fs.renameSync(tmp, live); } catch {
