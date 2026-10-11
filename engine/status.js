@@ -2956,11 +2956,19 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const lastMenu = rows.reduce((at, row, i) => (CLAUDE_LIMIT_MENU_TITLE.test(row) ? i : at), -1);
+  /* #5805 slice 3b review 7: the last Claude Code limit row (its own turn footer below it). Every limit row above it
+     has been typed past (a newer turn ended on a newer limit), so it is retired whatever its reset: otherwise an older
+     row the board saw late, untimed, stays on screen as the card's evidence (messageAt reads the first from the top)
+     and hides the newer limit's reset, so the newer limit is neither held nor ever retired. */
+  let lastLimit = -1;
+  rows.forEach((row, i) => { if (HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0) lastLimit = i; });
   const drop = new Set();
   rows.forEach((row, i) => {
-    if (!HIT_YOUR_LIMIT.test(row) || lastMenu > i) return;
+    if (!HIT_YOUR_LIMIT.test(row)) return;
     const footer = vendorFooterAt(rows, i);
     if (footer < 0) return;
+    const superseded = i < lastLimit;
+    if (!superseded && lastMenu > i) return;
     let resetAt = limitResetAt(row, now);
     /* #5805 slice 3b: a dateless row ("resets 4pm (zone)"), from when the screen pass first saw it. No first-seen time
        (seen late, beyond the span bound): kept, as before. */
@@ -2969,7 +2977,7 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
       try { first = firstSeenOf(row); } catch { first = null; }
       if (Number.isFinite(first)) resetAt = limitResetTimeOnlyAt(row, first);
     }
-    if (resetAt === null || now < resetAt + RESET_GRACE_MS) return;
+    if (!superseded && (resetAt === null || now < resetAt + RESET_GRACE_MS)) return;
     /* Up to the footer, or to the NEXT limit row of any wording if one shares this footer (review rounds 2 and 3): an
        expired row must never take a live one with it. The vendor's own /usage-credits upsell row is part of this
        block, not another limit, so it goes with it. A "hit your" row is judged on its own when the loop reaches it. */

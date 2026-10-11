@@ -107,3 +107,11 @@ Slice 3a added the time on the card but deliberately left these alone.
 - No BLOCKER or WARNING. NITs taken: a comment's broken wrap; limitCaptureSweep's comment says an empty list (a failed
   listing) must not be passed. Not taken: a test pinning the count-unchanged replacement, already the plan's weakest
   premise.
+
+## Review 7 (opus)
+- FIXED (WARNING): an older limit row the board saw late (untimed) above a newer limit hid it: the card's evidence is
+  the first limit row from the top, so the newer limit was neither held nor ever retired (the original failure, on a
+  limit the board watched arrive). Every Claude Code limit row with a newer one below it (its own turn footer) has
+  been typed past, so retireResetLimits now retires it whatever its reset; the tail, the evidence and the hold then
+  describe the newest limit. Applies to dated rows too. Tested through the card builder (held at 17:00, idle after
+  21:00 with both rows on screen); 754 neighbour and status tests pass.

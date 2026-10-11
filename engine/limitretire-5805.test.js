@@ -222,3 +222,32 @@ test('#5805 3b review 5: a redraw the next day (the old block copied, footer and
   assert.equal(status.claudeLimitUntil('casey', session, redraw), Date.parse('2026-10-10T21:00:00Z'), 'its reset moved');
   assert.ok(!status.retireResetLimits(copied, redraw, (row) => status.limitFirstSeenOf('casey', row)).includes('session limit'), 'the redrawn row was un-retired (a free agent held)');
 });
+
+test('#5805 3b review 7: an older row the board saw late does not hide a newer limit: the newer is held, then retired', () => {
+  const real = Date.now;
+  const read = (ms, screen, state, fn) => {
+    Date.now = () => ms;
+    try {
+      const board = fleet.install([fleet.agent('casey', { state, runner: 'claude', command: 'claude', screen })]);
+      try { return fn(board.agents.find((c) => c.sessionName === 'casey'), board.agents); } finally { board.restore(); }
+    } finally { Date.now = real; }
+  };
+  const old = `You've hit your session limit · resets 4pm ${Z}`;
+  const fresh = `You've hit your session limit · resets 9pm ${Z}`;
+  const oldBlock = '> hello\n' + `  ⎿  ${old}\n` + FOOTER;
+  const both = oldBlock + '> carry on\n' + `  ⎿  ${fresh}\n` + NEW_FOOTER + STATUS_LINE;
+  const t14 = Date.parse('2026-10-10T19:00:00Z');   // 14:00 CDT: the board restarts with the 4pm row on screen
+  read(t14, oldBlock + STATUS_LINE, 'rate_limited', (card) => assert.equal(card.limitUntil, null, 'CONTROL: the row seen late has no time'));
+  // 17:00 CDT: woken, it worked and hit a new limit (9pm) under the old row; the board captured all along.
+  const t17 = Date.parse('2026-10-10T22:00:00Z');
+  for (let t = t14 + 60e3; t < t17; t += 60e3) read(t, oldBlock + STATUS_LINE, 'rate_limited', () => {});
+  read(t17, both, 'rate_limited', (card, roster) => {
+    assert.ok(card.limitUntil && Date.parse(card.limitUntil) === Date.parse('2026-10-11T02:00:00Z'), 'the newer limit\'s reset was hidden: ' + card.limitUntil);
+    const v = chat.limitHeldVerdict('casey', roster, t17);
+    assert.ok(v && v.heldBy === 'limit', 'the newer limit was not held: ' + JSON.stringify(v));
+  });
+  // 21:02 CDT, both rows still on screen: the newer is retired and the older one does not keep the card capped.
+  const t2102 = Date.parse('2026-10-11T02:02:00Z');
+  for (let t = t17 + 60e3; t < t2102; t += 60e3) read(t, both, null, () => {});
+  read(t2102, both, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'an older row kept the card capped past the newer limit\'s reset'));
+});
