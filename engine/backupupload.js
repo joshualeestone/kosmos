@@ -257,7 +257,7 @@ function parseGrant(data, objects, seenKeys, runBucket, epoch) {
     if (runBucket.prefix && runBucket.prefix !== bucketPrefix) return { ok: false, because: `the grant names another bucket (${bucketPrefix}) than this run's first (${runBucket.prefix})` };
   }
   const ep = epochProblem(data, uploads.map((u) => u.key), epoch, 'the grant');
-  if (ep) return { ok: false, because: ep };
+  if (ep) return Object.assign({ ok: false, because: ep }, otherEpochOf(data, epoch));
   return { ok: true, expiresAtMs, lifetimeMs: minExpiresS * 1000, uploads, bucketPrefix };
 }
 
@@ -341,7 +341,8 @@ function clockSkew(nowMs, expiresAtMs) {
    their lock ends and bucket (null if none was granted), so a later manifest can name them without uploading them
    again. grantSpent has uploadManifest's three states: true when any grant in this run answered (its allowance is
    spent); false when the run refused before asking for any; absent when a grant request failed or was refused (it
-   may still have spent one). Never throws. */
+   may still have spent one). otherEpoch (an integer) when a grant's answer named another key epoch than opts.epoch:
+   nothing was sent under it (see otherEpochOf). Never throws. */
 async function uploadChunks(deps, objects, opts) {
   const keys = new Map();
   // Run-wide: chunks that met trouble and are not stored (their write may have landed), and every key granted.
@@ -490,7 +491,8 @@ async function askSigned(macRequest, route, makeBody, parse) {
       let p;
       try { p = parse(r.data); } catch (err) { p = { ok: false, because: `the grant answer could not be read: ${(err && err.message) || err}` }; }
       // An answer we refuse still spent the grant's allowance (and, for a manifest, left a recorded hash).
-      return p.ok ? p : { ok: false, out: Object.assign({ because: p.because, grantSpent: true }, p.otherBucket ? { otherBucket: true } : {}) };
+      return p.ok ? p : { ok: false, out: Object.assign({ because: p.because, grantSpent: true }, p.otherBucket ? { otherBucket: true } : {},
+        p.otherEpoch !== undefined ? { otherEpoch: p.otherEpoch } : {}) };
     }
     const because = (r && r.because) || 'Kosmos+ did not answer';
     const { status, code } = refusalOf(because);
@@ -518,7 +520,7 @@ function parseManifestGrant(data, bytes, runPrefix, epoch) {
   // otherBucket: the caller's chunks are in a bucket the coordinator no longer grants to (a walker's index is stale).
   if (c.prefix !== runPrefix) return { ok: false, otherBucket: true, because: `the manifest grant names another bucket (${c.prefix}) than its chunks' (${runPrefix})` };
   const ep = epochProblem(data, [c.upload.key], epoch, 'the manifest grant');
-  if (ep) return { ok: false, because: ep };
+  if (ep) return Object.assign({ ok: false, because: ep }, otherEpochOf(data, epoch));
   return { ok: true, expiresAtMs, lifetimeMs: c.expiresS * 1000, upload: Object.assign(c.upload, { retainMs: c.retainMs }) };
 }
 
@@ -542,6 +544,13 @@ function epochProblem(data, keys, epoch, label) {
   return null;
 }
 
+/* { otherEpoch } when a grant's ANSWER names another key epoch than the one sealed under: the member's current epoch has
+   moved (the job reads that as this computer's key being stale, kosmos#5744). Only an integer the coordinator could
+   name; a key path under another epoch with a matching answer is a malformed grant, not a moved member, and gives {}. */
+function otherEpochOf(data, epoch) {
+  return epoch && isKeyEpoch(data && data.epoch) && Number.isSafeInteger(data.epoch) && String(data.epoch) !== epoch ? { otherEpoch: data.epoch } : {};
+}
+
 /* A key's <org>/<account> (its first two segments), or null when it has fewer than three non-empty leading ones. */
 function ownerOf(key) {
   const parts = String(key).split('/');
@@ -562,7 +571,7 @@ function ownerOf(key) {
    one), and putTimeoutMs, as uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed
    PUT of a 64 MiB manifest holds the call about 70 minutes before it ends retryLater. The bytes are copied on entry,
    so a caller reusing its buffer meanwhile cannot change what is sent. Resolves { ok: true, key, sha256,
-   lockedUntilMs } or { ok: false, because, code?, retryLater?, unsure?, outlastsChunks?, grantSpent? }, unsure being
+   lockedUntilMs } or { ok: false, because, code?, retryLater?, unsure?, outlastsChunks?, grantSpent?, otherEpoch? }, unsure being
    [{ key }] when a write may have landed. Three states of grantSpent: true on every refusal made after a grant
    answered (its allowance is spent; a manifest's hash is recorded); false on every refusal made before a grant was
    asked for; absent when the grant request itself failed or was refused (no answer, a refusal, an error), which

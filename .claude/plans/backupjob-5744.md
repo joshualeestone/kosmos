@@ -1,0 +1,33 @@
+# kosmos#5744 slice 3: the backup job's member-key duties (stacked on memberkey-5744, slice 2b)
+
+Slice 2b gave ensureMemberKey. Its review left five duties for whatever runs a backup (card comments 17:29, 17:32 and
+the 2b PR body): compare epochs, pass lostEpoch, seal only under an ok key, pass opts.epoch, back off on waiting.
+Nothing runs a backup yet (no caller of takeSnapshot outside tests; production backup is off), so this slice builds
+the step that a scheduler will call, not the scheduler.
+
+## Pieces
+1. Uploader: a refusal for another key epoch carries a structured `otherEpoch` (the integer the grant named), beside
+   the existing sentence, from uploadChunks and uploadManifest. Only when the grant's answer names an integer epoch;
+   a key-path mismatch with a matching answer epoch stays sentence-only (a coordinator bug, not a moved member).
+2. Snapshot: takeSnapshot passes `otherEpoch` through on its failure result (chunks and manifest paths).
+3. engine/backupjob.js, `memberKeyFor(state, deps)`: the key step of one run.
+   - state is the job's own small record { lostEpoch?, waitUntilMs?, waits? } (the caller persists it).
+   - Before waitUntilMs: answer { ok: false, waiting: true } without asking Kosmos+.
+   - Calls ensureMemberKey({ lostEpoch: state.lostEpoch }) ; on ok, a key whose epoch is above state.lostEpoch clears it.
+   - waiting: waitUntilMs = now + backoff (1 h, doubling, capped at 24 h; the day rule is "once a day").
+   - ok: false otherwise: no snapshot this run.
+4. `afterSnapshot(state, key, result)`: a result with otherEpoch > key.epoch sets state.lostEpoch = key.epoch (this
+   computer's key is stale: one computer per member, design rule backup_not_member). otherEpoch < key.epoch is NOT
+   lost (a coordinator answering an older epoch is a rollback, never a reason to move on); recorded as a refusal only.
+5. The job passes ctx.epoch = String(key.epoch) and memberPk = key.publicKey, so "seal only under an ok key" and
+   "pass opts.epoch" hold by construction (takeSnapshot already passes ctx.epoch to both uploaders).
+
+## Decided
+- No scheduler, no persistence file in this slice. Rejected: wiring a timer while production backup is off (it would
+  ship a path nobody can exercise). Weakest premise: the scheduler's shape may want a different state record; it is a
+  plain object, so cheap to change.
+- Backoff 1 h doubling to 24 h. Rejected: retrying every run (each early retry is a round trip; after the day each send
+  counts toward the registration cap, #5736).
+
+## Checks
+- (to fill as built) tests per piece, each mutant-checked red.
