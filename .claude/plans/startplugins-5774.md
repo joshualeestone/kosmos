@@ -195,4 +195,8 @@ engine/startplugins-5774.test.js (see the iteration notes for what each test cov
   - [NIT] FIXED: an installed plugin whose folder IS a refused folder is skipped too.
   - [NIT] FIXED (plan): the Gaps line no longer says top-level lines only.
   - [NIT] not taken: an uncarriable link to a read-only plugin folder is named with the startup-folder wording (rare; still named).
+- Iteration 20 (Sonnet), on b104addcf: no BLOCKER.
+  - [WARNING] STATED GAP (decided, not changed): a plain `K=/x` line with no export anywhere in the file is still read (the safe direction: a deny rule). It costs a creation only when such a value falls in a refused place (temp, the projects folder, inside the agent), which is rare. Telling "exported later in the file" from "never exported" across a file is a parser of its own, and a wrong guess there would be a silent miss.
+  - [WARNING] DUPLICATE of a stated gap (review 8): a job home refused as uncarriable, relative, the home itself, or covering this agent's folder fails every creation; the message names that home's path, so the job at fault can be found.
+  - [NIT] not taken: the one-line folder read; the envKinds dedup shape; an ownHomeKnown flag instead of review 15's comment (a change to the per-tick caller, outside this branch).
 
