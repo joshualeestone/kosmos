@@ -55,3 +55,14 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - FIXED (NIT): withRun returns leftOut (not persisted), so a caller passing the wrong period shows. Test; mutant red.
 - FIXED (NIT): the "would not read back" test now reaches that refusal (a 31-byte key had thrown earlier).
 - Documented: discardState's .bad files are kept for a person, never removed here.
+
+## Review 3 (sonnet, blind, on f635fc54b): NOT CONVERGED
+- FIXED (WARNING): a stored LATER period was kept however far ahead, so one written under a wrong clock held every later
+  run in that week (each grant answering newPeriod for the real week, forPeriod handing the wrong one back). Kept now
+  only up to a day ahead of nowMs; further ahead starts fresh. Tests (a day ahead kept, three weeks ahead not); mutant red.
+- FIXED (WARNING): org and member were not checked: a number hashed to the same file and then read as another member's.
+  Every function now requires non-empty strings (a caller mistake throws). Tests; mutant red.
+- FIXED (WARNING): a passing read error (EBUSY, EAGAIN, EPERM, EACCES) looked like a foreign file, inviting a discard
+  of a good one. Now retry, and the header says never discard on retry. Test (and a not-ours file is not retry); mutant red.
+- FIXED (NIT): PERIOD_RE accepts weeks 01 to 53 only, so string comparison holds. Test; mutant red.
+- FIXED (NIT): discardState's aside name has a random suffix (two in one millisecond no longer collide).
