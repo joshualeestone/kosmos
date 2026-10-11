@@ -810,6 +810,10 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   }
   const settingsEnv = {};
   for (const [k, vs] of envValues) if (vs.size === 1 && !vs.has('\0not a string')) settingsEnv[k] = [...vs][0];
+  // #5774 route 5: every string value any tier gives a variable, for a caller that must cover each one (the plugin
+  // folder variables), not only the value the tiers agree on.
+  const settingsEnvAll = {};
+  for (const [k, vs] of envValues) settingsEnvAll[k] = [...vs].filter((v) => v !== '\0not a string');
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
   // Review 11: no PWD: a hook runs in the session's current folder, which the agent moves.
   // Review 9: the login's own name and temp folder, which hooks see unchanged.
@@ -903,7 +907,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     if (isCovered(x.where)) continue;
     unsafe.push(`${x.say || runnerSay(x.name, x.place)} (in ${x.from})`);
   }
-  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], unsafe: [...new Set(unsafe)] };
+  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], settingsEnvAll, unsafe: [...new Set(unsafe)] };
 }
 
 module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES };

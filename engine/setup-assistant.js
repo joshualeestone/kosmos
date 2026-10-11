@@ -720,6 +720,20 @@ function accountConfigHomes(home) {
   return out;
 }
 
+/* #5774 route 5: the config homes OTHER Kosmos agents run with (a job's CLAUDE_CONFIG_DIR), from each job file named
+   after an agent in the agents' folder. Read from the files (create.readJob), never by asking launchd: the guard runs at
+   every refresh. Claude agents only (another runner's account folder is not a Claude config home). */
+function agentJobConfigDirs(workersRoot) {
+  const out = [];
+  let names = [];
+  try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { return out; }
+  for (const name of names) {
+    let job = null;
+    try { job = create.readJob(name); } catch { job = null; }
+    if (job && job.configDir && (job.runner || 'claude') === 'claude') out.push(job.configDir);
+  }
+  return out;
+}
 /* #4491 reviews 14 and 15: true when a rule's PATH has a character the rule syntax reads as a pattern (the guide's #4752
    RULE_SYNTAX). The separator is made '/' first, as the guide does, so a Windows path's backslashes are not read as
    pattern characters (review 15: without that every Windows rule was dropped); the globs this file adds itself are
@@ -1674,6 +1688,17 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (ruleHasPatternChar(`Edit(${ruleAbs(ownHome)}/**)`)) configUnsafe.push(`${ownHome} (the agent's own config home, whose path the permission rules cannot carry)`);
     else concreteHomes.push(ownHome);
   }
+  /* #5774 route 5: another agent's config home outside ~/.claude* (its job's CLAUDE_CONFIG_DIR) is a config home like
+     these: its settings, code and instruction members are what that agent starts with. One the rules cannot carry is
+     named. Tests pass deps.agentConfigDirs. */
+  let jobHomes = [];
+  try { jobHomes = deps.agentConfigDirs !== undefined ? deps.agentConfigDirs : agentJobConfigDirs(path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir())); } catch { jobHomes = []; }
+  for (const h0 of jobHomes) {
+    const h = path.resolve(String(h0));
+    if (concreteHomes.includes(h)) continue;
+    if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (another agent's config home, whose path the permission rules cannot carry)`); continue; }
+    concreteHomes.push(h);
+  }
   const settingsFileDirs = [settingsDir, ...concreteHomes];
   const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
   /* #5516 part 2: what Claude Code's own config names to start, outside the sandbox, at the agent's next start, or
@@ -1754,6 +1779,31 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
+  }
+  /* #5774 route 5: the plugin folders three variables name, from the agent's environment and from EVERY settings tier's
+     env block (Claude Code reads both), parsed as 2.1.296 does: CLAUDE_CODE_PLUGIN_DIRS split on the path delimiter,
+     trimmed, ~ expanded, absolute parts only; CLAUDE_CODE_PLUGIN_CACHE_DIR one path, ~ expanded; CLAUDE_CODE_PLUGIN_SEED_DIR
+     split on the delimiter, empty parts dropped, ~ expanded. A relative cache or seed folder is read from the folder
+     Claude Code runs in, the agent's. Each is denied whole in both layers, as an installed plugin's folder is; one too
+     wide to deny (the root, or one holding the home or the agent's folder) or one the rules cannot carry is named. */
+  const envNow = deps.env || process.env;
+  const settingsEnvAll = startCmds.settingsEnvAll || {};
+  const valuesOf = (k) => [...new Set([...(typeof envNow[k] === 'string' && envNow[k] ? [envNow[k]] : []), ...(settingsEnvAll[k] || [])])];
+  const tilde = (v) => (v === '~' || v.startsWith('~/') ? path.join(home, v.slice(1)) : v);
+  const envPluginDirs = [];
+  for (const v of valuesOf('CLAUDE_CODE_PLUGIN_DIRS')) for (const part of v.split(path.delimiter)) { const t = tilde(part.trim()); if (t && path.isAbsolute(t)) envPluginDirs.push(path.resolve(t)); }
+  for (const v of valuesOf('CLAUDE_CODE_PLUGIN_CACHE_DIR')) { const t = tilde(v); if (t) envPluginDirs.push(path.resolve(dir, t)); }
+  for (const v of valuesOf('CLAUDE_CODE_PLUGIN_SEED_DIR')) for (const part of v.split(path.delimiter)) { if (part) envPluginDirs.push(path.resolve(dir, tilde(part))); }
+  const homeRealP = realOrLeaf(home), dirRealP = realOrLeaf(dir);
+  const holdsP = (r, x) => x === r || x.startsWith(r + path.sep);
+  for (const d of new Set(envPluginDirs)) {
+    if (coveredWhole(d)) continue;
+    if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
+    const r = realOrLeaf(d);
+    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home or the agent's own folder)`); continue; }
+    const both = withTarget(d, configUnsafe);
+    pluginDirs.push(...both);
+    wholeDenied.push(...both);
   }
   const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget, storeRoots: deps.storeRoots });
   configUnsafe.push(...shellStart.unsafe);
