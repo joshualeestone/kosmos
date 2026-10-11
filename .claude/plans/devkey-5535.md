@@ -43,3 +43,18 @@ fixed sentence, never a path or a byte. Read on each call, never cached or writt
 - FIXED (NIT): an empty, relative or non-string stateDir is refused, never the live default. Test; mutant red.
 - FIXED (NIT): a FIFO case (refused as not a plain file, without blocking).
 - NO CHANGE (NIT): the "no path, no key bytes" assertions cannot fail today (fixed sentences); kept as regression guards.
+
+## Review 2 (opus, blind, on 38af31862): NOT CONVERGED
+- Checked and held: \p{White_Space} in Node is exactly the 25 White_Space code points Rust trims (enumerated); base64
+  0.22 URL_SAFE_NO_PAD agrees; domain separation; link/FIFO ordering; torn writes refuse rather than misread.
+- FIXED (WARNING): mac_key is replaced with mac_id on every registration (setup.rs write_identity; renewal never touches
+  either). mac_id is now read before and after the key and a change refuses ("registered again"); the result names
+  macId so slice (c) can record which identity signed. CONTRACT for restore (#5536) and the content view (#5686): keep
+  retired device keys, since a manifest verifies only against the identity that signed it (posted on #5535).
+- FIXED (WARNING): a folder with mac_key and no mac_id (write_identity writes mac_key first; a cut-off registration) was
+  read as a key. Now missing, as MacState::open and remote.holdsKey treat it.
+- FIXED (NIT): "a renewed key is picked up" was wrong (renewal is the TLS certificate); the header now says what changes it.
+- FIXED (NIT): the BOM and NBSP test literals were raw invisible characters; now escapes.
+- Tests: 8. Mutants red: the identity compare, macId dropped, the mac_id form check, JS trim. The first read's missing
+  check survives alone (the second read refuses the same missing file); with both reads' missing checks removed: red.
+- Real files (17:5x, only ok/type/length printed): two connector-written state folders read ok, ed25519, a 32-char macId.
