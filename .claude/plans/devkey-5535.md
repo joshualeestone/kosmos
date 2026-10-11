@@ -58,3 +58,21 @@ fixed sentence, never a path or a byte. Read on each call, never cached or writt
 - Tests: 8. Mutants red: the identity compare, macId dropped, the mac_id form check, JS trim. The first read's missing
   check survives alone (the second read refuses the same missing file); with both reads' missing checks removed: red.
 - Real files (17:5x, only ok/type/length printed): two connector-written state folders read ok, ed25519, a 32-char macId.
+
+## Review 3 (sonnet, blind, on 4eab0bc7c): NOT CONVERGED
+- FIXED (BLOCKER): write_identity rewrites mac_key, then mac_id, in place (std::fs::write), under a file lock Node
+  cannot take, so the id-key-id reads could return the NEW key with the OLD id. A key written in the last 10 minutes
+  and newer than the id is now refused with retry. Only recent: an older pair in that order is not a live
+  registration (a cut-off one signs as the wrong id, so Kosmos+ refuses its grants and no backup uploads), and
+  refusing it would stop backups for good. Measured: in both connector-written folders on this Mac the key is 76 and
+  100 microseconds OLDER than the id. A third folder that first looked like a counterexample turned out not to hold a
+  connector key at all (a test fixture). Tests: caught mid-write refused; then the id lands and it reads; an old
+  reversed pair reads. Mutants red (the check removed; the age bound removed).
+- FIXED (WARNING): an empty file during the truncation is now refused with retry. Mutant red.
+- FIXED (WARNING): the test models the undetectable interleaving now, and a same-text id rewrite mid-read (time
+  changed): both refused. The time-equality mutant, which first survived, now red.
+- FIXED (CONVENTION): the header no longer says "a Forget" (the connector has none that deletes these; each
+  registration replaces both). macId is documented as a HINT: consumers verify against the identity the coordinator
+  recorded for the upload, then the member's other device keys.
+- Filed kosmos#5871: the connector writing its identity atomically, the real fix.
+- NO CHANGE (NIT): MAC_ID_RE is wider than the coordinator's 32-hex ids; it accepts them all.
