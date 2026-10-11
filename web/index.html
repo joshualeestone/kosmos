@@ -14928,7 +14928,7 @@ window.kosmosMeasureScrollbarWidth();
                 <!-- #5856 (Josh set the Play audience to 13+, 2026-10-11): Claude's consumer terms are 18+, so a teen who
                      picks it hits a wall that is not ours to lift. Say so here, and name who a teen can pick. No age
                      question (ruled on the card). The list names Meta Muse only where Muse is live (frPaintMeta). -->
-                <p class="fr-age" id="fr-age">Claude is for people 18 and over, and so are API keys. If you are under 18, choose <span id="fr-age-list">OpenAI, Gemini or Grok</span> and sign in with a subscription, with a parent's permission. Age rules vary by country.</p>
+                <p class="fr-age" id="fr-age">Claude and Gemini need you to be 18 or over, and so do API keys. If you are under 18, choose <span id="fr-age-list">OpenAI or Grok</span> and sign in with your own account, with a parent's permission. Age rules vary by country.</p>
                 <!-- ⭐ ALL SIX SHOWN, ALWAYS — Josh, 2026-08-25 21:08 CDT: "I want to
                      show all of the models. That's more important to me than having
                      the button above the fold. It's not like it's unreasonable to
@@ -31162,7 +31162,7 @@ async function frPaintMeta(opts) {
      as Gemini / Google and Grok / xAI do; off, it keeps today's coming-soon Llama. */
   const nm = row.querySelector('.llm-w b'); if (nm) nm.textContent = live ? 'Muse' : 'Llama';
   /* #5856: the under-18 sentence names Meta Muse only when a person can actually pick it. */
-  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live ? 'OpenAI, Gemini, Grok or Meta Muse' : 'OpenAI, Gemini or Grok';
+  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live ? 'OpenAI, Grok or Meta Muse' : 'OpenAI or Grok';
   const msg = document.getElementById('fr-muse-msg');
   if (!live) {
     frMuseCollapse();

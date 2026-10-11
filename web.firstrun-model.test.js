@@ -709,7 +709,7 @@ test('no button whose whole label is "Connect" goes unnamed', () => {
 /* #5856 (Josh set the Play audience to 13+): Claude's terms are 18+, so the model step tells a teen who
    they can pick instead, and asks no age. The list names Meta Muse only where a person can pick it. */
 test('#5856: the model step says Claude is 18+ and names who an under-18 can choose', () => {
-  assert.match(STEP, /<p class="fr-age" id="fr-age">Claude is for people 18 and over, and so are API keys\. If you are under 18, choose <span id="fr-age-list">OpenAI, Gemini or Grok<\/span> and sign in with a subscription, with a parent's permission\. Age rules vary by country\.<\/p>/,
+  assert.match(STEP, /<p class="fr-age" id="fr-age">Claude and Gemini need you to be 18 or over, and so do API keys\. If you are under 18, choose <span id="fr-age-list">OpenAI or Grok<\/span> and sign in with your own account, with a parent's permission\. Age rules vary by country\.<\/p>/,
     'the under-18 sentence is not on the model step as written');
   assert.doesNotMatch(STEP, /\b(how old|your age|date of birth|birthday)\b/i, 'the model step asks an age, which #5856 ruled out');
 });
@@ -729,6 +729,6 @@ test('#5856: frPaintMeta names Meta Muse in the under-18 list only while Muse is
     await fn();
     return els['fr-age-list'].textContent;
   };
-  assert.equal(await run(false), 'OpenAI, Gemini or Grok', 'with Muse off the list must not name Meta');
-  assert.equal(await run(true), 'OpenAI, Gemini, Grok or Meta Muse', 'with Muse live the list must name Meta Muse');
+  assert.equal(await run(false), 'OpenAI or Grok', 'with Muse off the list must not name Meta');
+  assert.equal(await run(true), 'OpenAI, Grok or Meta Muse', 'with Muse live the list must name Meta Muse');
 });
