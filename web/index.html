@@ -60915,11 +60915,11 @@ function tskToldSentence(t, now) {
   const told = t && 'told' in t && t.told && typeof t.told.value === 'string' ? t.told : null;
   if (!v && !told) return '';
   const when = told ? (agoWords(now - Date.parse(told.at || '')) || 'just now') : '';
-  if (!told) return ' Its latest reading, \u201c' + v + '\u201d, has not been recorded as told to you.';
-  if (!v || v === told.value) return ' You were last told \u201c' + told.value + '\u201d (' + when + ')' + (v ? ', the same as its latest reading.' : '.');
+  if (!told) return ' Its latest check found \u201c' + v + '\u201d. You have not been told this yet.';
+  if (!v || v === told.value) return ' You were last told \u201c' + told.value + '\u201d (' + when + ')' + (v ? ', the same as its latest check.' : '.');
   // Review 1: told AFTER the reading (in the agent's own words) is not "changed since": say the order as it happened.
-  if (Date.parse(told.at || '') >= Date.parse(t.verified.at || '')) return ' You were last told \u201c' + told.value + '\u201d (' + when + '), after its latest reading, \u201c' + v + '\u201d.';
-  return ' Its latest reading, \u201c' + v + '\u201d, has changed since you were last told \u201c' + told.value + '\u201d (' + when + ').';
+  if (Date.parse(told.at || '') >= Date.parse(t.verified.at || '')) return ' You were last told \u201c' + told.value + '\u201d (' + when + '), after its latest check found \u201c' + v + '\u201d.';
+  return ' Its latest check found \u201c' + v + '\u201d. When you were last told (' + when + '), it was \u201c' + told.value + '\u201d.';
 }
 /* slice 2: "Missed the run due today at 9am." or "Missed 3 runs, the latest due today at 9am.", or '' when none is. */
 function tskRepeatMissed(t) {

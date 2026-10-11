@@ -965,7 +965,7 @@ const SCREENS = [
     await page.evaluate(() => document.getElementById('tk-repeat-row').scrollIntoView({ block: 'center' }));
   }, verify: async (page) => {
     const t = await page.evaluate(() => (document.getElementById('tk-repeat-line') || {}).textContent || '');
-    if (!/has changed since you were last told \u201cprice is \$40\u201d/.test(t)) throw new Error('the repeat line says: ' + JSON.stringify(t));
+    if (!/When you were last told \([^)]*\), it was \u201cprice is \$40\u201d/.test(t)) throw new Error('the repeat line says: ' + JSON.stringify(t));
   }, after: async (page, data) => {
     if (typeof data.toldTask !== 'number') return;
     const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), [data.projectId, data.toldTask]);
