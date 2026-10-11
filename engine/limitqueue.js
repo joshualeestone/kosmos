@@ -15,10 +15,10 @@ const store = require('./store');
 
 const DROP_AFTER_MS = 24 * 60 * 60 * 1000;
 const MAX_KEPT = 200;   // per agent, from all senders together
-const MAX_PER_SENDER = 20;
+const MAX_PER_SENDER = 20;   // per agent per sender: one sender in a loop cannot crowd out the others
 /* Typed per agent per minute: the roster is read once a minute, so an agent that hits its limit again mid-backlog is
    noticed within this many messages, not after the whole backlog. */
-const PER_RUN = 5;   // per agent per sender: one sender in a loop cannot crowd out the others
+const PER_RUN = 5;
 
 function dir() { return path.join(store.ROOT, 'limitqueue'); }
 /* The store key alone can make two names one file (it lowercases and strips); a short hash of the exact name keeps

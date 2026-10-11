@@ -164,3 +164,9 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - CONVENTIONS taken: the claim's comment says what it guards (another flush run), and limitqueue.js is in the #5434
   writer guard's two lists (its title no longer counts the writers, so two branches adding one do not collide).
 - NIT taken: the plan's cap figure matches the code. Not taken: heldUntil in UTC; the repeated addressable call.
+
+## Review 12 (sonnet)
+- DEFERRED (checked): a held long message's spill sits in the recipient's Inbox for the hold; nothing prunes the Inbox
+  (searched engine/ and server.js), and the spill is removed on refuse and drop.
+- Covered by a stated residual: the in-memory record of failed removals.
+- NIT taken: MAX_PER_SENDER's comment was on PER_RUN's line.
