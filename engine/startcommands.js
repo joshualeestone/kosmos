@@ -802,7 +802,7 @@ function pluginVarDirs(values, agentDir, home, relativeOk) {
   const out = [];
   for (const v of values.CLAUDE_CODE_PLUGIN_DIRS || []) for (const part of v.split(path.delimiter)) { const t = tilde(part.trim()); if (t && path.isAbsolute(t)) out.push(path.resolve(t)); }
   const cacheOrSeed = (t) => { if (t && (relativeOk || path.isAbsolute(t))) out.push(path.resolve(agentDir, t)); };
-  for (const v of values.CLAUDE_CODE_PLUGIN_CACHE_DIR || []) cacheOrSeed(tilde(v));
+  for (const v of values.CLAUDE_CODE_PLUGIN_CACHE_DIR || []) cacheOrSeed(tilde(v));   // not trimmed: 2.1.296 does not trim it (measured)
   for (const v of values.CLAUDE_CODE_PLUGIN_SEED_DIR || []) for (const part of v.split(path.delimiter)) if (part) cacheOrSeed(tilde(part));
   return out;
 }
@@ -825,12 +825,14 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
      closed: the hook is named.) #5774 route 5: another account's home's values are also kept apart (envOther), for a
      caller that must not read them as this agent's. */
   const agentHome = path.resolve(ownHome || path.join(home || require('os').homedir(), '.claude'));
+  const realOfH = (x) => { try { return fs.realpathSync.native(x); } catch { return path.resolve(x); } };
   const envValues = new Map();
   const envOther = new Map();
   const envOwn = new Map();
   for (const s of sources.filter((x) => x.settings)) {
     const env = s.json && typeof s.json.env === 'object' && s.json.env ? s.json.env : {};
-    const other = !!(s.home && path.resolve(s.home) !== agentHome);
+    // Review 4: by either spelling (a linked /var), as the folder-above tag is.
+    const other = !!(s.home && path.resolve(s.home) !== agentHome && realOfH(s.home) !== realOfH(agentHome));
     for (const [k, v] of Object.entries(env)) {
       for (const target of other ? [envValues, envOther] : [envValues, envOwn]) {
         if (!target.has(k)) target.set(k, new Set());

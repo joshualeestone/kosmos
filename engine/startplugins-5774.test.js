@@ -257,3 +257,55 @@ test('#5774 route 5 review 3: the append idiom is read; a backtick is named; ~/.
   assert.ok(editDeniedBy(readSettings(d3).permissions.deny, path.join(seeded, 'settings.json')).length > 0, 'the cached job homes were not used');
 });
 
+
+test('#5774 route 5 review 4: a quoted ~ is read; the startup files are read once per pass; the folder cap; the own home by either spelling; linked agent folders; a job home that is the home', () => {
+  const zshrc = path.join(HOME, '.zshrc');
+  fs.writeFileSync(zshrc, 'export CLAUDE_CODE_PLUGIN_DIRS="~/qplug"\n');
+  try {
+    const d = agentDir('pilot-qtilde');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-qtilde', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, 'qplug', 'x')).length > 0, 'a quoted ~');
+  } finally { fs.rmSync(zshrc, { force: true }); }
+  // The pass's cache of the startup files' values is used (seeded here with no file naming the folder).
+  const seededPlug = path.join(SANDBOX, 'seeded-plug');
+  const cache = new Map([[`#5774 route 5 plugin variables in startup files ${HOME}`, { vals: { CLAUDE_CODE_PLUGIN_DIRS: [seededPlug] }, unsafe: [] }]]);
+  const d1 = agentDir('pilot-filecache');
+  setup.guardTokenOnlyFolder(d1, 'pilot-filecache', { ...DEPS, env: ENV0, launchCache: cache });
+  assert.ok(editDeniedBy(readSettings(d1).permissions.deny, path.join(seededPlug, 'x')).length > 0, 'the cached startup-file values were not used');
+  // More than 50 plugin folders: the rest are named.
+  const many = Array.from({ length: 51 }, (_, i) => path.join(SANDBOX, 'many-plugs', `p${i}`)).join(path.delimiter);
+  const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-manyplugs'), 'pilot-manyplugs', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_DIRS: many } });
+  assert.ok(JSON.stringify(g2).includes('(more than 50)'), JSON.stringify(g2));
+  // The agent's own home passed by its other spelling (/private/var against /var) is still its own: its relative cache counts.
+  const acctReal = fs.realpathSync.native(path.join(HOME, '.claude-acct'));
+  const st = path.join(HOME, '.claude-acct', 'settings.json');
+  writeJson(st, { env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: 'ownrel' } });
+  try {
+    const d = agentDir('pilot-ownspelling');
+    setup.guardTokenOnlyFolder(d, 'pilot-ownspelling', { ...DEPS, env: ENV0, accountConfigDir: acctReal });
+    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(d, 'ownrel', 'x')).length > 0, 'the own home read as another account by its spelling');
+  } finally { fs.rmSync(st, { force: true }); }
+  // The same at the scan itself, where the guard's own home list cannot hide it: homes in one spelling, ownHome in the other.
+  writeJson(st, { env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: 'ownrel2' } });
+  try {
+    const d = agentDir('pilot-ownspelling2');
+    const r = require('./startcommands').startCommandScripts(d, { homes: [path.join(HOME, '.claude-acct')], home: HOME, ownHome: acctReal, platform: 'darwin', managedDir: MANAGED });
+    assert.ok(r.envPluginDirs.includes(path.join(d, 'ownrel2')), `the own home's relative cache: ${JSON.stringify(r.envPluginDirs)}`);
+  } finally { fs.rmSync(st, { force: true }); }
+  // A linked agent folder in the agents' folder: its job's home is found; a job home that is the home itself is named.
+  const realAgent = path.join(SANDBOX, 'real-agent-r4');
+  fs.mkdirSync(realAgent, { recursive: true });
+  const linked = path.join(SANDBOX, 'workers', 'linked-r4');
+  fs.rmSync(linked, { force: true }); fs.symlinkSync(realAgent, linked);
+  const linkedHome = path.join(SANDBOX, 'linked-home-r4');
+  fs.writeFileSync(jobfix.jobPath('linked-r4'), jobfix.jobFor('linked-r4', '/usr/bin/true', '/usr/bin/true', null, linkedHome, 'claude'));
+  fs.mkdirSync(path.join(SANDBOX, 'workers', 'homejob-r4'), { recursive: true });
+  fs.writeFileSync(jobfix.jobPath('homejob-r4'), jobfix.jobFor('homejob-r4', '/usr/bin/true', '/usr/bin/true', null, HOME, 'claude'));
+  try {
+    const d = agentDir('pilot-linkedagent');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-linkedagent', { ...DEPS, env: ENV0 });
+    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(linkedHome, 'settings.json')).length > 0, 'a linked agent folder\'s job home');
+    assert.ok(JSON.stringify(g).includes('which is the root or the home folder itself'), JSON.stringify(g));
+  } finally { for (const n of ['linked-r4', 'homejob-r4']) fs.rmSync(jobfix.jobPath(n), { force: true }); fs.rmSync(linked, { force: true }); }
+});

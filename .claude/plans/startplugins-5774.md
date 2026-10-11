@@ -29,7 +29,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 7 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
+engine/startplugins-5774.test.js, 8 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
 - each of the three variables dropped;
 - a relative CLAUDE_CODE_PLUGIN_DIRS part kept;
 - no ~ expansion;
@@ -69,4 +69,13 @@ engine/startplugins-5774.test.js, 7 tests, using the production job reader again
   - [NIT] TAKEN: the dead outputs (settingsEnvAll, settingsEnvOwn, settingsEnvOther, the pluginVarDirs export) are removed.
   - [NIT] TAKEN: tests for the 50-home cap and for the per-pass cache being used; two mutations red.
   - [NIT] TAKEN: the job-home test removes its job file, so later tests do not inherit it.
+- Iteration 4 (Sonnet), on f7d2f2e08: no BLOCKER.
+  - [WARNING] FIXED. `export CLAUDE_CODE_PLUGIN_DIRS="~/plugins"` was named (assignmentsIn reads a quoted ~ as unknown, right for a shell path): the shell keeps it literal and Claude Code expands it, so for these variables a quoted ~ is read. Tested; mutation red.
+  - [WARNING] FIXED. The startup files were read again for every agent at every refresh; their values are now read once per pass (the launchCache, as the job homes are). Tested (a seeded cache is used); mutation red.
+  - [WARNING] FIXED. The variable-named plugin folders were unbounded; past 50 the rest are named. Tested; mutation red.
+  - [WARNING] FIXED. "Another account's home" was decided by spelling only; it now compares real paths too. Through the guard this is masked (the own home joins the home list in the spelling it is passed, so its tier is also read as its own), so it is tested at the scan itself, with the homes in one spelling and the own home in the other; mutation red (it stayed GREEN through the guard first).
+  - [NIT] TAKEN: a linked agent folder in the agents' folder is read for its job. Tested; mutation red.
+  - [NIT] TAKEN: a job home that is the root or the home itself is named. Tested; mutation red.
+  - [NIT] TAKEN: a comment that the cache value is not trimmed, as measured.
+  - [NIT] not taken: the startup files are picked from part 2's list by their standard names, which a ZDOTDIR does not change.
 

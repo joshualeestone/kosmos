@@ -727,7 +727,8 @@ function agentJobConfigDirs(workersRoot) {
   const out = [];
   let names = [];
   // Review 1: an agents' folder that cannot be read is named by the caller (never a silent loss).
-  try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch (e) { if (e && e.code === 'ENOENT') return out; out.unreadable = (e && e.code) || String(e); return out; }
+  // Review 4: a linked agent folder too (a dirent of a link is not a directory).
+  try { names = fs.readdirSync(workersRoot, { withFileTypes: true }).filter((d) => d.isDirectory() || (d.isSymbolicLink() && (() => { try { return fs.statSync(path.join(workersRoot, d.name)).isDirectory(); } catch { return false; } })())).map((d) => d.name); } catch (e) { if (e && e.code === 'ENOENT') return out; out.unreadable = (e && e.code) || String(e); return out; }
   for (const name of names) {
     let job = null;
     try { job = create.readJob(name); } catch { job = null; }
@@ -1271,7 +1272,7 @@ function foldersOf(value, home, xdgs, zdotNow = [], datas = []) {
 }
 /* The assignments `[export] NAME=value` in a startup file, each value as written (one quoted string unquoted), or
    null for a value with a quote in the middle (review 2: ZDOTDIR="$HOME"/.zsh must not read as "$HOME"). */
-function assignmentsIn(text, name) {
+function assignmentsIn(text, name, { quotedTildeOk = false } = {}) {   // #5774 route 5: a reader that expands ~ itself (Claude Code's plugin variables)
   const out = [];
   /* Review 14: anywhere on a TOP-LEVEL line (not indented, not a comment): `export A=1 ZDOTDIR=x`,
      `[[ -z $ZDOTDIR ]] && export ZDOTDIR=x`, `typeset -x ZDOTDIR=x`, and `: ${ZDOTDIR:=x}`. A conditional means "this
@@ -1303,7 +1304,7 @@ function assignmentsIn(text, name) {
         /* Review 11: a value of joined quoted and bare parts with no space ("$HOME"/.zsh) is unquoted part by part. A
            quoted ~ stays literal and a single-quoted $ is not expanded, so either is named; a quoted space is read. */
         const parts = [...m[1].matchAll(/"([^"]*)"|'([^']*)'|([^"']+)/g)];
-        if (parts.length && (parts[0][1] !== undefined || parts[0][2] !== undefined) && /^~/.test(parts[0][1] ?? parts[0][2])) { out.push(null); continue; }
+        if (!quotedTildeOk && parts.length && (parts[0][1] !== undefined || parts[0][2] !== undefined) && /^~/.test(parts[0][1] ?? parts[0][2])) { out.push(null); continue; }
         if (parts.some((q) => q[2] !== undefined && q[2].includes('$'))) { out.push(null); continue; }
         out.push(parts.map((q) => q[1] ?? q[2] ?? q[3]).join(''));
       }
@@ -1712,6 +1713,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   for (const h0 of jobHomes) {
     if (typeof h0 !== 'string' || !path.isAbsolute(h0)) continue;   // review 2: a relative configDir names no folder Kosmos can place
     const h = path.resolve(h0);
+    // Review 4: a job home that is the root or the home itself is no config home Kosmos can place: named.
+    if (h === path.parse(h).root || realOrLeaf(h) === realOrLeaf(home)) { configUnsafe.push(`${h} (a config home an agent's job names, which is the root or the home folder itself)`); continue; }
     if (!concreteHomes.includes(h) && ++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
     if (concreteHomes.includes(h)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (a config home an agent's job names, whose path the permission rules cannot carry)`); continue; }
@@ -1799,12 +1802,20 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const envNow = deps.env || process.env;
   const pluginVars = {};
   for (const k of PLUGIN_VARS) if (typeof envNow[k] === 'string' && envNow[k]) (pluginVars[k] = pluginVars[k] || []).push(envNow[k]);
-  for (const f of shellStart.files.filter((x) => /(?:^|[\\/])\.(?:zshenv|zprofile|zshrc|zlogin|profile|bash_profile|bash_login|bashrc)$/.test(x))) {
-    let text = '';
-    try { const st = fs.statSync(f); if (st.isFile() && st.size <= 4194304) text = fs.readFileSync(f, 'utf8'); } catch { text = ''; }
-    for (const k of PLUGIN_VARS) {
-      if (!text.includes(k)) continue;   // review 2: most files name none of them
-      for (const v of assignmentsIn(text, k)) {
+  // Review 4: the startup files are the same for every agent on this home, so they are read once per pass (the pass's
+  // launchCache, as the job homes are).
+  const fileCache = deps.launchCache instanceof Map ? deps.launchCache : null;
+  const fileKey = `#5774 route 5 plugin variables in startup files ${home}`;
+  let fromFiles = fileCache && fileCache.get(fileKey);
+  if (!fromFiles) {
+    fromFiles = { vals: {}, unsafe: [] };
+    for (const f of shellStart.files.filter((x) => /(?:^|[\\/])\.(?:zshenv|zprofile|zshrc|zlogin|profile|bash_profile|bash_login|bashrc)$/.test(x))) {
+      let text = '';
+      try { const st = fs.statSync(f); if (st.isFile() && st.size <= 4194304) text = fs.readFileSync(f, 'utf8'); } catch { text = ''; }
+      for (const k of PLUGIN_VARS) {
+        if (!text.includes(k)) continue;   // review 2: most files name none of them
+        // Review 4: a quoted ~ is kept literal by the shell and expanded by Claude Code, so it is read here.
+        for (const v of assignmentsIn(text, k, { quotedTildeOk: true })) {
         /* Review 3: the append idiom refers back to the variable itself (`$K:$HOME/x`, `${K:+$K:}...`): every earlier
            value is already gathered and covered, so those parts are dropped. $HOME (balanced braces) is replaced at the
            start of each part. A backtick or any other variable is a value Kosmos cannot work out: named. */
@@ -1812,11 +1823,15 @@ function tokenOnlySettingsRules(dir, deps = {}) {
         const plain = v === null ? null : v.replace(selfRef, '').split(path.delimiter)
           .filter((part) => part !== `$${k}` && part !== `\${${k}}`)
           .map((part) => part.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, home)).join(path.delimiter);
-        if (plain === null || plain.includes('$') || plain.includes('`')) { configUnsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
-        (pluginVars[k] = pluginVars[k] || []).push(plain);
+          if (plain === null || plain.includes('$') || plain.includes('`')) { fromFiles.unsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
+          (fromFiles.vals[k] = fromFiles.vals[k] || []).push(plain);
+        }
       }
     }
+    if (fileCache) fileCache.set(fileKey, fromFiles);
   }
+  configUnsafe.push(...fromFiles.unsafe);
+  for (const k of PLUGIN_VARS) if (fromFiles.vals[k]) (pluginVars[k] = pluginVars[k] || []).push(...fromFiles.vals[k]);
   // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
   // guard says it is not whole.
   let startCmds;
@@ -1837,7 +1852,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const dataRealP = deps.dataRoot ? realOrLeaf(deps.dataRoot) : null;
   const homesRealP = concreteHomes.map((h) => realOrLeaf(h));
   const holdsP = (r, x) => x === r || x.startsWith(r + path.sep);
+  // Review 4: bounded like the job homes; past 50 the rest are named (each is a whole-folder rule, never pruned).
+  const ENV_PLUGIN_MAX = 50;
+  let envPluginTaken = 0;
   for (const d of new Set(startCmds.envPluginDirs || [])) {
+    if (++envPluginTaken > ENV_PLUGIN_MAX) { configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); break; }
     if (coveredWhole(d)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
     const r = realOrLeaf(d);
