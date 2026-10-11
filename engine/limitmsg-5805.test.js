@@ -561,7 +561,7 @@ test('#5805 2a review 15: the board wires the sweep to the automatic gate, the r
   assert.match(src, /limitqueue\.flush\(roster, limitqueue\.sweepHooks\(\{ chat, messages \}\)\)/, 'the sweep is not wired to sweepHooks');
   const lq = fs.readFileSync(path.join(__dirname, 'limitqueue.js'), 'utf8');
   const at = lq.indexOf('function sweepHooks(');
-  const body = lq.slice(at, at + 1400);
+  const body = lq.slice(at, lq.indexOf('\nfunction ', at + 1));   // the whole function, however long it grows
   for (const want of [/chat\.deliverAutomaticAsync\(n, env, r\)/, /isReleased: chat\.limitQueueReleased/, /messages\.logHeldDelivered\(e, v\)/, /messages\.tellHeldDropped\(e, r\)/]) {
     assert.match(body, want);
   }
