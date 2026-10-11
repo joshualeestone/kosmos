@@ -13,6 +13,13 @@ const { hpkeKeyPair } = require('./hpke');
 const bare = () => fs.mkdtempSync(path.join(os.tmpdir(), 'devkey-5535-'));
 /* A state folder as the connector leaves it after registering: mac_id beside mac_key (written by each test). */
 const tmp = () => { const d = bare(); fs.writeFileSync(path.join(d, 'mac_id'), 'mac_test1\n'); return d; };
+/* Write a key the way write_identity does: mac_key FIRST, then mac_id (here rewritten with its own text, so it is the
+   newer file), so a fixture is a finished registration, not one caught between its two writes. */
+function writeKey(d, body) {
+  fs.writeFileSync(path.join(d, 'mac_key'), body);
+  const id = path.join(d, 'mac_id');
+  if (fs.existsSync(id)) fs.writeFileSync(id, fs.readFileSync(id));
+}
 /* A key the way the connector writes it (setup.rs: URL_SAFE_NO_PAD of the 32-byte seed) and its public half as the
    connector would register it (the raw 32 bytes), computed independently of the module under test. */
 function connectorKey() {
@@ -26,7 +33,7 @@ test('the connector\'s mac_key is read as an Ed25519 key whose public half is th
   const d = tmp();
   try {
     const k = connectorKey();
-    fs.writeFileSync(path.join(d, 'mac_key'), k.seed + '\n', { mode: 0o600 });
+    writeKey(d, k.seed + '\n');
     const r = deviceKey({ stateDir: d });
     assert.equal(r.ok, true, r.because);
     assert.equal(r.privateKey.asymmetricKeyType, 'ed25519');
@@ -56,7 +63,7 @@ test('anything but the connector\'s exact form is refused, with a fixed sentence
       ['hex', Buffer.from(k.seed, 'base64url').toString('hex')],
       ['larger than a key', k.seed + ' '.repeat(300)],
     ]) {
-      fs.writeFileSync(path.join(d, 'mac_key'), body);
+      writeKey(d, body);
       const r = deviceKey({ stateDir: d });
       assert.equal(r.ok, false, what);
       assert.equal(r.privateKey, undefined, what);
@@ -64,7 +71,7 @@ test('anything but the connector\'s exact form is refused, with a fixed sentence
       assert.ok(!r.because.includes(k.seed.slice(0, 8)), `${what}: no key bytes`);
     }
     // Control: the exact form, with the connector's surrounding whitespace, is read.
-    fs.writeFileSync(path.join(d, 'mac_key'), `  ${k.seed}\r\n`);
+    writeKey(d, `  ${k.seed}\r\n`);
     assert.equal(deviceKey({ stateDir: d }).ok, true);
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
@@ -87,7 +94,7 @@ test('no file is "missing"; a link and a folder are refused without being read',
     assert.match(dir.because, /not a plain file/, 'refused as what it is, not as a read error');
     // Control: the same bytes as a plain file are read.
     fs.rmdirSync(path.join(d, 'mac_key'));
-    fs.copyFileSync(real, path.join(d, 'mac_key'));
+    writeKey(d, fs.readFileSync(real));
     assert.equal(deviceKey({ stateDir: d }).ok, true);
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
@@ -98,7 +105,7 @@ test('with no stateDir given it reads the connector folder remote.js uses (AGENT
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_STATE = d;
     assert.equal(deviceKey().missing, true);
-    fs.writeFileSync(path.join(d, 'mac_key'), connectorKey().seed);
+    writeKey(d, connectorKey().seed);
     fs.writeFileSync(path.join(d, 'mac_id'), 'mac_test1');
     assert.equal(deviceKey().ok, true);
   } finally {
@@ -111,14 +118,14 @@ test('round 1: trimmed exactly as Rust trims: a BOM is refused (the connector ca
   const d = tmp();
   try {
     const k = connectorKey();
-    fs.writeFileSync(path.join(d, 'mac_key'), '\uFEFF' + k.seed);
+    writeKey(d, '\uFEFF' + k.seed);
     const bom = deviceKey({ stateDir: d });
     assert.equal(bom.ok, false); assert.match(bom.because, /form the connector writes/);
     // Rust's char::is_whitespace includes U+0085 (NEL), which JS trim() keeps: the connector reads this one.
-    fs.writeFileSync(path.join(d, 'mac_key'), k.seed + '\u0085\n');
+    writeKey(d, k.seed + '\u0085\n');
     assert.equal(deviceKey({ stateDir: d }).ok, true);
     // And a no-break space, which both trim.
-    fs.writeFileSync(path.join(d, 'mac_key'), '\u00A0' + k.seed);
+    writeKey(d, '\u00A0' + k.seed);
     assert.equal(deviceKey({ stateDir: d }).ok, true);
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
@@ -140,7 +147,7 @@ test('round 2: the key belongs to mac_id: none is missing (a registration cut of
   const d = bare();
   try {
     const k = connectorKey();
-    fs.writeFileSync(path.join(d, 'mac_key'), k.seed);   // write_identity writes mac_key FIRST
+    writeKey(d, k.seed);   // write_identity writes mac_key FIRST
     const cut = deviceKey({ stateDir: d });
     assert.equal(cut.ok, false); assert.equal(cut.missing, true);
     for (const bad of ['', 'mac id with spaces', 'x'.repeat(129), '\uFEFFmac_test1']) {
@@ -162,7 +169,7 @@ test('round 2: registered again while the key was read (mac_id changed between t
   const d = tmp();
   const realOpen = fs.openSync;
   try {
-    fs.writeFileSync(path.join(d, 'mac_key'), connectorKey().seed);
+    writeKey(d, connectorKey().seed);
     let swapped = false;
     fs.openSync = function (file, ...rest) {
       const fd = realOpen.call(fs, file, ...rest);
@@ -177,4 +184,36 @@ test('round 2: registered again while the key was read (mac_id changed between t
     fs.openSync = realOpen;
     assert.equal(deviceKey({ stateDir: d }).macId, 'mac_test2');
   } finally { fs.openSync = realOpen; fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('round 3: a registration caught between its two writes (new key, old id) is refused with retry; an empty file too', () => {
+  const d = tmp();
+  try {
+    const k = connectorKey();
+    writeKey(d, k.seed);
+    assert.equal(deviceKey({ stateDir: d }).ok, true, 'control: a finished registration reads');
+    // write_identity has written the NEW key; mac_id is still the OLD one: the key file is the newer.
+    const later = new Date(Date.now() + 5000);
+    fs.writeFileSync(path.join(d, 'mac_key'), connectorKey().seed);
+    fs.utimesSync(path.join(d, 'mac_key'), later, later);
+    const mid = deviceKey({ stateDir: d });
+    assert.equal(mid.ok, false); assert.equal(mid.retry, true); assert.match(mid.because, /being registered again/);
+    // Then mac_id lands (written after the key): it reads, under the new identity.
+    fs.writeFileSync(path.join(d, 'mac_id'), 'mac_test2');
+    const t2 = new Date(later.getTime() + 1000);
+    fs.utimesSync(path.join(d, 'mac_id'), t2, t2);
+    const done = deviceKey({ stateDir: d });
+    assert.equal(done.ok, true, done.because); assert.equal(done.macId, 'mac_test2');
+    // An empty file is one being rewritten (std::fs::write truncates first).
+    fs.writeFileSync(path.join(d, 'mac_id'), '');
+    const empty = deviceKey({ stateDir: d });
+    assert.equal(empty.ok, false); assert.equal(empty.retry, true);
+    // An OLD pair in that order is not a live registration: read, never refused for good.
+    fs.writeFileSync(path.join(d, 'mac_id'), 'mac_test3');
+    const hourAgo = new Date(Date.now() - 3600 * 1000), before = new Date(Date.now() - 3601 * 1000);
+    fs.utimesSync(path.join(d, 'mac_id'), before, before);
+    fs.utimesSync(path.join(d, 'mac_key'), hourAgo, hourAgo);
+    const old = deviceKey({ stateDir: d });
+    assert.equal(old.ok, true, old.because);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
