@@ -66,3 +66,14 @@ after its lock was stolen could drop the lines of a sealed file deleted meanwhil
 - FIXED (WARNING): nothing proved noteEnded compacts; a test now does.
 - GONE (NITs): bytes vs code units, the mode carried by writeFileSync, slugFor binding, the forward-clock edge: all were
   about code the redesign removed.
+
+## Review 2 (sonnet, blind, on dc0d35100): no BLOCKER
+- FIXED (WARNING): a stuck compaction's note now names the file holding the bad line (it named only the folder).
+- FIXED (WARNING): the lock taken to append an end (ended-agents.jsonl.lock) is now write-denied for token-only
+  agents too (permission and sandbox): one holding it would delay every revoke by the lock's wait.
+- FIXED (WARNING): tests for the untested arms: a sealed file changed since read is not deleted; an unreadable sealed
+  file or compact.jsonl refuses; a sealed file deleted between listing and read is answered from compact.jsonl; and
+  the READ ORDER itself (a mutation reading compact.jsonl first survived every test until this one, which stages a
+  compaction folding in and deleting an old sealed file just after the reader read compact.jsonl).
+- FIXED (NIT): a comment named ENDED_DIR; stale compact temp files are cleared after an hour; one sentence on slugFor
+  stability.

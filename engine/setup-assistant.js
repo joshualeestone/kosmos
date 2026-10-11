@@ -1320,7 +1320,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const trustedFiles = tokenRoots.flatMap((r) => ['created.jsonl', 'ended-agents.jsonl', 'agent-token-only.json'].map((f) => path.join(r, f)));
   /* kosmos#5208: the rest of the history of ended agents (compact.jsonl and the sealed files the live file becomes) lives
      in this folder. An agent that could write there could delete its own end and be removable again. */
-  const trustedDirs = tokenRoots.map((r) => path.join(r, 'ended-agents.d'));
+  const trustedDirs = tokenRoots.flatMap((r) => [path.join(r, 'ended-agents.d'),
+    // and the lock taken to append an end: an agent holding it would delay every revoke by the lock's wait
+    path.join(r, 'ended-agents.jsonl.lock')]);
   // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
   // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
   const concreteHomes = accountConfigHomes(home);

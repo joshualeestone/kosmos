@@ -274,7 +274,7 @@ function othersTokens(held, sessionName) {
    acted on (`slug`), so a name here and a birth there are the same spelling. */
 function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 /* kosmos#5208: the history is three kinds of file, all read by endedSince. The LIVE file above is the only one appended
-   to. ENDED_DIR holds `compact.jsonl`, the newest line per name from everything compacted so far, and `sealed.*.jsonl`,
+   to. endedDir() (ENDED_DIRNAME) holds `compact.jsonl`, the newest line per name from everything compacted so far, and `sealed.*.jsonl`,
    former live files waiting to be folded in. Nothing that is appended to is ever rewritten or deleted promptly, so no
    end can be lost to a compaction: see compactEnded. setup-assistant.js denies token-only agents writes to ENDED_DIR. */
 const ENDED_DIRNAME = 'ended-agents.d';
@@ -306,7 +306,9 @@ function noteEnded(sessionName) {
 /* kosmos#5208: bound the history. endedSince(names, since) answers true when ANY line for those names is after `since`
    (or at it), so for each name only its NEWEST line can decide an answer, for every `since`, strict or inclusive.
    Keeping the newest line per name (by the largest `at`) therefore changes no answer, with no reference to births,
-   clocks or which agents exist. The file grows with distinct names, not with events.
+   clocks or which agents exist. The file grows with distinct names, not with events. Lines are folded by
+   create.slugFor, the same key endedSince matches by; if that rule ever changed, lines folded under the old one keep
+   their old keys, so a change to slugFor must leave compact.jsonl's keys meaning what they did.
    HOW, so that no end is ever lost, even to an unlocked append or a compaction that wakes after its lock was stolen:
    1. the live file is RENAMED to a new sealed file (atomic: later appends start a fresh live file, and an append that
       opened the old one lands in the sealed file);
@@ -365,10 +367,11 @@ function compactEnded(opts = {}) {
     const next = newestPerName([compact, ...read.map((r) => r.text)]);
     if (next === null) {
       /* A line it cannot read whole stops every compaction from now on, so the history grows again; say so once per
-         process, naming the folder, so it can be found and cleaned (Angel's review). */
+         process, naming the file that holds it, so it can be found and cleaned (Angel's review). */
       if (!compactStuckSaid) {
         compactStuckSaid = true;
-        console.error('kosmos#5208: the history of ended agents holds a line that cannot be read whole, so it is no longer compacted and will keep growing (' + endedDir() + ')');
+        const bad = newestPerName([compact]) === null ? endedCompactFile() : ((read.find((r) => newestPerName([r.text]) === null) || {}).f || endedDir());
+        console.error('kosmos#5208: the history of ended agents holds a line that cannot be read whole, so it is no longer compacted and will keep growing (' + bad + ')');
       }
       return { compacted: false, stuck: true };
     }
@@ -376,6 +379,14 @@ function compactEnded(opts = {}) {
     try { fs.writeFileSync(tmp, next, 'utf8'); fs.renameSync(tmp, endedCompactFile()); }
     catch { try { fs.unlinkSync(tmp); } catch { /* nothing to tidy */ } return { compacted: false }; }
     let removed = 0;
+    // A compaction that died between writing its temp file and renaming it left the temp behind; clear old ones.
+    try {
+      for (const n of fs.readdirSync(endedDir())) {
+        if (!/^compact\.[0-9]+\.[0-9a-f]+\.tmp$/.test(n)) continue;
+        const f = path.join(endedDir(), n);
+        try { if (now - fs.statSync(f).mtimeMs > SEALED_KEEP_MS) fs.unlinkSync(f); } catch { /* not ours to fail on */ }
+      }
+    } catch { /* tidying only */ }
     for (const r of read) {
       let fst; try { fst = fs.statSync(r.f); } catch { continue; }
       if (fst.mtimeMs !== r.mtimeMs || now - fst.mtimeMs <= SEALED_KEEP_MS) continue;   // changed since read, or too new
