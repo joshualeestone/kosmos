@@ -140,6 +140,7 @@ test('#5744 2b: a malformed company answer, an unreadable key file and a failed 
   fs.writeFileSync(keyFile(), 'not json');
   const unreadable = await mk.ensureMemberKey({ macRequest: c.macRequest });
   assert.equal(unreadable.ok, false);
+  assert.equal(unreadable.unreadableKeyFile, true, 'an unreadable key file is not told apart from a passing failure');
   assert.equal(fs.readFileSync(keyFile(), 'utf8'), 'not json', 'an unreadable key file was overwritten');
   assert.equal(c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length, 1, 'something was registered past a bad answer');
 });
@@ -402,4 +403,14 @@ test('#5744 2b: lostEpoch twice inside the day sends the same pending key both t
   assert.deepEqual([a.waiting, b.waiting], [true, true], JSON.stringify([a, b]));
   assert.equal(new Set(sent.map((x) => x.member_public)).size, 1, 'a different key was sent on the second call');
   assert.deepEqual(sent.map((x) => x.epoch), [2, 3, 3], 'the second call did not go straight to the pending epoch');
+});
+
+test('#5744 2b: an ok answer naming the same key with padding is taken', async () => {
+  const c = fakeCoordinator();
+  const padded = async (m, route, b) => {
+    const r = await c.macRequest(m, route, b);
+    return route === mk.MEMBER_KEY_ROUTE && r.ok ? { ok: true, data: { ...r.data, member_public: r.data.member_public + '=' } } : r;
+  };
+  const r = await mk.ensureMemberKey({ macRequest: padded });
+  assert.deepEqual([r.ok, r.epoch], [true, 1], JSON.stringify(r));
 });
