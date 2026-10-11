@@ -46989,7 +46989,7 @@ function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
 function askBrowserWord(name) {
   const n = String(name || '');
   const i = n.lastIndexOf(' \u00b7 ');
-  return i >= 0 ? n.slice(i + 3) : (n || 'Your browser');
+  return i >= 0 ? n.slice(i + 3) : 'Your browser';   // a bare name may not be a browser
 }
 /* #4824: how long what a Remove said stays under the list (through the 5 s poll's repaints) before it is dropped. */
 const REMOVE_SAID_MS = 2 * 60 * 1000;

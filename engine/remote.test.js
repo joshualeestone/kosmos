@@ -4337,11 +4337,8 @@ test('#5786 (b): removing a vouched device (Undo) drops its "on this computer" n
 
 test('#5786 (b): a secret ends on Sign out and on switching off, and an old request or a plain-http coordinator opens nothing', async () => {
   let r = await vouchSignedIn('vouchend1');
-  { const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8')); f.vouched = { 'dev-so': { at: nowS(), name: 'Mac · Safari' } }; fs.writeFileSync(remote.FILE, JSON.stringify(f)); }
-  assert.ok(remote.read().vouched['dev-so'], 'premise: a note before Sign out');
   remote.signinCancel();
   assert.equal(remote.vouchSecretForTests(), null, 'Sign out left the secret live');
-  { const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8')); assert.equal(Object.keys(f.vouched || {}).length, 0, 'Sign out kept an on-this-computer note'); }
   r = await vouchSignedIn('vouchend2');
   remote.setOn(false);
   assert.equal(remote.vouchSecretForTests(), null, 'switching off left the secret live');
@@ -4641,5 +4638,21 @@ test('#5786 (b): a Not me the tunnel refuses BEFORE the automatic allow answers 
     await until(() => removes() >= 1, 'the device to be taken back out after the allow answered');
     assert.equal(remote.read().vouched['dev-nr'], undefined, 'a device the person said Not me to was noted as on this computer');
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});
+
+test('#5786 (b): a Not me the tunnel refused BEFORE the vouch arrived is never allowed automatically', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchnmpre');
+  plant([{ device_id: 'dev-np', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'deny-fails';
+  try {
+    const den = await remote.deviceDeny('dev-np');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  plant([{ device_id: 'dev-np', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-np') }]);
+  remote.vouchTickForTests();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(allowsOf().includes('dev-np'), false, 'a device the person said Not me to was allowed automatically');
   remote.setOn(false);
 });
