@@ -102,3 +102,8 @@ Slice 3a added the time on the card but deliberately left these alone.
   seen (a redraw copies the old footer). Rejected: requiring the card to read working in between (a turn that hits
   the limit at once can finish between two snapshots). Tested: a redraw the next day at 13:00 CDT stays retired; a
   new turn's limit re-times.
+
+## Review 6 (sonnet)
+- No BLOCKER or WARNING. NITs taken: a comment's broken wrap; limitCaptureSweep's comment says an empty list (a failed
+  listing) must not be passed. Not taken: a test pinning the count-unchanged replacement, already the plan's weakest
+  premise.

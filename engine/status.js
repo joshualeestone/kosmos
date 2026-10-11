@@ -2824,8 +2824,8 @@ const LIMIT_ROW_GONE_MS = 2 * 60 * 1000;
 const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;   // backstop for an agent that went away
 /* Agents the screen pass has captured before (review 1): a row already on screen at the board's FIRST capture of an
    agent arrived at an unknown time (a board restart, an agent first appearing, or a capture after a long gap), so it is
-   marked late and given no time,
-   no hold and no retirement, as before 3b. Only a row the board watched arrive is timed. */
+   marked late and given no time, no hold and no retirement, as before 3b. Only a row the board watched arrive is
+   timed. */
 const limitCapturedAgents = new Map();   // agent -> its last capture time
 /* Review 4: a capture after a gap longer than this (a Mac asleep, captures failing) is like a first capture: a row new
    in it may have arrived any time in the gap, so it is late. */
@@ -2911,7 +2911,8 @@ function claudeLimitUntil(agent, evidence, nowMs) {
   return first === null ? null : limitResetTimeOnlyAt(line, first);
 }
 /* The snapshot's agents this pass (review 2): an agent missing from it is no longer captured, so a pane relaunched
-   under its name starts over as a first capture (rows on its screen then are late). */
+   under its name starts over as a first capture (rows on its screen then are late). Never pass an empty list for a
+   listing that failed: every agent would lose its rows and its next rows would read late (the caller skips it). */
 function limitCaptureSweep(names) {
   const present = new Set(Array.from(names || [], String));
   for (const a of [...limitCapturedAgents.keys()]) {
