@@ -296,6 +296,40 @@ test('#5683 r1: the company changing its words stops the sends; words accepted a
   assert.ok(refs.includes('g3'), 'a refusal after the words were accepted again was never sent');
 });
 
+test('#5791: the company changing its words makes the board take the new ones on itself at once, with no code (CONTROL: the r1 test above, whose company serves no words, stays stopped)', async (t) => {
+  const s = setup(t);
+  const H2 = 'cd'.repeat(32);
+  let refuse = false;
+  const c = coordinator(() => (refuse ? { ok: false, because: '409 {"code":"org_consent_changed"}' } : { ok: true, data: { ok: true } }));
+  const served = { sent: c.sent, macRequest: async (m, route, body) => {
+    const a = await c.macRequest(m, route, body);
+    if (route === oe.ROUTES.status && refuse) return { ok: true, data: Object.assign({}, a.data, { consent: { reports: ['x', EVENTS_LINE], backsUp: [], readers: ['you'], never: [] }, consentHash: H2 }) };
+    return a;
+  } };
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: served, sources: s.sources(), now: Date.now() });   // Scout is seen listed
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('h1', 'Bash', { command: 'x' }), result('h1', DENIED('x'), true));
+  refuse = true;
+  const n = c.sent.length;
+  await ae.tick({ platform: 'darwin', root: s.root, remote: served, sources: s.sources(), now: Date.now() });
+  const after = c.sent.slice(n).map((x) => x.route);
+  const reEnroll = c.sent.slice(n).find((x) => x.route === oe.ROUTES.enroll);
+  assert.ok(after.indexOf(ae.ROUTE) >= 0 && after.indexOf(oe.ROUTES.status) > after.indexOf(ae.ROUTE), 'the company was not asked for its words after it refused: ' + JSON.stringify(after));
+  assert.ok(reEnroll && !('code' in reEnroll.body) && reEnroll.body.consentHash === H2, 'no codeless re-acceptance under the served hash: ' + JSON.stringify(reEnroll));
+  assert.equal(oe.readEnrollment({ root: s.root }).consentHash, H2, 'the new words are not on record');
+  assert.equal(oe.mayReport({ root: s.root }), true, 'the board is still not reporting');
+  // Review 1: events resume under the new words at the next tick, with no failure wait left over from the refusal.
+  refuse = false;
+  await ae.tick({ platform: 'darwin', root: s.root, remote: served, sources: s.sources(), now: Date.now() });   // a new consent state starts clean
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('h2', 'Bash', { command: 'x' }), result('h2', DENIED('x'), true));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: served, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => (x.body.events || []).map((e) => e.toolUseRef));
+  assert.ok(refs.includes('h2'), 'an event after the board took on the new words was never sent: ' + JSON.stringify(refs));
+});
+
 test('#5683 r1: an enrollment with no readable start time sends nothing', async (t) => {
   const { s, c } = await enrolled(t);
   const f = path.join(s.root, oe.ENROLLMENT_FILE);

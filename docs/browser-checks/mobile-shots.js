@@ -12,7 +12,7 @@
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
  *       [--sizes se,iphone15,promax,android,android360,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
- *       [--data sample|store] [--scale css|device] [--remote]
+ *       [--data sample|store|marketing] [--faces DIR] [--scale css|device] [--remote]
  *
  * Output: DIR/<screen>--<size>--<theme>--<engine>.png plus DIR/report.md (every
  * shot, and every overflow found). Default DIR is a new temp folder, printed at
@@ -27,6 +27,12 @@
  * leaves this computer. Two differences from a real phone, neither shown by any screen today: a board redirect is
  * followed by the router (the page never sees the 3xx), and the made-up http host is not a secure context, so no
  * service worker registers.
+ * --data marketing (#5782) is the store fleet with a shape, for installkosmos.com's product shots: Cleo leads and the
+ * others report to her (the org chart draws a team), the person is a made-up "Sam Rivera" (the hub shows an initial),
+ * and the tasks are spread across the team, each agent reporting what it is on. --faces DIR seeds pictures from a
+ * folder of <claim>.jpg|png|webp|gif (cleo, dana, eli, farah) and you.<ext>, through the engine's own picture writers.
+ * 🛑 The leak guard reads page TEXT, not images: --faces must only ever hold made-up or licensed faces (the site's own
+ * meet/faces), never a photo of a real person from this Mac. desktop2x is 1280x800 always saved at 2x.
  * --data store seeds a clean fleet for App Store and Play screenshots instead
  * of the stress-test sample (no stopped agent, no overlong names, no code
  * block); --scale device saves at the device's pixels, not CSS pixels. The
@@ -94,6 +100,8 @@ const SIZES = {
   // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
   // rules) are skipped for it. Not in the default sweep.
   desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
+  /* #5782: the same desktop at 2x, for marketing composites that are shown larger than 1280. Not in the default sweep. */
+  desktop2x: { width: 1280, height: 800, dpr: 2, label: 'desktop at 2x', desktop: true, scale: 'device' },   // always saved at 2x (2560x1600), whatever --scale says
 };
 /* --remote's address (kosmos#5510): .test is reserved and never resolves, so a slip can only fail, never reach a real host. */
 const REMOTE_BASE = 'http://kosmos-shots.kosmosplus.test';
@@ -244,6 +252,47 @@ async function stubRebootNote(page) {
   const note = { lastAliveAt: new Date(now - 9 * 60000).toISOString(), bootAt: new Date(now - 7 * 60000).toISOString(), upAt: new Date(now - 60000).toISOString() };
   await page.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note }) }).catch(() => {}));
 }
+/* #5785: the Kosmos+ sign-in card mid-connect. `owned`: the automatic connect (address line, centred); otherwise a typed
+   name (its field and the disabled button stay, "Signing in..." in the status line). */
+async function plusSigningIn(page, owned) {
+  await at(page, '?tab=settings&sec=plus');
+  await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
+  await page.evaluate((own) => {
+    for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+    // As a real sign-in on this not-signed-in board: PLUS_SIGNIN_ACTIVE keeps state 2 up (paintPlus's not-enrolled
+    // branch), PLUS_SI_REGISTERING as the register sets it (its enrolled branch).
+    PLUS_SIGNIN_ACTIVE = true;
+    PLUS_SI_REGISTERING = true;
+    document.getElementById('plus-state2').hidden = false;
+    plusSiShow('plus-si-register');
+    document.getElementById('plus-si-title').textContent = 'Signing in...';
+    if (own) {
+      const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
+      const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
+      document.getElementById('plus-si-owned').hidden = false;
+      document.getElementById('plus-si-owned-lead').textContent = 'Connecting this computer as';
+      document.getElementById('plus-si-owned-addr').textContent = 'sample.kosmosplus.com';
+      // A real automatic register hides the way out while it runs (it cannot be taken back): so does the shot.
+      const out = document.getElementById('plus-si-cancel'); if (out && out.parentElement) out.parentElement.hidden = true;
+    } else {
+      document.getElementById('plus-si-owned').hidden = true;
+      const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = false;
+      const name = document.getElementById('plus-si-name');
+      if (name) { name.value = 'sample'; name.dispatchEvent(new Event('input', { bubbles: true })); }   // the count reads 6/32, as typed
+      const go = document.getElementById('plus-si-register-go'); if (go) { go.hidden = false; go.disabled = true; }
+    }
+    plusSiKStart(own);
+  }, owned);
+  await page.waitForSelector('#plus-si-k canvas', { state: 'visible', timeout: 5000 });
+  await page.mouse.move(1, 1);
+  await page.waitForTimeout(1600);   // mid-gather, so the shot shows dots on their way into the K
+  // Review 3: the card is still the one meant (no tick repainted it) at the moment of the shot.
+  if (!(await page.isVisible('#plus-state2')) || !(await page.isVisible('#plus-si-k canvas'))) throw new Error('plus-signing-in: the sign-in card was repainted away before the shot');
+}
+async function plusSigningInEnd(page) {
+  await page.evaluate(() => { PLUS_SI_REGISTERING = false; PLUS_SIGNIN_ACTIVE = false; if (typeof plusSiKStop === 'function') plusSiKStop(); });
+}
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -395,10 +444,14 @@ const SCREENS = [
   // Kano: projects, a room, and the waiting-on-you ask.
   { name: 'projects', owner: 'Kano', go: async (page) => openTab(page, 'projects') },
   { name: 'project-room', owner: 'Kano', go: async (page, data) => {
+    freshCommitments();
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => { const r = document.querySelector('#pj-room'); if (r) r.scrollIntoView({ block: 'start' }); });
+    /* #5782: the click on the project row leaves the pointer where the room's first message lands, so every shot showed
+       that message's hover bar. Park it in the corner, as the other screens here do. */
+    await page.mouse.move(1, 1);
   } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
      and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
@@ -530,15 +583,13 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Working out the code with laptop/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
   } },
-  /* #5531: Your company, a join code checked: the consent before anything binds. */
-  { name: 'plus-org-consent', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
-    // A computer with no company sees one line first (10-08): open it the person's way.
+  /* #5531, #5791: Join Corporate Account opened, a company code typed, before Connect Account (which joins at once). */
+  { name: 'plus-org-connect', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
+    // A computer with no company sees one button first (10-08): open it the person's way.
     await page.waitForSelector('#plus-org-open', { state: 'visible', timeout: 10000 });
     await page.click('#plus-org-open');
     await page.waitForSelector('#plus-org-code', { state: 'visible', timeout: 10000 });
     await page.fill('#plus-org-code', 'NW-JOIN-4821');
-    await page.click('#plus-org-check');
-    await page.waitForSelector('#plus-org-consent', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
   /* #5531: Your company, this Kosmos joined. */
@@ -546,10 +597,28 @@ const SCREENS = [
     await page.waitForSelector('#plus-org-in', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
+  /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
+     address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */
+  { name: 'plus-connected', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-chip .plus-store', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.mouse.move(1, 1);
+  } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Check that homemac shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
+  /* #5785: the sign-in card while this computer connects (the register step): the big K loader above "Signing in...",
+     the "Connecting this computer as <name>.kosmosplus.com..." line under it. Put in that state with the page's own
+     functions (no coordinator here); the loader is the real one, caught mid-animation. The sign-in flags are set as a
+     real sign-in sets them, so the status tick does not repaint the card away mid-shot (and the shot fails if it did). */
+  { name: 'plus-signing-in', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await plusSigningIn(page, true);
+  }, after: async (page) => { await plusSigningInEnd(page); } },
+  /* #5785 review 3: the same wait for a typed name: its field stays on screen, so the card keeps its left alignment. */
+  { name: 'plus-signing-in-name', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await plusSigningIn(page, false);
+  }, after: async (page) => { await plusSigningInEnd(page); } },
   { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
     await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');
@@ -619,6 +688,21 @@ const SCREENS = [
     const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/recommender-setting',   // page.request is not routed: boardUrl for --remote (#5510)
       { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
+  } },
+  /* #5080: the Language box in Settings > Automation, with Spanish (Latin America) chosen; put back to Automatic after. */
+  { name: 'settings-language', owner: 'Mona Lisa', go: async (page) => {
+    const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/agent-language',   // page.request is not routed: boardUrl for --remote (#5510)
+      { data: { choice: 'es-419' }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-language: could not choose Spanish (' + put.status() + ')');
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#agent-language', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('agent-language').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, after: async (page) => {
+    const put = await page.request.put(boardUrl(page.url().split('?')[0].replace(/\/$/, '')) + '/api/agent-language',
+      { data: { choice: 'auto' }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-language: could not put it back to Automatic (' + put.status() + ')');
   } },
   /* #5382: the Assigner section with its failover row (shown while the Assigner is on, which is the default), with
      failover off (its default) and on. The second puts it back off after its shot. */
@@ -1093,6 +1177,7 @@ function parseArgs(argv) {
     else if (k === '--data') a.data = v();
     else if (k === '--scale') a.scale = v();
     else if (k === '--remote') a.remote = true;
+    else if (k === '--faces') a.faces = v();
     else throw new Error('unknown argument ' + k);
   }
   for (const s of a.sizes) if (!SIZES[s]) throw new Error('unknown size ' + s + ' (have ' + Object.keys(SIZES).join(', ') + ')');
@@ -1199,6 +1284,35 @@ const DATA_SETS = {
     connected: true,
   },
 };
+/* #5782: the marketing set, for installkosmos.com's product shots: the store fleet with a shape. Cleo is the
+   project manager and the other three report to her, so the org chart draws a team, not four loose dots. Pictures
+   come from --faces (a folder of <claim>.jpg|.png and you.jpg|.png), never from the repo and never a real person
+   from this Mac: the leak guard still reads every page. */
+DATA_SETS.marketing = {
+  ...DATA_SETS.store,
+  /* Farah shows as Farid: the four pictures the site already publishes (meet/faces) are two women and two men. */
+  /* reportsTo is the profile key (the claim), the same key server.js walks for loops; the chart matches it to the card. */
+  agents: STORE_AGENTS.map((a) => (a.claim === 'cleo' ? a : { ...a, ...(a.claim === 'farah' ? { name: 'Farid' } : {}), reportsTo: 'cleo' })),
+  /* The person at the hub: a made-up name, so the hub shows an initial (Josh's ruled empty-disc rule otherwise). */
+  you: { name: 'Sam Rivera', does: 'Runs a small home goods business' },
+  /* The work spread across the team, and each agent's own report of what it is on (engine/commitments, the record an
+     agent writes), so a task card says who is doing it instead of "has not reported what it is working on yet". */
+  tasks: [['Draft the product copy for every page', 'dana'], ['Check the prices against the spreadsheet', 'eli'], ['Book the photographer', 'cleo']],
+  commitments: {
+    dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
+    eli: 'Task 2 of Launch the spring catalogue: checking the linen prices against the March sheet',
+    cleo: 'Task 3 of Launch the spring catalogue: booking the photographer for Thursday',
+  },
+};
+let FACES_DIR = null;   // --faces: pictures for the seeded agents and the person
+/* #5782 review: an agent's report is a claim stamped when it is made, and the board calls it stale after 30 minutes
+   (engine/commitments.js STALE_AFTER_MS). A long sweep or a --keep board would then show "last reported N minutes ago"
+   on every task card, so a screen that shows tasks re-reports first, exactly as a working agent keeps reporting. */
+function freshCommitments() {
+  if (!DATA.commitments) return;
+  const commitments = require(path.join(REPO, 'engine', 'commitments'));
+  for (const [agent, what] of Object.entries(DATA.commitments)) commitments.report(agent, [{ id: 'c-' + agent, what }]);
+}
 let DATA = DATA_SETS.sample;   // run() picks the set before the board is seeded
 /* #4994: the removed agent the leftover-delete screen opens the delete confirmation for. Invented. Seeded only when
    that screen is asked for (run() sets SEED_LEFTOVER), so every other screen's board has no "Show removed agents". */
@@ -1226,7 +1340,23 @@ function seedFiles(roots) {
   const store = require(path.join(REPO, 'engine', 'store'));
   for (const a of AGENTS) {
     const role = a.claim === DATA.chatAgent && LEAK_CONTROL === 'page' ? a.role + ', ' + PLANTED_EMAIL : a.role;
-    store.writeProfile(a.claim, { displayName: a.name, role });
+    store.writeProfile(a.claim, { displayName: a.name, role, ...(a.reportsTo ? { reportsTo: a.reportsTo } : {}) });
+  }
+  /* #5782: --faces, through the engine's own picture writers (the same doors Settings uses). A folder with no
+     picture for someone leaves them on their initial, as today. */
+  if (DATA.you) require(path.join(REPO, 'engine', 'you')).save(DATA.you);   // throws, with its reason, on a bad record
+  if (FACES_DIR) {
+    const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' };
+    const pick = (key) => Object.keys(TYPES).map((e) => path.join(FACES_DIR, key + e)).find((f) => fs.existsSync(f));
+    const named = (f, what, fn) => { try { return fn(); } catch (e) { throw new Error('--faces ' + path.basename(f) + ' could not be saved as ' + what + ': ' + e.message); } };
+    let used = 0;
+    for (const a of AGENTS) {
+      const f = pick(a.claim);   // keyed by the claim (farah.jpg), not the display name
+      if (f) { named(f, a.claim + "'s picture", () => store.saveAvatar(a.claim, TYPES[path.extname(f).toLowerCase()], fs.readFileSync(f))); used += 1; }
+    }
+    const yf = pick('you');
+    if (yf) { named(yf, 'your picture', () => require(path.join(REPO, 'engine', 'you')).savePicture(TYPES[path.extname(yf).toLowerCase()], fs.readFileSync(yf))); used += 1; }
+    if (!used) console.log('mobile-shots: --faces ' + FACES_DIR + ' has no <claim>.jpg|png|webp|gif for ' + AGENTS.map((a) => a.claim).join(', ') + ' or you: no pictures seeded');
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
   /* #4820: an existing install no longer owes a one-time Community notice (#4524 marked it seen here so it
@@ -1411,9 +1541,11 @@ async function seed(base, roots) {
     ...(DATA.projectDescription ? { description: DATA.projectDescription } : {}) });
   const pid = made.project && made.project.id;
   if (!pid) throw new Error('seed: the board made no project');
-  for (const s2 of ['Draft the product copy for every page', 'Check the prices against the spreadsheet', 'Book the photographer']) {
-    await post('/api/project/' + pid + '/tasks', { sentence: s2, who: DATA.chatAgent });
+  const taskList = DATA.tasks || ['Draft the product copy for every page', 'Check the prices against the spreadsheet', 'Book the photographer'].map((t) => [t, DATA.chatAgent]);
+  for (const [s2, who] of taskList) {
+    await post('/api/project/' + pid + '/tasks', { sentence: s2, who });
   }
+  freshCommitments();
   await post('/api/projects', DATA.secondProject);
   const t0 = Date.now() - 1800e3;
   const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
@@ -1688,6 +1820,8 @@ async function run() {
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
+  FACES_DIR = args.faces ? path.resolve(args.faces) : null;
+  if (FACES_DIR && !(fs.existsSync(FACES_DIR) && fs.statSync(FACES_DIR).isDirectory())) throw new Error('--faces ' + FACES_DIR + ' is not a folder');
   SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
 
   const board = await startBoard();
@@ -1759,7 +1893,7 @@ async function run() {
                   err.leak = true;
                   throw err;
                 }
-                await page.screenshot({ path: path.join(out, file), scale: args.scale });
+                await page.screenshot({ path: path.join(out, file), scale: SIZES[sz].scale || args.scale });
                 /* The page re-renders on its tick, so the scan above and the shot are two reads:
                    scan again, and a hit painted in between deletes the shot before anything
                    else can pick it up. */

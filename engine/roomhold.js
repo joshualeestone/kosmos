@@ -72,6 +72,56 @@ const SHOWN = 5;
 function dir() { return path.join(store.ROOT, 'roomhold'); }
 function fileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.json'); }
 
+/* #5805: the held posts a Claude usage limit kept from this member, with the limit's reset (ISO), per project:
+   `<member>.limit` beside its held file. withoutStale keeps such a post that names the member until a day after the
+   reset, so the day rule (#4926 R2, counted from the post) cannot drop an ask the member could not read before its
+   reset. Recorded wherever a limit hold keeps ids: a post's arrival (messages.js) and an idle flush the limit held. */
+const LIMIT_ASK_GRACE_MS = 24 * 60 * 60 * 1000;
+function limitFileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.limit'); }
+function readLimits(name) {
+  try {
+    const got = JSON.parse(fs.readFileSync(limitFileFor(name), 'utf8'));
+    return got && typeof got === 'object' && !Array.isArray(got) ? got : {};
+  } catch { return {}; }
+}
+function noteLimit(name, projectId, ids, untilIso, now = Date.now()) {
+  const until = Date.parse(untilIso);
+  if (!Number.isFinite(until) || !Array.isArray(ids)) return false;
+  try {
+    const out = Object.create(null);
+    for (const [p, m] of Object.entries(readLimits(name))) {   // entries past their grace are not kept
+      if (!m || typeof m !== 'object') continue;
+      for (const [id, u] of Object.entries(m)) {
+        const t = Date.parse(u);
+        if (Number.isFinite(t) && now - t <= LIMIT_ASK_GRACE_MS) (out[p] = out[p] || Object.create(null))[id] = u;
+      }
+    }
+    for (const id of ids) {
+      const k = plainId(id);
+      const prev = out[projectId] ? Date.parse(out[projectId][k]) : NaN;
+      if (!Number.isFinite(prev) || prev < until) (out[projectId] = out[projectId] || Object.create(null))[k] = new Date(until).toISOString();
+    }
+    return writeLimits(name, out);
+  } catch {
+    // Without the record these asks are judged a day old from the post, not the reset, and may be dropped.
+    try { process.stdout.write('room-hold: ' + (name || '?') + ' could not record the usage limit for ' + ids.length + ' held ask(s) in ' + projectId + '\n'); } catch { /* never breaks a send */ }
+    return false;
+  }
+}
+function writeLimits(name, all) {
+  const kept = Object.create(null);
+  for (const [p, m] of Object.entries(all)) if (m && typeof m === 'object' && Object.keys(m).length) kept[p] = m;
+  if (!Object.keys(kept).length) { try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* nothing to remove */ } return true; }
+  fs.mkdirSync(dir(), { recursive: true });
+  require('./securewrite').writeSecret(limitFileFor(name), JSON.stringify(kept), 0o600, { atomicOnly: true });
+  return true;
+}
+function limitKept(name, projectId, id, now = Date.now()) {
+  const m = readLimits(name)[projectId];
+  const t = m && typeof m === 'object' ? Date.parse(m[plainId(id)]) : NaN;
+  return Number.isFinite(t) && now - t <= LIMIT_ASK_GRACE_MS;
+}
+
 function off(env) { return !!(env && env.AGENT_WORKFORCE_ROOM_HOLD_OFF === '1'); }
 
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
@@ -201,11 +251,16 @@ function restore(name, projectId, ids) {
    tell it about a room it has left (the posts are still in the room). Its other projects' holds are kept. Returns
    how many were dropped, 0 when none or they could not be. */
 function forgetProject(name, projectId) {
+  try {   // #5805: a left room's asks are not kept back either
+    const all = readLimits(name);
+    if (all[projectId]) { delete all[projectId]; writeLimits(name, all); }
+  } catch { /* pruned a day after its reset anyway */ }
   return take(name, projectId).length;
 }
 
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
+  try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
 
@@ -251,7 +306,16 @@ function withoutStale(projectId, ids, stale, name) {
   const asked = gone.evenIfAsked instanceof Set ? gone.evenIfAsked : new Set();   // #4926 R2: handled, or a day old
   /* #4926 R2 drops any id in `asked`; the staleness drop applies to every id that does not ask the member, which since
      #4588 ask 3 includes a cap-held one (^id) as well as a plain one: an @id is kept unless it is in `asked`. */
-  const kept = ids.filter((x) => !asked.has(plainId(x)) && (isAddressed(x) || !gone.has(plainId(x))));
+  /* #5805: an ask a usage limit kept from the member (noteLimit) is not dropped as a day old until a day after the
+     limit's reset; one the member answered still is (`answered`, when staleHeld gives it; without it, nothing is
+     kept back). */
+  const answered = gone.answered instanceof Set ? gone.answered : asked;
+  const now = Date.now();
+  const kept = ids.filter((x) => {
+    const p = plainId(x);
+    if (asked.has(p)) return isAddressed(x) && !answered.has(p) && !!name && limitKept(name, projectId, p, now);
+    return isAddressed(x) || !gone.has(p);
+  });
   // Review 7 (Opus): a drop is said, so "why did my agent never hear about mN" has an answer in the board's log.
   if (kept.length < ids.length) {
     const why = (x) => (asked.has(plainId(x)) ? 'answered or a day old' : 'stale');
@@ -264,23 +328,33 @@ function withoutStale(projectId, ids, stale, name) {
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
    COULD_NOT), so a pane that could not take it keeps it for the next arrival; a stale one (#4926, withoutStale) is
    cleared without being told. Never throws. */
-async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale }) {
+async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
+    /* #5805: the Claude retry (flushReleased) tells only a project holding an ask a usage limit kept (limitKept), and
+       only once it survives the staleness rule; any other project is left untouched (not taken and rewritten every
+       minute, #4797) for the member's next wake. */
+    const limitAsk = (x) => isAddressed(x) && limitKept(name, projectId, x);
+    if (askedOnly === true && !heldIn(name, projectId).some(limitAsk)) continue;
     const ids = withoutStale(projectId, take(name, projectId), stale, name);
     if (!ids.length) continue;
+    if (askedOnly === true && !ids.some(limitAsk)) { restore(name, projectId, ids); continue; }
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
     let state;
     let capped = false;
+    let limitUntil = null;
     try {
       const sent = await deliver(name, clauseFor(projectId, shown, ids), roster);
       state = sent && sent.state;
       capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
+      if (sent && sent.held === true && sent.heldBy === 'limit') limitUntil = sent.limitReset;
     } catch { state = DELIVERY.COULD_NOT; }
     /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
        posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */
+    // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
+    if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
     out.push({ projectId, n: ids.length, state });
   }
@@ -291,16 +365,48 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
    report can come while its own timers are still held (the pool refills one agent at a time), and then the idle flush
    is held too and its ids are put back, with no further idle report until the agent's next turn. So once a minute,
    each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
-   same gated path (a held verdict puts the ids back again). `isAgy` picks the cards; only they are retried here, so a
-   #4624 hold for any other runner is exactly as before. Never throws. */
-async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
+   same gated path (a held verdict puts the ids back again). `isAgy` picks those cards; #5805 adds a Claude member
+   holding an ask a usage limit kept (see the loop). Every other #4624 hold is exactly as before. Never throws. */
+async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
     try {
-      if (!card || !card.sessionName || !isAgy(card)) continue;
+      if (!card || !card.sessionName) continue;
+      const agy = isAgy(card);
+      // Read from the card before any file: only a capped or released Claude card has anything for #5805 below.
+      // (chat and status are required here, not at the top: chat requires roomhold, so a top-level require would cycle.)
+      const capped = card.state === require('./status').STATE.RATE_LIMITED && require('./chat').limitable(card);
+      if (!agy && !capped && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
+      /* #5805: no idle report comes once a Claude usage limit resets, so a Claude member is retried here too, but only
+         while `isLimitable` says its card reads idle off its screen (the server's predicate; never while it reads capped
+         or busy) and only when it holds an ask a usage limit kept (limitKept). Every other hold on such a member waits
+         for its next wake, as before. */
       const name = String(card.sessionName);
       if (!heldProjects(name).length) continue;
+      /* #5805 review 7: a turn that fails on the limit ends with StopFailure, not Stop, so no idle flush runs for the
+         asks held while it worked, and no arrival may come to record them. While the member is limit-held, record the
+         limit for each held ask that has no record yet (once per ask: noteLimit is skipped for ids already kept). An ask
+         `stale` already drops even when asked (answered, or a day old) is not recorded, so the day rule is not undone;
+         it is only left alone here, not dropped, so nothing is logged for it. */
+      if (!agy && typeof isLimitable === 'function') {
+        const v = require('./chat').limitHeldVerdict(name, roster);
+        if (v) {
+          for (const p of heldProjects(name)) {
+            let fresh = heldIn(name, p).filter((x) => isAddressed(x) && !limitKept(name, p, x));
+            if (fresh.length && typeof stale === 'function') {
+              let gone = null;
+              try { gone = stale(p, fresh.map(plainId), name); } catch { gone = null; }
+              const asked = gone && gone.evenIfAsked instanceof Set ? gone.evenIfAsked : new Set();
+              fresh = fresh.filter((x) => !asked.has(plainId(x)));
+            }
+            if (fresh.length) noteLimit(name, p, fresh, v.limitReset);
+          }
+          continue;
+        }
+      }
+      if (!agy && !(typeof isLimitable === 'function' && isLimitable(card))) continue;
+      if (!agy && !heldProjects(name).some((p) => heldIn(name, p).some((x) => isAddressed(x) && limitKept(name, p, x)))) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;
       /* #4624 follow-up (review 1/2): an idle member holding only posts that ask nothing of it waits for its next wake,
          as on every other runner; this minute retry is for posts the quota held that name it. That includes posts held
@@ -320,7 +426,7 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
          skipped. */
       const agyquota = require('./agyquota');
       if (agyquota.heldForAgy(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;   // #4588 ask 3: the cap too
-      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale })) out.push({ name, ...d });
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }
   return out;
@@ -337,4 +443,4 @@ function toldLine(name, d, after = '') {
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };

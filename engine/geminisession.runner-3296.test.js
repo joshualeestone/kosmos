@@ -107,6 +107,8 @@ test('read() returns codex-shaped fields from the real captured session', () => 
   assert.equal(r.lastAt, '2026-09-22T02:37:10.586Z');
   assert.equal(r.lastAgentMessage, 'CLI-GEMINI-OK');
   assert.equal(r.model, 'gemini-2.5-flash');
+  /* #5804: when the reply that named the model was written, in ms (the board compares it with the run start). */
+  assert.equal(r.modelAt, Date.parse('2026-09-22T02:37:10.586Z'));
 });
 
 test('the launch folder is matched through the /private canonical twin (#2417)', () => {

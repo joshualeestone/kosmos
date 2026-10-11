@@ -239,7 +239,8 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
 /* #4289: the Kosmos community block (engine/communityblock.js), written at birth and at restart, and refreshed at board start (kosmos#5297). */
 const COMMUNITY_START = '<!-- kosmos:community:start -->';
 const COMMUNITY_END = '<!-- kosmos:community:end -->';
-/* #5050: the person's language (engine/personlanguage.js), from this computer's language setting; absent in English. */
+/* #5050: the person's language (engine/personlanguage.js), from the person's choice in Settings (#5080) or this
+   computer's language setting; absent in English. */
 const LANGUAGE_START = '<!-- kosmos:language:start -->';
 const LANGUAGE_END = '<!-- kosmos:language:end -->';
 // #4557: a seeded team member's own brief, layered INTO its role's standard instructions at birth

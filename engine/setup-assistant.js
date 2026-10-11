@@ -1299,6 +1299,26 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps, rootsMissed);
   const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
   const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
+  /* #4475: every agent's sender-token files are already Read- and Edit-denied below by main's tokenDirs (#4491); for
+     #4475 that matters because another agent's token would let
+     this agent act as that agent, including removing the agents that one made. ONE THING IT COSTS: the Mac CLI's outbox
+     keep (a send made while another Kosmos is the one open, answered 421) resolves the sender by reading that folder
+     (engine/outbox.js resolveKeepSender), so for a token-only agent that send is refused, not kept.
+     And the supervisor's launch hand-off, where each agent's token waits in a file until its pane starts. The
+     supervisor writes it under ${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets, and an installed supervisor's $_app is
+     the data root (create.supervisorPath is <data root>/bin/agent-supervisor.sh). The pane entry reads it before this
+     agent's sandbox exists. NOT closed here: another agent's token in its process environment (`ps -E` as the same
+     Mac user), and typing into another agent's tmux pane. */
+  const appRoot = deps.appRoot || path.resolve(__dirname, '..');
+  const launchSecretDirs = [...new Set([
+    ...tokenRoots.map((r) => path.join(r, 'launch-secrets')),                  // the installed supervisor: its $_app is the data root
+    ...tokenRoots.map((r) => path.join(path.dirname(r), 'launch-secrets')),    // the folder above a data root: when AGENT_WORKFORCE_DATA names that folder and the root is a subfolder of it (a named world); for a normal root, an extra deny on a folder that may not exist
+    path.join(appRoot, 'launch-secrets'),                                      // a supervisor run from the app folder itself
+  ])];
+  /* #4475: and the records the board trusts about who made and who ended which agent, written only by the board and
+     the supervisor (outside this sandbox): a token-only agent that could write them could forge a birth naming itself
+     the creator, erase an ended identity, list itself token-only or not, or plant a token for another name. */
+  const trustedFiles = tokenRoots.flatMap((r) => ['created.jsonl', 'ended-agents.jsonl', 'agent-token-only.json'].map((f) => path.join(r, f)));
   // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
   // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
   const concreteHomes = accountConfigHomes(home);
@@ -1438,6 +1458,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // root with a pattern character drops this rule, and the guard then says it is not whole.
     `Edit(${ruleAbs(guardRecord)}/**)`,
     ...worldRules,
+    // #4475: another agent's token waiting in the launch hand-off, and the records the board trusts about who made and
+    // who ended which agent (the sender-token folders themselves are tokenDirs, above). The launch hand-off's Read
+    // rules are added after the filter below, as the launch folders' are.
+    ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
@@ -1473,6 +1497,16 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (ruleHasPatternChar(r)) launchUnsafe.push(`${f} (its path has a character the permission rules cannot carry)`);
     else launchRules.push(r);
   }
+  /* #4475: the launch hand-off folders' Read rules take the same route. One of them is under the app folder, and an
+     app folder with a pattern character ("Kosmos (1)") must not stop the whole guard: its rule is left out and named in
+     launchUnsafe, while the sandbox's denyRead still carries the concrete path. Kept out of launchRules, whose record
+     a launch prunes. */
+  const secretRules = [];
+  for (const d of launchSecretDirs) {
+    const r = `Read(${ruleAbs(d)}/**)`;
+    if (ruleHasPatternChar(r)) launchUnsafe.push(`${d} (its path has a character the permission rules cannot carry)`);
+    else secretRules.push(r);
+  }
   /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
      misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
      sandbox layer still carries the concrete path. The globs this function adds itself are taken out before testing. */
@@ -1483,7 +1517,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     tokenRuleDropped = true;   // reviews 16 and 17: ANY dropped rule leaves part of the guard out (a token read, or its own self-protection)
     return false;
   });
-  safeDeny.push(...launchRules);
+  safeDeny.push(...launchRules, ...secretRules);
   /* #5663: the record of the launch rules this guard wrote at launches, so a launch can prune the ones whose paths are
      gone (deny lists only grew before: every upgrade added versioned paths for good). It sits in the agent's .claude
      folder, which the sandbox denies WRITES to, and the file tools are denied it here, so the agent cannot rewrite
@@ -1492,7 +1526,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
   else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, launchSecretDirs, trustedFiles, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
@@ -1794,8 +1828,8 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       // yet, so use realOrLeaf (resolves the existing parent, keeps the absent leaf) rather than realOr,
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
-      const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
+      const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.launchSecretDirs || []).map(realOrLeaf)];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf), ...(rules.trustedFiles || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.

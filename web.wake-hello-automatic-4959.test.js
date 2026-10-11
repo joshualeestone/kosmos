@@ -56,6 +56,20 @@ test('#4588 ask 3: a hello held by the Gemini cap says the limit, never that the
   assert.equal(said, 'MANUAL The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.');
   assert.doesNotMatch(said, /quota/i);
 });
+test('#5805: a hello held on a Claude usage limit says it is out of usage (until the printed reset), never the quota', async () => {
+  let said = null;
+  const reset = new Date(Date.now() + 3 * 3600e3).toISOString();
+  const soon = new Date(Date.now() + 60e3).toISOString();
+  await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'limit', heldUntil: reset, limitReset: reset }), { bob: 7 })('bob', 7, (t) => { said = t; }, 'SAID', 'MANUAL');
+  assert.match(said, /^MANUAL It is out of usage until .+, so Kosmos sent nothing\.$/);
+  assert.doesNotMatch(said, /quota/i);
+  // Past the reset (the card still reads capped): heldUntil is the next look, which is not a reset time to promise.
+  await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'limit', heldUntil: soon, limitReset: new Date(Date.now() - 600e3).toISOString() }), { bob: 8 })('bob', 8, (t) => { said = t; }, 'SAID', 'MANUAL');
+  assert.equal(said, 'MANUAL Its usage has reset, but its limit screen is still up, so Kosmos sent nothing; answer it in its window first.');
+  // No reset at all on the verdict: out of usage, with no time.
+  await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'limit' }), { bob: 9 })('bob', 9, (t) => { said = t; }, 'SAID', 'MANUAL');
+  assert.equal(said, 'MANUAL It is out of usage, so Kosmos sent nothing.');
+});
 test('#5743: a hello held because the agent shows a question says that, never that the quota is out', async () => {
   let said = null;
   await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'menu' }), { bob: 6 })('bob', 6, (t) => { said = t; }, 'SAID', 'MANUAL');

@@ -1045,8 +1045,9 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
 /* #5510: the kind-of-business select sizes to its longest option ("A construction or trades business", 290px), which
    ran 3px past the Settings panel on a 360px phone. It may be no wider than its row; a long option is then shortened
-   in the closed select only (the open list shows it whole). render-settings-fit-5510.js holds it. */
-#community-industry { max-width: 100%; }
+   in the closed select only (the open list shows it whole). render-settings-fit-5510.js holds it. #5080: the language
+   select in the box below it shares the rule. */
+#community-industry, #agent-language { max-width: 100%; }
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
    What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
@@ -11305,15 +11306,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
-#s-sec-plus .plus-org-box { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 12px 14px; margin-top: 8px; }
-#s-sec-plus .plus-org-lists { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; margin: 0 0 12px; }
-#s-sec-plus .plus-org-g { margin-top: 12px; }
-#s-sec-plus .plus-org-h { font-weight: 600; color: #E6EBF7; font-size: .8125rem; margin: 0 0 4px; }
-#s-sec-plus .plus-org-lists ul { margin: 0; padding-left: 20px; }
-#s-sec-plus .plus-org-lists li.plus-org-none { list-style: none; margin-left: -20px; color: var(--k-ink-2); }   /* a statement, not an item */
-#s-sec-plus .plus-org-box .frow { margin-top: 16px; }   /* Mona's NIT: room above the two buttons */
 @media (max-width: 600px) {
-  #s-sec-plus .plus-org-lists { grid-template-columns: 1fr; }
   #s-sec-plus #plus-org-code { min-height: 44px; }
 }
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
@@ -11401,7 +11394,38 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-pill[data-state="connecting"] { background: rgba(126,160,240,.14); color: #9cc0ff; }
 #s-sec-plus .plus-pill[data-state="down"] { background: rgba(232,112,94,.14); color: #f0a397; }
 /* #4640: data-state="waiting" has no rule on purpose: it stays the plain grey pill (render-plus-panel-3829 pins it to the off colour). */
-#s-sec-plus .plus-chip { display: flex; align-items: center; gap: 8px; margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 6px 6px 6px 12px; container-type: inline-size; }
+/* #5787: padding 6px on the right, as the one-line box always had (#4744): its line is then exactly as wide as before,
+   so the one-line rule's 490px container threshold starts at the same window width. 12px there cost the line 6px and
+   wrapped Josh's sentence at a 600px window in CI. */
+#s-sec-plus .plus-chip { margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 18px 6px 16px 12px; }
+/* #5787: the one-line sentence and Copy keep #4744's rules on their own line inside the connect block. */
+#s-sec-plus .plus-chip-line { display: flex; align-items: center; gap: 8px; container-type: inline-size; }
+#s-sec-plus .plus-cx-art { display: block; width: 190px; max-width: 60%; height: auto; color: #B8C2DA; margin: 0 0 14px; }
+#s-sec-plus .plus-cx-row { display: flex; gap: 18px; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.10); }
+#s-sec-plus .plus-qr { margin: 0; flex: 0 0 auto; text-align: center; }
+#s-sec-plus .plus-qr-box { display: block; width: 128px; height: 128px; padding: 9px; background: #fff; border-radius: 12px; box-sizing: border-box; }
+#s-sec-plus .plus-qr-box svg { display: block; width: 100%; height: 100%; }
+#s-sec-plus .plus-qr figcaption { margin-top: 6px; font: 600 .8125rem var(--font-ui); color: #E6EBF7; }
+#s-sec-plus .plus-apps { flex: 1 1 auto; min-width: 0; }
+#s-sec-plus .plus-apps-say { margin: 0 0 10px; font-size: .8125rem; line-height: 1.45; color: #B8C2DA; }
+#s-sec-plus .plus-stores { display: flex; flex-direction: column; gap: 8px; }
+/* Greyed until the store lists the app. The ribbon's words fit inside the button and clear the store's name (measured
+   by render-plus-panel-3829 at 1400 and 390; #A3ADC6 is 4.67:1 on the pane's lightest navy). On the 60px button, measured on this page's own styles: 32 degrees, top 20px,
+   right -34px keeps the words 3 to 4px inside every edge (38 and 36 degrees ran them past the top or the right edge).. */
+#s-sec-plus .plus-store { position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; height: 60px; padding: 0 92px 0 14px;
+  border: 1px solid rgba(255,255,255,.14); border-radius: 12px; background: rgba(255,255,255,.04); color: #A3ADC6; font: 600 .9rem var(--font-ui); text-decoration: none; }
+#s-sec-plus .plus-store small { display: block; font-weight: 500; font-size: .72rem; line-height: 1.1; }
+#s-sec-plus .plus-store-name { line-height: 1.15; }
+#s-sec-plus .plus-sash { position: absolute; top: 20px; right: -34px; width: 150px; text-align: center; transform: rotate(32deg); background: #E6EBF7; color: #18223f;
+  font: normal 700 .6rem/1 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; padding: 5px 0; }
+#s-sec-plus a.plus-store { color: #E6EBF7; border-color: rgba(255,255,255,.25); }
+#s-sec-plus a.plus-store .plus-sash { display: none; }
+@media (max-width: 480px) {
+  #s-sec-plus .plus-cx-row { flex-direction: column; align-items: stretch; }
+  #s-sec-plus .plus-qr { display: flex; align-items: center; gap: 12px; text-align: left; }
+  #s-sec-plus .plus-qr-box { width: 112px; height: 112px; }
+  #s-sec-plus .plus-qr figcaption { margin: 0; }
+}
 #s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 6px 12px; font-size: .9rem; }
 #s-sec-plus .devrow .btn { border: 1px solid rgba(255,255,255,.25); }   /* #3829: Remove visible on navy */
 /* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
@@ -11429,6 +11453,12 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-remove-link { color: #f0877a; }
 #s-sec-plus .plus-remove-link:hover { color: #ff9f93; text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-lost-link { color: var(--k-ink-2); font-weight: 500; }
+/* #5791: Join Corporate Account, an outlined button with a tiny building icon; X Cancel at the top right of the entry
+   pane; Lost your phone? under the devices list. */
+#s-sec-plus .plus-org-open { display: inline-flex; align-items: center; gap: 6px; }
+#s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
+#s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
+#s-sec-plus #plus-devices #plus-lost-open { display: block; margin-top: 8px; }
 #s-sec-plus .plus-lost-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-foot .plus-signin-link { font-weight: 600; }
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
@@ -11465,6 +11495,17 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #askcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #plus-state2 h3 { font-size: 1.3rem; margin: 0 0 .25rem; }
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
+/* #5785: the branded K-to-circle loader (#2692) above "Signing in..." while this computer connects; the restart
+   interstitial's canvas size. Empty (and so taking no room) the rest of the time. */
+#plus-si-k canvas { width: 88px; height: 103px; display: block; margin: 0 0 16px; }
+/* Mona Lisa's review: while it connects automatically, the K, the heading and the lines under it are centred, as on
+   the restart screen the loader comes from (.restart-back .restart-msg). Only then: the card's other steps, and a
+   connect to a typed name (its name field stays on screen), keep the card's own left alignment (review 3). */
+#plus-state2.plus-si-busy #plus-si-k canvas { margin: 0 auto 16px; }
+/* Review 9: the note is a status region that is always there and empty until a connect; a screen reader announces a
+   change to its text, not its appearing. Empty, it takes no room. */
+#plus-state2 #plus-si-k-note:empty { margin: 0; }
+#plus-state2.plus-si-busy #plus-si-title, #plus-state2.plus-si-busy #plus-si-owned, #plus-state2.plus-si-busy #plus-si-k-note { text-align: center; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
 #plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
@@ -18377,6 +18418,21 @@ window.kosmosMeasureScrollbarWidth();
            this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
       <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
     </section>
+    <!-- #5080: the language agents write to the person in (engine/personlanguage.js). Automatic is the computer's
+         setting, as before; English is the opt-out. The industry select's could-not-read treatment: an unknown
+         position is never shown as a choice, and the select stays usable so the person can set it again. -->
+    <section class="dbox">
+      <h3 class="dlab">Language</h3>
+      <div class="frow" id="agent-language-row">
+        <label class="dhint" for="agent-language">The language your agents write to you in</label>
+        <select id="agent-language" aria-describedby="agent-language-hint" hidden></select>
+      </div>
+      <p class="dhint" id="agent-language-hint" style="margin:4px 0 0;">Your agents write to you and in your project rooms in this language. Kosmos+ community posts stay in English.</p>
+      <!-- Mona Lisa's review: Automatic with no sure read writes no block, so agents write English; say that, never
+           promise "this computer's language" the board could not read. -->
+      <p class="dhint" id="agent-language-auto-note" style="margin:4px 0 0;" hidden>Kosmos could not tell this computer’s language, so new agents write in English, and an agent that already had a language from this computer keeps it. Pick a language above to set it for all of them.</p>
+      <p class="dhint" id="agent-language-msg" role="status" style="margin:4px 0 0;"></p>
+    </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
          on a project gets help: Kosmos asks up to two members in the room for one reply each,
          and the stuck agent decides, writes down why, and carries it out, within the guards.
@@ -18738,6 +18794,9 @@ window.kosmosMeasureScrollbarWidth();
          state is reachable by the design's intent and not yet by a signal. That is the
          requested state rather than an omission. -->
     <div id="plus-state2" hidden>
+      <!-- #5785 (Josh, 2026-10-10 14:00): a connect takes about half a minute (the certificate's DNS settle), so the big
+           K-to-circle loader plays here while it runs, mounted by plusSiDoRegister and removed when it answers. -->
+      <div id="plus-si-k" aria-hidden="true"></div>
       <h3 id="plus-si-title">Sign in to activate Kosmos+</h3>
       <!-- #3478: state 2 is now WIRED. #1115 (Josh, 2026-08-27) settled the split
            and the state-1 copy states it: sign-UP (email, code, card) is done on
@@ -18832,7 +18891,7 @@ window.kosmosMeasureScrollbarWidth();
              reset from a computer already connected to Kosmos+ (#733's "I lost my phone"); there is
              no support path or server unlock by design (docs/second-factor.md in kosmos-relay). -->
         <p class="plus-si-small"><a id="plus-si-second-help" class="plus-signin-link" href="#" role="button" aria-expanded="false" aria-controls="plus-si-second-recover">Can't get a code?</a></p>
-        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos+, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
+        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos+, and choose “Lost your phone?” under its devices. That resets this step, and nobody else can.</p>
       </div>
 
       <!-- Set up a second factor (signin-enrol): reached only when the account has
@@ -18886,6 +18945,8 @@ window.kosmosMeasureScrollbarWidth();
         <!-- #4608 (Josh, 2026-09-29 12:49): while this computer connects, the app's ring loader (the Sweep
              spinner, .spin-sweep) shows beside the words, and the heading says "Signing in...". -->
         <p class="plus-si-lead" id="plus-si-owned" hidden tabindex="-1" role="status" aria-live="polite"><span class="spin spin-sweep" id="plus-si-spin" style="--sz:18px" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> <span id="plus-si-owned-lead">Connecting this computer as</span> <b id="plus-si-owned-addr"></b><span id="plus-si-owned-tail">...</span></p>
+        <!-- #5785 (Mona Lisa's review): measured on the coordinator, a connect is about 33 s (a fixed 24 s DNS settle). -->
+        <p class="plus-si-lead" id="plus-si-k-note" role="status"></p>
         <div class="field" id="plus-si-name-field">
           <label class="flabel" for="plus-si-name">Choose your Kosmos+ address</label>
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
@@ -18924,16 +18985,10 @@ window.kosmosMeasureScrollbarWidth();
            no longer work): a sign-in the coordinator has ended gets this panel instead, with its own
            Start over; the step and its Verify are hidden (plusSiFail). -->
       <!-- #3796 addendum 9 (Josh's ruling, 16:46): an account that already has an address skips the address
-           step entirely. The wizard registers this computer to that address itself and lands HERE: the
-           address read-only (with Copy) and how to connect from other devices (the #3794 tiles' shape).
-           Done hands over to the connected flow. -->
-      <!-- #3796 addendum 10 (Josh's ruling, 17:28): the landing is the heading and ONE line. No address,
-           no Copy, no tiles: another device signs in at the website, and this computer then asks to allow
-           it (the approval lives in Settings > Kosmos+). -->
-      <div id="plus-si-done" hidden>
-        <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
-        <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
-      </div>
+           step entirely; the wizard registers this computer to that address itself. #5787 (Josh, 2026-10-10 14:15,
+           "we just combine these pages so you just land here after logging in"): there is no "You're signed in /
+           Done" landing any more (#3796 addendum 10's card). Every sign-in ends on the connected pane, whose connect
+           block (#plus-chip) says where other devices reach this computer. -->
 
       <div id="plus-si-expired" hidden>
         <p class="plus-si-lead" id="plus-si-expired-words" role="status" aria-live="polite">That sign-in timed out. Start over and we'll send a new code.</p>
@@ -18966,10 +19021,39 @@ window.kosmosMeasureScrollbarWidth();
            his words ("Access this computer from other devices at <bold>login.kosmosplus.com</bold>"), with Copy so the
            address can be sent to another device, all on one line. It replaced #4080's "Sign in at login.kosmosplus.com."
            with Open. -->
-      <div class="plus-chip" id="plus-chip" hidden>
-        <span class="plus-chip-say" id="plus-chip-say">Access this computer from other devices at <b>login.kosmosplus.com</b></span>
-        <button class="btn" type="button" id="plus-copy" aria-label="Copy the address">Copy</button>
-        <span class="vh" id="plus-copy-status" aria-live="polite"></span>
+      <!-- #5787 (Josh, 2026-10-10 14:07 and 14:15): the box became the connect block, the first thing on the pane after
+           sign-in and on every visit: line art of a desktop, a laptop and a phone; his #4744 sentence with Copy, still
+           on one line; a "Scan to connect" code; and the App Store and Google Play buttons, greyed with "Coming soon"
+           until each store lists the app (PLUS_STORE_LINKS). The code holds only the login.kosmosplus.com address, the
+           public address, so a photo of this screen gives nothing away. It is drawn here, not fetched: generated once
+           with the qrcode package (version 3, error correction M, no quiet zone; the white box below is the margin).
+           Regenerate it only if the address changes. -->
+      <div class="plus-chip plus-connect" id="plus-chip" hidden>
+        <svg class="plus-cx-art" viewBox="0 0 300 120" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="8" y="10" width="118" height="78" rx="6"/><rect x="16" y="18" width="102" height="62" rx="2" stroke-opacity=".45"/>
+          <path d="M58 88 L54 108 M76 88 L80 108 M44 110 H90"/>
+          <rect x="150" y="34" width="92" height="60" rx="5"/><rect x="157" y="41" width="78" height="46" rx="2" stroke-opacity=".45"/>
+          <path d="M138 98 H254 a4 4 0 0 1 -4 6 H142 a4 4 0 0 1 -4 -6 Z"/>
+          <rect x="262" y="50" width="32" height="60" rx="6"/><path d="M273 56 H283" stroke-opacity=".45"/><rect x="266" y="62" width="24" height="40" rx="1.5" stroke-opacity=".45"/>
+        </svg>
+        <div class="plus-chip-line">
+          <span class="plus-chip-say" id="plus-chip-say">Access this computer from other devices at <b>login.kosmosplus.com</b></span>
+          <button class="btn" type="button" id="plus-copy" aria-label="Copy the address">Copy</button>
+          <span class="vh" id="plus-copy-status" aria-live="polite"></span>
+        </div>
+        <div class="plus-cx-row">
+          <figure class="plus-qr" id="plus-qr">
+            <span class="plus-qr-box"><svg viewBox="0 0 29 29" shape-rendering="crispEdges" role="img" aria-label="Code that opens login.kosmosplus.com on a phone"><path stroke="#000000" d="M0 0.5h7m3 0h1m2 0h3m3 0h2m1 0h7M0 1.5h1m5 0h1m3 0h1m2 0h4m5 0h1m5 0h1M0 2.5h1m1 0h3m1 0h1m1 0h3m1 0h2m1 0h1m4 0h1m1 0h1m1 0h3m1 0h1M0 3.5h1m1 0h3m1 0h1m1 0h2m2 0h1m1 0h2m1 0h1m1 0h1m2 0h1m1 0h3m1 0h1M0 4.5h1m1 0h3m1 0h1m1 0h2m5 0h2m2 0h2m1 0h1m1 0h3m1 0h1M0 5.5h1m5 0h1m1 0h2m1 0h1m5 0h2m3 0h1m5 0h1M0 6.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M8 7.5h1m2 0h2m1 0h1m1 0h1M0 8.5h1m1 0h5m2 0h1m1 0h1m4 0h3m1 0h1m1 0h5M7 9.5h2m2 0h1m1 0h3m1 0h8m3 0h1M0 10.5h1m3 0h1m1 0h1m1 0h10m2 0h1m1 0h3M0 11.5h4m3 0h1m2 0h4m1 0h1m2 0h2m1 0h2m2 0h1m1 0h1M2 12.5h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h1m2 0h2m3 0h2M0 13.5h1m1 0h1m5 0h1m6 0h2m1 0h7m3 0h1M0 14.5h3m1 0h4m3 0h1m5 0h2m1 0h1m1 0h2m1 0h2M0 15.5h1m8 0h4m1 0h1m1 0h1m2 0h6m2 0h1M2 16.5h1m1 0h6m6 0h2m1 0h1m5 0h2M0 17.5h2m3 0h1m1 0h1m1 0h1m2 0h4m1 0h8m1 0h1m1 0h1M0 18.5h1m2 0h5m3 0h1m1 0h5m2 0h4m2 0h1M0 19.5h1m2 0h1m3 0h1m1 0h1m2 0h2m1 0h1m4 0h1m1 0h2m3 0h1M0 20.5h1m1 0h1m3 0h1m1 0h2m2 0h1m1 0h2m1 0h1m1 0h6m1 0h3M8 21.5h1m2 0h1m3 0h4m1 0h1m3 0h5M0 22.5h7m4 0h2m6 0h2m1 0h1m1 0h3M0 23.5h1m5 0h1m1 0h1m1 0h3m1 0h1m1 0h1m2 0h2m3 0h1m2 0h1M0 24.5h1m1 0h3m1 0h1m1 0h4m4 0h1m1 0h1m1 0h5m1 0h1m1 0h1M0 25.5h1m1 0h3m1 0h1m1 0h1m1 0h1m2 0h3m1 0h4m4 0h2M0 26.5h1m1 0h3m1 0h1m1 0h1m1 0h2m1 0h5m3 0h7M0 27.5h1m5 0h1m3 0h1m1 0h1m2 0h1m1 0h4m1 0h1m1 0h2m1 0h1M0 28.5h7m1 0h1m4 0h1m1 0h1m3 0h1m2 0h2m2 0h1"/></svg></span>
+            <figcaption>Scan to connect</figcaption>
+          </figure>
+          <div class="plus-apps">
+            <p class="plus-apps-say">The Kosmos apps for phones are on their way. Until then, the address above works in any phone's browser.</p>
+            <div class="plus-stores">
+              <span class="plus-store" id="plus-store-ios" data-store="ios" aria-disabled="true"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="currentColor"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8C7 7.4 5.6 8.3 4.8 9.7c-1.6 2.8-.4 6.9 1.2 9.2.8 1.1 1.7 2.3 2.8 2.3 1.1 0 1.6-.7 3-.7s1.8.7 3 .7 2-1.1 2.7-2.2c.9-1.3 1.2-2.5 1.2-2.6 0 0-2.3-.9-2.3-3.8zM14.2 5.8c.6-.8 1-1.8.9-2.8-.9 0-2 .6-2.6 1.4-.6.7-1.1 1.7-.9 2.7 1 .1 2-.5 2.6-1.3z"/></svg><span class="plus-store-name"><small>Download on the</small>App Store</span><i class="plus-sash">Coming soon</i></span>
+              <span class="plus-store" id="plus-store-android" data-store="android" aria-disabled="true"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 3.5v17l14-8.5z"/></svg><span class="plus-store-name"><small>Get it on</small>Google Play</span><i class="plus-sash">Coming soon</i></span>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="setrow">
         <div>
@@ -19012,6 +19096,10 @@ window.kosmosMeasureScrollbarWidth();
              would not have looked for their own device on it. -->
         <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from another device, it asks here.</p>
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
+        <!-- #5791 (Josh 10-10: "I am not sure why i need to see a lost your phone link here"): out of the bottom row, under
+             the devices, where a person who lost one looks. Still only on a connected computer (this block's own rule),
+             since the reset can only run from one. -->
+        <button type="button" class="plus-lost-link" id="plus-lost-open">Lost your phone?</button>
       </div>
       <!-- #5531 (Enterprise E0.2): joining a company makes THIS Kosmos the work Kosmos (#5529 decision 1). The consent
            words come from the company's side (the coordinator), so every board shows the same ones: the page renders
@@ -19022,11 +19110,12 @@ window.kosmosMeasureScrollbarWidth();
         <!-- Splinter/Josh 10-08 (0.7.29): a person with no company sees one quiet line, not an Enterprise box. The full
              block shows when this Kosmos is a company's work Kosmos, a code is being checked or reviewed, a company note
              is waiting, or the person opened it. -->
-        <button type="button" class="plus-lost-link" id="plus-org-open">Joining a company? Enter its join code</button>
+        <!-- #5791 (Josh 10-10 14:32): an outlined button with a tiny icon, not a text link. -->
+        <button type="button" class="btn plus-org-open" id="plus-org-open"><svg class="plus-org-ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2.5 14.5V3.2c0-.4.3-.7.7-.7h5.6c.4 0 .7.3.7.7v11.3M9.5 14.5V7.2h3.3c.4 0 .7.3.7.7v6.6M1.5 14.5h13M4.6 5h2.3M4.6 7.6h2.3M4.6 10.2h2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Join Corporate Account</button>
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
-          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-review" hidden>Review what your company sees</button><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
+          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
           <div id="plus-org-leave-ask" hidden>
             <p class="fhint" id="plus-org-leave-sure"></p>
             <div class="frow">
@@ -19035,28 +19124,14 @@ window.kosmosMeasureScrollbarWidth();
             </div>
           </div>
         </div>
+        <!-- #5791 (Josh 10-10 14:32): no "Your company" label and no consent preview: the company decided, so Connect
+             Account joins. X Cancel closes it (it had no way out). -->
         <div id="plus-org-out" hidden>
-          <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code asks your company through this Kosmos's Kosmos+ connection; nothing joins, and none of this Kosmos's data is sent, until you have read what your company would see and pressed Join.</p>
+          <div class="plus-org-outhead"><button type="button" class="plus-lost-link plus-org-cancel" id="plus-org-cancel"><span aria-hidden="true">&#x2715;</span> Cancel</button></div>
+          <p class="fhint">Enter your company's code to connect your Kosmos to your corporate enterprise account.</p>
           <div class="frow">
-            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
-            <button class="btn" type="button" id="plus-org-check">Check code</button>
-          </div>
-        </div>
-        <!-- Mona Lisa (#5531, 20:49): the invitation, the four lists and the buttons in ONE inset box, so the consent reads as
-             one decision; the four groups two by two on desktop (Who can read it beside Never), one column on a phone. -->
-        <div id="plus-org-consent" class="plus-org-box" hidden>
-          <p class="fhint" id="plus-org-ask"></p>
-          <div class="plus-org-lists">
-            <div class="plus-org-g"><p class="plus-org-h">What your company sees</p><ul id="plus-org-reports"></ul></div>
-            <div class="plus-org-g"><p class="plus-org-h">What is backed up</p><ul id="plus-org-backsup"></ul></div>
-            <div class="plus-org-g"><p class="plus-org-h">Who can read it</p><ul id="plus-org-readers"></ul></div>
-            <div class="plus-org-g"><p class="plus-org-h">Never</p><ul id="plus-org-never"></ul>
-              <!-- #5531 review 14: this Kosmos's own promise, shown whatever the company's list says (its "never" may be empty). -->
-              <p class="fhint" id="plus-org-local">Your other Kosmoses on this computer are not part of this, and none of their data is sent.</p></div>
-          </div>
-          <div class="frow">
-            <button class="btn uprime" type="button" id="plus-org-join">Join with this Kosmos</button>
-            <button class="btn" type="button" id="plus-org-notnow">Not now</button>
+            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Your company's code" placeholder="Company code">
+            <button class="btn uprime" type="button" id="plus-org-check">Connect Account</button>
           </div>
         </div>
         <p class="fmsg" id="plus-org-msg" role="alert" aria-live="assertive"></p>
@@ -19073,7 +19148,6 @@ window.kosmosMeasureScrollbarWidth();
       <div class="plus-foot" id="plus-forget" hidden>
         <button type="button" class="plus-remove-link" id="plus-forget-go">Remove this computer</button>
         <span class="plus-sp"></span>
-        <button type="button" class="plus-lost-link" id="plus-lost-open">Lost your phone?</button>
         <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
       <div id="plus-forget-ask" hidden>
@@ -20871,6 +20945,10 @@ function modelLine(a) {
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
+  /* #5804: a running Gemini agent whose reply came from a model other than the one it is set to (the CLI's own
+     fallback) says so. The board decides (engine/geminimodelswitch.js) and sends settingModelName only then; kept
+     inside modelLine so every caller and test that lifts it from the page gets the same words. */
+  if (a.runner === 'gemini' && name && !notRunning && a.settingModelName) return name + ' (set to ' + a.settingModelName + ')';
   /* #3566: a Gemini or Grok agent's model is its own vendor's, never a Claude one, so it
      gets no "Claude " prefix (#4416: the engine reads the id into words, "Gemini 3.8
      Flash"), or the provider when none is known. */
@@ -32823,6 +32901,97 @@ async function industryChange() {
 }
 document.getElementById('community-industry').addEventListener('change', industryChange);
 
+/* #5080: "The language your agents write to you in" (GET/PUT /api/agent-language). Automatic names what this computer
+   reads now when it is sure of it. An unreadable choice shows "Could not be read just now" (disabled), never a choice. */
+let AGENT_LANG_EPOCH = 0;        // reads: an older read never paints over a newer answer
+let AGENT_LANG_SAVE_EPOCH = 0;   // saves, counted apart, so a read still out from page load cannot drop a save's answer
+let AGENT_LANG_SAVING = false;
+function agentLanguagePaint(r, keepMsg) {
+  const sel = document.getElementById('agent-language');
+  const unread = !r || r.ok !== true || !Array.isArray(r.options);
+  if (r && Array.isArray(r.options)) sel.__options = r.options;
+  const list = sel.__options || [];
+  const a = r && r.automatic;
+  const opts = [];
+  if (unread) opts.push({ value: '__unknown', text: 'Could not be read just now', disabled: true });
+  const autoSure = !!(a && a.sure && a.name);
+  // Nothing read at all (r is null): plain "Automatic", which claims nothing about this computer.
+  opts.push({ value: 'auto', text: autoSure ? 'Automatic: ' + a.name + ', from this computer' : a ? 'Automatic: English for now' : 'Automatic' });
+  for (const o of list) opts.push({ value: o.tag, text: String(o.name || o.tag) });
+  sel.textContent = '';
+  for (const o of opts) {
+    const el = document.createElement('option');
+    el.value = o.value; el.textContent = o.text;
+    if (o.disabled) el.disabled = true;
+    sel.appendChild(el);
+  }
+  sel.value = unread ? '__unknown' : (r.choice || 'auto');
+  sel.hidden = false;
+  document.getElementById('agent-language-auto-note').hidden = unread || sel.value !== 'auto' || autoSure;
+  if (keepMsg) return;
+  document.getElementById('agent-language-msg').textContent = !unread ? ''
+    : 'We could not read which language you chose just now. Pick one to set it again; until then your agents keep the language they have.';
+}
+async function refreshAgentLanguage(keepMsg, quietIfShown) {
+  const mine = ++AGENT_LANG_EPOCH;
+  const quiet = quietIfShown && !document.getElementById('agent-language').hidden;
+  try {
+    const res = await fetch('/api/agent-language', { cache: 'no-store' });
+    if (!res.ok) { if (mine === AGENT_LANG_EPOCH && !quiet) agentLanguagePaint(null, keepMsg === true); return; }
+    const r = await res.json();
+    if (mine === AGENT_LANG_EPOCH) agentLanguagePaint(r, keepMsg === true);
+  } catch {
+    if (mine === AGENT_LANG_EPOCH && !quiet) agentLanguagePaint(null, keepMsg === true);
+  }
+}
+/* As the industry select: a change while a save is out is kept, and the last one is saved when that save ends. */
+let AGENT_LANG_PENDING = null;
+async function agentLanguageChange() {
+  const sel = document.getElementById('agent-language');
+  if (sel.value === '__unknown') return;
+  if (AGENT_LANG_SAVING) { AGENT_LANG_PENDING = sel.value; return; }
+  AGENT_LANG_SAVING = true;
+  const mine = ++AGENT_LANG_SAVE_EPOCH;
+  AGENT_LANG_EPOCH += 1;   // any read already out is older than this save: it no longer paints
+  const msg = document.getElementById('agent-language-msg');
+  try {
+    const res = await fetch('/api/agent-language', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ choice: sel.value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== AGENT_LANG_SAVE_EPOCH) return;
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; refreshAgentLanguage(true); return; }
+    AGENT_LANG_EPOCH += 1;   // nor does a read started while this save was out
+    agentLanguagePaint(body);
+    const n = Number(body.couldNot) || 0;
+    const changed = Number(body.changed) || 0;
+    const removed = Number(body.removed) || 0;
+    // Review 7: said by what the save did. A removal owes no re-read (the agent drops it at its next start); a written
+    // block is re-read once the agent is idle; nothing changed says only Saved.
+    msg.textContent = body.ok !== true ? 'Saved, but we could not read it back just now.'
+      : n < 0 ? 'Saved. Your agents pick it up the next time Kosmos starts.'
+        : n ? 'Saved. ' + n + (n === 1 ? ' agent' : ' agents') + ' could not be changed just now and keep the language they have until Kosmos next starts.'
+        : !changed ? 'Saved.'
+        : removed === changed ? 'Saved. New agents use it now. Agents already running drop their old language the next time they start.'
+        : removed ? 'Saved. Some agents switch to it once they finish what they are doing; the rest drop their old language the next time they start.'
+        : 'Saved. Your agents switch to it once they finish what they are doing.';
+  } catch {
+    msg.textContent = 'We could not save that setting.';
+    refreshAgentLanguage(true);
+  } finally {
+    AGENT_LANG_SAVING = false;
+    if (AGENT_LANG_PENDING !== null) {
+      const next = AGENT_LANG_PENDING;
+      AGENT_LANG_PENDING = null;
+      sel.value = next;
+      agentLanguageChange();
+    }
+  }
+}
+document.getElementById('agent-language').addEventListener('change', agentLanguageChange);
+
 /* #4820 (Josh, 2026-09-30): no one-time Community notice. An existing install simply has sharing on, with
    the switch in Settings; a new install gets the same switch in first run, beside the diagnostics one
    (#fr-s6-community). The #4288 part B notice that stood here is gone, markup, keys and all. */
@@ -33517,6 +33686,7 @@ refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 40
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
 refreshUndoSetting(); // #5153 slice 4: the undo switch
 refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
+refreshAgentLanguage(); // #5080: the language agents write to the person in
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
 refreshYou();
@@ -39973,6 +40143,7 @@ function settingsGo(section, opts) {
   /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
      repaints the industry row too, so an earlier save message there is cleared. */
   if (section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING) refreshIndustry(false, true);
+  if (section === 'automation' && typeof refreshAgentLanguage === 'function' && !AGENT_LANG_SAVING) refreshAgentLanguage(false, true);
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
@@ -47449,9 +47620,6 @@ let PLUS_EPOCH = 0;
 /* #3478: true while the in-app sign-in wizard (state 2) is open, so paintPlus's 5s
    repaint shows the wizard in place of the marketing state instead of clobbering it. */
 let PLUS_SIGNIN_ACTIVE = false;
-/* #3796 addendum 9: while the signed-in landing is up, the wizard keeps the pane (paintPlus would
-   otherwise hand straight to the connected flow the moment this computer reads enrolled). Done clears it. */
-let PLUS_SI_LANDED = false;
 /* Review: set while the automatic register is in flight. The engine writes the state dir before it
    answers, so a repaint in that window would read enrolled and flash the connected flow first. */
 let PLUS_SI_REGISTERING = false;
@@ -47673,6 +47841,23 @@ function plusChipFit() {
   // The class change is deferred a frame so it does not resize the observed box inside its own callback.
   if (chip && typeof ResizeObserver === 'function') new ResizeObserver(() => requestAnimationFrame(plusChipFit)).observe(chip); }
 { const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
+/* #5787: the phone apps' store pages. Empty until the app is live in that store (Android: Play internal testing today,
+   #4090; iOS: waiting on Apple, #3643). A set link turns that button from the greyed "Coming soon" into a real link
+   that opens the store; nothing else changes. */
+const PLUS_STORE_LINKS = { ios: '', android: '' };
+function plusStoresPaint(links) {
+  for (const key of ['ios', 'android']) {
+    const el = document.getElementById('plus-store-' + key);
+    const url = links && typeof links[key] === 'string' && /^https:\/\//.test(links[key]) ? links[key] : '';
+    if (!el || !url || el.tagName === 'A') continue;
+    const a = document.createElement('a');
+    a.className = el.className; a.id = el.id; a.dataset.store = key;
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    while (el.firstChild) a.appendChild(el.firstChild);
+    el.replaceWith(a);
+  }
+}
+plusStoresPaint(PLUS_STORE_LINKS);
 
 async function paintPlus() {
   /* #4744: a Copy failure's note belongs to the box. Whatever this paint does next (including an early return),
@@ -47755,7 +47940,7 @@ async function paintPlus() {
     }
     return;
   }
-  if ((typeof PLUS_SI_LANDED !== 'undefined' && PLUS_SI_LANDED) || (typeof PLUS_SI_REGISTERING !== 'undefined' && PLUS_SI_REGISTERING)) {
+  if (typeof PLUS_SI_REGISTERING !== 'undefined' && PLUS_SI_REGISTERING) {
     state1.hidden = true; state2.hidden = false; flow.hidden = true;
     return;
   }
@@ -47843,7 +48028,7 @@ async function paintPlus() {
   document.getElementById('plus-devices').hidden = r.enrolled !== true;
   /* #733 recovery: only an enrolled Mac can sign the reset, so the control
      shows with the devices, and a fresh paint disarms a half-taken click. */
-  /* #4080: the second-step reset lives in the "Lost your phone?" dialog now, reached from the bottom row. The 5-second
+  /* #4080: the second-step reset lives in the "Lost your phone?" dialog now, reached from the devices block (#5791; it was the bottom row). The 5-second
      repaint must not re-enable a reset that is still in flight (review round 3). */
   if (typeof PLUS_SECOND_BUSY === 'undefined' || !PLUS_SECOND_BUSY) plusSecondDisarm();
   /* #4079: Remove this computer shows for a connected computer. Its confirm is NOT disarmed here (this runs every 5s).
@@ -47854,10 +48039,11 @@ async function paintPlus() {
   paintDevices();
 }
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
-   and never while the person is reading a consent or a call is out. */
-var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
+   and never while a call is out. */
+// open: the person opened the company block (10-08). dismissed: the company note they closed with Cancel (#5791).
+var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null };
 function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
-  if (PLUS_ORG.busy || PLUS_ORG.preview) return;
+  if (PLUS_ORG.busy) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
   fetch('/api/org').then((res) => res.json()).then((j) => {
@@ -47867,50 +48053,38 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
-    if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
+    // #5791 review 1: a note the person closed with Cancel is not written back by the next read. Review 2: only while
+    // the engine still carries THAT note; once it is gone (or this Kosmos joined), a later stop shows again.
+    if (j && (!j.stoppedFor || j.enrolled === true)) PLUS_ORG.dismissed = null;
+    if (j && j.enrolled !== true && j.stoppedFor && j.stoppedFor !== PLUS_ORG.dismissed) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
-    const reports = j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company\'s words ask it to report nothing.' : '. It sends your company nothing: its words were not accepted on this computer.';
+    const reports = j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company asks it to report nothing.' : '. It reports to your company once Kosmos has your company\'s current terms.';
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
       ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
     plusOrgPaint();   // once more, now the message is set: the block shows or folds to match it at once
   }).catch(() => { /* the next minute tries again */ });
 }
-function plusOrgList(id, items, none) {
-  const ul = document.getElementById(id);
-  ul.textContent = '';
-  for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
-  /* #5531 follow-up: a group with a sentence for "none" says it rather than vanish (a company that backs up nothing
-     yet sends an empty list, and a missing heading reads as "not shown", not "nothing"). */
-  if (!(items && items.length) && none) { const li = document.createElement('li'); li.className = 'plus-org-none'; li.textContent = none; ul.appendChild(li); }
-  // The whole group, heading and list; the Never group always shows, for this Kosmos's own line under it.
-  ul.parentElement.hidden = !(items && items.length) && !none && id !== 'plus-org-never';
-}
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
   const here = st.enrolled === true && st.org;
-  // The whole block only for someone it concerns (Splinter/Josh 10-08); everyone else gets the one-line opener.
-  /* A line on screen opens the block, so the person sees what it is about (a company note, "Not joined", "You left").
+  // The whole block only for someone it concerns (Splinter/Josh 10-08); everyone else gets the one button.
+  /* A line on screen opens the block, so the person sees what it is about (a company note, "You left").
      🛑 Every writer of #plus-org-msg relies on this: a NEW message for a computer with no company would reveal the
      block (review 2). Write one only for something this person did here or a company note about this Kosmos. */
   const msgOn = (document.getElementById('plus-org-msg').textContent || '') !== '';
-  const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
+  // A company note the person closed with Cancel no longer holds the block open (#5791 review 1).
+  const full = !!here || PLUS_ORG.open === true || msgOn || (!!st.stoppedFor && st.stoppedFor !== PLUS_ORG.dismissed) || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
-  document.getElementById('plus-org-title').hidden = !full;
-  document.getElementById('plus-org-in').hidden = !here || !!PLUS_ORG.preview;   // a review's consent shows in place of the joined view
-  // #5531 follow-up: a Kosmos whose words were not accepted on this computer can read and accept them without leaving.
-  // Not for a Kosmos whose words ARE accepted and that only waits for this computer's identity (#5532 review 29): the
-  // engine refuses that review as already reporting.
-  // Not while it only waits for this computer's identity; offered for words that ask for no reports (rollup review 32: it
-  // is the only way such a Kosmos learns its company's words changed, since it never sends).
-  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false && st.reportingWait !== 'print' && st.reportingWait !== 'printError');
-  document.getElementById('plus-org-join').textContent = PLUS_ORG.preview && PLUS_ORG.preview.review ? 'Accept' : 'Join with this Kosmos';
-  document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
-  document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
+  // #5791: the "Your company" title only over the joined view; the code entry has its X Cancel instead.
+  document.getElementById('plus-org-title').hidden = !here;
+  document.getElementById('plus-org-in').hidden = !here;
+  document.getElementById('plus-org-out').hidden = !full || !!here;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
-  // A record with no consent recorded here sends nothing, and the joined view says so (review 34).
-  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. ' + (st.reporting === false ? (st.reportingWait === 'print' ? 'It reports to your company once it has read this computer\'s identity. ' : st.reportingWait === 'printError' ? 'It cannot report to your company yet: Kosmos could not check this computer. ' : st.reportingWait === 'noReports' ? 'Your company\'s words ask it to report nothing. ' : 'It sends your company nothing: its words were not accepted on this computer. ') : '') + 'Your other Kosmoses on this computer are not part of it.';
+  // A record whose company's words are not on record here sends nothing until the board re-accepts them on its own
+  // (#5791), and the joined view says so (review 34).
+  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : '');
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
@@ -47923,86 +48097,47 @@ async function plusOrgPost(kind, body) {
     return (await res.json().catch(() => null)) || { ok: false, because: 'No answer came back. Try again in a minute.' };
   } catch { return { ok: false, because: 'This computer could not reach its own engine.' }; }
 }
-async function plusOrgCheck() {
+/* #5791 (Josh 10-10 14:32): Connect Account joins. The company decided, so there is no preview step on the person's
+   side: the page asks for the company's terms (the engine keeps them, and binds the join to them) and joins at once
+   with the one-time ticket, nothing shown in between. A member moving here from another Kosmos (move) joins with no
+   code the same way. Any refusal shows under the field. */
+async function plusOrgConnect() {
   const msg = document.getElementById('plus-org-msg');
   const code = document.getElementById('plus-org-code').value.trim();
-  if (PLUS_ORG.busy) return;   // one check at a time; a second press leaves the message as it is (review 29)
+  if (PLUS_ORG.busy) return;   // one at a time; a second press leaves the message as it is (review 29)
   msg.textContent = '';
-  if (!code) { msg.textContent = 'Type or paste the join code your company sent you.'; return; }
-  PLUS_ORG.busy = true;
-  const r = await plusOrgPost('preview', { code });
-  PLUS_ORG.busy = false;
-  if (!r.ok) { msg.textContent = r.because || 'That code could not be checked.'; return; }
-  PLUS_ORG.preview = { code: r.move ? null : code, org: r.org, ticket: r.ticket };   // a member moving here enrolls with no code
-  document.getElementById('plus-org-ask').textContent = r.move
-    ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
-    : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : r.role === 'reviewer' ? ' as a reviewer' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
-  plusOrgList('plus-org-reports', r.consent.reports);
-  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
-  plusOrgList('plus-org-readers', r.consent.readers);
-  plusOrgList('plus-org-never', r.consent.never);
-  plusOrgPaint();
-  document.getElementById('plus-org-join').focus();
+  if (!code) { msg.textContent = 'Type or paste the code your company sent you.'; return; }
+  const btn = document.getElementById('plus-org-check');
+  PLUS_ORG.busy = true; btn.disabled = true;
+  try {
+    const p = await plusOrgPost('preview', { code });
+    if (!p.ok) { msg.textContent = p.because || 'That code could not be checked.'; return; }
+    const r = await plusOrgPost('enroll', p.move ? { accepted: true, ticket: p.ticket } : { code, accepted: true, ticket: p.ticket });
+    if (!r.ok) {
+      msg.textContent = r.because || 'Connecting did not go through.';
+      // The code was spent (review 5): pressing again would only be told it is used, under "this screen will show it".
+      if (r.code === 'org_join_unknown' || r.code === 'org_undo_pending') document.getElementById('plus-org-code').value = '';
+      return;
+    }
+    document.getElementById('plus-org-code').value = '';
+    PLUS_ORG.open = false;
+    PLUS_ORG.state = { enrolled: true, org: r.org || p.org, role: r.role || p.role };
+    PLUS_ORG.at = 0;
+    plusOrgPaint();
+  } finally { PLUS_ORG.busy = false; btn.disabled = false; }
+  // The engine's own answer (whether it reports yet), once busy is clear: plusOrgMaybe does nothing while busy (review 3).
+  if (PLUS_ORG.at === 0 && PLUS_ORG.state && PLUS_ORG.state.enrolled === true) plusOrgMaybe();
 }
-async function plusOrgJoin() {
-  const msg = document.getElementById('plus-org-msg');
-  const p = PLUS_ORG.preview;
-  if (!p) return;
-  const join = document.getElementById('plus-org-join');
-  join.disabled = true; document.getElementById('plus-org-notnow').disabled = true;
-  PLUS_ORG.busy = true;
-  const r = await plusOrgPost('enroll', p.code ? { code: p.code, accepted: true, ticket: p.ticket } : { accepted: true, ticket: p.ticket });
-  PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
-  if (!r.ok) {
-    msg.textContent = r.because || 'Joining did not go through.';
-    // A review has no code to check again: its way back is the Review button (orgreview review 1).
-    if (p.review && r.code === 'org_ticket') msg.textContent = 'These words were open too long. Press Review what your company sees to read them again.';
-    // A review refused with a reason points at the Review button, so the joined view (and that button) comes back.
-    // The view is read back too (review 7): a refusal like org_not_here means the joined view above it is no longer true.
-    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
-    // A code that is used, expired, or for another company will not work on a second press: back to the code field.
-    // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
-    if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending', 'org_consent_changed'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
-    return;
-  }
-  PLUS_ORG.preview = null;
+function plusOrgCancel() {
+  PLUS_ORG.open = false;
+  // The company note it closes stays closed (#5791 review 1): Cancel must close the pane, whatever opened it.
+  PLUS_ORG.dismissed = (PLUS_ORG.state && PLUS_ORG.state.stoppedFor) || PLUS_ORG.dismissed || null;
   document.getElementById('plus-org-code').value = '';
-  PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role };
-  PLUS_ORG.at = Date.now();
-  msg.textContent = '';
+  document.getElementById('plus-org-msg').textContent = '';
   plusOrgPaint();
-  // An accepted review: whether this Kosmos now reports is the engine's answer, not a copy of its rule (review 6).
-  if (p.review) { PLUS_ORG.at = 0; plusOrgMaybe(); }
-}
-function plusOrgNotNow() {
-  const review = !!(PLUS_ORG.preview && PLUS_ORG.preview.review);
-  PLUS_ORG.preview = null;
-  document.getElementById('plus-org-msg').textContent = review ? 'Nothing changed on this computer.' : 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
-  plusOrgPaint();
-}
-/* #5531 follow-up: the words of the company this Kosmos already is the work Kosmos for. Accepting goes through Join with
-   no code (the coordinator records it as accepting again); nothing binds until then. */
-async function plusOrgReview() {
-  const msg = document.getElementById('plus-org-msg');
-  if (PLUS_ORG.busy) return;
-  msg.textContent = '';
-  PLUS_ORG.busy = true;
-  const r = await plusOrgPost('preview', { review: true });
-  PLUS_ORG.busy = false;
-  // A refusal can mean the state moved (another screen accepted: "already reports"), so read it back, keeping the line (review 9).
-  if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
-  PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
-  // Rollup review 35: words that ask for no reports are not accepted "so it can report"; the prompt promises only what Accept does.
-  const noReports = PLUS_ORG.state && PLUS_ORG.state.reportingWait === 'noReports';
-  document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. ' + (noReports ? 'Accept what it asks now:' : 'Accept it so this Kosmos can report:');
-  plusOrgList('plus-org-reports', r.consent.reports);
-  // The same words as a code's consent (orgreview review 11): a stated empty list says so, as the hash records it.
-  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
-  plusOrgList('plus-org-readers', r.consent.readers);
-  plusOrgList('plus-org-never', r.consent.never);
-  plusOrgLeaveArm(false);
-  plusOrgPaint();
-  document.getElementById('plus-org-join').focus();
+  // Focus where the person can act: the button when it shows, else the block's first control (review 3).
+  const opener = document.getElementById('plus-org-open');
+  if (!opener.hidden) opener.focus(); else { const b = document.querySelector('#plus-org button:not([hidden])'); if (b && b.getClientRects().length) b.focus(); }
 }
 function plusOrgLeaveArm(on) {
   const st = PLUS_ORG.state || {};
@@ -48033,13 +48168,11 @@ async function plusOrgLeave() {
     : (r.because || r.error || 'Leaving did not go through. Nothing changed; try again in a minute.');
   plusOrgPaint();
 }
-document.getElementById('plus-org-check').addEventListener('click', plusOrgCheck);
+document.getElementById('plus-org-check').addEventListener('click', plusOrgConnect);
+document.getElementById('plus-org-cancel').addEventListener('click', plusOrgCancel);
 document.getElementById('plus-org-open').addEventListener('click', () => { PLUS_ORG.open = true; plusOrgPaint(); document.getElementById('plus-org-code').focus(); });
-document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgCheck(); } });
-document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
-document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
+document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgConnect(); } else if (e.key === 'Escape') { e.preventDefault(); plusOrgCancel(); } });
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
-document.getElementById('plus-org-review').addEventListener('click', plusOrgReview);
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
 document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
@@ -48389,14 +48522,30 @@ document.getElementById('plus-forget-yes').addEventListener('click', async () =>
    input. Stages: signin-start -> code_sent; signin-verify -> session | second |
    enrol_second_factor; signin-second -> session; signin-enrol -> enrolment_started;
    signin-confirm-enrol -> session; signin-register -> registered (with the address). */
-const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-company', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-expired', 'plus-si-done'];
+const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-company', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-expired'];
 /* #3796 addendum 4: what the way out is called, and so what it does, on each step. */
 function plusSiWayOut(step) {
   if (step === 'plus-si-email') return 'Cancel';
   if (step === 'plus-si-register') return 'Sign out';
   if (step === 'plus-si-expired') return '';   // the panel has its own Start over
-  if (step === 'plus-si-done') return '';      // signed in and connected: Done is the way on
   return 'Start over';
+}
+/* #5785: the branded K loader (#2692) while a register runs. Mounted fresh each time and removed by emptying the holder:
+   startKLoader ends its frame loop once its canvas has left the page, so hiding it would leave it drawing. */
+/* Mona Lisa's review: measured on the coordinator, a connect is about 33 s (a fixed 24 s DNS settle). */
+const PLUS_SI_K_NOTE = 'This takes about half a minute.';
+function plusSiKStart(centred) {
+  const holder = document.getElementById('plus-si-k');
+  if (!holder) return;
+  holder.innerHTML = '<canvas width="176" height="206" aria-hidden="true"></canvas>';
+  if (typeof startKLoader === 'function') startKLoader(holder.firstElementChild);
+  const card = document.getElementById('plus-state2'); if (card) card.classList.toggle('plus-si-busy', !!centred);
+  const note = document.getElementById('plus-si-k-note'); if (note) note.textContent = PLUS_SI_K_NOTE;
+}
+function plusSiKStop() {
+  const holder = document.getElementById('plus-si-k'); if (holder) holder.textContent = '';
+  const card = document.getElementById('plus-state2'); if (card) card.classList.remove('plus-si-busy');
+  const note = document.getElementById('plus-si-k-note'); if (note) note.textContent = '';
 }
 function plusSiShow(step) {
   for (const id of PLUS_SI_STEPS) {
@@ -48404,8 +48553,9 @@ function plusSiShow(step) {
     if (el) el.hidden = (id !== step);
   }
   const title = document.getElementById('plus-si-title');
-  if (title) title.textContent = step === 'plus-si-done' ? "You're signed in to Kosmos+" : 'Sign in to activate Kosmos+';
+  if (title) title.textContent = 'Sign in to activate Kosmos+';
   { const sp = document.getElementById('plus-si-spin'); if (sp) sp.hidden = true; }   // #4608: a step change ends any wait
+  plusSiKStop();   // #5785: and the big loader with it
   const out = document.getElementById('plus-si-cancel');
   if (out) {
     const label = plusSiWayOut(step);
@@ -48563,6 +48713,7 @@ function plusSiClear() {
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
   const sug = document.getElementById('plus-si-name-suggested'); if (sug) sug.hidden = true;   // #3842: a fresh one next time
+  plusSiKStop();   // #5785 review 1: a Sign out during a connect ends the loader (a hidden canvas would keep drawing)
   /* A request abandoned by Sign out returns without re-enabling its button, and a cooldown is
      stopped mid-count; start the next sign-in with every control live. */
   if (typeof PLUS_COUNTDOWN !== 'undefined' && PLUS_COUNTDOWN) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; }
@@ -48575,7 +48726,6 @@ function plusSiClear() {
   }
   const phoneField = document.getElementById('plus-si-phone-field'); if (phoneField) phoneField.hidden = true;
   if (document.getElementById('plus-si-register-go')) plusSiRegisterMode('');   // addendum 8: no owned name carried over
-  if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
   /* kosmos#4756: the bought-address list belongs to the sign-in that read it. */
@@ -48588,6 +48738,9 @@ function plusSiEnter(e) {
   /* #4079: a new sign-in replaces the Remove this computer result. */
   { const f = document.getElementById('plus-forgot-msg'); if (f) { f.hidden = true; f.textContent = ''; } }
   plusSiMsg('');
+  /* #5785 review 7: a new sign-in makes any answer still out for an older one stale, as Start over and Sign out do;
+     the K loader's hold would otherwise let a held success land on this fresh email step. */
+  PLUS_SI_EPOCH += 1;
   plusSiClear();
   plusSiShow('plus-si-email');
   const s1 = document.getElementById('plus-state1'); if (s1) s1.hidden = true;
@@ -49263,24 +49416,38 @@ async function plusSiDoRegister(name, owned) {
   plusSiMsg('');
   btn.disabled = true;
   PLUS_SI_BOUGHT_SEQ += 1;   // kosmos#4756: a bought-address read still out is not drawn over this register
-  /* #4608: while the register runs, the heading says what is happening and, for the automatic register, the
-     ring loader turns (a chosen name has no loader line, so it says so in the live status line instead). They
+  /* #4608: while the register runs, the heading says what is happening (#5785: and the big K loader plays, for the
+     automatic register and a chosen name alike; a chosen name also says so in the live status line). They
      are put back once THIS register answers, and not by a stale answer from an abandoned sign-in (a newer one
      may be showing them by then; its own steps restore the heading). */
   const siTitle = document.getElementById('plus-si-title');
   const siSpin = document.getElementById('plus-si-spin');
   if (siTitle) siTitle.textContent = 'Signing in...';
-  if (siSpin) siSpin.hidden = !owned;
-  if (!owned) plusSiMsg('Signing in...');
+  if (siSpin) siSpin.hidden = true;   // #5785: the big loader below replaces the small one for this wait
+  plusSiKStart(owned);   // centred only for the automatic connect (a typed name keeps its field on screen)
+  const kStart = Date.now();
+  const kEpoch = PLUS_SI_EPOCH;   // review 1: an answer held past a Sign out or Start over is not drawn into the new step
+  /* #5785: at least one whole K-into-circle loop before the answer shows (#2692's rule), so a fast connect does not
+     flash. The restart interstitial's floor and test seam. */
+  const kHoldMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
+  const kHold = () => {
+    const left = kHoldMs - (Date.now() - kStart);
+    return left > 0 ? new Promise((res) => setTimeout(res, left)) : Promise.resolve();
+  };
+  /* Mona Lisa's review: no second "Signing in..." under the button for a typed name; the heading, the loader and the
+     announced note say it. */
   const siRestore = () => {
     if (siSpin) siSpin.hidden = true;
+    plusSiKStop();
     if (siTitle && siTitle.textContent === 'Signing in...') siTitle.textContent = 'Sign in to activate Kosmos+';
   };
+  /* #5785 review 5: running for both kinds, from the start (the status tick must not paint the connected view over
+     the loader while a typed name connects either; plusSiClear and every answer below clear it). */
+  PLUS_SI_REGISTERING = true;
   if (owned) {
     /* Review: an automatic register cannot be taken back once the connector has written this computer's
        identity, so no "Sign out" is offered while it runs (it would not sign out). The words say what is
        happening, and take the focus the hidden controls had. */
-    PLUS_SI_REGISTERING = true;
     if (foot && foot.parentElement) foot.parentElement.hidden = true;
     const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'Connecting this computer as';
     const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
@@ -49291,9 +49458,19 @@ async function plusSiDoRegister(name, owned) {
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
   let r;
   try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
-  catch (e) { siRestore(); if (!owned) plusSiMsg(''); throw e; }
-  PLUS_SI_REGISTERING = false;
+  /* Review 4/6: the flag is cleared by the register that owns it: an answer for a sign-in that was left (stale, or
+     the epoch moved) leaves it to plusSiClear, which already cleared it, and so never clears a newer register's. */
+  catch (e) { if (kEpoch === PLUS_SI_EPOCH) { PLUS_SI_REGISTERING = false; siRestore(); if (!owned) plusSiMsg(''); } throw e; }
   if (r.stale) return;
+  /* Review 2: only a connect that worked holds (the flash is a success's); a refusal or error shows at once. Through
+     the hold the register still counts as running (the flag set at its start), so the status tick does not paint the
+     connected view early; an answer held past a Sign out or Start over is dropped (both clear the flag, in plusSiClear). Any NEW
+     bump of PLUS_SI_EPOCH reachable from this step must clear it too, or the flag stays set and pins state 2. */
+  if (r.ok) {
+    await kHold();
+    if (kEpoch !== PLUS_SI_EPOCH) return;
+  }
+  PLUS_SI_REGISTERING = false;
   siRestore();
   if (!owned && r.ok) plusSiMsg('');
   btn.disabled = false;
@@ -49349,13 +49526,7 @@ async function plusSiDoRegister(name, owned) {
     return;
   }
   if (!r.ok) { plusSiFail(r.because); return; }
-  if (owned) {
-    /* The landing, not the connected flow: PLUS_SI_LANDED keeps paintPlus from taking the pane. */
-    PLUS_SI_LANDED = true;
-    plusSiShow('plus-si-done');
-    document.getElementById('plus-si-done-go').focus();
-    return;
-  }
+  /* #5787: an owned address ends like a typed one, on the connected pane (there is no landing card any more). */
   /* Do NOT clear PLUS_SIGNIN_ACTIVE here. The engine writes the state dir synchronously
      before answering, so the paintPlus() below almost always reads enrolled, and its
      enrolled branch both shows the connected flow AND clears the flag. Clearing it here
@@ -49365,10 +49536,18 @@ async function plusSiDoRegister(name, owned) {
      that unlucky window fall back to the wizard with this confirmation instead, and the
      recurring 5s tick completes the handoff once enrolled reads true. */
   /* #3827: turned off while the sign-in was finishing: that stands, so say so. */
+  /* #5787 review: the register went through, so its button (Finish, or Try again after a failed automatic register)
+     goes, and a second press cannot register this computer twice while the 5s tick finishes the handoff. */
+  btn.hidden = true;
+  PLUS_SI_RETRY = '';
   plusSiMsg(r.data && r.data.switchedOn === false
     ? 'Signed in. Kosmos+ is off, as you set it; turn it on to be reachable.'
     : 'Signed in. Connecting this computer to Kosmos+.');
-  paintPlus();
+  await paintPlus();
+  /* #5787 review: the landing's Done used to take focus. The sign-in panel that held it is now hidden, so focus goes to
+     the Kosmos+ section (it has tabindex -1) and a keyboard or screen reader carries on from the connected pane. */
+  { const flow = document.getElementById('plus-flow'), sec = document.getElementById('s-sec-plus');
+    if (flow && !flow.hidden && sec && !sec.hidden && typeof sec.focus === 'function') sec.focus({ preventScroll: true }); }
 }
 document.getElementById('plus-si-register-go').addEventListener('click', () => {
   if (PLUS_SI_OWNED) { PLUS_SI_PICKED = PLUS_SI_RETRY_FROM_LIST; plusSiDoRegister(PLUS_SI_OWNED, PLUS_SI_RETRY || PLUS_SI_OWNED); return; }   // Try again, owned
@@ -49599,11 +49778,6 @@ document.getElementById('plus-signin-company').addEventListener('click', (e) => 
 document.getElementById('plus-si-company-go').addEventListener('click', (e) => plusCompanyFinish(e.currentTarget));
 document.getElementById('plus-si-company-resend').addEventListener('click', () => plusCompanyText());
 // No read at load: showing the email step reads the profile (plusSiShow), which is when the button can matter.
-document.getElementById('plus-si-done-go').addEventListener('click', () => {
-  PLUS_SI_LANDED = false;
-  PLUS_SIGNIN_ACTIVE = false;
-  paintPlus();
-});
 /* Josh, 2026-09-29 (his live test on Windows: typed his email, pressed Enter, nothing happened): Enter in
    any box of this sign-in presses that step's own button, exactly as a click would. None of these boxes is
    in a <form>, so the browser does nothing on Enter by itself. A click, not a call to the handler, so the
@@ -57877,6 +58051,17 @@ function wakeHeldLine(manualText, delivery) {
   /* #5743: held because the agent is showing a question on its screen (a line typed there would pick an answer). */
   if (delivery && delivery.heldBy === 'menu') {
     return manualText + ' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.';
+  }
+  /* #5805: held because this Claude agent is out of usage. The time is the printed reset (limitReset) while it is
+     ahead; heldUntil may be only the next look after it, so it is not used here. */
+  if (delivery && delivery.heldBy === 'limit') {
+    const reset = typeof delivery.limitReset === 'string' ? Date.parse(delivery.limitReset) : NaN;
+    const until = reset > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(reset, Date.now()) : '';
+    if (until) return manualText + ' It is out of usage until ' + until + ', so Kosmos sent nothing.';
+    // Past the printed reset the hold lasts only while its limit screen is still up (the menu waits for a key).
+    return manualText + (reset <= Date.now()
+      ? ' Its usage has reset, but its limit screen is still up, so Kosmos sent nothing; answer it in its window first.'
+      : ' It is out of usage, so Kosmos sent nothing.');
   }
   const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';

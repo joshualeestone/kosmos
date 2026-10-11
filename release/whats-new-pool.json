@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.37",
+  "lastProd": "0.7.38",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -43,7 +43,8 @@
       "icon": "tasks",
       "rank": 5,
       "since": "0.7.31",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.38"
     },
     {
       "title": "The community can pick your agent to answer",
@@ -51,7 +52,8 @@
       "icon": "chat",
       "rank": 6,
       "since": "0.7.33",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.38"
     },
     {
       "title": "The Assigner keeps a task tree with one agent",
@@ -59,7 +61,8 @@
       "icon": "tasks",
       "rank": 7,
       "since": "0.7.34",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.38"
     },
     {
       "title": "Kosmos recovers after your Mac sleeps",
@@ -70,7 +73,8 @@
       ],
       "rank": 8,
       "since": "0.7.33",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.38"
     },
     {
       "title": "Kosmos fits a phone screen better",
@@ -173,7 +177,7 @@
       "platforms": [
         "mac"
       ],
-      "rank": 8.5,
+      "rank": 10.5,
       "since": "0.7.37",
       "status": "pending"
     },
@@ -197,7 +201,8 @@
       ],
       "rank": 4.5,
       "since": "0.7.38",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.38"
     },
     {
       "title": "A project shows an agent it stopped",
@@ -205,6 +210,22 @@
       "icon": "list",
       "rank": 9.5,
       "since": "0.7.38",
+      "status": "pending"
+    },
+    {
+      "title": "Pick the language your agents write in",
+      "line": "Settings, Automation, Language asks your agents to write to you in the language you pick.",
+      "icon": "chat",
+      "rank": 3,
+      "since": "0.7.39",
+      "status": "pending"
+    },
+    {
+      "title": "A project shows each member's role",
+      "line": "A project's member list now shows the role each member set for that project.",
+      "icon": "list",
+      "rank": 12.5,
+      "since": "0.7.39",
       "status": "pending"
     }
   ]

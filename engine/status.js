@@ -2776,6 +2776,13 @@ function limitResetAt(line, nowMs) {
   } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
 }
 
+/* Anchored to the row's start (the menu draws it indented, 3 spaces observed): an agent's own sentence that contains
+   the phrase, or a tool result quoting it, is not a menu (review round 4). */
+const CLAUDE_LIMIT_MENU_TITLE = /^\s*What do you want to do\?/;
+/* #5805: true while Claude Code's limit menu (its title, as above) is on this screen. */
+function claudeLimitMenuUp(text) {
+  return String(text == null ? '' : text).split('\n').some((row) => CLAUDE_LIMIT_MENU_TITLE.test(row));
+}
 /* #5031: the screen with every Claude limit block whose own reset has PASSED taken out, so classify reads what is
    left (review round 1: relabelling the whole reading idle read only the OLDEST limit line and hid whatever else the
    screen showed). A limit line stays on screen until the agent gets a new turn, and a capped Guide gets none (the
@@ -2791,9 +2798,7 @@ function limitResetAt(line, nowMs) {
 function retireResetLimits(text, nowMs) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  /* Anchored to the row's start (the menu draws it indented, 3 spaces observed): an agent's own sentence that contains
-     the phrase, or a tool result quoting it, is not a menu (review round 4). */
-  const lastMenu = rows.reduce((at, row, i) => (/^\s*What do you want to do\?/.test(row) ? i : at), -1);
+  const lastMenu = rows.reduce((at, row, i) => (CLAUDE_LIMIT_MENU_TITLE.test(row) ? i : at), -1);
   const drop = new Set();
   rows.forEach((row, i) => {
     if (!HIT_YOUR_LIMIT.test(row) || lastMenu > i) return;
@@ -7263,6 +7268,13 @@ function quotaPauseUntil(reported, nowMs) {
   return at > (Number.isFinite(nowMs) ? nowMs : Date.now()) ? at : null;
 }
 
+/* #5805: Claude Code's StopFailure self-report for a usage limit (kosmos-report-hook.js: an automatic blocked on
+   "provider api (rate_limit)"). */
+function providerLimitReport(reported) {
+  return !!reported && reported.state === 'blocked' && reported.by === 'auto'
+    && /^provider api \(rate_limit\)$/.test(String(reported.on || ''));
+}
+
 // #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
@@ -7551,7 +7563,10 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        idle at the end of every turn, and a turn that failed on the limit still ends, so that report
        is the machine noticing the turn ended, not evidence the account works. */
     const autoOverCodexLimit = (scraped.limitFrom === 'codex' || scraped.limitFrom === 'gemini') && reported.by === 'auto';   // #4004: Gemini's bridge ends a failed turn with idle too
-    if (freshRl && !autoOverCodexLimit) {
+    /* #5805: Claude Code's StopFailure hook reports the same failed turn as an automatic blocked "provider api
+       (rate_limit)", the #3723 case in Claude's words: it says the turn hit the limit, so it cannot outrank the screen
+       that says so, and the card keeps its dated limit line (the usage-limit hold reads it). */
+    if (freshRl && !autoOverCodexLimit && !providerLimitReport(reported)) {
       const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
@@ -7745,7 +7760,10 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   if (reported.state === 'blocked') {
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
       : 'it is waiting on something that is not you';
-    return { state: STATE.BLOCKED, confidence: CONFIDENCE.STRUCTURED, because: said(what), reported: true, conflict: null };
+    /* #5805: for the StopFailure limit report only, what the screen reads under it: the report stands until the agent's
+       next turn, so after the reset only the screen says the session is back (chat.limitReleased reads it). */
+    const screen = providerLimitReport(reported) ? { screenState: scraped.state } : {};
+    return { state: STATE.BLOCKED, confidence: CONFIDENCE.STRUCTURED, because: said(what), reported: true, conflict: null, ...screen };
   }
   /* #1995: a reported idle/started must not read "at rest and nothing is needed"
      when the screen shows a working spinner. classify reads WORKING from a spinner
@@ -8641,6 +8659,9 @@ function snapshot() {
       quotaUntil: typeof status.quotaUntil === 'string' ? status.quotaUntil : null,
       /* #4588 part 3: its own reset passed but the shared pool is still paused by a colleague until this ISO time. */
       poolUntil: typeof status.poolUntil === 'string' ? status.poolUntil : null,
+      /* #5805: under Claude Code's StopFailure limit report only (a blocked card), what the screen reads, so the
+         usage-limit hold can release once the screen is back at its prompt (chat.limitReleased). Null otherwise. */
+      screenState: typeof status.screenState === 'string' ? status.screenState : null,
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
@@ -9020,7 +9041,7 @@ module.exports = {
   countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
-  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
+  rank, paneOrder, modelDisplayName, readGeminiSession, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
   codexLastCompletionAt,
   // #3296 observability follow-on: the Gemini completion-time helper (wired into
   // snapshot's GOOGLE observation arm; exported for the direct-caller/test path).
@@ -9044,7 +9065,7 @@ module.exports = {
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, retireResetLimits, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

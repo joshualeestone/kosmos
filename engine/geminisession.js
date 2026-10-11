@@ -370,6 +370,9 @@ function read(dir, home) {
   const lastGemini = latestGemini(() => true);
   const lastAgentMessage = lastGemini ? contentText(lastGemini.content) : null;
   const model = lastGemini && typeof lastGemini.model === 'string' ? lastGemini.model : null;
+  /* #5804: when the reply that named `model` was written (ms), or null; lets the board tell a reply from the agent's
+     current run from one written before a restart. */
+  const modelAt = model && Number.isFinite(parseTs(lastGemini)) ? parseTs(lastGemini) : null;
 
   /* contextUsed is the window occupancy of the newest turn that REPORTED tokens
      -- independently selected, because the newest turn overall may be an
@@ -410,6 +413,7 @@ function read(dir, home) {
        so surface it (harmless to codex/Claude consumers, which never read it).
        The board's model column can use it directly rather than re-deriving. */
     model,
+    modelAt,
   };
 }
 

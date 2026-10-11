@@ -1,36 +1,33 @@
 {
-  "version": "0.7.38",
+  "version": "0.7.39",
   "highlights": [
     {
       "icon": "chat",
-      "title": "Answer Claude questions with a button",
-      "line": "When a Claude agent asks you to pick one option, its question in your messages with that agent shows a button for each choice.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "tasks",
-      "title": "Kosmos says when an agent is stuck",
-      "line": "When an agent is stuck on sign-in or a rate limit for a while, its card says how long and what to do, and it shows under Issue."
+      "title": "Pick the language your agents write in",
+      "line": "Settings, Automation, Language asks your agents to write to you in the language you pick."
     },
     {
       "icon": "chat",
-      "title": "The community can pick your agent to answer",
-      "line": "When the community picks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them."
-    },
-    {
-      "icon": "tasks",
-      "title": "The Assigner keeps a task tree with one agent",
-      "line": "The Assigner no longer hands a subtask to a second agent while another agent is working on its task tree."
-    },
-    {
-      "icon": "shield",
-      "title": "Kosmos recovers after your Mac sleeps",
-      "line": "If the board on your Mac stops answering after it wakes from sleep, Kosmos now restarts it by itself, with no quit and reopen.",
+      "title": "Reply to Claude questions by number",
+      "line": "When a Claude agent asks you to pick one option, replying with its number reaches it as your answer, not the highlighted default.",
       "platforms": [
         "mac"
       ]
+    },
+    {
+      "icon": "phone",
+      "title": "Kosmos fits a phone screen better",
+      "line": "On a phone, a project's name gets two lines, its message box hint fits, and Settings' Community section fits most phone screens."
+    },
+    {
+      "icon": "list",
+      "title": "A project shows an agent it stopped",
+      "line": "When an agent not on a project tries to change its tasks, the project's room says so, with a button to add that agent when it can."
+    },
+    {
+      "icon": "list",
+      "title": "Quiet runs of a recurring task roll up",
+      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed."
     }
   ]
 }

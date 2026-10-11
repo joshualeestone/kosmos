@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-flow plus-pill plus-chip plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
+// Browser-check-surface: plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly
@@ -245,6 +245,44 @@ const STATES = {
           chk(fail.sel === 'login.kosmosplus.com' && /could not copy it/.test(fail.note1) && /could not copy it/.test(fail.note2) && fail.label === 'Copy' && fail.widthSame && fail.afterSuccess === '',
             `${t} #4744: when copying is refused the address is selected and the note stays through a repaint; a later Copy clears it`, JSON.stringify(fail));
         }
+        if (key === 'connected') {
+          /* #5787 (Josh, 2026-10-10 14:07/14:15): the box is the connect block. The line art, a "Scan to connect" code on
+             white, and the two store buttons greyed with a "Coming soon" ribbon whose words sit inside the button and clear
+             of the store's name; at a phone width the code sits above the stores and nothing runs sideways. */
+          const CX = () => {
+            const box = (el) => el.getBoundingClientRect();
+            const art = document.querySelector('#plus-chip .plus-cx-art'), qr = document.querySelector('#plus-qr .plus-qr-box');
+            const stores = [...document.querySelectorAll('#plus-chip .plus-store')].map((st) => {
+              const s = box(st), sash = st.querySelector('.plus-sash'), nm = st.querySelector('.plus-store-name');
+              const rr = document.createRange(); if (sash) rr.selectNodeContents(sash);
+              const words = sash ? [...rr.getClientRects()] : [];
+              return { id: st.id, tag: st.tagName, off: st.getAttribute('aria-disabled'), href: st.getAttribute('href'), name: nm ? nm.textContent : '',
+                sash: !!(sash && getComputedStyle(sash).display !== 'none'), sashText: sash ? sash.textContent : '',
+                inside: words.length > 0 && words.every((x) => x.left >= s.left - 0.5 && x.right <= s.right + 0.5 && x.top >= s.top - 0.5 && x.bottom <= s.bottom + 0.5),
+                clear: !!(nm && sash) && box(nm).right <= box(sash).left + 2 };
+            });
+            const q = qr ? box(qr) : null, cap = document.querySelector('#plus-qr figcaption'), sr = stores.length ? document.getElementById(stores[0].id).getBoundingClientRect() : null;
+            return { art: !!(art && box(art).height > 20), qr: q ? { w: Math.round(q.width), h: Math.round(q.height), bg: getComputedStyle(qr).backgroundColor, label: (qr.querySelector('svg') || {}).getAttribute && qr.querySelector('svg').getAttribute('aria-label') } : null,
+              cap: cap ? cap.textContent.trim() : '', stores, qrAbove: !!(q && sr) && q.bottom <= sr.top + 1, qrBeside: !!(q && sr) && q.right <= sr.left + 1,
+              wide: document.documentElement.scrollWidth > innerWidth };
+          };
+          const okBlock = (c, phone) => c.art && c.qr && c.qr.w === c.qr.h && c.qr.w >= 104 && c.qr.bg === 'rgb(255, 255, 255)' && /login\.kosmosplus\.com/.test(c.qr.label || '')
+            && c.cap === 'Scan to connect' && c.stores.length === 2 && c.stores.every((x) => x.tag === 'SPAN' && x.off === 'true' && x.sash && x.sashText === 'Coming soon' && x.inside && x.clear)
+            && c.stores[0].name.includes('App Store') && c.stores[1].name.includes('Google Play') && !c.wide && (phone ? c.qrAbove : c.qrBeside);
+          const cxWide = await page.evaluate(CX);
+          chk(okBlock(cxWide, false), `${t} #5787: the connect block: line art, a white "Scan to connect" code for login.kosmosplus.com beside the App Store and Google Play buttons, greyed, "Coming soon" inside each and clear of the name`, JSON.stringify(cxWide));
+          const vp0 = page.viewportSize();
+          await page.setViewportSize({ width: 390, height: vp0.height }); await page.waitForTimeout(300);
+          const cxPhone = await page.evaluate(CX);
+          chk(okBlock(cxPhone, true), `${t} #5787 at 390 wide: the code above the stores, every ribbon inside its button, no sideways scroll`, JSON.stringify(cxPhone));
+          await page.setViewportSize(vp0); await page.waitForTimeout(300);
+          /* A store that goes live: its button becomes a link to the store with no ribbon; the other stays greyed. */
+          const live = await page.evaluate(() => { plusStoresPaint({ android: 'https://play.google.com/store/apps/details?id=io.kosmos.app', ios: 'javascript:alert(1)' });
+            const a = document.getElementById('plus-store-android'), i = document.getElementById('plus-store-ios');
+            return { aTag: a.tagName, aHref: a.getAttribute('href'), aRel: a.getAttribute('rel'), aSash: getComputedStyle(a.querySelector('.plus-sash')).display, iTag: i.tagName, iOff: i.getAttribute('aria-disabled') }; });
+          chk(live.aTag === 'A' && live.aHref === 'https://play.google.com/store/apps/details?id=io.kosmos.app' && live.aRel === 'noopener noreferrer' && live.aSash === 'none' && live.iTag === 'SPAN' && live.iOff === 'true',
+            `${t} #5787: a store page set for Android turns that button into a link with no ribbon; iOS (a non-https value) stays greyed`, JSON.stringify(live));
+        }
         chk(!v.sectionText.includes(ADDR) && v.status === '', `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
         chk(v.swIsToggle && v.swShown && v.swOn === 'true', `${t} #4080: the switch shows, on`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
         chk(v.logo.drawn && v.logo.label === 'Kosmos+' && v.logo.h >= 18 && v.logo.h <= 26, `${t} #4080: the Kosmos+ logo is drawn, labelled, about 22px tall`, JSON.stringify(v.logo));
@@ -256,19 +294,29 @@ const STATES = {
              "Devices that can reach this computer" sits close under the sign-in box and the bottom row follows the list. */
           const gap = await page.evaluate(() => { const r = (el) => el.getBoundingClientRect(); const rows = [...document.querySelectorAll('#plus-devlist > *')].filter((e) => r(e).height > 0);
             return { top: Math.round(r(document.querySelector('#plus-devices .setname')).top - r(document.getElementById('plus-chip')).bottom),
-              /* #5531: the company section sits between the list and the foot; measure the foot from it when it shows, and it from the list. */
-              org: (() => { const o = document.getElementById('plus-org'); return o && r(o).height > 0 && rows.length ? Math.round(r(o).top - r(rows[rows.length - 1]).bottom) : null; })(),
-              bottom: rows.length ? Math.round(r(document.getElementById('plus-forget')).top - (() => { const o = document.getElementById('plus-org'); return o && r(o).height > 0 ? r(o) : r(rows[rows.length - 1]); })().bottom) : null }; });
+              /* #5531: the company section sits between the list and the foot; measure the foot from it when it shows, and it from the list.
+                 #5791: "Lost your phone?" now closes the devices block, so the list ends at it when it shows. */
+              org: (() => { const o = document.getElementById('plus-org'); const l = document.getElementById('plus-lost-open'); const end = l && r(l).height > 0 ? r(l) : rows.length ? r(rows[rows.length - 1]) : null;
+                return o && r(o).height > 0 && end ? Math.round(r(o).top - end.bottom) : null; })(),
+              bottom: rows.length ? Math.round(r(document.getElementById('plus-forget')).top - (() => { const o = document.getElementById('plus-org'); const l = document.getElementById('plus-lost-open');
+                return o && r(o).height > 0 ? r(o) : l && r(l).height > 0 ? r(l) : r(rows[rows.length - 1]); })().bottom) : null }; });
           chk(gap.top <= 20 && gap.bottom !== null && gap.bottom <= 22 && (gap.org === null || gap.org <= 22), `${t} the pane keeps the mock's spacing: no empty gap above the devices or below the list`, JSON.stringify(gap));
-          /* #4080: the bottom row, left to right: Remove this computer (red), Lost your phone?, View account. */
+          /* #4080: the bottom row: Remove this computer (red) at left, View account at right. #5791 (Josh 10-10): "Lost your
+             phone?" left that row; it sits in "Devices that can reach this computer", under the list, where a lost device is
+             looked for. */
           const foot = await page.evaluate(() => {
-            const r = (id) => { const e = document.getElementById(id); if (!e || e.closest('[hidden]')) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), text: e.textContent.trim(), color: getComputedStyle(e).color }; };
-            return { remove: r('plus-forget-go'), lost: r('plus-lost-open'), account: r('plus-account') };
+            const r = (id) => { const e = document.getElementById(id); if (!e || e.closest('[hidden]')) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), bottom: Math.round(b.bottom), text: e.textContent.trim(), color: getComputedStyle(e).color }; };
+            const rows = [...document.querySelectorAll('#plus-devlist > *')].filter((e) => e.getBoundingClientRect().height > 0);
+            const lostEl = document.getElementById('plus-lost-open');
+            return { remove: r('plus-forget-go'), lost: r('plus-lost-open'), account: r('plus-account'), inDevices: !!(lostEl && lostEl.closest('#plus-devices')), inFoot: !!(lostEl && lostEl.closest('#plus-forget')),
+              listBottom: rows.length ? Math.round(rows[rows.length - 1].getBoundingClientRect().bottom) : null };
           });
           const red = (c) => { const m = (c || '').match(/\d+/g) || []; return m.length >= 3 && Number(m[0]) > Number(m[1]) + 60 && Number(m[0]) > Number(m[2]) + 60; };
-          chk(foot.remove && foot.lost && foot.account && foot.remove.text === 'Remove this computer' && foot.account.text === 'View account'
-            && Math.abs(foot.remove.y - foot.account.y) <= 6 && foot.remove.x < foot.lost.x && foot.lost.x < foot.account.x && red(foot.remove.color),
-            `${t} #4080: the bottom row reads Remove this computer (red) at left, Lost your phone?, then View account at right`, JSON.stringify(foot));
+          chk(foot.remove && foot.account && foot.remove.text === 'Remove this computer' && foot.account.text === 'View account'
+            && Math.abs(foot.remove.y - foot.account.y) <= 6 && foot.remove.x < foot.account.x && red(foot.remove.color),
+            `${t} #4080: the bottom row reads Remove this computer (red) at left, then View account at right`, JSON.stringify(foot));
+          chk(foot.lost && foot.lost.text === 'Lost your phone?' && foot.inDevices && !foot.inFoot && foot.listBottom !== null && foot.lost.y >= foot.listBottom && foot.lost.bottom <= foot.remove.y,
+            `${t} #5791: Lost your phone? sits under the device list, off the bottom row`, JSON.stringify(foot));
           /* "Lost your phone?" opens the reset in a dialog, focus on Close; Escape closes it and focus comes back. */
           await page.click('#plus-lost-open');
           await page.waitForTimeout(150);

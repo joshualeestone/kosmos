@@ -345,7 +345,27 @@ async function gather(src) {
 const DAILY_MS = 24 * 60 * 60 * 1000;
 const CHANGE_MIN_MS = 10 * 60 * 1000;
 const RETRY_AFTER_FAIL_MS = 60 * 60 * 1000;
+/* #5791: how often a work Kosmos with no company terms on record asks for them again (tick, above). */
+const RETAKE_EVERY_MS = 15 * 60 * 1000;
+/* #5791 review 1: how often a work Kosmos whose company's terms ask for no reports checks whether they changed. */
+const RECHECK_NO_REPORTS_MS = 24 * 60 * 60 * 1000;
 const STATE_FILE = 'org-rollup-state.json';
+/* #5791 review 4: when the board last asked its company for its current terms (tick). Its own file, not a field in
+   STATE_FILE: the ask runs before the run lock, and a read-modify-write of the shared state there could drop another
+   run's fields. A lost stamp here costs at most one extra ask. */
+const RETAKE_FILE = 'org-rollup-retake.json';
+function readRetake(root, now) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(root, RETAKE_FILE), 'utf8'));
+    const t = j && j.at; const m = j && j.misses;
+    return { at: Number.isFinite(t) && t >= 0 && t <= now ? t : 0, misses: Number.isInteger(m) && m >= 0 ? m : 0 };
+  } catch { return { at: 0, misses: 0 }; }
+}
+// misses: asks in a row that left no terms on record here (the window doubles with each, up to a day).
+function writeRetake(root, at, misses) {
+  try { require('./securewrite').writeSecret(path.join(root, RETAKE_FILE), JSON.stringify({ at, misses }) + '\n', 0o600, { atomicOnly: true }); return true; }
+  catch { return false; }
+}
 
 function readState(root) {
   try { const j = JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8')); return j && typeof j === 'object' ? j : {}; }
@@ -640,6 +660,36 @@ async function tick(opts) {
   const o = opts || {};
   const oe = require('./orgenroll');
   const eo = { root: o.root, remote: o.remote };
+  /* #5791: with no screen any more, the board keeps its company's terms current by itself (reacceptWords):
+     - no terms on record here (a re-accept after a change that could not reach the company, or a record from before
+       terms were kept): at most once per RETAKE_EVERY_MS, since it sends nothing at all until then;
+     - terms that ask for no reports (review 1): such a Kosmos never sends, so the company never refuses a report
+       for changed terms and it would never learn of new ones. Checked once per RECHECK_NO_REPORTS_MS; terms still
+       the same are left as they are (nothing is sent). */
+  // One read (review 5): two could straddle another process's change and dereference a null, and tick never throws.
+  const acc0 = oe.isEnrolledHere(eo) ? oe.acceptedConsent(eo) : undefined;
+  const termsGone = acc0 !== undefined && (!oe.mayReport(eo) || !acc0);
+  const quietTerms = !termsGone && !!acc0 && acc0.reports.length === 0;
+  if (termsGone || quietTerms) {
+    const rroot = o.root || require('./store').ROOT;
+    const rnow = o.now || Date.now();
+    const { at: last, misses } = readRetake(rroot, rnow);
+    // Review 5: a company that keeps answering without terms this board can record (a print it will not pin, say)
+    // is asked half as often after each miss, never less than once a day.
+    const every = termsGone ? Math.min(RETAKE_EVERY_MS * 2 ** Math.min(misses, 10), RECHECK_NO_REPORTS_MS) : RECHECK_NO_REPORTS_MS;
+    if (rnow - last < every) {
+      return { sent: false, because: termsGone ? 'no company terms on record here; taking them on again later' : 'the company\'s terms ask for no reports' };
+    }
+    /* Stamped before the try, so a company that never answers is asked once per window, not on every tick. Before the
+       run lock on purpose (review 3): two runs at once can both ask, which costs one extra status read and at most one
+       repeated codeless enroll, and accepting the same words twice changes nothing on either side. */
+    if (!writeRetake(rroot, rnow, misses)) return { sent: false, because: 'the company\'s terms could not be checked: the rollup state could not be saved' };
+    let a = null;
+    try { a = await oe.reacceptWords(eo); } catch (e) { a = { ok: false, because: (e && e.message) || String(e) }; }
+    const recorded = !!a && a.ok === true && oe.mayReport(eo) && !!oe.acceptedConsent(eo);
+    writeRetake(rroot, rnow, termsGone && !recorded ? misses + 1 : 0);
+    if (!a || !a.ok) return { sent: false, because: 'the company\'s terms could not be taken on yet: ' + ((a && a.because) || 'no answer') };
+  }
   /* THE gate (#5531): the work Kosmos with the consent recorded on this computer (mayReport), never merely enrolled. */
   if (!oe.mayReport(eo)) return { sent: false, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
   const rec = oe.readEnrollment(eo);
@@ -795,8 +845,10 @@ async function tick(opts) {
     // Taken as the company's final word, with no confirming retry: the coordinator answers it only when the words it
     // serves now differ from the ones on record for this member (v1.4), which a transient fault does not change.
     if (r && /\borg_consent_changed\b/.test(String(r.because || ''))) {
-      await oe.consentWithdrawn(eo, rec.consentHash);   // only the words this report was sent under (review 11)
-      return { sent: false, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
+      const withdrawn = await oe.consentWithdrawn(eo, rec.consentHash);   // only the words this report was sent under (review 11)
+      // #5791: the company decided, so the board accepts its current words itself (no screen), and reports resume.
+      if (withdrawn) { try { const a = await oe.reacceptWords(eo); if (!a.ok) console.error('orgrollup: the company\'s new terms could not be taken on yet: ' + (a.because || 'no answer')); } catch (e) { console.error('orgrollup: taking on the company\'s new terms failed: ' + ((e && e.message) || e)); } }
+      return { sent: false, because: 'the company\'s words changed; Kosmos takes them on and reports again' };
     }
     /* The company no longer takes this world's reports: ask it at once (refresh stops this world on a clear answer). */
     if (r && /\borg_not_enrolled\b|\borg_not_member\b/.test(String(r.because || ''))) {
@@ -894,7 +946,7 @@ function waitingForPrint(root) {
 
 module.exports = {
   waitingForPrint, KNOWN_RUNNERS, KNOWN_PROVIDERS,
-  DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
+  DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, RETAKE_EVERY_MS, RECHECK_NO_REPORTS_MS, STATE_FILE, RETAKE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
   STATUS, statusWord, providerOfModel, build, gather, defaultSources, otherWorlds, gatherIn, sendOthers, OTHERS_MAX,
   TICK_CHILD_TIMEOUT_MS, GATHER_TIMEOUT_MS, RUN_LOCK_FILE, elsewhereRunner, enrolledElsewhere, spawnEnrolledTick,
