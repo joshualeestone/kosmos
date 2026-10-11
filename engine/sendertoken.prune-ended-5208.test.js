@@ -28,7 +28,7 @@ function reset() {
   fs.rmSync(LIVE(), { force: true });
   fs.rmSync(DIR(), { recursive: true, force: true });
   fs.mkdirSync(path.dirname(LIVE()), { recursive: true });
-  for (const t of temps()) fs.rmSync(path.join(path.dirname(LIVE()), t), { force: true });   // the folder itself is removed above
+  for (const t of temps()) fs.rmSync(path.join(path.dirname(LIVE()), t), { force: true });   // strays in the store root; the folder went above
 }
 const line = (name, ms) => JSON.stringify({ name, at: iso(ms) });
 function writeLive(lines) { fs.writeFileSync(LIVE(), '\n' + lines.join('\n') + '\n'); }
@@ -276,4 +276,51 @@ test('kosmos#5208: if the replaced file no longer starts with what was read, all
   assert.equal(oldEndedSince('rewritten', iso(T0), false), true, 'a rolled-back build lost a line of the replaced file');
   assert.equal(sendertoken.endedSince(['rewritten'], iso(T0)), true);
   assert.equal(sendertoken.endedSince(['nobody'], iso(T0)), false, 'a torn fragment was put back (it would refuse forever)');
+});
+
+test('kosmos#5208: a reader in flight sees a line that reached the replaced file, even before it is put back', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  fs.mkdirSync(DIR(), { recursive: true });
+  const realReaddir = fs.readdirSync;
+  const realLink = fs.linkSync;
+  const realAppend = fs.appendFileSync;
+  let ran = false;
+  // The compaction runs just after the reader's first look at the sealed files. Inside it, an unlocked append lands in
+  // the file being replaced, and the put-back into the new live file fails: the line is then only in the sealed file.
+  fs.readdirSync = function (d, ...rest) {
+    const out = realReaddir.call(this, d, ...rest);
+    if (d === DIR() && !ran) {
+      ran = true;
+      fs.readdirSync = realReaddir;
+      fs.linkSync = function (from, to) { fs.linkSync = realLink; realAppend(LIVE(), line('late', T0 + 7) + '\n'); return realLink.call(this, from, to); };
+      fs.appendFileSync = function (f, ...r) { if (f === LIVE()) { fs.appendFileSync = realAppend; throw Object.assign(new Error('EIO'), { code: 'EIO' }); } return realAppend.call(this, f, ...r); };
+      try { sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; fs.appendFileSync = realAppend; }
+    }
+    return out;
+  };
+  let answer;
+  try { answer = sendertoken.endedSince(['late'], iso(T0)); } finally { fs.readdirSync = realReaddir; fs.linkSync = realLink; fs.appendFileSync = realAppend; }
+  assert.equal(ran, true, 'fixture: no compaction ran mid-read');
+  assert.equal(fs.readFileSync(LIVE(), 'utf8').includes('"late"'), false, 'fixture: the late line was put back, so the race was not staged');
+  assert.equal(answer, true, 'a reader in flight missed a line that is only in a sealed file made during its read');
+});
+
+test('kosmos#5208: a failed try waits for more growth before it tries again', () => {
+  reset();
+  const big = [];
+  for (let i = 0; big.join('\n').length <= sendertoken.ENDED_COMPACT_AT_BYTES; i++) big.push(line('n' + i, T0 + i));
+  writeLive(big);
+  const realRename = fs.renameSync;
+  fs.renameSync = function (from, to) { if (to === LIVE()) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); return realRename.call(this, from, to); };
+  const realErr = console.error;
+  console.error = () => {};
+  try { assert.equal(sendertoken.compactEnded({}).compacted, false); } finally { fs.renameSync = realRename; console.error = realErr; }
+  const realOpen = fs.openSync;
+  let tried = 0;
+  fs.openSync = function (f, ...rest) { if (String(f).endsWith('.tmp')) tried++; return realOpen.call(this, f, ...rest); };
+  try { sendertoken.compactEnded({}); } finally { fs.openSync = realOpen; }
+  assert.equal(tried, 0, 'it folded and wrote the whole history again with no new growth');
+  fs.appendFileSync(LIVE(), big.join('\n') + '\n');   // CONTROL: past another bound, it tries (and now succeeds)
+  assert.equal(sendertoken.compactEnded({}).compacted, true);
 });

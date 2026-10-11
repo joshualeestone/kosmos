@@ -275,7 +275,7 @@ function othersTokens(held, sessionName) {
 function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 /* kosmos#5208: the live file above is the history every build reads (a build from before this change reads only it). It
    is bounded by compactEnded, which replaces it whole with the newest line per name. Each file it replaces stays, as a
-   hard link under ENDED_DIRNAME (`sealed.*.jsonl`), for at least an hour, and this build reads those too, so an append that
+   hard link under ENDED_DIRNAME (`sealed.*.jsonl`) until at least an hour after its last write, and this build reads those too, so an append that
    lands in a replaced file is never lost. setup-assistant.js denies token-only agents writes to that folder. */
 const ENDED_DIRNAME = 'ended-agents.d';
 function endedDir() { return path.join(store.ROOT, ENDED_DIRNAME); }
@@ -314,7 +314,7 @@ function noteEnded(sessionName) {
       folder flushed: the live path always holds either the whole old history or the whole fold;
    4. any line appended between the read and the rename (only an unlocked append can) is appended back and flushed;
    5. only then is a sealed file deleted, once read in this run and unchanged for SEALED_KEEP_MS.
-   endedSince reads the live file, then the sealed files, then the live file again (see there). */
+   endedSince reads the live file, the sealed files, the live file again, then any new sealed file (see there). */
 const ENDED_COMPACT_AT_BYTES = 64 * 1024;
 const SEALED_KEEP_MS = 60 * 60 * 1000;
 let compactStuckSaid = false;
@@ -368,6 +368,9 @@ function compactEnded(opts = {}) {
     const idOf = (x) => x.dev + ':' + x.ino + ':' + x.birthtimeMs;
     let base = 0; try { base = Number(fs.readFileSync(compactedBytesFile(), 'utf8')) || 0; } catch { base = 0; }
     if (opts.force !== true && st.size <= atBytes + base) return { compacted: false };
+    /* A try that fails after the size check (a torn line, no hard links, a rename that always fails) records the size it
+       saw, so the next try waits for another `atBytes` of growth instead of folding the whole history on every end. */
+    const gaveUp = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
     // 1. Read and fold. Any failure leaves every file as it was.
     const read = [];
     for (const f of sealedFiles()) {
@@ -384,7 +387,7 @@ function compactEnded(opts = {}) {
         const bad = newestPerName([liveText]) === null ? live : ((read.find((r) => newestPerName([r.text]) === null) || {}).f || endedDir());
         console.error('kosmos#5208: the history of ended agents holds a line that cannot be read whole, so it is no longer compacted and will keep growing (' + bad + ')');
       }
-      return { compacted: false, stuck: true };
+      return gaveUp({ compacted: false, stuck: true });
     }
     // 2. The fold, flushed, in ended-agents.d: a token-only agent is denied that folder, so it can never hold the file
     //    that becomes the live one. (The hard link in step 3 already needs that folder on the live file's device.)
@@ -399,14 +402,14 @@ function compactEnded(opts = {}) {
       try { fs.unlinkSync(tmp); } catch { /* none */ }
       // A file system without hard links (or a linked folder on another device) can never compact: say so once.
       if (!compactLinkSaid) { compactLinkSaid = true; console.error('kosmos#5208: the history of ended agents cannot be compacted here (no hard link: ' + ((e && e.code) || 'failed') + '), so it will keep growing (' + endedDir() + ')'); }
-      return { compacted: false };
+      return gaveUp({ compacted: false });
     }
     try { fs.renameSync(tmp, live); } catch {
       // The live file is untouched; drop the extra name for it (the data stays under the live name) and the temp.
       try { fs.unlinkSync(sealedPath); } catch { /* still read; harmless */ }
       try { fs.unlinkSync(tmp); } catch { /* none */ }
       if (!compactReplaceSaid) { compactReplaceSaid = true; console.error('kosmos#5208: the history of ended agents could not be replaced, so it is not compacted (' + live + ')'); }
-      return { compacted: false };
+      return gaveUp({ compacted: false });
     }
     securewrite.syncDir(path.dirname(live));
     securewrite.syncDir(endedDir());
@@ -454,16 +457,21 @@ function endedSince(names, sinceIso, opts = {}) {
   const want = new Set((names || []).map(slug).filter(Boolean));
   if (want.size === 0) return null;   // no name to look for: refuse rather than answer "nothing ended"
   const since = String(sinceIso);
-  /* kosmos#5208: the live file, then the sealed files, then the live file again. A compaction running meanwhile cannot
-     slip a line past this: a live file replaced after the first read was linked as a sealed file first (listed next if
-     the replace came first, else its lines are in what was read); a sealed file deleted before it is read was folded
-     into the live file that replaced it before the deletion, which the second read sees. A missing file is none. */
+  /* kosmos#5208: the live file, the sealed files, the live file again, then any sealed file that appeared meanwhile. A
+     compaction running meanwhile cannot slip a line past this: it links the file it replaces as a sealed file BEFORE
+     the rename, so a file replaced after the first read is either listed in the first listing or, if the rename landed
+     before the second live read, in the second; a line that reached the replaced file after the compaction read it
+     is in that sealed file either way. A sealed file deleted before it is read was folded into the live file that
+     replaced it before the deletion, which the second live read sees. A missing file is none. */
   const texts = [];
   const readOr = (f) => { try { texts.push(fs.readFileSync(f, 'utf8')); return true; } catch (e) { return !!(e && e.code === 'ENOENT'); } };
   if (!readOr(endedLogFile())) return null;
   let sealed; try { sealed = sealedFiles(); } catch { return null; }
   for (const f of sealed) if (!readOr(f)) return null;
   if (!readOr(endedLogFile())) return null;
+  let sealedAfter; try { sealedAfter = sealedFiles(); } catch { return null; }
+  const seen = new Set(sealed);
+  for (const f of sealedAfter) if (!seen.has(f) && !readOr(f)) return null;
   const raw = texts.join('\n');
   for (const line of raw.split('\n')) {
     if (!line) continue;

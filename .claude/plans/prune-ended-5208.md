@@ -154,3 +154,16 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
 - FIXED (NIT): "for an hour" is "for at least an hour" (a sealed file goes at the first compaction after the hour).
 - RECORDED (NIT): once compaction is stuck (a torn line, no hard links, a rename that always fails), every noteEnded still
   reads and folds the whole history under the lock. Each stuck state is said once and is rare.
+
+## Review 8 (sonnet, blind, on 6a61db435)
+- FIXED (WARNING): a reader in flight could miss a line that reached the replaced file after the compaction read it,
+  if its sealed listing came before the link and its second live read before the put-back. endedSince now lists the
+  sealed files again after the second live read and reads any new one (the link precedes the rename). Test stages it
+  (the compaction runs just after the reader's first listing, and the put-back fails); "no second listing" mutation red.
+- FIXED (WARNING): a persistent link or rename failure (or a torn line) refolded the whole history on every end. A
+  failed try records the size it saw, so the next waits for another 64 KiB (test; "no backoff" mutation red).
+- RECORDED (WARNING): the new deny rules reach a token-only agent at its next session (guards are refreshed at board
+  start and at each launch, setup-assistant refreshTokenOnlyGuards). Until then the worst it can do there is make
+  removals refuse (a file at ended-agents.d, or holding the lock), never allow one.
+- FIXED (NIT): "at least an hour" is measured from the sealed file's last write; the comment says so.
+- NO CHANGE (NIT): newestPerName passes engine.reachable.test.js (reachable through noteEnded and compactEnded).
