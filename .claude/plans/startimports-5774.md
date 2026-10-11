@@ -7,7 +7,7 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - An import is `@` at the start of the text or after whitespace, followed by non-space characters (a backslash-space is a space). A `#` ends the path. Punctuation is part of it: `@./b.md,` imports `b.md,`.
 - It is read in markdown text only. Fenced and inline code are skipped, and HTML comments are stripped.
 - The path must start with `./`, `~/` or `/` (but not `/` alone), or be a bare name starting with a letter, digit, `.`, `_` or `-`. It is resolved from the importing file's folder.
-- Imports nest. A file is loaded at depths 0 to 4 (the importing file is depth 0, and depth 5 is refused). Each file is loaded once.
+- Imports nest. A file is loaded at depths 0 to 4 (the importing file is depth 0, and depth 5 is refused). Each file is loaded once. The guard walks breadth-first, so it reaches each file at its shallowest depth across all roots: a superset of Claude Code's depth-first, load-once walk, never a subset.
 - An import is resolved from the folder the importing file REALLY is in (Claude Code parses with the resolved path).
 - An import whose extension is not one of Claude Code's 107 text extensions is skipped, unread (it logs "Skipping non-text file in @include"); a file with no extension is read. An instruction file over 4 MB is skipped, with its imports. The lexer runs with gfm off.
 
@@ -35,7 +35,7 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - Markdown is read by a small subset rather than a full lexer (the repo has no dependencies): fenced code, inline code (never across a blank line) and HTML comments are stripped, in that order; emphasis and link marks (* [ ], and a _ before the @) are token edges. Indented code is NOT stripped, so an import-like word in an indented example is denied too: the safe direction, and an absent uncarriable one is skipped, so it cannot make the guard not whole. Review 1 showed my first subset also erred the OTHER way (a stray backtick, a comment mark inside code, `**@a.md**`); each is fixed and tested, but a subset of a lexer can still differ from it in shapes nobody has tried.
 - A target, or where it leads, that is read-only is not listed (nothing can write it, and a store's hashed name would pile up); a link at the leaf to one is still denied to the file tools. One in a store or a Homebrew Cellar gets that folder's one stable rule, both layers, as part 2's shell startup files do.
 - A target inside an agent's folder that leads elsewhere (a link, a dangling link, a linked folder) has that place denied too, as any target is.
-- A rules file is any name ending in `.md`, matched case-sensitively, as 2.1.296's own walk does (`name.endsWith(".md")`).
+- A rules file is any name ending in `.md`, matched case-sensitively, as 2.1.296's own walk does: measured in the bundle, its rules walk tests `name.endsWith(".md")`, so a `RULES.MD` is not read by Claude Code either.
 - A target under a linked FOLDER is listed by both spellings (the real folder, which Claude Code loads, and the folder as given), since the agent's tools can write it by either. For a linked FILE only the real folder is used (review 3): the folder as given is then a different file nobody loads, and inside the agents' folder it would be a glob over every agent.
 - Import-derived rules are not pruned when an import goes away (only launch rules are, #5663), as #5516 decided for a repointed link target. The import set changes only when someone adds a new `@word` to an instruction file, and names inside the agents' folder are one glob per name, not per agent. The raw-text scan widens what is listed (review 4); measured on this fleet it adds nothing, and the profile size check still bounds it. A pruning record stays a follow-up on the card.
 - A directory target is skipped, since Claude Code reads files only.
@@ -48,6 +48,8 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - A sibling agent folder that is itself a link is not a root (siblings are read as folders), as #5516 states for the sibling globs.
 - A name imported by any agent's instruction files is denied in EVERY agent's folder (one glob per name, never pruned). An instruction file that imports `@Files/brief.md` would stop every token-only agent's file tools writing `Files/brief.md` in its own folder. Not seen on this fleet (the names are `-mention` and `-name`, from prose).
 - A rules file with `paths:` frontmatter is conditional in Claude Code (not loaded at start); its imports are denied anyway, the safe direction.
+- A link import whose target is READ-ONLY is denied to the file tools only (by the link's own path), as part 2's links to read-only targets are: the sandbox side resolves a path to its target, so it cannot name the link itself. A sandboxed shell that can write the link's folder could replace it; on macOS, by default, the shell cannot write the home folder or the folders above the agent, where these links usually sit (review 8).
+- An existing import target whose path carries a version or a branch name (`@~/work/foo-<branch>/NOTES.md`) is denied by name, so each version that is imported in turn leaves its rule behind (import rules are not pruned; see Decided). Not seen on this fleet (review 8).
 - Part 1's command scripts still do not deny a link in the middle of a chain (imports do since review 4, by part 2's chainHops).
 - An import that names an existing FOLDER is skipped (Claude Code reads files only). Where the shell can write, the agent could replace the folder with a file of that name; denying the folder whole instead would refuse the agent's own work there.
 - Claude Code skips an external include (outside the folder it runs in) unless the person approved external includes, and a User-type root that is a link; the guard denies them regardless (the safe direction; the approval can change later).
@@ -119,4 +121,10 @@ engine/startimports-5774.test.js, 14 tests. Thirteen mutations, each red: the co
   - [NIT] TAKEN: `*` dropped from the token edges (proseOf has already made it a space).
   - [NIT] not taken: the message "the rest of the guard was not written" is shown when settings.json does NOT exist, which is when the rest was not written; it reads as intended.
   - [NOTE] Re-measured on the fleet: unchanged, 5 targets outside the agents' folder, 2 names inside.
+- Iteration 8 (Sonnet), on 15f283896: no BLOCKER; nothing new needing a code change.
+  - [WARNING] STATED under Gaps: a link to a read-only target is denied to the file tools only, as part 2 decided for the same shape; the plan no longer reads as if it were both layers.
+  - [WARNING] STATED under Gaps: a versioned import path leaves a rule per version (the pruning decision, made concrete).
+  - [NIT] not taken: `@src/*.md` gives an absent `src` target, skipped or denied harmlessly.
+  - [NIT] ALREADY STATED, now with its source: the case-sensitive `.md` match is 2.1.296's own (measured).
+  - [NIT] TAKEN: the depth line says the breadth-first walk is a superset of Claude Code's.
 
