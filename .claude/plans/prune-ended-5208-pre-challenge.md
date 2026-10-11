@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: prune-ended-5208
-diff_hash: 369749627ff9d91fbb2450307c577706bc2abeb56871dd5e4e8ae08401322eb5
+diff_hash: e85c405707a305033ecf4507b8f4ec98549731269ab14dab538dd40eb412ecd8
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-11T12:38:43Z
+timestamp: 2026-10-11T13:15:29Z
 iterations: 17
 converged: true
 ---
@@ -15,7 +15,7 @@ converged: true
 **Iterations:** 17 blind reviews, alternating Opus (odd) and Sonnet (even).
 **Converged:** Yes, at iteration 17 (Opus): no BLOCKER, WARNING or CONVENTION; its three NITs were overclaims in prose, corrected after convergence (comments and plan only, no code). Real BLOCKERs were found and fixed at iterations 1 and 5 (each led to a redesign), 3, 4, 8 and 11 (an unchecked short write). Iterations 12 to 16 found no BLOCKER.
 **Findings:** every review's findings, fixes and decisions are below, one section per review, taken from the plan's Review sections written as each review closed. Fixes were checked with mutations that turned their tests red (about 50 across the loop).
-**Validation:** full suite on the merged tree a56dcbb0b (origin/main merged in): 19078 tests, 0 fail, validation_rc=0 audit_rc=0.
+**Validation:** full suite on the merged tree 740738841 (origin/main merged in, after #5837): 19093 tests, 0 fail, validation_rc=0 audit_rc=0. (Earlier at a56dcbb0b: 19078 tests, 0 fail.)
 **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
