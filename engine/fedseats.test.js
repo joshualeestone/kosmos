@@ -4008,3 +4008,16 @@ test('#5191: a check already out when this screen removes someone does not relea
   harness();   // put the shared harness back for any later test
 });
 
+test('#5191: the remove\'s own check counts as after the remove, though both fall in one millisecond', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });   // Date is frozen: one millisecond throughout
+  const id = 'proj-5191-samems';
+  const { h, edges, stamped } = await stampedRoom(id, 'ms', 2);
+  h.edges = edges([0]);
+  assert.strictEqual(await fedseats.afterRemove(id), true);
+  const asked = h.asked;
+  stamped('acct-ms-1', 'remaining, just after the remove', 1);
+  await settle();
+  assert.deepStrictEqual(shown(h), ['remaining, just after the remove'], 'the post was not shown at once');
+  assert.strictEqual(h.asked, asked, 'the remove\'s own check was taken as older than the remove, and the post waited for another');
+});
+
