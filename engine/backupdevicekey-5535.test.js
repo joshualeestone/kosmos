@@ -10,7 +10,9 @@ const { deviceKey } = require('./backupdevicekey');
 const bf = require('./backupformat');
 const { hpkeKeyPair } = require('./hpke');
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'devkey-5535-'));
+const bare = () => fs.mkdtempSync(path.join(os.tmpdir(), 'devkey-5535-'));
+/* A state folder as the connector leaves it after registering: mac_id beside mac_key (written by each test). */
+const tmp = () => { const d = bare(); fs.writeFileSync(path.join(d, 'mac_id'), 'mac_test1\n'); return d; };
 /* A key the way the connector writes it (setup.rs: URL_SAFE_NO_PAD of the 32-byte seed) and its public half as the
    connector would register it (the raw 32 bytes), computed independently of the module under test. */
 function connectorKey() {
@@ -91,12 +93,13 @@ test('no file is "missing"; a link and a folder are refused without being read',
 });
 
 test('with no stateDir given it reads the connector folder remote.js uses (AGENT_WORKFORCE_TUNNEL_STATE)', () => {
-  const d = tmp();
+  const d = bare();
   const before = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_STATE = d;
     assert.equal(deviceKey().missing, true);
     fs.writeFileSync(path.join(d, 'mac_key'), connectorKey().seed);
+    fs.writeFileSync(path.join(d, 'mac_id'), 'mac_test1');
     assert.equal(deviceKey().ok, true);
   } finally {
     if (before === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE; else process.env.AGENT_WORKFORCE_TUNNEL_STATE = before;
@@ -108,14 +111,14 @@ test('round 1: trimmed exactly as Rust trims: a BOM is refused (the connector ca
   const d = tmp();
   try {
     const k = connectorKey();
-    fs.writeFileSync(path.join(d, 'mac_key'), '﻿' + k.seed);
+    fs.writeFileSync(path.join(d, 'mac_key'), '\uFEFF' + k.seed);
     const bom = deviceKey({ stateDir: d });
     assert.equal(bom.ok, false); assert.match(bom.because, /form the connector writes/);
     // Rust's char::is_whitespace includes U+0085 (NEL), which JS trim() keeps: the connector reads this one.
     fs.writeFileSync(path.join(d, 'mac_key'), k.seed + '\u0085\n');
     assert.equal(deviceKey({ stateDir: d }).ok, true);
     // And a no-break space, which both trim.
-    fs.writeFileSync(path.join(d, 'mac_key'), ' ' + k.seed);
+    fs.writeFileSync(path.join(d, 'mac_key'), '\u00A0' + k.seed);
     assert.equal(deviceKey({ stateDir: d }).ok, true);
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
@@ -131,4 +134,47 @@ test('round 1: a FIFO is refused as not a plain file without blocking; a stateDi
     const r = deviceKey({ stateDir: bad });
     assert.equal(r.ok, false, String(bad)); assert.match(r.because, /not an absolute path/, String(bad));
   }
+});
+
+test('round 2: the key belongs to mac_id: none is missing (a registration cut off), a bad one is refused, it is returned', () => {
+  const d = bare();
+  try {
+    const k = connectorKey();
+    fs.writeFileSync(path.join(d, 'mac_key'), k.seed);   // write_identity writes mac_key FIRST
+    const cut = deviceKey({ stateDir: d });
+    assert.equal(cut.ok, false); assert.equal(cut.missing, true);
+    for (const bad of ['', 'mac id with spaces', 'x'.repeat(129), '\uFEFFmac_test1']) {
+      fs.writeFileSync(path.join(d, 'mac_id'), bad);
+      const r = deviceKey({ stateDir: d });
+      assert.equal(r.ok, false, JSON.stringify(bad)); assert.equal(r.missing, undefined, JSON.stringify(bad));
+    }
+    fs.writeFileSync(path.join(d, 'mac_id'), '  mac_abc-1\n');
+    const r = deviceKey({ stateDir: d });
+    assert.equal(r.ok, true, r.because); assert.equal(r.macId, 'mac_abc-1');
+    // A link in place of mac_id is refused, as for mac_key.
+    fs.renameSync(path.join(d, 'mac_id'), path.join(d, 'id-elsewhere'));
+    fs.symlinkSync(path.join(d, 'id-elsewhere'), path.join(d, 'mac_id'));
+    assert.match(deviceKey({ stateDir: d }).because, /link/);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('round 2: registered again while the key was read (mac_id changed between the two reads) is refused', () => {
+  const d = tmp();
+  const realOpen = fs.openSync;
+  try {
+    fs.writeFileSync(path.join(d, 'mac_key'), connectorKey().seed);
+    let swapped = false;
+    fs.openSync = function (file, ...rest) {
+      const fd = realOpen.call(fs, file, ...rest);
+      // Right after the key is opened, a new registration lands: a new identity (and in reality a new key).
+      if (String(file).endsWith('mac_key') && !swapped) { swapped = true; fs.writeFileSync(path.join(d, 'mac_id'), 'mac_test2'); }
+      return fd;
+    };
+    const r = deviceKey({ stateDir: d });
+    assert.equal(swapped, true, 'the swap ran');
+    assert.equal(r.ok, false); assert.match(r.because, /registered again/);
+    // Control: without the swap the same folder reads, under the new identity.
+    fs.openSync = realOpen;
+    assert.equal(deviceKey({ stateDir: d }).macId, 'mac_test2');
+  } finally { fs.openSync = realOpen; fs.rmSync(d, { recursive: true, force: true }); }
 });
