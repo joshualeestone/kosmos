@@ -37,6 +37,8 @@
  * The backup job must seal ONLY under a key answered ok here: an unregistered key may be replaced by a fresh one
  * (member_key_reused), and its private half is then deleted. Under that rule nothing this computer sealed is under it
  * (a key Kosmos+ holds at an epoch this file never recorded was never answered ok here).
+ * Every call asks backup-key first, so with Kosmos+ unreachable it answers ok: false even with a key on disk; a backup
+ * needs a grant from Kosmos+ anyway.
  * Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }.
  */
 
@@ -81,6 +83,10 @@ function readKeys(org, member) {
     if (!backupkeys.publicKeyOf(sk).equals(pk)) return { ok: false, keys: {} };
     keys[e] = { sk, pk, registered: k.registered === true };
   }
+  // The file invariant (header): at most one unregistered entry, and it is the newest. A file breaking it is not ours.
+  const es = Object.keys(keys).map(Number).sort((a, b) => b - a);
+  const pendings = es.filter((e) => !keys[e].registered);
+  if (pendings.length > 1 || (pendings.length === 1 && pendings[0] !== es[0])) return { ok: false, keys: {} };
   // A file left looser (an older build, a copy, a restore) is made owner-only once it has read as ours, best effort.
   try { if (!fs.lstatSync(fileFor(org, member)).isSymbolicLink()) fs.chmodSync(fileFor(org, member), 0o600); } catch { /* the read stands */ }
   return { ok: true, keys };
