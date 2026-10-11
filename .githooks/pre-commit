@@ -38,7 +38,10 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     # The status must be read in the line'"'"'s CODE (before any "#"): a comment that only mentions it excuses nothing.
     # "$#" and "${#x}" are not comments; the marker itself must be a real comment (a "#" at the start or after a space).
     { c = $0; gsub(/\$\{#|\$#/, "", c) }
-    p && p != NR && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
+    # On the line straight after the pipe, a status read before any command on it ("[ <status> ... ] # marker") can
+    # only be the filter'"'"'s, so the marker cannot be true there: it counts only after a ";", "&&" or "||".
+    { first = substr(c, 1, index(c, "$" "?") - 1); ran = (NR != p + 1 || first ~ /;|&&|\|\|/) }
+    p && p != NR && ran && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
   ')"

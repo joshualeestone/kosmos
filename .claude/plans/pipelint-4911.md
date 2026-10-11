@@ -157,3 +157,14 @@ command's status.
 - FIXED (NIT): the marker on a continued line of the pipe is the stated residual; it is now a PINNED accept fixture,
   so a change to it is deliberate.
 - NO CHANGE (NIT): a "#" inside a string before the status refuses a correctly marked line (the safe direction).
+
+## Review 13 (opus, blind, on eec4ec298): no BLOCKER
+- FIXED (WARNING): on the line straight after the pipe, a marked line that reads the status before running any
+  command ("[ <status> -eq 0 ] || exit 1  # pipe-status-ok") can only read the filter's, so the marker cannot be true;
+  it now counts there only after a ";", "&&" or "||". (Two lines down a bare read legitimately reads the line between,
+  so the rule does not apply there.) None of the 11 marked lines is affected (all are "...; rc=<status>"; sweep 0).
+  Fixture; mutant BAD.
+- FIXED (WARNING): the bare "$#" half of the comment-start exception had no fixture; added; the narrowed mutant BAD.
+- FIXED (NIT): a marked line in a CRLF file is a PINNED accept fixture.
+- The reviewer ran origin and new side by side on many look-alikes (escaped pipes in quotes, uppercase or quoted
+  markers, markers on other lines): none escapes without a correctly placed marker.
