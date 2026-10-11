@@ -28,3 +28,18 @@ fixed sentence, never a path or a byte. Read on each call, never cached or writt
   layers and survive alone, so they were run in pairs, each pair red: O_NOFOLLOW with the lstat check (a link), the
   base64url regex with the canonical check (another spelling), the stat size with the read size (an oversize file).
   isFile first survived (a folder failed later on read); the test now requires the "not a plain file" sentence: red.
+
+## Review 1 (sonnet, blind, on 73c63c941): NOT CONVERGED
+- Checked and held: domain separation (the only Rust mac_key signers, coordinator.rs:219 and assistant.rs:292, both sign
+  `{ts}\n...` with ts a u64, first byte a digit; the manifest side signs from the tag, first byte `k`; both pure Ed25519,
+  no prehash or context; no Node mac_key signer; pairing.rs only hashes the bytes). Base64 parsing agrees with
+  URL_SAFE_NO_PAD's canonical rule.
+- FIXED (WARNING): JS trim() strips a BOM that Rust keeps, so a file the connector refuses read here as a key nobody
+  enrolled. Now trimmed with Rust's exact set (\p{White_Space}). Tests: a BOM refused, U+0085 and U+00A0 trimmed; the
+  JS-trim mutant red.
+- FIXED (NIT): where O_NOFOLLOW is 0 the lstat was by name; it must now name the opened file (same dev and inode).
+  Not testable on this Mac (O_NOFOLLOW is set); stated as a residual for Windows tests.
+- FIXED (NIT): key buffers are wiped in finally on every path; the comment says the string and KeyObject cannot be.
+- FIXED (NIT): an empty, relative or non-string stateDir is refused, never the live default. Test; mutant red.
+- FIXED (NIT): a FIFO case (refused as not a plain file, without blocking).
+- NO CHANGE (NIT): the "no path, no key bytes" assertions cannot fail today (fixed sentences); kept as regression guards.
