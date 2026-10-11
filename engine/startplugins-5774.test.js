@@ -76,14 +76,14 @@ test('#5774 route 5: the plugin folders the three variables name are denied whol
   const abs = path.join(SANDBOX, 'pd-abs');
   const env = {
     CLAUDE_CODE_PLUGIN_DIRS: ` ~/pd-home : ${abs} : relative-skipped `,
-    CLAUDE_CODE_PLUGIN_CACHE_DIR: 'cache-rel',
+    CLAUDE_CODE_PLUGIN_CACHE_DIR: path.join(SANDBOX, 'cache-abs'),
     CLAUDE_CODE_PLUGIN_SEED_DIR: `~/seed-a${path.delimiter}${path.delimiter}${path.join(SANDBOX, 'seed-b')}`,
   };
   const d = agentDir('pilot-plugenv');
   const g = setup.guardTokenOnlyFolder(d, 'pilot-plugenv', { ...DEPS, env });
   assert.equal(g.ok, true, JSON.stringify(g));
   const s = readSettings(d);
-  for (const t of [path.join(HOME, 'pd-home', 'p', 'hooks.json'), path.join(abs, 'p', 'x.js'), path.join(d, 'cache-rel', 'p', 'x'), path.join(HOME, 'seed-a', 'x'), path.join(SANDBOX, 'seed-b', 'x')]) {
+  for (const t of [path.join(HOME, 'pd-home', 'p', 'hooks.json'), path.join(abs, 'p', 'x.js'), path.join(SANDBOX, 'cache-abs', 'p', 'x'), path.join(HOME, 'seed-a', 'x'), path.join(SANDBOX, 'seed-b', 'x')]) {
     assert.ok(editDeniedBy(s.permissions.deny, t).length > 0, `${t}: file tools`);
     assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, t), `${t}: sandbox`);
   }
@@ -245,8 +245,10 @@ test('#5774 route 5 review 3: the append idiom is read; a backtick is named; ~/.
   const homeSt = path.join(HOME, '.claude', 'settings.json');
   writeJson(homeSt, { env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: 'relcache' } });
   try {
-    setup.guardTokenOnlyFolder(d, 'pilot-onacct', { ...DEPS, env: ENV0, workersRoot: workersIn, accountConfigDir: path.join(HOME, '.claude-acct') });
+    const gA = setup.guardTokenOnlyFolder(d, 'pilot-onacct', { ...DEPS, env: ENV0, workersRoot: workersIn, accountConfigDir: path.join(HOME, '.claude-acct') });
     assert.ok(!editDeniedBy(readSettings(d).permissions.deny, path.join(d, 'relcache', 'x')).length, 'the default home\'s relative cache read as this agent\'s');
+    // Review 7: the positive arm: it was READ, as another account's (named), not missed.
+    assert.ok(JSON.stringify(gA).includes('relcache (a relative plugin folder another account'), JSON.stringify(gA));
   } finally { fs.rmSync(homeSt, { force: true }); }
   // More than 50 config homes outside ~/.claude* from jobs: the rest are named.
   const many = Array.from({ length: 51 }, (_, i) => path.join(SANDBOX, 'many-homes', `h${i}`));
@@ -287,7 +289,9 @@ test('#5774 route 5 review 4: a quoted ~ is read; the startup files are read onc
   try {
     const d = agentDir('pilot-ownspelling');
     setup.guardTokenOnlyFolder(d, 'pilot-ownspelling', { ...DEPS, env: ENV0, accountConfigDir: acctReal });
-    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(d, 'ownrel', 'x')).length > 0, 'the own home read as another account by its spelling');
+    // Read as this agent's own (a relative cache resolves inside its folder, which review 7 names rather than denies whole).
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-ownspelling', { ...DEPS, env: ENV0, accountConfigDir: acctReal });
+    assert.ok(JSON.stringify(g).includes(path.join(d, 'ownrel') + ' (a plugin folder a Claude Code variable names, inside the agent'), JSON.stringify(g));
   } finally { fs.rmSync(st, { force: true }); }
   // The same at the scan itself, where the guard's own home list cannot hide it: homes in one spelling, ownHome in the other.
   writeJson(st, { env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: 'ownrel2' } });
@@ -331,8 +335,43 @@ test('#5774 route 5 review 5: Kosmos\'s data is too wide as production runs (no 
   const inside = Array.from({ length: 51 }, (_, i) => path.join(HOME, '.claude', 'plugins', `c${i}`)).join(path.delimiter);
   const g3 = setup.guardTokenOnlyFolder(agentDir('pilot-coveredplugs'), 'pilot-coveredplugs', { ...DEPS, env: { [K]: inside } });
   assert.ok(!JSON.stringify(g3).includes('(more than 50)'), JSON.stringify(g3));
+  assert.ok(editDeniedBy(readSettings(agentDir('pilot-coveredplugs')).permissions.deny, path.join(HOME, '.claude', 'plugins', 'c0', 'x')).length > 0, 'the folders were seen (and covered)');
   // A job home that holds this agent's own folder is named, never a whole-folder deny over the agent's work.
   const d4 = agentDir('pilot-holdsme');
   const g4 = setup.guardTokenOnlyFolder(d4, 'pilot-holdsme', { ...DEPS, env: ENV0, agentConfigDirs: [path.join(SANDBOX, 'workers')] });
   assert.ok(JSON.stringify(g4).includes('which holds this agent\'s own folder'), JSON.stringify(g4));
 });
+
+test('#5774 route 5 review 7: the plugins inside the folders the variables name are read (a dev plugin\'s hook, a cache\'s installed plugin); a folder inside the agent\'s own is named; an own home listed first is not re-judged', () => {
+  // A dev plugin root in CLAUDE_CODE_PLUGIN_DIRS whose hook runs a script outside the plugin folder.
+  const dev = path.join(SANDBOX, 'devplug-r7');
+  const outside = path.join(SANDBOX, 'tools-r7', 'start.sh');
+  touch(outside);
+  writeJson(path.join(dev, 'hooks', 'hooks.json'), { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `bash ${outside}` }] }] } });
+  // A plugin cache holding an installed plugin, whose own hook runs another outside script.
+  const cache = path.join(SANDBOX, 'cache-r7');
+  const inst = path.join(SANDBOX, 'inst-r7');
+  const outside2 = path.join(SANDBOX, 'tools-r7', 'other.sh');
+  touch(outside2);
+  writeJson(path.join(cache, 'installed_plugins.json'), { plugins: { 'p@m': [{ installPath: inst }] } });
+  writeJson(path.join(inst, 'hooks', 'hooks.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `bash ${outside2}` }] }] } });
+  const d = agentDir('pilot-devplug');
+  const g = setup.guardTokenOnlyFolder(d, 'pilot-devplug', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_DIRS: dev, CLAUDE_CODE_PLUGIN_CACHE_DIR: cache } });
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const deny = readSettings(d).permissions.deny;
+  assert.ok(editDeniedBy(deny, outside).length > 0, 'a dev plugin\'s hook script outside its folder');
+  assert.ok(editDeniedBy(deny, outside2).length > 0, 'a cached plugin\'s hook script');
+  assert.ok(editDeniedBy(deny, path.join(inst, 'x.js')).length > 0, 'the cached plugin\'s own folder');
+  // A plugin folder inside the agent's own folder is named, not denied whole.
+  const d2 = agentDir('pilot-ownplug');
+  const g2 = setup.guardTokenOnlyFolder(d2, 'pilot-ownplug', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_DIRS: path.join(d2, 'myplugin') } });
+  assert.ok(JSON.stringify(g2).includes('inside the agent\'s own folder, so Kosmos does not deny it whole'), JSON.stringify(g2));
+  assert.ok(!editDeniedBy(readSettings(d2).permissions.deny, path.join(d2, 'myplugin', 'x.js')).length, 'the agent\'s own plugin folder was denied');
+  // The agent's own home (which holds its folder) comes back through its own job: skipped as listed, not named.
+  const outer = path.join(SANDBOX, 'outer-r7');
+  const d3 = path.join(outer, 'agent');
+  fs.mkdirSync(d3, { recursive: true });
+  const g3 = setup.guardTokenOnlyFolder(d3, 'pilot-outer', { ...DEPS, env: ENV0, accountConfigDir: outer, agentConfigDirs: [outer] });
+  assert.ok(!JSON.stringify(g3).includes('which holds this agent\'s own folder'), JSON.stringify(g3));
+});
+

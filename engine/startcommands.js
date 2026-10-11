@@ -737,13 +737,15 @@ function configSources(dir, homes, home, deps = {}) {
 
 /* Each installed plugin, from each config home's record of installed plugins: { dir, home, id }. A record that cannot
    be read, or an install path that is not absolute, is named in `unsafe`. */
-function installedPlugins(homes, unsafe) {
+// #5774 route 5 review 7: `folders` are plugin folders ({ folder, home }): each home's plugins/, and a plugin cache or
+// seed folder a variable names (which takes the place of <home>/plugins).
+function installedPlugins(homes, unsafe, folders = homes.map((h) => ({ folder: path.join(h, 'plugins'), home: h }))) {
   const out = [];
   out.sourceCommands = [];
   const seen = new Set();
-  for (const h of homes) {
+  for (const { folder, home: h } of folders) {
     for (const f of ['installed_plugins.json', 'installed_plugins_v2.json']) {
-      const file = path.join(h, 'plugins', f);
+      const file = path.join(folder, f);
       const r = readJsonFile(file);
       if (r.error) { unsafe.push(`${file} (could not be read: ${r.error}), so its plugins are unknown`); continue; }
       const plugins = r.json && r.json.plugins && typeof r.json.plugins === 'object' ? r.json.plugins : null;
@@ -800,13 +802,16 @@ function pluginConfigFiles(dir) {
    Claude Code runs in (the agent's), so `relativeOk` is false for values from another account's home, whose agent
    folder is not known here: only their absolute folders count. */
 const PLUGIN_VARS = ['CLAUDE_CODE_PLUGIN_DIRS', 'CLAUDE_CODE_PLUGIN_CACHE_DIR', 'CLAUDE_CODE_PLUGIN_SEED_DIR'];
-function pluginVarDirs(values, agentDir, home, relativeOk, skipped = []) {
+function pluginVarDirs(values, agentDir, home, relativeOk, skipped = [], kinds = null) {
   const sep = path.sep;
   const tilde = (v) => (v === '~' || v.startsWith('~/') || (sep === '\\' && v.startsWith('~\\')) ? path.join(home, v.slice(1)) : v);   // ~\ on Windows: not measured
   const out = [];
-  for (const v of values.CLAUDE_CODE_PLUGIN_DIRS || []) for (const part of v.split(path.delimiter)) { const t = tilde(part.trim()); if (t && path.isAbsolute(t)) out.push(path.resolve(t)); }
+  // Review 7: `kinds`, when given, records each folder as a plugin root ('root', CLAUDE_CODE_PLUGIN_DIRS) or a plugin
+  // folder like <home>/plugins ('folder', the cache and the seeds), so its plugins are read as installed ones are.
+  const add = (d, kind) => { out.push(d); if (kinds) kinds.push({ dir: d, kind }); };
+  for (const v of values.CLAUDE_CODE_PLUGIN_DIRS || []) for (const part of v.split(path.delimiter)) { const t = tilde(part.trim()); if (t && path.isAbsolute(t)) add(path.resolve(t), 'root'); }
   // Review 6: a relative value that cannot be placed (another account's, read from ITS agent's folder) is reported, not dropped.
-  const cacheOrSeed = (t) => { if (!t) return; if (relativeOk || path.isAbsolute(t)) out.push(path.resolve(agentDir, t)); else skipped.push(t); };
+  const cacheOrSeed = (t) => { if (!t) return; if (relativeOk || path.isAbsolute(t)) add(path.resolve(agentDir, t), 'folder'); else skipped.push(t); };
   for (const v of values.CLAUDE_CODE_PLUGIN_CACHE_DIR || []) cacheOrSeed(tilde(v));   // not trimmed: 2.1.296 does not trim it (measured)
   for (const v of values.CLAUDE_CODE_PLUGIN_SEED_DIR || []) for (const part of v.split(path.delimiter)) if (part) cacheOrSeed(tilde(part));
   return out;
@@ -862,7 +867,8 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     otherVals[k] = (settingsEnvOther[k] || []).filter((v) => !ownVals[k].includes(v));
   }
   const otherRelative = [];
-  const envPluginDirs = [...new Set([...pluginVarDirs(ownVals, agentDir, homeDir, true), ...pluginVarDirs(otherVals, agentDir, homeDir, false, otherRelative)])];
+  const envKinds = [];
+  const envPluginDirs = [...new Set([...pluginVarDirs(ownVals, agentDir, homeDir, true, [], envKinds), ...pluginVarDirs(otherVals, agentDir, homeDir, false, otherRelative, envKinds)])];
   for (const t of new Set(otherRelative)) unsafe.push(`${t} (a relative plugin folder another account's settings name, read from that account's agent folder, which Kosmos does not know)`);
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
   // Review 11: no PWD: a hook runs in the session's current folder, which the agent moves.
@@ -895,8 +901,17 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const never = new Set([...foldersFrom(agentDir), ...(home ? [path.resolve(home)] : []), ...homes.map((h) => path.resolve(h))]);
   const realOf = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };
   for (const d of [...never]) never.add(realOf(d));
-  const installed = installedPlugins(homes, unsafe);
+  /* Review 7: the plugins inside the folders the variables name are read too: a CLAUDE_CODE_PLUGIN_DIRS entry is a plugin
+     root (its hooks, servers and manifest, as an installed plugin's), and a cache or seed folder holds installed plugins
+     and marketplaces as <home>/plugins does. Otherwise a hook there running a script outside the folder was missed. */
+  const pluginFolders = [...homes.map((h) => ({ folder: path.join(h, 'plugins'), home: h })),
+    ...envKinds.filter((x) => x.kind === 'folder').map((x) => ({ folder: x.dir, home: agentHome }))];
+  const installed = installedPlugins(homes, unsafe, pluginFolders);
+  // A root is parsed for its commands here but denied (or named: too wide, the data folder, inside the agent's own, past
+  // the cap) by the caller's own checks, so it is tagged and kept out of the installed plugins' list and filter.
+  for (const x of envKinds.filter((k) => k.kind === 'root')) installed.push({ dir: x.dir, home: agentHome, id: path.basename(x.dir), envRoot: true });
   const plugins = installed.filter((p) => {
+    if (p.envRoot) return true;
     const inside = [agentDir, realOf(agentDir)].some((d) => [p.dir, realOf(p.dir)].some((x) => x.startsWith(d + path.sep)));   // review 4: inside the agent folder
     if (!inside && !never.has(p.dir) && !never.has(realOf(p.dir))) return true;   // review 3: by its resolved path too, and never a config home
     unsafe.push(`the plugin ${p.id} (its folder ${p.dir} holds the agent's own work or a config home, so Kosmos does not deny it whole)`);
@@ -905,8 +920,8 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   /* Review 21: a command-sourced plugin's command (re-run once per session), and the commands of the marketplaces the
      plugins come from (known_marketplaces.json and each marketplace's own marketplace.json). */
   take(installed.sourceCommands, baseVars, 'the installed plugins record (sourceCommand)');
-  for (const h of homes) {
-    const km = path.join(h, 'plugins', 'known_marketplaces.json');
+  for (const { folder } of pluginFolders) {
+    const km = path.join(folder, 'known_marketplaces.json');
     const r = readJsonFile(km);
     if (r.error) { unsafe.push(`${km} (could not be read: ${r.error}), so its marketplaces' commands are unknown`); continue; }
     if (r.missing || !r.json || typeof r.json !== 'object') continue;
@@ -959,7 +974,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     if (isCovered(x.where)) continue;
     unsafe.push(`${x.say || runnerSay(x.name, x.place)} (in ${x.from})`);
   }
-  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], envPluginDirs, unsafe: [...new Set(unsafe)] };
+  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.filter((p) => !p.envRoot).map((p) => p.dir))], envPluginDirs, unsafe: [...new Set(unsafe)] };
 }
 
 module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS };

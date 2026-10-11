@@ -1684,7 +1684,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const concreteHomes = accountConfigHomes(home);
   /* Review 9: the agent's OWN config home, wherever it is (creation passes it; a launch or board start reads it from the
      job), so a CLAUDE_CONFIG_DIR outside ~/.claude* is covered for the agent's own account. Other agents' homes there
-     stay a stated gap. Review 11: one whose path the rules cannot carry is named in configUnsafe and left out, so the
+     are covered too since #5774 route 5 (from their jobs). Review 11: one whose path the rules cannot carry is named in configUnsafe and left out, so the
      rest of the guard is still written (the rule review 7 set for a link target), and the guard says it is not whole. */
   const ownHome = deps.accountConfigDir ? path.resolve(deps.accountConfigDir) : null;
   const configUnsafe = [];   // reviews 5, 6, 8 and 11: a link target, an ancestor, the agents' folder or the own home the rule syntax cannot carry, named
@@ -1721,6 +1721,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     const h = path.resolve(h0);
     // Review 4: a job home that is the root or the home itself is no config home Kosmos can place: named.
     const hr = realOrLeaf(h);
+    // Review 7: a home already listed (the agent's own, by any spelling) is skipped BEFORE the refusals, which it never
+    // went through when it was listed.
+    if (concreteHomes.includes(h) || listedReal.has(hr)) continue;
     if (h === path.parse(h).root || hr === homeRealJ) { configUnsafe.push(`${h} (a config home an agent's job names, which is the root or the home folder itself)`); continue; }
     // Review 5: one holding this agent's own folder would have its code members denied over the agent's own work: named.
     if (dirRealJ === hr || dirRealJ.startsWith(hr + path.sep)) { configUnsafe.push(`${h} (a config home an agent's job names, which holds this agent's own folder)`); continue; }
@@ -1873,6 +1876,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (++envPluginTaken > ENV_PLUGIN_MAX) { configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); break; }
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
     const r = realOrLeaf(d);
+    // Review 7: one INSIDE the agent's own folder (a plugin it is developing) is named, not denied whole, as an installed
+    // plugin there is: denying it would take the agent's own work away.
+    if (r.startsWith(dirRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the agent's own folder, so Kosmos does not deny it whole)`); continue; }
     if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || holdsP(r, dataRealP) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data or a config home)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);

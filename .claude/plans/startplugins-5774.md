@@ -17,7 +17,7 @@
 - `engine/startcommands.js` also returns every value each settings tier gives a variable (not only the agreed ones), with this agent's own tiers and other accounts' homes apart. The three plugin variables are read from this agent's environment, from the home's shell startup files (review 1: the agent's Claude Code inherits the tmux server's environment, which carries shell exports; a value with another variable in it is named), from this agent's own tiers, and from other accounts' homes (absolute values only there: a relative one resolves under that account's agent folder, which is not known here). They are parsed as Claude Code parses them. Each folder is denied whole in both layers, links followed, as part 2's folders are. A folder too wide to deny, or one the rules cannot carry, is named.
 
 ## Gaps, stated
-- The shell startup files read are part 2's zsh and bash files (the home's and each ZDOTDIR's), on top-level lines only, as part 2 reads its assignments: fish (`set -x`) and nushell syntax, and an export inside an `if` or a function, are not read (review 2).
+- The shell startup files read are part 2's zsh and bash rc files by name; part 2's other files (the ~/.bashrc.d folder, the BASH_ENV and ENV files) are not read for the variables (review 7). The files read are part 2's zsh and bash files (the home's and each ZDOTDIR's), on top-level lines only, as part 2 reads its assignments: fish (`set -x`) and nushell syntax, and an export inside an `if` or a function, are not read (review 2).
 - An agent of ANOTHER named Kosmos (world) shares the agents' folder but its job carries that world's key; readJob(name) reads this world's, so its config home is not found, and nothing names that (review 5; #5516 states the same for its account settings).
 - System startup files (/etc/zshenv, /etc/profile) and `launchctl setenv` values are not read for the plugin variables: an administrator's value is not seen (review 5).
 - The tmux server's own environment is not read (asking tmux at every refresh is a process per refresh); the shell startup files are, which is where such an export is usually set.
@@ -31,7 +31,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 9 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
+engine/startplugins-5774.test.js, 10 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on b7d167941:
@@ -91,4 +91,13 @@ engine/startplugins-5774.test.js, 9 tests, using the production job reader again
   - [NIT] TAKEN: the Tests section no longer carries a stale mutation count.
   - [NIT] not taken: a single-quoted `$HOME/x` is named as "a quoted value" (rare; fails closed).
   - [NIT] not taken: the temp folder compared is os.tmpdir() (or the injected one); the shell's own temp folder is the same on this fleet.
+- Iteration 7 (Opus), on a886914a1:
+  - [WARNING] FIXED (reproduced by the reviewer). The plugins INSIDE the folders the variables name were never parsed: a dev plugin's hooks.json running a script outside its folder was a silent miss, and a cache folder's installed_plugins.json and known_marketplaces.json (it takes the place of <home>/plugins) were not read. A CLAUDE_CODE_PLUGIN_DIRS entry is now parsed as a plugin root, and a cache or seed folder is read as a plugin folder. Tested (a dev plugin's hook script and a cached plugin's hook script and folder denied); two mutations red. MY FIRST CUT added the roots to the installed plugins' list, which returned them as installed plugin folders: denied by that loop, with none of the variable folders' checks (the cap, the data folder, inside the agent), so two earlier tests went red. They are now tagged, parsed for their commands only, and denied by the variable loop alone; mutation red (four tests).
+  - [WARNING] FIXED (reproduced). A job home already listed (the agent's own, coming back through its own job) was re-judged by refusals it never went through, so an own home holding the agent's folder was named at refresh. The listed check now comes first. Tested; mutation red.
+  - [WARNING] FIXED. A variable-named folder INSIDE the agent's own folder was denied whole, unlike an installed plugin there (named). Same policy now: named. Tested; mutation red (two tests).
+  - [WARNING] FIXED: the stale comment that other agents' homes are a stated gap.
+  - [NIT] TAKEN: positive arms for the other-account relative cache (it is named) and the cap test (the folders were seen).
+  - [NIT] STATED under Gaps: part 2's .bashrc.d and BASH_ENV/ENV files are not read for the variables.
+  - [NIT] not taken (design note): another account's relative cache could be resolved under each agent the job homes say run on it; it is named instead (fails closed).
+  - [NIT] not taken: an uncarriable job home spends one of the 50 places (harmless at today's sizes).
 
