@@ -67,3 +67,17 @@ reach, telling a person on a server to use a window or a folder it does not have
   "On the computer running Kosmos". They contradict only when the page is reached through a tunnel. Left for #5865's
   wording pass.
 - **Mutants red:** worldswStuckStep's Linux arm off; the world-switch arm back to the command; a reconnect line hard-coded.
+
+## Review 2 (sonnet)
+- **BLOCKER, fixed:** web.engine-restart-screen-4408 lifts `paintOfflineNote` with hand-supplied stubs and had no
+  `onLinux`, so it threw a ReferenceError (the reviewer reproduced it, and it is green on main). Its stub list now
+  includes `onLinux: () => false`. That is the same class as the 4356 stub fixed earlier. My miss: I ran only the
+  targeted tests after a web/index.html change.
+- **Now run: EVERY web*.test.js (349 files), from the worktree: 2679 of 2679 pass.** No test outside web* lifts the
+  changed functions (grep). Run from `/`, 103 files fail in about 50 ms each, all of them unrelated (they read
+  web/index.html relative to the cwd), so the cwd matters for this sweep.
+- **Checked by the reviewer:** every Mac and Windows sentence is byte-for-byte unchanged, including the ellipsis
+  character, and the slow-reconnect lines are reachable on Linux only after `restarting:true`, which means an
+  installed board.
+- **NIT, not taken:** `sinceAfter` in the same test lifts paintRestartScreen with no `restartHowText`. It returns
+  before reaching it, as it did before this branch, which never touched that path.
