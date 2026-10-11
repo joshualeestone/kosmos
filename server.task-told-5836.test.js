@@ -95,6 +95,11 @@ test('#5836: the reading of a run is checked against what the person was last to
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(stored(n).told.value, 'price went up to $45');
   assert.equal(stored(n).told.person, true);
+  // The page's tasks view carries both values (tskToldSentence reads them there).
+  const list = await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json();
+  const row = list.tasks.find((t) => t.number === n);
+  assert.equal(row.verified && row.verified.value, 'price is $45', 'the tasks view does not carry the last verified reading');
+  assert.equal(row.told && row.told.value, 'price went up to $45', 'the tasks view does not carry what the person was told');
   // CONTROL: a run with NO reading reports no comparison and leaves last verified as it was.
   await new Promise((res) => setTimeout(res, 5));
   r = await post(`/api/project/${projectId}/task/${n}/ran`, { note: 'checked again' }, { 'x-kosmos-agent-token': mona });
