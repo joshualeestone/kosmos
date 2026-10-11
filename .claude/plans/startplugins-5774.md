@@ -11,14 +11,15 @@
 - `CLAUDE_CODE_PLUGIN_SEED_DIR`: the value is split on the path delimiter, empty parts are dropped, and each part has a leading `~` expanded.
 
 ## The change
-- The other agents' config homes come from their job files: every Kosmos job in the launch-agents folder (`create.readJob(name).configDir`). Each one outside `~/.claude*` joins the config homes the guard already covers, for every member it covers.
+- The other agents' config homes come from their job files: for each agent folder in the agents' folder, `create.readJob(name).configDir` (Claude agents only). Each one outside `~/.claude*` joins the config homes the guard already covers, for every member it covers.
+  - The names come from the agents' folder, not from the job files' names, which carry a world key.
   - It is not read from `create.runningJobs()`, which asks launchd: the guard runs at every refresh.
-  - On macOS only. Elsewhere this is a stated gap.
 - `engine/startcommands.js` also returns every value each settings tier gives a variable (not only the agreed ones). The three plugin variables are read from that and from the agent's environment, and parsed as Claude Code parses them. Each folder is denied whole in both layers, links followed, as part 2's folders are. A folder too wide to deny, or one the rules cannot carry, is named.
 
 ## Gaps, stated
-- A config home that no Kosmos job names (a person's own `CLAUDE_CONFIG_DIR` used only outside Kosmos) is not found.
+- A config home that no Kosmos job names (a person's own `CLAUDE_CONFIG_DIR` used only outside Kosmos) is not found, nor one whose agent's folder is outside the agents' folder (a connected agent).
 
+## Also in this PR
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
