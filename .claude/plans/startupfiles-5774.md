@@ -18,7 +18,7 @@
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 26 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 27 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -39,6 +39,8 @@
 - A completion dump that does not exist yet, in a ZDOTDIR the shell can write, is covered by the file tools' glob only.
 - A WRITABLE linked target whose path has a rule-syntax character (a dotfiles repo under `~/Dropbox (Personal)`) is named, so the guard is not whole and creation fails. DECIDED, not changed: the file tools cannot be denied that target, so it is a real gap, and config files already behave the same way. The sandbox layer still carries it.
 - ZDOTDIR set in /etc/zshenv is not read (root-owned); the conventional XDG folder is covered regardless. A column-0 assignment inside a here-document is read (it may give a false "not whole" when relative).
+- A ZDOTDIR or XDG_CONFIG_HOME through any variable other than HOME, XDG_CONFIG_HOME and ZDOTDIR ($XDG_DATA_HOME/zsh, $XDG_CACHE_HOME/...) is named, so not whole (review 16). DECIDED: reading $XDG_DATA_HOME from the environment alone would be a silent miss whenever .zshenv sets it, and named fails closed; the convention is $XDG_CONFIG_HOME/zsh.
+- Per-user drop-in folders other than ~/.bashrc.d (Fedora's default .bashrc runs it, review 16) are each a person's own convention (~/.zshrc.d, ~/.profile.d): not listed. Login items (~/Library/LaunchAgents, ~/.config/environment.d) are not shell startup files and stay with route 3 on the card.
 - Route 3 and on stay on the card.
 
 ## Challenge loop notes
@@ -131,4 +133,12 @@
   - [WARNING] FIXED. ~/.ssh/config (ProxyCommand, LocalCommand and Match exec run code). Tested; mutation red.
   - [CONVENTION] FIXED: the stale Gaps line about typeset and := forms.
   - NITs not taken: a linked target with a rule-syntax character found inside a folder is caught by the generic not-whole message rather than named; the Cellar shape match; the test's own realOrLeaf does not follow a leaf link (assertions pass targets).
+- Iteration 16 (Sonnet), on 0033355ea:
+  - [WARNING] FIXED (reproduced by the reviewer). A trailing comment (`export FOO=1 # ZDOTDIR=$XDG_DATA_HOME/z`) or a quoted mention (`echo "set ZDOTDIR=foo"`) was read as an assignment, so a harmless setup was not whole. assignmentsIn now tracks quote state: an unquoted # after a space ends the line, and a NAME= that starts inside quotes is a mention. The dangerous arms are tested too: an assignment before a comment, and `: "${ZDOTDIR:=x}"` inside quotes, are still read. Two mutations, each red.
+  - [WARNING] FIXED. `ZDOTDIR=$HOME/My\ Dir/zsh` read as `<home>/My\` (a cut-off path, then the generic not-whole). A backslash in a value is now named. Mutation red.
+  - [WARNING] DECIDED, stated under Gaps: $XDG_DATA_HOME and $XDG_CACHE_HOME in a ZDOTDIR are named rather than resolved from the environment (resolving from the environment alone would miss a value .zshenv sets).
+  - [NIT] TAKEN: ~/.bashrc.d (Fedora's default .bashrc runs every file in it) is denied whole; other drop-in folders and login items are stated under Gaps. Mutation red.
+  - [NIT] TAKEN: a dangling link whose would-be target is in a Cellar no longer spends the link budget (510 such links stay whole). Mutation red.
+  - [NIT] TAKEN: the USER_WRITABLE_SHELL_DIRS comment no longer claims they are the user's on every host.
+  - [NIT] not taken: other guard tests reading the host's Homebrew (decided in iteration 5).
 

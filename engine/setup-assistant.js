@@ -1259,12 +1259,27 @@ function assignmentsIn(text, name) {
      `[[ -z $ZDOTDIR ]] && export ZDOTDIR=x`, `typeset -x ZDOTDIR=x`, and `: ${ZDOTDIR:=x}`. A conditional means "this
      or what it was", and both are covered. Indented lines (if-blocks, functions, here-documents) stay unread (review 6). */
   const val = '((?:"[^"]*"|\'[^\']*\'|[^\\s;#"\'&|)]+)*)([^\\s;#&|)]*)';
-  for (const line of String(text).split('\n')) {
-    if (!line || /^[\s#]/.test(line)) continue;
+  for (const raw of String(text).split('\n')) {
+    if (!raw || /^[\s#]/.test(raw)) continue;
+    /* Review 16: quote state along the line. A # outside quotes after a space ends the line (a trailing comment that
+       mentions NAME= is not read), and a NAME= that starts inside quotes (echo "set ZDOTDIR=x") is a mention. */
+    const quoted = [];
+    let q = '', line = raw;
+    for (let i = 0; i < raw.length; i++) {
+      const c = raw[i];
+      quoted[i] = q !== '';
+      if (q) { if (c === q) q = ''; else if (c === '\\' && q === '"') { i++; quoted[i] = true; } }
+      else if (c === '"' || c === "'") q = c;
+      else if (c === '\\') { i++; quoted[i] = false; }
+      else if (c === '#' && /\s/.test(raw[i - 1] || '')) { line = raw.slice(0, i); break; }
+    }
     const forms = [new RegExp(`(?:^|[\\s;&|(])${name}=${val}`, 'g'), new RegExp(`\\$\\{${name}:?=([^}]*)\\}()`, 'g')];
-    for (const re of forms) {
+    for (const [k, re] of forms.entries()) {
       for (const m of line.matchAll(re)) {
+        if (k === 0 && quoted[line.indexOf(`${name}=`, m.index)]) continue;   // inside quotes: a mention
         if (m[2]) { out.push(null); continue; }   // an unbalanced quote or a quote mid-part
+        // Review 16: a backslash (My\ Dir) is shell quoting this does not read: named, never a cut-off path.
+        if (m[1].includes('\\')) { out.push(null); continue; }
         /* Review 11: a value of joined quoted and bare parts with no space ("$HOME"/.zsh) is unquoted part by part. A
            quoted ~ stays literal and a single-quoted $ is not expanded, so either is named; a quoted space is read. */
         const parts = [...m[1].matchAll(/"([^"]*)"|'([^']*)'|([^"']+)/g)];
@@ -1288,9 +1303,12 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
     if (--budget.seen < 0) { budget.out = true; break; }
     const p = path.join(dir, d.name);
     if (d.isSymbolicLink()) {
-      let real0 = null;
+      let real0 = null, dangle = null;
       try { real0 = fs.realpathSync.native(p); } catch { /* dangling */ }
-      if (!(real0 && budget.free && budget.free(real0)) && --budget.n < 0) { budget.out = true; break; }
+      // Review 16: a dangling link's would-be target is checked against the Cellar too (uninstalled formulae leave many).
+      if (!real0) { try { dangle = realOrLeaf(danglingTarget(p)); } catch { /* unreadable link */ } }
+      const t0 = real0 || dangle;
+      if (!(t0 && budget.free && budget.free(t0)) && --budget.n < 0) { budget.out = true; break; }
       try {
         const real = real0 || fs.realpathSync.native(p);
         // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
@@ -1299,7 +1317,7 @@ function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: fals
         /* Review 12: dangling. The target is not there YET, and anything that creates it (the agent's own tools) makes
            the link run it, so the target as it would resolve is denied, as withTarget does for a dangling file. */
         // Review 13: through danglingTarget (every hop, each relative one read from the link's REAL folder).
-        try { res.files.push(realOrLeaf(danglingTarget(p))); } catch { /* unreadable link */ }
+        if (dangle) res.files.push(dangle);
       }
     } else if (d.isDirectory() && depth > 1) {
       const sub = linkTargetsIn(p, depth - 1, budget);
@@ -1318,7 +1336,8 @@ function isReadOnlyTarget(p) {
   // write scope), and a single-user Nix store is the user's own, so ownership would bring the pile-up back.
   try { fs.accessSync(path.dirname(p), fs.constants.W_OK); return false; } catch { return true; }
 }
-/* Startup code outside the home folder that the user, not root, can write (review 3): Homebrew's zsh site-functions
+/* Startup code outside the home folder that the user, not root, can write where Homebrew is the user's (review 3; on a
+   Linux /usr/local these are root's, and the rules are harmless): Homebrew's zsh site-functions
    (on zsh's default fpath, run on tab-complete in the person's own terminal) and fish's vendor folders, which fish
    reads at every start. Denied whole where they exist; on this fleet the Homebrew prefix is the user's. */
 const HOMEBREW_PREFIXES = ['/opt/homebrew', '/usr/local'];
@@ -1412,7 +1431,8 @@ function shellStartPaths(home, env, opts = {}) {
     // Relative: read from whatever folder the shell runs in, which the agent can choose, so it is named, not guessed.
     else unsafe.push(`$${k} (${e[k]}), a startup file named relative to the folder a shell runs in`);
   }
-  const dirs = [...[...xdgs].flatMap((x) => [path.join(x, 'fish'), path.join(x, 'nushell')]), path.join(home, 'Library', 'Application Support', 'nushell')];
+  const dirs = [...[...xdgs].flatMap((x) => [path.join(x, 'fish'), path.join(x, 'nushell')]), path.join(home, 'Library', 'Application Support', 'nushell'),
+    path.join(home, '.bashrc.d')];   // review 16: Fedora's default .bashrc runs every file in it
   /* Review 15: the per-user data folders these shells load code from: fish's vendor folders (searched before the system
      ones; vendor_conf.d runs at every start), nushell's vendor autoload, and bash-completion's per-user completions. */
   const datas = new Set([path.join(home, '.local', 'share')]);

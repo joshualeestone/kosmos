@@ -762,3 +762,38 @@ test('#5774 part 2 review 15: ${0:A:h} is .zshenv\'s real folder; a read-only fi
     assert.ok(editDeniedBy(deny, p).length > 0, `${p} not denied`);
   }
 });
+
+test('#5774 part 2 review 16: a trailing comment or a quoted mention is not an assignment; a backslash is named; ~/.bashrc.d; dangling Cellar links spend no budget', () => {
+  const zshenv = path.join(HOME, '.zshenv');
+  const run = (body, name) => {
+    fs.rmSync(zshenv, { force: true });
+    fs.writeFileSync(zshenv, body);
+    const d = agentDir(name);
+    try { return { g: setup.guardTokenOnlyFolder(d, name, { ...DEPS, env: ENV0 }), d }; } finally { fs.rmSync(zshenv, { force: true }); }
+  };
+  assert.equal(run('export FOO=1 # ZDOTDIR=$XDG_DATA_HOME/z\n', 'pilot-cmt16').g.ok, true, 'a trailing comment read as an assignment');
+  assert.equal(run('echo "set ZDOTDIR=foo to move"\n', 'pilot-echo16').g.ok, true, 'a quoted mention read as an assignment');
+  // The dangerous arms: a real assignment before a comment, and ${ZDOTDIR:=x} inside quotes, are still read.
+  const a = run('export ZDOTDIR=$HOME/zd16 # moved here\n', 'pilot-real16');
+  assert.equal(a.g.ok, true, JSON.stringify(a.g));
+  assert.ok(editDeniedBy(readSettings(a.d).permissions.deny, path.join(HOME, 'zd16', '.zshrc')).length > 0, 'the assignment before the comment');
+  const b = run(': "${ZDOTDIR:=$HOME/zq16}"\n', 'pilot-quoted16');
+  assert.ok(editDeniedBy(readSettings(b.d).permissions.deny, path.join(HOME, 'zq16', '.zshrc')).length > 0, '${ZDOTDIR:=x} inside quotes');
+  const c = run('export ZDOTDIR=$HOME/My\\ Dir/zsh\n', 'pilot-bslash16');
+  assert.equal(c.g.ok, false, 'a backslash-escaped value was read as a path');
+  assert.ok(!readSettings(c.d).permissions.deny.some((r) => r.includes('My\\')), 'a cut-off path was denied');
+  const d = agentDir('pilot-bashrcd16');
+  setup.guardTokenOnlyFolder(d, 'pilot-bashrcd16', { ...DEPS, env: ENV0 });
+  assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, '.bashrc.d', 'x.sh')).length > 0, '~/.bashrc.d');
+  // 510 DANGLING links whose targets would be in a Cellar (formulae uninstalled): the one rule covers them.
+  const pre = path.join(SANDBOX, 'hb16');
+  const sf = path.join(pre, 'share', 'zsh', 'site-functions');
+  fs.mkdirSync(path.join(pre, 'Cellar'), { recursive: true });
+  fs.mkdirSync(sf, { recursive: true });
+  for (let i = 0; i < 510; i++) {
+    const l = path.join(sf, `_g${i}`);
+    if (!fs.existsSync(l)) fs.symlinkSync(path.join(pre, 'Cellar', `g${i}`, '1.0', '_g'), l);
+  }
+  const g = setup.guardTokenOnlyFolder(agentDir('pilot-dangle16'), 'pilot-dangle16', { ...DEPS, env: ENV0, userShellDirs: [sf], homebrewPrefixes: [pre] });
+  assert.equal(g.ok, true, JSON.stringify(g));
+});
