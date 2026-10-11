@@ -106,7 +106,7 @@ rmdir "$T/state/last-posted.tmp"
 [ "$(cat "$T/state/last-posted")" = "$before_w" ] || fail "a failed watermark write still changed the watermark"
 # Review 5 (W3b): the key is written BEFORE last-posted, so after that exit 5 a rerun of the same pull posts nothing.
 posts=$(wc -l < "$T/post-count" | tr -d ' ')
-out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 600)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo-ro.txt" run 2>&1)"; rc=$?
+out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 600)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo-ro.txt" run 2>&1)"; rc=$?  # pipe-status-ok
 [ "$rc" = 0 ] || fail "W3b: a rerun after exit 5 (last-posted unwritable) exited $rc, not 0: $out"
 printf '%s' "$out" | grep -q "this pull's result was already posted; nothing to do" || fail "W3b: a rerun after exit 5 did not say it was already posted: $out"
 [ "$(wc -l < "$T/post-count" | tr -d ' ')" = "$posts" ] || fail "W3b: a rerun after exit 5 posted again: $out"
@@ -246,7 +246,7 @@ out="$(KOSMOS_NODE="$T/no-such-node" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" 
 printf '%s' "$out" | grep -q 'node runtime .* is missing or not executable' || fail "a missing node was not named: $out"
 printf '%s' "$out" | grep -q 'could not read the message file' && fail "a missing node blamed the message file: $out"
 [ ! -f "$T/posted.json" ] || fail "a run with a missing node posted"
-out="$(KOSMOS_NODE="$T/no-such-node" run 2>&1)"; rc=$?
+out="$(KOSMOS_NODE="$T/no-such-node" run 2>&1)"; rc=$?  # pipe-status-ok
 [ "$rc" = 2 ] || fail "a missing node on the automatic path exited $rc, not 2: $out"
 
 # 8. The variable set with no usable file REFUSES: non-zero, a clear line, nothing posted, the watermark still.
@@ -286,7 +286,7 @@ out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
 [ "$rc" = 3 ] || fail "a message-file run beside a held lock exited $rc, not 3: $out"
 printf '%s' "$out" | grep -q 'the digest was NOT posted' || fail "a locked-out message-file run did not say it was not posted: $out"
 [ ! -f "$T/posted.json" ] || fail "a locked-out message-file run posted"
-out="$(run 2>&1)"; rc=$?; [ "$rc" = 0 ] || fail "the automatic path beside a held lock changed its exit ($rc): $out"
+out="$(run 2>&1)"; rc=$?; [ "$rc" = 0 ] || fail "the automatic path beside a held lock changed its exit ($rc): $out"  # pipe-status-ok
 [ ! -f "$T/posted.json" ] || fail "the automatic path beside a held lock posted"
 [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the automatic path beside a held lock moved the watermark"
 rm -rf "$T/state/lock"
@@ -311,7 +311,7 @@ out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
 printf '%s' "$out" | grep -q "another run is posting this same result; the other run's exit code decides; do NOT start another" || fail "W1: exit 6 did not say not to start another: $out"
 printf '%s' "$out" | grep -q 'NOT posted.*run it again' && fail "W1: exit 6 said to run it again: $out"
 echo "$((now - 500))" > "$T/state/lock/wm"
-out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?  # pipe-status-ok
 [ "$rc" = 3 ] || fail "W1: a held lock for another pull exited $rc, not 3: $out"
 [ ! -f "$T/posted.json" ] || fail "W1: a locked-out run posted"
 rm -rf "$T/state/lock"
@@ -321,7 +321,7 @@ rm -rf "$T/state/lock"
 dead=999999; kill -0 "$dead" 2>/dev/null && fail "the test's dead pid $dead is running"
 nokey; rm -f "$T/posted.json"; posts=$(wc -l < "$T/post-count" | tr -d ' ')
 mkdir "$T/state/lock" && echo "$FEEDBACK_DIGEST_WATERMARK" > "$T/state/lock/wm" && echo "$dead" > "$T/state/lock/pid"
-out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?  # pipe-status-ok
 [ "$rc" = 7 ] || fail "W1: a dead run of this same pull exited $rc, not 7: $out"
 printf '%s' "$out" | grep -q 'a previous run of this same pull died while posting; it MAY have been posted: check #admin before running again' || fail "W1: exit 7 for a dead run did not say to check #admin: $out"
 [ "$(wc -l < "$T/post-count" | tr -d ' ')" = "$posts" ] || fail "W1: a dead run of this same pull was posted again: $out"

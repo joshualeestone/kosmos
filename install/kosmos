@@ -1565,7 +1565,7 @@ cmd_start() {
   # #5450: a direct start is a person's, unless the watchdog (KOSMOS_START_BY=supervisor) is bringing back a board
   # nobody stopped.
   local _start_by=person; [ "${KOSMOS_START_BY:-}" = supervisor ] && _start_by=supervisor
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_UPDATE_BY_BOARD -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   local _launched="$!"   # #4636: this launch's pid, handed to the wait below (board.pid could change meanwhile)
   set +m
   printf '%s' "$_launched" > "$PIDFILE"
@@ -1679,7 +1679,7 @@ cmd_board_run() {
          fi ;;                                                # time, from the future): the timer decides, as before
     esac
   fi
-  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_UPDATE_BY_BOARD -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
 }
 
 # #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
@@ -1957,8 +1957,10 @@ cmd_version() {
 # Mac app runs this at launch and once a day on such a computer. It is the board's own look
 # (engine/update-ifnewer.js runs engine/update.js and engine/autoupdate.js, so the channel, the
 # pointer, newer() and the consent are the board's rules, not a copy), and the board's own install:
-# the same `curl <setup> | sh` beginInstall runs, with the same three variables, writing
+# the same `curl <setup> | sh` beginInstall runs, with the same three channel variables, writing
 # install.started and install.status the same way, so a board started later reads how it went.
+# Not beginInstall's fourth, KOSMOS_UPDATE_BY_BOARD (#4675): that asks setup.sh to record a stop at its pause for the
+# board to show, and this computer runs no board to pause or to show it.
 #   consent on (the Updates switch; no file is on):   installs.
 #   consent off, or a file that cannot be read:       says it is there and installs nothing,
 #                                                     unless --install (the person chose it).

@@ -47,13 +47,13 @@ printf '%s\n' "$out" | grep -q 'brand-new (not on the allowlist; e.g. brand-new-
 printf '%s\n' "$out" | grep -q -E 'x codex-forget|x aoc-state|x tmp ' && bad "an allowlisted family was reported: $out" || ok "allowlisted families (a name, a glob, a commented line) are not reported"
 printf '%s\n' "$out" | grep -q 'note: 1 allowlisted families left nothing' && ok "listed families that left nothing are counted on one note line" || bad "no single note: $out"
 rm -rf "$root/brand-new-Qw12Er"
-leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?
+leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?  # pipe-status-ok
 [ "$rc" -eq 0 ] && ok "only allowlisted families left: clean" || bad "allowlisted-only root: rc=$rc"
 mkdir -- "$root/-AbC123"
 out=$(leak_tmp_check "$root" "$work/allow"); rc=$?
 if [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q '(unnamed)'; then ok "an entry that normalises to nothing is reported, not skipped"; else bad "unnamed entry: rc=$rc out=$out"; fi
 rm -rf -- "$root/-AbC123"
-leak_tmp_check "$work/no-such-root" "$work/allow" > /dev/null; rc=$?
+leak_tmp_check "$work/no-such-root" "$work/allow" > /dev/null; rc=$?  # pipe-status-ok
 [ "$rc" -eq 0 ] && ok "a missing root is clean, not an error" || bad "missing root: rc=$rc"
 
 # --- processes ------------------------------------------------------------------
@@ -141,7 +141,7 @@ printf -- '-\t0\tcom.apple.x\n-\t0\tcom.kosmos.agent.nopath\n' > "$work/labels"
 out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before" "$lroot"); rc=$?
 if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'note: new launchd job com.kosmos.agent.nopath: no plist path read'; then ok "a new job with no readable plist path is named on a note"; else bad "unreadable plist path: rc=$rc out=$out"; fi
 printf -- '-\t0\tcom.apple.x\n-\t0\tcom.apple.mdworker.shared.0B00\n' > "$work/labels"
-out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before" "$lroot"); rc=$?
+out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before" "$lroot"); rc=$?  # pipe-status-ok
 [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "macOS's own plist-less jobs (mdworker) make no note (control)" || bad "a com.apple job made noise: rc=$rc out=$out"
 
 # The REAL launchctl, through the guard's own parse (leak_plist_path): it must find a plist path for this Mac's own jobs.

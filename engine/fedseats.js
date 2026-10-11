@@ -232,6 +232,14 @@ function handleEvent(projectId, line, heldAt) {
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from ' + farSide(projectId) + ' was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
+      // #5191: the relay's stamp names a member this owner knows is revoked, on a key that member
+      // held: refused, grace or not, before it can take a held place. The epoch is the envelope's,
+      // not yet opened, but the stamp is the relay's, so a wrong one refuses only its sender's post.
+      // No stamp (an older relay): as before.
+      if (sealed && sealed.role === 'owner' && isRevokedPost(sealed, ev.member, ev.data.epoch)) {
+        noteOnce(projectId, s, 'revokedPost', 'A message from someone you removed from this shared project was not shown.');
+        return;
+      }
       // #5191: an owner opens a post only after a recent enough edge check (holdForCheck).
       if (!heldAt && sealed && sealed.role === 'owner' && hasKey(sealed) && holdForCheck(projectId, s, sealed, ev.data, line, now)) return;
       // A member seeing a newer epoch than its own missed a rotation: until the owner's
@@ -558,12 +566,13 @@ const REPLAY_WINDOW_MS = 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 /* #5191: the grace after a rotation, during which the previous epoch still opens (a
    message sealed just before it, still in flight), then never again. An owner rotates
-   only when a member is revoked, and during a grace the revoked member's old-key posts open too (a sealed post
-   does not say which member sealed it), so it is short: in-flight posts plus
-   the relay's room-ticket life (about 60 s). With no member left it is none at all:
-   an old-key post can then only come from the revoked member. So with members left a
-   revoked member can still be shown for about min(this, the ticket life) plus
-   EDGE_FRESH_MS, about 75 s, relying on the relay to cut the revoked member at its ticket.
+   only when a member is revoked, and the seal does not say which member sealed a post, so it is
+   short: in-flight posts plus the relay's room-ticket life (about 60 s). With no member left it
+   is none at all: an old-key post can then only come from the revoked member. With members left,
+   an owner refuses an old-key post the relay stamps with a revoked account (revokedAccounts,
+   below); a post with no stamp (an older relay), or from a member whose account the rotation
+   could not name, can still be shown for about min(this, the ticket life) plus EDGE_FRESH_MS,
+   about 75 s, relying on the relay to cut the revoked member at its ticket.
    Owner-side alone it is about 15 s + a 20 s round trip + this grace. While Kosmos+ cannot
    answer, the pass shows held posts unchecked: then only the relay's ticket bounds it (a
    sealed room does not trust the relay, so that is not a guarantee).
@@ -604,6 +613,44 @@ const BEHIND_HOLD_MS = 3 * 60 * 1000;
     cannot be read (then nothing is sent or shown: we cannot tell). */
 function roomSeal(projectId) {
   try { return fedseal.roomState(projectId); } catch { return undefined; }
+}
+/* #5191 (residual of #5228): an owner room's `revokedAccounts` record, account -> the newest epoch
+   that account held. The relay stamps every post with the poster's ticket member (#4649 slice 3),
+   which for an outside member is the edge's member_account_id and which the sender cannot write.
+   A stamped post from a recorded account sealed at that epoch or older is refused, even inside the
+   grace the remaining members' in-flight posts get. Written only in the same save as a rotation,
+   from the pinned peers it dropped; a forgotten room's record goes with it. */
+/** Whether a post the relay stamped `member`, opened under `epoch`, is a revoked member's. */
+function isRevokedPost(st, member, epoch) {
+  const m = st && st.revokedAccounts;
+  return !!m && typeof m === 'object' && typeof member === 'string' && Object.prototype.hasOwnProperty.call(m, member)
+    && Number.isInteger(m[member]) && Number.isInteger(epoch) && epoch <= m[member];
+}
+/** #5191: this board's own screen removed a member (the coordinator answered the revoke). The room
+    is checked now, with an answer asked after the remove, instead of at the next edge check; and
+    until a check like that succeeds, no check or shared answer asked before the remove lets a post
+    through (holdForCheck, checkRoom). Resolves true when the room rotated; never rejects. */
+function afterRemove(projectId) {
+  let link = null;
+  try { link = linkFor(projectId); } catch { link = null; }
+  if (!link || link.role !== 'owner') return Promise.resolve(false);
+  const s = seats.get(projectId);
+  // The remove's moment is kept on the seat until the next remove: once a later check succeeds,
+  // checkedBeforeRemove is false again. With no seat there is nowhere to keep it; the check below
+  // still runs (plan: Not covered).
+  if (s) {
+    // Strictly after the previous remove's token, so an earlier remove's own check (token + 1) never
+    // counts as after this one on a timer too coarse to separate them.
+    const m = mono();
+    s.removedMono = typeof s.removedMono === 'bigint' && m <= s.removedMono + 1n ? s.removedMono + 1n : m;
+    s.removedAt = Date.now();
+    s.edgeAskedAt = 0;
+  }
+  // An ordering token, not a measured time: this check is asked after the remove in program order,
+  // whatever a coarse timer reads.
+  const removedMono = s ? s.removedMono : undefined;   // this remove's moment, not a later remove's
+  const after = s ? () => removedMono + 1n : undefined;
+  return checkRoom(projectId, link, null, false, null, s, after).then((r) => !!(r && r.rotated), () => false);
 }
 function hasKey(st) {
   return !!st && !!st.keys && Number.isInteger(st.epoch) && typeof st.keys[st.epoch] === 'string';
@@ -741,9 +788,25 @@ function revokeCheck(projectId, link, edges) {
     // #5191: with nobody left, the revoked key is dropped from the record, so a member pinned
     // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it.
     if (!Object.keys(keep).length) delete keys[st.epoch];
+    // #5191: the accounts dropped, each from the peer's own record (pinned with its edge) or, for a
+    // peer pinned before that was kept, from this answer by its edge id; recorded at the epoch they
+    // held. An account a kept peer also has (one account, two edges) is not recorded.
+    const accountOf = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref && typeof e.member_account_id === 'string' && e.member_account_id).map((e) => [e.id, e.member_account_id]));
+    const accountOfPeer = (p) => (p && typeof p.account === 'string' && p.account) || (p && accountOf.get(p.edge)) || null;
+    const keptList = Object.values(keep).map(accountOfPeer);
+    const keptAccounts = new Set(keptList.filter(Boolean));
+    // A Map, written out with Object.fromEntries, so any account id is an own key of the record.
+    const prior = st.revokedAccounts && typeof st.revokedAccounts === 'object' ? st.revokedAccounts : {};
+    const revoked = new Map(Object.keys(prior).filter((a) => Number.isInteger(prior[a]) && prior[a] >= 0).map((a) => [a, prior[a]]));
+    // A kept peer whose account cannot be named might share a dropped one's: then nothing is recorded,
+    // and the grace bounds this revoke as before, rather than refusing that peer's in-flight posts.
+    if (!keptList.includes(null)) for (const pub of gone) {
+      const account = accountOfPeer(peers[pub]);
+      if (account && !keptAccounts.has(account)) revoked.set(account, Math.max(revoked.has(account) ? revoked.get(account) : st.epoch, st.epoch));
+    }
     // A revoke found but not saved is not a check: the posts it holds stay held (the pass must
     // not show them unchecked under the key the revoked member still holds).
-    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys })); } catch {
+    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys, revokedAccounts: Object.fromEntries(revoked) })); } catch {
       return { checked: false, rotated: false, unreadable: true };
     }
     const s = seats.get(projectId);
@@ -814,8 +877,9 @@ function sharedEdges(now, notBeforeMono) {
     held, except on the 60 s pass (`pass`), which shows them unchecked. `askedAt()` is when
     the answer used was asked for; the room counts as checked from then, not from when the
     answer arrived. */
-async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
+async function checkRoom(projectId, link, edges, pass, askedAt, seat, askedMono) {
   const started = Date.now();
+  const startedMono = mono();
   const r = await revokeCheck(projectId, link, edges);
   const s = seats.get(projectId);
   // A seat replaced while the check was out (an id reused) is not credited with it.
@@ -823,6 +887,11 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
   if (r && r.checked) {
     const at = typeof askedAt === 'function' ? askedAt() : 0;
     s.edgesCheckedAt = at > 0 ? Math.min(at, started) : started;
+    // #5191: the same moment on the monotonic clock when the caller knows it (a remove compares on it).
+    // Set on every check, undefined included, so an older check's value never outlives this one. A lower
+    // bound: the request itself may go out later, behind the room's sealing step.
+    const am = typeof askedMono === 'function' ? askedMono() : undefined;
+    s.edgesCheckedMono = typeof am === 'bigint' ? am : (at > 0 ? undefined : startedMono);
   }
   // The pass shows them unchecked, but not while the rooms record is unreadable: then every
   // one would be refused for that, so they wait for a pass that can read it.
@@ -832,9 +901,14 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
     // asked for: a later one (the answer was old by the time this step ran, behind a slow
     // sealing step) stays held for its own check or the next pass. The unchecked pass
     // release (Kosmos+ cannot answer) shows them all, as before.
-    const coversUntil = r && r.checked ? s.edgesCheckedAt + EDGE_FRESH_MS : Infinity;
-    const held = s.held.filter((h) => h.at <= coversUntil);
-    s.held = s.held.filter((h) => h.at > coversUntil);
+    let coversUntil = r && r.checked ? s.edgesCheckedAt + EDGE_FRESH_MS : Infinity;
+    // An answer asked before this screen removed someone covers only posts that arrived before it.
+    // Posts that arrived after the remove, judged on the monotonic clock where the post has it.
+    const capped = !!(r && r.checked && checkedBeforeRemove(s));
+    const after = (h) => (typeof h.mono === 'bigint' ? h.mono > s.removedMono : h.at >= s.removedAt);
+    const keep = (h) => h.at > coversUntil || (capped && after(h));
+    const held = s.held.filter((h) => !keep(h));
+    s.held = s.held.filter(keep);
     s.heldIds = new Set(s.held.map((h) => h.id));
     for (const { line, at } of held) {
       try { handleEvent(projectId, line, at); } catch (err) {
@@ -844,6 +918,14 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
   }
   return r;
 }
+/** #5191: whether this room's last check was asked before this screen last removed someone. On the
+    monotonic clock when the check's moment is known there, since a remove and its own check share a
+    millisecond; otherwise by wall time, counting the same millisecond as before (the safe side). */
+function checkedBeforeRemove(s) {
+  if (typeof s.removedMono !== 'bigint') return false;
+  if (typeof s.edgesCheckedMono === 'bigint') return s.edgesCheckedMono <= s.removedMono;
+  return s.edgesCheckedAt <= s.removedAt;
+}
 /** #5191: hold a sealed post to an owner whose edges were not checked in the last
     EDGE_FRESH_MS, and ask (once per room per EDGE_FRESH_MS). True when the post was taken.
     A post is held only if it would be shown now: it opens, is inside the time window and
@@ -852,7 +934,7 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat) {
     memory: a board restart while they wait loses them. */
 function holdForCheck(projectId, s, sealed, env, line, now) {
   if (!Object.keys(sealed.peers || {}).length) return false;   // nobody pinned: no revoke to wait for
-  if (isFresh(s.edgesCheckedAt, now)) return false;
+  if (isFresh(s.edgesCheckedAt, now) && !checkedBeforeRemove(s)) return false;
   const opened = s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, env) : null;
   if (!opened || now - opened.at > REPLAY_WINDOW_MS || opened.at - now > FUTURE_SKEW_MS || (s.seen && s.seen.has(opened.id))) return false;
   // An unreadable link record still holds the post (failing open would show a revoked
@@ -873,12 +955,12 @@ function holdForCheck(projectId, s, sealed, env, line, now) {
     return true;
   }
   s.heldIds.add(opened.id);
-  s.held.push({ line, at: now, id: opened.id });
+  s.held.push({ line, at: now, mono: mono(), id: opened.id });
   if (link && !s.edgeAsk && !isFresh(s.edgeAskedAt, now)) {
-    const ask = sharedEdges(now);
+    const ask = sharedEdges(now, s.removedMono);
     // The answer's own ask time: one joined from another room may be older than this post.
     s.edgeAskedAt = ask.askedAt;
-    s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s).catch(() => {}).then(() => { s.edgeAsk = null; });
+    s.edgeAsk = checkRoom(projectId, link, () => ask.promise, false, () => ask.askedAt, s, () => ask.mono).catch(() => {}).then(() => { s.edgeAsk = null; });
   }
   return true;
 }
@@ -909,7 +991,9 @@ async function ownerHello(projectId, s, link, frame, me) {
   if (Object.prototype.hasOwnProperty.call(peers, frame.pub) || Object.values(peers).some((p) => p && p.invite === inv.invite)) return;
   const firstKey = !hasKey(st);
   if (firstKey) st = { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } };
-  st = Object.assign({}, st, { peers: Object.assign({}, peers, { [frame.pub]: { s: inv.s, code: inv.code, invite: inv.invite, edge: edge.id } }) });
+  // #5191: the account too, so a later rotation names it without needing the revoke's answer to.
+  const pin = Object.assign({ s: inv.s, code: inv.code, invite: inv.invite, edge: edge.id }, typeof edge.member_account_id === 'string' && edge.member_account_id ? { account: edge.member_account_id } : {});
+  st = Object.assign({}, st, { peers: Object.assign({}, peers, { [frame.pub]: pin }) });
   fedseal.setRoomState(projectId, st);
   fedseal.spendInvite(link.ref, inv.s);
   sendFrame(s, fedseal.shareFrame(inv.s, inv.code, me, frame.pub, st.keys[st.epoch], st.epoch, s.room));
@@ -1123,7 +1207,7 @@ async function ensureAll() {
       continue;
     }
     if (!link || link.role !== 'owner') continue;
-    try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id)); } catch { /* retried on the next pass */ }
+    try { await checkRoom(id, link, edges, true, () => pendingAt, seats.get(id), () => (pendingMono > 0n ? pendingMono : undefined)); } catch { /* retried on the next pass */ }
   }
   // #5192: the pass flushes after its own revoke check (a connect or a pin flushes at once, as a
   // live post would go at once).
@@ -1551,4 +1635,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { farSide, retryOwn, rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };

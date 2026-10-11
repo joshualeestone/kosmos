@@ -71,6 +71,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
   'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too
+  'sendertoken.prune-ended-5208.test.js',   // kosmos#5208: sealing, compacting and deleting files a reader may hold open, on Windows too
   'restoresink.test.js',   // #5536: the restore sink's Windows duties (Unicode names, link on NTFS, junction refusal) are measured here
   'accounts.wiredefaulthooks-5612.test.js'];   // #5612: the default account's reporting hooks, wired on the real win32 platform
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the

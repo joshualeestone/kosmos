@@ -798,35 +798,50 @@ function lastAttemptView() {
   if (!lastAttempt && updatePlatform() === 'win32') { const w = windowsStatusRecord(); if (w) return w; }
   return lastAttempt ? { ...lastAttempt } : null;
 }
-/* #2055: the durable board-would-not-pause abort marker. setup.sh writes it (with a
-   CONSECUTIVE count) each time an update aborts at the pause, and clears it once an
-   update gets past the pause. It is the ONLY signal on the AUTOMATIC update path: the
-   installer's own "could not be paused" message goes to stderr / install.log, which
-   the in-process updater's curl|sh leaves unread, so a machine can stop receiving
-   updates -- 155 consecutive aborts on one machine -- with nothing on any surface a
+/* #2055: the durable marker of an update that stopped at its pause. setup.sh writes it (with a
+   CONSECUTIVE count and the stop's reason) and clears it once an update gets past the pause. It is
+   the ONLY signal on the AUTOMATIC update path: the installer's own message goes to stderr /
+   install.log, which the in-process updater's curl|sh leaves unread, so a machine can stop
+   receiving updates -- 155 consecutive aborts on one machine -- with nothing on any surface a
    person looks at. This exposes it so the board can say so. Returns
-   { count, reason, port, ts } when the machine is stuck AT THE PAUSE, or null when it
-   is not.
-   🔑 SCOPE, so a reader does not over-read null: this tracks ONLY the
-   board-would-not-pause abort streak. null means "the last run got PAST the pause",
-   NOT "the last update succeeded" -- a later install failure (a 404, a checksum
-   refusal, a failed swap) is a DIFFERENT signal, carried by updateAttempt /
-   install.status. A board notice should treat this as "your machine is stuck at the
-   pause, N times", not as a general update-success flag. */
+   { count, reason, same, port, ts } when the machine is stuck AT THE PAUSE, or null when it is not.
+   #4675: four reasons. 'board-would-not-pause' is written whoever ran the installer; the three
+   stops after it ('port-check-failed', 'port-unreachable', 'port-still-held') only when THIS board
+   started the run (beginInstall's KOSMOS_UPDATE_BY_BOARD). count is the streak, whatever the
+   reasons; same is how many of the latest stops had this reason (same === count: all of them), null
+   when the file has no same line at all (one written before it existed), or 0 when it is unreadable.
+   🔑 SCOPE, so a reader does not over-read null: this tracks ONLY stops at the pause. null means
+   "the last run got PAST the pause", NOT "the last update succeeded" -- a later install failure
+   (a 404, a checksum refusal, a failed swap) is a DIFFERENT signal, carried by updateAttempt /
+   install.status. A board notice should treat this as "your machine is stuck at the pause, N
+   times", not as a general update-success flag. */
 function updateAbortFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'update-abort') : null; }
 function updateAbort() {
   const file = updateAbortFile();
   if (!file) return null;
   let raw = '';
   try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
-  const kv = {};
+  // A key is a key whatever follows the "=" (a stray \r included), and a key written twice is damage, as it is to
+  // setup.sh, whose sed then yields two lines.
+  const kv = Object.create(null);
+  const twice = new Set();
   for (const line of raw.split('\n')) {
-    const m = /^([a-z_]+)=(.*)$/.exec(line);
-    if (m) kv[m[1]] = m[2];
+    const m = /^([a-z_]+)=([\s\S]*)$/.exec(line);
+    if (!m) continue;
+    if (m[1] in kv) twice.add(m[1]);
+    kv[m[1]] = m[2];
   }
-  const count = Number(kv.count);
-  if (!Number.isInteger(count) || count <= 0) return null;   // absent/blank/garbage/0 => not stuck
-  return { count, reason: kv.reason || 'unknown', port: kv.port || null, ts: kv.ts || null };
+  // #4675 ONE RULE FOR A NUMBER, shared with the writer (install/setup.sh _kosmos_note_pause_abort): 1 to 9 digits, no
+  // leading zero. Anything else is damage.
+  const num = (k) => (!twice.has(k) && /^[1-9][0-9]{0,8}$/.test(kv[k] === undefined ? '' : kv[k]) ? Number(kv[k]) : null);
+  const count = num('count');
+  if (count === null) return null;   // absent/blank/garbage/0 => not stuck (setup.sh starts such a file again at 1)
+  // same: null ONLY when the line is missing altogether (a file from before it existed). A same line that is there
+  // but damaged, or above count, is unknown: 0, so nothing is claimed about the earlier stops.
+  let same = null;
+  if ('same' in kv) { same = num('same'); if (same === null || same > count) same = 0; }
+  const reason = twice.has('reason') ? 'unknown' : (kv.reason || 'unknown');
+  return { count, reason, same, port: kv.port || null, ts: kv.ts || null };
 }
 
 /**
@@ -1189,7 +1204,9 @@ function beginInstall(opts) {
     // #2969: the POINTER the offer came from (prod, when a staging subscriber is offered a newer
     // prod build), and separately the channel to STAMP, so taking a prod hotfix does not quietly
     // turn a staging subscriber into a prod one. setup.sh reads KOSMOS_SOURCE_CHANNEL for the stamp.
-    env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: installPointer(), KOSMOS_SOURCE_CHANNEL: updateChannel() },
+    // #4675: KOSMOS_UPDATE_BY_BOARD tells setup.sh that nobody is reading this run's output, so a stop at its pause
+    // must be recorded where the board can show it. A pasted install line does not carry it.
+    env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: installPointer(), KOSMOS_SOURCE_CHANNEL: updateChannel(), KOSMOS_UPDATE_BY_BOARD: '1' },
   });
   wireChild(child, opts);
   child.unref();
@@ -1278,7 +1295,7 @@ module.exports = {
   updatePhase, // S4: the win32 update journal phase for the client, or null
   setBoardContext, // S4: server tells update.js its own {port, pid} at listen time
   setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsRollback, setKeptPreviousBuild, setWindowsHelperWitnessMs,
-  updateAbort, // #2055: the durable board-would-not-pause abort marker ({count,reason,port,ts} or null)
+  updateAbort, // #2055, #4675: the durable stopped-at-the-pause marker ({count,reason,same,port,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,

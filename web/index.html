@@ -12755,7 +12755,7 @@ window.kosmosMeasureScrollbarWidth();
          read must not be rendered as either. Same rule as the stale badge and
          the memory caption. -->
     <p class="dmbusy" id="d-busy" hidden></p>
-    <p class="dhint" id="d-talk-older" style="margin:10px 0 0;" hidden></p>
+    <p class="dhint" id="d-talk-older" style="margin:10px 0 0;" hidden><span id="d-talk-older-text"></span> <button type="button" class="btn-quiet" id="d-talk-older-show" hidden>Show earlier messages</button> <button type="button" class="btn-quiet" id="d-talk-older-hide" hidden>Hide earlier messages</button></p>
     <div class="dmoff" id="d-dmoff" hidden></div>
     <!-- The room's box, on the agent page too (#385, Josh 2026-08-23): one
          composer drawn one way. The input element and every id stay, so the
@@ -22340,9 +22340,10 @@ let ENGINE_STALE = null;
  */
 /**
  * #2055: the board notice for a silently-aborting update. Angel's engine half
- * records a durable, consecutive-counted marker each time an update cannot pause
- * the board, and clears it once one gets through; `/api/status` carries it as
- * `updateAbort = { count, reason, port, ts } | null`. Until this, the only
+ * records a durable, consecutive-counted marker each time an update stops at its
+ * pause (#4675: with the latest stop's reason, which chooses the sentence below, and how
+ * many of the latest stops shared it), and clears it once one gets through; `/api/status` carries it as
+ * `updateAbort = { count, reason, same, port, ts } | null`. Until this, the only
  * audience was install.log -- 155 aborts on one machine, seen by nobody -- and a
  * machine in this state stops receiving fixes, invisibly.
  *
@@ -22355,7 +22356,8 @@ let ENGINE_STALE = null;
  * against is a definite POSITION shown without a confirmed read, which cannot
  * happen when the notice paints only from a value the poll actually returned.
  *
- * COPY is Mona Lisa's spec (#2055): title, N-body ("tried to install it N times
+ * COPY for the board-would-not-pause stop is Mona Lisa's spec (#2055; the other stops' sentences are #4675's, see
+ * the table in the function): title, N-body ("tried to install it N times
  * and could not, because Kosmos was busy each time"), and "your agents kept
  * working". The ACTION is a quit-and-reopen, NOT an "Update now" button:
  * pressing Update re-enters setup.sh's pause block (server.js /api/update ->
@@ -22378,22 +22380,50 @@ function paintUpdateAbort(ab) {
     if (slot.dataset.n) { slot.dataset.n = ''; slot.innerHTML = ''; }
     return;
   }
-  // Re-render only on a changed count: this is an aria-live region, so rewriting
-  // identical markup every 5s poll would re-announce it to a screen reader.
-  const key = String(count);
+  const times = count === 1 ? 'once' : count + ' times';
+  // #4675: count is the whole streak, and what is said about the cause is said of the LATEST stop only, because that
+  // is all the marker knows for sure. The one exception is #2055's own sentence, "Kosmos was busy each time", kept
+  // word for word when every stop in the streak was that one (same >= count; with no same at all, which the engine
+  // sends as null only for a marker with no same line, the marker is from before `same` existed, when it was the
+  // only reason; an unreadable same arrives as 0 and claims nothing).
+  // The advice follows the latest stop too. #2055's reopen remedy was measured for a busy Kosmos and is kept for it.
+  // For the other stops nobody has measured what clears them, so the sentence says so and offers what is worth a
+  // try: a failed check is not something reopening can fix, a held port may be. No sentence asks for a typed command.
+  // "replaced nothing" is about files: by these stops the installer has stopped the board, and its exit puts it back.
+  // The tables stay inside the function so a test can lift the function whole.
+  const reason = typeof ab.reason === 'string' ? ab.reason : '';
+  const AGENTS_FINE = 'Your agents keep working, they do not live in this window.';
+  const REOPEN = 'Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one '
+    + 'can finish. ' + AGENTS_FINE;
+  const TRY_RESTART = ' We do not yet know what clears this one; restarting this computer is worth a try.';
+  const TRY_BOTH = ' We do not yet know what clears this one; quitting and reopening Kosmos is worth a try, then '
+    + 'restarting this computer.';
+  const PORT_HELD = 'something was still using the connection Kosmos runs on, so the update replaced nothing. '
+    + AGENTS_FINE + TRY_BOTH;
+  const UPDATE_ABORT_LAST = {
+    'board-would-not-pause': 'Kosmos was busy. ' + REOPEN,
+    'port-check-failed': 'this computer could not check whether Kosmos had stopped, so the update replaced nothing. '
+      + AGENTS_FINE + TRY_RESTART,
+    'port-unreachable': PORT_HELD,
+    'port-still-held': PORT_HELD,
+  };
+  const allBusy = reason === 'board-would-not-pause' && (Number.isFinite(ab.same) ? ab.same >= count : true);
+  const last = Object.prototype.hasOwnProperty.call(UPDATE_ABORT_LAST, reason) ? UPDATE_ABORT_LAST[reason]
+    : 'the update stopped before replacing anything. ' + AGENTS_FINE + TRY_BOTH;
+  const why = allBusy ? ', because Kosmos was busy each time. ' + REOPEN
+    : (count === 1 ? ': ' : '. The last time, ') + last;
+  // Re-render only when the words change: the notice is a role="status" node, so rewriting identical markup every 5s
+  // poll would re-announce it to a screen reader. On Windows the words never depend on the reason.
+  /* win32-board-copy (W-26): there is no Kosmos window to Quit on Windows, and nothing there writes a reason. */
+  const winWhy = onWindows() ? windowsCopy('updateAbortRemedy') : null;
+  const key = count + (winWhy === null ? ' ' + why : '');
   if (slot.dataset.n === key) return;
   slot.dataset.n = key;
-  const times = count === 1 ? 'once' : count + ' times';
   slot.innerHTML = '<div class="utoast stale" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>A new version of Kosmos is ready.</b>'
-    + '<small>This computer has tried to install it ' + times + ' and could not, because '
-    /* win32-board-copy (W-26): there is no Kosmos window to Quit on Windows. */
-    + (onWindows()
-      ? windowsCopy('updateAbortRemedy')
-      : 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
-        + 'was holding the update, so the next one can finish. Your agents keep working, they do '
-        + 'not live in this window.')
+    + '<small>This computer has tried to install it ' + times + ' and could not'
+    + (winWhy === null ? why : ', because ' + winWhy)
     + '</small>'
     + '</div></div>';
 }
@@ -37856,8 +37886,158 @@ document.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
   if (b && !b.disabled) dmChoicePress(b);
 });
+/**
+ * kosmos#5841: a direct conversation's EARLIER messages, opened from the "older messages are still kept" line, a page
+ * at a time from GET .../thread/older?before=<n>, and drawn IN the thread, before the latest 200, by the thread's own
+ * paint. So they look and act like the rest (reactions, reply, copy, search), and there is no second box.
+ * They are a SNAPSHOT: the 5 s poll refreshes only the latest, so a preview not cached when the page was fetched, or a
+ * reaction or delivery change made elsewhere, shows only after Hide and Show (a reaction made HERE is written in).
+ * `before` counts from the OLDEST message, so a send cannot shift a page. `end` is the position just after the last
+ * earlier row; messages that leave the latest 200 while this is open are fetched into it (earlierFillGap), so nothing
+ * falls between. Per agent: a DIFFERENT agent on screen resets it (paintTalk, before any await) and `earlierOn` draws
+ * rows only for their own agent. A repaint of the SAME agent (the poll, a return with no other DM opened between)
+ * keeps them until Hide; opening another agent's DM and coming back starts closed. `opening` drops an answer that
+ * belongs to a reset that came after it.
+ */
+const EARLIER = { session: null, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: 0 };
+function earlierReset(session) {
+  Object.assign(EARLIER, { session, open: false, before: 0, end: 0, rows: [], loading: false, filling: false, because: null, opening: EARLIER.opening + 1 });
+}
+function earlierOn(session) { return EARLIER.open && Boolean(session) && EARLIER.session === session; }
+async function earlierFetch(session, before) {
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread/older?before=' + before, { cache: 'no-store' });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body || !Array.isArray(body.messages)) return { ok: false, because: 'we could not read the earlier messages' };
+    const olderCount = Number(body.olderCount) || 0;
+    /* The answer must be the range asked for: up to a page ending exactly at `before`. A thread that SHRANK in between
+       answers a clamped, different range, which appended here would be wrong or doubled rows (review 7). */
+    if (olderCount + body.messages.length !== before) return { ok: false, moved: true, because: 'we could not read the earlier messages' };
+    return { ok: true, rows: body.messages, olderCount };
+  } catch { return { ok: false, because: 'we could not read the earlier messages' }; }
+}
+/* Redraw the thread and the line from the last answer, with no new read of the thread. */
+function earlierRepaint() {
+  const thread = document.getElementById('d-dmthread');
+  if (!thread || !thread.__lastBody || thread.__lastSession !== EARLIER.session) return;
+  if (!CURRENT || CURRENT.sessionName !== EARLIER.session) return;   // mid-switch: the thread still holds the last agent's body
+  if (thread.__readFailed) return;   // the last read FAILED and the thread says so: an earlier load does not draw over it
+  paintTalkThread(thread.__lastBody, thread.__lastName);
+  paintOlderLine(thread.__lastBody, thread.__lastSession);
+}
+/* One page older, prepended. */
+async function earlierMore() {
+  if (EARLIER.loading || !EARLIER.open) return;
+  const session = EARLIER.session; const opening = EARLIER.opening;
+  EARLIER.loading = true; EARLIER.because = null; paintOlderLine(document.getElementById('d-dmthread').__lastBody, session);
+  const r = await earlierFetch(session, EARLIER.before);
+  if (EARLIER.session !== session || EARLIER.opening !== opening) return;
+  EARLIER.loading = false;
+  if (r.moved) { earlierReset(session); earlierRepaint(); return; }   // the thread changed under the page: start again
+  if (!r.ok) EARLIER.because = r.because;
+  else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; convPause(); }   // old rows are not news to read aloud
+  earlierRepaint();
+  if (!r.ok || !r.rows.length) return;
+  /* The person asked to see them: bring the first new row into view (a reader at the floor would otherwise stay
+     pinned to the newest, with the new rows off-screen above), and stop pinning until they scroll back down. */
+  const thread = document.getElementById('d-dmthread');
+  const first = thread && thread.querySelector('[data-at="' + CSS.escape(String(r.rows[0].at || '')) + '"]');
+  const rowEl = first && (first.closest('.msg') || first);
+  if (rowEl) { thread.__heldAtBottom = false; thread.scrollTop = rowEl.getBoundingClientRect().top - thread.getBoundingClientRect().top + thread.scrollTop; }   // the thread only, never the page
+  /* On the last page "Show earlier" goes: keep focus in the line, on Hide. */
+  const show = document.getElementById('d-talk-older-show');
+  if (show.hidden && (document.activeElement === show || document.activeElement === document.body)) document.getElementById('d-talk-older-hide').focus();
+}
+/* Messages at [end, olderCount) left the latest 200 while this was open: fetch them, newest pages first, and append. */
+async function earlierFillGap(session, olderCount) {
+  if (EARLIER.filling) return;
+  const opening = EARLIER.opening; const from = EARLIER.end;
+  EARLIER.filling = true;
+  const got = [];
+  let before = olderCount;
+  while (before > from) {
+    const r = await earlierFetch(session, before);
+    if (EARLIER.session !== session || EARLIER.opening !== opening) return;
+    if (r.moved) { earlierReset(session); earlierRepaint(); return; }   // the thread changed under the fill: start again
+    if (!r.ok) { EARLIER.filling = false; return; }   // the next poll tries again
+    if (!r.rows.length) { EARLIER.filling = false; return; }   // nothing came back: leave `end`, the next poll retries
+    const want = Math.min(before - from, r.rows.length);
+    got.unshift(...r.rows.slice(r.rows.length - want));
+    before -= want;
+  }
+  EARLIER.rows = EARLIER.rows.concat(got); EARLIER.end = olderCount; EARLIER.filling = false;
+  convPause();
+  earlierRepaint();
+  /* A poll that came while this ran was turned away by `filling`: check once more against the newest answer. */
+  const th = document.getElementById('d-dmthread');
+  const last = th && th.__lastSession === session ? th.__lastBody : null;
+  if (last && Array.isArray(last.messages) && (Number(last.olderCount) || 0) > EARLIER.end) earlierFillGap(session, Number(last.olderCount));
+}
+/* The line under the thread: how many older messages are kept, and the way to them. Two STATIC buttons, toggled and
+   relabelled only on change (a rebuild each poll would take a keyboard user's focus); a load in flight is
+   aria-disabled, not disabled, so the pressed button keeps focus. */
+function paintOlderLine(body, sessionName) {
+  const older = document.getElementById('d-talk-older');
+  const textEl = document.getElementById('d-talk-older-text');
+  const show = document.getElementById('d-talk-older-show');
+  const hide = document.getElementById('d-talk-older-hide');
+  if (!older || !textEl || !show || !hide || !body) return;
+  /* A FAILED latest read (messages null): the thread says so, and no count or button stands over it (review 7). */
+  if (!Array.isArray(body.messages)) { older.hidden = true; return; }
+  const shown = Array.isArray(body.messages) ? body.messages.length : 0;
+  const on = earlierOn(sessionName);
+  let text = '';
+  if (on) {
+    const n = EARLIER.rows.length;
+    text = EARLIER.because ? pjSentence(EARLIER.because)
+      : EARLIER.loading && !n ? 'Loading earlier messages\u2026'
+        : 'Showing ' + n + ' earlier and the latest ' + shown + '. '
+          + (EARLIER.before ? EARLIER.before + ' older ' + (EARLIER.before === 1 ? 'message is' : 'messages are') + ' still kept.' : 'That is the whole conversation.');
+  } else if (body.olderCount) {
+    text = 'Showing the latest ' + shown + '. ' + body.olderCount + ' older '
+      + (body.olderCount === 1 ? 'message is' : 'messages are') + ' still kept.';
+  }
+  if (textEl.textContent !== text) textEl.textContent = text;
+  const more = on ? (EARLIER.before > 0 || Boolean(EARLIER.because)) : Boolean(body.olderCount);
+  const label = on && EARLIER.because ? 'Try again' : 'Show earlier messages';
+  if (show.textContent !== label) show.textContent = label;
+  show.hidden = !more;
+  show.setAttribute('aria-disabled', on && EARLIER.loading ? 'true' : 'false');
+  hide.hidden = !on;
+  older.hidden = !text;
+}
+document.addEventListener('click', (e) => {
+  const t = e.target && e.target.closest ? e.target.closest('#d-talk-older-show, #d-talk-older-hide') : null;
+  if (!t) return;
+  const thread = document.getElementById('d-dmthread');
+  const session = thread && thread.__lastSession;
+  if (!session || !thread.__lastBody) return;
+  if (!CURRENT || CURRENT.sessionName !== session) return;   // mid-switch: the line still shows the last agent's; wait for this one's
+  if (t.id === 'd-talk-older-hide') {
+    earlierReset(session);
+    convPause();
+    earlierRepaint();
+    const show = document.getElementById('d-talk-older-show');
+    if (!show.hidden) show.focus();   // the pressed button went: focus the way back in
+    return;
+  }
+  if (t.getAttribute('aria-disabled') === 'true') return;
+  if (!earlierOn(session)) {
+    const first = Number(thread.__lastBody.olderCount) || 0;
+    if (!first) return;
+    earlierReset(session);
+    Object.assign(EARLIER, { open: true, before: first, end: first });
+  }
+  earlierMore();
+});
+
 function paintTalkThread(body, name) {
-  const allRows = Array.isArray(body.messages) ? body.messages : [];
+  /* kosmos#5841: the earlier rows, when open for the agent on screen, come first, in the same paint. */
+  /* Only over a READABLE tail: when the latest read failed, the thread says so (the branches below key on an empty
+     allRows), rather than showing old rows over a failure it hides (review 4). */
+  const tailRows = Array.isArray(body.messages) ? body.messages : [];
+  const earlierRows = CURRENT && earlierOn(CURRENT.sessionName) && Array.isArray(body.messages) ? EARLIER.rows : [];
+  const allRows = earlierRows.length ? earlierRows.concat(tailRows) : tailRows;
   /* #4256: the rows by `at` and the reply strip, for the agent this paint is for, before any branch below can
      return: an empty or unreadable thread must not keep another agent's "Replying to" strip. The first row
      with an `at` wins, as the server's lookup does. */
@@ -37865,7 +38045,7 @@ function paintTalkThread(body, name) {
   for (const r of allRows) if (r && typeof r.at === 'string' && !DM_ROWS.has(r.at)) DM_ROWS.set(r.at, r);
   DM_ROWS_OF = CURRENT ? CURRENT.sessionName : null;
   DM_ROWS_NAME = name;
-  DM_ROWS_OLDER = Number(body.olderCount) || 0;
+  DM_ROWS_OLDER = CURRENT && earlierOn(CURRENT.sessionName) ? EARLIER.before : (Number(body.olderCount) || 0);   // kosmos#5841
   DM_ROWS_OLDEST = null;
   for (const r of allRows) if (r && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;
   dmReplyPaint(DM_ROWS_OF);
@@ -37887,7 +38067,7 @@ function paintTalkThread(body, name) {
      that is genuinely mid-task the moment you open its dialog. */
   const dmSession = CURRENT && CURRENT.sessionName;
   const seededThread = dmSession ? DM_SPOKE_SEEDED.has(dmSession) : false;
-  for (const m of dmSession ? allRows : []) {
+  for (const m of dmSession && Array.isArray(body.messages) ? body.messages : []) {   // kosmos#5841: the latest only, not earlier rows
     if (!m || m.from !== dmSession || !m.at) continue;
     if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
     const at = Date.parse(m.at);
@@ -38025,6 +38205,7 @@ function paintTalkThread(body, name) {
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
+  if (EARLIER.session !== sessionName) earlierReset(sessionName);   // kosmos#5841: before any await
   /* #4256: this agent's pending reply, not the last one's, before any read answers: the read's failure arm
      returns without painting rows, and must not leave another agent's "Replying to" up. */
   dmReplyPaint(sessionName);
@@ -38116,6 +38297,7 @@ async function paintTalk(sessionName, agentName) {
   } catch (err) {
     if (mine !== TALK_LOAD) return;
     if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    { const th = document.getElementById('d-dmthread'); if (th) th.__readFailed = true; }   // kosmos#5841: earlier loads must not paint over this
     DM_CHOICES = null;   // #5406: no thread read, no choices
     DM_CHOICE_ANSWERED.delete(sessionName);
     /* ⚠️ WHERE THE PERSON IS STANDING, READ BEFORE ANYTHING HIDES OR DISABLES.
@@ -38464,14 +38646,15 @@ async function paintTalk(sessionName, agentName) {
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
   thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
+  thread.__readFailed = false;   // kosmos#5841
+  /* kosmos#5841: a thread that SHRANK below the earlier rows' end (a file set aside) would duplicate them: close. */
+  if (earlierOn(sessionName) && Array.isArray(body.messages) && (Number(body.olderCount) || 0) < EARLIER.end) earlierReset(sessionName);   // a FAILED read reports olderCount 0: not a shrink
   paintTalkThread(body, name);
 
-  const older = document.getElementById('d-talk-older');
-  older.textContent = body.olderCount
-    ? 'Showing the latest ' + rows.length + '. ' + body.olderCount + ' older '
-      + (body.olderCount === 1 ? 'message is' : 'messages are') + ' still kept.'
-    : '';
-  older.hidden = !body.olderCount;
+  paintOlderLine(body, sessionName);
+  /* kosmos#5841: messages that left the latest 200 while the earlier ones are open are fetched into them, so none
+     falls into a gap between the two. */
+  if (earlierOn(sessionName) && (Number(body.olderCount) || 0) > EARLIER.end) earlierFillGap(sessionName, Number(body.olderCount));
 
   /* --- whether it can be handed a message at all --- */
   const off = document.getElementById('d-dmoff');
@@ -60915,11 +61098,11 @@ function tskToldSentence(t, now) {
   const told = t && 'told' in t && t.told && typeof t.told.value === 'string' ? t.told : null;
   if (!v && !told) return '';
   const when = told ? (agoWords(now - Date.parse(told.at || '')) || 'just now') : '';
-  if (!told) return ' Its latest reading, \u201c' + v + '\u201d, has not been recorded as told to you.';
-  if (!v || v === told.value) return ' You were last told \u201c' + told.value + '\u201d (' + when + ')' + (v ? ', the same as its latest reading.' : '.');
+  if (!told) return ' Its latest check found \u201c' + v + '\u201d. Kosmos has no record of you being told this.';
+  if (!v || v === told.value) return ' You were last told \u201c' + told.value + '\u201d (' + when + ')' + (v ? ', the same as its latest check.' : '.');
   // Review 1: told AFTER the reading (in the agent's own words) is not "changed since": say the order as it happened.
-  if (Date.parse(told.at || '') >= Date.parse(t.verified.at || '')) return ' You were last told \u201c' + told.value + '\u201d (' + when + '), after its latest reading, \u201c' + v + '\u201d.';
-  return ' Its latest reading, \u201c' + v + '\u201d, has changed since you were last told \u201c' + told.value + '\u201d (' + when + ').';
+  if (Date.parse(told.at || '') >= Date.parse(t.verified.at || '')) return ' You were last told \u201c' + told.value + '\u201d (' + when + '), after its latest check found \u201c' + v + '\u201d.';
+  return ' Its latest check found \u201c' + v + '\u201d. You were last told \u201c' + told.value + '\u201d (' + when + ').';
 }
 /* slice 2: "Missed the run due today at 9am." or "Missed 3 runs, the latest due today at 9am.", or '' when none is. */
 function tskRepeatMissed(t) {
@@ -65824,6 +66007,9 @@ async function dmRxnToggle(forAgent, box, emoji) {
     if (!CURRENT || CURRENT.sessionName !== forAgent || !res.ok) return;
     const body = await res.json();
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
+    /* kosmos#5841: an earlier row is a kept snapshot (the poll refreshes only the latest), so the answer goes there too,
+       or the next rewrite would draw the row from before this reaction. */
+    if (earlierOn(forAgent)) { const er = EARLIER.rows.find((r) => r && r.at === at); if (er) er.reactions = Array.isArray(body.reactions) ? body.reactions : []; }
   } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
 }
 document.getElementById('d-dmthread').addEventListener('click', async (e) => {

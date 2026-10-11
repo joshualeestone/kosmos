@@ -351,7 +351,7 @@ function joinedLine(projectId, inviteId) {
   return row && row.label ? row.label + ' joined.' : 'Someone joined from outside.';
 }
 
-/** Remove a joined member: revoke its connection. The owner's next room check rotates the key (#3728, #5191). */
+/** Remove a joined member: revoke its connection. The route then has the owner's seat check the room at once (fedseats.afterRemove, #5191). */
 async function remove(remote, projectId, edgeId) {
   if (typeof edgeId !== 'string' || !edgeId) return { status: 400, body: { error: 'we could not read that request' } };
   const o = ownerLinkOf(projectId);

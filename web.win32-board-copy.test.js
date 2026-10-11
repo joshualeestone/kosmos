@@ -407,7 +407,8 @@ test('MAC UNCHANGED: the not-signed-in panel, the sentence, and the kosmos agent
 
 function abortToast(platform) {
   const slot = { dataset: {}, innerHTML: '' };
-  runPage(platform, ['paintUpdateAbort'], 'paintUpdateAbort(AB)', { AB: { count: 2 }, __byId: { 'uabort-slot': slot } });
+  // #4675: the marker always carries a reason (engine/update.js updateAbort), and the reason now chooses the Mac sentence.
+  runPage(platform, ['paintUpdateAbort'], 'paintUpdateAbort(AB)', { AB: { count: 2, reason: 'board-would-not-pause' }, __byId: { 'uabort-slot': slot } });
   return slot.innerHTML;
 }
 function engineToast(platform) {

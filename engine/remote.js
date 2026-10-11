@@ -930,8 +930,10 @@ function status() {
     written to the child's stdin and the stream closed (the #3149 `signin
     register` path pipes the session token in this way, so the 30-day credential
     never sits on argv); when it is null the child gets no stdin, exactly as
-    before -- so every existing caller is unaffected. */
-function setupRun(args, stdin = null, timeoutMs = 0) {
+    before -- so every existing caller is unaffected.
+    `opts.keepStdout` (kosmos#5744, mac-request only): a failed run's stdout is kept as `said`. Other verbs print
+    their logs there, so no other caller gets it on a failure. */
+function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
   return new Promise((resolve) => {
     let spawned;
     let timer = null;
@@ -972,10 +974,16 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
     }
     const resultFor = (code) => {
       if (code === 0) { finish({ ok: true, because: null, said: out.trim() }); return; }
-      const lines = (errOut.trim() || out.trim()).split('\n').filter(Boolean);
+      /* kosmos#5744: a {"refusal":...} line (mac-request prints one on stdout when refused) is data, never words
+         for a person, so for any verb and from either stream it is never `because`, even when stderr is empty.
+         A line of only spaces is skipped too, so it cannot be `because` either. */
+      const words = (t) => t.split('\n').filter((l) => l.trim() && !isRefusalLine(l));
+      const errLines = words(errOut.trim());
+      const lines = errLines.length ? errLines : words(out.trim());
       /* `stderr` is the WHOLE of it: a caller that must recognise a message clap prints
          across several lines (an unknown subcommand, #3660) cannot use the last line. */
-      finish({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')'), stderr: errOut, code });
+      finish({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')'), stderr: errOut, code,
+        ...(opts && opts.keepStdout ? { said: out.trim() } : {}) });
     };
     spawned.on('exit', (code) => {
       if (settled) return;
@@ -999,7 +1007,9 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
     `mac-request` verb (#718): the key stays in the tunnel binary, never here.
     A POST body goes on stdin, never argv. Resolves to
     { ok: true, data } with the coordinator's parsed JSON, or
-    { ok: false, because }. */
+    { ok: false, because }, and, when the coordinator refused it and the tunnel printed the refusal's fields
+    (kosmos#5744), `refusal: { status, code, currentEpoch }` (refusalOf). No `refusal` key from an older tunnel, an
+    outage, a timeout, a tunnel that could not start, or a request refused here before it was sent (`notSent`). */
 // A signed request is one round trip; 20 s covers a slow network and still
 // frees a caller (a Settings turn-on) stuck on a hung tunnel.
 const MAC_REQUEST_TIMEOUT_MS = 20 * 1000;
@@ -1013,6 +1023,33 @@ function holdsKey() {
   return ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(dir, f)));
 }
 const KEY_ONLY_ROUTE = '/v1/mac/standing';
+/* The one refusal that carries current_epoch (the coordinator's 400). */
+const WRONG_EPOCH_CODE = 'member_key_wrong_epoch';
+/* kosmos#5744: the `{"refusal":{"status","code","current_epoch"}}` line a failed mac-request prints on stdout, as
+   { status, code, currentEpoch }, or null when there is none (an older tunnel, an outage, a check that refused
+   before sending). Each field is checked: status a whole number 100 to 599, code letters, digits and _ (at most
+   40), currentEpoch a safe whole number of 0 or more beside WRONG_EPOCH_CODE; anything else reads as null. The
+   last JSON line on stdout is read, as for an answer (lastJsonLine). */
+function refusalOf(said) {
+  const got = lastJsonLine(said);
+  const r = got && got.value && typeof got.value === 'object' ? got.value.refusal : null;
+  if (!r || typeof r !== 'object' || !Number.isInteger(r.status) || r.status < 100 || r.status > 599) return null;
+  // The tunnel's own rule for a public code (refusal_code: letters, digits and _, at most 40).
+  const code = typeof r.code === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(r.code) ? r.code : null;
+  return {
+    status: r.status,
+    code,
+    // Only beside the code that carries it, as the tunnel keeps it: a caller can act on any currentEpoch it gets.
+    currentEpoch: code === WRONG_EPOCH_CODE && Number.isSafeInteger(r.current_epoch) && r.current_epoch >= 0 ? r.current_epoch : null,
+  };
+}
+/* A line that is a refusal object: JSON with a `refusal` key. One rule for setupRun's `because` filter and
+   refusalOf, whatever the line's spacing or key order. */
+function isRefusalLine(line) {
+  const t = String(line || '').trim();
+  if (!t.startsWith('{')) return false;
+  try { const v = JSON.parse(t); return !!v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'refusal'); } catch { return false; }
+}
 async function macRequest(method, routePath, body, opts) {
   const keyOnly = !!(opts && opts.keyOnly);
   // keyOnly opens ONE route, the report's, and nothing else, whatever a future caller passes.
@@ -1030,8 +1067,12 @@ async function macRequest(method, routePath, body, opts) {
   // out (it would sign with a key being replaced or retired), and Forget waits for
   // one already out (it carries its own bound).
   { const b = busy(); if (b) return Object.assign({}, b, { notSent: true }); }
-  const r = await tracked(setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout));
-  if (!r.ok) return { ok: false, because: r.because };
+  const r = await tracked(setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout, { keepStdout: true }));
+  if (!r.ok) {
+    // kosmos#5744: a coordinator refusal's fields, from a tunnel that prints them (an older one prints none).
+    const refusal = refusalOf(r.said);
+    return refusal ? { ok: false, because: r.because, refusal } : { ok: false, because: r.because };
+  }
   const got = lastJsonLine(r.said);
   if (got) return { ok: true, data: got.value };
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };

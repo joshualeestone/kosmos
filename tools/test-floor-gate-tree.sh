@@ -22,6 +22,11 @@
 # Mac's own OS is above the floor (otherwise an untargeted build IS at the
 # floor, and the branch says so and skips rather than passing on nothing).
 set -euo pipefail
+# kosmos#5844: this check measures the gate REFUSING a binary built above the floor. KOSMOS_ALLOW_MINOS is the gate's
+# documented override for local test builds (tools/lib/floor-gate.sh), and agents export it on a dev Mac to build the
+# bundles before test-install.sh; inherited here it certifies the planted stage and the check goes red with nothing
+# naming why. The override is the caller's, never this check's.
+unset KOSMOS_ALLOW_MINOS
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE"
 command -v swiftc >/dev/null || { echo "SKIP: no swiftc on this machine; cannot compile the probes"; exit 0; }
