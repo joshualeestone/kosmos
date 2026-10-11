@@ -872,6 +872,7 @@ async function checkRoom(projectId, link, edges, pass, askedAt, seat, askedMono)
     const at = typeof askedAt === 'function' ? askedAt() : 0;
     s.edgesCheckedAt = at > 0 ? Math.min(at, started) : started;
     // #5191: the same moment on the monotonic clock when the caller knows it (a remove compares on it).
+    // Set on every check, undefined included, so an older check's value never outlives this one.
     const am = typeof askedMono === 'function' ? askedMono() : undefined;
     s.edgesCheckedMono = typeof am === 'bigint' ? (am < startedMono ? am : startedMono) : (at > 0 ? undefined : startedMono);
   }

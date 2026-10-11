@@ -49,6 +49,9 @@ new-key posts show.
 - Between the remove and its own check answering (the room's sealing steps already queued, plus
   one request), the revoked member is still pinned and nothing is recorded yet. If its own check
   fails, the next post is held and its check asks for an answer newer than the remove.
+- A post held after a remove while a check asked before it is still out waits for the remove's
+  own check; if that check also fails, it waits for the next post's check or the 60 s pass (held,
+  never shown early).
 - The remove's moment lives on the room's seat: a seat replaced after a remove whose own check
   failed forgets it, and its first post's check may use a shared answer up to 15 s old from before
   the remove (the 90 s grace still bounds it).
