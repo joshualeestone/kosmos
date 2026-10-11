@@ -1692,11 +1692,27 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   /* #5774 route 5: another agent's config home outside ~/.claude* (its job's CLAUDE_CONFIG_DIR) is a config home like
      these: its settings, code and instruction members are what that agent starts with. One the rules cannot carry is
      named. Tests pass deps.agentConfigDirs. */
+  /* Review 2: read once per refresh pass (the pass's launchCache, which both the board-start refresh and the per-tick
+     check pass), not once per agent: N agents would otherwise read N job files each. A failure is named (never a silent
+     loss), and past 50 homes the rest are named, not listed (each home adds its members to the profile). */
   let jobHomes = [];
-  try { jobHomes = deps.agentConfigDirs !== undefined ? deps.agentConfigDirs : agentJobConfigDirs(path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir())); } catch { jobHomes = []; }
+  try {
+    if (deps.agentConfigDirs !== undefined) jobHomes = deps.agentConfigDirs;
+    else {
+      const root = path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir());
+      const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
+      const key = `#5774 route 5 job homes ${root}`;
+      if (cache && cache.has(key)) jobHomes = cache.get(key);
+      else { jobHomes = agentJobConfigDirs(root); if (cache) cache.set(key, jobHomes); }
+    }
+  } catch (e) { jobHomes = []; configUnsafe.push(`other agents' config homes (they could not be read: ${(e && e.message) || e})`); }
   if (jobHomes.unreadable) configUnsafe.push(`the agents' folder (it could not be read: ${jobHomes.unreadable}), so other agents' config homes are not found`);
+  const JOB_HOMES_MAX = 50;
+  let jobHomesTaken = 0;
   for (const h0 of jobHomes) {
-    const h = path.resolve(String(h0));
+    if (typeof h0 !== 'string' || !path.isAbsolute(h0)) continue;   // review 2: a relative configDir names no folder Kosmos can place
+    const h = path.resolve(h0);
+    if (!concreteHomes.includes(h) && ++jobHomesTaken > JOB_HOMES_MAX) { configUnsafe.push(`other agents' config homes (more than ${JOB_HOMES_MAX} outside ~/.claude*), so some are not covered`); break; }
     if (concreteHomes.includes(h)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(h)}/**)`)) { configUnsafe.push(`${h} (a config home an agent's job names, whose path the permission rules cannot carry)`); continue; }
     concreteHomes.push(h);
@@ -1770,10 +1786,35 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     const real = realOrLeaf(p);
     return wholeDenied.some((d) => [d, realOrLeaf(d)].some((x) => real === x || real.startsWith(x + path.sep)));
   };
+  // #5774 route 5 review 2: computed before the start-command scan, which reads the plugin variables from these files.
+  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget, storeRoots: deps.storeRoots });
+  configUnsafe.push(...shellStart.unsafe);
+  /* #5774 route 5: the values of the three plugin variables that reach THIS agent's Claude Code outside its settings:
+     its environment, and (review 1) the shell startup files part 2 found (the home's and each ZDOTDIR's zsh and bash
+     files), since the agent inherits the tmux server's environment, which carries the person's shell exports. Each
+     delimiter-separated part may start with $HOME (review 2); a value with any other variable in it is named. The
+     settings tiers' values are read in the start-command scan, which parses them all (startcommands.pluginVarDirs) and
+     counts those folders as covered for a folder runner inside one (review 2). */
+  const PLUGIN_VARS = startcommands.PLUGIN_VARS;
+  const envNow = deps.env || process.env;
+  const pluginVars = {};
+  for (const k of PLUGIN_VARS) if (typeof envNow[k] === 'string' && envNow[k]) (pluginVars[k] = pluginVars[k] || []).push(envNow[k]);
+  for (const f of shellStart.files.filter((x) => /(?:^|[\\/])\.(?:zshenv|zprofile|zshrc|zlogin|profile|bash_profile|bash_login|bashrc)$/.test(x))) {
+    let text = '';
+    try { const st = fs.statSync(f); if (st.isFile() && st.size <= 4194304) text = fs.readFileSync(f, 'utf8'); } catch { text = ''; }
+    for (const k of PLUGIN_VARS) {
+      if (!text.includes(k)) continue;   // review 2: most files name none of them
+      for (const v of assignmentsIn(text, k)) {
+        const plain = v === null ? null : v.split(path.delimiter).map((part) => part.replace(/^\$\{?HOME\}?(?=\/|$)/, home)).join(path.delimiter);
+        if (plain === null || plain.includes('$')) { configUnsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${f}), a plugin folder Kosmos cannot work out`); continue; }
+        (pluginVars[k] = pluginVars[k] || []).push(plain);
+      }
+    }
+  }
   // Review 11's rule for the launch scan: whatever happens in the scan, the rest of the guard is still written, and the
   // guard says it is not whole.
   let startCmds;
-  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied }); } catch (e) { startCmds = { files: [], pluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
+  try { startCmds = startcommands.startCommandScripts(dir, { homes: concreteHomes, home, ownHome, platform: deps.platform, managedDir: deps.managedDir, managedPrefsDir: deps.managedPrefsDir, covered: wholeDenied, pluginVars }); } catch (e) { startCmds = { files: [], pluginDirs: [], envPluginDirs: [], unsafe: [`(the commands Claude Code runs at start could not be read: ${(e && e.message) || e})`] }; }
   configUnsafe.push(...startCmds.unsafe);
   for (const d of startCmds.pluginDirs) {
     if (coveredWhole(d)) continue;
@@ -1782,63 +1823,23 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
-  /* #5774 route 5: the plugin folders three variables name, from the agent's environment and from EVERY settings tier's
-     env block (Claude Code reads both), parsed as 2.1.296 does: CLAUDE_CODE_PLUGIN_DIRS split on the path delimiter,
-     trimmed, ~ expanded, absolute parts only; CLAUDE_CODE_PLUGIN_CACHE_DIR one path, ~ expanded; CLAUDE_CODE_PLUGIN_SEED_DIR
-     split on the delimiter, empty parts dropped, ~ expanded. A relative cache or seed folder is read from the folder
-     Claude Code runs in, the agent's. Each is denied whole in both layers, as an installed plugin's folder is; one too
-     wide to deny (the root, or one holding the home or the agent's folder) or one the rules cannot carry is named. */
-  const envNow = deps.env || process.env;
-  const own = startCmds.settingsEnvOwn || startCmds.settingsEnvAll || {};
-  const other = startCmds.settingsEnvOther || {};
-  /* Review 1: the agent's Claude Code inherits the tmux server's environment, which carries the person's shell exports,
-     not only the board's: the home's startup files are read for these variables too (as part 2 reads XDG_*). A value
-     there that is not plain (another variable in it) is named. */
-  const PLUGIN_VARS = ['CLAUDE_CODE_PLUGIN_DIRS', 'CLAUDE_CODE_PLUGIN_CACHE_DIR', 'CLAUDE_CODE_PLUGIN_SEED_DIR'];
-  const fromFiles = {};
-  for (const fname of ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.profile', '.bash_profile', '.bash_login', '.bashrc']) {
-    let text = '';
-    try { const st = fs.statSync(path.join(home, fname)); if (st.isFile() && st.size <= 4194304) text = fs.readFileSync(path.join(home, fname), 'utf8'); } catch { text = ''; }
-    for (const k of PLUGIN_VARS) {
-      for (const v of assignmentsIn(text, k)) {
-        const plain = v === null ? null : v.replace(/^\$\{?HOME\}?(?=\/|$)/, home);
-        if (plain === null || plain.includes('$')) { configUnsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${fname}), a plugin folder Kosmos cannot work out`); continue; }
-        (fromFiles[k] = fromFiles[k] || []).push(plain);
-      }
-    }
-  }
-  // This agent's values (its environment, its startup files, its own tiers), and other accounts' homes' apart.
-  const valuesOf = (k) => [...new Set([...(typeof envNow[k] === 'string' && envNow[k] ? [envNow[k]] : []), ...(fromFiles[k] || []), ...(own[k] || [])])];
-  const otherOf = (k) => (other[k] || []).filter((v) => !valuesOf(k).includes(v));
-  // Review 1: ~ then the path separator (~/ everywhere, ~\ on Windows).
-  const tilde = (v) => (v === '~' || v.startsWith('~/') || (path.sep === '\\' && v.startsWith('~\\')) ? path.join(home, v.slice(1)) : v);
-  const envPluginDirs = [];
-  const splitDirs = (v) => v.split(path.delimiter).map((part) => tilde(part.trim())).filter((t) => t && path.isAbsolute(t)).map((t) => path.resolve(t));
-  for (const v of [...valuesOf('CLAUDE_CODE_PLUGIN_DIRS'), ...otherOf('CLAUDE_CODE_PLUGIN_DIRS')]) envPluginDirs.push(...splitDirs(v));
-  // A relative cache or seed folder is read from the folder Claude Code runs in: this agent's for its own values; another
-  // account's relative value resolves under ITS agent's folder, which is not known here, so only its absolute ones count.
-  const cacheOrSeed = (vals, relativeOk) => { for (const v of vals) { const t = tilde(v); if (t && (relativeOk || path.isAbsolute(t))) envPluginDirs.push(path.resolve(dir, t)); } };
-  cacheOrSeed(valuesOf('CLAUDE_CODE_PLUGIN_CACHE_DIR'), true);
-  cacheOrSeed(otherOf('CLAUDE_CODE_PLUGIN_CACHE_DIR'), false);
-  const seeds = (vals) => vals.flatMap((v) => v.split(path.delimiter).filter(Boolean));
-  cacheOrSeed(seeds(valuesOf('CLAUDE_CODE_PLUGIN_SEED_DIR')), true);
-  cacheOrSeed(seeds(otherOf('CLAUDE_CODE_PLUGIN_SEED_DIR')), false);
+  /* #5774 route 5: each plugin folder the three variables name (parsed in the scan), denied whole in both layers, as an
+     installed plugin's folder is. One too wide to deny (the root, or one holding the home, the agent's folder, the temp
+     folder, Kosmos's data or a config home Claude Code writes) or one the rules cannot carry is named. */
   const homeRealP = realOrLeaf(home), dirRealP = realOrLeaf(dir);
-  // Review 1: also the temp folder and Kosmos's data folder: a sandbox deny over either would quietly break the shell.
   const tmpRealP = realOrLeaf(deps.tmpDir || require('os').tmpdir());   // tests pass deps.tmpDir
   const dataRealP = deps.dataRoot ? realOrLeaf(deps.dataRoot) : null;
+  const homesRealP = concreteHomes.map((h) => realOrLeaf(h));
   const holdsP = (r, x) => x === r || x.startsWith(r + path.sep);
-  for (const d of new Set(envPluginDirs)) {
+  for (const d of new Set(startCmds.envPluginDirs || [])) {
     if (coveredWhole(d)) continue;
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
     const r = realOrLeaf(d);
-    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || (dataRealP && holdsP(r, dataRealP))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder or Kosmos's data)`); continue; }
+    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || (dataRealP && holdsP(r, dataRealP)) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data or a config home)`); continue; }
     const both = withTarget(d, configUnsafe);
     pluginDirs.push(...both);
     wholeDenied.push(...both);
   }
-  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget, storeRoots: deps.storeRoots });
-  configUnsafe.push(...shellStart.unsafe);
   /* Review 9: a target the user cannot write (a read-only store such as /nix/store, whose hashed names change at every
      home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A
      path that is not there yet is kept: the agent could create it. */

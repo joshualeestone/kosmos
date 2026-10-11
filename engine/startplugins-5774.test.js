@@ -185,3 +185,32 @@ test('#5774 route 5 review 1: the startup files, other accounts\' homes, the run
   assert.ok(JSON.stringify(g5).includes('other agents\' config homes are not found'), JSON.stringify(g5));
 });
 
+
+test('#5774 route 5 review 2: "$HOME/a:$HOME/b" is read part by part; a runner inside a plugin folder a variable names is covered by its deny', () => {
+  const zshenv = path.join(HOME, '.zshenv');
+  fs.writeFileSync(zshenv, `export CLAUDE_CODE_PLUGIN_DIRS="$HOME/pa${path.delimiter}$HOME/pb"\n`);
+  try {
+    const d = agentDir('pilot-twohomes');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-twohomes', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    for (const n of ['pa', 'pb']) assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, n, 'x')).length > 0, n);
+  } finally { fs.rmSync(zshenv, { force: true }); }
+  // A hook that runs a package program inside a plugin folder: named as a package runner unless that folder is denied whole.
+  const plug = path.join(SANDBOX, 'dev-plug');
+  const tool = path.join(plug, 'node_modules', '.bin', 'tool');
+  touch(tool);
+  const st = path.join(HOME, '.claude', 'settings.json');
+  writeJson(st, { hooks: { Stop: [{ hooks: [{ type: 'command', command: tool }] }] } });
+  try {
+    const d = agentDir('pilot-plugrunner');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-plugrunner', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_DIRS: plug } });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(plug, 'node_modules', 'x.js')).length > 0, 'the plugin folder');
+  } finally { fs.rmSync(st, { force: true }); }
+});
+
+test('#5774 route 5 review 2: a plugin folder that is (or holds) a config home is too wide to deny: Claude Code writes there', () => {
+  const g = setup.guardTokenOnlyFolder(agentDir('pilot-plughome'), 'pilot-plughome', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: path.join(HOME, '.claude-acct') } });
+  assert.equal(g.ok, false);
+  assert.ok(JSON.stringify(g).includes('.claude-acct (a plugin folder a Claude Code variable names, too wide'), JSON.stringify(g));
+});

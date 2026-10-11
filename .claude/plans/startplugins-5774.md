@@ -17,6 +17,7 @@
 - `engine/startcommands.js` also returns every value each settings tier gives a variable (not only the agreed ones), with this agent's own tiers and other accounts' homes apart. The three plugin variables are read from this agent's environment, from the home's shell startup files (review 1: the agent's Claude Code inherits the tmux server's environment, which carries shell exports; a value with another variable in it is named), from this agent's own tiers, and from other accounts' homes (absolute values only there: a relative one resolves under that account's agent folder, which is not known here). They are parsed as Claude Code parses them. Each folder is denied whole in both layers, links followed, as part 2's folders are. A folder too wide to deny, or one the rules cannot carry, is named.
 
 ## Gaps, stated
+- The shell startup files read are part 2's zsh and bash files (the home's and each ZDOTDIR's), on top-level lines only, as part 2 reads its assignments: fish (`set -x`) and nushell syntax, and an export inside an `if` or a function, are not read (review 2).
 - The tmux server's own environment is not read (asking tmux at every refresh is a process per refresh); the shell startup files are, which is where such an export is usually set.
 - A hook's `$VAR` is expanded with every tier's agreed value, other accounts' homes included (part 1's rule, kept on purpose: a hook in a home expands with THAT home's env). The job homes add tiers, so a variable two homes set differently makes a hook that uses it named, not whole: fails closed. Expanding each home's hooks with that home's own env is the fix, a change of its own (review 1).
 - A job's config home is listed whether or not it exists, and like every guard rule it is never pruned; a removed agent's job file goes with it, so only a moved account leaves its old home's rules behind.
@@ -27,7 +28,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 4 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
+engine/startplugins-5774.test.js, 6 tests, using the production job reader against a job file written into a sandboxed launch folder. Nine mutations, each red:
 - each of the three variables dropped;
 - a relative CLAUDE_CODE_PLUGIN_DIRS part kept;
 - no ~ expansion;
@@ -47,4 +48,15 @@ engine/startplugins-5774.test.js, 4 tests, using the production job reader again
   - [NIT] TAKEN. An agents' folder that cannot be read is named. Tested; mutation red.
   - [NIT] STATED under Gaps: a job home is listed whether or not it exists.
   - [NIT] TAKEN: tests for the runner filter (a codex job's home is not a Claude config home), an uncarriable job home, and a linked plugin folder (its target in both layers). Two mutations red.
+- Iteration 2 (Sonnet), on 5ae061684 (rebased onto main after #5837):
+  - [WARNING] FIXED. `export CLAUDE_CODE_PLUGIN_DIRS="$HOME/a:$HOME/b"` kept the second $HOME and was named: a false not-whole. $HOME is now replaced at the start of each delimiter-separated part. Tested; mutation red.
+  - [WARNING] FIXED. The plugin folders the variables name were counted as covered only AFTER the start-command scan judged its folder runners, so a package runner inside such a folder (a dev plugin checkout's node_modules/.bin tool named by a hook) was named: a false not-whole. The variables are now gathered first (environment and startup files) and parsed inside the scan (startcommands.pluginVarDirs) with the settings tiers' values, and those folders are covered for its runners. Tested; mutation red.
+  - [WARNING] FIXED. The job homes were read once per agent per refresh (N agents, N job files each). They are read once per pass, kept in the pass's launchCache (both the board-start refresh and the per-tick check pass one). Past 50 homes outside ~/.claude* the rest are named (each adds its members to the profile).
+  - [WARNING] FIXED. A failure reading the job homes is named, not swallowed.
+  - [WARNING] STATED under Gaps: fish and nushell syntax, and indented or conditional exports. The startup files are now part 2's own list (the home's and each ZDOTDIR's zsh and bash files), so the two cannot drift.
+  - [NIT] TAKEN: a file is checked for the variable's name before it is parsed.
+  - [NIT] TAKEN: a plugin folder that is or holds a config home (which Claude Code writes) is too wide. Tested; mutation red.
+  - [NIT] TAKEN: a relative job configDir is skipped.
+  - [NIT] not taken: ownHome. When it is not passed the agent is on the default account, whose home is ~/.claude (the fallback).
+  - [NIT] not taken: the $ check after assignmentsIn rejects single-quoted values is a harmless double filter.
 

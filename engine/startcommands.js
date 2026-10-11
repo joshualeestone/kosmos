@@ -785,7 +785,24 @@ function pluginConfigFiles(dir) {
  * folder; runFiles are those named where something runs), the installed plugin folders (whose own code runs, wherever they sit; never the agent folder, a folder above
  * it or the home), and what could not be worked out.
  */
-function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, managedDir: md, managedPrefsDir, covered = [] } = {}) {
+/* #5774 route 5: the three variables that name plugin folders, and the folders their values name, parsed as Claude Code
+   2.1.296 does (measured in its bundle): CLAUDE_CODE_PLUGIN_DIRS split on the path delimiter, each part trimmed with a
+   leading ~ expanded, absolute parts only; CLAUDE_CODE_PLUGIN_CACHE_DIR one path, ~ expanded; CLAUDE_CODE_PLUGIN_SEED_DIR
+   split on the delimiter, empty parts dropped, ~ expanded. A relative cache or seed folder is read from the folder
+   Claude Code runs in (the agent's), so `relativeOk` is false for values from another account's home, whose agent
+   folder is not known here: only their absolute folders count. */
+const PLUGIN_VARS = ['CLAUDE_CODE_PLUGIN_DIRS', 'CLAUDE_CODE_PLUGIN_CACHE_DIR', 'CLAUDE_CODE_PLUGIN_SEED_DIR'];
+function pluginVarDirs(values, agentDir, home, relativeOk) {
+  const sep = path.sep;
+  const tilde = (v) => (v === '~' || v.startsWith('~/') || (sep === '\\' && v.startsWith('~\\')) ? path.join(home, v.slice(1)) : v);   // ~\ on Windows: not measured
+  const out = [];
+  for (const v of values.CLAUDE_CODE_PLUGIN_DIRS || []) for (const part of v.split(path.delimiter)) { const t = tilde(part.trim()); if (t && path.isAbsolute(t)) out.push(path.resolve(t)); }
+  const cacheOrSeed = (t) => { if (t && (relativeOk || path.isAbsolute(t))) out.push(path.resolve(agentDir, t)); };
+  for (const v of values.CLAUDE_CODE_PLUGIN_CACHE_DIR || []) cacheOrSeed(tilde(v));
+  for (const v of values.CLAUDE_CODE_PLUGIN_SEED_DIR || []) for (const part of v.split(path.delimiter)) if (part) cacheOrSeed(tilde(part));
+  return out;
+}
+function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, managedDir: md, managedPrefsDir, covered = [], pluginVars = {} } = {}) {
   const runnerSeen = [];   // folder runners, decided once the plugin folders are known
   const agentDir = path.resolve(dir);
   const raw = [];
@@ -825,6 +842,16 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   const settingsEnvAll = strings(envValues);
   const settingsEnvOther = strings(envOther);
   const settingsEnvOwn = strings(envOwn);
+  /* #5774 route 5: the plugin folders the three variables name: this agent's values (the caller's environment and shell
+     files, and its own tiers) with relative cache and seed folders read from its folder, and other accounts' homes'
+     absolute ones. Counted as covered below (review 2: a folder runner inside one is covered by its whole-folder deny). */
+  const homeDir = home || require('os').homedir();
+  const ownVals = {}, otherVals = {};
+  for (const k of PLUGIN_VARS) {
+    ownVals[k] = [...new Set([...(pluginVars[k] || []), ...(settingsEnvOwn[k] || [])])];
+    otherVals[k] = (settingsEnvOther[k] || []).filter((v) => !ownVals[k].includes(v));
+  }
+  const envPluginDirs = [...new Set([...pluginVarDirs(ownVals, agentDir, homeDir, true), ...pluginVarDirs(otherVals, agentDir, homeDir, false)])];
   // Shell variables for reading the commands, not an environment for a child (so not engine/win32env.js's business).
   // Review 11: no PWD: a hook runs in the session's current folder, which the agent moves.
   // Review 9: the login's own name and temp folder, which hooks see unchanged.
@@ -905,7 +932,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
      plugin's own folder, a config home's code folders): then the code it reads there is covered. */
   // Each as written and where it really is (review 27: the real path of a runner's folder is compared below).
   const realDir = (d) => { try { return fs.realpathSync.native(d); } catch { return d; } };
-  const coveredDirs = [...new Set([...covered, ...plugins.map((p) => p.dir)].map((d) => path.resolve(d)).flatMap((d) => [d, realDir(d)]))];
+  const coveredDirs = [...new Set([...covered, ...plugins.map((p) => p.dir), ...envPluginDirs].map((d) => path.resolve(d)).flatMap((d) => [d, realDir(d)]))];
   const inCovered = (w) => coveredDirs.some((d) => w === d || w.startsWith(d + path.sep));
   // Review 27: and where it really is, so a linked folder inside a covered one that points out is not covered by it.
   const isCovered = (w) => {
@@ -918,7 +945,7 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
     if (isCovered(x.where)) continue;
     unsafe.push(`${x.say || runnerSay(x.name, x.place)} (in ${x.from})`);
   }
-  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], settingsEnvAll, settingsEnvOwn, settingsEnvOther, unsafe: [...new Set(unsafe)] };
+  return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.map((p) => p.dir))], settingsEnvAll, settingsEnvOwn, settingsEnvOther, envPluginDirs, unsafe: [...new Set(unsafe)] };
 }
 
-module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES };
+module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS, pluginVarDirs };
