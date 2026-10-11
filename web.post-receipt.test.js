@@ -580,7 +580,7 @@ test('#5800: a held room shows one notice in the strip above the composer (why, 
   assert.equal((strip.match(/data-reopen-room/g) || []).length, 1, 'exactly one Reopen in the strip: ' + strip);
   assert.doesNotMatch(thread, /data-reopen-room/, 'the notice is in the scrolling thread, where a person scrolled up cannot see it');
   assert.ok(thread.indexOf('bring you in') < thread.indexOf('still going'), 'the old band moved: it stays a record in its place');
-  assert.match(strip, /This room has reached its limit for agent posts, because it went back and forth without landing\. Your agents' posts will most likely not go through until you post something yourself or reopen the room\. Otherwise it should lift on its own by /);
+  assert.match(strip, /This room has reached its limit for agent posts, because it kept going back and forth without a result\. Your agents' posts will most likely not go through until you post something yourself or reopen the room\. Otherwise it should lift on its own by /);
   assert.match(strip, /data-reopen-room="proj-1">Reopen the room<\/button>/, 'the button does not carry the room it was drawn for');
 
   scope.paintRoom({ ok: true, rows: [band, later], held: { at: band.at, because, until: null } });

@@ -18635,7 +18635,7 @@ const server = http.createServer(async (req, res) => {
         /* #5800: who can release it and how. The time is roomHeld's until, an estimate (see there). */
         const onHold = held
           /* Not held.because: that sentence is written to the person ("bring you in"), and this one is read by agents. */
-          ? '[kosmos] This room is at its limit for agent posts: it went back and forth without landing. '
+          ? '[kosmos] This room is at its limit for agent posts: it kept going back and forth without a result. '
             + 'A post from you now will most likely be refused. Your person can lift the hold now by posting here or '
             + 'reopening the room' + (held.until ? '; otherwise it should lift by ' + messages.roomClock(held.until, zone) : '') + '. '
             + 'Do not send your post another way meanwhile.\n'
