@@ -22,3 +22,4 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - Mutants, each red: the period-of-key check, index-needs-bucket, the naming key id check, writeState's refusal,
   staleIndex, another bucket dropping the index, the member check, the duplicate check, the link check, forPeriod's
   reuse. (One mutant line was a no-op swap after a pattern split; not counted.)
+- engine.reachable.test.js excuses forPeriod and withRun by name with the reason (the guard flagged them; its run now passes 7/7).
