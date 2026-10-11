@@ -120,7 +120,9 @@ test('with a rolled-over file present the run is refused: nothing written, nothi
   assert.equal(s.refused, 'rolled-over');
   assert.equal(s.rolledOver, 1);
   assert.equal(s.continued, 1);
-  assert.deepEqual(s.signs.slice().sort(), [ASIDE, 'direct..p.json'].sort(), 'the files behind the two counts are named');
+  assert.deepEqual(s.rolledOverFiles, [ASIDE], 'the file behind the first count is named');
+  assert.deepEqual([s.rolledOver, s.continued], [s.rolledOverFiles.length, s.continuedFiles.length], 'a count disagrees with its list');
+  assert.deepEqual(s.continuedFiles, ['direct..p.json'], 'the file behind the second count is named');
   assert.deepEqual(s.written, []);
   assert.deepEqual(s.pruned, []);
   assert.equal(s.days, 0);
@@ -158,6 +160,7 @@ test('a fresh file that names an earlier one but is itself damaged still refuses
     const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
     assert.equal(s.refused, 'rolled-over', label);
     assert.deepEqual([s.rolledOver, s.continued, s.conversations], [0, 1, 0], label);
+    assert.deepEqual([s.rolledOverFiles, s.continuedFiles], [[], ['direct..p.json']], label + ': the damaged file is named once');
     assert.deepEqual(dayFiles(outDir), Object.keys(before).sort().map((d) => d + '.md'), label + ': days were pruned');
   };
   mk('dmg-list', JSON.stringify({ continues: ASIDE, messages: 'nope' }));
@@ -235,10 +238,11 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  assert.match(no.stderr, /^dailylog: not compiled\. Nothing was written or removed/);
-  assert.match(no.stderr, /no\s+version of it can yet/, 'the message promises a version that does not exist');
-  assert.ok(no.stderr.includes('The files it stopped at:\n  ' + ASIDE + '\n'), 'the file that caused the refusal is not named: ' + no.stderr);
-  assert.match(no.stderr, /move it out of the chats folder and run this again/);
+  assert.match(no.stderr, /^dailylog: not compiled\. Nothing was written or removed\. The daily files made before are still there/);
+  assert.match(no.stderr, /No version of this tool can yet\./, 'the message promises a version that does not exist');
+  assert.ok(no.stderr.includes('(the name ends in .full):\n  ' + JSON.stringify(ASIDE) + '\n'), 'the file that caused the refusal is not named: ' + no.stderr);
+  assert.ok(!no.stderr.includes('Leave these where they are'), 'it listed conversations that point to an earlier part when there are none');
+  assert.match(no.stderr, /If a file in the first list is not a Kosmos file .* move it out of the chats folder and run this again\. Otherwise there is nothing to do here\./);
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
   const other = path.join(SANDBOX, 'elsewhere');
@@ -246,12 +250,37 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.equal(day.status, 3);
   assert.equal(day.stdout, '');
   assert.equal(day.stderr, no.stderr, 'a targeted run was refused in different words');
-  // more files than the message lists: the rest are counted, not dropped silently
-  for (let i = 0; i < 12; i += 1) fs.writeFileSync(path.join(chatsDir, 'proj1.k' + i + '.json.x.full'), '{}');
+  // more files than the message lists: the rest are counted, not dropped silently, and the order is the names' own
+  for (let i = 0; i < 12; i += 1) fs.writeFileSync(path.join(chatsDir, 'proj1.k' + String(i).padStart(2, '0') + '.json.x.full'), '{}');
   const many = run();
   assert.equal(many.status, 3);
-  assert.equal(many.stderr.split('\n').filter((l) => /^  \S+\.full$/.test(l)).length, 10);
+  const listed = many.stderr.split('\n').filter((l) => /^  ".*\.full"$/.test(l));
+  assert.equal(listed.length, 10);
+  assert.deepEqual(listed, listed.slice().sort(), 'the names are not in a stable order');
   assert.match(many.stderr, /^  and 3 more$/m);
+  // the live conversation file is never among the files a person is told they might move
+  fs.writeFileSync(path.join(chatsDir, 'direct..p.json'), JSON.stringify({ continues: ASIDE, carried: 1, messages: [WHOLE[3]] }));
+  const both = run();
+  const [first, second] = both.stderr.split('Conversations that point to an earlier part. Leave these where they are:\n');
+  assert.ok(second !== undefined, 'the conversation that points to an earlier part is not listed apart: ' + both.stderr);
+  assert.ok(!first.includes('"direct..p.json"'), 'the live conversation file is in the list of files to consider moving');
+  assert.ok(second.startsWith('  "direct..p.json"\n'));
+  // only the second sign: nothing to move, and no "first list" to speak of
+  for (const n of fs.readdirSync(chatsDir)) if (n.endsWith('.full')) fs.rmSync(path.join(chatsDir, n));
+  const only = run();
+  assert.equal(only.status, 3);
+  assert.ok(!only.stderr.includes('first list') && !only.stderr.includes('ends in .full'), only.stderr);
+  assert.match(only.stderr, /Leave these where they are:\n  "direct\.\.p\.json"\nThere is nothing to do here\.\n$/);
+  // a file name is somebody's bytes: a newline or a terminal escape in one cannot forge a line or reach the terminal
+  const nasty = 'proj1.k.json.\u001b]0;TITLE\u0007\nFiles named as.full';
+  let made = true;
+  try { fs.writeFileSync(path.join(chatsDir, nasty), '{}'); } catch { made = false; }   // some filesystems refuse such a name
+  if (made) {
+    const esc = run();
+    assert.equal(esc.status, 3);
+    assert.ok(!esc.stderr.includes('\u001b') && !esc.stderr.includes('\u0007'), 'a control character from a file name reached the output');
+    assert.ok(esc.stderr.includes('  ' + JSON.stringify(nasty) + '\n'), 'the odd name is not shown escaped, on one line');
+  }
 });
 
 test('pin (convention 5): where chat.js puts an aside, and, once the rollover is in the tree, the signs it writes and follows', () => {

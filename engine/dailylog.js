@@ -316,10 +316,12 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *     A FOLDER with such a name is not counted.
  *   - `continued` counts thread files that NAME an earlier file (`continues`),
  *     INCLUDING one that names it but is otherwise not a readable conversation
- *     (cut short, or its messages are not a list).
- *   - `signs` lists the file names behind those two counts, for the refusal to show. That is the same fact read from the other side, and it still
- *     shows when the `.full` file is not in the listing: moved away by a person,
- *     or created by a rollover that landed after the folder was listed.
+ *     (cut short, or its messages are not a list). It is the same fact read from
+ *     the other side, and it still shows when the `.full` file is not in the
+ *     listing: moved away by a person, or created by a rollover that landed
+ *     after the folder was listed.
+ *   - `rolledOverFiles` and `continuedFiles` are the file names behind those two
+ *     counts, each sorted, for the refusal to show.
  *   - `readable` is true ONLY if the directory LISTING succeeded. A failed
  *     listing (permissions, a transient error, a wrong root, the dir absent)
  *     means "could not read the source", which is NOT "the source is empty".
@@ -335,17 +337,16 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
 function readConversations(chatsDir) {
   let names;
   try { names = fs.readdirSync(chatsDir); }
-  catch { return { conversations: [], readable: false, readErrors: 0, rolledOver: 0, continued: 0, signs: [] }; }
+  catch { return { conversations: [], readable: false, readErrors: 0, rolledOver: 0, continued: 0, rolledOverFiles: [], continuedFiles: [] }; }
   const out = [];
   let readErrors = 0;
-  let rolledOver = 0;
-  let continued = 0;
-  const signs = [];
+  const rolledOverFiles = [];
+  const continuedFiles = [];
   for (const name of names) {
     if (isRolledOverFileName(name)) {
       let isDir = false;
       try { isDir = fs.statSync(path.join(chatsDir, name)).isDirectory(); } catch { /* cannot tell: count it, the safe way */ }
-      if (!isDir) { rolledOver += 1; signs.push(name); }
+      if (!isDir) rolledOverFiles.push(name);
       continue;
     }
     const desc = parseChatFileName(name);
@@ -355,19 +356,24 @@ function readConversations(chatsDir) {
     catch { readErrors += 1; continue; }
     let parsed;
     try { parsed = JSON.parse(raw); }
-    catch { if (NAMES_AN_EARLIER_FILE.test(raw)) { continued += 1; signs.push(name); } continue; }
-    if (parsed && typeof parsed.continues === 'string' && parsed.continues) { continued += 1; signs.push(name); }
+    catch { if (NAMES_AN_EARLIER_FILE.test(raw)) continuedFiles.push(name); continue; }
+    if (parsed && typeof parsed.continues === 'string' && parsed.continues) continuedFiles.push(name);
     if (!parsed || !Array.isArray(parsed.messages)) continue;
     out.push({ desc, parsed });
   }
-  return { conversations: out, readable: true, readErrors, rolledOver, continued, signs };
+  rolledOverFiles.sort();
+  continuedFiles.sort();
+  return {
+    conversations: out, readable: true, readErrors,
+    rolledOver: rolledOverFiles.length, continued: continuedFiles.length, rolledOverFiles, continuedFiles,
+  };
 }
 
 /**
  * Compile the daily logs. Reads `chatsDir`, writes one `<day>.md` per day into
  * `outDir` (created if absent). Returns a summary. A run can be REFUSED
- * (kosmos#5855): then `refused` says why, `rolledOver`, `continued` and `signs`
- * say what was seen, and nothing was written or pruned. `onlyDay` restricts the write
+ * (kosmos#5855): then `refused` says why, `rolledOver`, `continued` and the two
+ * `...Files` lists say what was seen, and nothing was written or pruned. `onlyDay` restricts the write
  * to a single day (a targeted run); by default every day found is written.
  * `dayOf`/`timeOf`/`misrouteCountForDay` are injectable for deterministic tests
  * (`misrouteCountForDay(dayStr)` -> the per-day #3224 count, default derives the
@@ -389,7 +395,7 @@ function compileAll(opts = {}) {
   const misrouteCountForDay = opts.misrouteCountForDay || defaultMisrouteCountForDay;
   const confirmedNewCountForDay = opts.confirmedNewCountForDay || defaultConfirmedNewCountForDay;
 
-  const { conversations, readable, readErrors, rolledOver, continued, signs } = readConversations(chatsDir);
+  const { conversations, readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles } = readConversations(chatsDir);
 
   /* 🛑 kosmos#5855 FAIL CLOSED: this compiler does not read `.full` files. From the current files alone it would
      REWRITE a day that straddles a rollover with only the rows the fresh file carried, and PRUNE every day whose rows
@@ -399,7 +405,7 @@ function compileAll(opts = {}) {
   if (rolledOver > 0 || continued > 0) {
     return {
       conversations: conversations.length, messages: 0, days: 0, written: [], pruned: [], undated: 0,
-      readable, readErrors, rolledOver, continued, signs, refused: REFUSED_ROLLED_OVER, outDir,
+      readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles, refused: REFUSED_ROLLED_OVER, outDir,
     };
   }
 
@@ -460,7 +466,8 @@ function compileAll(opts = {}) {
     readErrors,
     rolledOver,
     continued,
-    signs,
+    rolledOverFiles,
+    continuedFiles,
     refused: null,
     outDir,
   };
@@ -490,7 +497,7 @@ module.exports = {
 if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
     + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
-    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while a conversation whose earlier part is kept in a separate file is present\n`;
+    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file named as the earlier part of a conversation (ending .full) or a conversation that points to one\n`;
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};
@@ -522,17 +529,23 @@ if (require.main === module) {
   if (summary.refused) {
     // kosmos#5855: say it on stderr, print no success line, and exit non-zero, so a scheduled run cannot read as
     // "compiled, nothing new".
+    // A file name is somebody's bytes: shown quoted and escaped (JSON), so one with a newline or a terminal escape in
+    // it cannot forge a line of this message or drive the terminal.
     const MAX_SHOWN = 10;
-    const shown = summary.signs.slice(0, MAX_SHOWN).map((n) => `  ${n}\n`).join('')
-      + (summary.signs.length > MAX_SHOWN ? `  and ${summary.signs.length - MAX_SHOWN} more\n` : '');
-    process.stderr.write('dailylog: not compiled. Nothing was written or removed: the daily files already there are '
-      + 'left as they are, and so are the conversations.\n'
-      + 'The chats folder holds a file that is the earlier part of a long conversation (its name ends in .full), or '
-      + 'a conversation file that points to one. This tool cannot read a conversation kept in two files, and no '
-      + 'version of it can yet. The files it stopped at:\n'
-      + shown
-      + 'If one of these is not a Kosmos file (a copy someone made, say), move it out of the chats folder and run '
-      + 'this again.\n');
+    const list = (names) => names.slice(0, MAX_SHOWN).map((n) => `  ${JSON.stringify(n)}\n`).join('')
+      + (names.length > MAX_SHOWN ? `  and ${names.length - MAX_SHOWN} more\n` : '');
+    const earlier = summary.rolledOverFiles;
+    const pointing = summary.continuedFiles;
+    process.stderr.write('dailylog: not compiled. Nothing was written or removed. The daily files made before are '
+      + 'still there, as they were, and so are the conversations.\n'
+      + 'Why: Kosmos keeps a very long conversation in two files, and this tool cannot read one kept that way. No '
+      + 'version of this tool can yet.\n'
+      + (earlier.length ? 'Files named as the earlier part of a conversation (the name ends in .full):\n' + list(earlier) : '')
+      + (pointing.length ? 'Conversations that point to an earlier part. Leave these where they are:\n' + list(pointing) : '')
+      + (earlier.length
+        ? 'If a file in the first list is not a Kosmos file (a copy someone made, say), move it out of the chats '
+          + 'folder and run this again. Otherwise there is nothing to do here.\n'
+        : 'There is nothing to do here.\n'));
     process.exit(EXIT_REFUSED);
   }
   process.stdout.write(
