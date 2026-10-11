@@ -291,8 +291,14 @@ function appendEnded(sessionName) {
    every revoke and create. */
 function noteEnded(sessionName, opts = {}) {
   try {
-    const held = withFileLock(endedLogFile(), () => { appendEnded(sessionName); if (opts.compact !== false) compactEnded(); }, {
+    const held = withFileLock(endedLogFile(), () => {
+      const lockedAt = Date.now();
+      appendEnded(sessionName);
+      if (opts.compact !== false) compactEnded({ lockedAt });
+    }, {
       busy: 'the history of ended agents is busy', cannotAccess: 'we could not lock the history of ended agents',
+      // A caller holding another lock (revokeIfUnchanged, under the session lock) waits only briefly, then appends unlocked.
+      ...(opts.compact === false ? { waitMs: 200 } : {}),
     });
     if (!held.ok) appendEnded(sessionName);
     return true;
@@ -306,7 +312,9 @@ function noteEnded(sessionName, opts = {}) {
    (or at it), so for each name only its NEWEST line can decide an answer, for every `since`, strict or inclusive.
    Keeping the newest line per exact name (by the largest `at`) changes no answer under any slug rule, since one exact
    name always has one slug. The history then grows with distinct names (not capped), not with events.
-   HOW (compactEnded), so that no end is lost to this build or to an older one that reads only the live file:
+   HOW (compactEnded), so that no end is lost to this build, and none to an older one that reads only the live file
+   except the residuals the plan names (a line that reaches a replaced file after its put-back read, or that is torn
+   when read, is in a sealed file only until the next compaction folds it):
    1. the sealed files and the live file are read and folded; anything it cannot read whole stops it here;
    2. the fold is written to a temp file in ENDED_DIRNAME and FLUSHED to disk;
    3. if the live file is still the file that was read (device, inode and birth time), it is hard-linked to a new sealed name (so the file about to be
@@ -392,8 +400,8 @@ function compactEnded(opts = {}) {
        for another `atBytes` of growth instead of folding the whole history on every end (a torn line, an unreadable
        file, a flush or a rename that keeps failing, no hard links). */
     const gaveUp = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
-    // 1. Read and fold. Any failure leaves every file as it was.
-    const startedAt = Date.now();
+    // 1. Read and fold. Any failure leaves every file as it was. Budgets count from when the lock was taken, if known.
+    const startedAt = Number.isFinite(opts.lockedAt) ? opts.lockedAt : Date.now();
     const read = [];
     let liveText;
     try {
@@ -463,6 +471,14 @@ function compactEnded(opts = {}) {
       try { fs.unlinkSync(tmp); } catch { /* none */ }
       return gaveUp({ compacted: false });
     }
+    /* And the clock, last thing before the rename: a machine that slept after the link may have let the lock go stale
+       and another compaction run; renaming over its file would orphan what reached that file. */
+    if (Date.now() - startedAt > COMPACT_TOTAL_BUDGET_MS) {
+      try { fs.unlinkSync(sealedPath); } catch { /* still read; harmless */ }
+      try { fs.unlinkSync(tmp); } catch { /* none */ }
+      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: compacting the history of ended agents took over ' + COMPACT_TOTAL_BUDGET_MS + ' ms, so it is not compacted this time (' + endedDir() + ')'); }
+      return gaveUp({ compacted: false });
+    }
     try { fs.renameSync(tmp, live); } catch {
       // The live file is untouched; drop the extra name for it (the data stays under the live name) and the temp.
       try { fs.unlinkSync(sealedPath); } catch { /* still read; harmless */ }
@@ -480,6 +496,9 @@ function compactEnded(opts = {}) {
        file would make every removal refuse for good. Its rest lands in the sealed file, which is read, and the next
        compaction folds it once whole. */
     extra = extra.slice(0, extra.lastIndexOf('\n') + 1);
+    // And only text that reads whole (a replaced file edited in place could hold a torn line mid-way): otherwise it stays
+    // in the sealed file alone, which this build reads.
+    if (extra && newestPerName([extra]) === null) extra = '';
     if (extra) {
       // The live file is already replaced; a failure here leaves the line in the sealed file, which this build reads.
       try {

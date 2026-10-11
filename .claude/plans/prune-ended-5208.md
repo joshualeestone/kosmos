@@ -36,8 +36,10 @@ endedSince's only reader is the token-only removal check (Angel confirmed).
 ## Weakest premise
 That endedSince stays the only reader and keeps "any line after since" semantics. Residuals, all needing an unlocked
 append or a stolen lock at the same instant: a line appended to the replaced file after step 4's read reaches only the
-sealed file (this build reads it for an hour; an older build does not); and a compaction that slept between its inode
-check and its rename can replace a newer live file (the replaced file is still linked, so this build reads it).
+sealed file (this build reads it for an hour; an older build does not); and a compaction that slept in the instant
+between its last checks (identity, then time) and its rename can replace a newer live file, and the ends appended to
+THAT file are then orphaned (fail open, for both builds). The time and identity checks sit immediately before the
+rename to make that instant as small as possible; only an atomic compare-and-rename would close it.
 
 ## Decided after review 1 (opus), which found the first design unsafe
 The first design (decided on the card) pruned by a cutoff from the births log and rewrote the live file. Review 1
@@ -229,3 +231,17 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
   checked again after the write, flush and read-back, before anything is linked (test; mutation red).
 - FIXED (NIT): ended-agents.d is flushed between the link and the rename, so the link survives a crash before the rename.
 - FIXED (NIT, by comment): Windows delete-pending (EPERM) on a sealed file refuses for that moment; noted in the code.
+
+## Review 14 (sonnet, blind, on 0a0ad8904): no BLOCKER
+- FIXED (WARNING): no clock check sat between the link and the rename, so a machine that slept there could rename an
+  older fold over a newer live file after the lock went stale. The time budget is checked again last thing before the
+  rename, counted from when the lock was taken (noteEnded passes it). Test (the clock jumps between the link and the
+  rename); mutation red.
+- FIXED (WARNING): the header comment and this plan claimed more than the code: the slept-compaction residual orphans
+  the NEWER file's later ends (fail open, both builds), and older builds miss the named residual lines. Both restated.
+- FIXED (WARNING): a replaced file edited in place could put a torn mid-way line into the live file; the put-back now
+  goes in only if it reads whole (test; mutation red).
+- FIXED (WARNING): revokeIfUnchanged waited up to 2 s for this lock while holding the session lock; it waits 200 ms,
+  then appends unlocked (safe).
+- NO CHANGE (NITs): line widths in one comment; compacted-bytes cannot be written if the folder cannot be made (each end
+  then refolds, bounded by the file size).

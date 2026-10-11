@@ -497,3 +497,31 @@ test('kosmos#5208: a compaction whose write and flush ran past the total budget 
   assert.deepEqual(temps(), [], 'a temp file was left behind');
   assert.equal(said.filter((m) => /took over 6000 ms/.test(m)).length, 1, 'the slow compaction was not said');
 });
+
+test('kosmos#5208: a machine that slept between the link and the rename does not rename (the lock may have gone stale)', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  const realSync = securewrite.syncDir;
+  const realNow = Date.now;
+  const inoBefore = ino();
+  let calls = 0;
+  // The first syncDir after the link is the one between the link and the rename: the clock jumps there.
+  securewrite.syncDir = function (d) { calls++; if (d === DIR() && calls === 1) { const skew = realNow() + 7000; Date.now = () => skew; } return realSync.call(this, d); };
+  const realErr = console.error;
+  console.error = () => {};
+  let r;
+  try { r = sendertoken.compactEnded({ force: true }); } finally { securewrite.syncDir = realSync; Date.now = realNow; console.error = realErr; }
+  assert.equal(r.compacted, false, 'it renamed after sleeping past the budget');
+  assert.equal(ino(), inoBefore, 'the live file was replaced');
+  assert.deepEqual(sealed(), [], 'its link was left');
+  assert.deepEqual(temps(), [], 'a temp file was left behind');
+});
+
+test('kosmos#5208: a replaced file edited in place with a torn line mid-way is not put back (the sealed file still holds it)', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  const realLink = fs.linkSync;
+  fs.linkSync = function (from, to) { fs.linkSync = realLink; fs.writeFileSync(LIVE(), '\n{"name":"torn\n' + line('kept', T0 + 3) + '\n'); return realLink.call(this, from, to); };
+  try { sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; }
+  assert.equal(oldEndedSince('nobody', iso(T0), false), false, 'a torn line was put into the live file: every removal would refuse for good');
+});
