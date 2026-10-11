@@ -10,7 +10,7 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - Imports nest. A file is loaded at depths 0 to 4 (the importing file is depth 0, and depth 5 is refused). Each file is loaded once.
 
 ## The change
-- New `engine/startimports.js`: `importTargets(roots, { home, covered })` follows the imports of each root file, depth-limited as Claude Code does, and returns the files to deny and anything it must name.
+- New `engine/startimports.js`: `importTargets(roots, { home })` follows the imports of each root file, depth-limited as Claude Code does, and returns every import target, plus a named reason when the scan is cut short. setup-assistant.js decides how each target is denied.
 - The roots are every instruction file the guard already treats as start-time:
   - each config home's CLAUDE.md, AGENTS.md and rules;
   - each folder above the agent: CLAUDE.md, CLAUDE.local.md, AGENTS.md, .claude/CLAUDE.md, .claude/AGENTS.md and .claude/rules;
