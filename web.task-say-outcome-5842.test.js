@@ -64,6 +64,12 @@ test('#5842: an assignee no longer on the project is named', async () => {
   assert.equal(r.said, 'casey is not on this project any more, so it was not told.');
 });
 
+test('#5842: a message Kosmos could not keep (the agent\'s queue is full) says so, not "just now"', async () => {
+  // limittask-5805's reason when the keep fails (keepTaskLine).
+  const r = await send([{ agent: 'casey', state: 'could_not', because: 'casey is out of usage, and Kosmos could not keep this one for it (5 messages are kept for it already), so it was not told' }]);
+  assert.equal(r.said, 'casey is out of usage and already has as many messages waiting as Kosmos keeps, so it was not told.');
+});
+
 test('#5842: any other failure gets the page\'s own words: no resend advice, no terminal words, no doubled name', async () => {
   const agents = [{ sessionName: 'casey-bot', name: 'Casey Rivera' }];
   const reasons = [

@@ -63008,7 +63008,7 @@ async function tkSayPost() {
       } else {
         /* The page's own sentences, never the board's reasons word for word: those were written for direct messages
            and agents, so some say "send it again" (on a task that records it twice and re-tells everyone already told)
-           and some use terminal words. Two reasons the task route writes itself are recognised; a reworded one falls
+           and some use terminal words. Three reasons the task route writes itself are recognised; a reworded one falls
            to the plain sentence, which stays true. Agents and the CLI still get the board's full reason. */
         const lines = [];
         for (const [sn, d] of byName) {
@@ -63020,6 +63020,7 @@ async function tkSayPost() {
             lines.push(/switched off in this project/.test(why)
               ? who + ' is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.'
               : /not on this project any more/.test(why) ? who + ' is not on this project any more, so it was not told.'
+              : /could not keep this one/.test(why) ? who + ' is out of usage and already has as many messages waiting as Kosmos keeps, so it was not told.'
               : 'Kosmos could not reach ' + who + ' just now, so it was not told. Your message stays on the task.');
           } else if (d.state === 'held') {
             // Built from heldUntil, never from the reason: the board's reason carries the reset as a raw UTC time.
