@@ -846,7 +846,7 @@ function launchPathDirs(agentDir, deps = {}) {
      Kosmos data root). A program or link that leads straight into one makes the guard NOT whole, said, instead of
      silently denying the agent its temp folder or Downloads. Only these exact folders, not what is inside them. */
   // The temp roots are also where the agent's sandboxed shell can write, which matters for a link on the way (review 16).
-  const temps = deps.launchTemps || [require('os').tmpdir(), '/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp'];
+  const temps = deps.launchTemps || [require('os').tmpdir(), ...TEMP_ROOTS];
   const shared = deps.launchShared || [...temps, home,
     ...['Desktop', 'Documents', 'Downloads'].map((d) => path.join(home, d)), deps.dataRoot || store.ROOT];
   const plat = deps.platform || process.platform;
@@ -1381,6 +1381,8 @@ const HOMEBREW_PREFIXES = ['/opt/homebrew', '/usr/local'];
    root is the user's own and writable, so a target directly in it is not read-only; it gets ONE stable rule for the
    store instead of its hashed name, as a Cellar does. */
 const STORE_ROOTS = ['/nix/store'];
+// The fixed per-run temp roots, beside the user's own temp folder (os.tmpdir()): the launch scan and #5774 route 5 read the one list.
+const TEMP_ROOTS = ['/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp'];
 const storeIn = (roots, t) => roots.find((r) => t.startsWith(r + path.sep)) || null;
 /* Review 21: the folder a versioned or hashed path lives in, which gets one stable rule: a Homebrew Cellar or Caskroom
    (<...>/Cellar/<name>/<version>/...), or a store. Null for anything else. */
@@ -1894,15 +1896,14 @@ function tokenOnlySettingsRules(dir, deps = {}) {
       }
       for (const k of PLUGIN_VARS) {
         if (!text.includes(k)) continue;   // review 2: most files name none of them
-        /* Review 13: an INDENTED assignment (an if-block, a function) is one the reader below does not read, so it is
-           named rather than missed: a conditional plugin-dev export is the likeliest way a person writes one. A `source`d
-           file stays a stated gap (the plan). */
-        const indented = new RegExp(`(?:^|[\\s;&|(])${k}=|\\$\\{${k}:?=`);   // k is one of three fixed names (no regex characters)
-        for (const raw of text.split('\n')) {
-          if (/^\s+[^\s#]/.test(raw) && indented.test(raw)) { fromFiles.unsafe.push(`${k} (set on an indented line in ${f}, which Kosmos does not read), a plugin folder Kosmos cannot work out`); break; }
-        }
+        /* Review 13, changed by review 17: an INDENTED assignment (an if-block, a function) is read too, its indent
+           stripped, and denied like a top-level one: a conditional plugin-dev export is the likeliest way a person writes
+           one, and naming it made every token-only creation fail over a harmless line. At worst this denies a folder the
+           condition would not have set. A value it cannot work out is named as any is. A `source`d file stays a stated
+           gap (the plan). */
+        const deindented = text.split('\n').filter((raw) => /^\s+[^\s#]/.test(raw)).map((raw) => raw.replace(/^\s+/, '')).join('\n');
         // Review 4: a quoted ~ is kept literal by the shell and expanded by Claude Code, so it is read here.
-        for (let v of assignmentsIn(text, k, { quotedTildeOk: true })) {   // let: a default-if-unset wrapper is unwrapped below
+        for (let v of [...assignmentsIn(text, k, { quotedTildeOk: true }), ...assignmentsIn(deindented, k, { quotedTildeOk: true })]) {   // let: a default-if-unset wrapper is unwrapped below
         /* Review 3: the append idiom refers back to the variable itself (`$K:$HOME/x`, `${K:+$K:}...`): every earlier
            value is already gathered and covered, so those parts are dropped. $HOME (balanced braces) is replaced at the
            start of each part. A backtick or any other variable is a value Kosmos cannot work out: named. */
@@ -1937,6 +1938,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      folder, Kosmos's data or a config home Claude Code writes) or one the rules cannot carry is named. */
   const homeRealP = realOrLeaf(home), dirRealP = realOrLeaf(dir);
   const tmpRealP = realOrLeaf(deps.tmpDir || require('os').tmpdir());   // tests pass deps.tmpDir
+  // Review 17: the fixed temp roots are per-run places too (a scratch plugin under /tmp), as the launch scan treats them.
+  const tmpRootsP = [tmpRealP, ...(deps.tempRoots || TEMP_ROOTS).map((t) => realOrLeaf(t))];
   const dataRealP = realOrLeaf(dataRoot);   // review 5: the resolved one (production passes no deps.dataRoot)
   /* Review 15: the projects folder too. A plugin folder holding it would take every project's work away, silently; one
      inside it (a plugin developed in a project) is named, as one inside the agent's own folder is. A project kept in a
@@ -1967,8 +1970,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (projRealP && r.startsWith(projRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the projects folder, so Kosmos does not deny it whole: it would take a project's work away)`); continue; }
     if (r.startsWith(dirRealP + path.sep)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the agent's own folder, so Kosmos does not deny it whole${d.includes('$') ? '; it has a $ in it: Claude Code does not expand variables in a settings env value, so it reads as a folder under the agent\'s own' : ''})`); continue; }
     // Review 8: one inside the temp folder is a per-run place: its rule would pile up at every refresh (never pruned).
-    if (r.startsWith(tmpRealP + path.sep)) { refusedEnv.push(d, r); configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
-    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || holdsP(r, dataRealP) || (projRealP && holdsP(r, projRealP)) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data, the projects folder or a config home)`); continue; }
+    if (tmpRootsP.some((t) => r.startsWith(t + path.sep))) { refusedEnv.push(d, r); configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
+    if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || tmpRootsP.some((t) => holdsP(r, t)) || holdsP(r, dataRealP) || (projRealP && holdsP(r, projRealP)) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data, the projects folder or a config home)`); continue; }
     // Review 9: counted after the refusals, as the job homes are, so a refused folder spends none of the budget.
     if (envReadOnly(r)) { refusedEnv.push(d, r); if (r !== path.resolve(d)) envEditOnlyLinks.push(d); continue; }
     // Review 13: past the cap the loop goes on (each refused folder is recorded), and the cap is named once.

@@ -498,16 +498,22 @@ test('#5774 route 5 review 13: a config home that is a link to something absent 
   setup.guardTokenOnlyFolder(d2, 'pilot-livehome', { ...DEPS, env: ENV0, agentConfigDirs: [live] });
   assert.ok(sandboxDenies(readSettings(d2).sandbox.filesystem.denyWrite, path.join(liveT, 'settings.json')), 'a live link: covered through it');
 
-  // An indented export (an if-block) is named, not missed; an indented COMMENT naming it is not.
+  // An indented export (an if-block) is read and denied, not missed (review 17: and not named, which failed every
+  // creation); an indented COMMENT naming it is not read.
   const zshrc = path.join(HOME, '.zshrc');
-  fs.writeFileSync(zshrc, 'if [ -d ~/devplug ]; then\n  export CLAUDE_CODE_PLUGIN_DIRS=/opt/devplug-indented\nfi\n');
+  const devplug = path.join(base, 'devplug-indented');
+  fs.writeFileSync(zshrc, `if [ -d ~/devplug ]; then\n  export CLAUDE_CODE_PLUGIN_DIRS=${devplug}\nfi\n`);
   try {
-    const g = setup.guardTokenOnlyFolder(agentDir('pilot-indented'), 'pilot-indented', { ...DEPS, env: ENV0 });
-    assert.equal(g.ok, false, JSON.stringify(g));
-    assert.ok(JSON.stringify(g).includes('CLAUDE_CODE_PLUGIN_DIRS (set on an indented line'), JSON.stringify(g));
-    fs.writeFileSync(zshrc, 'if true; then\n  # CLAUDE_CODE_PLUGIN_DIRS=/opt/old was here\nfi\n');
-    const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-indentcomment'), 'pilot-indentcomment', { ...DEPS, env: ENV0 });
-    assert.ok(!JSON.stringify(g2).includes('set on an indented line'), JSON.stringify(g2));
+    const di = agentDir('pilot-indented');
+    const g = setup.guardTokenOnlyFolder(di, 'pilot-indented', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(di).permissions.deny, path.join(devplug, 'x.js')).length > 0, 'the indented value was not denied');
+    const old = path.join(base, 'old-plug');
+    fs.writeFileSync(zshrc, `if true; then\n  # CLAUDE_CODE_PLUGIN_DIRS=${old} was here\nfi\n`);
+    const dc = agentDir('pilot-indentcomment');
+    const g2 = setup.guardTokenOnlyFolder(dc, 'pilot-indentcomment', { ...DEPS, env: ENV0 });
+    assert.equal(g2.ok, true, JSON.stringify(g2));
+    assert.equal(editDeniedBy(readSettings(dc).permissions.deny, path.join(old, 'x.js')).length, 0, 'a commented value was denied');
   } finally { fs.rmSync(zshrc, { force: true }); }
 
   // A cache inside the temp folder is refused, and the plugin installed in it is not listed by its version.
@@ -591,4 +597,23 @@ test('#5774 route 5 review 16: a plugin folder whose real place is read-only (a 
   setup.guardTokenOnlyFolder(d3, 'pilot-rwplug', { ...DEPS, readOnlyTarget: () => false, env: { CLAUDE_CODE_PLUGIN_DIRS: store } });
   const s3 = readSettings(d3);
   assert.ok(editDeniedBy(s3.permissions.deny, path.join(store, 'x.js')).length > 0 && sandboxDenies(s3.sandbox.filesystem.denyWrite, path.join(store, 'x.js')), 'control: denied whole');
+});
+
+test('#5774 route 5 review 17: a plugin folder under a fixed temp root (/tmp) is a per-run place; the root itself is too wide', () => {
+  const base = path.join(fs.realpathSync.native(SANDBOX), 'r17');
+  const fakeTmp = path.join(base, 'tmp');
+  const plug = path.join(fakeTmp, 'devplug-123');
+  fs.mkdirSync(plug, { recursive: true });
+  const d = agentDir('pilot-slashtmp');
+  const g = setup.guardTokenOnlyFolder(d, 'pilot-slashtmp', { ...DEPS, tempRoots: [fakeTmp], env: { CLAUDE_CODE_PLUGIN_DIRS: plug } });
+  assert.ok(JSON.stringify(g).includes('inside the temp folder: a per-run place'), JSON.stringify(g));
+  const s = readSettings(d);
+  assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes('devplug-123')), 'a per-run folder was listed by name');
+  const d2 = agentDir('pilot-slashtmp-root');
+  const g2 = setup.guardTokenOnlyFolder(d2, 'pilot-slashtmp-root', { ...DEPS, tempRoots: [fakeTmp], env: { CLAUDE_CODE_PLUGIN_DIRS: fakeTmp } });
+  assert.ok(JSON.stringify(g2).includes('too wide to deny'), JSON.stringify(g2));
+  // Control: with no such temp root, the same folder is denied whole.
+  const d3 = agentDir('pilot-slashtmp-control');
+  setup.guardTokenOnlyFolder(d3, 'pilot-slashtmp-control', { ...DEPS, tempRoots: [], env: { CLAUDE_CODE_PLUGIN_DIRS: plug } });
+  assert.ok(editDeniedBy(readSettings(d3).permissions.deny, path.join(plug, 'x.js')).length > 0, 'control: denied whole');
 });
