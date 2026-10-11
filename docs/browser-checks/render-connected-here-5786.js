@@ -110,7 +110,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(r.text.startsWith('Chrome on this computer is connected.'), `${tag} the browser word follows the device name`, r.text);
       await page.click('#plus-ask-rows [data-ask="here-ok"]');
       r = await rows();
-      chk(!/on this computer/.test(r.text) && removed.length === 1, `${tag} Got it disconnects nothing`, JSON.stringify({ removed, r }));
+      // Put away means not shown: an empty Plus requests section is hidden whole, and its last rows can stay inside it.
+      chk((!r.shown || !/on this computer/.test(r.text)) && removed.length === 1, `${tag} Got it puts it away and disconnects nothing`, JSON.stringify({ removed, r }));
 
       await page.evaluate(() => paintDevices());
       await page.waitForTimeout(400);
