@@ -24,6 +24,7 @@
   "limitFrom": null,
   "quotaUntil": null,
   "poolUntil": null,
+  "screenState": null,
   "because": "it says it is working",
   "disruption": null,
   "activeWhileWaiting": false,

@@ -173,3 +173,7 @@ behaviour), never the reverse.
   one is).
 - Not taken: one read of the limit file per sweep (a small JSON file; correctness unaffected); the shared held-by
   wording helper (as before); a long comment line.
+
+## After review 12 (found by a full-suite run on a stacked branch, not a reviewer)
+- FIXED: the golden agent card (docs/browser-checks/fixtures/agent-card.json, #2519) had no `screenState`, the pane
+  card field review 5 added, so render-talk-goldencard-2519 failed on drift. Added as null, where the card builds it.
