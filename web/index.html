@@ -23720,7 +23720,11 @@ function paintOfflineNote(down, deviceIsOffline) {
   /* The one thing to do, which helps whatever the cause: opening Kosmos
      from the Applications folder starts it if it is not going and simply
      opens it if it is. Names no cause (the test above holds that line). */
-  detail.push(platformCopy('offlineRemedy', 'Open Kosmos from your Applications folder and it will start again if it needs to.'));
+  /* #5862: a Linux server has no Applications folder. `kosmos restart` is a stop that tolerates "not running" and then
+     a start (install/kosmos cmd_restart), so it brings back a board that stopped and one that hung alike. */
+  detail.push(onLinux()
+    ? 'On the computer running Kosmos, run <b>kosmos restart</b> in a terminal (over SSH on a headless server) and it will start again.'
+    : platformCopy('offlineRemedy', 'Open Kosmos from your Applications folder and it will start again if it needs to.'));
   slot.innerHTML = '<div class="utoast stale" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>Kosmos is not answering on this computer</b>'
@@ -23775,6 +23779,14 @@ function restartHowMac() {
   try { app = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge); } catch { /* not the app */ }
   return app ? 'Quit Kosmos with Command-Q, then open it again from your Applications folder.'
     : 'Open Kosmos again from your Applications folder.';
+}
+/* The restart screen's one step, per platform. #5862: a Linux server has no Applications folder and no window;
+   `kosmos restart` (a stop that tolerates "not running", then a start) brings back a board that hung and one that
+   stopped alike. */
+function restartHowText() {
+  return onLinux()
+    ? 'On the computer running Kosmos, run <b>kosmos restart</b> in a terminal (over SSH on a headless server).'
+    : platformCopy('restartHow', restartHowMac());
 }
 /* While the restart screen is up, no key reaches the page behind it. Every dialog's Escape and Tab
    handler (first run, updates, the notices, the modals, the pickers) listens on document, and a
@@ -23837,7 +23849,7 @@ function paintRestartScreen(down, deviceIsOffline) {
     + '<div class="restart-msg" role="alertdialog" aria-modal="true" aria-labelledby="restart-h" aria-describedby="restart-how" tabindex="-1">'
     + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
     + '<h1 id="restart-h">Kosmos requires a full restart</h1>'
-    + '<p id="restart-how">' + platformCopy('restartHow', restartHowMac()) + '</p>'
+    + '<p id="restart-how">' + restartHowText() + '</p>'
     + '</div></div>';
   const back = holder.firstElementChild;
   /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did
@@ -28932,6 +28944,11 @@ async function worldswSwitch(id, name, agents) {
        restart" CLI instruction; give the gentle GUI action instead, no command. */
     say(onWindows()
       ? windowsCopy('worldSwitchRestart').replace('%NAME%', () => switchedName)
+      /* #5862: a Linux server has no window to quit and reopen, so the one step there is the command (as #5860's
+         stuck-update toast says). say() writes text, so the command is not bold here. */
+      : onLinux()
+      ? 'Kosmos could not restart itself. To finish switching to ' + switchedName + ', run kosmos restart in a terminal on the '
+        + 'computer running Kosmos (over SSH on a headless server).'
       : 'Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to ' + switchedName + '.');
     worldswFocusTrigger();
   } finally {
