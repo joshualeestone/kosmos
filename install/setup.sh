@@ -2965,7 +2965,8 @@ _kosmos_note_pause_abort() { # reason
     # treated as damaged, like any non-number: under set -e a refused $(( )) would end the run here, before the stop's
     # own words are printed.
     case "$_abortn" in ''|*[!0-9]*|0?*|??????????*) _abortn=0 ;; esac
-    if [ "$(sed -n 's/^reason=//p' "$_abortf" 2>/dev/null || true)" = "$1" ]; then
+    # A damaged count starts the streak again at this stop, and same with it: same can never exceed count.
+    if [ "$_abortn" -gt 0 ] && [ "$(sed -n 's/^reason=//p' "$_abortf" 2>/dev/null || true)" = "$1" ]; then
       _abortsame="$(sed -n 's/^same=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
       case "$_abortsame" in
         ''|*[!0-9]*|0?*|??????????*) if [ "$1" = board-would-not-pause ]; then _abortsame="$_abortn"; else _abortsame=0; fi ;;

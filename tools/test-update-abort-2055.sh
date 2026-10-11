@@ -111,13 +111,16 @@ chk "a missing same under another reason is not taken as the whole streak: count
 # A count or same the shell's arithmetic would refuse must not end the run inside the function (it runs under set -e,
 # just before the stop prints its words): it is treated as damaged.
 for bad in 08 0099 99999999999999999999; do
-  printf 'count=%s\nreason=port-still-held\nsame=1\n' "$bad" > "$M4"
+  printf 'count=%s\nreason=port-still-held\nsame=6\n' "$bad" > "$M4"
   RC=0; record "$L4" 16180 port-still-held 2>/dev/null || RC=$?
-  chk "count=$bad does not end the run (rc 0), and the count restarts: count 1, same 2" sh -c '[ "$1" = "0 1 2" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
+  chk "count=$bad does not end the run (rc 0), and the streak restarts whole: count 1, same 1" sh -c '[ "$1" = "0 1 1" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
   printf 'count=3\nreason=port-still-held\nsame=%s\n' "$bad" > "$M4"
   RC=0; record "$L4" 16180 port-still-held 2>/dev/null || RC=$?
   chk "same=$bad does not end the run (rc 0), and same restarts: count 4, same 1" sh -c '[ "$1" = "0 4 1" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
 done
+printf 'count=not-a-number\nreason=board-would-not-pause\nsame=6\n' > "$M4"
+record "$L4" 16180
+chk "a damaged count never leaves same above count (busy reason): count 1, same 1" sh -c '[ "$1" = "1 1" ]' _ "$(val count "$M4") $(val same "$M4")"
 # ---- #4675: setup.sh's own lines that read the board's marker: only the value 1 is the board, and the variable is
 # gone from the environment afterwards (the script goes on to start the board, whose agents must not inherit it).
 BYBOARD_LINES="$(awk '/^_kosmos_by_board=no$/{f=1} f{print} f && /^unset KOSMOS_UPDATE_BY_BOARD$/{exit}' "$SETUP")"
