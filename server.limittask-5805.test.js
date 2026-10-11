@@ -114,5 +114,10 @@ test('#5842: the route keeps a task line with its task (project id and number), 
   const r = await sendTask('rate_limited', { 'sec-fetch-site': 'same-origin' });
   assert.equal(r.code, 200, JSON.stringify(r.json));
   assert.equal(r.kept.length, 1, 'not kept for casey');
-  assert.deepEqual([r.kept[0].projectId, r.kept[0].task], ['p5805', 7]);
+  assert.deepEqual([r.kept[0].projectId, r.kept[0].task, r.kept[0].person], ['p5805', 7, true]);
+  // An agent's send carries the task but is not the person's.
+  const a = await sendTask('rate_limited', { 'x-kosmos-agent-token': sendertoken.mint('mara').token });
+  const fromMara = a.kept.find((e) => e.from === 'mara');
+  assert.ok(fromMara, 'the agent\'s line was not kept');
+  assert.deepEqual([fromMara.projectId, fromMara.task, fromMara.person], ['p5805', 7, undefined]);
 });

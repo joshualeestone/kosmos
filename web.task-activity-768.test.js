@@ -228,31 +228,42 @@ test('#3951: marked built (by an agent, with its note; by the person) and the ma
 });
 
 /* #5842 slice 2: a message kept for an agent out of usage, then sent after the reset or dropped a day later, reads as
-   such in the task's activity, from the person (no `from`) or from an agent. */
-test('#5842: a kept message sent after the reset, or dropped, reads plainly with names resolved', async () => {
+   such in the task's activity: "Your" only for the person's (`person`), an agent by name, and an unnamed agent as "A
+   message", never as the person's. */
+test('#5842: a kept message sent once the agent was back, or dropped, reads plainly with names resolved', async () => {
   const html = (await render([
-    { at: minsAgo(30), kind: 'kept-sent', to: 'mona', from: '', state: 'placed' },
-    { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', state: 'unconfirmed' },
-    { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '' },
+    { at: minsAgo(30), kind: 'kept-sent', to: 'mona', from: '', person: true, state: 'placed' },
+    { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', person: true, state: 'unconfirmed' },
+    { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '', person: true },
     { at: minsAgo(5), kind: 'kept-dropped', to: 'mona', from: 'leo' },
   ])).innerHTML;
   assert.match(html, /Your message to Mona, kept while Mona was out of usage, was sent once Mona was back</);
   assert.match(html, /Kosmos tried to send your message to Mona once Mona was back, but could not confirm Mona got it/);
   assert.match(html, /Your message to Mona was never sent: Kosmos kept it while Mona was out of usage and could not send it within a day/);
-  assert.match(html, /leo\u2019s message to Mona was never sent/, 'from and to mixed up, or the sender lost');
+  assert.match(html, /A message from leo to Mona was never sent/, 'from and to mixed up, or the sender lost');
   assert.doesNotMatch(html, /was sent[^<]*could not confirm/, 'an unconfirmed message read as sent');
   assert.doesNotMatch(html, /reset/, 'a reset nobody saw was named');
 });
 
-test('#5842: an agent\'s kept message, and one kept behind earlier messages, read without a reset that did not happen', async () => {
+test('#5842: a kept message from an agent the route could not name is never called the person\'s', async () => {
   const html = (await render([
-    { at: minsAgo(30), kind: 'kept-sent', to: 'mona', from: 'leo', state: 'unconfirmed' },
-    { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', state: 'placed', behind: true },
-    { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '', behind: true },
+    { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', state: 'placed' },
+    { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '' },
   ])).innerHTML;
-  assert.match(html, /Kosmos tried to send leo\u2019s message to Mona once Mona was back, but could not confirm Mona got it/);
-  assert.match(html, /Your message to Mona, kept behind earlier messages, was sent once the messages ahead of it had gone</);
-  assert.match(html, /Your message to Mona was never sent: Kosmos kept it behind earlier messages and could not send it within a day/);
-  assert.doesNotMatch(html.split('leo\u2019s')[1] || '', /out of usage/, 'a message kept behind others spoke of a usage limit');
-  assert.doesNotMatch(html, /kept-sent|kept-dropped/, 'a raw event kind reached the screen');
+  assert.match(html, /A message to Mona, kept while Mona was out of usage, was sent once Mona was back</);
+  assert.match(html, /A message to Mona was never sent/);
+  assert.doesNotMatch(html, /[Yy]our message/, 'an unnamed agent\'s message was called the person\'s');
+});
+
+test('#5842: an agent\'s unconfirmed message, and one kept behind earlier messages, read without a limit or reset that did not apply', async () => {
+  const agent = (await render([{ at: minsAgo(30), kind: 'kept-sent', to: 'mona', from: 'leo', state: 'unconfirmed' }])).innerHTML;
+  assert.match(agent, /Kosmos tried to send the message from leo to Mona once Mona was back, but could not confirm Mona got it/);
+  const behind = (await render([
+    { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', person: true, state: 'placed', behind: true },
+    { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '', person: true, behind: true },
+  ])).innerHTML;
+  assert.match(behind, /Your message to Mona, kept behind earlier messages, was sent once the messages ahead of it had gone</);
+  assert.match(behind, /Your message to Mona was never sent: Kosmos kept it behind earlier messages and could not send it within a day/);
+  assert.doesNotMatch(behind, /out of usage|reset/, 'a message kept behind others spoke of a usage limit');
+  assert.doesNotMatch(agent + behind, /kept-sent|kept-dropped/, 'a raw event kind reached the screen');
 });

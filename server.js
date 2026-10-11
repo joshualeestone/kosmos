@@ -20541,7 +20541,7 @@ const server = http.createServer(async (req, res) => {
              (limitqueue.sweepHooks), so a kept line also waits on that gate's menu and quota holds. */
           // The sender's own name, not the cleaned one in the line: a drop notice is addressed to it.
           const kept = messages.keepTaskLine(one, line, roster, viaScreen ? '' : String((senderCard && senderCard.sessionName) || ''), 'task ' + t.number + ' in ' + projName,
-            { projectId: id, task: t.number });   // #5842: so the task's conversation records it sent or dropped
+            { projectId: id, task: t.number, person: viaScreen });   // #5842: so the task's conversation records it sent or dropped, and whose
           if (kept) outcome = kept;
           else {
             // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").

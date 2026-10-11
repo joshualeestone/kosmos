@@ -15,7 +15,7 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
   dropped: "Your message to Mona was never sent: Kosmos kept it while Mona was out of usage and could not send it within
   a day" (not "because": a menu, a quota hold or a paused swarm can also block it; review 5). Kept behind earlier
   messages (`behind`): "kept behind earlier messages ... once the messages ahead of it had gone" / "kept it behind
-  earlier messages and could not send it within a day". From an agent: "Leo's message to Mona".
+  earlier messages and could not send it within a day". From an agent: "A message from Leo to Mona".
 - An entry kept with no task records nothing and is typed or dropped as before.
 - Tests fail without the change: every new engine and route test except the no-task CONTROL (which passes on main by
   design) fails on main's code, each recognised path was also broken in place and seen to fail; the page phrase tests
@@ -24,8 +24,10 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
 ## Calls
 - The record goes in the task's own conversation (taskchat), the one place the person reads about a task, not in the
   message log (a task line has no row there) and not in a pane (the person has none).
-- `from` empty means the person; the phrase says "Your". An agent's name is resolved through tkMemberName like every
-  other activity row.
+- Whose message (review 7): "Your" only when the route marks it the person's (`person`, set only for a send from the
+  screen), "A message from Leo" for a named agent, and "A message" for an empty `from` without `person`, which is an
+  agent the route could not name, never the person. No possessive, so a name ending in s reads cleanly and is never
+  re-cased. Names resolve through tkMemberName like every other activity row.
 - Recorded through messages.recordTaskLineOutcome, called from limitqueue's onDelivered for task lines and from
   tellTaskLineDropped, so both outcomes go through one function. taskchat is required lazily there, as messages.js
   already does for progressTimes.
