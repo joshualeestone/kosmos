@@ -66,6 +66,23 @@ function check(name, pass, detail) {
   const s1 = await slotAfter({ count: 1, reason: 'board-would-not-pause', port: 16180, ts: '' });
   check('abort count 1: reads "install it once", not "1 times"', /install it once/i.test(s1) && !/1 times/.test(s1), s1.slice(0, 160));
 
+  // ---- #4675: the stops after the pause get their own words, chosen by reason; none blames a busy Kosmos, and
+  // none asks the person to type a command.
+  const TYPED = /paste|install line|kosmos stop|in a terminal|run this|update now/i;
+  const chk = await slotAfter({ count: 2, reason: 'port-check-failed', port: 16180, ts: '' });
+  check('#4675 port-check-failed: says the update could not check, names N, ends in a step a person can take',
+    /tried to install it 2 times and could not, because this computer could not check whether Kosmos had stopped/i.test(chk)
+      && /quit and reopen Kosmos/i.test(chk) && /please tell us/i.test(chk) && /agents keep working/i.test(chk)
+      && !/was busy/i.test(chk) && !TYPED.test(chk), chk.slice(0, 260));
+  const unr = await slotAfter({ count: 1, reason: 'port-unreachable', port: 16180, ts: '' });
+  check('#4675 port-unreachable: says something else held the connection, and ends in a restart',
+    /tried to install it once and could not, because something was still using the connection Kosmos runs on/i.test(unr)
+      && /quit and reopen Kosmos/i.test(unr) && /restart this computer/i.test(unr) && /agents keep working/i.test(unr)
+      && !/was busy/i.test(unr) && !TYPED.test(unr), unr.slice(0, 260));
+  // CONTROL for the two above: a reason the page has no words for keeps #2055's sentence (the count-3 text above).
+  const other = await slotAfter({ count: 3, reason: 'port-still-held', port: 16180, ts: '' });
+  check('#4675 CONTROL: port-still-held keeps the #2055 sentence, the same text as board-would-not-pause', other === s3 && /was busy each time/i.test(other), other.slice(0, 200));
+
   // ---- CONTROL A (the dangerous answer): a CLEAN board shows NOTHING.
   const clean = await slotAfter(undefined);
   check('CONTROL clean: a healthy board (no updateAbort) shows no notice', clean.trim() === '', JSON.stringify(clean.slice(0, 80)));
