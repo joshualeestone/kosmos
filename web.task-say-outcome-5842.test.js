@@ -55,13 +55,13 @@ test('#5842: an assignee switched off in the project is named, with how to switc
     { agent: 'mara', state: 'placed' },
     { agent: 'casey', state: 'could_not', because: 'casey is switched off in this project. Switch it on in the project\'s members to send it work here.' },
   ]);
-  assert.equal(r.said, 'Casey is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.');
+  assert.equal(r.said, 'casey is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.');
   assert.doesNotMatch(r.said, /mara/, 'an agent that was told is listed');
 });
 
 test('#5842: an assignee no longer on the project is named', async () => {
   const r = await send([{ agent: 'casey', state: 'could_not', because: 'casey is not on this project any more, so it was not told' }]);
-  assert.equal(r.said, 'Casey is not on this project any more, so it was not told.');
+  assert.equal(r.said, 'casey is not on this project any more, so it was not told.');
 });
 
 test('#5842: a message Kosmos could not keep says so and claims no cause (full, unreadable, or kept behind)', async () => {
@@ -96,17 +96,17 @@ test('#5842: a message kept for an agent out of usage says when, in local time, 
   // The route's real shape on limittask-5805: state 'held', heldUntil an ISO time, because carrying that same raw time.
   const until = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
   const r = await send([{ agent: 'casey', state: 'held', heldUntil: until, because: 'held: casey is out of usage until ' + until + '; Kosmos types it after the reset' }]);
-  assert.match(r.said, /^Casey is out of usage until .+\. Kosmos sends it your message after that\.$/);
+  assert.match(r.said, /^casey is out of usage until .+\. Kosmos will try to send it your message after that\.$/);
   assert.ok(!r.said.includes(until) && !/\dT\d/.test(r.said), 'the raw UTC time reached the screen: ' + r.said);
   const behind = await send([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey still has messages kept from while it was out of usage; Kosmos types this one after them' }]);
-  assert.equal(behind.said, 'Casey gets your message after the ones already waiting for it.');
+  assert.equal(behind.said, 'Kosmos will try to send your message to casey after the ones already waiting for it.');
   // No time known, or a reworded reason: nothing more is claimed.
   for (const because of ['held: casey is out of usage; Kosmos types it after the reset', 'held: casey has earlier lines queued']) {
     const r2 = await send([{ agent: 'casey', state: 'held', heldUntil: null, because }]);
-    assert.equal(r2.said, 'Kosmos is keeping your message to send to casey later.', 'for: ' + because);
+    assert.equal(r2.said, 'Kosmos is keeping your message and will try to send it to casey later.', 'for: ' + because);
   }
   const past = await send([{ agent: 'casey', state: 'held', heldUntil: new Date(Date.now() - 60000).toISOString(), because: 'held: casey is out of usage' }]);
-  assert.equal(past.said, 'Kosmos is keeping your message to send to casey later.', 'a reset already past was given as a time');
+  assert.equal(past.said, 'Kosmos is keeping your message and will try to send it to casey later.', 'a reset already past was given as a time');
   assert.doesNotMatch(r.said + behind.said, /not told|Do not send/, 'a kept message reads as a failure or carries the agents\' instruction');
 });
 
@@ -115,8 +115,16 @@ test('#5842: the board still words a line kept behind earlier ones as the page r
      `behind`. A reworded reason falls to a sentence that stays true, but this keeps the two in step. heldReceipt
      arrives with limittask-5805 (#5805): until then engine/messages.js has none, and this asserts that and no more. */
   const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'messages.js'), 'utf8');
-  if (!/function heldReceipt\(/.test(src)) { assert.doesNotMatch(src, /still has messages kept/); return; }
-  assert.match(src, /still has messages kept from while it was out of usage/, 'heldReceipt reworded the kept-behind reason; update tkSayPost\'s match');
+  const start = src.indexOf('function heldReceipt(');
+  if (start < 0) { assert.doesNotMatch(src, /still has messages kept/); return; }
+  // Only heldReceipt's own body: the same phrase also sits in keepTaskLine's could_not reasons.
+  let depth = 0; let end = -1;
+  for (let k = src.indexOf('{', start); k < src.length; k += 1) {
+    if (src[k] === '{') depth += 1;
+    else if (src[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
+  }
+  assert.ok(end > start, 'could not find the end of heldReceipt');
+  assert.match(src.slice(start, end), /still has messages kept/, 'heldReceipt reworded the kept-behind reason; update tkSayPost\'s match');
 });
 
 test('#5842: a delivery Kosmos could not confirm is never claimed either way', async () => {
@@ -141,6 +149,8 @@ test('#5842: CONTROL: no delivered list (an older board) and a refused send beha
   const refused = await send([{ agent: 'casey', state: 'could_not' }], { ok: false });
   assert.equal(refused.said, 'refused', 'a refusal no longer shows its error');
   const nameless = await send([{ state: 'could_not', because: 'x' }]);
+  const lower = await send([{ agent: 'casey', state: 'unconfirmed' }, { agent: 'casey2', state: 'could_not', because: 'casey2 is not on this project any more' }]);
+  assert.equal(lower.said, 'Kosmos could not confirm that casey got it. casey2 is not on this project any more, so it was not told.', 'a real name was re-cased');
   assert.equal(nameless.said, 'Kosmos could not reach an agent, so it was not told. Your message stays on the task.');
   const leading = await send([{ state: 'could_not', because: 'an agent is not on this project any more, so it was not told' }]);
   assert.equal(leading.said, 'An agent is not on this project any more, so it was not told.', 'a line opening with the fallback name is not capitalised');
