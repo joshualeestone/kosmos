@@ -1217,7 +1217,8 @@ const CLAUDE_GLOBAL_CONFIG_SUFFIXES = startcommands.CLAUDE_GLOBAL_CONFIG_SUFFIXE
    non-interactive), a login shell, the person's own terminal, and each agent's shell snapshot. The sandboxed shell
    cannot write the home folder already (its write scope), so this is the file tools' gap; they are denied in both
    layers anyway, links followed, since the target of a linked dotfile is what gets written. */
-const SHELL_START_FILES = [path.join('.ssh', 'rc'), '.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.bashrc', '.bash_profile', '.bash_login', '.profile', '.bash_logout',
+const SHELL_START_FILES = [path.join('.ssh', 'rc'), path.join('.ssh', 'config'), '.zshenv',   // review 15: ssh's config runs ProxyCommand and the like
+  '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.bashrc', '.bash_profile', '.bash_login', '.profile', '.bash_logout',
   '.bash_aliases', '.bash_completion', '.cshrc', '.tcshrc', '.login', '.logout'];   // review 2: .bash_aliases, sourced by the common default .bashrc
 const ZSH_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout'];
 /* Review 1: zsh runs a compiled copy (<file>.zwc) in place of a startup file when it is newer, so each is denied with
@@ -1313,7 +1314,8 @@ function isReadOnlyTarget(p) {
   let st;
   try { st = fs.statSync(p); } catch { return false; }   // absent: the agent could create it
   try { fs.accessSync(p, fs.constants.W_OK); return false; } catch { /* not writable now */ }
-  if (typeof process.getuid === 'function' && st.uid === process.getuid()) return false;
+  // Review 15: no owner check. Neither layer can chmod (the file tools do not; the sandboxed shell cannot outside its
+  // write scope), and a single-user Nix store is the user's own, so ownership would bring the pile-up back.
   try { fs.accessSync(path.dirname(p), fs.constants.W_OK); return false; } catch { return true; }
 }
 /* Startup code outside the home folder that the user, not root, can write (review 3): Homebrew's zsh site-functions
@@ -1367,11 +1369,21 @@ function shellStartPaths(home, env, opts = {}) {
   };
   let todo = [];
   if (typeof e.ZDOTDIR === 'string') todo.push(...zdotFrom(e.ZDOTDIR, 'in the environment'));
-  for (const v of assignmentsIn(homeZshenv, 'ZDOTDIR')) todo.push(...zdotFrom(v, 'set in .zshenv'));
+  /* Review 15: zsh's "the folder this file really is in" (${0:A:h}, ${${(%):-%x}:A:h}; :a keeps links), the usual way a
+     dotfiles repo points ZDOTDIR at itself, is that folder. */
+  const selfDir = (v, file) => {
+    if (v === null) return v;
+    const m = /^\$\{(?:0|\$\{\(%\):-%[xN]\})(:[Aa]):h\}(.*)$/.exec(v);
+    if (!m) return v;
+    let f = path.resolve(file);
+    if (m[1] === ':A') { try { f = fs.realpathSync.native(f); } catch { /* as written */ } }
+    return path.dirname(f) + m[2];
+  };
+  for (const v of assignmentsIn(homeZshenv, 'ZDOTDIR')) todo.push(...zdotFrom(selfDir(v, path.join(home, '.zshenv')), 'set in .zshenv'));
   // Each ZDOTDIR's own .zshenv may set ZDOTDIR again (review 3); bounded, since a cycle is possible.
   for (let i = 0; i < 8 && todo.length; i++) {
     const next = [];
-    for (const d of todo) for (const v of assignmentsIn(readText(path.join(d, '.zshenv')), 'ZDOTDIR')) next.push(...zdotFrom(v, `set in ${path.join(d, '.zshenv')}`));
+    for (const d of todo) for (const v of assignmentsIn(readText(path.join(d, '.zshenv')), 'ZDOTDIR')) next.push(...zdotFrom(selfDir(v, path.join(d, '.zshenv')), `set in ${path.join(d, '.zshenv')}`));
     todo = next;
   }
   /* Each folder's completion dumps: a glob for the file tools, and those that exist by name for both layers too (review
@@ -1401,6 +1413,14 @@ function shellStartPaths(home, env, opts = {}) {
     else unsafe.push(`$${k} (${e[k]}), a startup file named relative to the folder a shell runs in`);
   }
   const dirs = [...[...xdgs].flatMap((x) => [path.join(x, 'fish'), path.join(x, 'nushell')]), path.join(home, 'Library', 'Application Support', 'nushell')];
+  /* Review 15: the per-user data folders these shells load code from: fish's vendor folders (searched before the system
+     ones; vendor_conf.d runs at every start), nushell's vendor autoload, and bash-completion's per-user completions. */
+  const datas = new Set([path.join(home, '.local', 'share')]);
+  if (typeof e.XDG_DATA_HOME === 'string' && path.isAbsolute(e.XDG_DATA_HOME)) datas.add(path.resolve(e.XDG_DATA_HOME));
+  for (const dd of datas) {
+    dirs.push(...['vendor_conf.d', 'vendor_functions.d', 'vendor_completions.d'].map((v) => path.join(dd, 'fish', v)),
+      path.join(dd, 'nushell', 'vendor', 'autoload'), path.join(dd, 'bash-completion', 'completions'));
+  }
   const userDirs = (opts.userShellDirs || USER_WRITABLE_SHELL_DIRS).filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
   dirs.push(...userDirs);
   // Review 7: the Caskroom keeps casks by version too.

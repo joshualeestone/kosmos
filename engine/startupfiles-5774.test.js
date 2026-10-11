@@ -725,3 +725,40 @@ test('#5774 part 2 review 14: one-line conditional forms are read; a read-only t
     assert.ok(editDeniedBy(s.permissions.deny, link).length > 0, "the link itself, by its folder's rule");
   } finally { fs.rmSync(link, { force: true }); }
 });
+
+test('#5774 part 2 review 15: ${0:A:h} is .zshenv\'s real folder; a read-only file in a read-only folder is read-only even if owned; data folders and ~/.ssh/config', () => {
+  const repo = path.join(SANDBOX, 'repo15');
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(path.join(repo, 'zshenv'), 'export ZDOTDIR=${0:A:h}\n');
+  const zshenv = path.join(HOME, '.zshenv');
+  fs.rmSync(zshenv, { force: true });
+  fs.symlinkSync(path.join(repo, 'zshenv'), zshenv);
+  try {
+    const d = agentDir('pilot-selfdir');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-selfdir', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(fs.realpathSync.native(repo), '.zshrc')).length > 0, 'the repo folder');
+  } finally { fs.rmSync(zshenv, { force: true }); }
+  // A single-user Nix store: the user's own 0444 file in a 0555 folder is read-only (no chmod reaches it from either layer).
+  if (typeof process.getuid === 'function' && process.getuid() !== 0) {
+    const store = path.join(SANDBOX, 'nixu15', 'h-fish');
+    const f = path.join(store, 'config15.fish');
+    touch(f); fs.chmodSync(f, 0o444); fs.chmodSync(store, 0o555);
+    const fishDir = path.join(HOME, '.config', 'fish');
+    fs.mkdirSync(fishDir, { recursive: true });
+    const link = path.join(fishDir, 'config15.fish');
+    fs.rmSync(link, { force: true }); fs.symlinkSync(f, link);
+    try {
+      const d = agentDir('pilot-nixuser');
+      setup.guardTokenOnlyFolder(d, 'pilot-nixuser', { ...DEPS, env: ENV0 });
+      const s = readSettings(d);
+      assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes('config15.fish') && r.includes('nixu15')), 'a user-owned read-only store path was listed');
+    } finally { fs.rmSync(link, { force: true }); fs.chmodSync(store, 0o755); }
+  }
+  const d2 = agentDir('pilot-data15');
+  setup.guardTokenOnlyFolder(d2, 'pilot-data15', { ...DEPS, env: ENV0 });
+  const deny = readSettings(d2).permissions.deny;
+  for (const p of [path.join(HOME, '.local', 'share', 'fish', 'vendor_conf.d', 'x.fish'), path.join(HOME, '.local', 'share', 'bash-completion', 'completions', 'git'), path.join(HOME, '.ssh', 'config')]) {
+    assert.ok(editDeniedBy(deny, p).length > 0, `${p} not denied`);
+  }
+});

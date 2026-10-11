@@ -18,7 +18,7 @@
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 25 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 26 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -38,7 +38,7 @@
 - Other guard tests that pass neither deps.env nor deps.userShellDirs read this host's environment and Homebrew folders. Decided, not pinned in their nine files: only a relative BASH_ENV, path-like ENV, ZDOTDIR or XDG_CONFIG_HOME in the host's environment can change their result, and it fails closed. Homebrew targets are now covered by a stable Cellar rule rather than by name.
 - A completion dump that does not exist yet, in a ZDOTDIR the shell can write, is covered by the file tools' glob only.
 - A WRITABLE linked target whose path has a rule-syntax character (a dotfiles repo under `~/Dropbox (Personal)`) is named, so the guard is not whole and creation fails. DECIDED, not changed: the file tools cannot be denied that target, so it is a real gap, and config files already behave the same way. The sandbox layer still carries it.
-- ZDOTDIR set in .zshenv by `typeset -x ZDOTDIR=...` or `: ${ZDOTDIR:=...}`, or in /etc/zshenv, is not read; the conventional XDG folder is covered regardless.
+- ZDOTDIR set in /etc/zshenv is not read (root-owned); the conventional XDG folder is covered regardless. A column-0 assignment inside a here-document is read (it may give a false "not whole" when relative).
 - Route 3 and on stay on the card.
 
 ## Challenge loop notes
@@ -124,4 +124,11 @@
   - [WARNING] FIXED (reproduced by the reviewer). A read-only target found INSIDE a startup folder (home-manager linking ~/.config/fish/config.fish into the store) skipped the read-only check, because the folder scan returns real targets, so the hashed paths piled up again. Linked targets are now judged by the same isReadOnlyTarget (moved to module level; tests override it through deps.readOnlyTarget). The link itself is under its folder's /** rule. Tested; mutation red.
   - [WARNING] FIXED. One-line conditional forms were a silent miss. Every assignment on a top-level line is now read: after && or ;, with typeset -x, as a second assignment, and as : ${ZDOTDIR:=x}. A conditional means "this or what it was", and both are covered. Comments are not read. Tested with four forms and a comment control; two mutations red.
   - NITs not taken: BASH_ENV with a bare label stays named (every non-interactive bash reads it); dumps outside the home (accepted).
+- Iteration 15 (Opus), on 9e38114dd:
+  - [WARNING] FIXED (reproduced by the reviewer). `ZDOTDIR=${0:A:h}` and `${${(%):-%x}:A:h}`, the usual way a dotfiles repo points ZDOTDIR at the folder its .zshenv really lives in, were named, so creation failed. They now resolve to that folder (:A follows links, :a does not). Tested; mutation red.
+  - [WARNING] FIXED, reverting part of review 13. The owner check brought the store pile-up back on single-user Nix (a user-owned store), and neither layer can chmod: the file tools do not, and the sandboxed shell cannot outside its write scope. Read-only now means not writable now, in a folder this user cannot write. A new test uses a user-owned 0444 file in a 0555 folder; restoring the owner check turns it red. My review-13 test could not fail on this, because its folder was writable.
+  - [WARNING] FIXED. Per-user data folders: fish's vendor_conf.d, vendor_functions.d and vendor_completions.d, nushell's vendor/autoload, and bash-completion's completions, under ~/.local/share and $XDG_DATA_HOME. Tested; mutation red.
+  - [WARNING] FIXED. ~/.ssh/config (ProxyCommand, LocalCommand and Match exec run code). Tested; mutation red.
+  - [CONVENTION] FIXED: the stale Gaps line about typeset and := forms.
+  - NITs not taken: a linked target with a rule-syntax character found inside a folder is caught by the generic not-whole message rather than named; the Cellar shape match; the test's own realOrLeaf does not follow a leaf link (assertions pass targets).
 
