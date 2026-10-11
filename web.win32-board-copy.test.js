@@ -482,6 +482,47 @@ test('#5860: on a Linux server the stuck-update toast names kosmos restart, neve
   assert.match(toast('darwin', 'board-would-not-pause'), /Quit and reopen Kosmos/, 'CONTROL: the Mac words are still the Mac\'s');
 });
 
+test('#5862: on a Linux server the offline note, the restart screen and the world switch name kosmos restart, never a window or a folder', () => {
+  const step = 'On the computer running Kosmos, run <b>kosmos restart</b> in a terminal (over SSH on a headless server)';
+  const offline = offlineNote('linux');
+  assert.ok(offline.includes(step + ' and it will start again.</small>'), offline);
+  const how = runPage('linux', ['restartHowMac', 'restartHowText'], 'restartHowText()', { window: {} });
+  assert.equal(how, step + '.');
+  // The world switch: say() writes text, so the command is plain there. Run against the source of worldswSwitch's
+  // fallback line, the platform ternary as written.
+  const sw = page.lift(SCRIPT, 'worldswSwitch');
+  const line = sw.slice(sw.indexOf('say(onWindows()'), sw.indexOf("switchedName + '.');") + "switchedName + '.');".length);
+  assert.ok(line.length > 40, 'premise: the fallback line was found');
+  const said = (platform) => runPage(platform, [], '(() => { let out = null; const say = (t) => { out = t; }; '
+    + line + ' return out; })()', { switchedName: 'Side Project' });
+  /* This fallback is reached on Linux only by a board that is NOT an installed one (an installed board restarts itself,
+     engine/boardrestart.js), so it must not name `kosmos restart`, which would act on a different board (review 1). */
+  assert.equal(said('linux'), 'Kosmos could not restart itself. To finish switching to Side Project, stop Kosmos and start it again '
+    + 'the way you started it.');
+  assert.doesNotMatch(said('linux'), /kosmos restart/, 'the fallback for a board that is not installed named the installed command');
+  // After a self-restart that is slow to come back (an installed board on Linux), the step IS the command.
+  const stuck = (platform) => runPage(platform, ['worldswStuckStep'], 'worldswStuckStep()');
+  // Both of worldswReconnect's slow-restart lines take their step from it (a literal there would skip the Linux arm).
+  const rc = page.lift(SCRIPT, 'worldswReconnect');
+  assert.equal((rc.match(/worldswStuckStep\(\)/g) || []).length, 2, 'a reconnect line does not take its step from worldswStuckStep');
+  assert.doesNotMatch(rc, /quit and reopen Kosmos/i, 'a reconnect line still hard-codes the Mac step');
+  assert.equal(stuck('linux'), 'run kosmos restart in a terminal on the computer running Kosmos (over SSH on a headless server).');
+  for (const text of [offline, how, said('linux'), stuck('linux')]) {
+    assert.doesNotMatch(text, /Applications folder|Quit|reopen|Command-Q|Kosmos\.exe|Start menu/i, 'a Linux server was given a Mac or Windows step: ' + text);
+  }
+  // CONTROL: the same code on a Mac and on Windows does not name the command, so the words above are Linux's arm.
+  for (const platform of ['darwin', 'win32']) {
+    assert.equal(stuck(platform), 'quit and reopen Kosmos.', platform + ': the reconnect step changed off Linux');
+    assert.doesNotMatch(offlineNote(platform), /kosmos restart/, platform);
+    assert.doesNotMatch(runPage(platform, ['restartHowMac', 'restartHowText'], 'restartHowText()', { window: {} }), /kosmos restart/, platform);
+    assert.doesNotMatch(said(platform), /kosmos restart/, platform);
+  }
+  assert.equal(said('darwin'), 'Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to Side Project.');
+  assert.equal(runPage('darwin', ['restartHowMac', 'restartHowText'], 'restartHowText()', { window: {} }), 'Open Kosmos again from your Applications folder.');
+  // Windows keeps its own step through restartHowText (review 1: only the browser check pinned it before).
+  assert.equal(runPage('win32', ['restartHowMac', 'restartHowText'], 'restartHowText()', { window: {} }), table.restartHow);
+});
+
 test('MAC UNCHANGED: the three recovery toasts and the world-switch sentence', () => {
   assert.equal(abortToast('darwin'), '<div class="utoast stale" role="status"><span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>A new version of Kosmos is ready.</b><small>This computer has tried to install it 2 times and could not, because '
