@@ -83,3 +83,16 @@ Also: a reply inside the hour may still be about an earlier direct message (Baro
   in the board's words (test, with a control and a mutation).
 - FIXED (NIT): the inserted block had separated unanswered's doc comment from unanswered; a stray blank line.
 - NOTED (NIT): suspectedMisrouteCount still counts a declared agent; its comment says so.
+
+## Review 3 (opus, blind, on fde4abb76)
+- FIXED (WARNING): unanswered's doc comment still said "from the record alone"; it now reads profiles and direct
+  threads. The false phrase is deleted.
+- FIXED (NIT): owedElsewhere's comment miscounted what the misroute count leaves out; the sentence is deleted
+  (suspectedMisrouteCount documents itself).
+- FIXED (NIT): the Mac's control-character `tr` became dead after the one-line refusal; removed.
+- FIXED (NIT): `kosmos reply-channel --clear Discord` stored "--clear Discord"; both commands now refuse a channel
+  that starts with - (test with a control; a mutation on each side goes red).
+- NO CHANGE (NIT): the screen path does not require isNamedOurs. Only the person's screen reaches it, and requiring
+  it could refuse an adopted agent the person can see.
+- NO CHANGE (NIT): no server test of the pane-named (from_pane) path; that path is processCaller's, shared with the
+  role and task routes and tested there.

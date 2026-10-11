@@ -2715,9 +2715,11 @@ cmd_reply_channel() {
   # Refused here, in the board's own words, rather than flattened to a space: the Windows command sends it as typed and
   # the board refuses it, so both commands answer the same.
   case "$channel" in *[[:cntrl:]]*) say "Kosmos did not set your reply channel: say the channel on one line."; exit 1 ;; esac
+  # A leading option word is a mistyped flag (`--clear Discord`), never a channel: stored, it would be a silent wrong one.
+  case "$channel" in -*) say "Kosmos did not set your reply channel: a channel cannot start with -. To go back to kosmos reply: kosmos reply-channel --clear"; exit 1 ;; esac
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
   _bt="$(agent_board_token || true)"
-  esc_ch=$(printf '%s' "$channel" | tr '\000-\037' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_ch=$(printf '%s' "$channel" | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/agent/reply-channel" \
     -H 'content-type: application/json' --data "{\"channel\":\"$esc_ch\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?

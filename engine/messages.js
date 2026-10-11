@@ -2520,7 +2520,7 @@ function answeredOffRoom(name, askAt, declared) {
 
 /**
  * Which addressed agents have not answered which operator posts in this
- * project, from the record alone. Returns { <postId>: [names...] }.
+ * project. Returns { <postId>: [names...] }.
  *
  * ⚠️ OPERATOR posts only, MENTIONED names only, TYPED deliveries only:
  * a colleague's mention is a different contract (the room model refuses
@@ -2971,8 +2971,7 @@ function reopenRoom(project, at) {
  * "Owed" is the same test the #185 nudge (`unanswered`) uses: an operator post that
  * mentioned this agent and reached its pane (anything but could_not), with no room post
  * from the agent in that project since, no answer to the person on their direct thread,
- * and no declared reply channel (answeredOffRoom, kosmos#5805 part 2). The daily misroute
- * count uses it without that last part (see suspectedMisrouteCount). Two bounds keep
+ * and no declared reply channel (answeredOffRoom, kosmos#5805 part 2). Two bounds keep
  * the cost of a wrong guess to one rerun, and rarely:
  * - only questions from the last WHICH_ROOM_WINDOW_MS count, so an ask the agent
  *   ignored yesterday does not hold every post it makes today;

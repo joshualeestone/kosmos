@@ -135,3 +135,18 @@ test('kosmos#5805: a channel on two lines is refused the same way by both comman
   assert.equal(w.code, 1);
   assert.match(w.out, /did not set your reply channel: say the channel on one line/);
 }));
+
+test('kosmos#5805: a mistyped flag (--clear Discord) is refused by both commands, never stored as a channel', () => withStub('{"ok":true,"channel":"x"}', async (port, seen) => {
+  const r = await mac(port, ['reply-channel', '--clear', 'Discord']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /a channel cannot start with -/);
+  assert.equal(seen.length, 0, 'the Mac sent "--clear Discord" as a channel');
+  const w = await win(['reply-channel', '--clear', 'Discord'], '{"ok":true,"channel":"x"}');
+  assert.equal(w.code, 1);
+  assert.equal(w.calls.length, 0, 'Windows sent "--clear Discord" as a channel');
+  assert.match(w.out, /a channel cannot start with -/);
+  // CONTROL: --clear alone still clears on both.
+  assert.equal((await mac(port, ['reply-channel', '--clear'])).code, 0);
+  assert.equal(JSON.parse(seen[0].body).channel, '');
+  assert.equal((await win(['reply-channel', '--clear'], '{"ok":true,"channel":null}')).calls.length, 1);
+}));
