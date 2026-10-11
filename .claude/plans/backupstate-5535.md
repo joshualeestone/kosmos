@@ -16,6 +16,7 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
 - Weakest premise: each slot's index can reach 200000 entries (CHUNK_ALLOWANCE), about 35 MB; two slots about 70 MB, read whole each run.
 
 ## Checks
+- (As first built; the current count and mutants are in the latest Review section below.)
 - 7 tests: round trip and modes; 10 not-ours forms refused with a control; a link refused; job fields cleaned;
   writeState refuses unreadable states and writes nothing; forPeriod same and fresh; withRun merge, staleIndex,
   another bucket, no bucket, a first run; all written and read back.
@@ -153,3 +154,16 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
   writes and reads a full slot back and asserts leftOut 1.
 - Process: the clean-tree guard went first this time; three multi-line mutant specs broke the syntax (caught by
   node --check, nothing lost), redone on one line.
+
+## Review 10 (opus, blind, on 1eb52b1ac): NOT CONVERGED
+- FIXED (WARNING, measured by the reviewer): the head-only write guard let a file with our first bytes and a corrupt
+  body be overwritten (readState refuses it), and refused a pretty-printed good file forever (readState accepts it).
+  One definition now: the guard IS readState (absent or ok may be replaced; anything else refused, retry passed
+  through). Costs one read per write (about 250 ms at 70 MB). Tests: body-corrupt refused and left byte-identical;
+  a reformatted good file replaced; ids with a quote, backslash, U+2028, an emoji and a lone surrogate round-trip.
+  Mutants red: the guard removed, the guard always passing, retry forced false.
+- FIXED (NIT): a passing error from the atomic write itself now throws with retry (no test: it needs a Windows rename
+  refusal; stated here as not covered).
+- FIXED (NIT): the header names the window between the guard's read and the rename (covered by the one-run duty).
+- FIXED (NIT): the plan's first Checks section says it is the first build's; current counts are here.
+- Now: 16 tests pass.
