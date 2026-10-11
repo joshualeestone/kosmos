@@ -111,3 +111,11 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - NITs taken: both CLIs word a message queued behind the backlog as that (a `behind` flag; tested); the bash match no
   longer depends on two keys sitting side by side; the sweep's one-run guard frees itself after 15 minutes; the double
   filter is gone.
+
+## Review 6 (sonnet)
+- FIXED: a typed or dropped message whose removal from the file failed was typed (or its sender told) again the next
+  minute. The board remembers those ids, skips them, and tries the removal again (tested with an unwritable folder).
+- FIXED, found by that test's control: removing the last message deleted the file and reported success even when the
+  delete failed; a failed delete is now a failed removal.
+- NITs: none taken (a message queued behind takes the last entry's reset, which the receipt already treats as no time
+  to promise; the bash CLI's substring match runs only on a held reply).

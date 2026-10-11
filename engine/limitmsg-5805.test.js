@@ -83,6 +83,7 @@ function arm(screen) {
 test.beforeEach(() => {
   chat.resetForTests();
   messages.resetForTests();
+  limitqueue.resetForTests();
   for (const d of [messages.LOG, limitqueue.dir()]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -355,4 +356,21 @@ test('#5805 2a review 5: after the held copy was typed and the two have spoken s
     assert.notEqual(again.id, id, 'folded into a message the two have talked past');
     assert.equal(tmux.pastedTo('casey').length, 2);
   });
+});
+
+test('#5805 2a review 6: a typed message whose removal from the file fails is not typed again next minute', async () => {
+  const t = new Date().toISOString();
+  limitqueue.add('casey', { id: 'm1020', from: 'leo', envelope: 'once', at: t, reset: t });
+  const file = limitqueue.fileFor('casey');
+  const typed = [];
+  const o = { deliver: async (n, env) => { typed.push(env); fs.chmodSync(path.dirname(file), 0o500); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY };
+  try {
+    await limitqueue.flush([{ sessionName: 'casey' }], o);
+    assert.equal(limitqueue.list('casey').length, 1, 'CONTROL: the removal did fail (the file still holds it)');
+    await limitqueue.flush([{ sessionName: 'casey' }], o);
+    assert.deepEqual(typed, ['once'], 'typed twice after a failed removal');
+  } finally { fs.chmodSync(path.dirname(file), 0o700); }
+  await limitqueue.flush([{ sessionName: 'casey' }], o);
+  assert.deepEqual(limitqueue.list('casey'), [], 'the removal was not tried again once it could succeed');
+  assert.deepEqual(typed, ['once']);
 });

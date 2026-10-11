@@ -34,7 +34,8 @@ function list(name) {
 }
 
 function write(name, entries) {
-  if (!entries.length) { try { fs.rmSync(fileFor(name), { force: true }); } catch { /* nothing to remove */ } return true; }
+  // force: a file already gone is no error, so any error here is a removal that failed.
+  if (!entries.length) { try { fs.rmSync(fileFor(name), { force: true }); } catch { return false; } return true; }
   fs.mkdirSync(dir(), { recursive: true });
   require('./securewrite').writeSecret(fileFor(name), JSON.stringify(entries), 0o600, { atomicOnly: true });
   return true;
@@ -80,6 +81,9 @@ function names() {
    when `isReleased(card)` (the card for the agent in `roster`), type the rest in order with `deliver`. A message typed
    (placed or unconfirmed) is removed and reported (onDelivered); the first that is not stops that agent's run and
    stays. Returns [{ name, id, state }] for what was typed. */
+/* Ids this board already typed or dropped whose removal from the file failed: skipped (and their removal tried again)
+   so a failed write never types a message twice or tells its sender twice. */
+const done = new Set();
 let flushingSince = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
 async function flush(roster, opts) {
@@ -93,13 +97,17 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
   const out = [];
   for (const name of names()) {
     try {
-      const kept = list(name);
+      const kept = [];
+      for (const e of list(name)) {
+        if (done.has(e.id)) { if (remove(name, e.id)) done.delete(e.id); continue; }   // typed or dropped already
+        kept.push(e);
+      }
       const live = [];
       for (const e of kept) {
         // Its reset, or when it arrived if the reset cannot be read: nothing is kept for ever.
         const reset = Number.isFinite(Date.parse(e.reset)) ? Date.parse(e.reset) : Date.parse(e.at);
         if (!Number.isFinite(reset) || now - reset > DROP_AFTER_MS) {
-          remove(name, e.id);
+          if (!remove(name, e.id)) done.add(e.id);
           try { if (onDropped) onDropped(e, roster); } catch { /* the drop stands */ }
         } else live.push(e);
       }
@@ -111,7 +119,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         try { v = await deliver(name, e.envelope, roster); } catch { v = null; }
         const state = v && v.state;
         if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) break;
-        remove(name, e.id);
+        if (!remove(name, e.id)) done.add(e.id);
         try { if (onDelivered) onDelivered(e, v); } catch { /* it was typed */ }
         out.push({ name, id: e.id, state });
         // Unconfirmed: it may still be in the composer; the next one waits a minute rather than type on top of it.
@@ -122,4 +130,6 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
   return out;
 }
 
-module.exports = { add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER };
+function resetForTests() { done.clear(); flushingSince = 0; }
+
+module.exports = { resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER };
