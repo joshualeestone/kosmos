@@ -65,6 +65,12 @@ mustflag "a continued pipe line" "yarn test $P grep \\" "  failed; rc=$Q"
 mustflag "a comment between the pipe and the read" "yarn test $P tail -5" "# read it below; rc=$Q" "[ $Q -eq 0 ] || exit 1"
 mustflag "a function ending in the pipe, then its own call" 'run() {' "  yarn test $P tail -5" '}' "run; rc=$Q"
 mustflag "a continued pipe line in a CRLF file" "yarn test $P grep \\"$'\r' "  failed; rc=$Q"$'\r'
+mustflag "a pipeline continued by a trailing pipe" "yarn test 2>&1 $P tee log $P" "  tail -5; rc=$Q"
+mustflag "a one-line function, then its call" "run() { yarn test $P tail -5; }" "run; rc=$Q"
+mustflag "a decorated function closer, then its call" 'run() {' "  yarn test $P tail -5" '} 2>&1' "run; rc=$Q"
+mustflag "a subshell-bodied function, then its call" 'run() (' "  yarn test $P tail -5" ')' "run; rc=$Q"
+mustflag "a builtin that always succeeds owns no status" "yarn test $P tail -5" "local rc; rc=$Q"
+mustflag "a pipe of its own before the semicolon" "x $P grep y" "foo $P jq .; rc=$Q"
 
 # The file the finding was about, as it is in this tree.
 if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then

@@ -20,12 +20,19 @@ the own-status rule clear a same-line pipe, each turns a check BAD. Whole-repo c
 0, and each of the 14 was read (every one is `cmd; rc=$?` or `|| sed`).
 
 ## Weakest premise
-The own-status rule clears an earlier pipe for a line "<plain command> ...; var=<status>". Shapes that pass the pipe's
-status on are refused by design: a compound closer (done, fi, esac, then, else, elif, do, wait, or a line starting
-with } or ), since such a construct's status IS its last command's), a comment, a status read before the ";", a ";"
-inside quotes, and a line continued from the pipe's line. Each is a must-flag fixture. What remains: a hand-built
-shape that reads the pipe's status through some construct not in that list would now pass. The lint was always a
-heuristic over lines, not a parser.
+The own-status rule clears an earlier pipe for a line "<plain command> ...; var=<status>". It is refused (the pipe
+stays live) for: a compound closer on the status line (done fi esac then else elif do wait, or a line starting with }
+or )); a builtin that always succeeds (local declare typeset readonly export set unset shift true alias builtin
+command eval exec time); a status read, or a pipe of its own, before the ";"; a ";" inside quotes; a comment; a line
+continued from the pipe's (trailing backslash or trailing lone pipe, CRLF or not); and a status line whose previous
+non-blank line ends a function (starts with } or ), or defines one on one line). Each is a must-flag fixture with a
+red mutant.
+
+**The residual, stated:** a function defined elsewhere in the file whose last command is a pipe, called as
+"fn; rc=<status>" with some unrelated line between its end and the call. The lint reads lines, not a parse, so it
+cannot know what fn returns. The old lint caught that only when the call sat within two lines of the pipe, which the
+function-end rule above still does. Quote parity counts each quote kind separately, so a stray quote inside the other
+kind refuses a correct line: a false positive, the safe direction for a guard.
 
 ## Review 1 (opus, blind, on cee6c0863)
 - FIXED (BLOCKER): the first own-status rule let real hazards through: "done; rc=", "fi; rc=", "}; rc=",
@@ -48,3 +55,11 @@ heuristic over lines, not a parser.
 - NO CHANGE (NIT): pipefail is never unset by "set +o pipefail" (predates this change; scope is #632's).
 - NO CHANGE (NIT): the test runs one awk per run; BSD awk and mawk were both run by hand on every fixture and the
   whole-repo sweep (identical). CI's awk is whatever its runner has.
+
+## Review 3 (opus, blind, on ee21de0a7)
+- FIXED (BLOCKER): a pipeline continued by a trailing lone "|" was not a continuation; it is now. Fixture; mutation red.
+- FIXED (WARNING): the function-end rule fired only on a lone "}"; now any previous non-blank line starting with } or
+  ), or a one-line function definition. Three fixtures; reverting to the lone-brace rule turns all three BAD.
+- FIXED (WARNING): a builtin that always succeeds ("local rc; rc=") owned the status; refused by list. Fixture; mutation red.
+- FIXED (WARNING): a pipe of its own before the ";" (any filter, e.g. jq) was cleared; refused. Fixture; mutation red.
+- FIXED (NITs): the residuals named above (functions defined elsewhere; quote-parity false positives); fixtures added.
