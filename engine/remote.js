@@ -1974,9 +1974,17 @@ async function devicesList() {
          without part C, which sends nothing. */
       allowed_on: typeof d.allowed_on === 'string' && d.allowed_on.trim() ? d.allowed_on.trim().slice(0, 60) : null,
       /* kosmos#5786 (b): allowed because the browser this computer opened proved itself, so the page can say
-         "on this computer". A lasting fact, not a notice: it stays until the device is removed here. */
-      on_this_computer: Object.prototype.hasOwnProperty.call(vouched, String(d.device_id)),
+         "on this computer". A lasting fact, not a notice: it stays until the device is removed here, and only for
+         the allow it was noted for (removed elsewhere and allowed again by hand, its allowed_at moves on). Ten
+         minutes of slack: allowed_at is the coordinator's clock, the note's this computer's. */
+      on_this_computer: vouchedFor(vouched, d),
     })) } };
+}
+function vouchedFor(vouched, d) {
+  if (!Object.prototype.hasOwnProperty.call(vouched, String(d.device_id))) return false;
+  const at = Number(vouched[String(d.device_id)] && vouched[String(d.device_id)].at) || 0;
+  const allowed = Number(d.allowed_at) || 0;
+  return !allowed || Math.abs(allowed - at) <= 600;   // a tunnel that sends no allowed_at cannot be checked
 }
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
     coordinator; a failed ack heals on the tunnel's next poll and the allow

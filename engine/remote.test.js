@@ -4656,3 +4656,17 @@ test('#5786 (b): a Not me the tunnel refused BEFORE the vouch arrived is never a
   assert.equal(allowsOf().includes('dev-np'), false, 'a device the person said Not me to was allowed automatically');
   remote.setOn(false);
 });
+
+test('#5786 (b): the on-this-computer label holds only for the allow it was noted for', async () => {
+  await vouchSignedIn('vouchlabel');
+  const note = (at) => { const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8')); f.vouched = { 'dev-1': { at, name: 'iPhone' } }; fs.writeFileSync(remote.FILE, JSON.stringify(f)); };
+  note(1756000000 + 30);
+  let r = await remote.devicesList();
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.devices.find((d) => d.device_id === 'dev-1').on_this_computer, true, 'premise: the noted allow is labelled');
+  // Removed elsewhere and allowed again by hand two hours later: allowed_at moved on, the old note must not label it.
+  note(1756000000 - 7200);
+  r = await remote.devicesList();
+  assert.equal(r.data.devices.find((d) => d.device_id === 'dev-1').on_this_computer, false, 'an old note labelled a later, hand-made allow');
+  remote.setOn(false);
+});

@@ -25,6 +25,7 @@ as `vouch` (absent = no auto-allow).
   the next tick, failing closed).
 - Note it in remote.json `vouched` ({id: {at, name}}, newest 20): pendingDevices().connected_here (10 min) and
   devicesList on_this_computer; Remove (the Undo) drops the note unless it timed out; an identity change drops all.
+  The label holds only while the device's allowed_at is within 10 minutes of the note (review 28).
 - Page: "<Browser> on this computer is connected." with why, Undo (Remove, one at a time) and Got it; other views show
   the compact line; Devices list "on this computer".
 
