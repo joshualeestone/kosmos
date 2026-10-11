@@ -39,6 +39,7 @@ const { MASK } = require('./engine/secretmask');
 const AGENT = 'mona';
 const GUIDE = 'guidebot';
 const OTHER = 'helperbot';
+const STRANGER = 'zeta';   // a pane holding this name UNTIED: nameRefusal's 'borrowed'
 const KEY = ['sk-ant-', 'api03-', 'FakeKeyFor5841Tests_abcdefGHIJ012345'].join('');
 const restore = [];
 function stub(obj, key, value) { const was = obj[key]; obj[key] = value; restore.push(() => { obj[key] = was; }); }
@@ -49,7 +50,8 @@ test.before(async () => {
   stub(setupAssistant, 'isGuideFolder', (n) => n === GUIDE);
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  fleet.install([fleet.agent(AGENT, { state: 'idle' }), fleet.agent(GUIDE, { state: 'idle' }), fleet.agent(OTHER, { state: 'idle' })]);
+  fleet.install([fleet.agent(AGENT, { state: 'idle' }), fleet.agent(GUIDE, { state: 'idle' }), fleet.agent(OTHER, { state: 'idle' }), fleet.agent(STRANGER, { ours: false, state: 'idle' })]);
+  for (let i = 0; i < 3; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, STRANGER, { text: 'private ' + i }).recorded, true);
   for (let i = 0; i < 450; i += 1) {
     const r = chat.appendMessage(chat.DIRECT, AGENT, { text: 'message ' + i, at: new Date(Date.UTC(2026, 9, 1, 0, 0, i)).toISOString() });
     assert.equal(r.recorded, true, r.because);
@@ -123,7 +125,14 @@ test('#5841 an earlier page of the setup guide\'s thread is masked as the latest
   assert.deepEqual(texts(o.json), [`The key is ${KEY}.`], 'CONTROL: another agent\'s earlier page is kept as sent, so the mask is the guide rule and not a blanket one');
 });
 
-test('#5841 the older route refuses a name the thread route refuses', async () => {
+test('#5841 the older route refuses a name the thread route refuses: undecodable, and a pane holding it untied', async () => {
   const r = await get('/api/agent/%ZZ/thread/older?before=1');
   assert.equal(r.status, 404, JSON.stringify(r.json));
+  // The borrowed name has a thread on disk with messages in it, so a route that skipped the gate would serve them.
+  const b = await get(`/api/agent/${STRANGER}/thread/older?before=3`);
+  assert.equal(b.status, 404, 'a stranger\'s pane must not serve this name\'s earlier messages: ' + JSON.stringify(b.json));
+  assert.equal(b.json.because, 'borrowed');
+  assert.ok(!JSON.stringify(b.json).includes('private'), 'the private messages came back');
+  const t = await get(`/api/agent/${STRANGER}/thread`);
+  assert.equal(t.status, 404, 'CONTROL: the thread route refuses the same name, so the two gates agree');
 });

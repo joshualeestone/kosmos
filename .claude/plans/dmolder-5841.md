@@ -37,3 +37,19 @@ That this 200-row view is the limit the reporter meant. The card records both li
 - The existing thread-route suites still pass (guide-secrets-3769, guide-mask-4733, dm-owes-4340,
   dm-notice-4354).
 - `docs/browser-checks/render-dm-earlier-5841.js`.
+
+## Review 1 (opus): what changed and what was decided
+- **BLOCKER fixed:** another agent's earlier rows could stand under the next agent's name. That happened during the
+  next agent's fetch, and for good if that fetch kept failing. `paintTalk` now resets the section before any await.
+  The browser check has an arm where the next agent's read fails.
+- The line's button is now STATIC and only toggled. Before, it was rebuilt every poll and took a keyboard user's
+  focus. Hide no longer refetches.
+- Earlier rows are READ-ONLY. The thread's reaction, reply and copy controls are wired to `#d-dmthread`, so in the
+  earlier section every button becomes plain text. Line breaks and the dark bubble tail extend to the earlier rows.
+- Reply headers render with the earlier rows in the lookup, so a reply whose original sits beside it names it.
+- An open counter drops a stale answer, so Hide then Show during a load draws once. A failed load offers "Try again".
+- `before` accepts digits only. The gate test now covers a borrowed name, with a thread on disk and a control.
+- **Deferred:** search does not filter the earlier section, which is a separate, explicit opening of older messages.
+  A search over all kept messages would be its own card.
+- **For piece 2:** `before` is stable only because a thread grows only at its newest end. The rollover moves old rows
+  aside into `.full` files, so the older route must then page across the asides, with positions re-based per file.

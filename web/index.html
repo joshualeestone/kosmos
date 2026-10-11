@@ -6787,7 +6787,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    render-dm-multiline-3208 / render-talk). Scope it to the DM thread only: the ROOM's
    .msg-bd renders paragraphs via pjProse <p> blocks (no literal \n), so it needs none and
    is left untouched. */
-#d-dmthread .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; }
+#d-dmthread .msg-bd, #d-talk-earlier-rows .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; }   /* kosmos#5841: the earlier rows too */
 /* #718 (agent chat on a phone). Three things the DM bubble got wrong once it was narrow:
    1. A TABLE inherited `overflow-wrap: anywhere` from the rule above, which makes every
       cell's min-content one character, so the table crushed to a letter per line instead
@@ -7077,7 +7077,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   :root:not([data-theme="light"]) body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root:not([data-theme="light"]) body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
   /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
      bubble-tail ground-mask together, mirroring the room's #000 thread ground above. */
-  :root:not([data-theme="light"]) body:not(.plus-active) #d-talk-box, :root:not([data-theme="light"]) body:not(.plus-active) #d-dmthread .msg-bd::after { background: #000000; }
+  :root:not([data-theme="light"]) body:not(.plus-active) #d-talk-box, :root:not([data-theme="light"]) body:not(.plus-active) #d-dmthread .msg-bd::after, :root:not([data-theme="light"]) body:not(.plus-active) #d-talk-earlier-rows .msg-bd::after { background: #000000; }
 }
 @media (min-width: 960px) {
   @media (prefers-color-scheme: dark) {
@@ -11172,7 +11172,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root[data-theme="dark"] body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
 /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
      bubble-tail ground-mask together, mirroring the room's #000 thread ground above. */
-:root[data-theme="dark"] body:not(.plus-active) #d-talk-box, :root[data-theme="dark"] body:not(.plus-active) #d-dmthread .msg-bd::after { background: #000000; }
+:root[data-theme="dark"] body:not(.plus-active) #d-talk-box, :root[data-theme="dark"] body:not(.plus-active) #d-dmthread .msg-bd::after, :root[data-theme="dark"] body:not(.plus-active) #d-talk-earlier-rows .msg-bd::after { background: #000000; }
 
 @media (min-width: 960px) {
 :root[data-theme="dark"] body.consolidated:not(.plus-active) .pj3 > .pjmid { background: #000000; }
@@ -12762,7 +12762,7 @@ window.kosmosMeasureScrollbarWidth();
          read must not be rendered as either. Same rule as the stale badge and
          the memory caption. -->
     <p class="dmbusy" id="d-busy" hidden></p>
-    <p class="dhint" id="d-talk-older" style="margin:10px 0 0;" hidden></p>
+    <p class="dhint" id="d-talk-older" style="margin:10px 0 0;" hidden><span id="d-talk-older-text"></span> <button type="button" class="btn quiet" id="d-talk-older-show" hidden>Show earlier messages</button></p>
     <div class="dmoff" id="d-dmoff" hidden></div>
     <!-- The room's box, on the agent page too (#385, Josh 2026-08-23): one
          composer drawn one way. The input element and every id stay, so the
@@ -37866,9 +37866,10 @@ document.addEventListener('click', (e) => {
 /* kosmos#5841: the conversation's earlier messages, a page at a time from GET .../thread/older?before=<n>. `before` is
    counted from the OLDEST message (the thread route's olderCount), so a send in between cannot shift a page. Per agent:
    another agent on screen resets it. */
-const EARLIER = { session: null, name: null, open: false, before: 0, rows: [], loading: false, because: null };
+const EARLIER = { session: null, name: null, open: false, before: 0, rows: [], loading: false, because: null, opening: 0 };
 function earlierReset(session) {
-  Object.assign(EARLIER, { session, name: null, open: false, before: 0, rows: [], loading: false, because: null });
+  // `opening` moves on, so an answer to a fetch from before this reset is dropped (Hide then Show mid-load drew twice).
+  Object.assign(EARLIER, { session, name: null, open: false, before: 0, rows: [], loading: false, because: null, opening: EARLIER.opening + 1 });
   const box = document.getElementById('d-talk-earlier');
   if (box) box.hidden = true;
   const r = document.getElementById('d-talk-earlier-rows');
@@ -37885,25 +37886,44 @@ function earlierPaint() {
   document.getElementById('d-talk-earlier-note').textContent = EARLIER.because
     ? pjSentence(EARLIER.because)
     : (n ? 'Earlier messages: ' + n + ' shown' + (EARLIER.before ? ', ' + EARLIER.before + ' older still kept.' : ', back to the start of this conversation.') : 'Loading earlier messages…');
-  const adj = dmReplyAdjacency(EARLIER.rows, false, null);
-  setLive(document.getElementById('d-talk-earlier-rows'), EARLIER.rows.map((m, i) => dmRow(m, EARLIER.name, adj.rows[i])).join(''));
+  /* Drawn by the thread's own renderer, with the earlier rows in the reply lookup for this one render (so a reply
+     whose original is beside it here finds it), then READ-ONLY: the thread's reactions, reply and copy controls are
+     wired to #d-dmthread, so here every button becomes plain text (its words kept, nothing to press). */
+  const saved = { rows: DM_ROWS, older: DM_ROWS_OLDER, oldest: DM_ROWS_OLDEST };
+  try {
+    DM_ROWS = new Map(saved.rows);
+    for (const r of EARLIER.rows) if (r && typeof r.at === 'string' && !DM_ROWS.has(r.at)) DM_ROWS.set(r.at, r);
+    DM_ROWS_OLDER = EARLIER.before;
+    DM_ROWS_OLDEST = EARLIER.rows.length && typeof EARLIER.rows[0].at === 'string' ? EARLIER.rows[0].at : saved.oldest;
+    const adj = dmReplyAdjacency(EARLIER.rows, false, null);
+    const el = document.getElementById('d-talk-earlier-rows');
+    setLive(el, EARLIER.rows.map((m, i) => dmRow(m, EARLIER.name, adj.rows[i])).join(''));
+    for (const b of el.querySelectorAll('button')) {
+      const span = document.createElement('span');
+      span.className = b.className; span.innerHTML = b.innerHTML;
+      b.replaceWith(span);
+    }
+  } finally { DM_ROWS = saved.rows; DM_ROWS_OLDER = saved.older; DM_ROWS_OLDEST = saved.oldest; }
   const more = document.getElementById('d-talk-earlier-more');
-  more.hidden = !EARLIER.before || Boolean(EARLIER.because);
+  more.textContent = EARLIER.because ? 'Try again' : 'Show earlier';
+  more.hidden = !EARLIER.before && !EARLIER.because;
   more.disabled = EARLIER.loading;
 }
 async function earlierLoad() {
   if (EARLIER.loading || !EARLIER.session) return;
   const session = EARLIER.session;
+  const opening = EARLIER.opening;
+  const current = () => EARLIER.session === session && EARLIER.opening === opening;
   EARLIER.loading = true; EARLIER.because = null; earlierPaint();
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread/older?before=' + EARLIER.before, { cache: 'no-store' });
     const body = await res.json().catch(() => null);
-    if (EARLIER.session !== session) return;   // another agent came on screen meanwhile
+    if (!current()) return;   // another agent came on screen, or this was hidden and reopened, meanwhile
     if (!res.ok || !body || !Array.isArray(body.messages)) { EARLIER.because = (body && body.error) || 'we could not read the earlier messages'; return; }
     EARLIER.rows = body.messages.concat(EARLIER.rows);
     EARLIER.before = Number(body.olderCount) || 0;
-  } catch { if (EARLIER.session === session) EARLIER.because = 'we could not read the earlier messages'; }
-  finally { if (EARLIER.session === session) { EARLIER.loading = false; earlierPaint(); } }
+  } catch { if (current()) EARLIER.because = 'we could not read the earlier messages'; }
+  finally { if (current()) { EARLIER.loading = false; earlierPaint(); } }
 }
 document.addEventListener('click', (e) => {
   const t = e.target;
@@ -37912,14 +37932,13 @@ document.addEventListener('click', (e) => {
     const thread = document.getElementById('d-dmthread');
     EARLIER.session = thread.__lastSession; EARLIER.name = thread.__lastName;
     EARLIER.open = true; EARLIER.rows = []; EARLIER.before = DM_ROWS_OLDER;
-    t.remove();
+    t.hidden = true;
     earlierLoad();
   } else if (t.id === 'd-talk-earlier-more') {
     earlierLoad();
   } else if (t.id === 'd-talk-earlier-hide') {
     earlierReset(EARLIER.session);
-    const thread = document.getElementById('d-dmthread');
-    if (thread.__lastSession) paintTalk(thread.__lastSession, thread.__lastName);   // redraws the older line with its button
+    document.getElementById('d-talk-older-show').hidden = !DM_ROWS_OLDER;   // the line's button back, no refetch
   }
 });
 
@@ -38092,6 +38111,9 @@ function paintTalkThread(body, name) {
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
+  /* kosmos#5841: another agent's earlier messages never stand under this agent's name, not for the fetch's round
+     trip and not while this agent's read keeps failing: reset BEFORE any await, whatever the read then does. */
+  if (EARLIER.session !== sessionName) earlierReset(sessionName);
   /* #4256: this agent's pending reply, not the last one's, before any read answers: the read's failure arm
      returns without painting rows, and must not leave another agent's "Replying to" up. */
   dmReplyPaint(sessionName);
@@ -38534,18 +38556,16 @@ async function paintTalk(sessionName, agentName) {
   paintTalkThread(body, name);
 
   const older = document.getElementById('d-talk-older');
-  older.textContent = body.olderCount
+  const olderText = body.olderCount
     ? 'Showing the latest ' + rows.length + '. ' + body.olderCount + ' older '
       + (body.olderCount === 1 ? 'message is' : 'messages are') + ' still kept.'
     : '';
-  /* kosmos#5841: and the way to them. Hidden while the earlier messages are open (their own section says where it is). */
-  if (body.olderCount && !(EARLIER.session === sessionName && EARLIER.open)) {
-    const show = document.createElement('button');
-    show.type = 'button'; show.className = 'btn quiet'; show.id = 'd-talk-older-show'; show.textContent = 'Show earlier messages';
-    older.append(' ', show);
-  }
+  const olderTextEl = document.getElementById('d-talk-older-text');
+  if (olderTextEl.textContent !== olderText) olderTextEl.textContent = olderText;   // only when it changes: no poll churn
+  /* kosmos#5841: and the way to them, a STATIC button toggled, never rebuilt (a rebuild each poll took a keyboard
+     user's focus). Hidden while the earlier messages are open: their own section says where it is. */
+  document.getElementById('d-talk-older-show').hidden = !body.olderCount || (EARLIER.session === sessionName && EARLIER.open);
   older.hidden = !body.olderCount;
-  if (EARLIER.session !== sessionName) earlierReset(sessionName);
 
   /* --- whether it can be handed a message at all --- */
   const off = document.getElementById('d-dmoff');
