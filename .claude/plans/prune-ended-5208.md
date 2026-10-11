@@ -165,8 +165,9 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
 - FIXED (WARNING): a persistent link or rename failure (or a torn line) refolded the whole history on every end. A
   failed try records the size it saw, so the next waits for another 64 KiB (test; "no backoff" mutation red).
 - RECORDED (WARNING): the new deny rules reach a token-only agent at its next session (guards are refreshed at board
-  start and at each launch, setup-assistant refreshTokenOnlyGuards). Until then the worst it can do there is make
-  removals refuse (a file at ended-agents.d, or holding the lock), never allow one.
+  start and at each launch, setup-assistant refreshTokenOnlyGuards). Until then it can make removals refuse (a file at
+  ended-agents.d, or holding the lock), and, in the same instant as a named residual, overwrite a sealed file that alone
+  holds a late line (a narrow fail-open; review 17).
 - FIXED (NIT): "at least an hour" is measured from the sealed file's last write; the comment says so.
 - NO CHANGE (NIT): newestPerName passes engine.reachable.test.js (reachable through noteEnded and compactEnded).
 
@@ -265,3 +266,8 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
 - FIXED (NIT): why no liveExecutionAllowed gate is needed (it deletes only files it made; tests use a throwaway root).
 - NO CHANGE (NITs): plan file name (repo practice is <branch>.md); the Windows job is the first real Windows run of the
   test file (no Windows machine here).
+
+## Review 17 (opus, blind, on 944a4a0c1): NITs only. CONVERGED.
+- No BLOCKER, WARNING or CONVENTION. Its three NITs were overclaims in prose, corrected after convergence (comments and
+  this plan only, no code): the header and the sealed-file comment now name the slept-compaction residual, which loses
+  ends for both builds; the rollout record names the narrow pre-upgrade-guard overwrite of a sealed file.

@@ -276,7 +276,7 @@ function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 /* kosmos#5208: the live file above is the history every build reads (a build from before this change reads only it). It
    is bounded by compactEnded, which replaces it whole with the newest line per name. Each file it replaces stays, as a
    hard link under ENDED_DIRNAME (`sealed.*.jsonl`) until at least an hour after its last write, and this build reads those too, so an append that
-   lands in a replaced file is never lost. setup-assistant.js denies token-only agents writes to that folder. */
+   lands in a file replaced after being linked is not lost (the slept-compaction residual below replaces one unlinked). setup-assistant.js denies token-only agents writes to that folder. */
 const ENDED_DIRNAME = 'ended-agents.d';
 function endedDir() { return path.join(store.ROOT, ENDED_DIRNAME); }
 const SEALED_RE = /^sealed\.[0-9]+\.[0-9]+\.[0-9a-f]+\.jsonl$/;
@@ -312,9 +312,11 @@ function noteEnded(sessionName, opts = {}) {
    (or at it), so for each name only its NEWEST line can decide an answer, for every `since`, strict or inclusive.
    Keeping the newest line per exact name (by the largest `at`) changes no answer under any slug rule, since one exact
    name always has one slug. The history then grows with distinct names (not capped), not with events.
-   HOW (compactEnded), so that no end is lost to this build, and none to an older one that reads only the live file
-   except the residuals the plan names (a line that reaches a replaced file after its put-back read, or that is torn
-   when read, is in a sealed file only until the next compaction folds it):
+   HOW (compactEnded), so that no end is lost to this build, and none to an older one that reads only the live file,
+   except the residuals the plan names: a line that reaches a replaced file after its put-back read, or that is torn
+   when read, is in a sealed file only until the next compaction folds it (older builds miss it meanwhile); and a
+   compaction that slept between its last checks and its rename can replace a newer live file unlinked, losing that
+   file's later ends for BOTH builds (see step 3):
    1. the sealed files and the live file are read and folded; anything it cannot read whole stops it here;
    2. the fold is written to a temp file in ENDED_DIRNAME and FLUSHED to disk;
    3. if the live file is still the file that was read (device, inode and birth time), it is hard-linked to a new sealed name (so the file about to be
