@@ -1151,6 +1151,12 @@ function plannedModelId(name) {
 function plannedModelOf(name) {
   let job = null;
   try { job = readJob(name); } catch { job = null; }
+  return plannedModelOfJob(job);
+}
+
+/* #5811: the pure half of plannedModelOf, for a caller that already holds the job (status.readGeminiSession reads it
+   on every poll), so the planned model costs no second read. */
+function plannedModelOfJob(job) {
   if (!job) return null;
   if (job.model) return { id: job.model, isDefault: false };
   const pinned = require('./win32keyed').DEFAULT_MODEL;   // required here: win32keyed requires this file lazily too
@@ -6467,6 +6473,7 @@ module.exports = {
   plannedModelArg,
   plannedModelId, // #4416
   plannedModelOf, // #4416
+  plannedModelOfJob, // #5811
   forgetCodexFolder,
   trustCodexFolder,
   /* #3439: exported so the escaping/rendering can be unit-tested deterministically

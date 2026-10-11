@@ -5407,9 +5407,11 @@ const server = http.createServer(async (req, res) => {
         return planned ? modelDisplayName(planned.id) + (planned.isDefault ? ' (default)' : '') : null;
       };
       /* #5804: for a running Gemini agent of ours, the model Kosmos started it on when its newest reply (since this run
-         began) came from a different one (engine/geminimodelswitch.js decides; null otherwise). */
+         began) came from a different one (engine/geminimodelswitch.js decides; null otherwise). #5811: from what the
+         snapshot already read (a.model, a.geminiSeen), never a second job or session read per poll; no geminiSeen means
+         the snapshot could not read the session, so there is nothing to say. */
       const settingGeminiModel = (a) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
-        ? require('./engine/geminimodelswitch').settingModelName(a.sessionName)
+        ? require('./engine/geminimodelswitch').settingModelNameOfRow(a)
         : null;
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer

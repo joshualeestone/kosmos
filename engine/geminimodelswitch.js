@@ -27,7 +27,8 @@ function canonicalId(id) {
   return String(id == null ? '' : id).toLowerCase().trim().replace(SAME_MODEL_SUFFIX, '');
 }
 
-/* Everything it reads, injectable for tests; production passes nothing. */
+/* Everything it reads, injectable. #5811: deps may be PARTIAL, the given ones overriding the real ones, so server.js
+   passes the planned model and the session from the snapshot it already read and keeps the rest. */
 function realDeps() {
   const create = require('./create');
   const status = require('./status');
@@ -40,7 +41,7 @@ function realDeps() {
 }
 
 function settingModelName(name, deps) {
-  const d = deps || realDeps();
+  const d = { ...realDeps(), ...(deps || {}) };
   let planned; let sess; let startedAt;
   try { planned = d.planned(name); } catch { return null; }
   // An alias picks a model by design, so there is no switch to report: a versionless one (auto, flash, pro) and, review 5,
@@ -57,4 +58,18 @@ function settingModelName(name, deps) {
   return started || null;
 }
 
-module.exports = { settingModelName, canonicalId };
+/* #5811: the decision for one snapshot row (engine/status.js), from what that tick's ONE session read already put on it:
+   `a.model` (the raw id the newest reply named) and `a.geminiSeen` ({ modelAt, planned }). No job read and no session
+   read here; only the run start (tmux's session list, cached per poll) and the display name (pure). No geminiSeen means
+   the snapshot could not read the session, so there is nothing to say. */
+function settingModelNameOfRow(a, deps) {
+  if (!a || !a.geminiSeen) return null;
+  const seen = a.geminiSeen;
+  return settingModelName(a.sessionName, {
+    ...(deps || {}),
+    planned: () => seen.planned,
+    session: () => ({ found: true, model: a.model, modelAt: seen.modelAt }),
+  });
+}
+
+module.exports = { settingModelName, settingModelNameOfRow, canonicalId };
