@@ -47,8 +47,6 @@ Slice 3a added the time on the card but deliberately left these alone.
 ## Residuals
 - A row off the screen for more than two minutes that comes back (a redraw that drops scrollback) is timed afresh as a
   new limit, and if its printed time already passed today it reads as tomorrow's (bounded by the one-day span).
-- (from 3a) A weekly last-day line first seen after a restart, past its printed time, resolves to tomorrow's time.
-  With 3b that also means it is held, and not retired, until then. Bounded by the one-day span.
 - Windows cards reading rate_limited at all is unmeasured (slice 1's gap).
 
 ## Tests
