@@ -17,7 +17,7 @@ still typed straight in.
   `{ id, from, to, envelope, at, reset }`. add, list, remove, and `flush` for the minute sweep.
 - messages.sendWithDelivery: after the envelope is built, if chat.limitHeldVerdict says the recipient is held on a
   usage limit, the message is kept (limitqueue.add), logged as a `message` row with `state: 'held'` and `heldUntil`
-  (the printed reset), and the sender gets the held shape: `{ state: could_not, held: true, heldBy: 'limit',
+  (the printed reset while it is ahead, else null), and the sender gets the held shape: `{ state: could_not, held: true, heldBy: 'limit',
   heldUntil, id, at, because }`. Nothing is typed. Could not keep it: refused, as before.
 - The same send again while it is held (the #4580 fold) answers with the same held receipt, not a second copy.
 - The minute sweep (server.js, beside roomhold.flushReleased): for each agent with kept messages whose card reads
@@ -50,7 +50,7 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - The sweep types kept messages in order once the card reads released, logs held-delivered rows, keeps the rest on a
   could_not, drops one a day past its reset.
 - The CLI prints the held line and exits 0 (bash CLI through a stub server; Windows CLI by its own test style).
-- outboxOutcomeOf treats held as delivered.
+- outboxOutcomeOf treats a held send as accepted (messages.heldAccepted, tested; the call in server.js source-asserted).
 
 ## Review 1 (opus)
 - FIXED (BLOCKER): queue files are keyed by the store key, so two names with one key shared a file and one agent's
