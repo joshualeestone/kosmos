@@ -115,6 +115,18 @@ function describe(rule) {
   return (r.every === 'day' ? 'every day' : 'every ' + DAY_NAMES[r.day]) + ' at ' + list;
 }
 
+/* kosmos#5836: a run's READING (`kosmos task ran --value`) and what the person was told (`kosmos task told`). Text the
+   agent phrases: compared exactly, whitespace runs aside, so "2 errors" and "3 errors" differ. One line, at most VALUE_MAX. */
+const VALUE_MAX = 500;
+function valueProblem(v) {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'string') return 'a reading has to be text';
+  if (!v.replace(/\s+/g, ' ').trim()) return 'say what the reading is';
+  if (v.length > VALUE_MAX) return 'a reading is at most ' + VALUE_MAX + ' characters';
+  return null;
+}
+function normValue(v) { return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : ''; }
+
 /* A run's note, checked: trimmed, one line, at most NOTE_MAX characters. */
 function noteProblem(note) {
   if (note === undefined || note === null || note === '') return null;
@@ -299,4 +311,4 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-module.exports = { EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+module.exports = { VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };

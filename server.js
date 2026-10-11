@@ -4517,12 +4517,14 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
 /* #5293 review 1: POST /api/agent/<name>/instruction-add joins: it only HOLDS a proposal the person applies on the page,
    and its handler names the caller with resolveAgentSender, header token first. */
+/* kosmos#5836: `kosmos task told` (POST .../task/<n>/told) joins with ran, on its terms: the handler names the caller
+   and refuses an agent that is not on the project. */
 /* #5152 slice 1: `kosmos task done-when` (POST .../task/<n>/done-when) joins on the same terms: its handler names the
    caller (processCaller) and refuses an agent that is not on the project (notOnProjectRefusal). */
 /* #4475 step 3: removing an agent (DELETE .../removal) joins, for the agents the caller created and no others: the
    handler identifies the caller from the token (agentTokenOnlyCaller) and refuses any other target, and refuses
    `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -20094,7 +20096,10 @@ const server = http.createServer(async (req, res) => {
      POST .../ran { note?, unchanged? } records that its job ran (unchanged: it found nothing new, kosmos#5643). Either from the screen (the person) or from an agent on the project,
      identified the way the built mark is (its token, else its pane); an agent off the project is refused. The rule is
      checked whole in the engine (taskrepeat.repeatProblem), so a bad one is a 400 with the sentence, never stored. */
-  const taskRepeat = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(repeat|ran)$/);
+  /* kosmos#5836: POST .../ran also takes { value } (the run's reading, kept as last verified) and answers how it compares
+     with what the person was last told (`vs_told`); POST .../told { value? } records what the person was told (default:
+     the last verified reading). Same callers and checks as ran. */
+  const taskRepeat = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(repeat|ran|told)$/);
   if (taskRepeat && req.method === 'POST') {
     const id = decodeSegment(taskRepeat[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
@@ -20119,7 +20124,7 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
         if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
           logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot change its tasks',
-            taskRepeat[3] === 'ran' ? 'record a run of a task' : 'set how often a task repeats', !!(tokenSender && tokenSender.ok));
+            taskRepeat[3] === 'ran' ? 'record a run of a task' : taskRepeat[3] === 'told' ? 'record what the person was told' : 'set how often a task repeats', !!(tokenSender && tokenSender.ok));
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' + NOT_ON_PROJECT_FIX });
           return;
         }
@@ -20133,7 +20138,11 @@ const server = http.createServer(async (req, res) => {
           // kosmos#5643: `unchanged: true` records a run that found nothing new (it rolls up on the task's page).
           if (body.unchanged !== undefined && typeof body.unchanged !== 'boolean') throw new Error('unchanged is true or false');
           // kosmos#5643 retry review 1: run_id, one per command and sent on every attempt, so a retry is the same run.
-          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen, unchanged: body.unchanged === true, runId: typeof body.run_id === 'string' ? body.run_id : null });
+          if (body.value !== undefined && typeof body.value !== 'string') throw new Error('a reading has to be text');
+          task = tasks.recordRun(id, taskRepeat[2], viaScreen ? null : by, typeof body.note === 'string' ? guideMasked(viaScreen ? null : by, body.note) : undefined, Date.now(), { person: viaScreen, unchanged: body.unchanged === true, runId: typeof body.run_id === 'string' ? body.run_id : null, value: typeof body.value === 'string' ? guideMasked(viaScreen ? null : by, body.value) : undefined });
+        } else if (taskRepeat[3] === 'told') {
+          if (body.value !== undefined && typeof body.value !== 'string') throw new Error('what the person was told has to be text');
+          task = tasks.setTold(id, taskRepeat[2], viaScreen ? null : by, typeof body.value === 'string' ? guideMasked(viaScreen ? null : by, body.value) : undefined, Date.now(), { person: viaScreen });
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
@@ -20158,7 +20167,11 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
-      sendJson(res, 200, { task, ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
+      // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
+      // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
+      // answers for what it found.
+      const vsTold = taskRepeat[3] === 'ran' && typeof body.value === 'string' && task ? tasks.versusTold(task, guideMasked(viaScreen ? null : by, body.value)) : null;
+      sendJson(res, 200, { task, ...(vsTold ? { vs_told: vsTold } : {}), ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });

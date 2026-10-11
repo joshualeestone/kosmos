@@ -942,6 +942,36 @@ const SCREENS = [
     const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), [data.projectId, data.scheduledTask]);
     if (st !== 200) throw new Error('could not clear the repeat rule after the shot (' + st + ')');
   } },
+  /* kosmos#5836 (Angel): a repeating task whose latest reading changed since the person was last told: its page's
+     repeat line says both ("has changed since you were last told"). Its own task, closed in `after`, since what the
+     person was told outlives the rule by design and would otherwise show on a later screen. */
+  { name: 'task-told-5836', owner: 'Angel', go: async (page, data) => {
+    const post = (path, body) => page.evaluate(([pth, b]) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })
+      .then(async (r) => ({ status: r.status, json: await r.json().catch(() => ({})) })), [path, body]);
+    const base = '/api/project/' + encodeURIComponent(data.projectId);
+    const made = await post(base + '/tasks', { sentence: 'Check the supplier price every morning' });
+    const n = made.status === 200 ? ((made.json.task && made.json.task.number) || made.json.number) : null;
+    if (typeof n !== 'number') throw new Error('could not add the task (' + made.status + ')');
+    data.toldTask = n;
+    for (const [what, body] of [['repeat', { every: 'day', at: '09:00' }], ['told', { value: 'price is $40' }], ['ran', { note: 'checked the supplier page', value: 'price is $45' }]]) {
+      const r = await post(base + '/task/' + n + '/' + what, body);
+      if (r.status !== 200) throw new Error('could not ' + what + ' (' + r.status + ')');
+    }
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async (num) => { await pjReload(); openTaskPage(num); }, n);
+    await page.waitForSelector('#tk-repeat-line:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('tk-repeat-row').scrollIntoView({ block: 'center' }));
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => (document.getElementById('tk-repeat-line') || {}).textContent || '');
+    if (!/has changed since you were last told \u201cprice is \$40\u201d/.test(t)) throw new Error('the repeat line says: ' + JSON.stringify(t));
+  }, after: async (page, data) => {
+    if (typeof data.toldTask !== 'number') return;
+    const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), [data.projectId, data.toldTask]);
+    if (st !== 200) throw new Error('could not close the task after the shot (' + st + ')');
+    data.toldTask = null;
+  } },
   /* #5053: one project's Tasks view, with its back chevron beside the title. The built-in seed's project name is long
      enough to wrap on a phone, so the shot shows the title wrapping beside the chevron (a store data set's may not). */
   { name: 'project-tasks', owner: 'PigeonPete', go: async (page, data) => {

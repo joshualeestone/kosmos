@@ -1196,6 +1196,10 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   const taskrepeat = require('./taskrepeat');
   const problem = taskrepeat.noteProblem(note);
   if (problem) throw new Error(problem);
+  // kosmos#5836: the run's reading, kept as the task's LAST VERIFIED value, compared by the caller with what was told.
+  const valueBad = taskrepeat.valueProblem(opts.value);
+  if (valueBad) throw new Error(valueBad);
+  const reading = typeof opts.value === 'string' ? taskrepeat.normValue(opts.value) : '';
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   let changed;
   let duplicate = false;
@@ -1222,11 +1226,18 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     if (Number.isFinite(prev) && sameRunner && prev <= at && at - prev < RUN_DEDUP_MS) {
       duplicate = true;
       if (idKey) t.recentRunIds = keptIds;   // remembered, so a late attempt of this command is absorbed too
+      /* kosmos#5836 review 1: a second report inside the minute still counts once, but a DIFFERENT reading is what the
+         agent now sees: kept as last verified, or the check would answer for a reading that was thrown away. */
+      if (reading && !(t.verified && t.verified.value === reading)) {
+        t.verified = { value: reading, at: new Date(at).toISOString(), ...(isPerson ? { person: true } : { by: runner }) };
+      }
       changed = t; return p;
     }
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
     if (keptIds.length) changed.recentRunIds = keptIds; else delete changed.recentRunIds;
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
+    // kosmos#5836: a run with a reading replaces the last verified value; a run without one leaves it as it was.
+    if (reading) changed.verified = { value: reading, at: changed.lastRunAt, ...(isPerson ? { person: true } : { by: runner }) };
     /* kosmos#5643: an UNCHANGED run found nothing new: said with --unchanged (opts.unchanged), or a note that is the same
        text as the run before it (whitespace aside), which is how an agent that repeats "all clear" says it. A run with no
        note and no flag is not unchanged: nothing says so. Unchanged runs keep the last CHANGE (lastChangeAt / Note) apart
@@ -1266,6 +1277,43 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });
   taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(changed.lastRunUnchanged ? { unchanged: true, ...(inferred ? { inferred: true } : {}) } : {}) });
+  return changed;
+}
+
+/** kosmos#5836: how a reading compares with what the person was last told. 'never' when nothing was ever recorded as told
+    (so it is news), 'same' or 'changed' otherwise. Exact text, whitespace runs aside (taskrepeat.normValue). */
+function versusTold(task, value) {
+  const told = task && task.told && typeof task.told.value === 'string' ? task.told : null;
+  const v = require('./taskrepeat').normValue(value);
+  if (!told) return { state: 'never' };
+  return { state: told.value === v ? 'same' : 'changed', told: { value: told.value, at: told.at } };
+}
+
+/** kosmos#5836: record what the PERSON was last told about a repeating task (`kosmos task told`): the given words, else the
+    task's last verified reading. Kept apart from the run streak, so a changed rule does not forget what the person knows. */
+function setTold(projectId, n, by, value, at = Date.now(), opts = {}) {
+  const isPerson = opts.person === true;
+  const teller = isPerson ? null : String(by || '').slice(0, WHO_MAX) || null;
+  const taskrepeat = require('./taskrepeat');
+  const bad = taskrepeat.valueProblem(value);
+  if (bad) throw new Error(bad);
+  let changed;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (!t.repeat) throw new Error('that task does not repeat; what the person was told is kept for a repeating check');
+    if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
+    /* Review 1: the default is the last reading only when it is the CALLER's own. Two agents on one task: A tells the
+       person "3", B then records "4", A's bare `told` would mark "4" as told and B's next "4" would read as the same. */
+    if (typeof value !== 'string' && t.verified && t.verified.value) {
+      const mine = isPerson ? t.verified.person === true : (t.verified.person !== true && t.verified.by === teller);
+      if (!mine) throw new Error('the latest reading was recorded by ' + (t.verified.person === true ? 'the person' : (t.verified.by || 'someone else')) + ', not by you: say what you told the person with --value');
+    }
+    const said = typeof value === 'string' ? taskrepeat.normValue(value) : (t.verified && t.verified.value) || '';
+    if (!said) throw new Error('no reading is recorded for that task yet: say what the person was told with --value, or record a run with --value first');
+    changed = { ...t, told: { value: said, at: new Date(at).toISOString(), ...(isPerson ? { person: true } : { by: teller }) } };
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
   return changed;
 }
 
@@ -1861,4 +1909,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
