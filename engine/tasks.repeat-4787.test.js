@@ -362,3 +362,16 @@ test('#4787 slice 3 review 5: Kosmos\'s own "missed" note is not activity (a dea
   taskchat.record(p.id, n, { kind: 'message', text: 'hi' });
   assert.notEqual(tasks.lastActivityOf(p.id, stored(p.id, n)), before, 'CONTROL: a real event a moment later is activity');
 });
+
+test('#5842: Kosmos\'s note that a kept message was dropped is not activity; one sent after the reset is', () => {
+  const p = projects.create({ name: 'Kept ' + Math.random().toString(36).slice(2) });
+  const n = tasks.create(p.id, { sentence: 'Report' }).number;
+  const tick = () => { const s = Date.now(); while (Date.now() - s < 5) { /* let the clock move */ } };
+  const before = tasks.lastActivityOf(p.id, stored(p.id, n));
+  tick();
+  taskchat.record(p.id, n, { kind: 'kept-dropped', to: 'casey', from: '' });
+  assert.equal(tasks.lastActivityOf(p.id, stored(p.id, n)), before, 'a dropped message made a quiet task look fresh');
+  tick();
+  taskchat.record(p.id, n, { kind: 'kept-sent', to: 'casey', from: '', state: 'placed' });
+  assert.notEqual(tasks.lastActivityOf(p.id, stored(p.id, n)), before, 'a kept message that reached its agent is activity');
+});

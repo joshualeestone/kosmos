@@ -1536,7 +1536,7 @@ function recordTaskLineOutcome(entry, v, dropped) {
 /* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane, and (#5842) the task's
    conversation records it, which is where the person sees it. */
 async function tellTaskLineDropped(entry, roster) {
-  recordTaskLineOutcome(entry, null, true);
+  try { recordTaskLineOutcome(entry, null, true); } catch { /* the record never stops the sender being told */ }
   let v = null;
   let told = 'nobody (the person sent it)';
   if (entry.from) {

@@ -309,10 +309,17 @@ test('#5842: a kept task line dropped a day past its reset is recorded dropped o
   assert.deepEqual(outcomes(14).map((e) => [e.kind, e.to, e.from]), [['kept-dropped', 'casey', 'leo']]);
 });
 
-test('#5842 CONTROL: a kept task line with no task (kept before this change) is dropped and typed as before, recording nothing', async () => {
+test('#5842 CONTROL: a kept task line with no task (kept before this change) is dropped as before and records nothing', async () => {
+  /* Every kept-* row in every task's conversation: this line, with no task, must add none anywhere. */
+  const keptRows = () => {
+    const dir = taskchat.taskChatsDir();
+    if (!fs.existsSync(dir)) return 0;
+    return fs.readdirSync(dir).reduce((n, f) => n + fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter((l) => /"kind":"kept-(sent|dropped)"/.test(l)).length, 0);
+  };
   const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
   limitqueue.add('casey', { id: 'k5842c', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old });
-  assert.equal(messages.recordTaskLineOutcome(kept()[0], null, true), false);
+  assert.ok(!('projectId' in kept()[0]), 'the fixture carries a task');
+  const before = keptRows();
   await withFleet(undefined, 'idle', async (board) => {
     const out = captureStdout();
     try {
@@ -320,5 +327,6 @@ test('#5842 CONTROL: a kept task line with no task (kept before this change) is 
       await until(() => out.lines.some((l) => l.includes('task line k5842c')));
     } finally { out.restore(); }
   });
-  assert.deepEqual(kept(), []);
+  assert.deepEqual(kept(), [], 'not dropped as before');
+  assert.equal(keptRows(), before, 'a line with no task was recorded on some task');
 });

@@ -62217,9 +62217,11 @@ function tkActPhrase(ev, p) {
     /* #5842: a message kept for an agent out of usage, sent after its reset or dropped a day later. `from` is the
        agent that sent it; none means the person. */
     case 'kept-sent': { const to = nameOf(ev.to) || 'an agent'; const by = ev.from ? (nameOf(ev.from) || 'An agent') + '\u2019s' : 'Your';
-      return by + ' message to ' + to + ' was sent after its usage reset' + (ev.state === 'unconfirmed' ? ', but Kosmos could not confirm ' + to + ' got it' : ''); }
+      return ev.state === 'unconfirmed'
+        ? 'Kosmos tried to send ' + (ev.from ? by : 'your') + ' message to ' + to + ' after ' + to + '\u2019s usage reset, but could not confirm ' + to + ' got it'
+        : by + ' message to ' + to + ' was sent after ' + to + '\u2019s usage reset'; }
     case 'kept-dropped': { const to = nameOf(ev.to) || 'an agent'; const by = ev.from ? (nameOf(ev.from) || 'An agent') + '\u2019s' : 'Your';
-      return by + ' message to ' + to + ' was never sent: Kosmos kept it for a day while ' + to + ' was out of usage'; }
+      return by + ' message to ' + to + ' was never sent: Kosmos kept it until a day after ' + to + '\u2019s usage reset and could not send it in that time'; }
     case 'closed': return 'Marked done';
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': return 'Put back';

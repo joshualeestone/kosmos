@@ -234,11 +234,12 @@ test('#5842: a kept message sent after the reset, or dropped, reads plainly with
     { at: minsAgo(30), kind: 'kept-sent', to: 'mona', from: '', state: 'placed' },
     { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', state: 'unconfirmed' },
     { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '' },
-    { at: minsAgo(5), kind: 'kept-dropped', to: 'mona', from: 'mona' },
+    { at: minsAgo(5), kind: 'kept-dropped', to: 'mona', from: 'leo' },
   ])).innerHTML;
-  assert.match(html, /Your message to Mona was sent after its usage reset</);
-  assert.match(html, /Your message to Mona was sent after its usage reset, but Kosmos could not confirm Mona got it/);
-  assert.match(html, /Your message to Mona was never sent: Kosmos kept it for a day while Mona was out of usage/);
-  assert.match(html, /Mona’s message to Mona was never sent/);
+  assert.match(html, /Your message to Mona was sent after Mona\u2019s usage reset</);
+  assert.match(html, /Kosmos tried to send your message to Mona after Mona\u2019s usage reset, but could not confirm Mona got it/);
+  assert.match(html, /Your message to Mona was never sent: Kosmos kept it until a day after Mona\u2019s usage reset and could not send it in that time/);
+  assert.match(html, /leo\u2019s message to Mona was never sent/, 'from and to mixed up, or the sender lost');
+  assert.doesNotMatch(html, /was sent after[^<]*could not confirm/, 'an unconfirmed message read as sent');
   assert.doesNotMatch(html, /kept-sent|kept-dropped/, 'a raw event kind reached the screen');
 });
