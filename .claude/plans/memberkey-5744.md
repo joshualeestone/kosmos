@@ -137,3 +137,10 @@ the API doc's missing `member` field.
 - RECORDED (dependency, on #5744): a waiting answer has no retry time; the job backs off on its own.
 - NITs taken: the registration-cap test uses its real code (rate_limited); a reversed assertion message; one
   newestRegistered helper for the three copies.
+
+## Review 7 (sonnet)
+- FIXED (Review 3's answer was in the plan only): the header states the one-computer-per-member premise and its
+  source (backup-key answers only the enrolled computer).
+- FIXED: the reachability excuse names #5535 (E0.6) as where its caller lands.
+- Duplicate: the backup job's epoch comparison (Review 5, on #5744).
+- NIT taken: the epoch-0 comment covers the "already epoch 1" half.

@@ -23,7 +23,9 @@
  * It does NOT ask whether a key Kosmos+ took is still the member's current one: the backup job compares the epoch
  * it answers with each grant's `epoch` (the uploader refuses a grant for another epoch), and a mismatch is the sign
  * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
- * assumed (the board's own lock). A rotation or a fresh key re-reads the file first, so a key another process
+ * assumed (the board's own lock), and ONE computer per member: Kosmos+ answers backup-key only to the member's
+ * enrolled computer (403 backup_not_member otherwise), so "another key holds this epoch" means this computer lost its
+ * key, not that a second computer of the member registered one. A rotation or a fresh key re-reads the file first, so a key another process
  * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected).
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
@@ -157,7 +159,8 @@ async function ensureNow(opts) {
       let next = null;
       if (code === 'member_key_exists') next = epoch + 1;
       else if (code === 'member_key_wrong_epoch' && Number.isSafeInteger(r.refusal.currentEpoch) && r.refusal.currentEpoch >= 0) {
-        // 0: no key is registered for this member at all (a kept key from an earlier epoch), so start at 1.
+        // 0: no key is registered for this member at all (a kept key from an earlier epoch), so start at 1; if this send
+        // was already epoch 1, there is nothing to move to and the refusal is answered.
         next = r.refusal.currentEpoch === 0 ? (epoch === 1 ? null : 1) : r.refusal.currentEpoch + 1;
       }
       if (moved || next === null || next > EPOCH_MAX) {
