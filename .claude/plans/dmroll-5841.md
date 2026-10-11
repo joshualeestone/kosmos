@@ -167,3 +167,17 @@ engine writes one, but a person could.
   numbers could compare two different files as equal.
 - **NIT, not taken:** arms 1 to 3 share `mona`'s state. Run alone, a dependent arm fails on a missing premise, so
   none passes for the wrong reason. Every arm in this file already states its premise.
+
+## Review 9 (opus)
+- **No BLOCKER, no SHOULD-FIX.**
+- **NIT, taken:** the older route re-reads every earlier file, and the thread route counts from a cache. If a read
+  fails for a moment (EMFILE, a permission change that leaves the size and mtime alone), the two disagree, and a
+  page inside the range comes back shifted, silently. The older route now refuses with a 503 ("could not read all
+  of the earlier messages just now") whenever its walk is shorter than the count's walk. Arm: an EMFILE on one
+  `.full` gives a 503 (CONTROL: 200 without it). The mutant is red.
+- **NIT, taken:** forget's `.full` filter had no test. An arm in engine/forget.test.js now checks that a `.full`
+  file is not counted as another conversation. The mutant is red.
+- **NIT, not taken:** a held message whose row is only in an earlier file keeps its fix in limitqueue's `rowFixes`,
+  so it is retried each minute until restart: one lock and one current-file read per minute, with no effect on
+  data. Fixing it means changing limitqueue, which is outside this change. It would matter if limits were held
+  for long and many rows arrived meanwhile.

@@ -15962,6 +15962,13 @@ const server = http.createServer(async (req, res) => {
       const rec = chat.readThread(chat.DIRECT, name);
       rows = rec.messages || [];
       const earlier = rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues, rec.projectBornAt) : [];
+      /* The thread route counts the chain from a cache; this walk reads every file. If a read fails here and not
+         there (a passing EMFILE, a permission change), the two disagree and every position on this page would be off
+         by that file's rows, silently. Refuse the page rather than serve positions the count does not match. */
+      if (rec.continues && earlier.length !== chat.asideChain(chat.DIRECT, name, false, rec.continues, rec.projectBornAt).length) {
+        sendJson(res, 503, { error: 'we could not read all of the earlier messages just now. Try again in a moment.' });
+        return;
+      }
       // Each carried overlap is served once, from the NEWER copy (chainRows): edits after a rollover live only there.
       if (earlier.length) rows = chat.chainRows(earlier, rows, rec.carried);
     } catch (err) {

@@ -415,3 +415,18 @@ test('#5841 the reattach picks the newest full file by the time in its name, not
   assert.equal(chat.appendMessage(chat.DIRECT, AGENT, { text: 'after a loss, again' }).recorded, true);
   assert.equal(chat.readThread(chat.DIRECT, AGENT).continues, byName[byName.length - 1], 'the reattach followed the modification time');
 });
+
+test('#5841 an earlier file the page cannot read just now refuses the page, rather than serving shifted positions', async () => {
+  const t = await get(`/api/agent/${AGENT}/thread`);   // the thread route's count of the chain, cached
+  assert.ok(t.json.olderCount > 400, 'premise: a chain to page across');
+  const before = t.json.olderCount;
+  const ok = await get(`/api/agent/${AGENT}/thread/older?before=${before}`);
+  assert.equal(ok.status, 200, 'CONTROL: the page reads when every file does');
+  const victim = chat.readThread(chat.DIRECT, AGENT).continues;
+  const realRead = fs.readFileSync;
+  fs.readFileSync = function (p, ...rest) { if (String(p).endsWith(victim)) throw Object.assign(new Error('EMFILE'), { code: 'EMFILE' }); return realRead.call(this, p, ...rest); };
+  let r;
+  try { r = await get(`/api/agent/${AGENT}/thread/older?before=${before}`); } finally { fs.readFileSync = realRead; }
+  assert.equal(r.status, 503, 'a page was served although an earlier file could not be read: ' + JSON.stringify(r.json));
+  assert.match(r.json.error, /could not read all of the earlier messages/);
+});
