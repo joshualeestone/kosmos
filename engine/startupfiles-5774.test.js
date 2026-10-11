@@ -46,7 +46,9 @@ function editDeniedBy(deny, p) {
   });
 }
 function realOrLeaf(p) {
-  const abs = path.resolve(p); let dir = path.dirname(abs); const tail = [path.basename(abs)];
+  const abs = path.resolve(p);
+  try { return fs.realpathSync.native(abs); } catch { /* absent: climb, as the production helper does (review 22) */ }
+  let dir = path.dirname(abs); const tail = [path.basename(abs)];
   for (;;) {
     try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* climb */ }
     const parent = path.dirname(dir); if (parent === dir) return abs;
@@ -998,4 +1000,51 @@ test('#5774 part 2 review 21: a hop inside a Cellar is covered by the Cellar rul
       } finally { fs.renameSync(parked, other); }
     }
   } finally { fs.rmSync(bashLogout, { force: true }); fs.rmSync(fishLink, { force: true }); }
+});
+
+test('#5774 part 2 review 22: a dangling dotfile link has its target denied (the agent could create it); a Cellar-shaped folder holding the agent is named, not denied whole', () => {
+  const mk = (link, to) => { fs.mkdirSync(path.dirname(link), { recursive: true }); fs.rmSync(link, { force: true }); fs.symlinkSync(to, link); };
+  const homeR = fs.realpathSync.native(HOME);
+  const zshrc = path.join(HOME, '.zshrc');
+  const zprofile = path.join(HOME, '.zprofile');
+  mk(zshrc, path.join(HOME, 'gone22', 'zshrc'));                                   // dangling, its folder absent too
+  mk(path.join(HOME, 'dots22', 'p'), path.join(HOME, 'gone22b', 'p'));             // a chain whose last hop dangles
+  mk(zprofile, path.join(HOME, 'dots22', 'p'));
+  try {
+    const d = agentDir('pilot-dangle22');
+    assert.equal(setup.guardTokenOnlyFolder(d, 'pilot-dangle22', { ...DEPS, env: ENV0 }).ok, true);
+    const s = readSettings(d);
+    for (const t of [path.join(homeR, 'gone22', 'zshrc'), path.join(homeR, 'gone22b', 'p')]) {
+      assert.ok(editDeniedBy(s.permissions.deny, t).length > 0, `${t}: file tools`);
+      assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, t), `${t}: sandbox`);
+    }
+    assert.ok(editDeniedBy(s.permissions.deny, path.join(homeR, 'dots22', 'p')).length > 0, 'the hop');
+  } finally { fs.rmSync(zshrc, { force: true }); fs.rmSync(zprofile, { force: true }); }
+  // The same with a home that has NO link above it. The sandbox HOME sits under /var (a link to /private/var), where
+  // every path reads as linked, so the case above cannot see a dangling leaf taken for an ordinary file.
+  const realHome = path.join(fs.realpathSync.native(SANDBOX), 'realhome22');
+  fs.mkdirSync(realHome, { recursive: true });
+  fs.symlinkSync(path.join(realHome, 'gone22c', 'zshrc'), path.join(realHome, '.zshrc'));
+  const dR = agentDir('pilot-danglereal22');
+  assert.equal(setup.guardTokenOnlyFolder(dR, 'pilot-danglereal22', { ...DEPS, env: ENV0, home: realHome }).ok, true);
+  const sR = readSettings(dR);
+  assert.ok(editDeniedBy(sR.permissions.deny, path.join(realHome, 'gone22c', 'zshrc')).length > 0, 'unlinked home: file tools');
+  assert.ok(sandboxDenies(sR.sandbox.filesystem.denyWrite, path.join(realHome, 'gone22c', 'zshrc')), 'unlinked home: sandbox');
+  // A person's own folder named Cellar, holding the agent's folder: its shape is a Cellar's, but denying it whole would
+  // cover the agent's own work, so it is named.
+  const own = path.join(SANDBOX, 'Cellar');
+  const agent = path.join(own, 'x', 'y', 'pilot-cellarwide22');
+  fs.mkdirSync(agent, { recursive: true });
+  touch(path.join(own, 'p', 'q', 't22'));
+  const zlogin = path.join(HOME, '.zlogin');
+  mk(zlogin, path.join(own, 'p', 'q', 't22'));
+  try {
+    const g = setup.guardTokenOnlyFolder(agent, 'pilot-cellarwide22', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false, 'not whole');
+    assert.ok(JSON.stringify(g).includes('too wide'), JSON.stringify(g));
+    const ownR = fs.realpathSync.native(own);
+    const s = readSettings(agent);
+    assert.ok(!editDeniedBy(s.permissions.deny, path.join(agent, 'work.txt')).length, 'the agent\'s own folder was denied');
+    assert.ok(!s.sandbox.filesystem.denyWrite.includes(ownR), 'the folder holding the agent is in denyWrite');
+  } finally { fs.rmSync(zlogin, { force: true }); }
 });

@@ -1769,14 +1769,27 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const editOnlyLinks = [];
   const editOnlyLinkDirs = [];
   const storeHits = new Set();
+  /* Review 22: a Cellar- or store-shaped folder that holds the home or the agent's own folder (a person's own folder named
+     Cellar) is named, never denied whole, as the folder scan's tooBroad does. */
+  const homeR = realOrLeaf(home);
+  const agentR = realOrLeaf(dir);
+  const holds = (r, x) => x === r || x.startsWith(r + path.sep);
+  const tooWide = (r) => r === path.parse(r).root || holds(r, homeR) || holds(r, agentR);
   const linkAware = (dirs) => (p) => {
-    const real = realOrLeaf(p);
+    // Review 22: a DANGLING link resolves to where it points (danglingTarget), as withTarget does; realOrLeaf alone
+    // keeps a dangling leaf's own name, which read as "not a link" and left its target, which the agent could create, uncovered.
+    let real;
+    try { real = fs.realpathSync.native(p); } catch { real = realOrLeaf(danglingTarget(p)); }
     if (real === path.resolve(p)) return [p];
     // Review 18: every replaceable link on the way, file tools only. Review 21: one in a Cellar or store, by its stable rule.
-    for (const h of chainHops(p)) { const r = stableRootOf(deps.storeRoots || STORE_ROOTS, h); if (r) storeHits.add(r); else editOnlyLinks.push(h); }
+    for (const h of chainHops(p)) {
+      const r = stableRootOf(deps.storeRoots || STORE_ROOTS, h);
+      if (r && !tooWide(r)) storeHits.add(r); else editOnlyLinks.push(h);
+    }
     if (!writableOrAbsent(real)) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); return []; }
     // Review 17: a writable target in a store: the link for the file tools, the store by one stable rule (both layers).
     const st = stableRootOf(deps.storeRoots || STORE_ROOTS, real);
+    if (st && tooWide(st)) { configUnsafe.push(`${p} (it links into ${st}, a folder too wide to deny: it holds the home or the agent's own folder)`); (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); return []; }
     if (st) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); storeHits.add(st); return []; }
     return withTarget(p, configUnsafe);
   };
