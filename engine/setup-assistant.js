@@ -1855,8 +1855,14 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      when the agent is in the agents' folder, and the managed one. Both layers, links followed, as the command scripts
      above. A target inside a folder denied whole is left to that rule; one the rule syntax cannot carry is named when it
      exists and skipped when absent (a word that only looks like an import is far likelier). See engine/startimports.js. */
-  const mdUnder = (d, depth = 4) => {
+  // Review 1: every .md under a rules folder, at any depth (Claude Code's walk has no cap); each folder once, so a link
+  // cycle ends.
+  const mdUnder = (d, seen = new Set()) => {
     let out = [];
+    let key = d;
+    try { key = fs.realpathSync.native(d); } catch { return out; }
+    if (seen.has(key)) return out;
+    seen.add(key);
     let names = [];
     try { names = fs.readdirSync(d, { withFileTypes: true }); } catch { return out; }
     for (const n of names) {
@@ -1864,7 +1870,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
       let isDir = n.isDirectory(), isFile = n.isFile();
       if (n.isSymbolicLink()) { try { const st = fs.statSync(p); isDir = st.isDirectory(); isFile = st.isFile(); } catch { /* dangling */ } }
       if (isFile && n.name.endsWith('.md')) out.push(p);
-      else if (isDir && depth > 1) out = out.concat(mdUnder(p, depth - 1));
+      else if (isDir) out = out.concat(mdUnder(p, seen));
     }
     return out;
   };
@@ -1875,7 +1881,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const md0 = deps.managedDir !== undefined ? deps.managedDir : startcommands.managedDir(deps.platform);
   const importRoots = [
     ...concreteHomes.flatMap((h) => [path.join(h, 'CLAUDE.md'), path.join(h, 'AGENTS.md'), ...mdUnder(path.join(h, 'rules'))]),
-    ...ancestorsOf(dir).flatMap(projectRoots),   // the agent's own folder is the first of these
+    /* Review 1: the agent's OWN folder only when its own instruction files are denied to it, which is when it is in the
+       agents' folder (the sibling globs match it). A connected agent's folder is its own repo: its CLAUDE.md is its
+       own to edit, so denying what it imports (@README.md) would refuse ordinary work and protect nothing. */
+    ...ancestorsOf(dir).filter((d) => siblingRules.length || (d !== path.resolve(dir) && d !== ownReal)).flatMap(projectRoots),
     ...siblings.flatMap(projectRoots),
     ...(md0 ? [path.join(md0, 'CLAUDE.md')] : []),
   ];
@@ -1897,22 +1906,21 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     }
     return null;
   };
+  // One the rules cannot carry: named when it exists, skipped when absent.
+  const uncarriedImport = (f) => {
+    let there = false;
+    try { fs.lstatSync(f); there = true; } catch { there = false; }
+    if (there) configUnsafe.push(`${f} (a file an instruction file imports, whose path the permission rules cannot carry)`);
+  };
   for (const f of imported.files) {
     if (coveredWhole(f)) continue;
     const rest = inAgentFolder(f);
     if (rest !== null) {
-      if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', rest))})`)) { importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest))})`); continue; }
-      let there = false;
-      try { fs.lstatSync(f); there = true; } catch { there = false; }
-      if (there) configUnsafe.push(`${f} (a file an instruction file imports, whose path the permission rules cannot carry)`);
+      if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', rest))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest))})`);
+      else uncarriedImport(f);
       continue;
     }
-    if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) {
-      let there = false;
-      try { fs.lstatSync(f); there = true; } catch { there = false; }
-      if (there) configUnsafe.push(`${f} (a file an instruction file imports, whose path the permission rules cannot carry)`);
-      continue;
-    }
+    if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) { uncarriedImport(f); continue; }
     importFiles.push(...withTarget(f, configUnsafe));
   }
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.

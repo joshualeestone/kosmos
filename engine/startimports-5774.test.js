@@ -97,11 +97,12 @@ test('#5774 route 3: imports nest to the depth Claude Code loads (the root is 0,
   names.slice(0, -1).forEach((n, i) => fs.writeFileSync(path.join(d, `${n}.md`), `@${names[i + 1]}.md\n`));
   fs.writeFileSync(path.join(d, 'e.md'), '@root.md\n');
   const r = si.importTargets([path.join(d, 'root.md')], { home: HOME });
-  assert.deepStrictEqual(r.files.map((f) => path.basename(f)).sort(), ['a.md', 'b.md', 'c.md', 'd.md'], 'd (depth 4) is loaded, so it is a target; its own import (depth 5) is not');
+  const baseNames = (fs_) => [...new Set(fs_.map((f) => path.basename(f)))].sort();   // a target may come by two spellings (the folder as given and its real one)
+  assert.deepStrictEqual(baseNames(r.files), ['a.md', 'b.md', 'c.md', 'd.md'], 'd (depth 4) is loaded, so it is a target; its own import (depth 5) is not');
   // A cycle (x imports y imports x) ends, and nothing is named.
   fs.writeFileSync(path.join(d, 'x.md'), '@y.md\n'); fs.writeFileSync(path.join(d, 'y.md'), '@x.md\n');
   const c = si.importTargets([path.join(d, 'x.md')], { home: HOME });
-  assert.deepStrictEqual(c.files.map((f) => path.basename(f)), ['y.md']);
+  assert.deepStrictEqual(baseNames(c.files), ['y.md']);
   assert.deepStrictEqual(c.unsafe, []);
 });
 
@@ -156,4 +157,63 @@ test('#5774 route 3: an import the rules cannot carry is named when it exists (t
     assert.ok(said.includes('odd (r3)') && said.includes('cannot carry'), said);
     assert.ok(fs.existsSync(path.join(d2, '.claude', 'settings.json')), 'the rest of the guard was not written');
   } finally { fs.rmSync(homeMd, { force: true }); fs.rmSync(path.dirname(odd), { recursive: true, force: true }); }
+});
+
+test('#5774 route 3 review 1: emphasis and link marks are edges; a stray backtick or a comment mark in code does not hide imports; non-text files are not imports', () => {
+  const f = path.join(SANDBOX, 'r1', 'CLAUDE.md');
+  const dir = path.dirname(f);
+  const got = si.importsIn([
+    'see **@em.md** and *@it.md* and _@us.md_ and [@link.md](https://x)',
+    'a stray ` backtick here',
+    '',
+    'a later paragraph: @after-stray.md',
+    'code `<!--` here, then @after-comment-mark.md and a later --> mark',   // the import sits BETWEEN the span and the -->
+    '@pic.png and @data.bin are not text; @noext and @UPPER.MD and @script.sh are',
+  ].join('\n'), f, '/h');
+  const want = ['em.md', 'it.md', 'us.md', 'link.md', 'after-stray.md', 'after-comment-mark.md', 'pic.png', 'data.bin', 'noext', 'UPPER.MD', 'script.sh'];
+  // importsIn returns every import Claude Code PARSES; whether it is read as text is the walk's question (below).
+  assert.deepStrictEqual([...new Set(got.map((p) => path.basename(p)))].sort(), want.sort());
+  const d = path.join(SANDBOX, 'r1ext');
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'root.md'), '@pic.png @noext @UPPER.MD @script.sh\n');
+  const r = si.importTargets([path.join(d, 'root.md')], { home: HOME });
+  assert.deepStrictEqual([...new Set(r.files.map((p) => path.basename(p)))].sort(), ['UPPER.MD', 'noext', 'script.sh'], 'a non-text import is not read, so not a target');
+});
+
+test('#5774 route 3 review 1: an import past 256 KB is read (Claude Code reads to 4 MB); a larger file is skipped; the read cap counts files read, not absent roots', () => {
+  const d = path.join(SANDBOX, 'r1big');
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'big.md'), 'x '.repeat(200 * 1024) + '\n@late.md\n');   // about 400 KB
+  assert.deepStrictEqual(si.importTargets([path.join(d, 'big.md')], { home: HOME }).files.map((p) => path.basename(p)).filter((n, i, a) => a.indexOf(n) === i), ['late.md']);
+  fs.writeFileSync(path.join(d, 'huge.md'), '@huge-import.md\n' + 'x'.repeat(4194304));
+  assert.deepStrictEqual(si.importTargets([path.join(d, 'huge.md')], { home: HOME }).files, [], 'Claude Code skips a file over 4 MB, and its imports');
+  const absent = Array.from({ length: 50 }, (_, i) => path.join(d, `absent-${i}.md`));
+  const one = si.importTargets([...absent, path.join(d, 'big.md')], { home: HOME, maxFiles: 3 });
+  assert.deepStrictEqual(one.unsafe, [], 'absent roots spent the cap');
+  for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(d, `real-${i}.md`), 'nothing\n');
+  const five = si.importTargets(Array.from({ length: 5 }, (_, i) => path.join(d, `real-${i}.md`)), { home: HOME, maxFiles: 3 });
+  assert.equal(five.unsafe.length, 1, 'a scan past the cap is named');
+});
+
+test('#5774 route 3 review 1: a linked instruction file\'s imports resolve from where it really is; a connected agent\'s own imports are its own', () => {
+  // A home with no link above it (the sandbox sits under /var, itself a link).
+  const base = path.join(fs.realpathSync.native(SANDBOX), 'r1link');
+  const A = path.join(base, 'A'), B = path.join(base, 'B');
+  fs.mkdirSync(A, { recursive: true }); fs.mkdirSync(B, { recursive: true });
+  fs.writeFileSync(path.join(A, 'CLAUDE.md'), '@./x.md\n');
+  fs.symlinkSync(path.join(A, 'CLAUDE.md'), path.join(B, 'CLAUDE.md'));
+  const r = si.importTargets([path.join(B, 'CLAUDE.md')], { home: HOME });
+  assert.ok(r.files.includes(path.join(A, 'x.md')), `the real folder's x.md: ${JSON.stringify(r.files)}`);
+  // A connected agent (its folder outside the agents' folder): its CLAUDE.md is its own, so what it imports stays its own.
+  const repo = path.join(SANDBOX, 'repo-r1');
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(path.join(repo, 'CLAUDE.md'), 'See @README.md and @package.json\n');
+  touch(path.join(repo, 'README.md'));
+  const g = setup.guardTokenOnlyFolder(repo, 'pilot-connected-r1', { ...DEPS, env: ENV0 });
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const s = readSettings(repo);
+  for (const n of ['README.md', 'package.json']) {
+    assert.ok(!editDeniedBy(s.permissions.deny, path.join(repo, n)).length, `${n} denied to a connected agent`);
+    assert.ok(!sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(repo, n)), `${n} in denyWrite`);
+  }
 });
