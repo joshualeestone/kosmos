@@ -164,6 +164,7 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' }
     s = await state();
     const note = await page.evaluate(() => document.getElementById('d-dmthread').textContent.trim());
     chk(s.rows.length === 0 && /cannot read/.test(note), 'when the latest read fails while earlier rows are open, the thread shows the failure, not old rows', JSON.stringify({ rows: s.rows, note: note.slice(0, 80) }));
+    chk(!s.line && !s.show && !s.hide, 'and no count or button stands over the failure', JSON.stringify({ line: s.line, show: s.show, hide: s.hide }));
     // ...and one failed poll does not throw away the pages already loaded (a failed read reports olderCount 0).
     await page.evaluate(() => { window.__nullThread = null; });
     await open('april', 'April'); await settle();

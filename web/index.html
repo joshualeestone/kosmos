@@ -37877,8 +37877,12 @@ async function earlierFetch(session, before) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread/older?before=' + before, { cache: 'no-store' });
     const body = await res.json().catch(() => null);
-    if (!res.ok || !body || !Array.isArray(body.messages)) return { ok: false, because: (body && body.error) || 'we could not read the earlier messages' };
-    return { ok: true, rows: body.messages, olderCount: Number(body.olderCount) || 0 };
+    if (!res.ok || !body || !Array.isArray(body.messages)) return { ok: false, because: 'we could not read the earlier messages' };
+    const olderCount = Number(body.olderCount) || 0;
+    /* The answer must be the range asked for: up to a page ending exactly at `before`. A thread that SHRANK in between
+       answers a clamped, different range, which appended here would be wrong or doubled rows (review 7). */
+    if (olderCount + body.messages.length !== before) return { ok: false, moved: true, because: 'we could not read the earlier messages' };
+    return { ok: true, rows: body.messages, olderCount };
   } catch { return { ok: false, because: 'we could not read the earlier messages' }; }
 }
 /* Redraw the thread and the line from the last answer, with no new read of the thread. */
@@ -37898,6 +37902,7 @@ async function earlierMore() {
   const r = await earlierFetch(session, EARLIER.before);
   if (EARLIER.session !== session || EARLIER.opening !== opening) return;
   EARLIER.loading = false;
+  if (r.moved) { earlierReset(session); earlierRepaint(); return; }   // the thread changed under the page: start again
   if (!r.ok) EARLIER.because = r.because;
   else { EARLIER.rows = r.rows.concat(EARLIER.rows); EARLIER.before = r.olderCount; convPause(); }   // old rows are not news to read aloud
   earlierRepaint();
@@ -37922,6 +37927,7 @@ async function earlierFillGap(session, olderCount) {
   while (before > from) {
     const r = await earlierFetch(session, before);
     if (EARLIER.session !== session || EARLIER.opening !== opening) return;
+    if (r.moved) { earlierReset(session); earlierRepaint(); return; }   // the thread changed under the fill: start again
     if (!r.ok) { EARLIER.filling = false; return; }   // the next poll tries again
     if (!r.rows.length) { EARLIER.filling = false; return; }   // nothing came back: leave `end`, the next poll retries
     const want = Math.min(before - from, r.rows.length);
@@ -37932,7 +37938,8 @@ async function earlierFillGap(session, olderCount) {
   convPause();
   earlierRepaint();
   /* A poll that came while this ran was turned away by `filling`: check once more against the newest answer. */
-  const last = document.getElementById('d-dmthread').__lastBody;
+  const th = document.getElementById('d-dmthread');
+  const last = th && th.__lastSession === session ? th.__lastBody : null;
   if (last && Array.isArray(last.messages) && (Number(last.olderCount) || 0) > EARLIER.end) earlierFillGap(session, Number(last.olderCount));
 }
 /* The line under the thread: how many older messages are kept, and the way to them. Two STATIC buttons, toggled and
@@ -37944,6 +37951,8 @@ function paintOlderLine(body, sessionName) {
   const show = document.getElementById('d-talk-older-show');
   const hide = document.getElementById('d-talk-older-hide');
   if (!older || !textEl || !show || !hide || !body) return;
+  /* A FAILED latest read (messages null): the thread says so, and no count or button stands over it (review 7). */
+  if (!Array.isArray(body.messages)) { older.hidden = true; return; }
   const shown = Array.isArray(body.messages) ? body.messages.length : 0;
   const on = earlierOn(sessionName);
   let text = '';

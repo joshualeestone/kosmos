@@ -131,3 +131,18 @@ search, styling. Gone: the separate box, its CSS extensions, the read-only conve
 - A comment whose words a scripted replace had swallowed is rewritten.
 - **Not taken:** the `[data-at]` scroll lookup degrades quietly (the person stays at the newest). The unread edge would
   mark earlier rows as unread if UNREAD_EDGE_ON were turned on; it is false today.
+
+## Review 7 (opus)
+- **Fixed:**
+  - When the latest read FAILED (messages null), the line still said "Showing N earlier and the latest 0" and offered
+    Show over the failure note. `paintOlderLine` now hides the line on a failed read, and the null-read arm asserts
+    it.
+  - A page must be the range asked for (`olderCount + rows === before`). A thread that changed underneath answers a
+    clamped range, so the earlier rows reset rather than append wrong or doubled rows. This is not reachable today,
+    and it guards piece 2's rollover.
+  - The gap re-check confirms the thread is still this agent's.
+  - A failed earlier load shows a fixed sentence, not the server's.
+- **Not taken:** the older route reads the roster for the guide check (parity with the thread route), and an empty
+  last page leaves focus on the body (the server's clamp makes this unlikely).
+- **Checked as safe by review:** earlierFillGap's re-check cannot loop or grow the stack. Each level needs a strictly
+  larger olderCount, and the call is not awaited.
