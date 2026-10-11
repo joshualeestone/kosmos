@@ -20,7 +20,21 @@ the own-status rule clear a same-line pipe, each turns a check BAD. Whole-repo c
 0, and each of the 14 was read (every one is `cmd; rc=$?` or `|| sed`).
 
 ## Weakest premise
-The own-status rule trusts any `word=$?` after a `;` to be that segment's status. `a | tail; rc=$?` is still flagged
-(same line); but `a | tail` on one line and `true; rc=$?` on the next is accepted, correctly, since `$?` is then
-`true`'s. A shape that reads `$?` meaning the earlier pipe but writes a command in between would now pass. That is
-already a bug the lint could not have meant to bless, since `$?` there is not the pipe's.
+The own-status rule clears an earlier pipe for a line "<plain command> ...; var=<status>". Shapes that pass the pipe's
+status on are refused by design: a compound closer (done, fi, esac, then, else, elif, do, wait, or a line starting
+with } or ), since such a construct's status IS its last command's), a comment, a status read before the ";", a ";"
+inside quotes, and a line continued from the pipe's line. Each is a must-flag fixture. What remains: a hand-built
+shape that reads the pipe's status through some construct not in that list would now pass. The lint was always a
+heuristic over lines, not a parser.
+
+## Review 1 (opus, blind, on cee6c0863)
+- FIXED (BLOCKER): the first own-status rule let real hazards through: "done; rc=", "fi; rc=", "}; rc=",
+  "); rc=", a status read before the ";", a ";" inside quotes, a continued pipe line. Rule rebuilt as own() with
+  each of those refused; each is a must-flag fixture, and each sub-rule has a mutant that turns its fixture BAD
+  (two fixtures first stayed green under their mutant because the first-character rule caught them; sharpened).
+- FIXED (WARNING): no adversarial must-flag fixtures; added (8).
+- FIXED (WARNING): a comment line could clear the pipe; own() needs a plain command word first (fixture).
+- FIXED (NIT): the weakest premise above names the real residual.
+- Found while fixing: the new comment wrote the status variable within two lines of the hook's own pipe, so the
+  hook refused itself; the comments now never write it. Whole-repo sweep: old 14 flagged lines (all false positives),
+  new 0, under BSD awk and mawk, with a hazard/clean control in each.

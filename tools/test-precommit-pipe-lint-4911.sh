@@ -47,6 +47,23 @@ printf '%s\n' 'set -o pipefail' "yarn test $P tail -5" "[ $Q -eq 0 ]" > "$T/pipe
 printf '%s\n' "n=\$(grep -c x f $O)" > "$T/grepc.sh"
 flags "$T/grepc.sh" && ok "CONTROL: the grep-count-or-echo-zero shape is still caught" || bad "the grep-count-or-echo-zero shape is no longer caught"
 
+# Must still flag: each shape below passes the PIPE's status on, so an own-status rule that cleared it would let a
+# real #632 hazard through (blind review round 1 found all five escaped the first version of the rule).
+mustflag() { # <label> <line>...
+  local label="$1"; shift
+  printf '%s\n' "$@" > "$T/mf.sh"
+  flags "$T/mf.sh" && ok "still caught: $label" || bad "escaped the lint: $label"
+}
+mustflag "a loop closer (done; rc=)" 'for i in 1; do' "  yarn test $P tail -5" "done; rc=$Q"
+mustflag "an if closer (fi; rc=)" 'if true; then' "  yarn test $P tail -5" "fi; rc=$Q"
+mustflag "a group closer (}; rc=)" '{' "  yarn test $P tail -5" "}; rc=$Q"
+mustflag "a subshell closer (); rc=)" '(' "  yarn test $P tail -5" "); rc=$Q"
+mustflag "a status read before the semicolon" "yarn test $P tail -5" "st=$Q; other=$Q"
+mustflag "a semicolon inside quotes" "yarn test $P tail -5" "echo \"suite finished; status=$Q\""
+# The continued line starts with a plain word (an argument of grep), so only the continuation rule can catch it.
+mustflag "a continued pipe line" "yarn test $P grep \\" "  failed; rc=$Q"
+mustflag "a comment between the pipe and the read" "yarn test $P tail -5" "# read it below; rc=$Q" "[ $Q -eq 0 ] || exit 1"
+
 # The file the finding was about, as it is in this tree.
 if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then
   out="$(lint "$HERE/tools/test-light-side-4911.sh")"

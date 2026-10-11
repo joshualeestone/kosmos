@@ -27,15 +27,32 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
   # kosmos#4911: the program sits between these two markers so tools/test-precommit-pipe-lint-4911.sh runs THIS text.
   # PIPE-LINT-BEGIN
   hits="$(git show ":$f" | awk '
+    # own(l): l is "<plain command> ...; var=<exit status>", so that status is the command'"'"'s own. Refused (the pipe
+    # still counts) for a closer (done fi esac then else elif do wait, or } and ) by the first-character rule), a
+    # comment, a status read before the ";", or a ";" inside quotes, since each of those passes the pipe'"'"'s status on.
+    # (These comments never write the status variable itself: this hook lints its own text.)
+    function own(l,   i, w, pre, t) {
+      if (l !~ /^[[:space:]]*[A-Za-z_.\/]/) return 0
+      w = l; sub(/^[[:space:]]*/, "", w); sub(/[^A-Za-z0-9_.\/-].*$/, "", w)
+      if (w ~ /^(done|fi|esac|then|else|elif|do|wait)$/) return 0
+      i = match(l, /;[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/)
+      if (!i) return 0
+      pre = substr(l, 1, i - 1)
+      if (pre ~ /\$\?/) return 0
+      t = pre; if (gsub(/"/, "", t) % 2) return 0
+      t = pre; if (gsub(/'"'"'/, "", t) % 2) return 0
+      return 1
+    }
     /^[^#]*set -o pipefail|^[^#]*set -[a-zA-Z]*o pipefail/ { pf = 1 }
     # "a || b" is not a pipe: drop every || before looking for one (a "cmd || sed" fallback was read as "| sed").
     { s = $0; gsub(/\|\|/, "  ", s) }
     s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
-    # A "$?" straight after a command on its own line ("cmd; rc=$?") is that command'"'"'s status, so a pipe on an EARLIER
-    # line cannot reach it. A pipe on the same line still counts ("x=$(a | tail); rc=$?" is the hazard itself).
-    p && p != NR && /[^[:space:];][^;]*;[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/ { p = 0 }
+    # A "$?" straight after a plain command on its own line is that command'"'"'s status, so a pipe on an EARLIER line
+    # cannot reach it (own() above). A pipe on the same line, or a line continued from the pipe'"'"'s, still counts.
+    p && p != NR && !cont && own($0) { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
+    { cont = ($0 ~ /\\$/) }
   ')"
   # PIPE-LINT-END
   if [ -n "$hits" ]; then
