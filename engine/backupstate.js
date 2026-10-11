@@ -19,13 +19,19 @@
  *   A missing file is ok and empty ({ job: {}, periods: [] }). A file that is a link, malformed, or for another
  *   (org, member) is NOT ok, and is never overwritten in place; the way out is discardState. A file that could not be
  *   read for a passing reason (EBUSY, EAGAIN, EPERM, EACCES: a scanner, or a rename in progress on Windows) is NOT ok
- *   with `retry`: NEVER discard on a retry, the file may be good.
+ *   with `retry`: NEVER discard on a retry, the file may be good. EACCES and EPERM are usually lasting on macOS and Linux
+ *   (a restored file with mode 000), so a caller bounds its retries and tells the person after a few.
  * org and member must be non-empty strings in every function (a number would hash to the same file and then read as
  *   another member's): a caller mistake throws.
  * discardState(org, member) -> { ok, because? }: renames the file aside (<file>.bad-<time>), never deleting it, so the
  *   next run starts a fresh period with a new naming key. Its chunks are not lost: the manifests that name them are
  *   stored; only deduplication against them is. The caller decides when (a refused read, said to the person once).
- * writeState(org, member, state): atomic (securewrite, owner-only). Throws on a state this module would not read back.
+ * writeState(org, member, state): atomic (securewrite, owner-only). Throws on a state this module would not read back,
+ *   and REFUSES to replace an existing file that is not plainly this module's for (org, member): a link, a foreign or
+ *   corrupt start, or a file it cannot read (that throw carries `retry` when the reason is passing). So a caller that
+ *   falls back to a fresh state after a refused read cannot overwrite the good or set-aside-worthy file: it must
+ *   discardState first (after which there is no file) or wait out the retry. The check reads the file's first bytes
+ *   only (the writer puts v, org and member first), so it costs nothing at 70 MB.
  * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the stored period whose label IS `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
  *   costing a run) and, defensively, of locks already ended (uploadManifest's own floor is stricter: a chunk must
@@ -157,6 +163,25 @@ function readState(org, member) {
   return { ok: true, state: { job: cleanJob(got.job), periods } };
 }
 
+/* Whether an existing file at f may be replaced: absent, or a plain file whose first bytes are this module's for (org,
+   member). Throws otherwise (with err.retry on a passing read error). */
+function mayReplace(f, org, member) {
+  let st;
+  try { st = fs.lstatSync(f); } catch (err) { if (err && err.code === 'ENOENT') return; throw Object.assign(new Error('backupstate: the existing state file could not be checked'), { retry: TRANSIENT.has(err && err.code) }); }
+  if (!st.isFile()) throw new Error('backupstate: the existing state file is not a plain file (a link?); discardState it first');
+  const want = Buffer.from(JSON.stringify({ v: 1, org, member }).slice(0, -1) + ',');
+  const head = Buffer.alloc(want.length);
+  let fd;
+  try {
+    fd = fs.openSync(f, 'r');
+    const n = fs.readSync(fd, head, 0, head.length, 0);
+    if (n !== want.length || !head.equals(want)) throw new Error('backupstate: the existing state file is not this member\'s; discardState it first');
+  } catch (err) {
+    if (err && err.message && err.message.startsWith('backupstate:')) throw err;
+    throw Object.assign(new Error('backupstate: the existing state file could not be checked'), { retry: TRANSIENT.has(err && err.code) });
+  } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+}
+
 function writeState(org, member, state) {
   ids(org, member);
   const list = (state && state.periods) || [];
@@ -169,6 +194,7 @@ function writeState(org, member, state) {
     throw new Error('backupstate: refusing to write a period that would not read back');
   }
   const body = JSON.stringify({ v: 1, org, member, job: cleanJob(state && state.job), periods });
+  mayReplace(fileFor(org, member), org, member);
   fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
   try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
   require('./securewrite').writeSecret(fileFor(org, member), body, 0o600, { atomicOnly: true });
