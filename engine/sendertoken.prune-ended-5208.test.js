@@ -324,3 +324,72 @@ test('kosmos#5208: a failed try waits for more growth before it tries again', ()
   fs.appendFileSync(LIVE(), big.join('\n') + '\n');   // CONTROL: past another bound, it tries (and now succeeds)
   assert.equal(sendertoken.compactEnded({}).compacted, true);
 });
+
+test('kosmos#5208: a torn tail (an append still being written) is not put back, and the line counts once whole', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  const realLink = fs.linkSync;
+  const half = line('slow', T0 + 8);
+  fs.linkSync = function (from, to) { fs.linkSync = realLink; fs.appendFileSync(LIVE(), half.slice(0, 10)); return realLink.call(this, from, to); };
+  let sealedPath;
+  try { sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; }
+  assert.equal(oldEndedSince('nobody', iso(T0), false), false, 'a torn tail was put into the live file: every removal would refuse for good');
+  [sealedPath] = sealed().map((n) => path.join(DIR(), n));
+  fs.appendFileSync(sealedPath, half.slice(10) + '\n');   // the writer finishes, into the file it opened
+  assert.equal(sendertoken.endedSince(['slow'], iso(T0)), true, 'the line, once whole, is not read');
+});
+
+test('kosmos#5208: a failed flush backs off too, and is said once', () => {
+  reset();
+  const big = [];
+  for (let i = 0; big.join('\n').length <= sendertoken.ENDED_COMPACT_AT_BYTES; i++) big.push(line('n' + i, T0 + i));
+  writeLive(big);
+  sendertoken.resetCompactNotesForTests();
+  const realFlush = securewrite.flushOrThrow;
+  const said = [];
+  const realErr = console.error;
+  console.error = (m) => said.push(String(m));
+  securewrite.flushOrThrow = () => { throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }); };
+  try {
+    assert.equal(sendertoken.compactEnded({}).compacted, false);
+    const realOpen = fs.openSync;
+    let tried = 0;
+    fs.openSync = function (f, ...rest) { if (String(f).endsWith('.tmp')) tried++; return realOpen.call(this, f, ...rest); };
+    try { sendertoken.compactEnded({}); } finally { fs.openSync = realOpen; }
+    assert.equal(tried, 0, 'a failed flush did not back off');
+  } finally { securewrite.flushOrThrow = realFlush; console.error = realErr; }
+  assert.equal(said.filter((m) => /could not be written to disk \(ENOSPC\)/.test(m)).length, 1, 'a failed flush was not said once');
+});
+
+test('kosmos#5208: a torn read that heals at once does not spend the stuck note', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  sendertoken.resetCompactNotesForTests();
+  const realRead = fs.readFileSync;
+  let first = true;
+  fs.readFileSync = function (p, ...rest) { const out = realRead.call(this, p, ...rest); if (p === LIVE() && first) { first = false; return out + '{"name":"mid-wri'; } return out; };
+  const said = [];
+  const realErr = console.error;
+  console.error = (m) => said.push(String(m));
+  let r;
+  try { r = sendertoken.compactEnded({ force: true }); } finally { fs.readFileSync = realRead; console.error = realErr; }
+  assert.equal(r.stuck, true, 'fixture: the torn read did not reach the stuck path');
+  assert.deepEqual(said.filter((m) => /no longer compacted/.test(m)), [], 'a transient torn read was said as stuck');
+});
+
+test('kosmos#5208: a compaction that stole the lock and put a newer file in place between the check and the link loses nothing', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  const realLink = fs.linkSync;
+  fs.linkSync = function (from, to) {
+    fs.linkSync = realLink;
+    const t = LIVE() + '.other';
+    fs.writeFileSync(t, '\n' + line('newer', T0 + 20) + '\n');
+    fs.renameSync(t, LIVE());   // another compaction's file, a different inode
+    return realLink.call(this, from, to);
+  };
+  try { sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; }
+  assert.equal(sendertoken.endedSince(['newer'], iso(T0)), true, 'this build lost the newer file\'s line');
+  assert.equal(oldEndedSince('newer', iso(T0), false), true, 'a rolled-back build lost the newer file\'s line');
+  assert.equal(sendertoken.endedSince(['a'], iso(T0 - 1)), true, 'the line this compaction folded was lost');
+});

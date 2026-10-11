@@ -21,7 +21,7 @@ endedSince's only reader is the token-only removal check (Angel confirmed).
      naming the file), with every file as it was;
   2. writes the fold to a temp file in ended-agents.d (denied to token-only agents, so none can hold the file that
      becomes the live one) and FLUSHES it (securewrite.flushOrThrow); a failed flush stops it;
-  3. if the live file is still the file it read (inode), hard-links it to `ended-agents.d/sealed.<ms>.<pid>.<hex>.jsonl`
+  3. if the live file is still the file it read (device, inode, birth time), hard-links it to `ended-agents.d/sealed.<ms>.<pid>.<hex>.jsonl`
      (the file about to be replaced, and anything appended to it even later, stays readable), RENAMES the temp over the
      live file and flushes both folders. A failed rename drops the link and the temp, says so once, and leaves the
      live file as it was. The live path is never absent: it holds the whole old history or the whole fold;
@@ -167,3 +167,19 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
   removals refuse (a file at ended-agents.d, or holding the lock), never allow one.
 - FIXED (NIT): "at least an hour" is measured from the sealed file's last write; the comment says so.
 - NO CHANGE (NIT): newestPerName passes engine.reachable.test.js (reachable through noteEnded and compactEnded).
+
+## Review 9 (opus, blind, on 18a50aeab): no fail-open found
+- FIXED (WARNING): the put-back could copy a torn tail (an unlocked append still being written), leaving the live file
+  refusing every removal for good. Only whole lines go back now; the rest stays in the sealed file, which is read, and
+  folds once whole (test: a half line written mid-compaction, then finished; mutation red).
+- FIXED (WARNING): not every failure after the size check backed off, and a failed flush was never said. Every stop
+  after the size check now records the size (unreadable files and the live file included), and a failed flush is said
+  once (test; mutation red).
+- FIXED (NIT): the stuck note is said only after re-reading the bad file, so a torn read that heals at once does not
+  spend it (test; mutation red).
+- FIXED (NIT): comments said "inode" (it is device, inode, birth time) and "only an unlocked append" (a compaction that
+  stole the lock can too).
+- FIXED (NIT): a test for a lock-stealing compaction putting a newer file in place between the check and the link.
+- RECORDED (NIT): on Windows, unlinking a sealed file a reader holds open may leave it delete-pending, so a reader that
+  listed it gets EPERM and endedSince refuses that once (fail closed). Treating EPERM as "missing" could fail open, so it
+  is left refusing; the Windows job runs the test file.

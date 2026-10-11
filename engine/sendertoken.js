@@ -309,10 +309,11 @@ function noteEnded(sessionName) {
    HOW (compactEnded), so that no end is lost to this build or to an older one that reads only the live file:
    1. the sealed files and the live file are read and folded; anything it cannot read whole stops it here;
    2. the fold is written to a temp file in ENDED_DIRNAME and FLUSHED to disk;
-   3. if the live file is still the file that was read, it is hard-linked to a new sealed name (so the file about to be
+   3. if the live file is still the file that was read (device, inode and birth time), it is hard-linked to a new sealed name (so the file about to be
       replaced, and anything appended to it even later, stays readable), and the temp file is RENAMED over it, and the
       folder flushed: the live path always holds either the whole old history or the whole fold;
-   4. any line appended between the read and the rename (only an unlocked append can) is appended back and flushed;
+   4. any whole line appended between the read and the rename (by an unlocked append, or a compaction that stole the
+      lock) is appended back and flushed;
    5. only then is a sealed file deleted, once read in this run and unchanged for SEALED_KEEP_MS.
    endedSince reads the live file, the sealed files, the live file again, then any new sealed file (see there). */
 const ENDED_COMPACT_AT_BYTES = 64 * 1024;
@@ -320,8 +321,9 @@ const SEALED_KEEP_MS = 60 * 60 * 1000;
 let compactStuckSaid = false;
 let compactReplaceSaid = false;
 let compactLinkSaid = false;
+let compactFlushSaid = false;
 /* Tests only: the once-per-process notes start unsaid again. */
-function resetCompactNotesForTests() { compactStuckSaid = false; compactReplaceSaid = false; compactLinkSaid = false; }
+function resetCompactNotesForTests() { compactStuckSaid = false; compactReplaceSaid = false; compactLinkSaid = false; compactFlushSaid = false; }
 /* The newest line per exact name across `texts`, as the text of a history file, or null when any line cannot be read
    whole (endedSince refuses on such a line; dropping it would turn that refusal into an answer). */
 function newestPerName(texts) {
@@ -368,23 +370,31 @@ function compactEnded(opts = {}) {
     const idOf = (x) => x.dev + ':' + x.ino + ':' + x.birthtimeMs;
     let base = 0; try { base = Number(fs.readFileSync(compactedBytesFile(), 'utf8')) || 0; } catch { base = 0; }
     if (opts.force !== true && st.size <= atBytes + base) return { compacted: false };
-    /* A try that fails after the size check (a torn line, no hard links, a rename that always fails) records the size it
-       saw, so the next try waits for another `atBytes` of growth instead of folding the whole history on every end. */
+    /* Every try that stops after the size check records the size it saw, so the next try waits for another `atBytes`
+       of growth instead of folding the whole history on every end (a torn line, an unreadable file, a flush or a rename
+       that keeps failing, no hard links). */
     const gaveUp = (out) => { try { fs.mkdirSync(endedDir(), { recursive: true }); fs.writeFileSync(compactedBytesFile(), String(st.size)); } catch { /* the trigger only */ } return out; };
     // 1. Read and fold. Any failure leaves every file as it was.
     const read = [];
-    for (const f of sealedFiles()) {
-      let fst; try { fst = fs.statSync(f); } catch (e) { if (e && e.code === 'ENOENT') continue; return { compacted: false }; }
-      read.push({ f, mtimeMs: fst.mtimeMs, text: fs.readFileSync(f, 'utf8') });
-    }
-    const liveText = fs.readFileSync(live, 'utf8');
+    let liveText;
+    try {
+      for (const f of sealedFiles()) {
+        let fst; try { fst = fs.statSync(f); } catch (e) { if (e && e.code === 'ENOENT') continue; throw e; }
+        read.push({ f, mtimeMs: fst.mtimeMs, text: fs.readFileSync(f, 'utf8') });
+      }
+      liveText = fs.readFileSync(live, 'utf8');
+    } catch { return gaveUp({ compacted: false }); }
     const next = newestPerName([...read.map((r) => r.text), liveText]);
     if (next === null) {
       /* A line it cannot read whole stops every compaction from now on, so the history grows again; say so once per
          process, naming the file that holds it, so it can be found and cleaned (Angel's review). Nothing was moved. */
-      if (!compactStuckSaid) {
+      const bad = newestPerName([liveText]) === null ? live : ((read.find((r) => newestPerName([r.text]) === null) || {}).f || endedDir());
+      /* Read the file again before saying it: an unlocked append caught mid-write reads as a torn tail for an instant,
+         and saying "stuck" for that would spend the note a real torn line needs. */
+      let still = true;
+      try { still = newestPerName([fs.readFileSync(bad, 'utf8')]) === null; } catch { still = true; }
+      if (!compactStuckSaid && still) {
         compactStuckSaid = true;
-        const bad = newestPerName([liveText]) === null ? live : ((read.find((r) => newestPerName([r.text]) === null) || {}).f || endedDir());
         console.error('kosmos#5208: the history of ended agents holds a line that cannot be read whole, so it is no longer compacted and will keep growing (' + bad + ')');
       }
       return gaveUp({ compacted: false, stuck: true });
@@ -393,10 +403,14 @@ function compactEnded(opts = {}) {
     //    that becomes the live one. (The hard link in step 3 already needs that folder on the live file's device.)
     fs.mkdirSync(endedDir(), { recursive: true });
     const tmp = path.join(endedDir(), 'live.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp');
-    try { writeFlushed(tmp, next, st.mode & 0o777); } catch { try { fs.unlinkSync(tmp); } catch { /* none */ } return { compacted: false }; }
+    try { writeFlushed(tmp, next, st.mode & 0o777); } catch (e) {
+      try { fs.unlinkSync(tmp); } catch { /* none */ }
+      if (!compactFlushSaid) { compactFlushSaid = true; console.error('kosmos#5208: the history of ended agents could not be written to disk (' + ((e && e.code) || 'failed') + '), so it is not compacted (' + endedDir() + ')'); }
+      return gaveUp({ compacted: false });
+    }
     // 3. Only over the file that was read (a compaction that slept after its lock was stolen finds a newer one: stop).
     let cur; try { cur = fs.statSync(live); } catch { cur = null; }
-    if (!cur || idOf(cur) !== idOf(st)) { try { fs.unlinkSync(tmp); } catch { /* none */ } return { compacted: false }; }
+    if (!cur || idOf(cur) !== idOf(st)) { try { fs.unlinkSync(tmp); } catch { /* none */ } return gaveUp({ compacted: false }); }
     const sealedPath = path.join(endedDir(), 'sealed.' + Date.now() + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.jsonl');
     try { fs.linkSync(live, sealedPath); } catch (e) {
       try { fs.unlinkSync(tmp); } catch { /* none */ }
@@ -413,9 +427,14 @@ function compactEnded(opts = {}) {
     }
     securewrite.syncDir(path.dirname(live));
     securewrite.syncDir(endedDir());
-    // 4. A line appended between the read and the rename is in the sealed file after what was read: put it back.
+    // 4. A line appended between the read and the rename (an unlocked append, or a compaction that stole the lock) is in
+    //    the sealed file after what was read: put it back.
     let extra = '';
     try { const sealedText = fs.readFileSync(sealedPath, 'utf8'); extra = sealedText.startsWith(liveText) ? sealedText.slice(liveText.length) : sealedText; } catch { extra = ''; }
+    /* Only whole lines: an unlocked append still being written reads as a torn tail, and a torn line put into the live
+       file would make every removal refuse for good. Its rest lands in the sealed file, which is read, and the next
+       compaction folds it once whole. */
+    extra = extra.slice(0, extra.lastIndexOf('\n') + 1);
     if (extra) {
       // The live file is already replaced; a failure here leaves the line in the sealed file, which this build reads.
       try {
