@@ -100,6 +100,18 @@ const rows = () => messages.list('casey');
 const LINE = '[Kosmos task 7 - Launch] leo said: "ship it" - reply in the task: kosmos task message launch 7 "..."';
 const ABOUT = 'task 7 in Launch';
 const kept = () => limitqueue.list('casey');
+/* What the board writes to its log (stdout) while `fn` runs, and a bounded wait for a fire-and-forget step. */
+function captureStdout() {
+  const lines = [];
+  const real = process.stdout.write;
+  process.stdout.write = function (chunk, ...rest) { if (String(chunk).startsWith('limit-queue: ')) { lines.push(String(chunk)); return true; } return real.call(this, chunk, ...rest); };
+  return { lines, restore: () => { process.stdout.write = real; } };
+}
+async function until(ok, ms = 3000) {
+  const end = Date.now() + ms;
+  while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+  assert.ok(ok(), 'timed out waiting');
+}
 
 test('#5805 task: a task line to an agent out of usage is kept, not typed; the route is told held and until when', async () => {
   await withFleet(AHEAD(), 'rate_limited', async (board, tmux) => {
@@ -164,8 +176,12 @@ test('#5805 task: one still kept a day past its reset is dropped, untyped, and t
   const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
   limitqueue.add('casey', { id: 'k1', kind: 'task', from: 'leo', envelope: LINE, about: ABOUT, at: old, reset: old });
   await withFleet(undefined, 'idle', async (board, tmux) => {
-    await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
-    await new Promise((r) => setTimeout(r, 50));   // the tell is fire-and-forget
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k1')));   // the tell is fire-and-forget
+    } finally { out.restore(); }
+    assert.ok(out.lines.some((l) => /^limit-queue: task line k1 for casey was dropped a day past its reset, never typed; told leo, delivery=placed$/.test(l.trim())), out.lines.join('|'));
     assert.deepEqual(tmux.pastedTo('casey'), [], 'the dropped line was typed');
     const told = tmux.pastedTo('leo');
     assert.equal(told.length, 1, 'the sender was not told');
@@ -179,8 +195,12 @@ test('#5805 task: a dropped line the person sent is told to no pane (the task co
   const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
   limitqueue.add('casey', { id: 'k2', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old });
   await withFleet(undefined, 'idle', async (board, tmux) => {
-    await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
-    await new Promise((r) => setTimeout(r, 50));
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k2')));
+    } finally { out.restore(); }
+    assert.ok(out.lines.some((l) => l.trim() === 'limit-queue: task line k2 for casey was dropped a day past its reset, never typed; told nobody (the person sent it)'), out.lines.join('|'));
     assert.deepEqual(tmux.typed(), [], 'something was typed for a dropped line from the person');
     assert.deepEqual(kept(), []);
   });
