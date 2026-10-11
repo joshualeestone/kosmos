@@ -1196,7 +1196,7 @@ async function verbReplyChannel(ctx, args) {
   if (!args.length) { ctx.err(USAGE['reply-channel']); return 2; }
   const channel = (args.length === 1 && args[0] === '--clear') ? '' : args.join(' ');
   // A leading option word is a mistyped flag (`--clear Discord`), never a channel, as on the Mac.
-  if (channel.startsWith('-')) { ctx.err('Kosmos did not set your reply channel: a channel cannot start with -. To go back to kosmos reply: kosmos reply-channel --clear'); return 1; }
+  if (channel.trimStart().startsWith('-')) { ctx.err('Kosmos did not set your reply channel: a channel cannot start with -. To go back to kosmos reply: kosmos reply-channel --clear'); return 1; }
   const r = await ctx.call('POST', '/api/agent/reply-channel', { channel });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')

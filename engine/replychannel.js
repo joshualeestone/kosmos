@@ -35,7 +35,7 @@ function of(profile) {
   try { return normalize(profile.replyChannel); } catch { return null; }
 }
 
-/* Lazy, so requiring this module never loads store.js (messages.js and firstreply-nudge.js both require it). */
+/* Lazy: store.js is loaded only when no store is passed in. */
 function storeNow() { return require('./store'); }
 
 /* The agent's declared channel, or null. Never throws: a profile that cannot be read is no declaration, so the

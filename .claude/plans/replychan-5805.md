@@ -96,3 +96,14 @@ Also: a reply inside the hour may still be about an earlier direct message (Baro
   it could refuse an adopted agent the person can see.
 - NO CHANGE (NIT): no server test of the pane-named (from_pane) path; that path is processCaller's, shared with the
   role and task routes and tested there.
+
+## Review 4 (sonnet, blind, on ee8379f11)
+- DUPLICATE of review 2 (deferred): a pane taken as given; a declaration is permanent and the misroute count differs.
+  No new BLOCKER, WARNING or CONVENTION.
+- FIXED (NIT): a leading space slipped "-x" past the dash check (the board trims it); both commands check the
+  trimmed text (test arm; a mutation on each side goes red).
+- FIXED (NIT): replychannel.js's lazy-require comment claimed more than the code needs; reduced to what it does.
+- NO CHANGE (NIT): CLAUDE.md lists neither agent CLI verbs nor single engine modules; its rule (moved files,
+  changed commands, a new directory) does not call for a row.
+- NO CHANGE (NIT): directRows hands back its cached rows; every caller only reads them.
+- One more blind pass runs because these NIT fixes changed code.

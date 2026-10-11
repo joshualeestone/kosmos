@@ -145,6 +145,10 @@ test('kosmos#5805: a mistyped flag (--clear Discord) is refused by both commands
   assert.equal(w.code, 1);
   assert.equal(w.calls.length, 0, 'Windows sent "--clear Discord" as a channel');
   assert.match(w.out, /a channel cannot start with -/);
+  // A leading space does not slip a flag past either check (the board trims it).
+  assert.equal((await mac(port, ['reply-channel', ' -x'])).code, 1, 'the Mac sent " -x"');
+  assert.equal((await win(['reply-channel', ' -x'], '{"ok":true,"channel":"x"}')).calls.length, 0, 'Windows sent " -x"');
+  assert.equal(seen.length, 0, 'the Mac sent " -x"');
   // CONTROL: --clear alone still clears on both.
   assert.equal((await mac(port, ['reply-channel', '--clear'])).code, 0);
   assert.equal(JSON.parse(seen[0].body).channel, '');
