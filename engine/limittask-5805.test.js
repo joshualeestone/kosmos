@@ -85,7 +85,7 @@ test.beforeEach(() => {
   chat.resetForTests();
   messages.resetForTests();
   limitqueue.resetForTests();
-  for (const d of [messages.LOG, limitqueue.dir()]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
+  for (const d of [messages.LOG, limitqueue.dir(), require('./taskchat').taskChatsDir()]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -307,6 +307,20 @@ test('#5842: a kept task line dropped a day past its reset is recorded dropped o
   });
   assert.deepEqual(outcomes(13).map((e) => [e.kind, e.to, e.from]), [['kept-dropped', 'casey', '']]);
   assert.deepEqual(outcomes(14).map((e) => [e.kind, e.to, e.from]), [['kept-dropped', 'casey', 'leo']]);
+  assert.ok(outcomes(13).every((e) => !('behind' in e)), 'a line kept for a reset was recorded as kept behind others');
+});
+
+test('#5842: a line kept behind earlier messages is recorded as such, so the page speaks of no reset', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'k5842d', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old, behind: true, ...WHERE(15) });
+  await withFleet(undefined, 'idle', async (board) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k5842d')));
+    } finally { out.restore(); }
+  });
+  assert.deepEqual(outcomes(15).map((e) => [e.kind, e.behind]), [['kept-dropped', true]]);
 });
 
 test('#5842 CONTROL: a kept task line with no task (kept before this change) is dropped as before and records nothing', async () => {

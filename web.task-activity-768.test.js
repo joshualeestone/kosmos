@@ -241,5 +241,17 @@ test('#5842: a kept message sent after the reset, or dropped, reads plainly with
   assert.match(html, /Your message to Mona was never sent: Kosmos kept it until a day after Mona\u2019s usage reset and could not send it in that time/);
   assert.match(html, /leo\u2019s message to Mona was never sent/, 'from and to mixed up, or the sender lost');
   assert.doesNotMatch(html, /was sent after[^<]*could not confirm/, 'an unconfirmed message read as sent');
+});
+
+test('#5842: an agent\'s kept message, and one kept behind earlier messages, read without a reset that did not happen', async () => {
+  const html = (await render([
+    { at: minsAgo(30), kind: 'kept-sent', to: 'mona', from: 'leo', state: 'unconfirmed' },
+    { at: minsAgo(20), kind: 'kept-sent', to: 'mona', from: '', state: 'placed', behind: true },
+    { at: minsAgo(10), kind: 'kept-dropped', to: 'mona', from: '', behind: true },
+  ])).innerHTML;
+  assert.match(html, /Kosmos tried to send leo\u2019s message to Mona after Mona\u2019s usage reset, but could not confirm Mona got it/);
+  assert.match(html, /Your message to Mona was sent once the messages ahead of it had gone</);
+  assert.match(html, /Your message to Mona was never sent: Kosmos kept it for a day behind earlier messages and could not send it in that time/);
+  assert.equal((html.match(/usage reset/g) || []).length, 1, 'a message kept behind others spoke of a usage reset');
   assert.doesNotMatch(html, /kept-sent|kept-dropped/, 'a raw event kind reached the screen');
 });

@@ -25,6 +25,9 @@ happens later to a message kept for an agent out of usage (#5805, #5848).
   tellTaskLineDropped, so both outcomes go through one function. taskchat is required lazily there, as messages.js
   already does for progressTimes.
 - Unconfirmed is said as such ("tried to send ... could not confirm"), never as sent.
+- A line kept behind earlier messages (`behind`, no usage limit of its own) is recorded with `behind`, and the page says
+  "sent once the messages ahead of it had gone" / "kept it for a day behind earlier messages", never a reset that did
+  not happen (review 3).
 - "Quietest first" (tasks.lastActivityOf): a dropped note is not activity, like a missed run; a sent one is, since an
   agent got the work (review 1).
 - Rejected: telling the person in a direct message (a second place to look); recording only drops (the person also
