@@ -6,7 +6,30 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const nodePath = require('node:path');
+
+/* Sandbox every root BEFORE requiring fleet/projects (they resolve roots at require time). The member row the page
+   names agents through comes from the real producer (fleet + projects.describe), never a hand-built literal
+   (fixture-discipline.test.js), as web.task-activity-768.test.js does. */
+for (const [k, n] of [['AGENT_WORKFORCE_PROJECTS', 'projects'], ['AGENT_WORKFORCE_DATA', 'data'], ['AGENT_WORKFORCE_HOME', 'home'], ['AGENT_WORKFORCE_WORKERS', 'workers']]) {
+  process.env[k] = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tksay-5842-' + n + '-'));
+}
+const fleet = require('./test-support/fleet');
+const projects = require('./engine/projects');
+
+/* A project with one real member: session casey-bot, card name Casey Rivera. */
+let NAMED = null;
+test.before(() => {
+  const board = fleet.install([fleet.agent('casey-bot', { state: 'idle', displayName: 'Casey Rivera' })]);
+  try {
+    const made = projects.create({ name: 'Launch' });
+    projects.addAgent(made.id, 'casey-bot');
+    NAMED = projects.describe(projects.readAll().find((x) => x.id === made.id), board.agents);
+    assert.ok(NAMED.agents.length === 1 && NAMED.agents[0].sessionName === 'casey-bot' && NAMED.agents[0].name === 'Casey Rivera',
+      'the premise: a real member row for casey-bot / Casey Rivera');
+  } finally { board.restore(); }
+});
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
@@ -25,12 +48,11 @@ function fnSource(name) {
 }
 
 /* Send one message whose answer carries `delivered`; return what the line under the box says. */
-async function send(delivered, { ok = true, agents = [] } = {}) {
+async function send(delivered, { ok = true, project = { id: 'p1', agents: [] } } = {}) {
   const input = { value: 'the price moved' };
   const msg = { textContent: 'left over from before' };
   const go = { disabled: false };
   const els = { 'tk-say': input, 'tk-say-msg': msg, 'tk-say-go': go };
-  const project = { id: 'p1', agents };
   let painted = 0;
   globalThis.TK_OPEN = 7;
   const body = ok ? { ok: true, delivered, summary: 'for agents' } : { error: 'refused' };
@@ -78,7 +100,6 @@ test('#5842: a message Kosmos could not keep says so and claims no cause (full, 
 });
 
 test('#5842: any other failure gets the page\'s own words: no resend advice, no terminal words, no doubled name', async () => {
-  const agents = [{ sessionName: 'casey-bot', name: 'Casey Rivera' }];
   const reasons = [
     'its question is being handled right now, so this was not typed; send it again in a moment',
     'Answer that question in its terminal with the arrow keys first, then send this',
@@ -87,7 +108,7 @@ test('#5842: any other failure gets the page\'s own words: no resend advice, no 
     undefined,
   ];
   for (const because of reasons) {
-    const r = await send([{ agent: 'casey-bot', state: 'could_not', because }], { agents });
+    const r = await send([{ agent: 'casey-bot', state: 'could_not', because }], { project: NAMED });
     assert.equal(r.said, 'Kosmos could not reach Casey Rivera, so it was not told. Your message stays on the task.', 'for: ' + because);
   }
 });
@@ -155,8 +176,7 @@ test('#5842: a delivery Kosmos could not confirm is never claimed either way', a
 });
 
 test('#5842: an agent listed twice gets one line, the worst outcome, by its card name', async () => {
-  const agents = [{ sessionName: 'casey-bot', name: 'Casey Rivera' }];
-  const r = await send([{ agent: 'casey-bot', state: 'placed' }, { agent: 'casey-bot', state: 'could_not', because: 'casey-bot is not on this project any more, so it was not told' }], { agents });
+  const r = await send([{ agent: 'casey-bot', state: 'placed' }, { agent: 'casey-bot', state: 'could_not', because: 'casey-bot is not on this project any more, so it was not told' }], { project: NAMED });
   assert.equal(r.said, 'Casey Rivera is not on this project any more, so it was not told.');
 });
 
