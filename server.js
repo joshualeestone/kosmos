@@ -16235,7 +16235,9 @@ const server = http.createServer(async (req, res) => {
     const firstShown = Array.isArray(messages) && messages.length > TAIL ? messages.length - TAIL : 0;
     const olderCount = Array.isArray(messages)
       ? Math.max(0, asideCount - (asideCount ? (threadRec.carried || 0) : 0) + firstShown) : 0;
-    if (Array.isArray(messages) && messages.length > TAIL) messages = messages.slice(-TAIL);
+    /* The pinned spelling (web.owes-line-4340 finds this line to prove owes is taken before the cut). With the chain,
+       olderCount can be > 0 on a file of 200 rows or fewer, where slice(-TAIL) changes nothing; past 200 it is always > 0. */
+    if (olderCount) messages = messages.slice(-TAIL);
     /**
      * ⚠️ EVERY FIELD HERE HAS A READER ON THE PAGE. The first version also
      * carried `agent`, `viewport` and `agentsUnreadable` "for parity with the
@@ -20993,7 +20995,9 @@ const server = http.createServer(async (req, res) => {
     }
     const projFirst = Array.isArray(messages) && messages.length > TAIL ? messages.length - TAIL : 0;
     const olderCount = Array.isArray(messages) ? Math.max(0, projAside - (projAside ? (projRec.carried || 0) : 0) + projFirst) : 0;
-    if (Array.isArray(messages) && messages.length > TAIL) messages = messages.slice(-TAIL);
+    /* The pinned spelling (web.owes-line-4340 finds this line to prove owes is taken before the cut). With the chain,
+       olderCount can be > 0 on a file of 200 rows or fewer, where slice(-TAIL) changes nothing; past 200 it is always > 0. */
+    if (olderCount) messages = messages.slice(-TAIL);
     /* #3769: a project thread with the setup guide is its words throughout, as in its direct thread. */
     const guideMember = member && isSetupGuide(member.sessionName) ? member.sessionName : null;
     sendJson(res, 200, {
