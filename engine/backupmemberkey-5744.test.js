@@ -278,3 +278,42 @@ test('#5744 2b: a file error is said without its path', async () => {
   assert.equal(r.ok, false, JSON.stringify(r));
   assert.equal(r.because, 'the backup key could not be set up on this computer (EACCES)');
 });
+
+test('#5744 2b: a wrong_epoch whose next is the epoch just sent resends the same key, keeping it', async () => {
+  const c = fakeCoordinator();
+  // A kept, unregistered key for epoch 2 (as after a rotation that waited).
+  await mk.ensureMemberKey({ macRequest: async (m, route, b) => (route === mk.BACKUP_KEY_ROUTE ? c.macRequest(m, route, b) : { ok: false, because: 'offline' }) });
+  const file = keyFile();
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  kept.keys = { 2: kept.keys['1'] };
+  fs.writeFileSync(file, JSON.stringify(kept));
+  const sent = [];
+  let n = 0;
+  const r = await mk.ensureMemberKey({ macRequest: async (m, route, b) => {
+    if (route === mk.BACKUP_KEY_ROUTE) return c.macRequest(m, route, b);
+    sent.push(b);
+    n += 1;
+    // The current epoch was 1 when this send was checked: next = 1 + 1 = 2, the epoch just sent.
+    if (n === 1) return { ok: false, because: 'wrong epoch', refusal: { status: 400, code: 'member_key_wrong_epoch', currentEpoch: 1 } };
+    return { ok: true, data: { epoch: b.epoch, member_public: b.member_public } };
+  } });
+  assert.deepEqual([r.ok, r.epoch], [true, 2], JSON.stringify(r));
+  assert.deepEqual(sent.map((b) => b.epoch), [2, 2]);
+  assert.equal(sent[0].member_public, sent[1].member_public, 'a different key was sent');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).keys['2'].registered, true);
+});
+
+test('#5744 2b: a key file for another company or member, or an epoch past 2^53, is not read', async () => {
+  const c = fakeCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest });
+  const file = keyFile();
+  const good = fs.readFileSync(file, 'utf8');
+  for (const edit of [(k) => { k.org = 'other'; }, (k) => { k.keys = { 9007199254740993: k.keys['1'] }; }]) {
+    const k = JSON.parse(good);
+    edit(k);
+    fs.writeFileSync(file, JSON.stringify(k));
+    const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+    assert.equal(r.ok, false, JSON.stringify(k).slice(0, 80));
+    assert.match(r.because, /could not be read/);
+  }
+});
