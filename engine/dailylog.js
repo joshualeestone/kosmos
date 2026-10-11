@@ -20,9 +20,8 @@
  * emptied day's stale file is removed.
  *
  * NOT READ: a rolled-over conversation, one whose earlier rows sit in a `.full`
- * file beside its thread file (kosmos#5841 is the change that makes those). While
- * there is any sign of one the whole run is refused and nothing is written or
- * pruned (kosmos#5855; see compileAll).
+ * file beside its thread file. While there is any sign of one the whole run is
+ * refused and nothing is written or pruned (kosmos#5855; see compileAll).
  *
  * Why a sibling directory, not inside chats/: `engine/forget.js` enumerates
  * `chats/` as "conversations", and a reader (or a future removal sweep) must
@@ -79,17 +78,11 @@ function dayFromFileName(name) {
 const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
 const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
 
-/* kosmos#5855: a rolled-over conversation (kosmos#5841 is the change that makes them; a tree without it never does).
-   Its full file sits beside the thread file, whole, under a name chat.js's `supersede` builds
-   (`<thread file>.<stamp>.<pid>.<ms>[.<n>].full`), and the fresh thread file carries a copy of its newest rows and
-   names the file it continues (`continues`). The earlier rows are ONLY in the `.full` file, which the two patterns
-   above do not match. This compiler does not read that chain, so it must be able to see that one exists (see
-   compileAll).
-   THE NAME CHECK IS A SUPERSET of the rule chat.js follows such a file by (its asideChain: this thread's own file
-   name, a dot, `.full` at the end, plus checks of what is inside). Here: ANY thread file's name as parseChatFileName
-   reads one, a dot, and `.full` at the end. So `direct..p.json.full` counts though chat never writes it, and so does
-   a stray file a person named that way. Counting too much refuses a run; counting too little prunes history.
-   The two signs, and where the files live, are held equal to chat.js by engine/dailylog.rollover-5855.test.js. */
+/* kosmos#5855: a rolled-over conversation's earlier rows are only in a `.full` file beside its thread file
+   (`<thread file>.<stamp>.<pid>.<ms>[.<n>].full`), which the two patterns above do not match; its fresh thread file
+   names that file in `continues`. This recognises the name: any thread file's name, a dot, `.full` at the end. That
+   is deliberately wider than what chat.js itself follows: counting too much refuses a run, counting too little
+   prunes history. Both signs are held equal to chat.js by engine/dailylog.rollover-5855.test.js. */
 const ROLLED_OVER_SUFFIX = 'full';
 const THREAD_FILE_END = '.json';
 function isRolledOverFileName(filename) {
@@ -320,10 +313,9 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  *   - `rolledOver` counts the `.full` files of rolled-over conversations (kosmos#5855),
  *     whose rows this function does NOT return. By name only: they are not opened.
  *     A FOLDER with such a name is not one (chat.js could not follow it).
- *   - `continued` counts current conversation files that NAME an earlier file
- *     (`continues`), INCLUDING one that names it but is otherwise not a readable
- *     conversation (cut short, or its messages are not a list): a damaged fresh
- *     file is still a rolled-over conversation. That is the same fact read from the other side, and it still
+ *   - `continued` counts thread files that NAME an earlier file (`continues`),
+ *     INCLUDING one that names it but is otherwise not a readable conversation
+ *     (cut short, or its messages are not a list). That is the same fact read from the other side, and it still
  *     shows when the `.full` file is not in the listing: moved away by a person,
  *     or created by a rollover that landed after the folder was listed.
  *   - `readable` is true ONLY if the directory LISTING succeeded. A failed
@@ -394,17 +386,11 @@ function compileAll(opts = {}) {
 
   const { conversations, readable, readErrors, rolledOver, continued } = readConversations(chatsDir);
 
-  /* 🛑 kosmos#5855 FAIL CLOSED: a rolled-over conversation's earlier rows are only in its `.full` files, which this
-     compiler does not read. Compiling from the current files alone would be wrong twice over: it would REWRITE a day
-     that straddles the rollover with only the rows the fresh file carried, and it would PRUNE every day whose rows
-     are only in a `.full` file. Both destroy compiled history that is still true. So on either sign of a rollover (a
-     `.full` file in the folder, or a current file that names one) the run writes nothing and prunes nothing, and
-     says why (`refused`). An `onlyDay` run is refused too: that one day may be the straddling one. The originals in
-     chats/ are untouched either way. `messages` and `undated` are 0 here because nothing was flattened, not because
-     there are none.
-     NOT COVERED, and already so before this: a thread file set aside as `.superseded` (an earlier project of the
-     same name) or `.damaged`. Their rows are not in any current file either, so their days are pruned by a full run.
-     That is kosmos#5866, not this refusal. */
+  /* 🛑 kosmos#5855 FAIL CLOSED: this compiler does not read `.full` files. From the current files alone it would
+     REWRITE a day that straddles a rollover with only the rows the fresh file carried, and PRUNE every day whose rows
+     are only in a `.full` file. So on either sign of a rollover the run writes nothing and prunes nothing, and says
+     why (`refused`). An `onlyDay` run too: that day may be the straddling one. `messages` and `undated` are 0 here
+     because nothing was flattened, not because there are none. */
   if (rolledOver > 0 || continued > 0) {
     return {
       conversations: conversations.length, messages: 0, days: 0, written: [], pruned: [], undated: 0,
@@ -533,7 +519,9 @@ if (require.main === module) {
     process.stderr.write('dailylog: not compiled. A conversation in the chats folder has its earlier part kept in a '
       + 'separate file, as happens when one reaches its message limit, and this version cannot read a conversation '
       + 'kept that way. Nothing was written or removed: the daily files already there are left as they are, and so '
-      + 'are the conversations. It needs a version of Kosmos that can read it.\n');
+      + 'are the conversations. It needs a version of Kosmos that can read it.\n'
+      + `dailylog: what was seen: ${summary.rolledOver} file(s) named as an earlier part (ending .full), `
+      + `${summary.continued} conversation file(s) that name one.\n`);
     process.exit(EXIT_REFUSED);
   }
   process.stdout.write(

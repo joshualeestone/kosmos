@@ -1,10 +1,7 @@
 'use strict';
 /**
- * kosmos#5855: a rolled-over conversation (kosmos#5841 is the change that makes them). Its full file sits beside the
- * thread file as `<thread file>.<stamp>.<pid>.<ms>[.<n>].full`, and the fresh thread file carries a copy of its
- * newest rows and names the file it continues. The daily-log compiler does not read that chain. Compiling from the current files alone would rewrite a day that straddles
- * the rollover with fewer rows and prune every day whose rows live only in a `.full` file, so on either sign of a
- * rollover (such a file in the folder, or a current file that names one) the compiler refuses the run: nothing
+ * kosmos#5855: the daily-log compiler does not read a rolled-over conversation (earlier rows in a `.full` file beside
+ * the thread file; the fresh thread file names it in `continues`). On either sign it refuses the run: nothing
  * written, nothing pruned, and it says why.
  *
  *   node --test engine/dailylog.rollover-5855.test.js
@@ -248,6 +245,7 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.equal(day.stderr, no.stderr, 'a targeted run was refused in different words');
   assert.ok(!fs.existsSync(other), 'a refused run created its output folder');
   assert.match(no.stderr, /It needs a version of Kosmos that can read it\./);
+  assert.match(no.stderr, /what was seen: 1 file\(s\) named as an earlier part \(ending \.full\), 0 conversation file\(s\) that name one\./);
 });
 
 test('pin (convention 5): where chat.js puts an aside, and, once the rollover is in the tree, the signs it writes and follows', () => {
