@@ -142,3 +142,12 @@ Slice 3a added the time on the card but deliberately left these alone.
 - STATED (NIT, declined guard): the capture-outage case (see Residuals).
 - NIT not taken: identical footer text for two turns; it fails safe (no re-time, not held), and a footer carries the
   turn's duration and clock time ("Cooked for 3s · done 11:02 AM").
+
+## Review 11 (opus)
+- FIXED (BLOCKER): the prompt rule (reviews 8 and 9) looked for "> text", but Claude Code 2.1.29x draws a past turn as
+  "❯ text" (test-support/claude-screens, and every live pane on this box); "> hello" in the #5029 fixtures is a stub in
+  front of the verbatim limit lines. As written, no real limit row was ever recorded, held or retired: the slice did
+  nothing in production, and its tests passed on a shape the product does not draw. underPromptAt accepts both; every
+  3b test now uses "❯ ", and with the old regex ten of them go red. Lesson recorded: build a screen-shape rule from a
+  captured screen, not from another test's fixture.
+- Own error in flight: a mutation revert (git checkout --) discarded the uncommitted fix; re-applied and committed.
