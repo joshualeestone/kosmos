@@ -77,7 +77,7 @@ function check(name, pass, detail) {
       && !/was busy|quit and reopen/i.test(chk) && !TYPED.test(chk), chk.slice(0, 260));
   const unr = await slotAfter({ count: 1, reason: 'port-unreachable', same: 1, port: 16180, ts: '' });
   check('#4675 port-unreachable: says something was still using the connection, with the #2055 remedy',
-    /tried to install it once and could not, because each time, something was still using the connection Kosmos runs on/i.test(unr)
+    /tried to install it once and could not, because something was still using the connection Kosmos runs on/i.test(unr)
       && REOPEN.test(unr) && !/was busy/i.test(unr) && !TYPED.test(unr), unr.slice(0, 260));
   const held = await slotAfter({ count: 1, reason: 'port-still-held', same: 1, port: 16180, ts: '' });
   check('#4675 port-still-held: the same words as port-unreachable', held === unr && held.length > 0, held.slice(0, 120));

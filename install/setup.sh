@@ -2952,8 +2952,10 @@ _kosmos_paused_board=no
 #   reason = the latest stop's.
 #   same   = how many of the latest stops, counting back, had this same reason. same = count means every stop in the
 #            streak had it, which is what lets the board say "because <reason>" of all of them.
-# A file from before `same` existed had only one possible reason, so its same is its count. Cleared once an update
-# gets past the pause. A file that cannot be written is not an error: the stop still stops.
+# A file with no readable same line: if its reason is board-would-not-pause it may be from before `same` existed,
+# when that was the only reason, so its same is its count; for any other reason nothing is known, so the run of that
+# reason starts at this stop. Cleared once an update gets past the pause. A file that cannot be written is not an
+# error: the stop still stops.
 _kosmos_note_pause_abort() { # reason
   _abortf="$LOG_DIR/update-abort"
   _abortn=0; _abortsame=0
@@ -2962,7 +2964,9 @@ _kosmos_note_pause_abort() { # reason
     case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
     if [ "$(sed -n 's/^reason=//p' "$_abortf" 2>/dev/null || true)" = "$1" ]; then
       _abortsame="$(sed -n 's/^same=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
-      case "$_abortsame" in ''|*[!0-9]*) _abortsame="$_abortn" ;; esac
+      case "$_abortsame" in
+        ''|*[!0-9]*) if [ "$1" = board-would-not-pause ]; then _abortsame="$_abortn"; else _abortsame=0; fi ;;
+      esac
     fi
   fi
   _abortn=$((_abortn + 1)); _abortsame=$((_abortsame + 1))

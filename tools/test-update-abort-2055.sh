@@ -91,7 +91,8 @@ record "$L3" 16180 port-check-failed
 chk "the same reason again: count 4, same 2"          sh -c '[ "$1" = "4 2" ]' _ "$(val count "$M3") $(val same "$M3")"
 record "$L3" 16180
 chk "alternating reasons never restart the streak: count 5, same 1" sh -c '[ "$1" = "5 1" ]' _ "$(val count "$M3") $(val same "$M3")"
-# A marker written before `same` existed had one possible reason, so its count is its same.
+# A marker written before `same` existed could only hold board-would-not-pause, so for that reason its count is its
+# same. For any other reason a missing or damaged same is unknown, and the run of that reason starts at this stop.
 L4="$TMP/logs4"; mkdir -p "$L4"; M4="$L4/update-abort"
 printf 'count=7\nreason=board-would-not-pause\nport=16180\nts=x\n' > "$M4"
 record "$L4" 16180
@@ -101,7 +102,10 @@ record "$L4" 16180 port-still-held
 chk "an older marker, then another reason: count 8, same 1" sh -c '[ "$1" = "8 1" ]' _ "$(val count "$M4") $(val same "$M4")"
 printf 'count=3\nreason=port-still-held\nsame=lots\n' > "$M4"
 record "$L4" 16180 port-still-held
-chk "a damaged same falls back to the count: count 4, same 4" sh -c '[ "$1" = "4 4" ]' _ "$(val count "$M4") $(val same "$M4")"
+chk "a damaged same under another reason is not taken as the whole streak: count 4, same 1" sh -c '[ "$1" = "4 1" ]' _ "$(val count "$M4") $(val same "$M4")"
+printf 'count=4\nreason=port-still-held\n' > "$M4"
+record "$L4" 16180 port-still-held
+chk "a missing same under another reason is not taken as the whole streak: count 5, same 1" sh -c '[ "$1" = "5 1" ]' _ "$(val count "$M4") $(val same "$M4")"
 # ---- a logs dir that cannot be written is not an error (the stop still stops) -
 chk "an unwritable logs dir does not fail the caller" record "$TMP/no-such-dir" 16180
 

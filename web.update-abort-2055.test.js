@@ -84,7 +84,7 @@ test('#4675: a failed port check says the update could not check, and the step i
 
 test('#4675: both stops with something on the port say so in the same words, with the #2055 remedy', () => {
   const h = paint({ count: 3, reason: 'port-unreachable', same: 3 }).innerHTML;
-  assert.match(h, /tried to install it 3 times and could not, because each time, something was still using the connection Kosmos runs on, so the update replaced nothing\./);
+  assert.match(h, /tried to install it 3 times and could not, because something was still using the connection Kosmos runs on, so the update replaced nothing\./);
   assert.match(h, REOPEN);
   assert.ok(!/was busy/i.test(h), 'it still blamed a busy Kosmos');
   assert.ok(!TYPED.test(h), 'the notice offered a dead button or a type instruction');
@@ -112,6 +112,12 @@ test('#4675: a streak of mixed reasons names no single cause, and its count is t
     // control: the same marker with every stop sharing the reason does name it
     assert.notEqual(body(paint({ count: 5, reason, same: 5 }).innerHTML), plain, reason + ' lost its own sentence');
     assert.notEqual(body(paint({ count: 5, reason, same: 9 }).innerHTML), plain, reason + ': a same above the count is still "all of them"');
+    // no same at all: only the one reason a marker from before `same` existed could hold speaks for the streak
+    for (const same of [undefined, null, 'lots']) {
+      const unknown = body(paint({ count: 5, reason, same }).innerHTML);
+      if (reason === 'board-would-not-pause') assert.notEqual(unknown, plain, 'an older marker lost the #2055 sentence');
+      else assert.equal(unknown, plain, reason + ' with no same count spoke for the whole streak');
+    }
   }
 });
 

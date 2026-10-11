@@ -809,7 +809,7 @@ function lastAttemptView() {
    stops after it ('port-check-failed', 'port-unreachable', 'port-still-held') only when THIS board
    started the run (beginInstall's KOSMOS_UPDATE_BY_BOARD). count is the streak, whatever the
    reasons; same is how many of the latest stops had this reason (same === count: all of them), or
-   null from a file written before it existed.
+   null when the file has no readable same line (one written before it existed, or a damaged one).
    🔑 SCOPE, so a reader does not over-read null: this tracks ONLY stops at the pause. null means
    "the last run got PAST the pause", NOT "the last update succeeded" -- a later install failure
    (a 404, a checksum refusal, a failed swap) is a DIFFERENT signal, carried by updateAttempt /
