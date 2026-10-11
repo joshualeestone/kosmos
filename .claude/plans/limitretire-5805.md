@@ -31,7 +31,7 @@ Slice 3a added the time on the card but deliberately left these alone.
 ## Decided
 - First-seen from the screen, not the card: the screen is the ground truth for "the line is still there".
 - Only a row the board watched arrive is timed. A row already on screen at the board's first capture of that agent (a
-  restart, an agent first appearing) is marked late: no time, no hold, no retirement, as before 3b. Review 1: timed
+  restart, an agent first appearing, or the first capture after a gap of more than five minutes) is marked late: no time, no hold, no retirement, as before 3b. Review 1: timed
   from the restart, a weekly last-day line already past its printed time would read as tomorrow's and hold every
   automatic line for most of a day while the agent was free.
 - Only Claude Code's own limit rows are recorded (a "hit your ... limit" row with its turn footer, the rule classify
@@ -48,6 +48,9 @@ Slice 3a added the time on the card but deliberately left these alone.
   row replaces the old one in the same capture (the old scrolled out exactly as the new arrived) keeps the old time.
 
 ## Residuals
+- A session row retired past its reset and then drawn twice by a redraw is re-timed, reads untimed (past its span),
+  and so is no longer retired: the card goes from idle back to capped (not held) until the row scrolls off. Fails
+  toward capped, never toward idle.
 - A weekly last-day row left on an idle agent's screen for a WEEK, with the next weekly limit printing identical words
   under it, is not re-timed, so the new limit is retired at once (the card reads idle while capped).
 - A pane relaunched under the same name faster than one snapshot pass, with the old limit row in its scrollback, is
@@ -85,3 +88,9 @@ Slice 3a added the time on the card but deliberately left these alone.
   retired weekly row to tomorrow and held a free agent for most of a day. Re-time only a session row, timed, past its
   reset (see Decided). Tested: late, retired weekly, session ahead, and the next-day session control.
 - FIXED (NIT): an agent swept out keeps no rows, so its first re-capture is late, never timed by an older sighting.
+
+## Review 4 (sonnet)
+- FIXED (WARNING): a Mac asleep (or captures failing) through a weekly last-day reset first saw the row on waking and
+  timed it then, holding a free agent until the next day. The first capture after a gap of more than five minutes is
+  treated as a first capture (new rows late). Tested, with a control.
+- STATED (NIT): the idle-to-capped flicker of a redrawn retired session row (see Residuals).

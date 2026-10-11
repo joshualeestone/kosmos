@@ -90,11 +90,14 @@ test('#5805 slice 3: a dateless reset is read from when the screen first showed 
   status.noteLimitRows('casey', STATUS_LINE, t0 + 6 * 3600e3);
   assert.equal(status.claudeLimitUntil('casey', line, t0 + 6 * 3600e3), null, 'a row gone for half an hour still has a first-seen time');
   const nextDay = at('2026-10-11T16:00:00Z');
+  status.noteLimitRows('casey', STATUS_LINE, nextDay - 30e3);   // the board capturing as usual (no gap)
   status.noteLimitRows('casey', on, nextDay);
   assert.equal(iso(status.claudeLimitUntil('casey', line, nextDay)), '2026-10-11T21:00:00.000Z', 'read against yesterday\'s first-seen time');
   // CONTROL: the key is the agent. The same weekly last-day words first seen by kim at 14:00 CDT and by leo at 15:30.
   const wk = `You've hit your weekly limit · resets 3pm ${Z}`;
+  status.noteLimitRows('kim', STATUS_LINE, at('2026-10-10T18:59:30Z'));   // captured just before (no gap)
   status.noteLimitRows('kim', limitScreen(wk), at('2026-10-10T19:00:00Z'));
+  status.noteLimitRows('leo', STATUS_LINE, at('2026-10-10T20:29:30Z'));
   status.noteLimitRows('leo', limitScreen(wk), at('2026-10-10T20:30:00Z'));
   assert.equal(iso(status.claudeLimitUntil('kim', wk, at('2026-10-10T20:30:00Z'))), '2026-10-10T20:00:00.000Z');
   assert.equal(iso(status.claudeLimitUntil('leo', wk, at('2026-10-10T20:30:00Z'))), '2026-10-11T20:00:00.000Z', 'another agent\'s first-seen time was used');

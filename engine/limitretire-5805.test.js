@@ -135,6 +135,7 @@ test('#5805 3b review 2: a row back within its span is late; a new one after it 
   // The same words after the span (gone again first): a new limit, timed from then.
   status.noteLimitRows('casey', STATUS_LINE, t0 + 4 * 3600e3 + 3 * 60e3);
   const later = t0 + 6 * 3600e3;
+  status.noteLimitRows('casey', STATUS_LINE, later - 30e3);   // the board capturing as usual (no gap)
   status.noteLimitRows('casey', on, later);
   assert.equal(status.limitFirstSeenOf('casey', line), later, 'a new limit after the span was not timed');
 
@@ -190,4 +191,16 @@ test('#5805 3b review 3: an agent swept out loses its rows, so its first re-capt
   status.limitCaptureSweep([]);   // gone from a pass (an empty list is the caller's to skip; the sweep itself drops all)
   status.noteLimitRows('casey', limitScreen(session), t0 + 60e3);
   assert.equal(status.limitFirstSeenOf('casey', session), null, 'a row at the first re-capture kept an older sighting\'s time');
+});
+
+test('#5805 3b review 4: a row first seen after a long gap in captures (a Mac asleep through the reset) is late', () => {
+  const weekly = `You've hit your weekly limit · resets 4pm ${Z}`;
+  const mon = Date.parse('2026-10-12T22:00:00Z');   // Monday 17:00 CDT, the board capturing casey
+  status.noteLimitRows('casey', STATUS_LINE, mon);
+  status.noteLimitRows('casey', limitScreen(weekly), mon + 24 * 3600e3);   // Tuesday 17:00, after a day asleep
+  assert.equal(status.limitFirstSeenOf('casey', weekly), null, 'a row first seen after a day-long gap was timed (a free agent held until Wednesday)');
+  // CONTROL: captures a few seconds apart, the row timed.
+  status.noteLimitRows('kim', STATUS_LINE, mon);
+  status.noteLimitRows('kim', limitScreen(weekly), mon + 5e3);
+  assert.equal(status.limitFirstSeenOf('kim', weekly), mon + 5e3, 'CONTROL: a row seen arriving was not timed');
 });

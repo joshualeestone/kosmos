@@ -2823,9 +2823,13 @@ const limitRowGone = new Map();
 const LIMIT_ROW_GONE_MS = 2 * 60 * 1000;
 const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;   // backstop for an agent that went away
 /* Agents the screen pass has captured before (review 1): a row already on screen at the board's FIRST capture of an
-   agent arrived at an unknown time (a board restart, an agent first appearing), so it is marked late and given no time,
+   agent arrived at an unknown time (a board restart, an agent first appearing, or a capture after a long gap), so it is
+   marked late and given no time,
    no hold and no retirement, as before 3b. Only a row the board watched arrive is timed. */
-const limitCapturedAgents = new Set();
+const limitCapturedAgents = new Map();   // agent -> its last capture time
+/* Review 4: a capture after a gap longer than this (a Mac asleep, captures failing) is like a first capture: a row new
+   in it may have arrived any time in the gap, so it is late. */
+const LIMIT_CAPTURE_GAP_MS = 5 * 60 * 1000;
 function limitRowKey(agent, text) {
   const t = String(text == null ? '' : text);
   const m = LIMIT_RESET_TIME_ONLY.exec(t);
@@ -2843,8 +2847,9 @@ function noteLimitRows(agent, text, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const name = String(agent);
   const prefix = name + '\u0000';
-  const firstCapture = !limitCapturedAgents.has(name);
-  limitCapturedAgents.add(name);
+  const prevCapture = limitCapturedAgents.get(name);
+  const firstCapture = !Number.isFinite(prevCapture) || now - prevCapture > LIMIT_CAPTURE_GAP_MS;
+  limitCapturedAgents.set(name, now);
   for (const [k, until] of limitRowGone) if (now > until) limitRowGone.delete(k);
   const rows = text.split('\n');
   const counts = new Map();
@@ -2900,7 +2905,7 @@ function claudeLimitUntil(agent, evidence, nowMs) {
    under its name starts over as a first capture (rows on its screen then are late). */
 function limitCaptureSweep(names) {
   const present = new Set(Array.from(names || [], String));
-  for (const a of [...limitCapturedAgents]) {
+  for (const a of [...limitCapturedAgents.keys()]) {
     if (present.has(a)) continue;
     limitCapturedAgents.delete(a);
     // Review 3: its rows go too, so a row at its first re-capture is late, never timed by an older sighting.
