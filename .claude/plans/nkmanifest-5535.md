@@ -19,4 +19,9 @@ manifest records only its id, and nothing stores the KBN1 wrap anywhere. So a ba
   re-seals to) now gets the naming key without a second step. They could get it from a KBN1 wrap anyway: same recipient.
 
 ## Checks
-- (as built) restore: 5 accept and 9 refuse cases, nothing fetched on a refusal; snapshot: a round trip with no key given.
+- restore: 5 accept and 9 refuse cases, nothing fetched on a refusal (including a malformed carried key with a valid
+  one given, which must never fall back); snapshot: a round trip that restores with no key given.
+- Mutants, each red (node --check first): the field dropped from the manifest; the carried key ignored; the given-equals
+  check, the id check, the carried-needs-an-id check, the canonical base64 regex, the malformed-carried refusal and the
+  malformed result each removed.
+- engine/backup*.test.js + engine.reachable.test.js all pass (count in the commit).
