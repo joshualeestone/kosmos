@@ -166,6 +166,11 @@ test('round 1: withRun leaves out a malformed added row and caps the index, so w
   const capped = bs.withRun({ job: {}, periods: [big] }, big, { ok: true, added: new Map([entry(3)]), bucket: 'b/' });
   assert.equal(capped.periods[0].index.size, 200000);
   assert.equal(capped.periods[0].index.has(name(3)), false);
+  assert.equal(capped.leftOut, 1);
+  // And a full slot writes and reads back (the read-back bound is MAX_INDEX inclusive).
+  const [o2, m2] = ids();
+  bs.writeState(o2, m2, capped);
+  assert.equal(bs.readState(o2, m2).state.periods[0].index.size, 200000);
 });
 
 test('round 1: discardState sets a refused file aside (never deletes it), and the next read is a fresh start', () => {
@@ -188,7 +193,7 @@ test('round 2: withRun says how many added rows it left out', () => {
   assert.equal(r.leftOut, 1); assert.equal(r.periods[0].index.size, 1);
   const [org, member] = ids();
   bs.writeState(org, member, r);
-  assert.equal('leftOut' in bs.readState(org, member).state, false, 'not persisted');
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(bs.fileFor(org, member), 'utf8'))).sort(), ['job', 'member', 'org', 'periods', 'v'], 'leftOut is not persisted');
 });
 
 test('round 3: org and member must be strings; week labels are 01 to 53; a passing read error is retry', () => {
@@ -250,4 +255,45 @@ test('review 7: added rows with no bucket are counted in leftOut', () => {
   const period = { label: '2026-W41', namingKey: crypto.randomBytes(32), bucket: null, index: new Map() };
   const r = bs.withRun({ job: {}, periods: [] }, period, { ok: false, added: new Map([entry(1), entry(2)]), bucket: null });
   assert.equal(r.leftOut, 2); assert.equal(r.periods[0].index.size, 0);
+});
+
+test('review 9: writeState never replaces a file that is not plainly this member\'s; discardState first, then it writes', () => {
+  const [org, member] = ids();
+  const f = bs.fileFor(org, member);
+  bs.writeState(org, member, { job: {}, periods: [] });
+  const fresh = { job: {}, periods: [] };
+  // A corrupt or foreign file: refused, and left exactly as it was.
+  for (const junk of ['{ not ours', JSON.stringify({ v: 1, org, member: 'someone else', job: {}, periods: [] })]) {
+    fs.writeFileSync(f, junk);
+    assert.throws(() => bs.writeState(org, member, fresh), /not this member's; discardState it first/);
+    assert.equal(fs.readFileSync(f, 'utf8'), junk);
+  }
+  // discardState, then the write goes through.
+  bs.discardState(org, member);
+  bs.writeState(org, member, fresh);
+  assert.equal(bs.readState(org, member).ok, true);
+  // A file another program holds: refused with retry, untouched.
+  const realOpen = fs.openSync;
+  try {
+    fs.openSync = function (file, ...rest) {
+      if (String(file) === f) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; }
+      return realOpen.call(fs, file, ...rest);
+    };
+    let caught;
+    try { bs.writeState(org, member, fresh); } catch (err) { caught = err; }
+    assert.ok(caught); assert.equal(caught.retry, true);
+  } finally { fs.openSync = realOpen; }
+  // Control: our own file is replaced normally.
+  bs.writeState(org, member, { job: { waits: 2 }, periods: [] });
+  assert.deepEqual(bs.readState(org, member).state.job, { waits: 2 });
+});
+
+test('review 9: a link in place of the file is not replaced', { skip: process.platform === 'win32' && 'symlinks need privileges on Windows' }, () => {
+  const [org, member] = ids();
+  bs.writeState(org, member, { job: {}, periods: [] });
+  const f = bs.fileFor(org, member), elsewhere = f + '.target';
+  fs.renameSync(f, elsewhere);
+  fs.symlinkSync(elsewhere, f);
+  assert.throws(() => bs.writeState(org, member, { job: {}, periods: [] }), /not a plain file/);
+  assert.ok(fs.lstatSync(f).isSymbolicLink(), 'the link is still there');
 });
