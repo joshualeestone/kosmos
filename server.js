@@ -157,13 +157,15 @@ function withTokenGuard(rows) {
   });
 }
 /* #5820: an agent's declared reply channel (#5805 part 2, `kosmos reply-channel`), for its page, which says it and
-   offers Clear. Only an agent that has declared one carries `replyChannel`; replychannel.forAgent never throws, and a
-   stored value the command would refuse today counts as none, as it does for the first-reply nudge. */
+   offers Clear. Read off the profile the row ALREADY carries (status.js reads it once, and only for a pane tied to
+   the agent's name, so a stranger's session that merely shares the name carries none): no second read per poll, and
+   no name-keyed read the tie gate has not passed. A stored value the command would refuse counts as none, as it does
+   for the first-reply nudge. */
 function withReplyChannel(rows) {
   let rc;
   try { rc = require('./engine/replychannel'); } catch { return rows; }
   return rows.map((r) => {
-    const ch = r && r.sessionName ? rc.forAgent(r.sessionName) : null;
+    const ch = r && 'profile' in r ? rc.of(r.profile) : null;
     return ch ? { ...r, replyChannel: ch } : r;
   });
 }
@@ -7068,16 +7070,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   /* #5820: the person clears an agent's declared reply channel from its page. The same as the agent running
-     `kosmos reply-channel kosmos`: the first-reply nudge speaks for it again. A board-token route like the agent's
-     other settings, NOT on the agent-token list, so a token-only agent cannot clear another's; a request that
-     presents an agent token is refused outright (an agent clears its own with the command). */
+     `kosmos reply-channel kosmos`: the first-reply nudge speaks for it again. PERSON-ONLY, like codex-hooks: the
+     request must come from the page (isViaScreen, which is false for any request presenting an agent token), so
+     neither a token-only agent nor a process holding the board token without a browser clears another's (an agent
+     clears its own with the command). An agent may have declared with no worker folder (any roster agent can), so a
+     name is known if it has a folder OR a declaration; clearing one with neither is a 404. */
   const replyClear = pathname.match(/^\/api\/agent\/([^/]+)\/reply-channel\/clear$/);
   if (replyClear && req.method === 'POST') {
-    if (presentedAgentToken(req, null)) { sendJson(res, 403, { ok: false, because: 'an agent clears its own reply channel with kosmos reply-channel kosmos' }); return; }
+    if (!isViaScreen(req, null)) { sendJson(res, 403, { ok: false, because: 'only the person clears an agent\'s reply channel, from its page; an agent clears its own with kosmos reply-channel kosmos' }); return; }
     const name = decodeSegment(replyClear[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
-    if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
-    try { require('./engine/replychannel').set(name, null); }
+    const rcMod = require('./engine/replychannel');
+    if (rcMod.forAgent(name) === null && !fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    try { rcMod.set(name, null); }
     catch { sendJson(res, 500, { ok: false, because: 'Kosmos could not clear it just now' }); return; }
     sendJson(res, 200, { ok: true, channel: null });
     return;

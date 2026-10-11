@@ -461,6 +461,13 @@ const SCREENS = [
   }, verify: async (page) => {
     const t = await page.evaluate(() => (document.getElementById('d-replychan-text') || {}).textContent || '');
     if (!/says it answers you on the team Discord channel/.test(t)) throw new Error('the reply-channel line says: ' + JSON.stringify(t));
+    // After the shot: press Clear for real. The line goes, the answer is said, and focus lands on it.
+    await page.click('#d-replychan-clear');
+    await page.waitForSelector('#d-replychan', { state: 'hidden', timeout: 8000 });
+    const after = await page.evaluate(() => { const m = document.getElementById('d-replychan-msg');
+      return { said: m ? m.textContent : '', focused: document.activeElement === m }; });
+    if (!/^Cleared\. Kosmos will remind /.test(after.said)) throw new Error('Clear said: ' + JSON.stringify(after.said));
+    if (!after.focused) throw new Error('focus did not land on the Cleared message');
   }, after: async (page, data) => {
     if (!data.replyChanSet) return;
     require(path.join(REPO, 'engine', 'replychannel')).set(data.chatAgent, null);

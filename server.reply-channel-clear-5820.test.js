@@ -104,6 +104,10 @@ test('kosmos#5820: an agent token is refused (an agent clears its own with the c
     let r = await clear(bo, { 'x-kosmos-agent-token': minted.token });
     assert.equal(r.status, 403, await r.clone().text());
     assert.equal(declared(bo), 'Discord', 'an agent cleared another agent\'s channel');
+    // No browser headers: a process holding the board token, not the page. Refused: the clear is the person's.
+    r = await fetch(`${base}/api/agent/${encodeURIComponent(bo)}/reply-channel/clear`, { method: 'POST' });
+    assert.equal(r.status, 403, await r.clone().text());
+    assert.equal(declared(bo), 'Discord', 'a request without the page cleared it');
     r = await clear('no-such-agent-5820');
     assert.equal(r.status, 404, await r.clone().text());
     r = await fetch(`${base}/api/agent/%E0%A4%A/reply-channel/clear`, { method: 'POST', headers: { 'sec-fetch-site': 'same-origin' } });
@@ -113,4 +117,15 @@ test('kosmos#5820: an agent token is refused (an agent clears its own with the c
     assert.equal(r.status, 200, await r.clone().text());
     assert.equal(declared(bo), null);
   } finally { board.restore && board.restore(); }
+});
+
+test('kosmos#5820: an agent that declared with no worker folder (any roster agent can) can still be cleared', async () => {
+  replychannel.set('rcc-folderless', 'Slack', store);
+  assert.equal(declared('rcc-folderless'), 'Slack', 'fixture: the declaration was not stored');
+  const r = await clear('rcc-folderless');
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.equal(declared('rcc-folderless'), null);
+  // CONTROL: once nothing is declared and there is no folder, the same name is unknown.
+  const again = await clear('rcc-folderless');
+  assert.equal(again.status, 404, await again.clone().text());
 });

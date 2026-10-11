@@ -7151,7 +7151,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 #d-linklost { color: var(--label-2); }   /* #5333: a state that means "your messages will not be answered", not helper text */
 #d-replychan { color: var(--label-2); }   /* #5820: the agent's declared reply channel, with Clear */
 #d-replychan-clear { margin-left: .4em; }
-#d-replychan-msg:not(:empty) { margin-left: .4em; }
+#d-replychan-msg:empty { display: none; }
 #d-tokenguard { color: var(--label-2); }   /* #5668: the agent's token protection is not complete, or its shell may not run */
 .msg-menu { position: fixed; z-index: 40; min-width: 200px; padding: 4px; border: 1px solid var(--k-rule); border-radius: 8px;
             background: var(--k-surface); box-shadow: 0 8px 24px rgba(20,22,26,.16); }
@@ -12576,8 +12576,9 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #5820: where this agent says it answers you (#5805 part 2, `kosmos reply-channel`), and Clear. Kosmos cannot
            see an answer given there, so while it is declared the first-reply reminder stays quiet for this agent. -->
       <div class="fhint detail-replychan" id="d-replychan" hidden><span id="d-replychan-text"></span>
-        <button type="button" class="linkish" id="d-replychan-clear" data-agent="">Clear</button>
-        <span id="d-replychan-msg" role="status" aria-live="polite"></span></div>
+        <button type="button" class="linkish" id="d-replychan-clear" data-agent="">Clear</button></div>
+      <!-- Outside the line, so it is still there (and said) when a Clear that worked takes the line away. -->
+      <p class="fhint" id="d-replychan-msg" role="status" aria-live="polite" tabindex="-1"></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -39289,15 +39290,16 @@ function paintDetailState(card) {
     const on = ch !== '';
     if (rcl.hidden === on) rcl.hidden = !on;
     if (on) {
-      const words = a.name + ' says it answers you on ' + ch + ', so Kosmos does not remind it to answer you here.';
+      const where = ch.replace(/[.!?;:,]+$/, '');   // "Discord." must not read "on Discord., so"
+      const words = a.name + ' says it answers you on ' + where + ', so Kosmos does not send it the reminder to answer your first message here.';
       const t = document.getElementById('d-replychan-text');
       if (t && t.textContent !== words) t.textContent = words;
       const b = document.getElementById('d-replychan-clear');
-      if (b && b.dataset.agent !== a.sessionName) {
-        b.dataset.agent = a.sessionName; b.disabled = false;
-        const m = document.getElementById('d-replychan-msg'); if (m) m.textContent = '';   // the last agent's answer
-      }
+      if (b && b.dataset.agent !== a.sessionName) { b.dataset.agent = a.sessionName; b.disabled = false; }
     }
+    // The last Clear's answer belongs to the agent it was for: gone on any other agent's page, channel or not.
+    const m = document.getElementById('d-replychan-msg');
+    if (m && m.textContent && m.dataset.agent !== a.sessionName) { m.textContent = ''; m.dataset.agent = ''; }
   }
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
@@ -45490,7 +45492,7 @@ document.getElementById('d-replychan-clear').addEventListener('click', async (e)
   const m = document.getElementById('d-replychan-msg');
   const here = () => CURRENT && CURRENT.sessionName === name;
   b.disabled = true;
-  if (m) m.textContent = '';
+  if (m) { m.textContent = ''; m.dataset.agent = name; }
   let ok = false, because = '';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/reply-channel/clear', { method: 'POST' });
@@ -45507,6 +45509,9 @@ document.getElementById('d-replychan-clear').addEventListener('click', async (e)
   const line = document.getElementById('d-replychan');
   if (line) line.hidden = true;
   b.dataset.agent = '';   // so the next paint that shows a channel again re-arms the button
+  /* The focused button just went away with the line: focus moves to the message that says what happened, so a
+     keyboard user keeps their place and a screen reader hears it (role=status, outside the line). */
+  if (m) { m.textContent = 'Cleared. Kosmos will remind ' + ((CURRENT && CURRENT.name) || name) + ' to answer your first message here again.'; m.focus(); }
 });
 document.getElementById('d-start-agent').addEventListener('click', async () => {
   const name = CURRENT && CURRENT.sessionName;
