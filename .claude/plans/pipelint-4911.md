@@ -7,11 +7,13 @@ and, across all 243 linted files, it flags 14 lines in 3 files. All 14 are false
 - `cmd || sed ...`: the pattern `\| *sed` matched the second `|` of `||`;
 - `cmd; rc=$?` one or two lines after an unrelated pipe: that `$?` is `cmd`'s own status.
 
-## The fix (.githooks/pre-commit), as it stands after review 9
+## The fix (.githooks/pre-commit), as it stands at convergence (review 17)
 1. Remove escaped backslashes, then every escaped "\|", then every "||" from a copy of the line before looking
    for a pipe: none of them is a pipe.
-2. An explicit opt-out: a line that reads the status AND ends in "# pipe-status-ok" clears a pipe seen on an EARLIER
-   line. A pipe on the same line still counts. The refusal message names the marker.
+2. An explicit opt-out: a line ending in the comment "# pipe-status-ok" (lowercase, last on the line, a real comment)
+   clears a pipe seen on an EARLIER line, when ALL of: it reads the status in its code (not in a comment); it has no
+   pipe into a listed filter of its own; and either a code line has run since the pipe (q) or a ";", "&&" or "||"
+   comes before the status read on the line. The refusal message names the marker.
 3. The 11 correct lines the lint still refused (cmd; rc=<status>, two lines after an unrelated pipe, in
    test-feedback-digest-daily.sh, test-light-side-4911.sh and test-test-leak-guard-4273.sh) carry the marker. Each
    was read and is its own command's status. Comment-only edits.
@@ -21,8 +23,8 @@ Rounds 1 to 9 built an "own-status" rule that tried to tell "cmd; rc=" (its own 
 lines. Every round found a real filter-status read it let through (closers, continuations, quotes, functions,
 wrappers, aliases, bash -c, quote-parity tricks), and the rule grew from 1 line to about 50. Loosening a guard with a
 line-based shell parser keeps producing escapes, and an escape here reads a failing suite as green. Review 9 named
-the trade; the marker removes the escape surface: the lint is as strict as before except for "||" and lines an
-author marks in plain sight.
+the trade; the marker removes the escape surface: the lint is as strict as before except for "||", an escaped "\|",
+and lines an author marks in plain sight.
 
 ## Tests (tools/test-precommit-pipe-lint-4911.sh, in test:shell)
 (Mutation results recorded in this plan were run BY HAND, one at a time; the test file runs only the fixtures.)
@@ -195,3 +197,11 @@ command's status.
   with a pipe into a known filter followed by any non-word character. Two fixtures; the mutant turns both BAD.
 - FIXED (NIT): this plan's fix list now names the escaped-pipe change; the refusal message says the marker is
   lowercase and last on the line.
+
+## Review 17 (opus, blind, on 4aa7e590d): NITs only. CONVERGED.
+- No BLOCKER, WARNING or CONVENTION. Main's lint, wrapped in the markers, passes all 52 must-flag fixtures (each
+  shape was caught before this change) and fails exactly on the intended accepts. 18 of 21 clause mutants fail a
+  fixture; the 3 survivors cannot fire today.
+- NITs fixed after convergence, prose only (no code): a comment names the three unreachable clauses as guards; "a
+  pipe into one of the listed filters on the same line"; the block comment above the loop names "||", "\|" and the
+  marker; this plan's fix list and summary brought up to date.

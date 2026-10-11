@@ -17,7 +17,9 @@ set -eu
 # ships. This refuses a staged shell file where a pipe into a filter is
 # followed within two lines by `$?`, and the `grep -c ... || echo 0` variant
 # (it prints "0\n0" when grep finds nothing, and breaks the arithmetic after
-# it). A file that has turned on `pipefail` above the line is not flagged:
+# it). Not pipes: "||" and an escaped "\|" (#4911). A status line that reads its own command's status after an
+# unrelated pipe may end in the comment "# pipe-status-ok" (#4911; rules in the program below). A file that has turned
+# on `pipefail` above the line is not flagged:
 # under pipefail `$?` is the rightmost failing status, which is the point.
 # Want the left side's status without pipefail? Read `${PIPESTATUS[0]}` on
 # the very next line, or write to a file, check the status, then read it.
@@ -34,7 +36,8 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     { s = $0; gsub(/\\\\/, "  ", s); gsub(/\\\|/, "  ", s); gsub(/\|\|/, "  ", s) }
     s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0; q = 0 }
     # The author'"'"'s word, written where a reviewer sees it: a line ending in "# pipe-status-ok" reads its OWN
-    # command'"'"'s status, so a pipe on an EARLIER line is not what it reads. A pipe on the same line still counts.
+    # command'"'"'s status, so a pipe on an EARLIER line is not what it reads. A pipe into one of the listed filters on the
+    # same line still counts.
     # The status must be read in the line'"'"'s CODE (before any "#"): a comment that only mentions it excuses nothing.
     # "$#" and "${#x}" are not comments; the marker itself must be a real comment (a "#" at the start or after a space).
     { c = $0; gsub(/\$\{#|\$#/, "", c) }
@@ -44,7 +47,9 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     # a marker that is provably false there, and trusts the author otherwise (a quoted ";", or an assignment, passes).
     { first = substr(c, 1, index(c, "$" "?") - 1); ran = (q > 0 || first ~ /;|&&|\|\|/) }
     # And a marked line with a pipe into a filter of its own, however it is followed ("| sort;", "| sort)"), is never
-    # excused: its status is that filter'"'"'s.
+    # excused: its status is that filter'"'"'s. (Three parts of the rule below cannot fire today and are kept as guards
+    # against later edits: "p != NR" is implied by that filter test, its "|$" arm cannot end a marked line, and the
+    # "^" arm of the marker needs a status read before a "#" that starts the line.)
     p && p != NR && ran && s !~ /\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([^A-Za-z0-9_-]|$)/ && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     p && NR > p && $0 !~ /^[[:space:]]*(#.*)?$/ { q++ }
