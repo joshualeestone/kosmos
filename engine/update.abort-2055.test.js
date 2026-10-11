@@ -85,7 +85,8 @@ test('updateAbort: missing optional fields default cleanly, count still drives i
 });
 
 // #4675: `same` says how many of the latest stops shared the reason. Absent (a marker from before it existed) or
-// damaged reads null, which the page takes as "all of them".
+// damaged reads null, which the page takes as "all of them" only for board-would-not-pause, the one reason such a
+// marker could hold.
 test('updateAbort: same is passed through as a number, and is null when absent or not a number', () => {
   withRoot((root) => {
     writeMarker(root, 'count=5\nreason=port-still-held\nsame=2\nport=16180\nts=x\n');

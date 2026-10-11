@@ -106,6 +106,34 @@ chk "a damaged same under another reason is not taken as the whole streak: count
 printf 'count=4\nreason=port-still-held\n' > "$M4"
 record "$L4" 16180 port-still-held
 chk "a missing same under another reason is not taken as the whole streak: count 5, same 1" sh -c '[ "$1" = "5 1" ]' _ "$(val count "$M4") $(val same "$M4")"
+# A count or same the shell's arithmetic would refuse must not end the run inside the function (it runs under set -e,
+# just before the stop prints its words): it is treated as damaged.
+for bad in 08 0099 99999999999999999999; do
+  printf 'count=%s\nreason=port-still-held\nsame=1\n' "$bad" > "$M4"
+  RC=0; record "$L4" 16180 port-still-held 2>/dev/null || RC=$?
+  chk "count=$bad does not end the run (rc 0), and the count restarts: count 1, same 2" sh -c '[ "$1" = "0 1 2" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
+  printf 'count=3\nreason=port-still-held\nsame=%s\n' "$bad" > "$M4"
+  RC=0; record "$L4" 16180 port-still-held 2>/dev/null || RC=$?
+  chk "same=$bad does not end the run (rc 0), and same restarts: count 4, same 1" sh -c '[ "$1" = "0 4 1" ]' _ "$RC $(val count "$M4") $(val same "$M4")"
+done
+# ---- #4675: setup.sh's own lines that read the board's marker: only the value 1 is the board, and the variable is
+# gone from the environment afterwards (the script goes on to start the board, whose agents must not inherit it).
+BYBOARD_LINES="$(awk '/^_kosmos_by_board=no$/{f=1} f{print} f && /^unset KOSMOS_UPDATE_BY_BOARD$/{exit}' "$SETUP")"
+case "$BYBOARD_LINES" in
+  '_kosmos_by_board=no'*'KOSMOS_UPDATE_BY_BOARD'*'unset KOSMOS_UPDATE_BY_BOARD') : ;;
+  *) echo "FAIL: could not extract the lines that read KOSMOS_UPDATE_BY_BOARD (anchor drift?)" >&2; exit 1 ;;
+esac
+byboard() { # the value, or "-" for unset; prints "<flag> <what a child sees>"
+  ( set -eu
+    if [ "$1" = - ]; then unset KOSMOS_UPDATE_BY_BOARD; else KOSMOS_UPDATE_BY_BOARD="$1"; export KOSMOS_UPDATE_BY_BOARD; fi
+    eval "$BYBOARD_LINES"
+    printf '%s %s\n' "$_kosmos_by_board" "$(/bin/sh -c 'echo "${KOSMOS_UPDATE_BY_BOARD:-gone}"')" )
+}
+chk "KOSMOS_UPDATE_BY_BOARD=1 is the board, and is gone for children"      sh -c '[ "$1" = "yes gone" ]' _ "$(byboard 1)"
+chk "unset is not the board"                                               sh -c '[ "$1" = "no gone" ]' _ "$(byboard -)"
+for v in yes 0 true 11 ""; do
+  chk "KOSMOS_UPDATE_BY_BOARD='$v' is not the board, and is gone for children" sh -c '[ "$1" = "no gone" ]' _ "$(byboard "$v")"
+done
 # ---- a logs dir that cannot be written is not an error (the stop still stops) -
 chk "an unwritable logs dir does not fail the caller" record "$TMP/no-such-dir" 16180
 

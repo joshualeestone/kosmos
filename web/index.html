@@ -22343,7 +22343,7 @@ let ENGINE_STALE = null;
  * records a durable, consecutive-counted marker each time an update stops at its
  * pause (#4675: with the latest stop's reason and how many of the latest stops shared
  * it, which choose the sentence below), and clears it once one gets through; `/api/status` carries it as
- * `updateAbort = { count, reason, port, ts } | null`. Until this, the only
+ * `updateAbort = { count, reason, same, port, ts } | null`. Until this, the only
  * audience was install.log -- 155 aborts on one machine, seen by nobody -- and a
  * machine in this state stops receiving fixes, invisibly.
  *
@@ -22396,9 +22396,7 @@ function paintUpdateAbort(ab) {
   const PORT_HELD = 'something was still using the connection Kosmos runs on, so the update replaced nothing. '
     + REOPEN;
   const UPDATE_ABORT_WHY = {
-    'board-would-not-pause': 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
-      + 'was holding the update, so the next one can finish. Your agents keep working, they do '
-      + 'not live in this window.',
+    'board-would-not-pause': 'Kosmos was busy each time. ' + REOPEN,
     'port-check-failed': 'this computer could not check whether Kosmos had stopped, so the update replaced nothing. '
       + AGENTS_FINE + ' Restarting this computer is the step to try.',
     'port-unreachable': PORT_HELD,

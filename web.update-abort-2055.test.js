@@ -148,6 +148,16 @@ test('#4675: the board marks its own installer run, and setup.sh records the por
   for (const reason of ['port-check-failed', 'port-unreachable', 'port-still-held']) {
     assert.ok(setup.includes('if [ "$_kosmos_by_board" = yes ]; then _kosmos_note_pause_abort ' + reason + '; fi'), 'setup.sh does not record ' + reason + ' for the board\'s run only');
   }
+  // each reason sits at its own stop: the guarded call is followed, within a few lines, by that stop's own words
+  const at = { 'port-check-failed': 'die "This shell could not check whether Kosmos is still running', 'port-unreachable': 'die "Something is still holding port', 'port-still-held': 'die "A process is still holding port' };
+  for (const [reason, words] of Object.entries(at)) {
+    const i = setup.indexOf('then _kosmos_note_pause_abort ' + reason + '; fi');
+    const after = setup.slice(i, i + 400);
+    assert.ok(after.includes(words), reason + ' is not recorded at its own stop');
+    for (const [other, otherWords] of Object.entries(at)) {
+      if (other !== reason && after.includes(otherWords)) assert.ok(after.indexOf(words) < after.indexOf(otherWords), reason + ' is recorded nearer to the ' + other + ' stop');
+    }
+  }
   // every reason setup.sh can write has its own entry in the page's table (none falls to the plain sentence by accident)
   // calls only: a reason is hyphenated and ends the command, so prose that names the function is not counted
   const written = [...setup.matchAll(/^[^#\n]*_kosmos_note_pause_abort ([a-z]+(?:-[a-z]+)+)(?:;|$)/gm)].map((m) => m[1]).sort();

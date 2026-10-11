@@ -2961,11 +2961,14 @@ _kosmos_note_pause_abort() { # reason
   _abortn=0; _abortsame=0
   if [ -f "$_abortf" ]; then
     _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
-    case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
+    # A number the shell's arithmetic would refuse (a leading zero reads as octal, a very long one overflows) is
+    # treated as damaged, like any non-number: under set -e a refused $(( )) would end the run here, before the stop's
+    # own words are printed.
+    case "$_abortn" in ''|*[!0-9]*|0?*|??????????*) _abortn=0 ;; esac
     if [ "$(sed -n 's/^reason=//p' "$_abortf" 2>/dev/null || true)" = "$1" ]; then
       _abortsame="$(sed -n 's/^same=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
       case "$_abortsame" in
-        ''|*[!0-9]*) if [ "$1" = board-would-not-pause ]; then _abortsame="$_abortn"; else _abortsame=0; fi ;;
+        ''|*[!0-9]*|0?*|??????????*) if [ "$1" = board-would-not-pause ]; then _abortsame="$_abortn"; else _abortsame=0; fi ;;
       esac
     fi
   fi
