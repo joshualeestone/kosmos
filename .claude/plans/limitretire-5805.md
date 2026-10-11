@@ -115,3 +115,10 @@ Slice 3a added the time on the card but deliberately left these alone.
   been typed past, so retireResetLimits now retires it whatever its reset; the tail, the evidence and the hold then
   describe the newest limit. Applies to dated rows too. Tested through the card builder (held at 17:00, idle after
   21:00 with both rows on screen); 754 neighbour and status tests pass.
+
+## Review 8 (sonnet)
+- FIXED (WARNING): review 7's rule let a quoted limit line ending a turn (a tool result under a "●" row, the turn
+  footer under it) retire the real, binding row above it, so a capped agent could read idle. Only a "hit your" row
+  whose nearest column-0 row above is the person's prompt ("> ...") supersedes older rows. A limit hit mid-turn after
+  the agent's own text does not, and the older row then stays (capped, the safe direction). Tested with a control.
+- FIXED (NIT): the comment says "hit your" rows, not every limit row.
