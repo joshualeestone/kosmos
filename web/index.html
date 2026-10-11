@@ -47216,8 +47216,8 @@ function paintAsk() {
     after.unshift('<div class="askrow done"><p class="askok">' + word + ' on this computer is connected.</p>' +
       '<p>This computer opened it, signed in to your account, so it did not ask you. Not yours? Undo turns it away.</p>' +
       (ASK.hereSaid && ASK.hereSaidFor === askHereKey(here) ? '<p class="askwait">' + askEsc(ASK.hereSaid) + '</p>' : '') +
-      '<div class="acts"><button class="btn quiet" type="button" data-ask="here-undo" data-id="' + askEsc(here.device_id) + '" aria-label="Undo: disconnect ' + word + ' on this computer"' + (ASK.removing ? ' disabled' : '') + '>' + (ASK.removing === here.device_id ? 'Disconnecting' : 'Undo') + '</button>' +
-      '<button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(here.device_id) + '">Got it</button></div></div>');
+      '<div class="acts"><button class="btn quiet" type="button" data-ask="here-undo" data-id="' + askEsc(here.device_id) + '" data-at="' + askEsc(String(here.at)) + '" aria-label="Undo: disconnect ' + word + ' on this computer"' + (ASK.removing ? ' disabled' : '') + '>' + (ASK.removing === here.device_id ? 'Disconnecting' : 'Undo') + '</button>' +
+      '<button class="btn quiet" type="button" data-ask="here-ok" data-id="' + askEsc(here.device_id) + '" data-at="' + askEsc(String(here.at)) + '">Got it</button></div></div>');
   } else if (ASK.hereSaid) {
     after.unshift('<div class="askrow done"><p>' + askEsc(ASK.hereSaid) + '</p>' +
       '<div class="acts"><button class="btn quiet" type="button" data-ask="here-ok" data-id="">Got it</button></div></div>');
@@ -47226,14 +47226,15 @@ function paintAsk() {
   askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
   askWrite(document.getElementById(inPanel ? 'ask-rows' : 'plus-ask-rows'), '');
 }
-async function askAct(act, id) {
+async function askAct(act, id, at) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
   if (act === 'open') { showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
-  if (act === 'here-ok') { ASK.hereGone = ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone; ASK.hereSaid = ''; paintAsk(); return; }
+  if (act === 'here-ok') { ASK.hereGone = at ? id + '@' + at : ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone; ASK.hereSaid = ''; paintAsk(); return; }
   if (act === 'here-undo') {
     // One remove at a time, shared with the Devices list's Remove (it can take up to a minute).
     if (ASK.removing) return;
-    const key = ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : '';
+    // The notice this button was painted for (a poll may have replaced ASK.here since).
+    const key = at ? id + '@' + at : ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : '';
     ASK.removing = id;
     paintAsk();
     let res = null;
@@ -47278,11 +47279,11 @@ async function askAct(act, id) {
 }
 document.getElementById('askcard').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
-  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
+  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'), b.getAttribute('data-at'));
 });
 document.getElementById('plus-asks').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
-  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
+  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'), b.getAttribute('data-at'));
 });
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in

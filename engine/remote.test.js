@@ -4469,3 +4469,20 @@ test('#5786 (b): a new sign-in replaces the secret, and a live one ends on Forge
   await until(() => remote.vouchSecretForTests() === null, 'a failed opener to end the secret');
   remote.setOn(false);
 });
+
+test('#5786 (b): Not me pressed while the automatic allow runs wins: the device is taken back out and not noted', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchrace');
+  plant([{ device_id: 'dev-race', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-race', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-race') }]);
+  const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-race')).length;
+  const before = removes();
+  remote.vouchTickForTests();   // the allow is now out
+  // The person's Not me lands while it runs (written as deviceDeny writes it).
+  const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  f.denied = { ...(f.denied || {}), 'dev-race': Math.floor(Date.now() / 1000) };
+  fs.writeFileSync(remote.FILE, JSON.stringify(f));
+  await until(() => removes() > before, 'the raced allow to be taken back out');
+  assert.equal(remote.read().vouched['dev-race'], undefined, 'a device the person refused was noted as on this computer');
+  remote.setOn(false);
+});

@@ -1616,7 +1616,7 @@ function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
    tunnel's first poll rewrites it (up to 5s, and longer if that poll fails: a failed poll keeps the last file,
    kosmos-relay devices.rs). Called at every place the identity changes (setupComplete, cancelledAfter,
    signinRegister), after the old tunnel is stopped so it cannot rewrite it. A missing snapshot already reads as
-   nothing waiting (pendingDevices). */
+   nothing waiting (pendingDevices). kosmos#5786 (b): it also drops the identity's "on this computer" notes. */
 function forgetPendingSnapshot() {
   try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
   resetSelfGrant();   // round 2: every identity change also starts the self-grant over (all four call sites)
@@ -1710,7 +1710,7 @@ const VOUCH_WINDOW_MS = 10 * 60 * 1000;
 const VOUCH_RECENT_S = 30 * 60;
 const VOUCH_POLL_MS = 3000;
 const VOUCH_NOTICE_MS = 10 * 60 * 1000;
-let vouchState = null;   // { secret, until, epoch, opened, matched, allowing }
+let vouchState = null;   // { secret, until, epoch, opened, matched, allowing, tries, matchedOk }
 let vouchTimer = null;
 let vouchOpenedUrl = '';   // the last address opened, for tests (the opener's own argv drops it under a test command)
 function stopVouch() {
@@ -1801,12 +1801,18 @@ function vouchTick() {
         }
         return;
       }
-      // Allowed: noted even if a Sign out landed while it ran, so the notice and Undo still show.
+      // Allowed: noted even if a Sign out or a switch-off landed while it ran (they stop the secret, not an allow already
+      // out), so the notice and Undo still show.
       v.matchedOk = true;
       if (vouchState === v) stopVouch();
       // Not during a Forget (it clears the notes), and not under another identity (the note would describe a device of
       // the account before it).
       if (forgetting || v.epoch !== selfEpoch) return;
+      // The person pressed Not me while this allow ran: their answer wins. Take the device back out, note nothing.
+      if (Object.prototype.hasOwnProperty.call(read().denied || {}, id)) {
+        process.stderr.write('kosmos+: a device was refused while it was being allowed automatically; removing it\n');
+        return deviceRemove(id);
+      }
       const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
         .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
       const saved = write({ vouched: Object.fromEntries(kept) });
@@ -2005,7 +2011,8 @@ function forgetVouched(id, answer) {
   // A remove that timed out may not have happened: the note stays, so the device keeps saying where it came from.
   if (answer && answer.ok && vouched[id] && !(answer.data && answer.data.timed_out)) {
     const { [id]: _gone, ...rest } = vouched;
-    write({ vouched: rest });
+    const saved = write({ vouched: rest });
+    if (!saved.ok) process.stderr.write('remote: removed, but this computer could not drop its "on this computer" note: ' + saved.because + '\n');
   }
   return answer;
 }
