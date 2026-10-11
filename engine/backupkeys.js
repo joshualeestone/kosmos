@@ -11,7 +11,8 @@
  *   DEVIATION (kosmos#5744 slice 2b): on the Mac, engine/backupmemberkey.js keeps the private half in a 0600 file,
  *   as the tunnel keeps mac_key; the wrap to an enrolled device sealing key is not built yet.
  * - A NAMING key per period (HMAC key for chunk names) is 32 random bytes, kept wrapped to the member PUBLIC key
- *   with (org, member, epoch, period) as associated data, so it is recoverable after the Mac is lost.
+ *   with (org, member, epoch, period) as associated data, so it is recoverable after the Mac is lost. (#5535: no wrap
+ *   is stored; the device-signed manifest carries the key itself, which restore reads, as the last paragraph allows.)
  *
  * Wraps:  member key  KBK1 | enc(32) | ct(32 + 16)
  *         naming key  KBN1 | enc(32) | ct(32 + 16)      both with HPKE info "kosmos-backup v1 key-wrap"
