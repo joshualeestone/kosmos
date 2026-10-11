@@ -17,19 +17,45 @@ set -eu
 # ships. This refuses a staged shell file where a pipe into a filter is
 # followed within two lines by `$?`, and the `grep -c ... || echo 0` variant
 # (it prints "0\n0" when grep finds nothing, and breaks the arithmetic after
-# it). A file that has turned on `pipefail` above the line is not flagged:
+# it). Not pipes: "||" and an escaped "\|" (#4911). A status line that reads its own command's status after an
+# unrelated pipe may end in the comment "# pipe-status-ok" (#4911; rules in the program below). A file that has turned
+# on `pipefail` above the line is not flagged:
 # under pipefail `$?` is the rightmost failing status, which is the point.
 # Want the left side's status without pipefail? Read `${PIPESTATUS[0]}` on
 # the very next line, or write to a file, check the status, then read it.
 shape_reds=0
 for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bash)$|^install/kosmos$|^\.githooks/' || true); do
   [ -f "$f" ] || continue
+  # kosmos#4911: the program sits between these two markers so tools/test-precommit-pipe-lint-4911.sh runs THIS text.
+  # PIPE-LINT-BEGIN
   hits="$(git show ":$f" | awk '
     /^[^#]*set -o pipefail|^[^#]*set -[a-zA-Z]*o pipefail/ { pf = 1 }
-    /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
+    # "a || b" is not a pipe: drop every || before looking for one (a "cmd || sed" fallback was read as "| sed").
+    # An escaped "\|" is not a pipe either. Escaped backslashes go first ("a\\| tail" is a backslash, then a REAL
+    # pipe), then "\|", then "||", so "a\|| tail" keeps its real pipe too.
+    { s = $0; gsub(/\\\\/, "  ", s); gsub(/\\\|/, "  ", s); gsub(/\|\|/, "  ", s) }
+    s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0; q = 0 }
+    # The author'"'"'s word, written where a reviewer sees it: a line ending in "# pipe-status-ok" reads its OWN
+    # command'"'"'s status, so a pipe on an EARLIER line is not what it reads. A pipe into one of the listed filters on the
+    # same line still counts.
+    # The status must be read in the line'"'"'s CODE (before any "#"): a comment that only mentions it excuses nothing.
+    # "$#" and "${#x}" are not comments; the marker itself must be a real comment (a "#" at the start or after a space).
+    { c = $0; gsub(/\$\{#|\$#/, "", c) }
+    # If no code line has run since the pipe (blank and comment lines do not count), a status read before any command
+    # on this line ("[ <status> ... ] # marker") can only be the filter'"'"'s, so the marker cannot be true there: it
+    # counts only after a ";", "&&" or "||" on the line. q counts the code lines since the pipe. Best-effort: it refuses
+    # a marker that is provably false there, and trusts the author otherwise (a quoted ";", or an assignment, passes).
+    { first = substr(c, 1, index(c, "$" "?") - 1); ran = (q > 0 || first ~ /;|&&|\|\|/) }
+    # And a marked line with a pipe into a filter of its own, however it is followed ("| sort;", "| sort)"), is never
+    # excused: its status is that filter'"'"'s. (Three parts of the rule below cannot fire today and are kept as guards
+    # against later edits: "p != NR" is implied by that filter test, its "|$" arm cannot end a marked line, and the
+    # "^" arm of the marker needs a status read before a "#" that starts the line.)
+    p && p != NR && ran && s !~ /\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([^A-Za-z0-9_-]|$)/ && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
+    p && NR > p && $0 !~ /^[[:space:]]*(#.*)?$/ { q++ }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
   ')"
+  # PIPE-LINT-END
   if [ -n "$hits" ]; then
     echo "pre-commit: $f reads the wrong exit status (#632):" >&2
     echo "$hits" >&2
@@ -38,6 +64,7 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
 done
 if [ "$shape_reds" -ne 0 ]; then
   echo "  turn on pipefail, read \${PIPESTATUS[0]} on the next line, or redirect to a file and test the command's own status." >&2
+  echo "  If the status line runs its OWN command (cmd; rc=...) and the pipe above is unrelated, end it with the comment  # pipe-status-ok  (lowercase, last on the line)" >&2
   exit 1
 fi
 
