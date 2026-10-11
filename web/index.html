@@ -12734,6 +12734,13 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
          sits above the thread (#403) and filters what a row SHOWS. -->
+    <!-- kosmos#5841: the conversation's EARLIER messages, opened from the "older messages are still kept" line below.
+         Its own element, above the thread, so the thread's 5 s repaint (which draws only the latest 200) never wipes it. -->
+    <div class="dmearlier" id="d-talk-earlier" hidden>
+      <p class="dhint" id="d-talk-earlier-note" style="margin:0 0 6px;"></p>
+      <div class="dmthread" id="d-talk-earlier-rows"></div>
+      <p class="dhint" style="margin:6px 0 10px;"><button type="button" class="btn quiet" id="d-talk-earlier-more">Show earlier</button> <button type="button" class="btn quiet" id="d-talk-earlier-hide">Hide earlier messages</button></p>
+    </div>
     <div class="dmthread" id="d-dmthread"></div>
     <!-- 🔑 "WORKING", NEVER "TYPING". We can see that Claude is producing
          output or is mid-task. We CANNOT see WHAT it is working on, and
@@ -37856,6 +37863,66 @@ document.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('#d-dmthread .dmchoice') : null;
   if (b && !b.disabled) dmChoicePress(b);
 });
+/* kosmos#5841: the conversation's earlier messages, a page at a time from GET .../thread/older?before=<n>. `before` is
+   counted from the OLDEST message (the thread route's olderCount), so a send in between cannot shift a page. Per agent:
+   another agent on screen resets it. */
+const EARLIER = { session: null, name: null, open: false, before: 0, rows: [], loading: false, because: null };
+function earlierReset(session) {
+  Object.assign(EARLIER, { session, name: null, open: false, before: 0, rows: [], loading: false, because: null });
+  const box = document.getElementById('d-talk-earlier');
+  if (box) box.hidden = true;
+  const r = document.getElementById('d-talk-earlier-rows');
+  if (r) setLive(r, '');
+  const note = document.getElementById('d-talk-earlier-note');
+  if (note) note.textContent = '';
+}
+function earlierPaint() {
+  const box = document.getElementById('d-talk-earlier');
+  if (!box) return;
+  box.hidden = !EARLIER.open;
+  if (!EARLIER.open) return;
+  const n = EARLIER.rows.length;
+  document.getElementById('d-talk-earlier-note').textContent = EARLIER.because
+    ? pjSentence(EARLIER.because)
+    : (n ? 'Earlier messages: ' + n + ' shown' + (EARLIER.before ? ', ' + EARLIER.before + ' older still kept.' : ', back to the start of this conversation.') : 'Loading earlier messages…');
+  const adj = dmReplyAdjacency(EARLIER.rows, false, null);
+  setLive(document.getElementById('d-talk-earlier-rows'), EARLIER.rows.map((m, i) => dmRow(m, EARLIER.name, adj.rows[i])).join(''));
+  const more = document.getElementById('d-talk-earlier-more');
+  more.hidden = !EARLIER.before || Boolean(EARLIER.because);
+  more.disabled = EARLIER.loading;
+}
+async function earlierLoad() {
+  if (EARLIER.loading || !EARLIER.session) return;
+  const session = EARLIER.session;
+  EARLIER.loading = true; EARLIER.because = null; earlierPaint();
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread/older?before=' + EARLIER.before, { cache: 'no-store' });
+    const body = await res.json().catch(() => null);
+    if (EARLIER.session !== session) return;   // another agent came on screen meanwhile
+    if (!res.ok || !body || !Array.isArray(body.messages)) { EARLIER.because = (body && body.error) || 'we could not read the earlier messages'; return; }
+    EARLIER.rows = body.messages.concat(EARLIER.rows);
+    EARLIER.before = Number(body.olderCount) || 0;
+  } catch { if (EARLIER.session === session) EARLIER.because = 'we could not read the earlier messages'; }
+  finally { if (EARLIER.session === session) { EARLIER.loading = false; earlierPaint(); } }
+}
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (!t || !t.id) return;
+  if (t.id === 'd-talk-older-show') {
+    const thread = document.getElementById('d-dmthread');
+    EARLIER.session = thread.__lastSession; EARLIER.name = thread.__lastName;
+    EARLIER.open = true; EARLIER.rows = []; EARLIER.before = DM_ROWS_OLDER;
+    t.remove();
+    earlierLoad();
+  } else if (t.id === 'd-talk-earlier-more') {
+    earlierLoad();
+  } else if (t.id === 'd-talk-earlier-hide') {
+    earlierReset(EARLIER.session);
+    const thread = document.getElementById('d-dmthread');
+    if (thread.__lastSession) paintTalk(thread.__lastSession, thread.__lastName);   // redraws the older line with its button
+  }
+});
+
 function paintTalkThread(body, name) {
   const allRows = Array.isArray(body.messages) ? body.messages : [];
   /* #4256: the rows by `at` and the reply strip, for the agent this paint is for, before any branch below can
@@ -38471,7 +38538,14 @@ async function paintTalk(sessionName, agentName) {
     ? 'Showing the latest ' + rows.length + '. ' + body.olderCount + ' older '
       + (body.olderCount === 1 ? 'message is' : 'messages are') + ' still kept.'
     : '';
+  /* kosmos#5841: and the way to them. Hidden while the earlier messages are open (their own section says where it is). */
+  if (body.olderCount && !(EARLIER.session === sessionName && EARLIER.open)) {
+    const show = document.createElement('button');
+    show.type = 'button'; show.className = 'btn quiet'; show.id = 'd-talk-older-show'; show.textContent = 'Show earlier messages';
+    older.append(' ', show);
+  }
   older.hidden = !body.olderCount;
+  if (EARLIER.session !== sessionName) earlierReset(sessionName);
 
   /* --- whether it can be handed a message at all --- */
   const off = document.getElementById('d-dmoff');
