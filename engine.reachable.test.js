@@ -290,6 +290,7 @@ const TRIAGED_5548 = {
   offReason: ['engine/orgchartkeys.js', ACCESSOR + ' (pick().offWhy; production calls pick())'],
   chooseReader: ['engine/orgchartkeys.js', ACCESSOR + ' (pick().reader; production calls pick())'],
   hasPicture: ['engine/you.js', ACCESSOR + ' (picturePath() !== null; server.js calls picturePath)'],
+  rotateForRevoked: ['engine/fedseats.js', ACCESSOR + ' (a wrapper over revokeCheck, which production calls)'],
   setIntervalMinutes: ['engine/heartbeat-setting.js', ACCESSOR + ' (a single-field setter beside the patch setter the PUT route uses, #1722)'],
   labelFor: ['engine/communityindustry.js', 'pending: slice 2 of OPEN #4375 (the public label for an owner\'s industry)'],
   HANDOFF_CHECK_FOR_SERVING_AFTER_MS: ['engine/win32handoff.js', 'mirrored by tools/windows/KosmosLauncher.cs (CheckForServingAfterMs), pinned equal by tools.win-launcher-native.test.js'],
