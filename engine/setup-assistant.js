@@ -1693,8 +1693,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const concreteHomes = accountConfigHomes(home);
   /* Review 9: the agent's OWN config home, wherever it is (creation passes it; a launch or board start reads it from the
      job), so a CLAUDE_CONFIG_DIR outside ~/.claude* is covered for the agent's own account. Other agents' homes there
-     are covered too since #5774 route 5 (from their jobs). Review 11: one whose path the rules cannot carry is named in configUnsafe and left out, so the
-     rest of the guard is still written (the rule review 7 set for a link target), and the guard says it is not whole. */
+     are covered too since #5774 route 5 (from their jobs). Review 11: one whose path the rules cannot carry is named in
+     configUnsafe and left out, so the rest of the guard is still written (the rule review 7 set for a link target), and
+     the guard says it is not whole. */
   const ownHome = deps.accountConfigDir ? path.resolve(deps.accountConfigDir) : null;
   const configUnsafe = [];   // reviews 5, 6, 8 and 11: a link target, an ancestor, the agents' folder or the own home the rule syntax cannot carry, named
   if (ownHome && !concreteHomes.includes(ownHome)) {
@@ -1872,13 +1873,20 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     fromFiles = { vals: {}, unsafe: [] };
     for (const f of shellStart.files.filter((x) => /(?:^|[\\/])\.(?:zshenv|zprofile|zshrc|zlogin|profile|bash_profile|bash_login|bashrc)$/.test(x))) {
       let text = '';
-      try { const st = fs.statSync(f); if (st.isFile() && st.size <= STARTUP_FILE_MAX_BYTES) text = fs.readFileSync(f, 'utf8'); } catch { text = ''; }
+      // Review 14: a startup file that is there but cannot be read, or is past the size limit, is named, not read as
+      // holding no plugin variable. An absent one (and one that is no file) says nothing.
+      let st = null;
+      try { st = fs.statSync(f); } catch { st = null; }
+      if (st && st.isFile()) {
+        if (st.size > STARTUP_FILE_MAX_BYTES) fromFiles.unsafe.push(`${f} (a shell startup file larger than Kosmos reads, so the plugin folders it may name are not known)`);
+        else { try { text = fs.readFileSync(f, 'utf8'); } catch (e) { fromFiles.unsafe.push(`${f} (a shell startup file that could not be read: ${(e && e.code) || e}, so the plugin folders it may name are not known)`); } }
+      }
       for (const k of PLUGIN_VARS) {
         if (!text.includes(k)) continue;   // review 2: most files name none of them
         /* Review 13: an INDENTED assignment (an if-block, a function) is one the reader below does not read, so it is
            named rather than missed: a conditional plugin-dev export is the likeliest way a person writes one. A `source`d
            file stays a stated gap (the plan). */
-        const indented = new RegExp(`(?:^|[\\s;&|(])${k}=|\\$\\{${k}:?=`);
+        const indented = new RegExp(`(?:^|[\\s;&|(])${k}=|\\$\\{${k}:?=`);   // k is one of three fixed names (no regex characters)
         for (const raw of text.split('\n')) {
           if (/^\s+[^\s#]/.test(raw) && indented.test(raw)) { fromFiles.unsafe.push(`${k} (set on an indented line in ${f}, which Kosmos does not read), a plugin folder Kosmos cannot work out`); break; }
         }

@@ -522,3 +522,22 @@ test('#5774 route 5 review 13: a config home that is a link to something absent 
   const s3 = readSettings(d3);
   assert.ok(![...s3.permissions.deny, ...s3.sandbox.filesystem.denyWrite].some((r) => r.includes('9.9.9')), 'a versioned plugin path was listed');
 });
+
+test('#5774 route 5 review 14: a startup file that is there but cannot be read, or is past the size limit, is named', () => {
+  const zshrc = path.join(HOME, '.zshrc');
+  try {
+    fs.writeFileSync(zshrc, 'export CLAUDE_CODE_PLUGIN_DIRS=/opt/hidden-plug\n');
+    fs.chmodSync(zshrc, 0o000);
+    const g = setup.guardTokenOnlyFolder(agentDir('pilot-unreadrc'), 'pilot-unreadrc', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false, JSON.stringify(g));
+    assert.ok(JSON.stringify(g).includes('a shell startup file that could not be read'), JSON.stringify(g));
+    fs.chmodSync(zshrc, 0o644);
+    fs.writeFileSync(zshrc, '#'.repeat(4194305));
+    const g2 = setup.guardTokenOnlyFolder(agentDir('pilot-bigrc'), 'pilot-bigrc', { ...DEPS, env: ENV0 });
+    assert.ok(JSON.stringify(g2).includes('a shell startup file larger than Kosmos reads'), JSON.stringify(g2));
+    // Control: a readable one within the limit is read, and not named.
+    fs.writeFileSync(zshrc, 'export FOO=1\n');
+    const g3 = setup.guardTokenOnlyFolder(agentDir('pilot-okrc'), 'pilot-okrc', { ...DEPS, env: ENV0 });
+    assert.ok(!JSON.stringify(g3).includes('a shell startup file'), JSON.stringify(g3));
+  } finally { try { fs.chmodSync(zshrc, 0o644); } catch { /* gone */ } fs.rmSync(zshrc, { force: true }); }
+});

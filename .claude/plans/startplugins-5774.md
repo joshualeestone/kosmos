@@ -36,7 +36,7 @@
 - The part 2 plan's "route 3" wording for its login-item and PowerShell gaps is corrected in this PR (promised on the card). Shell `source` lines are a gap of route 2, not something route 3 built.
 
 ## Tests
-engine/startplugins-5774.test.js, 15 tests, using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
+engine/startplugins-5774.test.js (see the iteration notes for what each test covers), using the production job reader against a job file written into a sandboxed launch folder (the platform's own, through test-support/jobfixture.js). Every fix has a mutation that turns its test red; each iteration's note below lists them.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on b7d167941:
@@ -152,3 +152,13 @@ engine/startplugins-5774.test.js, 15 tests, using the production job reader agai
   - [NIT] TAKEN: a job home is counted after the uncarriable refusal, as the comment said.
   - [NIT] TAKEN: the job-homes cache key carries the platform.
   - [NIT] not taken: plugins from a variable-named cache are tagged with this agent's home for CLAUDE_PLUGIN_DATA; harmless today (that path sits under a home's plugins/, denied whole), and not measured against the bundle.
+- Iteration 14 (Sonnet), on 0c906fecd: no BLOCKER.
+  - [WARNING] FIXED. A startup file that is there but cannot be read, or is past the 4 MiB limit, read as holding no plugin variable (a silent miss). Both are named now; an absent file says nothing. Tested (mode 000; 4 MiB + 1), with a readable file as the control; both mutations red.
+  - [WARNING] DUPLICATE of a stated gap: the indented-line detector also names an indented trailing-comment or here-document mention of `K=` (fails closed), and names one line per file.
+  - [WARNING] DUPLICATE of a stated gap: another account's relative plugin value makes every token-only creation not whole. The reviewer's suggested fix (resolving it under the agent folders whose jobs name that home) is the follow-up if it fires.
+  - [NIT] TAKEN: the Tests section no longer carries a test count.
+  - [NIT] TAKEN: the own-home comment re-wrapped.
+  - [NIT] TAKEN (comment): the indented-line pattern interpolates one of three fixed names.
+  - [NIT] not taken: a value mixing `"$HOME/a":~/b` is named (fails closed).
+  - [NIT] DUPLICATE of a stated gap: jobsHere's Linux arm is untested.
+
