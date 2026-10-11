@@ -8,14 +8,16 @@ once #5804 merges.
   caller that already holds the job does not read it again.
 - engine/status.js `readGeminiSession`: it already reads the job to find the session; a found session now also carries
   `planned` (plannedModelOfJob of that same job).
-- engine/status.js snapshot row: `geminiSeen` = `{ modelAt, planned }` for a Gemini pane whose session was found, null
+- engine/status.js snapshot row: `geminiSeen` = `{ model, modelAt, planned }` (review 4: the model too, so the decision
+  reads one object and cannot drift from a later change to the card's `model`) for a Gemini pane whose session was found, null
   otherwise (and null on the paneless builder). server.js's page map spreads the snapshot row, so it destructures
-  `geminiSeen` off first (review 1: it would otherwise reach the page) and passes it to the decision.
+  `geminiSeen` off first (review 1: it would otherwise reach the page) and passes it to the decision. `safeRoster` takes
+  it off too (review 4), so no route forwarding a roster row carries it; exported for its test.
 - engine/geminimodelswitch.js `settingModelName(name, deps)`: deps may now be PARTIAL (the given ones override the real
   ones), so the server passes only what the snapshot carries (settingModelNameOfRow).
 - engine/geminimodelswitch.js `settingModelNameOfRow(a, seen)`: with no `geminiSeen`, null (the snapshot could not read the
   session, so neither could a second read on the same tick); otherwise `planned` and `session` come from the row
-  (`a.model`, `seen`). server.js `settingGeminiModel` keeps its gate and calls it.
+  (`seen` only). server.js `settingGeminiModel` keeps its gate and calls it.
   The run start stays tmux's (cached per poll, SESSION_CACHE) and the display name is pure.
 
 ## Result

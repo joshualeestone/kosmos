@@ -27,11 +27,12 @@ const fleet = require('../test-support/fleet');
 const { settingModelName, settingModelNameOfRow } = require('./geminimodelswitch');
 
 const START = Date.parse('2026-10-10T19:00:00Z');
-const SEEN = { modelAt: START + 60000, planned: { id: 'gemini-2.5-flash', isDefault: false } };
+const SEEN = { model: 'gemini-3.5-flash', modelAt: START + 60000, planned: { id: 'gemini-2.5-flash', isDefault: false } };
 const rest = { startedAt: () => START, display: (id) => ({ 'gemini-2.5-flash': 'Gemini 2.5 Flash' }[id] || id) };
 
-/* A REAL Gemini card from the producer (fixture-discipline: never a hand-built card), with the one field a Gemini
-   session would have put on it laid over it, as server.whoami-grok-4603 does for Grok. */
+/* A REAL Gemini card from the producer (fixture-discipline: never a hand-built card), with the model a Gemini session
+   would have put on it laid over it, as server.whoami-grok-4603 does for Grok. The decision reads `seen`, not the card's
+   model: the card's is only what the page shows. */
 function geminiCard(t, over) {
   const board = fleet.install([fleet.agent('gem', { state: 'idle', runner: 'gemini', command: 'node' })]);
   t.after(() => board.restore());
@@ -73,12 +74,12 @@ test('#5811: the row decision gives #5804\'s answers from the row data', (t) => 
   const { card } = geminiCard(t);
   assert.equal(settingModelNameOfRow(card, SEEN, rest), 'Gemini 2.5 Flash');
   assert.equal(settingModelNameOfRow(card, null, rest), null, 'session not read by the snapshot: nothing to say');
-  assert.equal(settingModelNameOfRow({ ...card, model: 'gemini-2.5-flash-001' }, SEEN, rest), null, 'same model');
+  assert.equal(settingModelNameOfRow(card, { ...SEEN, model: 'gemini-2.5-flash-001' }, rest), null, 'same model');
   assert.equal(settingModelNameOfRow(card, { modelAt: START - 1, planned: { id: 'gemini-2.5-flash' } }, rest), null, 'an earlier run');
   assert.equal(settingModelNameOfRow(card, { modelAt: null, planned: { id: 'gemini-2.5-flash' } }, rest), null, 'reply time unknown');
   assert.equal(settingModelNameOfRow(card, { modelAt: START + 60000, planned: null }, rest), null, 'no job');
   assert.equal(settingModelNameOfRow(card, { modelAt: START + 60000, planned: { id: 'auto' } }, rest), null, 'an alias');
-  assert.equal(settingModelNameOfRow({ ...card, model: null }, SEEN, rest), null, 'no model named');
+  assert.equal(settingModelNameOfRow(card, { ...SEEN, model: null }, rest), null, 'no model named');
   assert.equal(settingModelNameOfRow(null, SEEN, rest), null);
 });
 
@@ -101,7 +102,7 @@ test('#5811: create.plannedModelOfJob is plannedModelOf without the read', () =>
 
 test('#5811: the snapshot carries what the decision needs, on both row builders, and the page map takes it off', () => {
   const src = fs.readFileSync(path.join(__dirname, 'status.js'), 'utf8');
-  assert.match(src, /geminiSeen: \(tied && isGeminiPane && geminiSess && geminiSess\.found\)\s*\? \{ modelAt: [^}]*planned: geminiSess\.planned \|\| null \}\s*: null,/);
+  assert.match(src, /geminiSeen: \(tied && isGeminiPane && geminiSess && geminiSess\.found\)\s*\? \{ model: sessModel\(geminiSess\), modelAt: [^}]*planned: geminiSess\.planned \|\| null \}\s*: null,/);
   assert.match(src, /geminiSeen: null,\s*\/\/ #5811/);
   assert.match(src, /planned = create\.plannedModelOfJob\(job\);[\s\S]{0,60}return \{ \.\.\.sess, planned \};/);
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');

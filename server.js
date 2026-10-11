@@ -2465,7 +2465,9 @@ function safeRoster() {
     const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
     /* #3726: the roster carries where the automatic reconnect stands, as /api/status's rows do (the
        same expression), so the project routes can tell a connection Kosmos has given up on. */
-    return agents.filter((a) => !gone.has(a.sessionName)).map((a) => {
+    /* #5811: `geminiSeen` comes off here too, as on /api/status's rows: the roster's consumers never need it, so no route
+       that forwards a roster row can carry it (server.gemini-seen-5811.test.js). */
+    return agents.filter((a) => !gone.has(a.sessionName)).map(({ geminiSeen, ...a }) => {
       const withReconnect = a.state === 'connection_lost'
         ? Object.assign({}, a, { reconnect: connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) })
         : a;
@@ -5408,7 +5410,7 @@ const server = http.createServer(async (req, res) => {
       };
       /* #5804: for a running Gemini agent of ours, the model Kosmos started it on when its newest reply (since this run
          began) came from a different one (engine/geminimodelswitch.js decides; null otherwise). #5811: from what the
-         snapshot already read (a.model, the row's geminiSeen), never a second job or session read per poll; no geminiSeen means
+         snapshot already read (the row's geminiSeen), never a second job or session read per poll; no geminiSeen means
          the snapshot could not read the session, so there is nothing to say. */
       const settingGeminiModel = (a, seen) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
         ? require('./engine/geminimodelswitch').settingModelNameOfRow(a, seen)
@@ -22802,6 +22804,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  safeRoster, // #5811: its rows carry no geminiSeen, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test

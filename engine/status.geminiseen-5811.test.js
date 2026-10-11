@@ -69,9 +69,8 @@ test('#5811: a found session puts the reply model, its time and the job\'s model
   writeSession('gemini-3.5-flash');
   const c = card(t);
   assert.equal(c.model, 'gemini-3.5-flash', 'the model the newest reply named');
-  assert.deepEqual(c.geminiSeen, { modelAt: Date.parse(REPLY_AT), planned: { id: 'gemini-2.5-flash', isDefault: false } });
-  // The same job and session through the direct reader: one rule, so the row and a fresh read agree.
-  assert.deepEqual(status.readGeminiSession(NAME).planned, create.plannedModelOf(NAME));
+  assert.deepEqual(c.geminiSeen, { model: 'gemini-3.5-flash', modelAt: Date.parse(REPLY_AT), planned: { id: 'gemini-2.5-flash', isDefault: false } });
+  assert.equal(c.geminiSeen.model, c.model, 'the decision and the card name the same reply');
 });
 
 test('#5811: a job with no model gives the launcher default, marked default', (t) => {
