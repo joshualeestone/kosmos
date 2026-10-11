@@ -437,6 +437,42 @@ const SCREENS = [
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
   } },
+  /* kosmos#5820 (Angel): an agent that declared where it answers the person (`kosmos reply-channel`, #5805 part 2).
+     Its page says so in the header, with Clear. Written to the board's store as the command would, and cleared in
+     `after`. The shot is gated on Clear being SEEN at its centre (visible is not seen, #4524). */
+  { name: 'agent-replychan-5820', owner: 'Angel', go: async (page, data) => {
+    require(path.join(REPO, 'engine', 'replychannel')).set(data.chatAgent, 'the team Discord channel');
+    data.replyChanSet = true;
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#d-replychan', { state: 'visible', timeout: 8000 });
+    const seen = async () => page.evaluate(() => {
+      const b = document.getElementById('d-replychan-clear');
+      if (!b) return 'gone';
+      const r = b.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return 'not laid out';
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport';
+      const top = document.elementFromPoint(x, y);
+      return top && b.contains(top) ? '' : 'covered by ' + (top ? top.tagName.toLowerCase() + (top.id ? '#' + top.id : '') : 'nothing');
+    });
+    let hit = await seen();
+    for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await seen()) await page.waitForTimeout(200);
+    if (hit) throw new Error('the reply-channel Clear button is not seen: ' + hit);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => (document.getElementById('d-replychan-text') || {}).textContent || '');
+    if (!/says it answers you on the team Discord channel/.test(t)) throw new Error('the reply-channel line says: ' + JSON.stringify(t));
+    // After the shot: press Clear for real. The line goes, the answer is said, and focus lands on it.
+    await page.click('#d-replychan-clear');
+    await page.waitForSelector('#d-replychan', { state: 'hidden', timeout: 8000 });
+    const after = await page.evaluate(() => { const m = document.getElementById('d-replychan-msg');
+      return { said: m ? m.textContent : '', focused: document.activeElement === m }; });
+    if (!/^Cleared\. Kosmos will remind /.test(after.said)) throw new Error('Clear said: ' + JSON.stringify(after.said));
+    if (!after.focused) throw new Error('focus did not land on the Cleared message');
+  }, after: async (page, data) => {
+    if (!data.replyChanSet) return;
+    require(path.join(REPO, 'engine', 'replychannel')).set(data.chatAgent, null);
+    data.replyChanSet = false;
+  } },
   // Scorpion: an agent's chat.
   { name: 'agent-chat', owner: 'Scorpion', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);

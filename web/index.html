@@ -7149,6 +7149,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn-ref:hover, .rxn-ref:focus-visible, .rxn-copy:hover, .rxn-copy:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
 .rxn-ref:focus-visible, .rxn-copy:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #d-linklost { color: var(--label-2); }   /* #5333: a state that means "your messages will not be answered", not helper text */
+#d-replychan { color: var(--label-2); }   /* #5820: the agent's declared reply channel, with Clear */
+#d-replychan-clear { margin-left: .4em; }
 #d-tokenguard { color: var(--label-2); }   /* #5668: the agent's token protection is not complete, or its shell may not run */
 .msg-menu { position: fixed; z-index: 40; min-width: 200px; padding: 4px; border: 1px solid var(--k-rule); border-radius: 8px;
             background: var(--k-surface); box-shadow: 0 8px 24px rgba(20,22,26,.16); }
@@ -12574,6 +12576,12 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #5668: a token-only agent whose last guard run was not whole (with the reason), or whose denied paths are past
            what the sandbox is known to take (its commands may stop running). Shown only then; a guarded agent shows nothing. -->
       <p class="fhint detail-tokenguard" id="d-tokenguard" hidden></p>
+      <!-- #5820: where this agent says it answers you (#5805 part 2, `kosmos reply-channel`), and Clear. Kosmos cannot
+           see an answer given there, so while it is declared the first-reply reminder stays quiet for this agent. -->
+      <div class="fhint detail-replychan" id="d-replychan" hidden><span id="d-replychan-text"></span>
+        <button type="button" class="linkish" id="d-replychan-clear" data-agent="" aria-label="Clear the reply channel">Clear</button></div>
+      <!-- Outside the line, so it is still there (and said) when a Clear that worked takes the line away. -->
+      <p class="fhint" id="d-replychan-msg" role="status" aria-live="polite" tabindex="-1"></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -39317,6 +39325,33 @@ function paintDetailState(card) {
     if (tg.hidden === on) tg.hidden = !on;
     if (on && tg.textContent !== words) tg.textContent = words;
   }
+  /* #5820: the agent's declared reply channel (card.replyChannel, only on an agent that declared one). Written only
+     when it changes (this runs every poll), like the token notice above. */
+  const rcl = document.getElementById('d-replychan');
+  if (rcl) {
+    // Absent for most agents (only one that declared a channel carries it), so asked with `in`, never read blind.
+    const said = card && 'replyChannel' in card && typeof card.replyChannel === 'string' && card.replyChannel ? card.replyChannel : '';
+    /* A poll that started before a Clear answers with the old channel after it. For a short while after a Clear that
+       worked, this agent's channel is not shown (REPLYCHAN_CLEARED, set by the handler); a real new declaration
+       shows once it passes. `typeof`: page tests lift this function without the page's globals. */
+    const cleared = typeof REPLYCHAN_CLEARED !== 'undefined' ? REPLYCHAN_CLEARED.get(a.sessionName) : undefined;
+    const ch = said && !(cleared && Date.now() - cleared < REPLYCHAN_STALE_MS) ? said : '';
+    const on = ch !== '';
+    if (rcl.hidden === on) rcl.hidden = !on;
+    if (on) {
+      const where = ch.replace(/[.!?;:,]+$/, '');   // "Discord." must not read "on Discord., so"
+      const words = a.name + ' says it answers you on ' + where + ', so Kosmos does not send it the reminder to answer your first message here.';
+      const t = document.getElementById('d-replychan-text');
+      if (t && t.textContent !== words) t.textContent = words;
+      const b = document.getElementById('d-replychan-clear');
+      if (b && b.dataset.agent !== a.sessionName) { b.dataset.agent = a.sessionName; b.disabled = false; }
+    }
+    // The last Clear's answer belongs to the agent it was for: gone on any other agent's page, channel or not. And a
+    // "Cleared" never stands beside a line that shows a channel (a poll that started before the clear, or the agent
+    // declaring again): the line is the newer truth.
+    const m = document.getElementById('d-replychan-msg');
+    if (m && m.textContent && (m.dataset.agent !== a.sessionName || (on && /^Cleared\./.test(m.textContent)))) { m.textContent = ''; m.dataset.agent = ''; }
+  }
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
@@ -45498,6 +45533,44 @@ function restartFailureLine(out) {
    cost-confirm modal (unlike rst-go below): a stopped agent has no live session
    to lose, so this is a direct action. Guarded on the open agent still being this
    one, so a mid-wait switch never lands a line in another agent's panel. */
+/* #5820: when each agent's channel was last cleared from this page, so a poll that started before the Clear (and
+   still carries the channel) does not paint it back. A status poll is abandoned after STATUS_POLL_TIMEOUT_MS, so no
+   answer older than that is applied: the window is that plus a margin, and follows it if it changes. */
+// `var`, not const: paintDetailState (defined earlier) reads it through typeof, which throws on a const not yet run.
+var REPLYCHAN_CLEARED = new Map();
+var REPLYCHAN_STALE_MS = STATUS_POLL_TIMEOUT_MS + 2000;
+/* #5820: Clear the agent's declared reply channel. Acts on the agent the line was painted for (data-agent), never
+   only on CURRENT, and says nothing once the page shows another agent. Named so a page test can run it. */
+async function detailReplyChanClear(e) {
+  const b = e.currentTarget;
+  const name = b.dataset.agent;
+  if (!name) return;
+  const m = document.getElementById('d-replychan-msg');
+  const here = () => CURRENT && CURRENT.sessionName === name;
+  b.disabled = true;
+  if (m) { m.textContent = ''; m.dataset.agent = name; }
+  let ok = false, because = '';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/reply-channel/clear', { method: 'POST' });
+    const out = await res.json().catch(() => ({}));
+    ok = res.ok && out && out.ok === true;
+    because = (out && out.because) || '';
+  } catch { ok = false; }
+  if (ok) REPLYCHAN_CLEARED.set(name, Date.now());   // remembered even if the person moved away: coming back paints from LAST
+  if (!here()) { b.disabled = false; return; }   // re-armed, so coming back to this agent does not find it stuck
+  if (!ok) {
+    if (m) m.textContent = 'We could not clear it' + (because ? ': ' + because : '') + '. Try again.';
+    b.disabled = false;
+    return;
+  }
+  const line = document.getElementById('d-replychan');
+  if (line) line.hidden = true;
+  b.dataset.agent = '';   // so the next paint that shows a channel again re-arms the button
+  /* The focused button just went away with the line: focus moves to the message that says what happened, so a
+     keyboard user keeps their place and a screen reader hears it (role=status, outside the line). */
+  if (m) { m.textContent = 'Cleared. Kosmos will remind ' + ((CURRENT && CURRENT.name) || name) + ' to answer your first message here again.'; m.focus(); }
+}
+document.getElementById('d-replychan-clear').addEventListener('click', detailReplyChanClear);
 document.getElementById('d-start-agent').addEventListener('click', async () => {
   const name = CURRENT && CURRENT.sessionName;
   if (!name) return;

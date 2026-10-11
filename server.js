@@ -156,6 +156,19 @@ function withTokenGuard(rows) {
     return { ...r, tokenGuard: { state, ...(g.because ? { because: g.because } : {}), ...(g.warning ? { warning: g.warning } : {}), at: g.at } };
   });
 }
+/* #5820: an agent's declared reply channel (#5805 part 2, `kosmos reply-channel`), for its page, which says it and
+   offers Clear. Read off the profile the row ALREADY carries (status.js reads it once, and only for a pane tied to
+   the agent's name, so a stranger's session that merely shares the name carries none): no second read per poll, and
+   no name-keyed read the tie gate has not passed. A stored value the command would refuse counts as none, as it does
+   for the first-reply nudge. */
+function withReplyChannel(rows) {
+  let rc;
+  try { rc = require('./engine/replychannel'); } catch { return rows; }
+  return rows.map((r) => {
+    const ch = r && 'profile' in r ? rc.of(r.profile) : null;
+    return ch ? { ...r, replyChannel: ch } : r;
+  });
+}
 function someAgentNeedsClaude(agentList) {
   // create.isNonClaudeRunner is the one list of runners that are not Claude (review round 5).
   return Array.isArray(agentList)
@@ -6010,7 +6023,7 @@ const server = http.createServer(async (req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
-      const rows = withTokenGuard(withAgentSortFields(agents.concat(offline)));
+      const rows = withReplyChannel(withTokenGuard(withAgentSortFields(agents.concat(offline))));
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
       /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
@@ -7054,6 +7067,31 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: r.ok === true, choice, because: r.ok ? null : r.because, reread: r.reread === true });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+  /* #5820: the person clears an agent's declared reply channel from its page. The same as the agent running
+     `kosmos reply-channel kosmos`: the first-reply nudge speaks for it again. PERSON-ONLY, like codex-hooks: the
+     request must come from the page (isViaScreen, which is false for any request presenting an agent token), so
+     neither a token-only agent nor a process holding the board token without a browser clears another's (an agent
+     clears its own with the command). An agent may have declared with no worker folder (any roster agent can), so a
+     name is known if it has a folder OR a declaration; clearing one with neither is a 404. */
+  const replyClear = pathname.match(/^\/api\/agent\/([^/]+)\/reply-channel\/clear$/);
+  if (replyClear && req.method === 'POST') {
+    if (!isViaScreen(req, null)) { sendJson(res, 403, { ok: false, because: 'only the person clears an agent\'s reply channel, from its page; an agent clears its own with kosmos reply-channel kosmos' }); return; }
+    const name = decodeSegment(replyClear[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const rcMod = require('./engine/replychannel');
+    /* Nothing declared: nothing to write. Answered 200 for a known agent (the page may race the agent's own clear),
+       and NEVER written: a write merges over readProfile, which answers {} for a profile it cannot read, so a clear
+       here would overwrite a damaged profile, or give a stray folder a profile it never had. */
+    if (rcMod.forAgent(name) === null) {
+      if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+      sendJson(res, 200, { ok: true, channel: null });
+      return;
+    }
+    try { rcMod.set(name, null); }
+    catch { sendJson(res, 500, { ok: false, because: 'Kosmos could not clear it just now' }); return; }
+    sendJson(res, 200, { ok: true, channel: null });
     return;
   }
   /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
