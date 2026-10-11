@@ -45,5 +45,7 @@ holds only that line; a tunnel built before slice 1 prints no line at all, which
 - FIXED: the because-filter's comment named mac-request, but the filter applies to every verb and both streams (as
   planned); the comment now says so.
 - DEFERRED, not an issue: a failed macRequest's `refusal` key would reach anything that serialises the result whole;
-  no caller does (measured: orgenroll.signed and the server send `because`), and every field in it is validated.
+  orgenroll.preview, read, builds a new object from `because` and does not spread it; the other macRequest callers
+  (about 20) were not read one by one. Every field in `refusal` is validated, so a spread would carry nothing
+  unchecked.
 - NIT taken: the keepStdout note is folded into setupRun's doc block.
