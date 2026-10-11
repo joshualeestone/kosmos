@@ -111,3 +111,23 @@ engine writes one, but a person could.
   and the first-reply nudge may fire again until the thread refills. Nothing is lost, positions agree, and the
   crash window is between a rename and a write. Damaged-file rows written since the last rollover stay in the
   `.damaged` file, kept but not paged. Would change my mind: a report of the nudge repeating in practice.
+
+## Review 5 (opus)
+- **No blocker, no lost message.** It worked through the numbers for one and two rollovers, a reattach, and a chain
+  broken at the first and second links.
+- **SHOULD-FIX, fixed:** neither route had a test for "subtract carried only when an earlier file was counted"; the
+  reviewer's mutants survived. New arms: the newest `.full` deleted; the direct route counts and pages all 300 rows
+  before the tail, and the project route's count falls to 1. Both mutants are now red.
+- **NIT, taken:** between a rollover's rename and its write, the thread file did not exist. Readers that do not take
+  the lock saw an empty conversation: the view, the inbox, the first-reply nudge, and a reply refused as gone.
+  - The rollover now HARD-LINKS the full file to its `.full` name and writes the new file over the original
+    atomically (`saveFlushed`), so the file is never missing.
+  - A filesystem that cannot link falls back to the rename. A failed write unlinks the extra name.
+  - Damaged and other-project set-asides keep the rename, because there the original must go.
+  - Tested by checking that the file exists at the moment of the write. CONTROL: with linking refused, the rename leaves
+    the gap.
+  - Mutants red: no link, no unlink on failure, no fallback.
+  - Weakest premise: a crash between the link and the write leaves the current file whole and an orphan `.full` that
+    nothing points to. The next send rolls over again. That leaves a second copy on disk, and nothing counts it twice.
+- **NIT, not taken:** `chainRows` and the counts disagree only on a `.full` holding no more rows than it carried.
+  The engine never writes one, because every real `.full` holds 1000 rows.

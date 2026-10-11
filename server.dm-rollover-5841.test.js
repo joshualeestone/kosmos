@@ -36,6 +36,7 @@ const fleet = require('./test-support/fleet');
 
 const AGENT = 'mona';
 const OTHER = 'helperbot';
+const BROKEN = 'brokenbot';   // a rolled-over conversation whose newest full file goes missing
 const CAP = chat.MAX_MESSAGES;
 let base;
 test.before(async () => {
@@ -45,7 +46,7 @@ test.before(async () => {
      run 38158076792). This server is the test's own, so its idle sockets are kept past any such gap. */
   server.keepAliveTimeout = 120000;
   base = `http://127.0.0.1:${server.address().port}`;
-  fleet.install([fleet.agent(AGENT, { state: 'idle' }), fleet.agent(OTHER, { state: 'idle' })]);
+  fleet.install([fleet.agent(AGENT, { state: 'idle' }), fleet.agent(OTHER, { state: 'idle' }), fleet.agent(BROKEN, { state: 'idle' })]);
 });
 test.after(() => {
   try { server.close(); } catch { /* already down */ }
@@ -242,6 +243,12 @@ test('#5841 a project thread that rolled over counts its earlier file', async ()
   // 1000 in the full file, then a current file of 200 carried + 1: the first row shown (p801) is at position 801.
   assert.equal(t.json.olderCount, 801, 'the project route did not count the earlier file (the current file alone says 1)');
   assert.equal(t.json.messages[0].text, 'p801', 'premise: the first row shown');
+  // The full file gone: nothing earlier is counted, so the carried rows are not subtracted (201 rows, 200 shown).
+  const pdir = path.dirname(chat.threadFile(project.id, AGENT));
+  const pbase = path.basename(chat.threadFile(project.id, AGENT));
+  for (const n of fs.readdirSync(pdir).filter((f) => f.startsWith(pbase + '.') && f.endsWith('.full'))) fs.rmSync(path.join(pdir, n));
+  const gone = await get(`/api/project/${project.id}/thread/${AGENT}`);
+  assert.equal(gone.json.olderCount, 1, 'the project route subtracted carried rows although no earlier file was counted');
 });
 
 test('#5841 a reply to a message that lives only in an earlier file is found, not refused as gone', async () => {
@@ -305,15 +312,53 @@ test('#5841 a damaged current file in a rolled-over conversation keeps its chain
   assert.equal(r.recorded, false, 'premise: the write failed');
   const back = chat.readThread(chat.DIRECT, who);
   assert.deepEqual([back.messages.length, back.continues], [CAP, null], 'the full file was not put back after the failed write');
+  assert.deepEqual(asides(who), [], 'a failed rollover left a set-aside copy behind');
 });
 
 test('#5841 if the full file cannot be set aside, the send is refused as before, saying why', () => {
   const was = fs.renameSync;
+  const wasLink = fs.linkSync;
   fill(OTHER, CAP - chat.readThread(chat.DIRECT, OTHER).messages.length, 100);
   fs.renameSync = () => { throw new Error('EACCES'); };
+  fs.linkSync = () => { throw new Error('EACCES'); };
   let r;
-  try { r = chat.appendMessage(chat.DIRECT, OTHER, { text: 'one too many' }); } finally { fs.renameSync = was; }
+  try { r = chat.appendMessage(chat.DIRECT, OTHER, { text: 'one too many' }); } finally { fs.renameSync = was; fs.linkSync = wasLink; }
   assert.equal(r.recorded, false, 'a send was recorded although the full file could not be moved');
   assert.match(r.because, /could not move the full file aside/, r.because);
   assert.equal(chat.readThread(chat.DIRECT, OTHER).messages.length, CAP, 'the full file was changed');
+});
+
+test('#5841 the thread file is never missing during a rollover, and a filesystem that cannot link falls back to the rename', () => {
+  const store = require('./engine/store');
+  const real = store.saveFlushed;
+  for (const [who, linkWorks] of [['linkbot', true], ['nolinkbot', false]]) {
+    for (let i = 0; i < CAP; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'k' + i }).recorded, true);
+    const file = chat.threadFile(chat.DIRECT, who);
+    let presentAtWrite = null;
+    const wasLink = fs.linkSync;
+    if (!linkWorks) fs.linkSync = () => { throw new Error('EPERM'); };
+    store.saveFlushed = (f, body) => { if (f === file) presentAtWrite = fs.existsSync(file); return real(f, body); };
+    let r;
+    try { r = chat.appendMessage(chat.DIRECT, who, { text: 'past the cap' }); } finally { store.saveFlushed = real; fs.linkSync = wasLink; }
+    assert.equal(r.recorded, true, r.because);
+    const now = chat.readThread(chat.DIRECT, who);
+    assert.deepEqual([asides(who).length, now.continues, now.carried, now.messages.length], [1, asides(who)[0], 200, 201], `${who}: the rollover is not whole`);
+    const full = JSON.parse(fs.readFileSync(path.join(path.dirname(file), asides(who)[0]), 'utf8'));
+    assert.equal(full.messages.length, CAP, `${who}: the set-aside file is not the full one`);
+    // Linked: the file stayed in place while the new one was written. CONTROL (no link): the rename left a gap.
+    assert.equal(presentAtWrite, linkWorks, `${who}: the thread file was ${presentAtWrite ? 'present' : 'missing'} during the write`);
+  }
+});
+
+test('#5841 when the newest full file is gone, the count stops at the current file, carried rows included', async () => {
+  for (let i = 0; i < CAP + 300; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, BROKEN, { text: 'b' + i }).recorded, true);
+  const cur = chat.readThread(chat.DIRECT, BROKEN);
+  assert.deepEqual([cur.carried, cur.messages.length], [200, 500], 'premise: 200 carried, 300 its own');
+  for (const n of asides(BROKEN)) fs.rmSync(path.join(path.dirname(chat.threadFile(chat.DIRECT, BROKEN)), n));
+  const t = await get(`/api/agent/${BROKEN}/thread`);
+  // Nothing earlier can be read, so every row of the current file counts, the carried ones too: 500 - 200 shown.
+  assert.equal(t.json.olderCount, 300, 'the carried rows were subtracted although no earlier file was counted');
+  const seen = [];
+  for (let b = t.json.olderCount; b > 0;) { const pg = await get(`/api/agent/${BROKEN}/thread/older?before=${b}`); seen.unshift(...texts(pg.json)); b = pg.json.olderCount; }
+  assert.deepEqual([seen.length, seen[0], seen[seen.length - 1]], [300, 'b800', 'b1099'], 'paging did not reach the current file\'s rows before the tail');
 });

@@ -3076,7 +3076,7 @@ function appendLocked(projectId, agent, entry, bornAt) {
   let existing;
   let supersededBecause = null;
   let otherProject = false;   // kosmos#5841
-  let rolledAside = null;   // kosmos#5841: the full file a rollover just renamed, put back if the write then fails
+  let rolledAside = null;   // kosmos#5841: the rollover's set-aside ({ aside, linked }), undone if the write then fails
   try {
     existing = readThread(projectId, agent, bornAt);
   } catch (err) {
@@ -3142,11 +3142,12 @@ function appendLocked(projectId, agent, entry, bornAt) {
     }
   }
   if (existing.messages.length >= MAX_MESSAGES) {
-    /* kosmos#5841: ROLL OVER rather than stop. The full file is RENAMED aside (`supersede`, kind 'full': nothing is
+    /* kosmos#5841: ROLL OVER rather than stop. The full file is SET ASIDE (`supersede`, kind 'full': hard-linked under
+       the aside name and the new file written over the original, or renamed where a link cannot be made; nothing is
        deleted, so "nothing of the user's is ever deleted" still holds) and the conversation goes on in a fresh file
        that names it (`continues`), so the earlier messages stay reachable (asideChain, the older route). Before this,
        a full thread refused every later send for good. If the move aside fails, it refuses as before, saying why. */
-    const moved = supersede(projectId, agent, ROLL_KIND);
+    const moved = supersede(projectId, agent, ROLL_KIND, true);
     if (!moved.ok) {
       return {
         recorded: false,
@@ -3158,7 +3159,7 @@ function appendLocked(projectId, agent, entry, bornAt) {
        tail) keeps working unchanged. The full file keeps them too; the chain skips the overlap, so nothing doubles. */
     const carry = existing.messages.slice(-ROLL_CARRY);
     existing = { messages: carry, projectBornAt: existing.projectBornAt || null, continues: path.basename(moved.aside), carried: carry.length };
-    rolledAside = moved.aside;
+    rolledAside = moved;
     ASIDE_META.delete(path.basename(moved.aside));
   } else if (!existing.continues && !existing.messages.length && !otherProject) {
     /* An EMPTY current file with this conversation's own full files on disk (a crash between a rollover's rename and
@@ -3280,11 +3281,15 @@ function appendLocked(projectId, agent, entry, bornAt) {
     // #5434 slice 18: store.saveFlushed (flushed before the rename, the folder after on POSIX; a unique temp), so a crash cannot leave the thread at full length but zero-filled (#5431), which parses as no messages.
     store.saveFlushed(file, JSON.stringify(record, null, 2));
   } catch {
-    /* kosmos#5841: a rollover renamed the full file and the write of the new one failed: put the full file back, so
-       the conversation does not read as empty (it was not written; nothing is lost either way). */
+    /* kosmos#5841: a rollover set the full file aside and the write of the new one failed: undo it, so the conversation
+       is as it was (it was not written; nothing is lost either way). */
     if (rolledAside) {
-      try { const tf = threadFile(projectId, agent); if (!fs.existsSync(tf)) fs.renameSync(rolledAside, tf); }
-      catch { /* the reattach covers it on the next send */ }
+      try {
+        const tf = threadFile(projectId, agent);
+        // Linked: the full file is still in place, so only the extra name goes. Renamed: move it back.
+        if (rolledAside.linked) { if (fs.existsSync(tf)) fs.unlinkSync(rolledAside.aside); }
+        else if (!fs.existsSync(tf)) fs.renameSync(rolledAside.aside, tf);
+      } catch { /* the reattach covers it on the next send */ }
     }
     /**
      * ⚠️ OUR SENTENCE, NOT THE ERRNO. Forwarding `err.message` put
@@ -3425,7 +3430,7 @@ function newestOwnAside(projectId, agent, born) {
  * the person's is lost, and clobbering the file we are rescuing would be the
  * one way to fail at that.
  */
-function supersede(projectId, agent, kind) {
+function supersede(projectId, agent, kind, keepInPlace) {
   let file;
   try { file = threadFile(projectId, agent); }
   catch (err) { return { ok: false, because: String((err && err.message) || 'we could not find that conversation') }; }
@@ -3464,6 +3469,13 @@ function supersede(projectId, agent, kind) {
     // Fifty asides for one project+agent, in one process, inside one
     // millisecond. Refusing beats overwriting the file we are rescuing.
     return { ok: false, because: cannotMoveAside(kind) };
+  }
+  /* kosmos#5841: a rollover asks to KEEP the file in place: a hard link puts it under the aside name and the caller then
+     writes the new file over the original atomically, so a reader without the lock never finds the thread missing (a
+     rename left no file between it and the write: an empty conversation, a reply refused as gone). A filesystem that
+     cannot link falls back to the rename. */
+  if (keepInPlace) {
+    try { fs.linkSync(file, aside); return { ok: true, aside, linked: true }; } catch { /* fall back to the rename */ }
   }
   try {
     fs.renameSync(file, aside);
