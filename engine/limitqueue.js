@@ -121,6 +121,13 @@ function isDone(id) { return done.has(id); }   // read by the tests; the sweep r
 function keptNote(e) {
   return e && e.behind ? ' [kept behind earlier messages; sent ' + e.at + ']' : ' [kept for you while you were out of usage; sent ' + e.at + ']';
 }
+/* Send now anyway (slice 2b) takes the same claim while it types a kept message, so the sweep skips it and a crash
+   mid-typing leaves it kept (typed again, at worst) rather than lost. False when it is already claimed. */
+function claim(id) { if (claimedNow(id)) return false; typing.set(id, Date.now()); return true; }
+function release(id) { typing.delete(id); }
+/* A kept message typed by another path (Send now anyway): removed, or, when the removal fails, remembered as done so
+   the sweep never types it again. */
+function settle(name, id) { if (!remove(name, id)) done.add(id); }
 let flushingSince = 0;
 let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
@@ -187,10 +194,6 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
   return out;
 }
 
-/* The board's minute sweep, wired: `kosmos msg` messages (slice 2a) and a person's own messages (slice 2b, kind 'dm')
-   are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
-   dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
-   conversation row). */
 /* A person's message row (slice 2b) whose new delivery could not be written yet (the thread's lock busy, or its file
    unreadable for a moment): kept here and written by the next sweep, so a row never says "Held" for a message that
    was typed or dropped. In memory only: a restart leaves such a row held (stated in the plan). */
@@ -205,6 +208,10 @@ function setRow(name, at, delivery, chat) {
 function retryRows(chat) {
   for (const f of [...rowFixes.values()]) setRow(f.name, f.at, f.delivery, chat);
 }
+/* The board's minute sweep, wired: `kosmos msg` messages (slice 2a) and a person's own messages (slice 2b, kind 'dm')
+   are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
+   dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
+   conversation row). */
 function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
@@ -220,4 +227,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow };
+module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };

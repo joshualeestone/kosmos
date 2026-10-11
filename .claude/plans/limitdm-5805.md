@@ -57,3 +57,14 @@ the way out when that is wrong.
 - CONVENTION taken: the Send now anyway route sits above the thread docblock, not between it and its route.
 - Not taken: telling reactions only once across held messages (the route's own rule: telling twice costs one note);
   a retry path when Send now anyway comes back could not deliver (the row says so; the person can send again).
+
+## Review 2 (sonnet)
+- FIXED: a held row stored without `behind`, so after a reload a message held behind kept ones read "out of usage";
+  appendLocked keeps it (tested by reading the row back).
+- FIXED (decided): the terminal composer and the assistant bar post to the same route and have no held state, so they
+  showed a kept message as not delivered. They send `anyway: true`, typed straight in as before: the terminal box is
+  where a person answers a limit menu. Only the DM thread, which shows Held and Send now anyway, holds (tested).
+- FIXED: Send now anyway took the message out of the queue before typing it, so a board that stopped mid-typing lost
+  it; it now claims it (the sweep skips a claimed message), types, then removes it, and a failed removal is
+  remembered so the sweep never types it again (tested: still kept while typing, gone after).
+- NIT taken: the sweep hooks' comment sits on sweepHooks.

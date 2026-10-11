@@ -3228,7 +3228,10 @@ function appendLocked(projectId, agent, entry, bornAt) {
         paneState: (entry && entry.delivery && entry.delivery.paneState) || null,
         paneNote: (entry && entry.delivery && entry.delivery.paneNote) || null,
         // #5805 slice 2b: a held row keeps when it is to be sent (null when no time is known).
-        ...(entry && entry.delivery && entry.delivery.state === 'held' ? { heldUntil: typeof entry.delivery.heldUntil === 'string' ? entry.delivery.heldUntil : null } : {}),
+        ...(entry && entry.delivery && entry.delivery.state === 'held' ? {
+          heldUntil: typeof entry.delivery.heldUntil === 'string' ? entry.delivery.heldUntil : null,
+          ...(entry.delivery.behind === true ? { behind: true } : {}),   // held behind kept messages, not on the limit
+        } : {}),
       },
     }],
   };

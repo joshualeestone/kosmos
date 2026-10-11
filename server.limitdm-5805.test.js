@@ -138,6 +138,7 @@ test('#5805 2b review 1: an agent no longer held but with messages still kept ho
   assert.equal(r.out.delivery.state, 'held');
   assert.equal(r.out.delivery.behind, true);
   assert.deepEqual(limitqueue.list(NAME).map((e) => e.kind || 'msg'), ['msg', 'dm']);
+  assert.equal(rowAt(r.out.delivery.at).delivery.behind, true, 'the stored row lost behind (a reload would say out of usage)');
 });
 
 test('#5805 2b review 1: a held message whose row cannot be recorded is taken back out and typed now', async () => {
@@ -172,4 +173,19 @@ test('#5805 2b review 1: a row update that fails is written by the next sweep', 
   assert.equal(rowAt(held.out.delivery.at).delivery.state, 'held', 'CONTROL: the first write did fail');
   limitqueue.sweepHooks({ chat, messages });   // the next minute's sweep
   assert.equal(rowAt(held.out.delivery.at).delivery.state, chat.DELIVERY.PLACED, 'the row stayed held');
+});
+
+test('#5805 2b review 2: Send now anyway keeps the message kept while it types it, and removes it after', async () => {
+  const held = await call('/thread', { text: 'keep me while typing' });
+  const realP = chat.deliverAsync;
+  let keptDuring = null;
+  chat.deliverAsync = async () => { keptDuring = limitqueue.list(NAME).some((e) => e.at === held.out.delivery.at); return PLACED(); };
+  const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
+  try {
+    const res = await fetch(`${base}/api/agent/${NAME}/thread/held`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: held.out.delivery.at }) });
+    assert.equal(res.status, 200);
+  } finally { chat.deliverAsync = realP; board.restore(); }
+  assert.equal(keptDuring, true, 'taken out before it was typed (a crash then loses it)');
+  assert.deepEqual(limitqueue.list(NAME), []);
+  assert.equal(limitqueue.isTyping('x'), false);
 });

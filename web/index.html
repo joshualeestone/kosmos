@@ -70644,7 +70644,9 @@ async function sendTerm() {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
+      // #5805 slice 2b: typed straight in, as before: this box types into the session (an agent out of usage may need
+      // its limit menu answered here), and it has no held state to show.
+      body: JSON.stringify({ text, anyway: true }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) { if (!flightMoved() && msg) msg.textContent = body.error || (name + ' could not be reached right now.'); return; }
@@ -79636,7 +79638,8 @@ async function asbSend() {
   const clearSent = () => { if (say.value.trim() === text) say.value = ''; ASB.wroteOnce = true; };
   try {
     const r = await fetch('/api/agent/' + encodeURIComponent(row.sessionName) + '/thread', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+      // #5805 slice 2b: typed straight in, as before: this bar has no held state to show.
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, anyway: true }) });
     const body = await r.json().catch(() => ({}));
     const d = (body && body.delivery) || {};
     const inThread = body && body.recorded === true;

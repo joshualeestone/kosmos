@@ -15851,11 +15851,14 @@ const server = http.createServer(async (req, res) => {
         if (typeof body.at !== 'string' || !body.at) { sendJson(res, 400, { error: 'say which held message (its at)' }); return; }
         const limitqueue = require('./engine/limitqueue');
         const entry = limitqueue.list(name).find((e) => e.kind === 'dm' && e.at === body.at);
-        if (!entry || limitqueue.isTyping(entry.id)) { sendJson(res, 409, { error: 'that message is no longer held: it was sent or dropped, or is being sent now' }); return; }
-        if (!limitqueue.remove(name, entry.id)) { sendJson(res, 503, { error: 'we could not take that message out of the held list; try again' }); return; }
+        if (!entry || !limitqueue.claim(entry.id)) { sendJson(res, 409, { error: 'that message is no longer held: it was sent or dropped, or is being sent now' }); return; }
         let delivery;
-        try { delivery = await chat.deliverAsync(name, entry.text, safeRoster(), entry.envelope, entry.trailer); }
-        catch (err) { delivery = { state: chat.DELIVERY.COULD_NOT, because: 'it could not be typed: ' + String((err && err.message) || err) }; }
+        try {
+          try { delivery = await chat.deliverAsync(name, entry.text, safeRoster(), entry.envelope, entry.trailer); }
+          catch (err) { delivery = { state: chat.DELIVERY.COULD_NOT, because: 'it could not be typed: ' + String((err && err.message) || err) }; }
+          // Removed only after the try, so a board that stops mid-typing still has it kept.
+          limitqueue.settle(name, entry.id);
+        } finally { limitqueue.release(entry.id); }
         limitqueue.setRow(name, entry.at, delivery, chat);   // retried by the sweep when the thread cannot be written now
         sendJson(res, 200, { delivery });
       })
