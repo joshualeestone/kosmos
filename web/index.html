@@ -47130,7 +47130,7 @@ function paintAsk() {
     title.textContent = '';
     lead.hidden = true;
     const n = live.length;
-    // kosmos#5786 (b): with nothing waiting, the browser this computer just connected, so its Undo is one tap away.
+    // kosmos#5786 (b): with nothing waiting, the browser this computer just connected; Review leads to its Undo.
     const line = !n && here ? askEsc(askBrowserWord(here.name)) + ' on this computer is connected.' : n === 1 ? askHead(live[0]) + '.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>');

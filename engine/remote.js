@@ -1711,6 +1711,9 @@ const VOUCH_WINDOW_MS = 10 * 60 * 1000;
 const VOUCH_RECENT_S = 30 * 60;
 const VOUCH_POLL_MS = 3000;
 const VOUCH_NOTICE_MS = 10 * 60 * 1000;
+// The device the last automatic allow let in, kept in memory as well as noted in remote.json, so a Not me still takes
+// it back out when the note could not be saved.
+let lastVouched = null;   // { id, at }
 let vouchState = null;   // { secret, until, epoch, opened, matched, allowing, tries, matchedOk }
 let vouchTimer = null;
 let vouchOpenedUrl = '';   // the last address opened, for tests (the opener's own argv drops it under a test command)
@@ -1730,6 +1733,8 @@ function vouchUrl(secret) {
 }
 function startVouch() {
   stopVouch();
+  // A computer still waiting for another computer's Allow (held, #4737) cannot allow anyone: no secret.
+  if (inState(HELD_FILE)) return;
   vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, opened: false, matched: '', allowing: false, tries: 0, matchedOk: false };
   vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
   if (vouchTimer.unref) vouchTimer.unref();
@@ -1813,6 +1818,7 @@ function vouchTick() {
       // Not during a Forget (it clears the notes), and not under another identity (the note would describe a device of
       // the account before it).
       if (forgetting || v.epoch !== selfEpoch) return;
+      lastVouched = { id, at: Math.floor(Date.now() / 1000) };
       // The person pressed Not me while this allow ran: their answer wins. Take the device back out, note nothing.
       if (Object.prototype.hasOwnProperty.call(read().denied || {}, id)) {
         return deviceRemove(id).then((rr) => {
@@ -1994,8 +2000,10 @@ async function deviceDeny(id) {
     if (!saved.ok) process.stderr.write('remote: the device was refused, but this computer could not note it: ' + saved.because + '\n');
     // kosmos#5786 (b): Not me on a device this computer allowed automatically a moment ago (the two raced) takes it
     // back out. Only inside the notice window: an old note is history, not a race.
-    const note = (read().vouched || {})[id];
-    if (Object.prototype.hasOwnProperty.call(read().vouched || {}, id) && Math.floor(Date.now() / 1000) - (Number(note && note.at) || 0) <= VOUCH_NOTICE_MS / 1000) {
+    const notes = read().vouched || {};
+    const noted = Object.prototype.hasOwnProperty.call(notes, id) ? Number(notes[id] && notes[id].at) || 0
+      : lastVouched && lastVouched.id === id ? lastVouched.at : 0;
+    if (noted && Math.floor(Date.now() / 1000) - noted <= VOUCH_NOTICE_MS / 1000) {
       const rr = await deviceRemove(id);
       if (!rr || !rr.ok) process.stderr.write('kosmos+: a device allowed automatically was refused, and could not be removed (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
     }
@@ -3091,7 +3099,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  resetForTests: () => { lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,

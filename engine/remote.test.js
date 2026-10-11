@@ -4555,3 +4555,34 @@ test('#5786 (b): one device per secret, the code_wait and invalid-joining arms, 
   assert.deepEqual(allowsOf().slice(before).filter((x) => x === 'dev-cw' || x === 'dev-bad'), [], 'a computer-shaped row was allowed');
   remote.setOn(false);
 });
+
+test('#5786 (b): Not me still takes the device back out when its note could not be saved; a held computer mints nothing', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchmem');
+  plant([{ device_id: 'dev-mem', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-mem', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-mem') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-mem'], 'the vouched allow');
+  // As if the note had never been saved: only the in-memory record knows.
+  const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  delete f.vouched['dev-mem'];
+  fs.writeFileSync(remote.FILE, JSON.stringify(f));
+  const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-mem')).length;
+  const before = removes();
+  const den = await remote.deviceDeny('dev-mem');
+  assert.equal(den.ok, true, den.because);
+  assert.equal(removes(), before + 1, 'Not me lost because the note was not saved');
+  remote.setOn(false);
+  // Held: a computer waiting for another's Allow mints no secret.
+  const held = nodePath.join(DATA_ROOT, 'remote');
+  await vouchSignedIn('vouchheld');
+  remote.setOn(false);
+  fs.writeFileSync(nodePath.join(held, require('./enrolment').HELD_FILE), '{}');
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('vouchheld');
+    assert.equal(remote.vouchSecretForTests(), null, 'a held computer minted a secret');
+  } finally { fs.rmSync(nodePath.join(held, require('./enrolment').HELD_FILE), { force: true }); }
+  remote.setOn(false);
+});
