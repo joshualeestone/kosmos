@@ -225,7 +225,7 @@ test('one rolled-over conversation refuses the run for every conversation (a day
   assert.ok(!fs.existsSync(path.join(outDir, '2026-09-20.md')));
 });
 
-test('the command says why and exits non-zero, so a scheduled run cannot read as "compiled, nothing new"', () => {
+test('the command says why and exits non-zero, so a scheduled run cannot read as "compiled, nothing new"', (t) => {
   const root = require('./store').ROOT;
   assert.ok(path.resolve(root).startsWith(path.resolve(SANDBOX) + path.sep), 'the data root is not inside this test\'s sandbox: ' + root);
   const chatsDir = path.join(root, 'chats');
@@ -246,7 +246,7 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
     + 'This tool does not compile while ' + JSON.stringify(chatsDir) + ' holds:\n'
     + 'Files whose names end in .full after a conversation file\'s name:\n'
     + '  ' + JSON.stringify(ASIDE) + '\n'
-    + 'It stops because it does not read .full files, so compiling now could prune days or drop messages from the daily files.\n');
+    + 'It stops because it does not read the part of a conversation that is kept in another file, so compiling now could prune days or drop messages from the daily files.\n');
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
   const other = path.join(SANDBOX, 'elsewhere');
@@ -276,26 +276,25 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
     + 'This tool does not compile while ' + JSON.stringify(chatsDir) + ' holds:\n'
     + 'Conversation files that refer to an earlier file:\n'
     + '  "direct..p.json"\n'
-    + 'It stops because it does not read .full files, so compiling now could prune days or drop messages from the daily files.\n');
+    + 'It stops because it does not read the part of a conversation that is kept in another file, so compiling now could prune days or drop messages from the daily files.\n');
   // a file name is somebody's bytes: whatever it holds, what is printed is printable ASCII, on one line
   const nasty = 'proj1.k.json.\u001b]0;TITLE\u0007\nFiles named as\u009b2J\u007f\u202e\u2028.full';
   let made = true;
   try { fs.writeFileSync(path.join(chatsDir, nasty), '{}'); } catch { made = false; }   // some filesystems refuse such a name
-  if (made) {
-    const esc = run();
-    assert.equal(esc.status, 3);
-    const lines = esc.stderr.split('\n').filter((l) => l.startsWith('  "proj1.k.json.'));
-    assert.equal(lines.length, 1, 'the odd name is not on one line of its own: ' + JSON.stringify(esc.stderr));
-    assert.match(lines[0], /^  "proj1\.k\.json\.\\u001b\]0;TITLE\\u0007\\nFiles named as\\u009b2J\\u007f\\u202e\\u2028\.full"$/);
-  }
+  if (!made) { t.diagnostic('this filesystem refuses a file name with a newline or an escape in it: that arm was not run'); return; }
+  const esc = run();
+  assert.equal(esc.status, 3);
+  const lines = esc.stderr.split('\n').filter((l) => l.startsWith('  "proj1.k.json.'));
+  assert.equal(lines.length, 1, 'the odd name is not on one line of its own: ' + JSON.stringify(esc.stderr));
+  assert.match(lines[0], /^  "proj1\.k\.json\.\\u001b\]0;TITLE\\u0007\\nFiles named as\\u009b2J\\u007f\\u202e\\u2028\.full"$/);
 });
 
-test('the folder is shown escaped too: a data folder with a newline or an escape in its path cannot forge a line', () => {
+test('the folder is shown escaped too: a data folder with a newline or an escape in its path cannot forge a line', (t) => {
   const odd = path.join(SANDBOX, 'h h\u001b[31m\nFORGED: line\u202e');
   const data = path.join(odd, 'data');
   let made = true;
   try { fs.mkdirSync(data, { recursive: true }); } catch { made = false; }   // some filesystems refuse such a name
-  if (!made) return;
+  if (!made) { t.skip('this filesystem refuses a folder name with a newline or an escape in it'); return; }
   const env = { ...process.env, AGENT_WORKFORCE_DATA: data, AGENT_WORKFORCE_WORKERS: path.join(odd, 'w'), AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(odd, 'c.json'), AGENT_WORKFORCE_LAUNCH: path.join(odd, 'l') };
   const root = spawnSync(process.execPath, ['-e', "process.stdout.write(require('./store').ROOT)"], { cwd: __dirname, env, encoding: 'utf8' }).stdout;
   assert.ok(path.resolve(root).startsWith(path.resolve(odd) + path.sep), 'the odd data root did not take: ' + JSON.stringify(root));

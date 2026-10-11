@@ -554,16 +554,18 @@ if (require.main === module) {
       + `This tool does not compile while ${shownName(summary.chatsDir)} holds:\n`
       + (earlier.length ? 'Files whose names end in .full after a conversation file\'s name:\n' + list(earlier) : '')
       + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : '')
-      + 'It stops because it does not read .full files, so compiling now could prune days or drop messages from '
-      + 'the daily files.\n');
-    process.exit(EXIT_REFUSED);
+      + 'It stops because it does not read the part of a conversation that is kept in another file, so compiling '
+      + 'now could prune days or drop messages from the daily files.\n');
+    // exitCode, not exit(): the process ends once stderr has drained, so a piped reader gets the whole message.
+    process.exitCode = EXIT_REFUSED;
+  } else {
+    process.stdout.write(
+      `dailylog: ${summary.messages} messages across ${summary.conversations} conversations `
+      + `-> ${summary.days} daily file(s) in ${summary.outDir}`
+      + (summary.undated ? ` (${summary.undated} undated message(s) skipped)` : '')
+      + (summary.pruned && summary.pruned.length ? ` (${summary.pruned.length} stale day file(s) pruned)` : '')
+      + '\n',
+    );
+    if (summary.written.length) process.stdout.write(`dailylog: wrote ${summary.written.join(', ')}\n`);
   }
-  process.stdout.write(
-    `dailylog: ${summary.messages} messages across ${summary.conversations} conversations `
-    + `-> ${summary.days} daily file(s) in ${summary.outDir}`
-    + (summary.undated ? ` (${summary.undated} undated message(s) skipped)` : '')
-    + (summary.pruned && summary.pruned.length ? ` (${summary.pruned.length} stale day file(s) pruned)` : '')
-    + '\n',
-  );
-  if (summary.written.length) process.stdout.write(`dailylog: wrote ${summary.written.join(', ')}\n`);
 }
