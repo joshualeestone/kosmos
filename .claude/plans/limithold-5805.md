@@ -205,3 +205,8 @@ behaviour), never the reverse.
 - FIXED: two more comments listing the hold kinds without the usage limit (messages reply nudge, missedtell).
 - NIT taken: flushReleased's pre-filter passes only a capped card the limit hold applies to (a capped Codex or Gemini
   card costs nothing). Not taken: the held-by wording helper; one read of the limit file per sweep.
+
+## Review 16 (sonnet)
+- FIXED: flushReleased's pre-filter spelled the state as a literal; it reads status.STATE.RATE_LIMITED, and the lazy
+  requires say why they are lazy.
+- Duplicates of stated premises: the limit wording (weakest premise) and StopFailure not measured live (residual).
