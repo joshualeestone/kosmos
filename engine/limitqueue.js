@@ -19,6 +19,9 @@ const MAX_PER_SENDER = 20;   // per agent per sender: one sender in a loop canno
 /* Typed per agent per minute: the roster is read once a minute, so an agent that hits its limit again mid-backlog is
    noticed within this many messages, not after the whole backlog. */
 const PER_RUN = 5;
+/* A task message's line kept for an agent out of usage (messages.keepTaskLine). A queue entry kind, never a row of
+   the message log, so it is named here rather than in engine/messages.js, whose kinds are the log's. */
+const TASK_KIND = 'task';
 
 function dir() { return path.join(store.ROOT, 'limitqueue'); }
 /* The store key alone can make two names one file (it lowercases and strips); a short hash of the exact name keeps
@@ -68,7 +71,7 @@ function addOrWhy(name, entry) {
       // #5805 slice 2b: a person's own message: its text and trailer are typed with the envelope, as the route types them.
       ...(entry.kind === 'dm' ? { kind: 'dm', text: String(entry.text || ''), trailer: String(entry.trailer || '') } : {}),
       // A task message's line: typed as it is, and on a drop its sender is told which task it was in.
-      ...(entry.kind === 'task' ? { kind: 'task', about: String(entry.about || '') } : {}) });
+      ...(entry.kind === TASK_KIND ? { kind: TASK_KIND, about: String(entry.about || '') } : {}) });
     return write(name, now) ? '' : 'store';
   } catch { return 'store'; }
 }
@@ -224,7 +227,7 @@ function sweepHooks({ chat, messages }) {
     deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, isReleased: chat.limitQueueReleased,
     // A task line has no message-log row to point back at: the task's own conversation is its record.
-    onDelivered: (e, v) => (e.kind === 'dm' ? setRow(e.to, e.at, v, chat) : e.kind === 'task' ? undefined : messages.logHeldDelivered(e, v)),
+    onDelivered: (e, v) => (e.kind === 'dm' ? setRow(e.to, e.at, v, chat) : e.kind === TASK_KIND ? undefined : messages.logHeldDelivered(e, v)),
     // A person's message the sweep could not type: its row stays held and says why (a menu up, no window), so it does
     // not read as merely waiting for the reset. Written straight, not retried: a later outcome replaces it anyway.
     onStuck: (e, v) => {
@@ -234,7 +237,7 @@ function sweepHooks({ chat, messages }) {
     },
     onDropped: (e, r) => {
       if (e.kind === 'dm') { setRow(e.to, e.at, { state: chat.DELIVERY.COULD_NOT, because: 'Kosmos kept it for a day and could not type it' }, chat); return; }
-      if (e.kind === 'task') { messages.tellTaskLineDropped(e, r).catch(() => { /* the drop stands */ }); return; }
+      if (e.kind === TASK_KIND) { messages.tellTaskLineDropped(e, r).catch(() => { /* the drop stands */ }); return; }
       messages.tellHeldDropped(e, r).catch(() => { /* recorded */ });
     },
   };
@@ -242,4 +245,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
+module.exports = { TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
