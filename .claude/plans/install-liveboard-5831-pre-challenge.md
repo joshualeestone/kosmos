@@ -50,52 +50,52 @@ restarting the live board again; the one real restart is on record from before t
 **Reviewer model:** opus
 **New findings:** 1 BLOCKER, 2 WARNINGs, 1 CONVENTION, 0 NITs
 **Self-generated:** 0 of the above
-- [BLOCKER] tools/test-install.sh (#924 control, the stop after the install) — `kosmos stop` read the previous scenario's exported `KOSMOS_HOME`, stopped nothing, and the port was then freed by force after 15 seconds --> FIXED (033c50269): `env -u KOSMOS_HOME` on that stop
-- [WARNING] tools/test-install.sh (closing check) — "nothing running before, something running after" was skipped, so a start under the real label went unseen --> FIXED (033c50269): the comparison always runs
-- [WARNING] plan — "the check can fail" was shown by hand only --> FIXED (033c50269): demonstrated with the harness's own `chk` line, three arms
-- [CONVENTION] tools/test-install.sh — the gate test was spelled differently from the file's others --> FIXED (033c50269)
+- [BLOCKER] tools/test-install.sh (#924 control, the stop after the install): `kosmos stop` read the previous scenario's exported `KOSMOS_HOME`, stopped nothing, and the port was then freed by force after 15 seconds --> FIXED (033c50269): `env -u KOSMOS_HOME` on that stop
+- [WARNING] tools/test-install.sh (closing check): "nothing running before, something running after" was skipped, so a start under the real label went unseen --> FIXED (033c50269): the comparison always runs
+- [WARNING] plan: "the check can fail" was shown by hand only --> FIXED (033c50269): demonstrated with the harness's own `chk` line, three arms
+- [CONVENTION] tools/test-install.sh: the gate test was spelled differently from the file's others --> FIXED (033c50269)
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 0 NITs
 **Self-generated:** 0 of the above
 **Duplicates of prior findings (confirmed resolved):** 1
-- [WARNING] tools/test-install.sh — four sibling default-home stops (`$SBH_DEF`, `$SBH_SLASH/`, `$D918_HOME_D` twice) had the same wrong-home fault --> FIXED (08b75c58d): each names its own home
-- [WARNING] tools/test-install.sh (closing check) — green when this shell cannot read the launchd domain at all --> FIXED (08b75c58d): `LIVE_BOARD_SEEN`, and the check says so
-- [WARNING] tools/test-install.sh (#924 control) — the half-sandbox override is safe only while two exports hold, and nothing checked them --> FIXED (08b75c58d): a check on both
+- [WARNING] tools/test-install.sh: four sibling default-home stops (`$SBH_DEF`, `$SBH_SLASH/`, `$D918_HOME_D` twice) had the same wrong-home fault --> FIXED (08b75c58d): each names its own home
+- [WARNING] tools/test-install.sh (closing check): green when this shell cannot read the launchd domain at all --> FIXED (08b75c58d): `LIVE_BOARD_SEEN`, and the check says so
+- [WARNING] tools/test-install.sh (#924 control): the half-sandbox override is safe only while two exports hold, and nothing checked them --> FIXED (08b75c58d): a check on both
 
 #### Iteration 3
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 2 CONVENTIONs, 0 NITs
 **Self-generated:** 2 of the above (the precondition check and the skip path were added by the loop)
-- [WARNING] tools/test-install.sh (#924 control) — the precondition check reported but did not gate: the install still ran with the override --> FIXED (06c4f79a0): the override's value is the check's own result, so a 0 leaves the guard on and the install is refused
-- [WARNING] tools/test-install.sh (closing check) — the unseen-launchd path printed a note but was counted nowhere --> FIXED (06c4f79a0): it counts as a SKIP
-- [CONVENTION] tools/test-install.sh — comments carried a dated incident narrative --> FIXED (06c4f79a0): trimmed to what the code needs; the story is on the card
-- [CONVENTION] tools/test-install.sh — an orphan comment line --> FIXED (06c4f79a0)
+- [WARNING] tools/test-install.sh (#924 control): the precondition check reported but did not gate: the install still ran with the override --> FIXED (06c4f79a0): the override's value is the check's own result, so a 0 leaves the guard on and the install is refused
+- [WARNING] tools/test-install.sh (closing check): the unseen-launchd path printed a note but was counted nowhere --> FIXED (06c4f79a0): it counts as a SKIP
+- [CONVENTION] tools/test-install.sh: comments carried a dated incident narrative --> FIXED (06c4f79a0): trimmed to what the code needs; the story is on the card
+- [CONVENTION] tools/test-install.sh: an orphan comment line --> FIXED (06c4f79a0)
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 0 NITs
 **Self-generated:** 1 of the above
-- [WARNING] tools/test-install.sh (#924 control) — "the defaults resolve inside the sandbox" was asserted, not traced --> FIXED (30eda148a): the comment names the files that decide it, and a new check requires the control's `board.pid` under the fake home
-- [WARNING] tools/test-install.sh (closing check) — a FAIL could also mean the shell lost sight of launchd by the end, and the text did not say so --> FIXED (30eda148a)
-- [WARNING] tools/test-install.sh — an `&&` list whose status could leak under `set -e` --> FIXED (30eda148a): an `if`
+- [WARNING] tools/test-install.sh (#924 control): "the defaults resolve inside the sandbox" was asserted, not traced --> FIXED (30eda148a): the comment names the files that decide it, and a new check requires the control's `board.pid` under the fake home
+- [WARNING] tools/test-install.sh (closing check): a FAIL could also mean the shell lost sight of launchd by the end, and the text did not say so --> FIXED (30eda148a)
+- [WARNING] tools/test-install.sh: an `&&` list whose status could leak under `set -e` --> FIXED (30eda148a): an `if`
 
 #### Iteration 5
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 0 NITs
 **Self-generated:** 1 of the above (a comment the loop wrote)
-- [WARNING] tools/test-install.sh (#924 control) — the control board's store sits under `$SB/home`, not the fake home --> DEFERRED: read and not a leak; `$SB/home` is inside this run's sandbox and is deleted with it, and moving it changes what the leg tests
-- [WARNING] tools/test-install.sh (closing check) — it watches the board job only, not the watchdog job --> DEFERRED: beyond the card, which asks for the board pid; noted on #5831 as a follow-up
-- [CONVENTION] tools/test-install.sh — comments: name `projects.js`, say why at the first default-home stop, rewrap --> FIXED (9b01f1a3c, comments only)
+- [WARNING] tools/test-install.sh (#924 control): the control board's store sits under `$SB/home`, not the fake home --> DEFERRED: read and not a leak; `$SB/home` is inside this run's sandbox and is deleted with it, and moving it changes what the leg tests
+- [WARNING] tools/test-install.sh (closing check): it watches the board job only, not the watchdog job --> DEFERRED: beyond the card, which asks for the board pid; noted on #5831 as a follow-up
+- [CONVENTION] tools/test-install.sh: comments: name `projects.js`, say why at the first default-home stop, rewrap --> FIXED (9b01f1a3c, comments only)
 
 #### Iteration 6
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-- [NIT] tools/test-install.sh — one comment wraps with an orphan line --> DEFERRED: cosmetic
-- [NIT] tools/test-install.sh (`live_board_id`) — "the service's own" pid line could say "the first such line" --> DEFERRED: wording
-- [NIT] tools/test-install.sh — `-s board.pid` proves a file was written, not that the pid in it is alive --> DEFERRED: the install's exit 0 and the stop that follows cover liveness
+- [NIT] tools/test-install.sh: one comment wraps with an orphan line --> DEFERRED: cosmetic
+- [NIT] tools/test-install.sh (`live_board_id`): "the service's own" pid line could say "the first such line" --> DEFERRED: wording
+- [NIT] tools/test-install.sh: `-s board.pid` proves a file was written, not that the pid in it is alive --> DEFERRED: the install's exit 0 and the stop that follows cover liveness
 
 ### Convergence
 
