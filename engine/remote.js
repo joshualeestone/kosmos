@@ -1722,7 +1722,8 @@ const VOUCH_NOTICE_MS = 10 * 60 * 1000;
 // it back out when the note could not be saved.
 let lastVouched = null;   // { id, at }
 // Every Not me pressed during the current secret, whatever the tunnel answered: a deny the tunnel refuses (the allow
-// already landed there) writes no `denied`, and the allow's answer must still lose to it.
+// already landed there) writes no `denied`, and the allow's answer must still lose to it. Kept past stopVouch on purpose
+// (an allow can still be out); cleared when the next secret starts.
 const notMeDuringVouch = new Set();
 // The device an automatic allow is out for right now. It outlives the secret (a window end, Sign out or switch-off stops
 // S, not an allow already out), so a Not me pressed then is still remembered.
@@ -1845,6 +1846,7 @@ function vouchTick() {
           if (!rr || !rr.ok) process.stderr.write('kosmos+: a device refused while it was being allowed automatically could not be removed again (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
         });
       }
+      // Set even after a Sign out cleared it: the device is in, so its Not me must still be able to take it out.
       lastVouched = { id, at: Math.floor(Date.now() / 1000) };
       const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name } })
         .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
