@@ -1124,7 +1124,7 @@ async function forget() {
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
   stopVouch();   // kosmos#5786 (b): nor an open-browser secret
   lastVouched = null;
-  resetSelfGrant();   // and an allow already out is not noted under the identity being forgotten (bumps the epoch)
+  resetSelfGrant();   // bumps the epoch; `forgetting` is what keeps an allow already out from being noted
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1707,7 +1707,9 @@ function allowSelfQuietly() {
    inside the window (kosmos-relay docs/coordinator-api.md, device-vouch).
    What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
    The browser is opened only once the snapshot holds a phone or browser request from the last VOUCH_RECENT_S, so an
-   app-only sign-up never gets a stray sign-in tab. A joining computer is never allowed this way: computers pair by
+   app-only sign-up never gets a stray sign-in tab. That recency is the coordinator's first_seen, so a coordinator can
+   also make the tab open inside the window; the tab carries S only in its fragment, and allowing still needs the vouch.
+   A joining computer is never allowed this way: computers pair by
    code (#4794, Baron's tunnel review). */
 const VOUCH_WINDOW_MS = 10 * 60 * 1000;
 const VOUCH_RECENT_S = 30 * 60;
@@ -2006,8 +2008,8 @@ async function deviceDeny(id) {
   }
   {
     // kosmos#5786 (b): Not me on a device this computer allowed automatically a moment ago (the two raced) takes it
-    // back out, whatever the deny answered (an allowed row may refuse a deny). Only inside the notice window: an old
-    // note is history, not a race.
+    // back out, whatever the deny answered (an allowed row may refuse a deny). That is a second tunnel call, so this
+    // Not me can take up to two retire timeouts. Only inside the notice window: an old note is history, not a race.
     const notes = read().vouched || {};
     const noted = Object.prototype.hasOwnProperty.call(notes, id) ? Number(notes[id] && notes[id].at) || 0
       : lastVouched && lastVouched.id === id ? lastVouched.at : 0;
