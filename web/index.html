@@ -39285,7 +39285,12 @@ function paintDetailState(card) {
   const rcl = document.getElementById('d-replychan');
   if (rcl) {
     // Absent for most agents (only one that declared a channel carries it), so asked with `in`, never read blind.
-    const ch = card && 'replyChannel' in card && typeof card.replyChannel === 'string' && card.replyChannel ? card.replyChannel : '';
+    const said = card && 'replyChannel' in card && typeof card.replyChannel === 'string' && card.replyChannel ? card.replyChannel : '';
+    /* A poll that started before a Clear answers with the old channel after it. For a short while after a Clear that
+       worked, this agent's channel is not shown (REPLYCHAN_CLEARED, set by the handler); a real new declaration
+       shows once it passes. `typeof`: page tests lift this function without the page's globals. */
+    const cleared = typeof REPLYCHAN_CLEARED !== 'undefined' ? REPLYCHAN_CLEARED.get(a.sessionName) : undefined;
+    const ch = said && !(cleared && Date.now() - cleared < REPLYCHAN_STALE_MS) ? said : '';
     const on = ch !== '';
     if (rcl.hidden === on) rcl.hidden = !on;
     if (on) {
@@ -45483,10 +45488,14 @@ function restartFailureLine(out) {
    cost-confirm modal (unlike rst-go below): a stopped agent has no live session
    to lose, so this is a direct action. Guarded on the open agent still being this
    one, so a mid-wait switch never lands a line in another agent's panel. */
+/* #5820: when each agent's channel was last cleared from this page, so a poll that started before the Clear (and
+   still carries the channel) does not paint it back. Longer than one poll (5 s) plus a slow answer. */
+// `var`, not const: paintDetailState (defined earlier) reads it through typeof, which throws on a const not yet run.
+var REPLYCHAN_CLEARED = new Map();
+var REPLYCHAN_STALE_MS = 12000;
 /* #5820: Clear the agent's declared reply channel. Acts on the agent the line was painted for (data-agent), never
-   only on CURRENT, and says nothing once the page shows another agent. On success the line comes off now; the next
-   poll would take it off too, and puts it back if the clear did not hold. */
-document.getElementById('d-replychan-clear').addEventListener('click', async (e) => {
+   only on CURRENT, and says nothing once the page shows another agent. Named so a page test can run it. */
+async function detailReplyChanClear(e) {
   const b = e.currentTarget;
   const name = b.dataset.agent;
   if (!name) return;
@@ -45507,13 +45516,15 @@ document.getElementById('d-replychan-clear').addEventListener('click', async (e)
     b.disabled = false;
     return;
   }
+  REPLYCHAN_CLEARED.set(name, Date.now());
   const line = document.getElementById('d-replychan');
   if (line) line.hidden = true;
   b.dataset.agent = '';   // so the next paint that shows a channel again re-arms the button
   /* The focused button just went away with the line: focus moves to the message that says what happened, so a
      keyboard user keeps their place and a screen reader hears it (role=status, outside the line). */
   if (m) { m.textContent = 'Cleared. Kosmos will remind ' + ((CURRENT && CURRENT.name) || name) + ' to answer your first message here again.'; m.focus(); }
-});
+}
+document.getElementById('d-replychan-clear').addEventListener('click', detailReplyChanClear);
 document.getElementById('d-start-agent').addEventListener('click', async () => {
   const name = CURRENT && CURRENT.sessionName;
   if (!name) return;
