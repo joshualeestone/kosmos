@@ -5,11 +5,10 @@
  * The room loop guard (the valve) holds a room that goes back and forth without landing. Before
  * this, the hold showed only as a band in the scrollback, and an agent learned of it only by being
  * refused. This file proves:
- *   - engine messages.roomHeld: held while a stopping valve came after the person's last post or
- *     reopen and the agent posts since then leave no room for the next one (charged like the
- *     latest) beyond the budget plus the #4786 allowance for work moving; open once they age out,
- *     once work moving earns the room enough, with the limit off, or after a valve that did not
- *     stop; and per project;
+ *   - engine messages.roomHeld: held while the agent posts since the person's last post or reopen
+ *     leave no room for the next one (charged like the latest) beyond the budget plus the #4786
+ *     allowance for work moving; open once they age out, once work moving earns the room enough,
+ *     or with the limit off; per project, and kept a few seconds while the record has not grown;
  *   - GET /api/project/:id/room carries `held` (JSON) and one [kosmos] hold line at the top of the
  *     text view agents read, and neither when the room is open (the control);
  *   - a reopen through the real route clears both.
@@ -103,7 +102,7 @@ test('#5800 engine: a room still over budget reads held after its valve row left
   agentPost('heldF', now - 20 * MIN, CAP());
   const h = messages.roomHeld('heldF', now);
   assert.ok(h, 'a full room whose valve fired 70 minutes ago (no person since) read open');
-  assert.equal(h.at, iso(now - 70 * MIN), 'at stays the valve row\'s, the band the page draws Reopen on');
+  assert.equal(h.at, null, 'at names a valve row only from inside the counting window');
 });
 
 test('#5800 engine: work moving earns the room the valve\'s own allowance, so a changed file can end a hold', () => {
@@ -119,7 +118,7 @@ test('#5800 engine: work moving earns the room the valve\'s own allowance, so a 
   valve(pid, now - 10 * MIN);
   assert.ok(messages.roomHeld(pid, now), 'CONTROL: held with no work moving');
   fs.writeFileSync(path.join(folder, 'batch-1.md'), 'a step forward');
-  assert.equal(messages.roomHeld(pid, Date.now()), null, 'a changed file earned the room a quarter of the cap and it still read held');
+  assert.equal(messages.roomHeld(pid, Date.now() + 5000), null, 'a changed file earned the room a quarter of the cap and it still read held');
 });
 
 test('#5800 engine: one post over the whole budget has no until (only the person can end that hold)', () => {
@@ -166,18 +165,31 @@ test('#5800 engine: a person\'s post or a reopen after the valve ends it; one be
   append({ kind: 'post', id: 'm' + (++seq), from: 'you', to: ['ann'], project: 'heldC', operator: true, text: 'here', outcomes: { ann: 'placed' }, at: iso(now - 2 * MIN) });
   assert.equal(messages.roomHeld('heldC', now), null, 'the person posting after the valve did not clear it');
   agentPost('heldC', now - MIN, CAP());
-  assert.equal(messages.roomHeld('heldC', now), null, 'agent posts after the person, with no new valve, must not bring the hold back');
+  assert.ok(messages.roomHeld('heldC', now + 1), 'agent posts since the person spoke filled the budget again, and the next post would be refused');
 });
 
-test('#5800 engine: a valve that did not stop the room (limit off when it fired) is not a hold', () => {
+test('#5800 engine: held reads the budget now, not how a valve row was marked (no row, or one written with the limit off)', () => {
   const now = Date.now();
   agentPost('heldD', now - 12 * MIN, CAP());
+  assert.ok(messages.roomHeld('heldD', now), 'a full room nobody has been refused in yet read open, though the next post would be refused');
   valve('heldD', now - 10 * MIN, false);
-  assert.equal(messages.roomHeld('heldD', now), null);
-  valve('heldD', now - 5 * MIN, true);
-  assert.ok(messages.roomHeld('heldD', now), 'CONTROL: a stopping valve in the same room reads held');
-  valve('heldD', now - 2 * MIN, false);
-  assert.equal(messages.roomHeld('heldD', now), null, 'a later row saying the valve did not stop the room was ignored');
+  const h = messages.roomHeld('heldD', now + 1);
+  assert.ok(h, 'a row written while the limit was off hid a hold the valve now enforces');
+  assert.equal(h.at, iso(now - 10 * MIN), 'at is the latest valve row in the window');
+  agentPost('heldK', now - 12 * MIN, CAP() - 3);
+  agentPost('heldK', now - 11 * MIN, 1);
+  assert.equal(messages.roomHeld('heldK', now), null, 'CONTROL: a room with room left for a one-member post reads open');
+});
+
+test('#5800 engine: an answer is kept for a few seconds while the record has not grown, then read again', () => {
+  const now = Date.now();
+  agentPost('heldL', now - 12 * MIN, CAP() - 2);
+  agentPost('heldL', now - 11 * MIN, 1);
+  assert.equal(messages.roomHeld('heldL', now), null, 'CONTROL: open');
+  fs.appendFileSync(messages.LOG, '');
+  assert.equal(messages.roomHeld('heldL', now + 1000), null, 'kept: nothing was written');
+  agentPost('heldL', now + 1500, 1);
+  assert.ok(messages.roomHeld('heldL', now + 2000), 'a post written within the memo window was not seen');
 });
 
 async function room(id, asText) {

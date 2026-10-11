@@ -516,6 +516,7 @@ function resetForTests() {
      inode/size/mtime invalidation cannot see; production never does that
      (the product only appends), and tests reset. */
   READ_CACHE = null;
+  HELD_MEMO.clear();   // #5800
   IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
   UNRECORDED_SENDS.clear();
   UNRECORDED_POSTS.length = 0;
@@ -2902,27 +2903,42 @@ function reopenRoom(project, at) {
 
 /* #5800: is this room on hold right now? A room hold used to show only as a band in the scrollback, and an agent
    learned of it only by being refused, so members with real work waited without knowing why or who could clear it.
-   This answers it for the room page (the band and its Reopen button) and for `kosmos room` (one line at the top).
+   This answers it for the room page (the strip above its composer, with Reopen) and for `kosmos room` (one line at
+   the top).
 
-   It runs the valve's own decision (sendPost) for the next agent post: the limit is on, the valve has stopped this
-   room since the person last posted or reopened it, and the agent arrivals counted since then, plus the next post's
-   charge, are over the budget plus the #4786 allowance for work moving (roomProgressAllowance, the valve's own
-   function). Estimated, not known: the next post's charge, taken as the latest counted post's (a room post costs one
-   arrival per member it reaches); a member switched off or added since changes it. `until` is when enough of the
-   counted posts age out for such a post to land, counting only steps already taken, so further work moving can end
-   the hold sooner; null when one post alone is over the budget (only the person can end that hold).
-   Returns { at, because, until } (at and because are the latest valve row's, which must be a stopping one) or null. The allowance reads task and file times, so it is read only for a room already over its plain budget.
-   An unreadable record reads as not held: this is a screen hint, never a gate. */
+   It runs the valve's own decision (sendPost) for the next agent post: the limit is on, and the agent arrivals
+   counted since the person last posted or reopened the room (countFrom), plus the next post's charge, are over the
+   budget plus the #4786 allowance for work moving (roomProgressAllowance, the valve's own function).
+   Estimated, not known:
+   - the next post's charge, taken as the latest counted post's (a room post costs one arrival per member it reaches);
+     a member switched off or added since changes it;
+   - `until`, when enough counted posts age out for such a post to land, counting only steps already taken, so
+     further work moving can end the hold sooner. Null when one post alone is over the budget (only the person can
+     end that hold).
+   Returns { at, because, until } (at and because are the latest valve row's since countFrom, or null) or null.
+   The allowance reads task and file times, so it is read only for a room already over its plain budget, and the
+   answer is kept for HELD_MEMO_MS per room while the record has not grown, so the page's poll does not re-read the
+   folder every few seconds through a long hold. An unreadable record reads as not held: a screen hint, never a gate. */
+const HELD_MEMO_MS = 4000;
+const HELD_MEMO = new Map();   // project id -> { t, rows, out }
 function roomHeld(project, now) {
-  const projectId = String(project == null ? '' : project);
+  const projectId = String(project == null ? '' : project).trim();
   if (!projectId) return null;
   const at = Number.isFinite(now) ? now : Date.now();
   const lim = limits.caps();
   if (!lim.on) return null;
   const rec = record();
   if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
+  const memo = HELD_MEMO.get(projectId);
+  if (memo && memo.rows === rec.rows.length && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
+  const out = roomHeldRead(projectId, at, lim, rec.rows);
+  if (HELD_MEMO.size > 200) HELD_MEMO.clear();
+  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, out });
+  return out;
+}
+function roomHeldRead(projectId, at, lim, rows) {
   let lastOperatorAt = 0;
-  for (const m of rec.rows) {
+  for (const m of rows) {
     if (!m || m.project !== projectId) continue;
     if ((m.kind === 'post' && m.operator === true) || m.kind === 'reopen') {
       const t = Date.parse(m.at);
@@ -2930,19 +2946,15 @@ function roomHeld(project, now) {
     }
   }
   const countFrom = Math.max(at - lim.windowMs, lastOperatorAt);
-  let hold = null;          // the latest valve row since the person's last post or reopen, stopping or not
+  let band = null;          // the latest valve row since countFrom, for the record only
   const counted = [];
-  for (const m of rec.rows) {
+  for (const m of rows) {
     if (!m || m.project !== projectId) continue;
     const t = Date.parse(m.at);
-    if (!Number.isFinite(t) || t > at) continue;
-    if (m.kind === 'valve' && t > lastOperatorAt && (!hold || t >= hold.t)) {
-      hold = { t, at: m.at, because: m.because || null, stopped: m.stopped !== false };
-    } else if (m.kind === 'post' && !m.operator && t >= countFrom) {
-      counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
-    }
+    if (!Number.isFinite(t) || t > at || t < countFrom) continue;
+    if (m.kind === 'valve' && (!band || t >= band.t)) band = { t, at: m.at, because: m.because || null };
+    else if (m.kind === 'post' && !m.operator) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
   }
-  if (!hold || !hold.stopped) return null;   // a later row the limit-off valve wrote says it did not stop the room
   counted.sort((a, b) => a.t - b.t);
   const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
   let arrivals = counted.reduce((n, c) => n + c.n, 0);
@@ -2956,7 +2968,7 @@ function roomHeld(project, now) {
     /* When c ages out the window starts at c.t, and only steps from then on still earn room. */
     if (arrivals + charge <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
   }
-  return { at: hold.at, because: hold.because, until: freeAt === null ? null : new Date(freeAt).toISOString() };
+  return { at: band ? band.at : null, because: band ? band.because : null, until: freeAt === null ? null : new Date(freeAt).toISOString() };
 }
 
 /* #4786 / #5260: the extra room a project earns by work moving since countFrom, the valve's allowance. Reads the task

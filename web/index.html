@@ -65424,8 +65424,10 @@ document.getElementById('pj-room').addEventListener('click', pjRefusedAddClick);
    button with the hold; a refusal says why beside the button, which can be pressed again. */
 async function pjHeldReopenClick(e) {
   const btn = e.target && e.target.closest ? e.target.closest('[data-reopen-room]') : null;
-  if (!btn || !PJ_CURRENT) return;
-  const project = PJ_CURRENT;   // pinned: the person may move to another room while it runs
+  /* The room the notice was drawn for, never only the room on screen: a notice left from another room must not
+     reopen this one. */
+  const project = btn ? btn.getAttribute('data-reopen-room') : null;
+  if (!project || project !== PJ_CURRENT) return;
   const msg = btn.nextElementSibling && btn.nextElementSibling.classList.contains('pj-refused-msg') ? btn.nextElementSibling : { textContent: '' };
   btn.disabled = true;
   msg.textContent = '';
@@ -65451,11 +65453,10 @@ async function pjHeldReopenClick(e) {
     box.__lastRoom = undefined;
     paintRoom(box.__lastBody);
   }
-  await loadRoom();
-  if (PJ_CURRENT !== project) return;
-  pjRoomAnnounce('Reopened the room. Your agents can post here again.');
-  const composer = document.getElementById('pj-post');
+  const composer = document.getElementById('pj-post');   // focus first: the button it was on has just gone
   if (composer) composer.focus();
+  pjRoomAnnounce('Reopened the room. Your agents can post here again.');
+  await loadRoom();
 }
 document.getElementById('pj-held').addEventListener('click', pjHeldReopenClick);
 document.getElementById('pj-room').addEventListener('click', async (e) => {
@@ -66158,6 +66159,10 @@ function openProject(id) {
     const roomBox = document.getElementById('pj-room');
     roomBox.__lastRoom = undefined;
     roomBox.__lastBody = undefined;
+    /* #5800: the hold strip is the last room's too: never shown (or pressed) under this room's name. */
+    PJ_ROOM_HELD = null;
+    const heldStrip = document.getElementById('pj-held');
+    heldStrip.innerHTML = ''; heldStrip.__lastHeld = ''; heldStrip.hidden = true;
     PJ_ROOM_POSTS_OF = null;   // #3745: the posts on screen are the last project's until this one paints
     PJ_JUMP_FOCUS = null;
     // A query is a reading posture, not project state: carried across
@@ -66226,14 +66231,14 @@ let PJ_ROOM_HELD = null;
    end it and how, and the Reopen button. A room hold used to be only a sentence in the scrollback (its band can be an
    hour up the room) with no way out on the screen: the release (#2710) was only on the command line, and nothing said
    that posting here also ends it. The bands in the scrollback stay a record. */
-function pjHeldNotice(held) {
-  if (!held) return '';
+function pjHeldNotice(held, project) {
+  if (!held || !project) return '';
   const until = new Date(held.until || '');
   const by = Number.isNaN(until.getTime()) ? ''
     : ' Otherwise it should lift on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
   return '<div class="msg-valve pj-held">This room is on hold because it went back and forth without landing. '
     + 'Your agents cannot post here until you post something yourself or reopen the room.' + esc(by)
-    + '<div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="1">Reopen the room</button>'
+    + '<div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="' + esc(project) + '">Reopen the room</button>'
     + '<span class="pj-refused-msg" role="status"></span></div></div>';
 }
 let PJ_JUMP_FOCUS = null;      // the post a jump focused, so a repaint can put focus back on it
@@ -68480,11 +68485,15 @@ function paintRoom(body) {
           ? '<p class="fhint" style="margin:0;">Nothing here yet. Post below and it shows in this room on the other computer too, where its agents read it.</p>'
           : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>')));
   const html = note + (rows || empty);
-  /* #5800: the hold notice, written only when it changes (it holds a button the person may be focused on). */
+  /* #5800: the hold notice, written only when it changes (it holds a button the person may be focused on), and said
+     aloud when the room goes on hold, so a screen-reader user hears it as a sighted person sees it appear. */
   const heldEl = document.getElementById('pj-held');
   if (heldEl) {
-    const heldHtml = pjHeldNotice(PJ_ROOM_HELD);
-    if (heldEl.__lastHeld !== heldHtml) { heldEl.innerHTML = heldHtml; heldEl.__lastHeld = heldHtml; }
+    const heldHtml = pjHeldNotice(PJ_ROOM_HELD, PJ_CURRENT);
+    if (heldEl.__lastHeld !== heldHtml) {
+      if (heldHtml && !heldEl.__lastHeld) pjRoomAnnounce('This room is on hold. Your agents cannot post here until you post something yourself or reopen the room.');
+      heldEl.innerHTML = heldHtml; heldEl.__lastHeld = heldHtml;
+    }
     heldEl.hidden = !heldHtml;
   }
   /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on

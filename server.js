@@ -18541,7 +18541,7 @@ const server = http.createServer(async (req, res) => {
       let silent = {};
       try { silent = messages.unanswered(id, Date.now()); } catch { silent = {}; }
       /* #5800: whether the loop guard is holding this room now, for both arms: the page draws the reason and a
-         Reopen button on the hold's band, and the text view puts one line at the top, so a member reading the room
+         Reopen button in the strip above its composer, and the text view puts one line at the top, so a member reading the room
          learns of the hold before posting rather than by being refused. Best-effort: unreadable reads as open. */
       let held = null;
       try { held = messages.roomHeld(id, Date.now()); } catch { held = null; }

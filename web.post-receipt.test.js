@@ -580,7 +580,7 @@ test('#5800: a held room shows one notice in the strip above the composer (why, 
   assert.doesNotMatch(thread, /data-reopen-room/, 'the notice is in the scrolling thread, where a person scrolled up cannot see it');
   assert.ok(thread.indexOf('bring you in') < thread.indexOf('still going'), 'the old band moved: it stays a record in its place');
   assert.match(strip, /This room is on hold because it went back and forth without landing\. Your agents cannot post here until you post something yourself or reopen the room\. Otherwise it should lift on its own by /);
-  assert.match(strip, />Reopen the room<\/button>/);
+  assert.match(strip, /data-reopen-room="proj-1">Reopen the room<\/button>/, 'the button does not carry the room it was drawn for');
 
   scope.paintRoom({ ok: true, rows: [band, later], held: { at: band.at, because, until: null } });
   assert.doesNotMatch(scope.written['pj-held'], /should lift/, 'no until: no time promised');
@@ -611,7 +611,8 @@ test('#5800: Reopen posts the release for the room it was pressed in, then rerea
   const scope = pageScope(fetchImpl);
   scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
   const msg = { textContent: '', classList: { contains: (c) => c === 'pj-refused-msg' } };
-  const btn = { disabled: false, nextElementSibling: msg, getAttribute: () => '1' };
+  let drawnFor = 'proj-1';
+  const btn = { disabled: false, nextElementSibling: msg, getAttribute: () => drawnFor };
   const ev = { target: { closest: (sel) => (sel === '[data-reopen-room]' ? btn : null) } };
 
   await scope.pjHeldReopenClick(ev);
@@ -634,4 +635,15 @@ test('#5800: Reopen posts the release for the room it was pressed in, then rerea
   onReopen = () => scope.setCurrent('proj-2');
   await scope.pjHeldReopenClick(ev);
   assert.deepEqual(calls, [['/api/project/proj-1/room/reopen', 'POST']], 'after moving rooms mid-release: ' + JSON.stringify(calls));
+
+  /* A notice drawn for another room (left on screen across a switch) reopens nothing. */
+  calls.length = 0;
+  onReopen = () => {};
+  scope.setCurrent('proj-2');
+  drawnFor = 'proj-1';
+  await scope.pjHeldReopenClick(ev);
+  assert.deepEqual(calls, [], 'a notice drawn for another room reopened the room on screen: ' + JSON.stringify(calls));
+  drawnFor = 'proj-2';
+  await scope.pjHeldReopenClick(ev);
+  assert.deepEqual(calls[0], ['/api/project/proj-2/room/reopen', 'POST'], 'CONTROL: a notice drawn for this room reopens it');
 });
