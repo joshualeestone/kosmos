@@ -22,6 +22,8 @@ once #5804 merges.
 Per running Gemini agent per poll: 0 extra job reads and 0 extra session parses (were 1 and 1).
 
 ## Not here
+The recorded card fixture (docs/browser-checks/fixtures/agent-card.json) carries `geminiSeen: null` because it records
+what snapshot() emits (tools/capture-agent-card.js); the page row does not carry it. Harmless to the browser checks.
 Same answer as #5804 in every case; no wording change, no Windows change.
 
 ## Weakest premise
@@ -29,7 +31,10 @@ That the snapshot's session read and the decision should see the same moment: th
 the second read could see a newer reply than the model shown, a harmless but real mismatch this removes).
 
 ## Tests
-engine/geminimodelswitch-5811.test.js: partial deps override, the server's deps give the same answers as #5804's cases,
+engine/geminimodelswitch-5811.test.js: partial deps override, the row decision on the main #5804 cases (switch, no
+session, same model, earlier run, unknown time, no job, alias, no model),
 and the server path calls neither the job reader nor the session reader (counting seams, with a control that counts).
-create.plannedModelOfJob unit cases. Rows come from test-support/fleet (fixture-discipline forbids a hand-built card),
+create.plannedModelOfJob unit cases. engine/status.geminiseen-5811.test.js: status.snapshot() through a real fleet card
+with a real-shaped job and session (found: reply model, its time, the job's model; a modelless job: the default, marked;
+no session: null), checked to fail when the row drops `planned`. Rows come from test-support/fleet (fixture-discipline forbids a hand-built card),
 with the session-derived fields laid over the real card, as server.whoami-grok-4603 does. Source pins for the row field and the server wiring (update #5804's wiring pin).
