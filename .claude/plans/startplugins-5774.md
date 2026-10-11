@@ -169,4 +169,11 @@ engine/startplugins-5774.test.js (see the iteration notes for what each test cov
   - [NIT] TAKEN: the 4 MiB constant's comment no longer claims to be the import scan's limit.
   - [NIT] FIXED: a dangling home whose target holds or sits inside the agent's own folder is named, not given code-folder denies there. Tested; mutation red.
   - [NIT] not taken: the envKinds dedup keeps the last copy (same kind and folder either way).
+- Iteration 16 (Sonnet), on 70bcca69f: no BLOCKER.
+  - [WARNING] FIXED. A plugin folder a variable names whose real place is read-only (a Nix or home-manager store path, hashed and new at every switch) was listed by name and piled up. It now gets no rule (the agent cannot write it), and the plugins inside it none either; a link to one keeps a file-tool rule on the link alone, as part 2's startup links do. Checked before the cap, so it spends no budget. Tested (direct, linked, and a writable control); both mutations red, each run after confirming the mutated module loads.
+  - [WARNING] STATED GAP: a dangling link BELOW a job home (not the home itself) resolves through realOrLeaf only, as for every config home since #5516; the member links are followed by withTarget at their leaf.
+  - [WARNING] FIXED: the job-homes cache key carries the home too (jobsHere depends on it).
+  - [WARNING] DUPLICATE of a stated gap: another account's relative plugin value names (fails closed).
+  - [NIT] DUPLICATE: an indented echo of `K=` is named (stated since review 13); /etc startup files are a stated gap.
+  - [NIT] not taken: the one-line job-name read in agentJobConfigDirs.
 

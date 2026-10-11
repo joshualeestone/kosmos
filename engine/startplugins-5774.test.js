@@ -260,7 +260,7 @@ test('#5774 route 5 review 3: the append idiom is read; a backtick is named; ~/.
   assert.ok(JSON.stringify(g2).includes('more than 50 outside'), JSON.stringify(g2));
   // The pass's cache is used: a home seeded there is covered without any job file naming it.
   const seeded = path.join(SANDBOX, 'seeded-home');
-  const cache = new Map([[`#5774 route 5 job homes ${path.resolve(DEPS.workersRoot)}\0${DEPS.platform}`, [seeded]]]);   // review 13: keyed by platform too
+  const cache = new Map([[`#5774 route 5 job homes ${path.resolve(DEPS.workersRoot)}\0${DEPS.platform}\0${HOME}`, [seeded]]]);   // review 13: keyed by platform too
   const d3 = agentDir('pilot-cache');
   setup.guardTokenOnlyFolder(d3, 'pilot-cache', { ...DEPS, env: ENV0, launchCache: cache });
   assert.ok(editDeniedBy(readSettings(d3).permissions.deny, path.join(seeded, 'settings.json')).length > 0, 'the cached job homes were not used');
@@ -567,4 +567,28 @@ test('#5774 route 5 review 15: a plugin folder holding the projects folder is to
   fs.symlinkSync(path.join(fs.realpathSync.native(d4), 'cfg-absent'), dangle);
   const g4 = setup.guardTokenOnlyFolder(d4, 'pilot-dangleinside', { ...DEPS, env: ENV0, agentConfigDirs: [dangle] });
   assert.ok(JSON.stringify(g4).includes("sits inside this agent's own folder"), JSON.stringify(g4));
+});
+
+test('#5774 route 5 review 16: a plugin folder whose real place is read-only (a store path) is not listed by name; a link to one keeps a file-tool rule on the link', () => {
+  const base = path.join(fs.realpathSync.native(SANDBOX), 'r16');
+  const store = path.join(base, 'store', 'abc123-plugin');
+  fs.mkdirSync(store, { recursive: true });
+  const ro = (p) => p === store || p.startsWith(store + path.sep);
+  const d = agentDir('pilot-roplug');
+  setup.guardTokenOnlyFolder(d, 'pilot-roplug', { ...DEPS, readOnlyTarget: ro, env: { CLAUDE_CODE_PLUGIN_DIRS: store } });
+  const s = readSettings(d);
+  assert.ok(![...s.permissions.deny, ...s.sandbox.filesystem.denyWrite].some((r) => r.includes('abc123-plugin')), 'a read-only store path was listed by name');
+  // A link to it in a folder the user can write: the link keeps a file-tool rule; the store path is not listed.
+  const link = path.join(base, 'profile-plug');
+  fs.symlinkSync(store, link);
+  const d2 = agentDir('pilot-roplug-link');
+  setup.guardTokenOnlyFolder(d2, 'pilot-roplug-link', { ...DEPS, readOnlyTarget: ro, env: { CLAUDE_CODE_PLUGIN_DIRS: link } });
+  const s2 = readSettings(d2);
+  assert.ok(s2.permissions.deny.some((r) => r.includes('profile-plug')), 'the link lost its file-tool rule');
+  assert.ok(![...s2.permissions.deny, ...s2.sandbox.filesystem.denyWrite].some((r) => r.includes('abc123-plugin')), 'the store target was listed by name');
+  // Control: the same folder, writable, is denied whole in both layers.
+  const d3 = agentDir('pilot-rwplug');
+  setup.guardTokenOnlyFolder(d3, 'pilot-rwplug', { ...DEPS, readOnlyTarget: () => false, env: { CLAUDE_CODE_PLUGIN_DIRS: store } });
+  const s3 = readSettings(d3);
+  assert.ok(editDeniedBy(s3.permissions.deny, path.join(store, 'x.js')).length > 0 && sandboxDenies(s3.sandbox.filesystem.denyWrite, path.join(store, 'x.js')), 'control: denied whole');
 });

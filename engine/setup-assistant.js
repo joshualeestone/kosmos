@@ -1738,7 +1738,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     else if (jobsHere()) {
       const root = path.resolve(deps.workersRoot !== undefined ? deps.workersRoot : create.workersDir());
       const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
-      const key = `#5774 route 5 job homes ${root}\0${deps.platform || process.platform}`;   // review 13: the reader depends on the platform
+      const key = `#5774 route 5 job homes ${root}\0${deps.platform || process.platform}\0${home}`;   // reviews 13 and 16: the reader depends on the platform, jobsHere on the home
       if (cache && cache.has(key)) jobHomes = cache.get(key);
       else { jobHomes = agentJobConfigDirs(root, deps.platform); if (cache) cache.set(key, jobHomes); }
     }
@@ -1952,6 +1952,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      listed by their versioned names either, which would bring back the pile-up the refusal exists to stop. The guard
      already says it is not whole. A folder refused as too wide is not here: what it holds is still denied by name. */
   const refusedEnv = [];
+  /* Review 16: a folder whose real place is read-only (a Nix or home-manager store path, hashed and new at every switch)
+     cannot be written by the agent, so it gets no rule by name, which would pile up. A link to one keeps a file-tool rule
+     on the link itself (the link sits where a tool could replace it), added to the link-only folders below. */
+  const envReadOnly = deps.readOnlyTarget || isReadOnlyTarget;
+  const envEditOnlyLinks = [];
   for (const d of new Set(startCmds.envPluginDirs || [])) {
     if (coveredWhole(d)) continue;   // review 5: before the count, so covered folders do not spend the budget
     if (ruleHasPatternChar(`Edit(${ruleAbs(d)}/**)`)) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, whose path the permission rules cannot carry)`); continue; }
@@ -1965,6 +1970,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     if (r.startsWith(tmpRealP + path.sep)) { refusedEnv.push(d, r); configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, inside the temp folder: a per-run place Kosmos does not deny by name)`); continue; }
     if (r === path.parse(r).root || holdsP(r, homeRealP) || holdsP(r, dirRealP) || holdsP(r, tmpRealP) || holdsP(r, dataRealP) || (projRealP && holdsP(r, projRealP)) || homesRealP.some((h) => holdsP(r, h))) { configUnsafe.push(`${d} (a plugin folder a Claude Code variable names, too wide to deny: it holds the home, the agent's own folder, the temp folder, Kosmos's data, the projects folder or a config home)`); continue; }
     // Review 9: counted after the refusals, as the job homes are, so a refused folder spends none of the budget.
+    if (envReadOnly(r)) { refusedEnv.push(d, r); if (r !== path.resolve(d)) envEditOnlyLinks.push(d); continue; }
     // Review 13: past the cap the loop goes on (each refused folder is recorded), and the cap is named once.
     if (++envPluginTaken > ENV_PLUGIN_MAX) { refusedEnv.push(d, r); if (envPluginTaken === ENV_PLUGIN_MAX + 1) configUnsafe.push(`plugin folders Claude Code variables name (more than ${ENV_PLUGIN_MAX}), so some are not denied`); continue; }
     const both = withTarget(d, configUnsafe);
@@ -1999,7 +2005,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      where the path really resolves, not by the leaf alone; and the path itself is always kept (a read-only ~/.bashrc
      still sits in a folder the user can write). Only a resolved TARGET is judged for writability. */
   const editOnlyLinks = [];
-  const editOnlyLinkDirs = [];
+  const editOnlyLinkDirs = [...envEditOnlyLinks];   // review 16: links to read-only plugin folders the variables name
   const storeHits = new Set();
   /* Review 22: a Cellar- or store-shaped folder that holds the home or the agent's own folder (a person's own folder named
      Cellar) is named, never denied whole, as the folder scan's tooBroad does. */
