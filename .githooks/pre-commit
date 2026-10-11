@@ -30,7 +30,7 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     # own(l): l is "<one simple command>; var=<exit status>", so that status is the command'"'"'s own and a pipe on an
     # earlier line cannot reach it. Everything before the ";" must be ONE simple command: no other ";", "&&" or "||"
     # (the status would be the last segment'"'"'s), no pipe, no comment, no status read, balanced quotes, and a first word
-    # (after any VAR=x prefixes) that is a plain command: not a keyword or closer, not a builtin that always succeeds,
+    # (after any VAR=x prefixes) that is a plain command: not a keyword or closer, not a builtin whose status is not the work (most always succeed),
     # not a wrapper of another command, not a sourced file. Assignments alone run no command, so own nothing.
     # (These comments never write the status variable itself: this hook lints its own text.)
     function own(l,   i, w, pre, t, t2) {
@@ -50,13 +50,20 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
         t2 = pre; gsub(/\$\(\(/, "", t2)                         # arithmetic $(( )) runs no command
         return (t2 ~ /\$\(|`/) ? 1 : 0
       }
-      w = t; sub(/^[[:space:]]*/, "", w); sub(/[^A-Za-z0-9_.\/-].*$/, "", w)
+      w = t; sub(/^[[:space:]]*/, "", w); sub(/[^A-Za-z0-9_.\/-].*$/, "", w); sub(/.*\//, "", w)   # /usr/bin/true is true
       if (w == "") return 0
       if (w ~ /^(done|fi|esac|then|else|elif|do|if|for|while|until|case|select|function|wait)$/) return 0
-      if (w ~ /^(local|declare|typeset|readonly|export|set|unset|shift|true|alias|unalias|builtin|command|eval|exec|time|echo|printf|trap|hash|ulimit|shopt|umask|pushd|popd|dirs|enable|getopts|let)$/) return 0
+      if (w ~ /^(local|declare|typeset|readonly|export|set|unset|shift|true|alias|unalias|builtin|command|eval|exec|time|echo|printf|trap|hash|ulimit|shopt|umask|pushd|popd|dirs|enable|getopts|let|coproc|disown)$/) return 0
       if (w ~ /^(sudo|env|nice|nohup|xargs|timeout|stdbuf|caffeinate)$/) return 0
       if (w ~ /^(source|\.)$/) return 0
       return 1
+    }
+    # The mirror of closes(): an odd count of either quote, or more ( than ), leaves the line open onto the next.
+    function opens(l,   a, o, c) {
+      a = l; if (gsub(/"/, "", a) % 2) return 1
+      a = l; if (gsub(/'"'"'/, "", a) % 2) return 1
+      a = l; o = gsub(/\(/, "", a); a = l; c = gsub(/\)/, "", a)
+      return o > c
     }
     function closes(l,   a, o, c) {
       a = l; gsub(/\$\{/, "", a); o = gsub(/[({]/, "", a)
@@ -78,10 +85,13 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
     # A line ending in a backslash, or in a lone pipe, continues onto the next, so the next line is still the pipeline.
+    # The ends are read on the line as written AND with a trailing comment removed ("| # keep a copy" still continues);
+    # a line that leaves a quote or a "(" open also continues (its argument closes on a later line).
     # Blank and comment-only lines are skipped by both, since a pipeline continues across them.
     /^[[:space:]]*(#.*)?$/ { next }
     # Also "a | tail ||" or "&&": the next line is the fallback, and it reads the filter'"'"'s status.
-    { cont = ($0 ~ /\\$/ || s ~ /\|[[:space:]]*$/ || $0 ~ /(\|\||&&)[[:space:]]*$/) }
+    { c0 = $0; sub(/[[:space:]]#.*$/, "", c0); cs = c0; gsub(/\|\|/, "  ", cs)
+      cont = ($0 ~ /\\$/ || s ~ /\|[[:space:]]*$/ || $0 ~ /(\|\||&&|\|&)[[:space:]]*$/ || cs ~ /\|[[:space:]]*$/ || c0 ~ /(\|\||&&|\|&)[[:space:]]*$/ || opens($0)) }
     # A closer as its own word anywhere on the line ("; }", "} # end", "} 2>/dev/null", "tail -1 )") also ends a body.
     # And any line that closes more ( or { than it opens ("tail -1)" with no space) ends a body begun above.
     { shut = ($0 ~ /^[[:space:]]*[})]/ || $0 ~ /[;[:space:]][})]([[:space:];<>&|#]|$)/ || $0 ~ /\(\)[[:space:]]*[{(]/ || $0 ~ /^[[:space:]]*function[[:space:]]/ || closes($0)) }

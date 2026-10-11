@@ -67,7 +67,7 @@ mustflag "a status read before the semicolon" "yarn test $P tail -5" "st=$Q; oth
 mustflag "a semicolon inside quotes" "yarn test $P tail -5" "echo \"suite finished; status=$Q\""
 # The continued line starts with a plain word (an argument of grep), so only the continuation rule can catch it.
 mustflag "a continued pipe line" "yarn test $P grep \\" "  failed; rc=$Q"
-mustflag "a comment between the pipe and the read" "yarn test $P tail -5" "# read it below; rc=$Q" "[ $Q -eq 0 ] || exit 1"
+mustflag "a comment between the pipe and the read" "yarn test $P tail -5" "# read it below" "[ $Q -eq 0 ] || exit 1"
 mustflag "a function ending in the pipe, then its own call" 'run() {' "  yarn test $P tail -5" '}' "run; rc=$Q"
 mustflag "a continued pipe line in a CRLF file" "yarn test $P grep \\"$'\r' "  failed; rc=$Q"$'\r'
 mustflag "a pipeline continued by a trailing pipe" "yarn test 2>&1 $P tee log $P" "  tail -5; rc=$Q"
@@ -101,6 +101,11 @@ mustflag "trap owns no status" "yarn test $P tail -5" "trap x EXIT; rc=$Q"
 mustflag "a subshell body closed against the last word" 'f() (' "  make $P tail -1)" "f; rc=$Q"
 mustflag "an escaped-space assignment alone" "yarn test $P tail -5" "x=a\\ b; rc=$Q"
 mustflag "two assignments split by a semicolon" "yarn test $P tail -5" "x=1 ; y=2; rc=$Q"
+mustflag "a trailing pipe with a comment after it" "yarn test 2>&1 $P tee log $P   # keep a copy" "  tail -5; rc=$Q"
+mustflag "an and-chain with a comment after it" "yarn test $P tail -5 &&  # then" "  report x; rc=$Q"
+mustflag "a pipe-and-stderr continuation" "yarn test $P tee log $P&" "  tail -5; rc=$Q"
+mustflag "a quoted filter argument that closes on the status line" "out=\"\$(yarn test 2>&1 $P sed \"s/a/b/" "  s/c/d/g\")\"; rc=$Q"
+mustflag "a full path to an always-zero command" "yarn test $P tail -5" "/usr/bin/true; rc=$Q"
 
 # The file the finding was about, as it is in this tree.
 if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then

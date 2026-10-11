@@ -14,6 +14,8 @@ and, across all 243 linted files, it flags 14 lines in 3 files. All 14 are false
 The program now sits between `# PIPE-LINT-BEGIN` and `# PIPE-LINT-END`, so the test runs the hook's own text.
 
 ## Tests (tools/test-precommit-pipe-lint-4911.sh, in test:shell)
+(The mutation results recorded in this plan were run BY HAND, one at a time; the test file itself runs only the
+fixtures. They are not standing coverage.)
 The hazard, the same-line hazard and `grep -c || echo 0` are still caught; pipefail is still accepted; `|| sed` and
 `cmd; rc=$?` are accepted; the real test-light-side-4911.sh is accepted. Mutations: dropping either rule, or letting
 the own-status rule clear a same-line pipe, each turns a check BAD. Whole-repo comparison: old 14 flagged lines, new
@@ -113,3 +115,15 @@ kind refuses a correct line: a false positive, the safe direction for a guard.
   BAD (the first must-accept fixture sat outside the two-line window, so its mutant stayed green). An "escaped
   character" value form had no effect on any verdict, so it was removed rather than kept untested.
 - Named residual: a quoted or variable command word refuses correct code (none in the tree).
+
+## Review 7 (opus, blind, on 460647f05): no BLOCKER
+- FIXED (WARNING): a continuation with a trailing comment ("| # keep a copy", "&& # then", "|| # else") or "|&"
+  escaped; the ends are now read both raw and with a trailing comment removed. Three fixtures; each mutant BAD.
+- FIXED (WARNING): a quote or "(" left open on the previous line (a multi-line quoted filter argument closing on
+  the status line) escaped; opens(), the mirror of closes(), treats such a line as continued. Fixture; mutant BAD
+  (the fixture first passed under the mutant because its continued line's word ended in "/", which the new basename
+  step empties; sharpened so only opens() can catch it).
+- FIXED (NITs): the command word is compared by basename (/usr/bin/true); coproc and disown listed; the builtin-list
+  comment no longer claims they all succeed; the "comment between" fixture no longer has the status variable on the
+  comment line; this plan says the mutations were run by hand.
+- Sweep: 0 flagged under BSD awk and mawk; controls hold.
