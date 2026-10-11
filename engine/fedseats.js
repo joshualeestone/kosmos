@@ -787,8 +787,6 @@ function revokeCheck(projectId, link, edges) {
     // #5191: with nobody left, the revoked key is dropped from the record, so a member pinned
     // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it.
     if (!Object.keys(keep).length) delete keys[st.epoch];
-    // A revoke found but not saved is not a check: the posts it holds stay held (the pass must
-    // not show them unchecked under the key the revoked member still holds).
     // #5191: the accounts dropped, each from the peer's own record (pinned with its edge) or, for a
     // peer pinned before that was kept, from this answer by its edge id; recorded at the epoch they
     // held. An account a kept peer also has (one account, two edges) is not recorded.
@@ -805,6 +803,8 @@ function revokeCheck(projectId, link, edges) {
       const account = accountOfPeer(peers[pub]);
       if (account && !keptAccounts.has(account)) revoked.set(account, Math.max(revoked.has(account) ? revoked.get(account) : st.epoch, st.epoch));
     }
+    // A revoke found but not saved is not a check: the posts it holds stay held (the pass must
+    // not show them unchecked under the key the revoked member still holds).
     try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys, revokedAccounts: Object.fromEntries(revoked) })); } catch {
       return { checked: false, rotated: false, unreadable: true };
     }
