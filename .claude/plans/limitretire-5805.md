@@ -151,3 +151,7 @@ Slice 3a added the time on the card but deliberately left these alone.
   3b test now uses "❯ ", and with the old regex ten of them go red. Lesson recorded: build a screen-shape rule from a
   captured screen, not from another test's fixture.
 - Own error in flight: a mutation revert (git checkout --) discarded the uncommitted fix; re-applied and committed.
+
+## Review 12 (sonnet)
+- NO NEW ISSUES (checked against the captured screens: no column-0 "❯ " row other than a past turn can sit above a
+  footered limit row). CONVERGED at iteration 12.
