@@ -120,7 +120,8 @@ test('#5805 2b: the sweep types a kept message as the route would and updates it
     const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
     limitqueue.remove(NAME, entries[1].id);
     limitqueue.add(NAME, { ...entries[1], reset: old, at: entries[1].at });
-    await limitqueue.flush([{ sessionName: NAME }], { ...hooks, isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n) });
+    const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);   // a real card (fixture discipline)
+    try { await limitqueue.flush(board.agents, { ...hooks, isReleased: () => true }); } finally { board.restore(); }
   } finally { chat.deliverAutomaticAsync = realA; }
   assert.deepEqual(typed, [['first', 'string', 'string']], 'not typed as the route types a person\'s message');
   assert.equal(rowAt(one.out.delivery.at).delivery.state, chat.DELIVERY.PLACED);
