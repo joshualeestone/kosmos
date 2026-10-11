@@ -79,6 +79,18 @@ mustflag "a trailing-pipe pipeline across a comment" "make $P grep x $P" '# c' "
 mustflag "a function closed on the pipe's own line" 'f() {' "  make $P tail -1; }" "f; rc=$Q"
 mustflag "a subshell function closed on the pipe's own line" 'f() (' "  make $P tail -1; )" "f; rc=$Q"
 mustflag "assignments alone own no status" "yarn test $P tail -5" "x=1; rc=$Q"
+mustflag "a pipe line ending in an or-fallback" "yarn test $P tail -5 ||" "  report failed; rc=$Q"
+mustflag "a pipe line ending in an and-chain" "yarn test $P tail -5 &&" "  report done; rc=$Q"
+mustflag "a function closer with a trailing comment" 'f() {' "  make $P tail -1; } # end" "f; rc=$Q"
+mustflag "a function closer with a trailing redirect" 'f() {' "  make $P tail -1; } 2>/dev/null" "f; rc=$Q"
+mustflag "a subshell body closed on the pipe line without a semicolon" 'f() (' "  make $P tail -1 )" "f; rc=$Q"
+mustflag "echo owns no status" "yarn test $P tail -5" "echo ran; rc=$Q"
+mustflag "a sourced file is a function defined elsewhere" "yarn test $P tail -5" ". ./lib.sh; rc=$Q"
+mustflag "arithmetic alone owns no status" "yarn test $P tail -5" "n=\$((n+1)); rc=$Q"
+mustflag "an array assignment alone owns no status" "yarn test $P tail -5" "a=(1 2); rc=$Q"
+mustflag "an append or element assignment alone owns no status" "yarn test $P tail -5" "a+=x; b[1]=y; rc=$Q"
+mustflag "a mixed-quote assignment alone owns no status" "yarn test $P tail -5" "a=x\"y z\"; rc=$Q"
+mustflag "a semicolon inside a comment" "yarn test $P tail -5" "x=1 # n; rc=$Q" "[ $Q -eq 0 ]"
 
 # The file the finding was about, as it is in this tree.
 if [ -f "$HERE/tools/test-light-side-4911.sh" ]; then

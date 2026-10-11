@@ -28,6 +28,13 @@ continued from the pipe's (trailing backslash or trailing lone pipe, CRLF or not
 non-blank line ends a function (starts with } or ), or defines one on one line). Each is a must-flag fixture with a
 red mutant.
 
+**Also refused (review 5):** a pipe line ending in "||" or "&&" (the next line is its fallback or chain); a closer as
+its own word anywhere on the pipe line; echo, printf, source and "." as status owners; assignment-only lines in every
+common form (arithmetic, arrays, +=, element, mixed quotes); a ";" after a "#".
+
+**A second residual, stated:** a "cmd; rc=<status>" line inside an unquoted heredoc body is read as owning its status,
+though the body is text whose status expands at the heredoc's command. Contrived; not handled.
+
 **The residual, stated:** a function defined elsewhere in the file whose last command is a pipe, called as
 "fn; rc=<status>" with some unrelated line between its end and the call. The lint reads lines, not a parse, so it
 cannot know what fn returns. The old lint caught that only when the call sat within two lines of the pipe, which the
@@ -72,3 +79,14 @@ kind refuses a correct line: a false positive, the safe direction for a guard.
 - FIXED (NIT): an assignments-only line ("x=1; rc=") owns no status (constant 0). An assignment FROM or BEFORE a
   command still does (the original false positives); a fixture holds that, and a mutant ignoring the command
   substitution turns it BAD.
+
+## Review 5 (opus, blind, on 9b0f30dd3)
+- FIXED (BLOCKER): a pipe line ending in "||" or "&&" continues onto its fallback or chain, whose status read is the
+  filter's; the "||" strip had hidden it. Both are continuations now. Two fixtures; mutation red on both (the "||"
+  fixture first used echo, which the echo rule also caught; sharpened to a plain command).
+- FIXED (WARNING): a closer with a trailing comment or redirect, or a subshell body closed without ";", did not end a
+  function. The closer is matched as its own word anywhere on the line. Three fixtures; mutation red.
+- FIXED (WARNING): echo and printf (and source, ".") owned the status. Listed. Fixtures; mutation red.
+- FIXED (NITs): assignment-only forms (arithmetic, arrays, +=, element, mixed quotes) and a ";" after "#". Fixtures;
+  mutation red. Heredoc bodies named as a residual. The function-end comment now says what the code matches.
+- Whole-repo sweep after all of it: 0 flagged under BSD awk and mawk (hazard/clean control in each).

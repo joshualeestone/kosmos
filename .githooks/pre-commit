@@ -31,22 +31,26 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     # still counts) for a closer (done fi esac then else elif do wait, or } and ) by the first-character rule), a
     # comment, a status read before the ";", or a ";" inside quotes, since each of those passes the pipe'"'"'s status on.
     # (These comments never write the status variable itself: this hook lints its own text.)
-    function own(l,   i, w, pre, t) {
+    function own(l,   i, w, pre, t, t2) {
       if (l !~ /^[[:space:]]*[A-Za-z_.\/]/) return 0
       w = l; sub(/^[[:space:]]*/, "", w); sub(/[^A-Za-z0-9_.\/-].*$/, "", w)
       if (w ~ /^(done|fi|esac|then|else|elif|do|wait)$/) return 0
       # A builtin that always succeeds owns nothing: "local rc; rc=..." still reads 0 when the suite failed.
-      if (w ~ /^(local|declare|typeset|readonly|export|set|unset|shift|true|alias|builtin|command|eval|exec|time)$/) return 0
+      if (w ~ /^(local|declare|typeset|readonly|export|set|unset|shift|true|alias|builtin|command|eval|exec|time|echo|printf)$/) return 0
+      # A sourced file is a function defined elsewhere (its status may be its last pipe'"'"'s): not owned.
+      if (w ~ /^(source|\.)$/) return 0
       i = match(l, /;[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/)
       if (!i) return 0
       pre = substr(l, 1, i - 1)
       if (pre ~ /\$\?/) return 0
+      if (pre ~ /(^|[[:space:]])#/) return 0   # the ";" is inside a comment, so the status is read on a later line
       t = pre; gsub(/\|\|/, "", t); if (t ~ /\|/) return 0   # a pipe of its own before the ";" (any filter)
       # Assignments alone ("x=1; rc=...") run no command, so the status read after them is a constant 0. An assignment
       # FROM a command ("out=$(cmd)") or before one ("V=1 cmd") is that command'"'"'s, and stays owned.
       t = pre
-      while (sub(/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]"'"'"']*)/, "", t)) { }
-      if (t ~ /^[[:space:]]*$/ && pre !~ /\$\(|`/) return 0
+      while (sub(/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=(\([^)]*\)|("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]"'"'"'(]+|\$\(\([^)]*\)\))*)/, "", t)) { }
+      t2 = pre; gsub(/\$\(\(/, "", t2)   # arithmetic $(( )) runs no command
+      if (t ~ /^[[:space:]]*$/ && t2 !~ /\$\(|`/) return 0
       t = pre; if (gsub(/"/, "", t) % 2) return 0
       t = pre; if (gsub(/'"'"'/, "", t) % 2) return 0
       return 1
@@ -60,15 +64,18 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
     # A "$?" straight after a plain command on its own line is that command'"'"'s status, so a pipe on an EARLIER line
     # cannot reach it (own() above). A pipe on the same line, or a line continued from the pipe'"'"'s, still counts.
     # Nor after a function'"'"'s end: a function whose last command is the pipe returns the filter'"'"'s status, so "fn; rc=..."
-    # reads it. "shut" is set by a previous non-blank line that starts with } or ), or defines a function on one line.
+    # reads it. "shut" is set by a previous non-blank line holding a closer } or ) as its own word (at its start, or after
+    # the last command), or a function definition on one line, or a "function" line.
     p && p != NR && !cont && !shut && own($0) { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
     # A line ending in a backslash, or in a lone pipe, continues onto the next, so the next line is still the pipeline.
     # Blank and comment-only lines are skipped by both, since a pipeline continues across them.
     /^[[:space:]]*(#.*)?$/ { next }
-    { cont = ($0 ~ /\\$/ || s ~ /\|[[:space:]]*$/) }
-    { shut = ($0 ~ /^[[:space:]]*[})]/ || $0 ~ /;[[:space:]]*[})][[:space:]]*$/ || $0 ~ /\(\)[[:space:]]*[{(]/ || $0 ~ /^[[:space:]]*function[[:space:]]/) }
+    # Also "a | tail ||" or "&&": the next line is the fallback, and it reads the filter'"'"'s status.
+    { cont = ($0 ~ /\\$/ || s ~ /\|[[:space:]]*$/ || $0 ~ /(\|\||&&)[[:space:]]*$/) }
+    # A closer as its own word anywhere on the line ("; }", "} # end", "} 2>/dev/null", "tail -1 )") also ends a body.
+    { shut = ($0 ~ /^[[:space:]]*[})]/ || $0 ~ /[;[:space:]][})]([[:space:];<>&|#]|$)/ || $0 ~ /\(\)[[:space:]]*[{(]/ || $0 ~ /^[[:space:]]*function[[:space:]]/) }
   ')"
   # PIPE-LINT-END
   if [ -n "$hits" ]; then
