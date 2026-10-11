@@ -68,50 +68,42 @@ test('#5805 slice 3: a dateless reset is its next occurrence after it was first 
   }
 });
 
-test('#5805 slice 3: claudeLimitUntil keeps the first-seen time, so the reset does not move as time passes', () => {
+test('#5805 slice 3: a dateless reset is read from when the screen first showed it, and ends when the row leaves the screen (3b)', () => {
   const line = `You've hit your session limit · resets 4pm ${Z}`;
-  const t0 = at('2026-10-10T16:00:00Z');
+  const on = limitScreen(line);
+  const t0 = at('2026-10-10T16:00:00Z');   // 11:00 CDT
+  assert.equal(status.claudeLimitUntil('casey', line, t0), null, 'CONTROL: a line the screen pass never saw has no time');
+  for (const a of ['casey', 'kim', 'leo']) status.noteLimitRows(a, STATUS_LINE, t0 - 60e3);   // captured before: rows seen arrive
+  status.noteLimitRows('casey', on, t0);
   assert.equal(iso(status.claudeLimitUntil('casey', line, t0)), '2026-10-10T21:00:00.000Z');
-  // Read again at 16:30 CDT after a gap in reads (the Mac slept through the reset, the line still on screen): still
-  // today's 4pm, not tomorrow's (review 1: a gap in reads is not the line going away).
-  assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.5 * 3600e3)), '2026-10-10T21:00:00.000Z', 'the reset moved with the clock');
-  // A weekly last-day line across a sleep through its reset: still today's time, never tomorrow's.
-  const weekly = `You've hit your weekly limit · resets 3pm ${Z}`;
-  // (Another agent: a second line on casey's screen would itself end casey's first limit.)
-  assert.equal(iso(status.claudeLimitUntil('april', weekly, at('2026-10-10T19:00:00Z'))), '2026-10-10T20:00:00.000Z');
-  assert.equal(iso(status.claudeLimitUntil('april', weekly, at('2026-10-10T20:30:00Z'))), '2026-10-10T20:00:00.000Z', 'a sleep through the reset named tomorrow');
-  // CONTROL: the key is the agent. A weekly last-day line first seen by casey at 14:00 CDT is today's 3pm; the same
-  // words first seen by leo at 15:30 CDT are tomorrow's (within a day), never casey's time.
-  const wk = `You've hit your weekly limit · resets 3pm ${Z}`;
-  assert.equal(iso(status.claudeLimitUntil('kim', wk, at('2026-10-10T19:00:00Z'))), '2026-10-10T20:00:00.000Z');
-  assert.equal(iso(status.claudeLimitUntil('leo', wk, at('2026-10-10T20:30:00Z'))), '2026-10-11T20:00:00.000Z', 'another agent\'s first-seen time was used');
-  // One reading that is not capped (a failed pane read, a moment in another state) does not end the limit: the same
-  // line read again keeps its first-seen time (review 2). Readings come through the real card builder.
-  const idleRead = (ms) => {
-    const real = Date.now;
-    Date.now = () => ms;
-    try { fleet.install([fleet.agent('casey', { state: 'idle', runner: 'claude', command: 'claude', screen: STATUS_LINE })]).restore(); }
-    finally { Date.now = real; }
-  };
-  idleRead(t0 + 5.6 * 3600e3);
-  assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.7 * 3600e3)), '2026-10-10T21:00:00.000Z', 'one reading not capped ended the limit');
-  // Read not capped for two minutes and more (two idle readings three minutes apart): the limit ended, so the same
-  // words the next day are a new limit.
-  idleRead(t0 + 6 * 3600e3);
-  idleRead(t0 + 6 * 3600e3 + 3 * 60e3);
+  // The Mac slept through the reset with the row still on screen: on waking it is the same limit, today's 4pm.
+  status.noteLimitRows('casey', on, t0 + 5.5 * 3600e3);
+  assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.5 * 3600e3)), '2026-10-10T21:00:00.000Z', 'a sleep with the row on screen restarted its clock');
+  // A failed capture records nothing and ends nothing.
+  status.noteLimitRows('casey', null, t0 + 5.6 * 3600e3);
+  assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.6 * 3600e3)), '2026-10-10T21:00:00.000Z', 'a failed capture ended the limit');
+  // Off the screen for under two minutes, then back: the same limit.
+  status.noteLimitRows('casey', STATUS_LINE, t0 + 5.5 * 3600e3 + 60e3);
+  status.noteLimitRows('casey', on, t0 + 5.5 * 3600e3 + 90e3);
+  assert.equal(iso(status.claudeLimitUntil('casey', line, t0 + 5.6 * 3600e3)), '2026-10-10T21:00:00.000Z', 'a row gone for a minute ended the limit');
+  // Off the screen for more than two minutes: ended, so the same words the next day are a new limit.
+  status.noteLimitRows('casey', STATUS_LINE, t0 + 6 * 3600e3);
+  assert.equal(status.claudeLimitUntil('casey', line, t0 + 6 * 3600e3), null, 'a row gone for half an hour still has a first-seen time');
   const nextDay = at('2026-10-11T16:00:00Z');
+  status.noteLimitRows('casey', STATUS_LINE, nextDay - 30e3);   // the board capturing as usual (no gap)
+  status.noteLimitRows('casey', on, nextDay);
   assert.equal(iso(status.claudeLimitUntil('casey', line, nextDay)), '2026-10-11T21:00:00.000Z', 'read against yesterday\'s first-seen time');
-  // A line with no reset this reads (a relative one) is another limit too.
-  const fresh = at('2026-10-13T17:00:00Z');
-  status.claudeLimitUntil('casey', line, fresh);
-  status.claudeLimitUntil('casey', "You've hit your fast limit · resets in 4m", fresh + 60e3);
-  assert.equal(iso(status.claudeLimitUntil('casey', line, at('2026-10-14T17:00:00Z'))), '2026-10-14T21:00:00.000Z', 'an unread line between did not end the dateless limit');
-  // A dated line on the screen is another limit too: after it, the dateless words are read afresh.
-  status.claudeLimitUntil('casey', `You've hit your weekly limit · resets Oct 14 at 3pm ${Z}`, nextDay + 60e3);
-  assert.equal(iso(status.claudeLimitUntil('casey', line, at('2026-10-12T17:00:00Z'))), '2026-10-12T21:00:00.000Z', 'a dated limit between did not end the dateless one');
-  // A dated line needs no first-seen time.
+  // CONTROL: the key is the agent. The same weekly last-day words first seen by kim at 14:00 CDT and by leo at 15:30.
+  const wk = `You've hit your weekly limit · resets 3pm ${Z}`;
+  status.noteLimitRows('kim', STATUS_LINE, at('2026-10-10T18:59:30Z'));   // captured just before (no gap)
+  status.noteLimitRows('kim', limitScreen(wk), at('2026-10-10T19:00:00Z'));
+  status.noteLimitRows('leo', STATUS_LINE, at('2026-10-10T20:29:30Z'));
+  status.noteLimitRows('leo', limitScreen(wk), at('2026-10-10T20:30:00Z'));
+  assert.equal(iso(status.claudeLimitUntil('kim', wk, at('2026-10-10T20:30:00Z'))), '2026-10-10T20:00:00.000Z');
+  assert.equal(iso(status.claudeLimitUntil('leo', wk, at('2026-10-10T20:30:00Z'))), '2026-10-11T20:00:00.000Z', 'another agent\'s first-seen time was used');
+  // A dated line needs no first-seen time; a line with no reset this reads has none.
   assert.equal(iso(status.claudeLimitUntil('casey', `You've hit your weekly limit · resets Oct 12 at 3pm ${Z}`, t0)), '2026-10-12T20:00:00.000Z');
-  assert.equal(status.claudeLimitUntil('casey', 'Looks like nothing', t0), null);
+  assert.equal(status.claudeLimitUntil('casey', "You've hit your fast limit · resets in 4m", t0), null);
 });
 
 test('#5805 slice 3: the card carries limitUntil for a capped Claude agent, dated or dateless, and null otherwise', () => {
@@ -129,6 +121,7 @@ test('#5805 slice 3: the card carries limitUntil for a capped Claude agent, date
   ];
   for (const [label, screen, state, check] of cases) {
     status.resetLimitFirstSeenForTests();
+    status.noteLimitRows('casey', '', Date.now());   // captured before, so the row is seen arriving (3b: not late)
     const board = fleet.install([fleet.agent('casey', { state, runner: 'claude', command: 'claude', screen })]);
     try {
       const card = board.agents.find((c) => c.sessionName === 'casey');
@@ -137,34 +130,4 @@ test('#5805 slice 3: the card carries limitUntil for a capped Claude agent, date
       check(card.limitUntil);
     } finally { board.restore(); }
   }
-});
-
-test('#5805 slice 3: through the card builder, a capped reading between two stray ones keeps the limit (review 3)', () => {
-  // Every reading goes through the real card builder at a set clock. The limit is first seen at T with its reset at
-  // T+1h; the line stays on screen past the reset. Stray not-capped readings at T+0.6h and T+1.6h have a capped
-  // reading between them, so they are a minute apart in no sense that matters: the limit must survive both. Were the
-  // capped reading not to clear the first stray one, the second would end the limit at T+1.6h and the clock would
-  // restart past the reset (a session limit then names no time).
-  const real = Date.now;
-  const T = Math.floor(real() / 60e3) * 60e3;
-  const line = `You've hit your session limit · resets ${clock(T + 3600e3)} ${Z}`;
-  const read = (ms, capped) => {
-    Date.now = () => ms;
-    try {
-      const board = fleet.install([fleet.agent('dana', capped
-        ? { state: 'rate_limited', runner: 'claude', command: 'claude', screen: limitScreen(line) }
-        : { state: 'idle', runner: 'claude', command: 'claude', screen: STATUS_LINE })]);
-      try { return board.agents.find((c) => c.sessionName === 'dana').limitUntil; } finally { board.restore(); }
-    } finally { Date.now = real; }
-  };
-  const first = read(T, true);
-  assert.ok(first && Math.abs(Date.parse(first) - (T + 3600e3)) < 60e3, 'CONTROL: first seen with its reset an hour on: ' + first);
-  read(T + 0.6 * 3600e3, false);
-  assert.equal(read(T + 1.5 * 3600e3, true), first, 'one stray reading ended the limit');
-  read(T + 1.6 * 3600e3, false);
-  assert.equal(read(T + 1.7 * 3600e3, true), first, 'a stray reading an hour after an earlier one ended the limit');
-  // CONTROL: two stray readings three minutes apart with nothing capped between do end it.
-  read(T + 1.8 * 3600e3, false);
-  read(T + 1.85 * 3600e3, false);
-  assert.equal(read(T + 1.9 * 3600e3, true), null, 'the limit did not end after two minutes not capped');
 });
