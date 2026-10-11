@@ -72,7 +72,7 @@ function check(name, pass, detail) {
   const chk = await slotAfter({ count: 2, reason: 'port-check-failed', port: 16180, ts: '' });
   check('#4675 port-check-failed: says the update could not check, names N, ends in a step a person can take',
     /tried to install it 2 times and could not, because this computer could not check whether Kosmos had stopped/i.test(chk)
-      && /quit and reopen Kosmos/i.test(chk) && /please tell us/i.test(chk) && /agents keep working/i.test(chk)
+      && /quit and reopen Kosmos/i.test(chk) && /restart this computer/i.test(chk) && /agents keep working/i.test(chk)
       && !/was busy/i.test(chk) && !TYPED.test(chk), chk.slice(0, 260));
   const unr = await slotAfter({ count: 1, reason: 'port-unreachable', port: 16180, ts: '' });
   check('#4675 port-unreachable: says something else held the connection, and ends in a restart',

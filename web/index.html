@@ -22340,8 +22340,9 @@ let ENGINE_STALE = null;
  */
 /**
  * #2055: the board notice for a silently-aborting update. Angel's engine half
- * records a durable, consecutive-counted marker each time an update cannot pause
- * the board, and clears it once one gets through; `/api/status` carries it as
+ * records a durable, consecutive-counted marker each time an update stops at its
+ * pause (#4675: with the stop's reason, which chooses the sentence below; the count
+ * is of consecutive stops for that one reason), and clears it once one gets through; `/api/status` carries it as
  * `updateAbort = { count, reason, port, ts } | null`. Until this, the only
  * audience was install.log -- 155 aborts on one machine, seen by nobody -- and a
  * machine in this state stops receiving fixes, invisibly.
@@ -22386,16 +22387,17 @@ function paintUpdateAbort(ab) {
   if (slot.dataset.n === key) return;
   slot.dataset.n = key;
   const times = count === 1 ? 'once' : count + ' times';
-  // #4675: the stops after the pause are not "Kosmos was busy", so they get their own words. Each ends in something a
-  // person can do without typing a command (as #2055 requires), and none claims a cause this notice cannot know.
-  // Any other reason, 'board-would-not-pause' and 'port-still-held' included, keeps #2055's sentence.
+  // #4675: the stops after the pause are not "Kosmos was busy", so they get their own words. Each ends in steps a
+  // person can take without typing a command (as #2055 requires). "replaced nothing" is about files: by these stops
+  // the installer has stopped the board and its exit puts it back. The const stays in here so a test can lift the
+  // function whole. Any other reason, 'board-would-not-pause' and 'port-still-held' included, keeps #2055's sentence.
   const UPDATE_ABORT_WHY = {
-    'port-check-failed': 'this computer could not check whether Kosmos had stopped, so the update changed nothing. '
-      + 'Quit and reopen Kosmos, and the next update will try again. If this notice is still here after that, please '
-      + 'tell us: the check itself may not work on this computer. Your agents keep working, they do not live in this window.',
+    'port-check-failed': 'this computer could not check whether Kosmos had stopped, so the update replaced nothing. '
+      + 'Your agents keep working, they do not live in this window. Quit and reopen Kosmos; the next update will '
+      + 'try again. If this notice is still here after that, restart this computer.',
     'port-unreachable': 'something was still using the connection Kosmos runs on and the update could not tell what, '
-      + 'so it changed nothing. Quit and reopen Kosmos, and the next update will try again. If this notice is still '
-      + 'here after that, restart this computer. Your agents keep working, they do not live in this window.',
+      + 'so it replaced nothing. Your agents keep working, they do not live in this window. Quit and reopen Kosmos; '
+      + 'the next update will try again. If this notice is still here after that, restart this computer.',
   };
   const why = Object.prototype.hasOwnProperty.call(UPDATE_ABORT_WHY, reason) ? UPDATE_ABORT_WHY[reason] : '';
   slot.innerHTML = '<div class="utoast stale" role="status">'

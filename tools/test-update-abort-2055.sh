@@ -77,13 +77,18 @@ printf 'count=not-a-number\nreason=x\n' > "$M2"
 record "$L2" 16180
 chk "corrupt count resets to 1, not blank/garbage"   sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 1 ]' _ "$M2"
 
-# ---- #4675: one streak across reasons; the reason is the latest stop's -------
+# ---- #4675: the count is per reason, so "N times because <reason>" is true ---
 L3="$TMP/logs3"; mkdir -p "$L3"; M3="$L3/update-abort"
 record "$L3" 16180
+record "$L3" 16180
 record "$L3" 16180 port-check-failed
-chk "a stop of another kind continues the same count" sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 2 ]' _ "$M3"
+chk "a stop for a different reason starts the count at 1" sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 1 ]' _ "$M3"
 chk "the reason is the latest stop's"                 sh -c 'grep -q "^reason=port-check-failed$" "$1"' _ "$M3"
 chk "only one reason line is kept"                    sh -c '[ "$(grep -c "^reason=" "$1")" = 1 ]' _ "$M3"
+record "$L3" 16180 port-check-failed
+chk "the same reason again continues its count"      sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 2 ]' _ "$M3"
+record "$L3" 16180
+chk "back to the first reason starts at 1, not 3"     sh -c '[ "$(sed -n "s/^count=//p" "$1")" = 1 ]' _ "$M3"
 # ---- a logs dir that cannot be written is not an error (the stop still stops) -
 chk "an unwritable logs dir does not fail the caller" record "$TMP/no-such-dir" 16180
 

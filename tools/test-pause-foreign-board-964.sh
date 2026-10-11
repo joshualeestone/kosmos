@@ -17,7 +17,7 @@ SETUP="$HERE/install/setup.sh"
 
 # Extract the outer `case "$_pausebody" in` ... `  esac`. The outer esac is the only
 # one at 2-space indent (`^  esac$`): the nested cases inside are either a one-line
-# `case ... esac` (the ps-match and the _abortn guard) or, for the multi-line
+# `case ... esac` (the ps-match) or, for the multi-line
 # `case "$_ourpid"`, an esac indented deeper than 2 spaces -- so none of them match
 # `^  esac$` and the first one that does is the outer close.
 BLOCK="$(awk '

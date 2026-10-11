@@ -2947,12 +2947,13 @@ _kosmos_paused_board=no
 # #2055, #4675: record a stop at the update's pause, durably and with a CONSECUTIVE count, in the same logs/ dir the
 # board reads install.status from. On the automatic update path the die that follows goes to stderr and install.log,
 # which nobody reads (one machine stopped there 155 times unseen), so this file is the only thing a screen can show.
-# One streak across reasons: it means "stuck at the pause, N times", and reason is the latest stop's. It is cleared
-# once an update gets past the pause. A file that cannot be written is not an error: the stop still stops.
+# The count is of consecutive stops FOR THIS REASON: a stop for a different reason starts again at 1, so the board's
+# "N times, because <reason>" is true of every one of the N. It is cleared once an update gets past the pause.
+# A file that cannot be written is not an error: the stop still stops.
 _kosmos_note_pause_abort() { # reason
   _abortf="$LOG_DIR/update-abort"
   _abortn=0
-  if [ -f "$_abortf" ]; then
+  if [ -f "$_abortf" ] && [ "$(sed -n 's/^reason=//p' "$_abortf" 2>/dev/null || true)" = "$1" ]; then
     _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
   fi
   case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
@@ -2965,7 +2966,7 @@ _kosmos_note_pause_abort() { # reason
 # the environment here, because this script goes on to start the board: a board that inherited it would hand it to
 # its agents, and their pasted install lines would then pass for the board's own.
 _kosmos_by_board=no
-if [ "${KOSMOS_UPDATE_BY_BOARD:-}" = 1 ]; then _kosmos_by_board=1; fi
+if [ "${KOSMOS_UPDATE_BY_BOARD:-}" = 1 ]; then _kosmos_by_board=yes; fi
 unset KOSMOS_UPDATE_BY_BOARD
 _kosmos_putback_unsure=no   # #4651: set at the port-check stops, where this run cannot tell whether its stop stopped anything
 _kosmos_put_board_back() {
@@ -3155,7 +3156,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # the board and nobody reads these words; only its words change if the start fails (_kosmos_putback_unsure).
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
       _kosmos_putback_unsure=yes
-      if [ "$_kosmos_by_board" = 1 ]; then _kosmos_note_pause_abort port-check-failed; fi
+      if [ "$_kosmos_by_board" = yes ]; then _kosmos_note_pause_abort port-check-failed; fi
       _lsofsaid="$(printf '%s\n' "$_lsofout" | sed -n '/./{p;q;}')"
       die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message."
     fi
@@ -3168,19 +3169,18 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       case "$_pauserc" in
         0|1|22|28|52|56) ;;
         *) _kosmos_putback_unsure=yes
-           if [ "$_kosmos_by_board" = 1 ]; then _kosmos_note_pause_abort port-unreachable; fi
+           if [ "$_kosmos_by_board" = yes ]; then _kosmos_note_pause_abort port-unreachable; fi
            die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again." ;;
       esac
-      if [ "$_kosmos_by_board" = 1 ]; then _kosmos_note_pause_abort port-still-held; fi
+      if [ "$_kosmos_by_board" = yes ]; then _kosmos_note_pause_abort port-still-held; fi
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
   fi
-  # #2055: got past the pause -- the update is proceeding, so the consecutive
-  # board-would-not-pause abort streak is broken. Clear the marker so a machine
-  # that recovers stops surfacing the notice. NOTE the scope: this clears only the
-  # PAUSE-abort streak; it does NOT assert the update SUCCEEDED. A later failure (a
-  # 404, a checksum refusal, a failed swap) is a different signal (install.status /
-  # the #1728 in-flight marker), so clearing here on passing the pause is correct.
+  # #2055: got past the pause -- the update is proceeding, so the streak of stops at the pause (whatever its
+  # reason, #4675) is broken. Clear the marker so a machine that recovers stops surfacing the notice. NOTE the scope:
+  # this clears only the PAUSE streak; it does NOT assert the update SUCCEEDED. A later failure (a 404, a checksum
+  # refusal, a failed swap) is a different signal (install.status / the #1728 in-flight marker), so clearing here on
+  # passing the pause is correct.
   rm -f "$LOG_DIR/update-abort" 2>/dev/null || true
 fi
 
