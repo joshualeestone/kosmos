@@ -161,11 +161,13 @@ test('#5774 part 2 review 1: ZDOTDIR set inside .zshenv (where it usually is) mo
       assert.equal(g.ok, true, `${line}: ` + JSON.stringify(g));
       assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(folder, '.zshrc')).length > 0, `${line}: ${folder}/.zshrc not denied`);
     });
-    // Review 2: a quote in the middle (ZDOTDIR="$HOME"/.zsh) is named, never read as "$HOME" and dropped.
+    // Review 2: a quote in the middle (ZDOTDIR="$HOME"/.zsh) is never read as "$HOME" and dropped. Review 11: it is
+    // read whole, part by part, so its real folder is denied (and the guard is whole).
     fs.writeFileSync(zshenv, 'export ZDOTDIR="$HOME"/.zsh\n');
-    const gq = setup.guardTokenOnlyFolder(agentDir('pilot-zdotq'), 'pilot-zdotq', { ...DEPS, env: {} });
-    assert.equal(gq.ok, false, JSON.stringify(gq));
-    assert.match(String(gq.because), /ZDOTDIR/);
+    const dq = agentDir('pilot-zdotq');
+    const gq = setup.guardTokenOnlyFolder(dq, 'pilot-zdotq', { ...DEPS, env: {} });
+    assert.equal(gq.ok, true, JSON.stringify(gq));
+    assert.ok(editDeniedBy(readSettings(dq).permissions.deny, path.join(HOME, '.zsh', '.zshrc')).length > 0, '~/.zsh/.zshrc, the folder "$HOME"/.zsh means');
     // One it cannot work out is named, so the guard is not whole.
     fs.writeFileSync(zshenv, 'export ZDOTDIR="$SOMETHING/zsh"\n');
     const g = setup.guardTokenOnlyFolder(dir, 'pilot-zdot', { ...DEPS, env: {} });
@@ -575,8 +577,9 @@ test('#5774 part 2 review 11: a linked PARENT (Stow-folded ~/.config, a linked Z
     const dir = agentDir('pilot-robashrc');
     setup.guardTokenOnlyFolder(dir, 'pilot-robashrc', { ...DEPS, env: ENV0 });
     const s = readSettings(dir);
+    // The file tools' rule is what matters (the shell cannot write the home folder). In this sandbox the home is under
+    // /var, a link to /private/var, so the path counts as linked and a read-only one is denied to the file tools only.
     assert.ok(editDeniedBy(s.permissions.deny, rc).length > 0, 'a read-only ~/.bashrc was dropped');
-    assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, rc));
   } finally { fs.chmodSync(rc, 0o644); fs.rmSync(rc, { force: true }); }
 });
 

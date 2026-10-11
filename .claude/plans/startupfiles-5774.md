@@ -17,7 +17,7 @@
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 20 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 22 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, measured on this host at 618fdb5e6 (review 9 asked for a re-measure after the Cellar rule) with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV: 58 more denyWrite entries (132 against 74; 8.4 KB against 4.6 KB as JSON) and 66 more deny rules. The guard's own profile-size check (#5663) still passes.
@@ -34,7 +34,7 @@
 - A link inside a folder that is itself reached through a link is not followed further.
 - Other guard tests that pass neither deps.env nor deps.userShellDirs read this host's environment and Homebrew folders. Decided, not pinned in their nine files: only a relative BASH_ENV, path-like ENV, ZDOTDIR or XDG_CONFIG_HOME in the host's environment can change their result, and it fails closed. Homebrew targets are now covered by a stable Cellar rule rather than by name.
 - A completion dump that does not exist yet, in a ZDOTDIR the shell can write, is covered by the file tools' glob only.
-- A second assignment on one line (`export A=1 ZDOTDIR=x`) is not read; a quoted value with a space (`ZDOTDIR="$HOME/my zsh"`) is named, so the guard is not whole.
+- A second assignment on one line (`export A=1 ZDOTDIR=x`) is not read.
 - A WRITABLE linked target whose path has a rule-syntax character (a dotfiles repo under `~/Dropbox (Personal)`) is named, so the guard is not whole and creation fails. DECIDED, not changed: the file tools cannot be denied that target, so it is a real gap, and config files already behave the same way. The sandbox layer still carries it.
 - ZDOTDIR set in .zshenv by `typeset -x ZDOTDIR=...` or `: ${ZDOTDIR:=...}`, or in /etc/zshenv, is not read; the conventional XDG folder is covered regardless.
 - Route 3 and on stay on the card.
@@ -102,4 +102,10 @@
   - [WARNING] DECIDED (stated under Gaps): a writable target with a rule-syntax character is named.
   - [WARNING] FIXED. A Homebrew under another prefix listed versioned paths. A Cellar or Caskroom is now detected from the target's shape. Tested with an unlisted prefix; mutation red.
   - NITs taken: the space-in-path case is stated under Gaps.
+- Iteration 11 (Opus), on b8685ca48:
+  - [BLOCKER] FIXED, and MY regression from review 10. The leaf-only link check (lstat) missed a link in a PARENT folder: a Stow-folded ~/.config, or a linked ZDOTDIR folder. The real files there got no file-tools rule and the guard said whole (the reviewer reproduced both). "Linked" is now decided by where the path really resolves (realOrLeaf), wherever the link sits. Tests for both shapes; restoring the leaf-only check turns them red.
+  - [WARNING] FIXED. A read-only non-link ~/.bashrc was dropped entirely, but the home folder is writable, so it could be replaced. A path is now always kept; only a resolved target is judged. In the test sandbox the home sits under /var (a link to /private/var), so such a file counts as linked and is denied to the file tools only, which is the layer that matters there. Mutation red.
+  - [WARNING] FIXED. Joined quoting (`ZDOTDIR="$HOME"/.zsh`, a common spelling) was named, so the guard was not whole. Values are now unquoted part by part. A quoted ~ (zsh leaves it literal) or a single-quoted $ is named, and a quoted space is fine. The old review-1 and review-2 test cases were corrected: one expected a quoted ~ to expand, and one expected "$HOME"/.zsh to be named. Mutation of the quoted-~ rule: red.
+  - [WARNING] FIXED: tests for linked parents and for a read-only non-link file.
+  - NITs taken: a read-only linked folder gets /** (mutation red). Accepted: dumps by name in a ZDOTDIR outside the home can pile up at zsh upgrades (rare). The hermeticity of homebrewPrefixes is stated in iteration 5.
 
