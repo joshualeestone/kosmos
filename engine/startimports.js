@@ -38,15 +38,21 @@ function readText(f) {
    `**@a.md**` and `[@c.md](u)` are imports: * [ ] become spaces here, and a _ before the @ is an edge (importsIn). */
 function proseOf(text) {
   const out = [];
-  let fence = null;
+  let fence = null, fenceIndent = 0;
   for (const line of String(text).split('\n')) {
-    const m = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    const m = /^( {0,3})(`{3,}|~{3,})/.exec(line);
     if (fence) {
-      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && /^ {0,3}[`~]+\s*$/.test(line)) fence = null;
-      out.push('');
-      continue;
+      /* Review 7: a fence opened INDENTED (inside a list item) ends with its item, at the first non-blank line indented
+         less than the fence: an unclosed one there no longer hides the rest of the file. */
+      const lead = /^ */.exec(line)[0].length;
+      if (fenceIndent > 0 && /\S/.test(line) && lead < fenceIndent) fence = null;
+      else {
+        if (m && m[2][0] === fence[0] && m[2].length >= fence.length && /^ {0,3}[`~]+\s*$/.test(line)) fence = null;
+        out.push('');
+        continue;
+      }
     }
-    if (m && !(m[1][0] === '`' && line.slice(line.indexOf(m[1]) + m[1].length).includes('`'))) { fence = m[1]; out.push(''); continue; }
+    if (m && !(m[2][0] === '`' && line.slice(line.indexOf(m[2]) + m[2].length).includes('`'))) { fence = m[2]; fenceIndent = m[1].length; out.push(''); continue; }
     out.push(line);
   }
   return stripComments(stripCodeSpans(out.join('\n'))).replace(/[*[\]]/g, ' ');
@@ -107,21 +113,40 @@ function stripComments(t) {
   return out + t.slice(at);
 }
 
+/* Review 7: the text Claude Code's RAW pass sees: list items only (marked hands an item's content on as raw text). A
+   list runs from a list marker (- * + or 1. 1), at most 3 spaces in) until a blank line followed by an unindented line,
+   or a fence at column 0, which ends it; everything else is blanked. Lines inside a list stay, its fences included.
+   Linear. A shape this misses as a list (an unusual marker) is still read by the token pass, so only a code span or
+   comment inside such an item could be missed. */
+function listText(text) {
+  const out = [];
+  let inList = false, prevBlank = false;
+  for (const line of String(text).split('\n')) {
+    const blank = /^\s*$/.test(line);
+    if (/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/.test(line)) inList = true;
+    else if (inList && !blank && !/^\s/.test(line) && (prevBlank || /^(?:`{3,}|~{3,})/.test(line))) inList = false;
+    out.push(inList ? line : '');
+    prevBlank = blank;
+  }
+  return out.join('\n');
+}
 /* The imports in one file's text, as absolute paths, in Claude Code's rule: `@` at the start or after whitespace, then
    non-space characters (a backslash-space is a space); a # ends the path; kept when it starts ./, ~/ or / (not / alone),
    or is a bare name starting with a letter, digit, ., _ or -; resolved from the file's folder. */
 function importsIn(text, file, home) {
   const out = new Set();
-  /* Claude Code makes two passes, and each is matched here as it is:
+  /* Claude Code makes two passes. The characters allowed before the @ are matched exactly in each; where each pass runs
+     is approximated as stated:
      - Review 3: a list item's RAW text (code spans and comments included) with its own pattern, (?:^|\s)@: whitespace
-       only. The raw text is scanned the same way, nothing stripped, which also covers a fence an item's end closes.
+       only. Review 7: only list text is scanned this way (listText); scanning the whole raw file turned a fenced example
+       (`npx tsx @src/index.ts`) into a name denied in every agent's folder.
      - Review 5: each marked TEXT token, which can START at an @ just after another token ends: inline HTML or an
        autolink (>), a link or image ()), an emphasis mark (* _), a closing code span (stripped to a space here), or an
        escaped character (\#). Review 6: those edges only, not any punctuation: in "a/@b" or "https://x.com/@u" the @ is
        inside one text token (marked's text breaks before \ < ! [ ` * _ and merges neighbours), so it is not an import.
      An e-mail address (a letter before the @) is neither. */
   const raw = /(?:^|\s)@((?:[^\s\\]|\\ )+)/g;
-  const tok = /(?:^|[\s>)*_]|\\.)@((?:[^\s\\]|\\ )+)/g;
+  const tok = /(?:^|[\s>)_]|\\.)@((?:[^\s\\]|\\ )+)/g;   // * is already a space (proseOf)
   /* Review 1: resolved from the folder the file REALLY is in, as Claude Code does (it parses with the resolved path).
      The folder as given too, when only a FOLDER on the way is linked: both name one file, which the agent's tools can
      write by either spelling. */
@@ -147,7 +172,8 @@ function importsIn(text, file, home) {
   const found = [];
   let m;
   const text0 = String(text);
-  while ((m = raw.exec(text0)) !== null) found.push(m[1]);
+  const listed = listText(text0);
+  while ((m = raw.exec(listed)) !== null) found.push(m[1]);
   const prose = proseOf(text0);
   while ((m = tok.exec(prose)) !== null) found.push(m[1]);
   for (const p of found) {
@@ -197,4 +223,4 @@ function importTargets(roots, { home, maxFiles = MAX_FILES } = {}) {
   return { files: [...files].filter((f) => !rootKeys.has(key(f))), unsafe };
 }
 
-module.exports = { importTargets, importsIn, proseOf, MAX_DEPTH, TEXT_EXTS };
+module.exports = { importTargets, importsIn, proseOf, listText, MAX_DEPTH, TEXT_EXTS };

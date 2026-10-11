@@ -68,7 +68,7 @@ DEPS.userShellDirs = USERDIRS;
 DEPS.homebrewPrefixes = [];   // review 12: this host's own Homebrew is not read either (tests that need one pass theirs)
 const si = require('./startimports');
 
-test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spaces, the path shapes), and code and comments are read too (review 3: the union errs toward more)', () => {
+test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spaces, the path shapes); code and comments in a paragraph are not, in a list item they are', () => {
   const f = path.join(SANDBOX, 'p', 'CLAUDE.md');
   const home = '/h';
   const got = si.importsIn([
@@ -90,9 +90,11 @@ test('#5774 route 3: imports are read as Claude Code reads them (#, escaped spac
   // lists, so code and comments are scanned everywhere: the result is a superset, never a subset.
   // Review 5: a superset by design, so the test names what MUST be there and what must NOT.
   for (const w of [path.join(dir, 'a.md'), path.join(dir, 'b.md,'), '/h/c.md,', '/abs/d.md', path.join(dir, 'j.md'),
-    path.join(dir, 'my file.md'), path.join(dir, 'indented.md'), path.join(dir, 'inline.md`'), path.join(dir, 'inline.md'), path.join(dir, 'comment.md'),
-    path.join(dir, 'fenced.md'), path.join(dir, 'tilde-fenced.md')]) assert.ok(got.includes(w), `${w} missing from ${JSON.stringify(got)}`);
-  for (const n of ['e.md', 'f.io']) assert.ok(!got.some((g) => path.basename(g) === n), `${n}: a word-joined @ (an e-mail) read as an import`);
+    path.join(dir, 'my file.md'), path.join(dir, 'indented.md')]) assert.ok(got.includes(w), `${w} missing from ${JSON.stringify(got)}`);
+  // Review 7: in a PARAGRAPH, code (spans, fences) and comments are skipped by Claude Code, so they are not imports here
+  // either (the raw pass reads list items only).
+  for (const n of ['e.md', 'f.io', 'inline.md', 'inline.md`', 'comment.md', 'fenced.md', 'tilde-fenced.md']) assert.ok(!got.some((g) => path.basename(g) === n), `${n} read as an import: ${JSON.stringify(got)}`);
+  assert.deepStrictEqual(si.importsIn('Example:\n\n```\nnpx tsx @src/index.ts\n@dataclass\n```\n', f, home), [], 'a top-level fenced example');
   // The cases review 3 measured in 2.1.296: list items scan code spans and comments.
   for (const [line, want] of [['- run `claude @notes.md --x` first', 'notes.md'], ['- see <!-- @hidden.md --> here', 'hidden.md'], ['1. step `cat @one.md | x`', 'one.md']]) {
     assert.ok(si.importsIn(line, f, home).includes(path.join(dir, want)), line);
@@ -405,4 +407,31 @@ test('#5774 route 3 review 5: a link on the way, or a store reached through one,
     assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(odd, 'Cellar', 'pkg', '2', 'n.md')), 'the sandbox keeps the Cellar');
     assert.ok(editDeniedBy(s.permissions.deny, path.join(base, 'real-r5.md')).length > 0, 'the end of the chain');
   } finally { fs.rmSync(homeMd, { force: true }); }
+});
+
+test('#5774 route 3 review 7: a chain that starts inside an agent folder has its middle link denied; an uncarriable target in another agent folder is named', () => {
+  const base = fs.realpathSync.native(SANDBOX);
+  const workers = path.join(SANDBOX, 'workers');
+  const sib = path.join(workers, 'sib-r7');
+  fs.mkdirSync(sib, { recursive: true });
+  touch(path.join(base, 'y-r7', 'real.md'));
+  const mk = (l, t) => { fs.mkdirSync(path.dirname(l), { recursive: true }); fs.rmSync(l, { force: true }); fs.symlinkSync(t, l); };
+  mk(path.join(base, 'x-r7', 'hop.md'), path.join(base, 'y-r7', 'real.md'));
+  mk(path.join(sib, 'imp.md'), path.join(base, 'x-r7', 'hop.md'));
+  try {
+    fs.writeFileSync(path.join(sib, 'CLAUDE.md'), '@./imp.md\n');
+    const d = agentDir('pilot-chain-r7');
+    assert.equal(setup.guardTokenOnlyFolder(d, 'pilot-chain-r7', { ...DEPS, env: ENV0 }).ok, true);
+    const deny = readSettings(d).permissions.deny;
+    assert.ok(editDeniedBy(deny, path.join(base, 'x-r7', 'hop.md')).length > 0, 'the middle link');
+    assert.ok(editDeniedBy(deny, path.join(base, 'y-r7', 'real.md')).length > 0, 'the end');
+    // An existing target inside ANOTHER agent folder whose path the rules cannot carry: named, never dropped silently.
+    touch(path.join(workers, 'other-r7', 'odd (1).md'));
+    mk(path.join(sib, 'imp2.md'), path.join(workers, 'other-r7', 'odd (1).md'));
+    fs.writeFileSync(path.join(sib, 'CLAUDE.md'), '@./imp2.md\n');
+    const d2 = agentDir('pilot-oddsib-r7');
+    const g = setup.guardTokenOnlyFolder(d2, 'pilot-oddsib-r7', { ...DEPS, env: ENV0 });
+    assert.equal(g.ok, false, 'not whole');
+    assert.ok(JSON.stringify(g).includes('odd (1).md (a file an instruction file imports'), JSON.stringify(g));
+  } finally { fs.rmSync(path.join(sib, 'CLAUDE.md'), { force: true }); }
 });

@@ -1924,14 +1924,15 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      shell startup files' do. Otherwise the target and where it leads, links followed. */
   const importStableDirs = new Set();
   const importLinks = [];   // a link to a read-only or store target: the link itself, file tools only (as editOnlyLinks)
+  const outsideAgentsHop = (h) => {
+    const r = stableRootOf(deps.storeRoots || STORE_ROOTS, h);
+    if (r && !tooWide(r) && !ruleHasPatternChar(`Edit(${ruleAbs(r)}/**)`)) importStableDirs.add(r); else importLinks.push(h);
+  };
   const outsideAgents = (f) => {
     if (coveredWhole(f)) return;
     if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) { uncarriedImport(f); return; }
     // Review 4: every replaceable link on the way (part 2's chainHops), file tools only; one in a store or Cellar by its rule.
-    for (const h of chainHops(f)) {
-      const r = stableRootOf(deps.storeRoots || STORE_ROOTS, h);
-      if (r && !tooWide(r) && !ruleHasPatternChar(`Edit(${ruleAbs(r)}/**)`)) importStableDirs.add(r); else importLinks.push(h);
-    }
+    for (const h of chainHops(f)) outsideAgentsHop(h);
     let real;
     try { real = fs.realpathSync.native(f); } catch { real = realOrLeaf(danglingTarget(f)); }
     // Only a link at the LEAF can be replaced by a file; a path under a linked folder is the same file as its real one.
@@ -1955,9 +1956,17 @@ function tokenOnlySettingsRules(dir, deps = {}) {
       let real;
       try { real = fs.realpathSync.native(f); } catch { real = realOrLeaf(danglingTarget(f)); }
       if (real !== path.resolve(f)) {
+        // Review 7: the links on the way too (a hop outside the agents' folder by name, one inside by its glob).
+        for (const h of chainHops(f)) {
+          const restH = inAgentFolder(h);
+          if (restH === null) outsideAgentsHop(h);
+          else if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', restH))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', restH))})`);
+          else uncarriedImport(h);
+        }
         const rest2 = inAgentFolder(real);
         if (rest2 === null) outsideAgents(real);
         else if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', rest2))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest2))})`);
+        else uncarriedImport(real);   // review 7: named, never silently dropped
       }
       continue;
     }
@@ -2405,7 +2414,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.launchSecretDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.commandScripts || []).map(realOrLeaf), ...(rules.importFiles || []).map(realOrLeaf), ...(rules.importStableDirs || []), ...(rules.shellStartFiles || []).map(realOrLeaf), ...(rules.shellStartDirs || []).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf), ...(rules.trustedFiles || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.commandScripts || []).map(realOrLeaf), ...(rules.importFiles || []).map(realOrLeaf), ...(rules.importStableDirs || []).map(realOrLeaf), ...(rules.shellStartFiles || []).map(realOrLeaf), ...(rules.shellStartDirs || []).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf), ...(rules.trustedFiles || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
