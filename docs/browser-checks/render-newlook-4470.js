@@ -87,6 +87,8 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = mkroot('config-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
+/* #5551: Working's dots on Home in the new look (--nl-dot): today's green in light, the bright green in dark. */
+const DOT_OF = { light: 'rgb(47, 125, 90)', dark: 'rgb(48, 209, 88)' };
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const projects = require('../../engine/projects');
@@ -994,6 +996,11 @@ const AGENTS_LOOK = `(() => {
         const dmForced = await page.evaluate(DM_LOOK);   // the generated forced-dark rules sit later in the sheet (round 1)
         chk(dmForced.found && dmForced.box === 'rgb(0, 0, 0)' && dmForced.you === GREY_OF.dark && dmForced.agent === 'rgb(0, 0, 0)' && dmForced.tail === 'rgb(0, 0, 0)' && dmForced.composer === GREY_OF.dark,
           `${tag} On + chosen Dark: an agent's page has the black ground, dark-grey own messages and composer`, JSON.stringify(dmForced));
+        /* Review 5: chosen Dark's green comes from the generated forced copy of --nl-dot; a dropped copy fails here. */
+        const dotForced = await page.evaluate(() => { const g = document.getElementById('grid'); if (!g) return 'absent';
+          const d = document.createElement('div'); d.className = 'acard working'; d.innerHTML = '<div class="astate st-working"><span class="act"><i></i><i></i><i></i></span><b>Working</b></div>';
+          g.append(d); const v = getComputedStyle(d.querySelector('.act i')).backgroundColor; d.remove(); return v; });
+        chk(dotForced === 'rgb(48, 209, 88)', `${tag} On + chosen Dark: Working's dots on Home are the bright green`, dotForced);
         const ctlForced = await page.evaluate(CTRL_LOOK);
         /* Review 3: today's gold edge by value (--gold-deep, #b88920, one value in every theme), not just "some edge". */
         chk(ctlForced.found && ctlForced.plainBg === 'rgb(58, 58, 60)' && ctlForced.plainEdge === 'rgb(184, 137, 32)' && ctlForced.plainShadow === 'none',
@@ -1028,7 +1035,7 @@ const AGENTS_LOOK = `(() => {
       chk(agOn.home.workingBg !== 'absent' && agOn.home.workingBg === agOn.home.idleBg && agOn.home.workingImg === 'none'
         && (agOn.home.workingLayer === 'none' || agOn.home.workingLayer === 'normal')
         && agOn.home.pillEdge === 'rgba(0, 0, 0, 0)' && agOn.home.pillBg === 'rgba(0, 0, 0, 0)' && (agOn.home.pillLayer === 'none' || agOn.home.pillLayer === 'normal')
-        && /Working/.test(agOn.home.pillWord) && agOn.home.dot === ({ light: 'rgb(46, 154, 90)', dark: 'rgb(48, 209, 88)' })[theme],   // --nl-green: 3:1 or more on the card (review 4)
+        && /Working/.test(agOn.home.pillWord) && agOn.home.dot === DOT_OF[theme],   // --nl-dot: 3:1 or more on the card (reviews 4, 5)
         `${tag} On, Home: the working card is the idle card's grey with no wash or pulse, its state a word with no pill`, JSON.stringify(agOn.home));
       /* The count row is plain text: the Issue filter loses its red box and rests on the soft grey ground of a control.
          Review 3: only the EDGE half guards the change today (the tile's new-look fill is already this grey); the ground
@@ -1051,16 +1058,21 @@ const AGENTS_LOOK = `(() => {
            could-not-read's dashed one) and the ones it turns into a mark and a word (Question, idle) are read too. */
         const PILL = { attn: 'st-attn', question: 'st-question', unk: 'st-unknown', '': 'st-idle', restarting: 'st-restarting' };   // boardMods: astate st-${m.st}, and m.st IS 'question' (review 3)
         for (const c of ['attn', 'question', 'unk', '', 'restarting']) {
-          const d = document.createElement('div'); d.className = c === 'restarting' ? 'acard' : ('acard ' + c).trim();   // a restarting card has no state class of its own
-          const pl = document.createElement('div'); pl.className = 'astate ' + PILL[c]; pl.innerHTML = '<b>x</b>'; d.append(pl); g.append(d);
-          const cs = getComputedStyle(d), ps = getComputedStyle(pl);
+          const d = document.createElement('div'); d.className = ('acard ' + c).trim();   // boardMods gives restarting its own class too (review 5)
+          const pl = document.createElement('div'); pl.className = 'astate ' + PILL[c]; pl.innerHTML = '<b>x</b>'; d.append(pl);
+          /* Review 5: a Question card whose agent keeps working shows a "Working now" line with the same dots. */
+          if (c === 'question') { const aw = document.createElement('div'); aw.className = 'alsowork'; aw.innerHTML = '<span class="act"><i></i><i></i><i></i></span>Working now'; d.append(aw); }
+          g.append(d);
+          const cs = getComputedStyle(d), ps = getComputedStyle(pl), awDot = d.querySelector('.alsowork .act i');
           out[c || 'idle'] = { color: cs.borderTopColor, style: cs.borderTopStyle, img: cs.backgroundImage, ratio: new Function(`return (${ratioFn})`)()(d),
-            pill: { edge: ps.borderTopColor, style: ps.borderTopStyle, bg: ps.backgroundColor } }; d.remove();
+            pill: { edge: ps.borderTopColor, style: ps.borderTopStyle, bg: ps.backgroundColor }, awDot: awDot ? getComputedStyle(awDot).backgroundColor : 'absent' }; d.remove();
         }
         return out;
       }, EDGE_RATIO);
       chk(strokes.found && ['attn', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed' && strokes.unk.ratio >= 1.5,
         `${tag} On, Agents page: Issue and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
+      chk(strokes.found && strokes.question.awDot === DOT_OF[theme],
+        `${tag} On, Home: a Question card's "Working now" dots are the same green as Working's, 3:1 or more on the warm card`, JSON.stringify(strokes.question));
       chk(strokes.found && strokes.attn.pill.bg !== 'rgba(0, 0, 0, 0)' && strokes.unk.pill.style === 'dashed' && strokes.unk.pill.edge !== 'rgba(0, 0, 0, 0)'
         && ['question', 'idle', 'restarting'].every((c) => strokes[c].pill.edge === 'rgba(0, 0, 0, 0)' && strokes[c].pill.bg === 'rgba(0, 0, 0, 0)'),
         `${tag} On, Home: the Issue pill keeps its fill and the could-not-read pill its dash; Question, idle and restarting are a mark and a word, no pill`, JSON.stringify(strokes));
