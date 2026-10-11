@@ -12,6 +12,7 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 - An import whose extension is not one of Claude Code's 107 text extensions is skipped, unread (it logs "Skipping non-text file in @include"); a file with no extension is read. An instruction file over 4 MB is skipped, with its imports. The lexer runs with gfm off.
 
 ## The change
+- The 2000-file cap counts files READ. An agent folder holds one or two instruction files, so it is reached at about a thousand agents; past it the guard is named not whole, as a spent link budget is (part 2).
 - New `engine/startimports.js`: `importTargets(roots, { home })` follows the imports of each root file, depth-limited as Claude Code does, and returns every import target, plus a named reason when the scan is cut short. setup-assistant.js decides how each target is denied.
 - The roots are every instruction file the guard already treats as start-time:
   - each config home's CLAUDE.md, AGENTS.md and rules;
@@ -26,6 +27,9 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 ## Decided
 - Every reachable import is denied, whether or not the person approved external imports. The approval can be granted later, and the guard would not know, so the deny is the safe direction.
 - Markdown is read by a small subset rather than a full lexer (the repo has no dependencies): fenced code, inline code (never across a blank line) and HTML comments are stripped, in that order; emphasis and link marks (* [ ], and a _ before the @) are token edges. Indented code is NOT stripped, so an import-like word in an indented example is denied too: the safe direction, and an absent uncarriable one is skipped, so it cannot make the guard not whole. Review 1 showed my first subset also erred the OTHER way (a stray backtick, a comment mark inside code, `**@a.md**`); each is fixed and tested, but a subset of a lexer can still differ from it in shapes nobody has tried.
+- A target, or where it leads, that is read-only is not listed (nothing can write it, and a store's hashed name would pile up); a link at the leaf to one is still denied to the file tools. One in a store or a Homebrew Cellar gets that folder's one stable rule, both layers, as part 2's shell startup files do.
+- A target inside an agent's folder that leads elsewhere (a link, a dangling link, a linked folder) has that place denied too, as any target is.
+- A rules file is any name ending in `.md`, matched case-sensitively, as 2.1.296's own walk does (`name.endsWith(".md")`).
 - A target under a linked folder is listed by both spellings (the real folder, which Claude Code loads, and the folder as given), since the agent's tools can write it by either.
 - Import-derived rules are not pruned when an import goes away (only launch rules are, #5663), as #5516 decided for a repointed link target. The import set changes only when someone adds a new `@word` to an instruction file, and names inside the agents' folder are one glob per name, not per agent. DECIDED, not built: a record for pruning these, like the launch record, is a change of its own if the profile size ever needs it.
 - A directory target is skipped, since Claude Code reads files only.
@@ -41,7 +45,7 @@ Claude Code reads its instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md a
 On this host, the real roots for this agent's folder (two config homes, the folders above it, 23 siblings: 149 root files) read in 11 ms and give 5 import targets outside the agents' folder (the global CLAUDE.md's four imports plus `-addresses` from prose) and 3 names inside it. The size probe: 1017 deny rules and 145 denyWrite entries (9.2 KB), against 1012 and 140 before; the size check passes.
 
 ## Tests
-engine/startimports-5774.test.js, 7 tests. Thirteen mutations, each red: the config-home, ancestor and managed roots; the agents'-folder glob; the whole-folder skip; the absent-uncarriable skip; the sandbox layer; the depth limit; fenced code, inline code, comments, the # cut and the escaped space. The inline-code mutation stayed GREEN at first: the fixture's @ followed a backtick, which the import pattern never matches anyway; the fixture now puts a space before it inside the code span.
+engine/startimports-5774.test.js, 9 tests. Thirteen mutations, each red: the config-home, ancestor and managed roots; the agents'-folder glob; the whole-folder skip; the absent-uncarriable skip; the sandbox layer; the depth limit; fenced code, inline code, comments, the # cut and the escaped space. The inline-code mutation stayed GREEN at first: the fixture's @ followed a backtick, which the import pattern never matches anyway; the fixture now puts a space before it inside the code span.
 
 ## Challenge loop notes
 - Iteration 1 (Opus), on c5be2d57d:
@@ -55,4 +59,13 @@ engine/startimports-5774.test.js, 7 tests. Thirteen mutations, each red: the con
   - [WARNING] FIXED: the tests above.
   - [NIT] TAKEN. Non-text imports are skipped, as Claude Code does (so `-mentioned.`, extension ".", is not a target, and an image import cannot make the guard not whole). Mutation red.
   - [NIT] TAKEN. The repeated "named when it exists" block is one helper.
+- Iteration 2 (Sonnet), on 5bb14e8b0:
+  - [WARNING] FIXED. Import targets skipped the read-only and store filters part 2 applies: a CLAUDE.md linked into a Nix store would list the store's hashed names, which pile up. Now a read-only target is not listed (a leaf link to one is, to the file tools), and one in a store or Cellar gets the folder's one stable rule in both layers. Tested with a writable store and an injected read-only target; five mutations red. My first cut pushed links into a list already copied into the rules earlier in the function, so they would have been dropped; caught before testing. Its first test went red on a path under the /var link, counted as "linked" through its parent: only a LEAF link can be replaced, so the check is now lstat.
+  - [WARNING] FIXED. A target inside an agent folder got only its glob; one that is a link (or dangles, or sits under a linked folder) left where it leads writable. That place is now denied as any target is. Tested (a link and a dangling link in a sibling); mutation red.
+  - [WARNING] DECIDED (stated above): the 2000-file cap counts files read, about a thousand agents.
+  - [WARNING] FIXED in part: sibling CLAUDE.local.md and nested rules, and a folder-above rules file, are now tested as roots. Not added: a depth-4 chain through the whole guard (the walk's depth is tested on importTargets, which the guard calls as is).
+  - [NIT] DECIDED: rules files match `.md` case-sensitively, as 2.1.296 does; stated above.
+  - [NIT] TAKEN. A code span closes only on a backtick run of the same length (CommonMark); a lone backtick before a double one no longer hides an import. Mutation red (its first try stayed GREEN: no fixture had a lone backtick before a double; one does now).
+  - [NIT] not taken: the `^[#%^&*()]+` test mirrors Claude Code's own line, kept for fidelity.
+  - [NIT] DUPLICATE: import rules are not pruned (decided in iteration 1).
 

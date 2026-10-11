@@ -169,8 +169,10 @@ test('#5774 route 3 review 1: emphasis and link marks are edges; a stray backtic
     'a later paragraph: @after-stray.md',
     'code `<!--` here, then @after-comment-mark.md and a later --> mark',   // the import sits BETWEEN the span and the -->
     '@pic.png and @data.bin are not text; @noext and @UPPER.MD and @script.sh are',
+    '',
+    'a lone ` then @span-len.md and a double `` mark (a span closes only on a run of the same length)',
   ].join('\n'), f, '/h');
-  const want = ['em.md', 'it.md', 'us.md', 'link.md', 'after-stray.md', 'after-comment-mark.md', 'pic.png', 'data.bin', 'noext', 'UPPER.MD', 'script.sh'];
+  const want = ['em.md', 'it.md', 'us.md', 'link.md', 'after-stray.md', 'after-comment-mark.md', 'pic.png', 'data.bin', 'noext', 'UPPER.MD', 'script.sh', 'span-len.md'];
   // importsIn returns every import Claude Code PARSES; whether it is read as text is the walk's question (below).
   assert.deepStrictEqual([...new Set(got.map((p) => path.basename(p)))].sort(), want.sort());
   const d = path.join(SANDBOX, 'r1ext');
@@ -216,4 +218,57 @@ test('#5774 route 3 review 1: a linked instruction file\'s imports resolve from 
     assert.ok(!editDeniedBy(s.permissions.deny, path.join(repo, n)).length, `${n} denied to a connected agent`);
     assert.ok(!sandboxDenies(s.sandbox.filesystem.denyWrite, path.join(repo, n)), `${n} in denyWrite`);
   }
+});
+
+test('#5774 route 3 review 2: a target in a store gets the store\'s one rule, never its hashed name; a read-only target is not listed (its link is)', () => {
+  const store = path.join(fs.realpathSync.native(SANDBOX), 'store-r2');
+  const hashed = path.join(store, 'h1abc-CLAUDE.md');
+  fs.mkdirSync(store, { recursive: true });
+  fs.writeFileSync(hashed, '@./x.md\n');
+  const homeMd = path.join(HOME, '.claude-acct', 'CLAUDE.md');
+  fs.rmSync(homeMd, { force: true }); fs.symlinkSync(hashed, homeMd);
+  const ro = path.join(SANDBOX, 'ro-r2', 'ro.md');
+  touch(ro);
+  const roReal = fs.realpathSync.native(ro);
+  const linkRo = path.join(HOME, 'notes-r2', 'linkro.md');
+  fs.mkdirSync(path.dirname(linkRo), { recursive: true }); fs.rmSync(linkRo, { force: true }); fs.symlinkSync(ro, linkRo);
+  const anc = path.join(SANDBOX, 'CLAUDE.md');
+  fs.writeFileSync(anc, `@${ro}\n@${linkRo}\n`);
+  try {
+    const d = agentDir('pilot-store-r2');
+    const g = setup.guardTokenOnlyFolder(d, 'pilot-store-r2', { ...DEPS, env: ENV0, storeRoots: [store], readOnlyTarget: (t) => t === roReal });
+    assert.equal(g.ok, true, JSON.stringify(g));
+    const s = readSettings(d);
+    const deny = s.permissions.deny, dw = s.sandbox.filesystem.denyWrite;
+    assert.ok(![...deny, ...dw].some((r) => r.includes(path.join('store-r2', 'x.md'))), 'a hashed store path was listed by name');
+    assert.ok(editDeniedBy(deny, path.join(store, 'h9-new.md')).length > 0, 'the store, file tools');
+    assert.ok(sandboxDenies(dw, path.join(store, 'h9-new.md')), 'the store, sandbox');
+    assert.ok(editDeniedBy(deny, path.join(HOME, '.claude-acct', 'x.md')).length > 0, 'the import by the folder as given');
+    assert.ok(![...deny, ...dw].some((r) => r.includes('ro-r2')), 'a read-only target was listed');
+    assert.ok(editDeniedBy(deny, linkRo).length > 0, 'the link to a read-only target, which can be replaced');
+  } finally { for (const f of [homeMd, anc, linkRo]) fs.rmSync(f, { force: true }); }
+});
+
+test('#5774 route 3 review 2: an import inside an agent folder that is a link (or dangles) has where it leads denied; sibling CLAUDE.local.md and rules, and a folder-above rules file, are roots', () => {
+  const workers = path.join(SANDBOX, 'workers');
+  const sib = path.join(workers, 'sib-l2');
+  const elsewhere = path.join(SANDBOX, 'elsewhere-r2');
+  touch(path.join(elsewhere, 'notes.md'));
+  fs.mkdirSync(sib, { recursive: true });
+  for (const [l, t] of [['notes.md', path.join(elsewhere, 'notes.md')], ['dang.md', path.join(elsewhere, 'gone', 'dang.md')]]) {
+    fs.rmSync(path.join(sib, l), { force: true }); fs.symlinkSync(t, path.join(sib, l));
+  }
+  const made = [path.join(sib, 'CLAUDE.md'), path.join(sib, 'CLAUDE.local.md'), path.join(sib, '.claude', 'rules', 'deep', 'r.md'), path.join(SANDBOX, '.claude', 'rules', 'a.md')];
+  const bodies = ['@notes.md @dang.md\n', `@${path.join(elsewhere, 'from-local.md')}\n`, `@${path.join(elsewhere, 'from-rules.md')}\n`, `@${path.join(elsewhere, 'from-anc-rules.md')}\n`];
+  made.forEach((f, i) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, bodies[i]); });
+  try {
+    const d = agentDir('pilot-links-r2');
+    assert.equal(setup.guardTokenOnlyFolder(d, 'pilot-links-r2', { ...DEPS, env: ENV0 }).ok, true);
+    const s = readSettings(d);
+    const elsewhereR = fs.realpathSync.native(elsewhere);   // a link's destination is named by its real path, as withTarget does
+    for (const t of ['notes.md', path.join('gone', 'dang.md'), 'from-local.md', 'from-rules.md', 'from-anc-rules.md'].map((n) => path.join(elsewhereR, n))) {
+      assert.ok(editDeniedBy(s.permissions.deny, t).length > 0, `${t}: file tools`);
+      assert.ok(sandboxDenies(s.sandbox.filesystem.denyWrite, t), `${t}: sandbox`);
+    }
+  } finally { for (const f of made) fs.rmSync(f, { force: true }); }
 });

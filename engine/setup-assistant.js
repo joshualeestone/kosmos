@@ -1912,20 +1912,46 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     try { fs.lstatSync(f); there = true; } catch { there = false; }
     if (there) configUnsafe.push(`${f} (a file an instruction file imports, whose path the permission rules cannot carry)`);
   };
+  /* Review 2: a target, or where it leads, in a read-only store is not listed (nothing can write it, and its hashed name
+     would pile up); one in a writable store or a Homebrew Cellar gets that folder's one stable rule (both layers), as the
+     shell startup files' do. Otherwise the target and where it leads, links followed. */
+  const importStableDirs = new Set();
+  const importLinks = [];   // a link to a read-only or store target: the link itself, file tools only (as editOnlyLinks)
+  const outsideAgents = (f) => {
+    if (coveredWhole(f)) return;
+    if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) { uncarriedImport(f); return; }
+    let real;
+    try { real = fs.realpathSync.native(f); } catch { real = realOrLeaf(danglingTarget(f)); }
+    // Only a link at the LEAF can be replaced by a file; a path under a linked folder is the same file as its real one.
+    let linked = false;
+    try { linked = fs.lstatSync(f).isSymbolicLink(); } catch { linked = false; }
+    if (readOnlyTarget(real)) { if (linked) importLinks.push(f); return; }   // the link itself can still be replaced
+    const st = stableRootOf(deps.storeRoots || STORE_ROOTS, real);
+    if (st && !tooWide(st)) { importStableDirs.add(st); if (linked) importLinks.push(f); return; }
+    importFiles.push(...withTarget(f, configUnsafe));
+  };
   for (const f of imported.files) {
     if (coveredWhole(f)) continue;
     const rest = inAgentFolder(f);
     if (rest !== null) {
       if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', rest))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest))})`);
       else uncarriedImport(f);
+      // Review 2: the glob names the path as written; one that leads elsewhere (a link, or under a linked folder) has
+      // that place denied too, as any target is. Inside the agents' folder again, its own glob.
+      let real;
+      try { real = fs.realpathSync.native(f); } catch { real = realOrLeaf(danglingTarget(f)); }
+      if (real !== path.resolve(f)) {
+        const rest2 = inAgentFolder(real);
+        if (rest2 === null) outsideAgents(real);
+        else if (!ruleHasPatternChar(`Edit(${ruleAbs(path.join(siblingBase, 'x', rest2))})`)) importGlobs.add(`Edit(${ruleAbs(path.join(siblingBase, '*', rest2))})`);
+      }
       continue;
     }
-    if (ruleHasPatternChar(`Edit(${ruleAbs(f)})`)) { uncarriedImport(f); continue; }
-    importFiles.push(...withTarget(f, configUnsafe));
+    outsideAgents(f);
   }
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
-    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellEditFiles.map((p) => ({ f: p })), ...linkEditFiles.map((p) => ({ f: p })), ...[...new Set(importFiles)].map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
+    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellEditFiles.map((p) => ({ f: p })), ...linkEditFiles.map((p) => ({ f: p })), ...[...new Set(importFiles)].map((p) => ({ f: p })), ...[...new Set(importLinks)].map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
     { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorFiles)].map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
@@ -1989,6 +2015,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...linkEditDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 11: a linked folder whose target is read-only
     ...shellEditGlobs.map((g) => `Edit(${ruleAbs(g)})`),   // review 1: zsh's completion dump; the shell cannot write there anyway
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
+    ...[...importStableDirs].map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 route 3 review 2: a store or Cellar an import is in
     ...siblingRules,
     ...importGlobs,   // #5774 route 3: imports inside the agents' folders, one glob per name
     ...[...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),   // review 9: memory for a later home too
@@ -2051,7 +2078,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
   else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, commandScripts: [...new Set(commandScripts)], importFiles: [...new Set(importFiles)], shellStartFiles, shellStartDirs, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, launchSecretDirs, trustedFiles, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, commandScripts: [...new Set(commandScripts)], importFiles: [...new Set(importFiles)], importStableDirs: [...importStableDirs], shellStartFiles, shellStartDirs, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, launchSecretDirs, trustedFiles, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
@@ -2354,7 +2381,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.launchSecretDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.commandScripts || []).map(realOrLeaf), ...(rules.importFiles || []).map(realOrLeaf), ...(rules.shellStartFiles || []).map(realOrLeaf), ...(rules.shellStartDirs || []).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf), ...(rules.trustedFiles || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.commandScripts || []).map(realOrLeaf), ...(rules.importFiles || []).map(realOrLeaf), ...(rules.importStableDirs || []), ...(rules.shellStartFiles || []).map(realOrLeaf), ...(rules.shellStartDirs || []).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf), ...(rules.trustedFiles || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.

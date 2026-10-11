@@ -50,7 +50,7 @@ function proseOf(text) {
     out.push(line);
   }
   return out.join('\n')
-    .replace(/(`+)(?:(?!\n[ \t]*\n)[\s\S])*?\1/g, ' ')
+    .replace(/(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[\s\S])*?(?<!`)\1(?!`)/g, ' ')   // review 2: a closer is a run of the SAME length
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/[*[\]]/g, ' ');
 }
