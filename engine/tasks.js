@@ -1654,6 +1654,8 @@ function inListOrder(rows, only = null) {
  *   'decision' (#3949) open, and the agent holding it needs the person right now
  *              (`waitingOnPerson`, set by the Tasks route from the roster); it
  *              wins over working and assigned, so each open task is in one group
+ *   'held'     (#4771, #5864) the task's own hold (before built), or a paused project (after built, so a built task in a
+ *              paused project reads built)
  *   'built'    (#3951) open, and marked built (`builtAt`, by `kosmos task built`): Josh's "Built but waiting". After
  *              decision (an agent needing the person is still the one to act on), before nobody, working and
  *              assigned (a built task whose agent was since taken off is still built).

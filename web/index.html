@@ -61022,7 +61022,7 @@ const TSK_GROUPS = [
      for anyone and is not counted as unassigned. After Josh's five open groups and before On hold (decided, overridable). */
   { k: 'scheduled', l: 'On a schedule', c: 'var(--tsk-scheduled)',
     why: 'Repeating tasks with nobody named on them. If a scheduler of yours runs them, nothing is needed; if an agent should, give one to an agent.' },
-  /* #4771: on hold, the task or its whole project (the engine's `held` state): Kosmos neither nudges nor hands these out.
+  /* #4771: on hold, the task or its whole project unless the task is built (#5864) (the engine's `held` state): Kosmos neither nudges nor hands these out.
      Placed after Josh's own five open groups and before Completed, so his order is unchanged (decided, overridable). */
   { k: 'held', l: 'On hold', c: 'var(--tsk-held)',
     why: 'On hold, or not yet built in a paused project. Kosmos does not nudge anyone about them or hand them out.' },
