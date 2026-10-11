@@ -148,6 +148,8 @@ async function routeScenario(page, steps, ownedRefusalFirst) {
     }
     const body = steps[p];
     if (!body) { route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'no stub for ' + p }) }); return; }
+    // #5832: the engine reads enrolled from the moment a register succeeds; the /api/remote mock below keys on this.
+    if (p === '/api/remote/signin-register' && body.ok) page.__registered = true;
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
 }
@@ -471,16 +473,28 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk((await page.textContent('#plus-si-cancel')).trim() === 'Sign out', `[${key}] #3796 addendum 4: once the sign-in has finished (a held session) the way out reads "Sign out"`, await page.textContent('#plus-si-cancel'));
       }
       // The engine writes this computer's state dir SYNCHRONOUSLY before answering register,
-      // so the machine reads enrolled immediately after. Flip /api/remote to enrolled BEFORE
-      // the register click, so the post-register paintPlus() exercises the REAL end state:
+      // so the machine reads enrolled immediately after. /api/remote reads enrolled from the
+      // register on (#5832: not before it), so the post-register paintPlus() exercises the REAL end state:
       // the connected flow with the address. Leaving the mock permanently unenrolled (the
       // earlier shape) let a "done panel" assertion pass precisely because it never drove the
       // repaint the wizard actually performs -- false coverage of the one step most likely to
       // regress. status.state:'up' so the flow's status line renders the address now.
       const wantAddr = sc.steps['/api/remote/signin-register'].address;
-      await page.unroute('**/api/remote');
+      /* #5832: KOSMOS_BC_CPU_THROTTLE=<n> slows this page's CPU n times (Chrome's own throttle) from here to the end of
+         the scenario: the slow-runner case that made [existing-2fa] flake on CI, aimed at the stretch between the
+         /api/remote mock below and the "Finish signing in" click. Off unless set; it is the control for the fix. */
+      if (Number(process.env.KOSMOS_BC_CPU_THROTTLE) > 1) {
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.KOSMOS_BC_CPU_THROTTLE) });
+      }
+      /* #5832: enrolled only once a register has SUCCEEDED, as the engine does. Flipping the mock before the click let
+         the page's own 5 s paintPlus tick read enrolled while the name step was still up; paintPlus then (correctly)
+         hid the wizard, and on a slow runner the "Finish signing in" click timed out on an invisible button. Before a
+         successful register (the scenario's register mock sets page.__registered; a register that ran by itself before
+         this point counts, a refused one does not) this handler falls back to the scenario's own /api/remote mock. */
       await page.route('**/api/remote', (route, req) => {
         const m = req.method();
+        if (!page.__registered) { route.fallback(); return; }
         if (m === 'GET' || m === 'HEAD') {
           route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
             configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com',
