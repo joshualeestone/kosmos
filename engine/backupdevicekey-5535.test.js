@@ -94,7 +94,7 @@ test('no mac_id, or no mac_key, is "missing"; an empty key file is a rewrite in 
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
 
-test('a link and a folder are refused without being read (not as retry)', { skip: WIN && 'symlinks need privileges on Windows' }, () => {
+test('a link is refused without being read (not as retry)', { skip: WIN && 'symlinks need privileges on Windows' }, () => {
   const d = tmp();
   try {
     const k = connectorKey();
@@ -103,13 +103,8 @@ test('a link and a folder are refused without being read (not as retry)', { skip
     fs.symlinkSync(real, path.join(d, 'mac_key'));
     const link = deviceKey({ stateDir: d });
     assert.equal(link.ok, false); assert.equal(link.retry, undefined); assert.match(link.because, /link/);
-    fs.unlinkSync(path.join(d, 'mac_key'));
-    fs.mkdirSync(path.join(d, 'mac_key'));
-    const dir = deviceKey({ stateDir: d });
-    assert.equal(dir.ok, false); assert.equal(dir.missing, undefined);
-    assert.match(dir.because, /not a plain file/, 'refused as what it is, not as a read error');
     // Control: the same bytes as a plain file are read.
-    fs.rmdirSync(path.join(d, 'mac_key'));
+    fs.unlinkSync(path.join(d, 'mac_key'));
     writeKey(d, fs.readFileSync(real));
     assert.equal(deviceKey({ stateDir: d }).ok, true);
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
@@ -158,4 +153,55 @@ test('a file another program holds (EBUSY, a Windows sharing violation) is a pas
     fs.openSync = realOpen;
     assert.equal(deviceKey({ stateDir: d }).ok, true, 'control: once released it reads');
   } finally { fs.openSync = realOpen; fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('round 5: a folder in place of the key is refused, never missing (on every OS)', () => {
+  const d = tmp();
+  try {
+    fs.mkdirSync(path.join(d, 'mac_key'));
+    const dir = deviceKey({ stateDir: d });
+    assert.equal(dir.ok, false); assert.equal(dir.missing, undefined);
+    if (!WIN) assert.match(dir.because, /not a plain file/, 'refused as what it is, not as a read error');
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+/* Run fn with some fs functions replaced, restored after. The module calls them through the fs object. */
+function withFs(stubs, fn) {
+  const saved = {};
+  for (const k of Object.keys(stubs)) { saved[k] = fs[k]; fs[k] = stubs[k](saved[k]); }
+  try { return fn(); } finally { Object.assign(fs, saved); }
+}
+
+test('round 5: the Windows checks, reached on any OS: a link seen by lstat, another file than the one opened, an oversize read', () => {
+  const d = tmp();
+  try {
+    writeKey(d, connectorKey().seed);
+    const forKey = (real, fake) => function (file, ...rest) { return String(file).endsWith('mac_key') ? fake(real.call(fs, file, ...rest)) : real.call(fs, file, ...rest); };
+    const link = withFs({ lstatSync: (real) => forKey(real, (st) => Object.assign(Object.create(Object.getPrototypeOf(st)), st, { isSymbolicLink: () => true })) }, () => deviceKey({ stateDir: d }));
+    assert.equal(link.ok, false); assert.match(link.because, /link/); assert.equal(link.retry, undefined);
+    const other = withFs({ lstatSync: (real) => forKey(real, (st) => Object.assign(Object.create(Object.getPrototypeOf(st)), st, { ino: st.ino + 1n, isSymbolicLink: () => false })) }, () => deviceKey({ stateDir: d }));
+    assert.equal(other.ok, false); assert.equal(other.retry, true); assert.match(other.because, /changed while it was read/);
+    // The file grew past a key between the size check and the read.
+    const big = withFs({ readSync: (real) => function (fd, buf, ...rest) { real.call(fs, fd, buf, ...rest); return buf.length; } }, () => deviceKey({ stateDir: d }));
+    assert.equal(big.ok, false); assert.match(big.because, /larger than a key/);
+    assert.equal(deviceKey({ stateDir: d }).ok, true, 'control: unstubbed it reads');
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('round 5: EPERM/EACCES are retry only on Windows; an unreadable mac_id is never "missing"', () => {
+  const d = tmp();
+  try {
+    writeKey(d, connectorKey().seed);
+    const thrower = (code, name) => (real) => function (file, ...rest) {
+      if (String(file).endsWith(name)) { const e = new Error('denied'); e.code = code; throw e; }
+      return real.call(fs, file, ...rest);
+    };
+    for (const code of ['EACCES', 'EPERM']) {
+      const r = withFs({ openSync: thrower(code, 'mac_key') }, () => deviceKey({ stateDir: d }));
+      assert.equal(r.ok, false, code); assert.equal(r.retry, WIN ? true : undefined, `${code} on ${process.platform}`);
+      const id = withFs({ statSync: thrower(code, 'mac_id') }, () => deviceKey({ stateDir: d }));
+      assert.equal(id.ok, false, code); assert.equal(id.missing, undefined, `${code}: not "never set up"`);
+      assert.match(id.because, new RegExp(`identity file could not be read \\(${code}\\)`));
+    }
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
