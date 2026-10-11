@@ -319,6 +319,7 @@ function noteEnded(sessionName, opts = {}) {
 const ENDED_COMPACT_AT_BYTES = 64 * 1024;
 const SEALED_KEEP_MS = 60 * 60 * 1000;
 const COMPACT_READ_BUDGET_MS = 3000;
+const COMPACT_TOTAL_BUDGET_MS = 6000;   // well inside filelock's 10 s LOCK_STALE_MS
 let compactStuckSaid = false;
 let compactReplaceSaid = false;
 let compactLinkSaid = false;
@@ -347,7 +348,9 @@ function sealedFiles() {
   try { names = fs.readdirSync(endedDir()); } catch (e) { if (e && e.code === 'ENOENT') return []; throw e; }
   return names.filter((n) => SEALED_RE.test(n)).sort().map((n) => path.join(endedDir(), n));
 }
-/* A sealed file's text, read only if it is a regular file (lstat, so a link is not followed): anything else under that
+/* (Windows: a sealed file deleted while another process holds it open, a scanner say, can stay listed in "delete
+   pending" and then fail with EPERM, not ENOENT; endedSince then refuses for that moment, the safe direction.)
+   A sealed file's text, read only if it is a regular file (lstat, so a link is not followed): anything else under that
    name (a pipe, a link to a device) could block or flood the reader, and is refused as unreadable instead. A file gone
    meanwhile throws ENOENT, as a read would. */
 function readSealed(f) {
@@ -430,6 +433,12 @@ function compactEnded(opts = {}) {
       if (!compactFlushSaid) { compactFlushSaid = true; console.error('kosmos#5208: the history of ended agents could not be written to disk (' + ((e && e.code) || 'failed') + '), so it is not compacted (' + endedDir() + ')'); }
       return gaveUp({ compacted: false });
     }
+    // The write, flush and read-back too: past the total budget, stop before anything is linked or replaced.
+    if (Date.now() - startedAt > COMPACT_TOTAL_BUDGET_MS) {
+      try { fs.unlinkSync(tmp); } catch { /* none */ }
+      if (!compactSlowSaid) { compactSlowSaid = true; console.error('kosmos#5208: compacting the history of ended agents took over ' + COMPACT_TOTAL_BUDGET_MS + ' ms, so it is not compacted this time (' + endedDir() + ')'); }
+      return gaveUp({ compacted: false });
+    }
     // 3. Only over the file that was read (a compaction that slept after its lock was stolen finds a newer one: stop).
     let cur; try { cur = fs.statSync(live); } catch { cur = null; }
     if (!cur || idOf(cur) !== idOf(st)) { try { fs.unlinkSync(tmp); } catch { /* none */ } return gaveUp({ compacted: false }); }
@@ -440,10 +449,14 @@ function compactEnded(opts = {}) {
       if (!compactLinkSaid) { compactLinkSaid = true; console.error('kosmos#5208: the history of ended agents cannot be compacted here (no hard link: ' + ((e && e.code) || 'failed') + '), so it will keep growing (' + endedDir() + ')'); }
       return gaveUp({ compacted: false });
     }
-    /* Again after the link: a compaction that stole the lock may have renamed its file over the live path between the
-       check and the link, and renaming over that would orphan whatever reached its file. Stop instead (the link named
-       a file this run did not read). What remains is the gap between this check and the rename, which only an atomic
-       compare-and-rename could close; the plan names it. */
+    /* Again after the link: a compaction that stole the lock may have renamed its file over the live path, and renaming
+       over that would orphan whatever reached its file. Stop instead, and drop this run's link. Two cases: if the swap
+       came before the link, the link names the other compaction's file (its data stays under the live name); if it came
+       after, the link names the file this run read, and dropping that name is safe only because whatever replaced the
+       live file was a compaction, which links the file it replaces under its own sealed name first. Any new way of
+       replacing the live file must keep that true. What remains is the gap between this check and the rename, which
+       only an atomic compare-and-rename could close; the plan names it. */
+    securewrite.syncDir(endedDir());   // the link survives a crash before the rename makes it matter
     let after; try { after = fs.statSync(live); } catch { after = null; }
     if (!after || idOf(after) !== idOf(st)) {
       try { fs.unlinkSync(sealedPath); } catch { /* still read; harmless */ }

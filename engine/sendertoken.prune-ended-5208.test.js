@@ -477,3 +477,23 @@ test('kosmos#5208: a compaction that stole the lock and replaced the live file b
     assert.equal(oldEndedSince(n, iso(T0 - 1), false), true, 'a rolled-back build lost ' + n);
   }
 });
+
+test('kosmos#5208: a compaction whose write and flush ran past the total budget stops before linking or replacing', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  sendertoken.resetCompactNotesForTests();
+  const realFlush = securewrite.flushOrThrow;
+  const realNow = Date.now;
+  const inoBefore = ino();
+  securewrite.flushOrThrow = function (fd) { const skew = realNow() + 7000; Date.now = () => skew; return realFlush.call(this, fd); };
+  const said = [];
+  const realErr = console.error;
+  console.error = (m) => said.push(String(m));
+  let r;
+  try { r = sendertoken.compactEnded({ force: true }); } finally { securewrite.flushOrThrow = realFlush; Date.now = realNow; console.error = realErr; }
+  assert.equal(r.compacted, false, 'it went on past the budget');
+  assert.equal(ino(), inoBefore, 'the live file was replaced');
+  assert.deepEqual(sealed(), [], 'a link was made');
+  assert.deepEqual(temps(), [], 'a temp file was left behind');
+  assert.equal(said.filter((m) => /took over 6000 ms/.test(m)).length, 1, 'the slow compaction was not said');
+});

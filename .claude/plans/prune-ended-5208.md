@@ -221,3 +221,11 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
 - NO CHANGE (NITs): a power loss between the rename and the put-back hides an unlocked append from an older build until
   the next compaction (named above); compacted-bytes is written plainly (a torn read gives 0, only an earlier compaction);
   the stuck path re-folds files to name the bad one (rare path).
+
+## Review 13 (opus, blind, on 63018a2c7): no BLOCKER, no loss outside the named residuals
+- FIXED (CONVENTION): the post-link abort comment named only one of its two cases; it now states both, and the
+  assumption that anything replacing the live file links the old one first (a new way of replacing it must keep that).
+- FIXED (WARNING): the 3 s budget covered only the read; a total budget (6 s, inside filelock's 10 s stale bound) is
+  checked again after the write, flush and read-back, before anything is linked (test; mutation red).
+- FIXED (NIT): ended-agents.d is flushed between the link and the rename, so the link survives a crash before the rename.
+- FIXED (NIT, by comment): Windows delete-pending (EPERM) on a sealed file refuses for that moment; noted in the code.
