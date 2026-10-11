@@ -4545,7 +4545,9 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 /* #4475 step 3: removing an agent (DELETE .../removal) joins, for the agents the caller created and no others: the
    handler identifies the caller from the token (agentTokenOnlyCaller) and refuses any other target, and refuses
    `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
+/* #5874: `kosmos task activity` (GET .../task/<n>/activity) joins as a READ: its handler names a token-only caller and
+   refuses one that is not on the project, as GET /api/tasks does. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -19673,8 +19675,51 @@ const server = http.createServer(async (req, res) => {
   if (taskActivity && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(taskActivity[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* #5874: a caller on its agent token alone (`kosmos task activity`) reads a task only on a project it is on: the
+       GET /api/tasks rule and its refusals. The page and the person's terminal send no token and read as before. */
+    const tokenOnly = agentTokenOnlyCaller(req);
+    let everyProject = null;
+    if (tokenOnly !== null) {
+      try { everyProject = projects.readAll(); } catch { everyProject = null; }
+      const stored = (everyProject || []).filter((x) => x && x.id === id);
+      if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+      if (!tokenOnly) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read this task' }); return; }
+      if (!stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
+        sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' + NOT_ON_PROJECT_FIX });
+        return;
+      }
+    }
     const taskchat = require('./engine/taskchat');
     const events = taskchat.read(id, Number(taskActivity[2]));
+    /* #5874: `?words=1` adds each event's words as the page says them (engine/taskactphrase.js, the page's tkActPhrase),
+       names from the project's members, else the agent's card, else the session name. Without it the answer is as before. */
+    let wantWords = false;
+    try { wantWords = new URL(req.url, ROUTING_BASE).searchParams.get('words') === '1'; } catch { wantWords = false; }
+    if (wantWords) {
+      /* Only the CLIs ask for words, and to them an unknown project or task is said, as `kosmos task list` says an
+         unknown project (#4891 N6). The page asks without words and keeps its fail-soft empty list (#992). */
+      if (everyProject === null) { try { everyProject = projects.readAll(); } catch { everyProject = null; } }
+      if (everyProject !== null) {
+        const stored = everyProject.filter((x) => x && x.id === id);
+        if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        if (!stored.some((x) => tasks.byNumber(x, taskActivity[2]))) {
+          sendJson(res, 404, { error: 'there is no task ' + Number(taskActivity[2]) + ' on that project' });
+          return;
+        }
+      }
+      let members = [];
+      try { const proj = projects.get(id, safeRoster()); members = (proj && proj.agents) || []; } catch { members = []; }
+      const roster = safeRoster() || [];
+      const nameOf = (sn) => {
+        const m = members.find((a) => a && a.sessionName === sn);
+        if (m && m.name) return m.name;
+        const card = roster.find((a) => a && a.sessionName === sn);
+        return (card && card.name) || sn;   // the card's name is its display name (engine/status.js), as the page's tskAgentName reads it
+      };
+      const { phrase } = require('./engine/taskactphrase');
+      sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf) })), count: events.length });
+      return;
+    }
     sendJson(res, 200, { events, count: events.length });
     return;
   }
