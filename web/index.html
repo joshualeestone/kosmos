@@ -28944,11 +28944,13 @@ async function worldswSwitch(id, name, agents) {
        restart" CLI instruction; give the gentle GUI action instead, no command. */
     say(onWindows()
       ? windowsCopy('worldSwitchRestart').replace('%NAME%', () => switchedName)
-      /* #5862: a Linux server has no window to quit and reopen, so the one step there is the command (as #5860's
-         stuck-update toast says). say() writes text, so the command is not bold here. */
+      /* #5862: a Linux server has no window to quit and reopen. And this line is reached on Linux ONLY by a board that
+         is not an installed one, or one whose systemd check could not load (engine/boardrestart.js linuxCanRestart: an installed board restarts itself,
+         through its systemd unit or the installed `kosmos restart`), so naming `kosmos restart` here would restart a
+         DIFFERENT board, or a command that is not there. The true step is the person's own way of starting it. */
       : onLinux()
-      ? 'Kosmos could not restart itself. To finish switching to ' + switchedName + ', run kosmos restart in a terminal on the '
-        + 'computer running Kosmos (over SSH on a headless server).'
+      ? 'Kosmos could not restart itself. To finish switching to ' + switchedName + ', stop Kosmos and start it again the '
+        + 'way you started it.'
       : 'Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to ' + switchedName + '.');
     worldswFocusTrigger();
   } finally {
@@ -28972,6 +28974,14 @@ async function worldswSwitch(id, name, agents) {
    WORLDSW_RECONNECT_SLOW_MS with no flip, update the banner ONCE to offer the manual
    restart as an escape hatch while still polling (mirrors the #553 update flow's "slow"
    verdict). The reload-on-flip behaviour is unchanged. */
+/* What to do when a world switch's self-restart does not come back. #5862: a Linux server has no window, and this is
+   reached only after the board began restarting itself, which on Linux means an installed board, so the installed
+   `kosmos restart` is the true step there. Elsewhere it stays the Mac's words, as it was. */
+function worldswStuckStep() {
+  return onLinux()
+    ? 'run kosmos restart in a terminal on the computer running Kosmos (over SSH on a headless server).'
+    : 'quit and reopen Kosmos.';
+}
 async function worldswReconnect(switchedId, switchedName, say, switchStart) {
   // WORLDSW_RECONNECTING keeps the switcher menu (and this banner, which lives inside it)
   // open across the poll -- see worldswClose. Cleared in finally so a menu close, or a
@@ -29017,10 +29027,11 @@ async function worldswReconnect(switchedId, switchedName, say, switchStart) {
       }
       if (!slowShown && Date.now() - start >= WORLDSW_RECONNECT_SLOW_MS) {
         slowShown = true;
-        say('Still switching to ' + switchedName + '… this is taking longer than usual. If it does not come back on its own, quit and reopen Kosmos.');
+        say('Still switching to ' + switchedName + '… this is taking longer than usual. If it does not come back on its own, '
+          + worldswStuckStep());
       }
     }
-    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, quit and reopen Kosmos.');
+    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, ' + worldswStuckStep());
     worldswFocusTrigger();
   } finally {
     WORLDSW_RECONNECTING = false;
