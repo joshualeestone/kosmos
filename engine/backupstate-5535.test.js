@@ -242,6 +242,8 @@ test('review 7: two periods are kept (this clock\'s week and the granted one), e
     assert.equal(bs.readState(org, member).ok, false, what);
   }
   assert.throws(() => bs.writeState(org, member, { job: {}, periods: [p41, p41] }), /would not read back/);
+  // Three distinct periods are refused on write too (withPeriod never makes them; a caller building a state by hand could).
+  assert.throws(() => bs.writeState(org, member, { job: {}, periods: [p41, p42, { label: '2026-W43', namingKey: k43, bucket: null, index: new Map() }] }), /would not read back/);
 });
 
 test('review 7: added rows with no bucket are counted in leftOut', () => {

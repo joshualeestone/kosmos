@@ -33,12 +33,21 @@
  *   fresh period with a new naming key and an empty index. Nothing else: which label to run is the CALLER's decision, since only it sees takeSnapshot's answers (this
  *   clock's periodOf(now), or the coordinator's grantedPeriod after a newPeriod answer). Review history: five rounds of
  *   keeping a stored neighbouring period here each failed one way or the other. A kept EARLIER period can never
- *   deduplicate after Monday 00:00 (its chunks' locks end before any new manifest's would, so uploadManifest refuses it,
+ *   deduplicate after the COORDINATOR's Monday 00:00 (its chunks' locks end before any new manifest's would, so uploadManifest refuses it,
  *   measured by review 6); a kept LATER one needs the coordinator's word, which only the caller has.
  *   What starting fresh costs: deduplication against the period left, never a restore (its naming key is inside every
  *   manifest stored in it). With both weeks kept (SLOTS), a run near Monday 00:00 that starts in its clock's week and is
  *   granted in the other resumes the other week's key and index, so what it costs is the first batch of each such run
- *   (uploaded under the wrong week, left out of both indexes) for the skew window, about an hour a week.
+ *   (uploaded under the wrong week, left out of both indexes) for the skew window, about an hour a week. ONE path costs
+ *   more (review 8): the coordinator ahead and nothing changed. Every chunk deduplicates, so no chunk grant answers
+ *   newPeriod; the manifest is granted in the next week and outlives this week's chunks, so takeSnapshot answers
+ *   staleIndex (no grantedPeriod). The run takes no snapshot, spends one manifest grant, and withRun drops this week's
+ *   index, so the next run's first batch is the whole tree (up to a batch). A caller that wants to avoid it can, on a
+ *   staleIndex answer within an hour of its clock's Monday 00:00, run periodOf(now + 1 hour) once; that choice is the
+ *   caller's, as every week choice is.
+ *   Size: each full slot is about 35 MB (200000 rows, measured: 283 ms to write, 251 ms to read on this Mac), so two
+ *   full slots are about 70 MB and half a second each way. The previous week's slot stays until a third week arrives,
+ *   carried but unused after the coordinator's Monday; accepted (it is dropped by the next week's first run).
  * withPeriod(state, period) -> state: `period` in the first slot, replacing its label's slot; at most SLOTS kept, the
  *   least recently used dropped. For writing a fresh period before its snapshot.
  * withRun(state, period, result) -> state: withPeriod with the period after a takeSnapshot result, plus `leftOut` (how

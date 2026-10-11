@@ -13,7 +13,7 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
   file, not taken from storage, so backupkeys.js's "never name new chunks from a stored wrap" rule is untouched.
 - Every index entry must be filed under the period it is in (the key's 4th segment), as backupsnapshot keyProblem asks.
 - Rejected: keeping state in the member key file (different lifetimes; a malformed index must never cost the key).
-- Weakest premise: the index can reach 200000 entries (CHUNK_ALLOWANCE), about 30 MB of JSON, read whole each run.
+- Weakest premise: each slot's index can reach 200000 entries (CHUNK_ALLOWANCE), about 35 MB; two slots about 70 MB, read whole each run.
 
 ## Checks
 - 7 tests: round trip and modes; 10 not-ours forms refused with a control; a link refused; job fields cleaned;
@@ -125,3 +125,17 @@ and index or starts fresh; withRun folds a takeSnapshot result in (staleIndex or
   the other kept week; LRU eviction; two-slot round trip; three slots and repeated labels refused); mutants red (one
   slot, appended not first, the duplicate-label check).
 - FIXED (NIT): leftOut counts added rows dropped for want of a bucket. Test; mutant red.
+
+## Review 8 (opus, blind, on 3acb8a4c7): NOT CONVERGED; caller walk confirmed
+- Checked: a caller following the header's duties across Monday 00:00 with the coordinator behind and ahead (files
+  changed) loses nothing and pays the stated first batch; withRun against every result; no other one-period assumption.
+- DOCUMENTED (WARNING): the idle Mac with the coordinator ahead answers staleIndex (manifest granted next week outlives
+  this week's chunks), so that run takes no snapshot and drops the index; the next first batch is the whole tree. Stated
+  in the header as a cost, with the caller's option (on staleIndex within an hour of its Monday, run periodOf(now + 1 h)
+  once). Not encoded here: the week is the caller's call (review 6's decision).
+- FIXED (NITs): "after Monday" now "after the COORDINATOR's Monday"; the header states the size of two full slots
+  (about 70 MB, about half a second each way) and the carried previous-week slot; writeState's three-slot refusal now
+  has a test (its mutant, which passed every test before, is red); the reachability excuses say up to two periods.
+- Process slip: I ran the write-cap mutant BEFORE committing, and `git checkout` reverted my uncommitted header edits
+  with it (memory feedback-git-checkout-discards-all-uncommitted, my own rule). Re-applied from the same text, then
+  committed.
