@@ -1613,10 +1613,10 @@ function allTasks(everyProject) {
 
 /* #5705 (user feedback, 2026-10-09): `kosmos task list` was one flat list of every task in every state. The list
    groups by what the agent reading it acts on: open work first, then built and waiting, then on hold, then done,
-   each keeping allTasks' order (newest first). The same marks the list prints decide the group, so a row's group and
-   its [built] / [on hold] / [done] mark cannot disagree: done wins, then the task's own hold, then built, then a paused
-   project. #5864 (feedback, 2026-10-11): built work in a paused project is finished and waiting for review, so it groups
-   as built; its [on hold] mark still prints, so an agent still does not start it. */
+   each keeping allTasks' order (newest first). The FIRST mark the list prints names the group, so a row's group and
+   its marks cannot disagree: done wins, then the task's own hold, then built, then a paused project. #5864 (feedback,
+   2026-10-11): built work in a paused project is finished and waiting for review, so it groups as built and prints
+   [built] [project paused] (both CLIs), not [on hold]: a paused project whose work is done reads as waiting, not stuck. */
 const LIST_GROUPS = ['open', 'built', 'held', 'done'];
 function listGroup(t) {
   if (!t) return 'open';
