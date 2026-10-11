@@ -18,6 +18,14 @@
  *     day each counts toward the registration cap, kosmos#5736).
  *
  * state (plain, the caller persists it): { lostEpoch?, waitUntilMs?, waits? }. Every function returns a NEW state.
+ * waits counts the waiting answers since the last ok key, so a refusal in between (no answer, an unreadable file)
+ * does not restart the backoff at an hour. A waitUntilMs more than the longest wait ahead of the clock (written under
+ * a clock that was wrong, or a restored state) is read as over: it would otherwise hold the job for as long as the
+ * error.
+ *
+ * Kept from ensureMemberKey's answer, for the scheduler: unreadableKeyFile (a person must move the file aside; not a
+ * retry) and refusal on a failure; pendingEpoch and lostEpochIgnored on an ok key. An ok key with pendingEpoch is
+ * sealed under: the newer key is not registered yet, so the member's current epoch is still the answered one.
  */
 
 const BACKOFF_MIN_MS = 60 * 60 * 1000;
@@ -36,32 +44,35 @@ function backoffMs(waits) {
   return Math.min(BACKOFF_MIN_MS * 2 ** Math.min(Math.max(waits - 1, 0), 10), BACKOFF_MAX_MS);
 }
 
-/* The key step. deps: { ensureMemberKey, now? }. Resolves { ok: true, key: { epoch, publicKey }, state } or
-   { ok: false, because, waiting?, state }. Never throws. */
+/* The key step. deps: { ensureMemberKey, now? }. Resolves { ok: true, key: { epoch, publicKey }, state, pendingEpoch?,
+   lostEpochIgnored? } or { ok: false, because, waiting?, unreadableKeyFile?, refusal?, state }. Never throws. */
 async function memberKeyFor(state, deps) {
   const st = cleanState(state);
   const now = (deps && deps.now) || Date.now;
   const ensure = deps && deps.ensureMemberKey;
   if (typeof ensure !== 'function') return { ok: false, because: 'no member key step', state: st };
-  if (st.waitUntilMs && now() < st.waitUntilMs) {
+  if (st.waitUntilMs && now() < st.waitUntilMs && st.waitUntilMs - now() <= BACKOFF_MAX_MS) {
     return { ok: false, waiting: true, because: 'Kosmos+ takes a new backup key at most once a day; this computer tries again later', state: st };
   }
   let r;
   try { r = await ensure(st.lostEpoch ? { lostEpoch: st.lostEpoch } : {}); } catch { r = null; }
   if (r && r.ok && isEpoch(r.epoch) && Buffer.isBuffer(r.publicKey) && r.publicKey.length === 32) {
-    // The answer is still at or below the lost epoch only when ensureMemberKey ignored lostEpoch (it is not the file's
-    // newest registered key): that key is older still, so it is the one to replace next run. Never sealed under.
+    // An answer below the lost epoch comes when ensureMemberKey ignored lostEpoch (it is not the file's newest
+    // registered key): that key is older still, so it is the one to replace next run. Never sealed under. (Equal is
+    // never answered when lostEpoch is honoured; refused too, defensively.)
     if (st.lostEpoch && r.epoch <= st.lostEpoch) {
       return { ok: false, because: 'the backup key this computer holds is older than the member\'s current one; it registers a new one next time', state: { lostEpoch: r.epoch } };
     }
-    return { ok: true, key: { epoch: r.epoch, publicKey: r.publicKey }, state: {} };
+    return Object.assign({ ok: true, key: { epoch: r.epoch, publicKey: r.publicKey }, state: {} },
+      isEpoch(r.pendingEpoch) ? { pendingEpoch: r.pendingEpoch } : {}, r.lostEpochIgnored === true ? { lostEpochIgnored: true } : {});
   }
-  const keep = st.lostEpoch ? { lostEpoch: st.lostEpoch } : {};
+  const keep = Object.assign(st.lostEpoch ? { lostEpoch: st.lostEpoch } : {}, st.waits ? { waits: st.waits } : {});
   if (r && r.waiting) {
     const waits = (st.waits || 0) + 1;
     return { ok: false, waiting: true, because: r.because, state: Object.assign(keep, { waitUntilMs: now() + backoffMs(waits), waits }) };
   }
-  return { ok: false, because: (r && typeof r.because === 'string' && r.because) || 'the backup key could not be set up on this computer', state: keep };
+  return Object.assign({ ok: false, because: (r && typeof r.because === 'string' && r.because) || 'the backup key could not be set up on this computer', state: keep },
+    r && r.unreadableKeyFile === true ? { unreadableKeyFile: true } : {}, r && r.refusal && typeof r.refusal === 'object' ? { refusal: r.refusal } : {});
 }
 
 /* The state after a snapshot taken under `key`. A refusal naming a later epoch marks the key lost; anything else
@@ -75,15 +86,20 @@ function afterSnapshot(state, key, result) {
 
 /* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch }), where epoch is the key's
    context id. deps: { ensureMemberKey, snapshot, now? }. Resolves { state, key?, result }: result is the key step's
-   refusal when no snapshot was taken, else the snapshot's own result. Never throws. */
+   refusal when no snapshot was taken (its because, waiting?, unreadableKeyFile?, refusal?), else the snapshot's own
+   result. key, when present, carries the key step's pendingEpoch and lostEpochIgnored. Never throws. */
 async function runOnce(state, deps) {
   const k = await memberKeyFor(state, deps);
-  if (!k.ok) return { state: k.state, result: { ok: false, because: k.because, ...(k.waiting ? { waiting: true } : {}) } };
+  if (!k.ok) {
+    const { ok, state: kept, ...rest } = k;
+    return { state: kept, result: Object.assign({ ok: false }, rest) };
+  }
   if (!deps || typeof deps.snapshot !== 'function') return { state: k.state, key: k.key, result: { ok: false, because: 'no snapshot step' } };
   let result;
   try { result = await deps.snapshot({ memberPk: k.key.publicKey, epoch: String(k.key.epoch) }); } catch { result = null; }
   if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
-  return { state: afterSnapshot(k.state, k.key, result), key: k.key, result };
+  const key = Object.assign({}, k.key, k.pendingEpoch ? { pendingEpoch: k.pendingEpoch } : {}, k.lostEpochIgnored ? { lostEpochIgnored: true } : {});
+  return { state: afterSnapshot(k.state, k.key, result), key, result };
 }
 
 module.exports = { BACKOFF_MIN_MS, BACKOFF_MAX_MS, backoffMs, memberKeyFor, afterSnapshot, runOnce };
