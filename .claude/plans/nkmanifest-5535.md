@@ -36,3 +36,12 @@ manifest records only its id, and nothing stores the KBN1 wrap anywhere. So a ba
 - FIXED (CONVENTION): manifestNamingKey had landed between restoreSnapshot's doc block and the function, and the new
   result lines lacked the " * " prefix. Moved above the block; prefixed.
 - FIXED (NIT): backupkeys.js header points at the manifest-carried key. FIXED (NIT): the 1024 comment names ~270.
+
+## Review 2 (opus, blind, on 9d11d22d8): CONVERGED, NITs only
+- Checked adversarially and held: a malicious store learns nothing new (the key is inside the sealed manifest; names
+  still come only from the signed manifest); a malicious device gains nothing it could not already cause; a reviewer
+  who can open manifests already holds memberSk, so testing guesses adds nothing. No vacuous test found.
+- FIXED (NIT): backupkeys.js named the wrong paragraph and still said restore "passes" the id; it checks it now.
+- FIXED (NIT): openManifest now warns that the opened manifest holds a secret (namingKey) for the content view (#5686)
+  and restore (#5536): pick fields, never pass the object on, log it or return it whole.
+- FIXED (NIT): restore's doc says malformed 'namingKey' can mean the CALLER's key is wrong.

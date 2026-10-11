@@ -12,7 +12,7 @@
  *   as the tunnel keeps mac_key; the wrap to an enrolled device sealing key is not built yet.
  * - A NAMING key per period (HMAC key for chunk names) is 32 random bytes, kept wrapped to the member PUBLIC key
  *   with (org, member, epoch, period) as associated data, so it is recoverable after the Mac is lost. (#5535: no wrap
- *   is stored; the device-signed manifest carries the key itself, which restore reads, as the last paragraph allows.)
+ *   is stored; the device-signed manifest carries the key itself, which restore reads and checks against namingKeyId.)
  *
  * Wraps:  member key  KBK1 | enc(32) | ct(32 + 16)
  *         naming key  KBN1 | enc(32) | ct(32 + 16)      both with HPKE info "kosmos-backup v1 key-wrap"
@@ -38,7 +38,7 @@
  * A Mac must NEVER unwrap a naming key from storage to name NEW chunks: a forged one would make those names
  * predictable to whoever forged it. A Mac that lost its naming key mid-period makes a fresh one (newNamingKey), at
  * the cost of deduplication within that period. A period can then hold more than one naming key under one context,
- * so each manifest records namingKeyId(nk), and restore passes that id. If a stored wrap is ever reused for new
+ * so each manifest records namingKeyId(nk), and restore checks that id. If a stored wrap is ever reused for new
  * data, it first needs an authenticator (a device signature, or carrying it inside the device-signed manifest).
  *
  * Context ids are STRINGS of letters, digits and . _ : - (1 to 128): epoch '1' and '01' are different contexts, and

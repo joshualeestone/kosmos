@@ -120,7 +120,8 @@ function manifestNamingKey(manifest, given) {
  * signature, so it says nothing about authenticity); or { malformed: 'files' } when a manifest that verified has no
  * file list (the device wrote it badly, not tampering); or { malformed: 'namingKey' } when no usable naming key is
  * known (the manifest's own is malformed or does not match its namingKeyId, a given one differs from it, or an older
- * manifest has none and none was given); or null
+ * manifest has none and none was given; so it can mean the CALLER's key is wrong, which restore cannot tell apart from
+ * a device fault); or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering).
  *
  * maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the bytes committed: a file that would pass
