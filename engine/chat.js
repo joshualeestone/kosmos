@@ -139,13 +139,17 @@ const DELIVERY = {
 const MAX_TEXT = 10000;
 
 /**
- * Ceiling on how many of the person's messages one thread keeps.
+ * Ceiling on how many messages one thread FILE keeps.
  *
- * ⚠️ REFUSES rather than rotates. Dropping the oldest entries would delete
- * something the person wrote, and "nothing of the user's is ever deleted" is
- * this codebase's rule on every other write path. So a full thread stops
- * RECORDING and says so, while delivery is unaffected — the two are separate
- * acts and separate sentences (see `appendMessage`).
+ * ⚠️ NEVER rotates by dropping the oldest entries: that would delete something
+ * the person wrote, and "nothing of the user's is ever deleted" is this
+ * codebase's rule on every write path. kosmos#5841: at the cap the thread
+ * ROLLS OVER instead. The full file is set aside whole (`.full`, ROLL_KIND),
+ * and a new file carries its last ROLL_CARRY rows and names it (`continues`),
+ * so the conversation keeps recording and its earlier messages stay readable
+ * (asideChain, the older route). Before #5841 a full thread stopped recording
+ * for good. It still refuses, saying why, only when the full file cannot be
+ * set aside; delivery is unaffected either way (see `appendMessage`).
  */
 const MAX_MESSAGES = 1000;
 
@@ -3290,7 +3294,8 @@ function appendLocked(projectId, agent, entry, bornAt) {
            the same file. Had the save replaced the original before it threw, the aside would be the full file's only
            name, and removing it would delete the rows that were not carried. Renamed: move it back. */
         if (rolledAside.linked) {
-          const a = fs.statSync(rolledAside.aside); const c = fs.statSync(tf);
+          // bigint: a Windows (NTFS) file id can pass 2^53, where a plain number could make two files compare equal.
+          const a = fs.statSync(rolledAside.aside, { bigint: true }); const c = fs.statSync(tf, { bigint: true });
           if (a.ino === c.ino && a.dev === c.dev) fs.unlinkSync(rolledAside.aside);
         }
         else if (!fs.existsSync(tf)) fs.renameSync(rolledAside.aside, tf);

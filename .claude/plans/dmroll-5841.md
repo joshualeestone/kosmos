@@ -158,3 +158,12 @@ engine writes one, but a person could.
   rewrote the oldest file's mtime. It now has an explicit arm (utimesSync puts the oldest file in the future; the
   reattach still follows the newest name). An mtime-sort mutant is red at it. The plan said "a test touched it",
   which was not true of any arm; corrected here.
+
+## Review 8 (sonnet)
+- **No BLOCKER, no SHOULD-FIX.**
+- **NIT, taken:** the MAX_MESSAGES docblock still said a full thread stops recording. It now describes the rollover,
+  and says the send is refused only when the full file cannot be set aside. No test pins the old wording (checked).
+- **NIT, taken:** the undo's inode compare uses bigint stats. A Windows NTFS file id can pass 2^53, where plain
+  numbers could compare two different files as equal.
+- **NIT, not taken:** arms 1 to 3 share `mona`'s state. Run alone, a dependent arm fails on a missing premise, so
+  none passes for the wrong reason. Every arm in this file already states its premise.
