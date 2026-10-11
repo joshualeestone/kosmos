@@ -126,8 +126,6 @@ test('#4649: Remove revokes only a connection of THIS project, and passes the co
   assert.ok(!other.routes().includes('/v1/mac/federation/revoke'), 'another project\'s member was revoked from this project\'s screen');
   const ok = await fedmembers.remove(other, 'club', 'e-club');
   assert.deepStrictEqual([ok.status, ok.body], [200, { removed: true }]);
-  // #5191: the account the relay stamps on the removed member's posts, for the owner's seat to refuse them.
-  assert.strictEqual(ok.memberAccount, 'acct-dana');
   assert.deepStrictEqual(other.calls.filter((c) => c.route === '/v1/mac/federation/revoke').map((c) => c.body), [{ edge_id: 'e-club' }]);
   const refused = stubRemote({ '/v1/mac/federation/edges': edges, '/v1/mac/federation/revoke': { ok: false, because: 'no active connection to revoke (already removed, or not yours).' } });
   const r = await fedmembers.remove(refused, 'club', 'e-club');

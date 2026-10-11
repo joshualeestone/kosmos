@@ -612,48 +612,29 @@ const BEHIND_HOLD_MS = 3 * 60 * 1000;
 function roomSeal(projectId) {
   try { return fedseal.roomState(projectId); } catch { return undefined; }
 }
-/* #5191 (residual of #5228): the member accounts revoked from each owner room, account -> the
-   room's epoch when the revoke was noted. The relay stamps every post with the poster's ticket
-   member (#4649 slice 3), which for a federation member is exactly the edge's member_account_id
-   and which the sender cannot write. A stamped post from a noted account sealed at that epoch or
-   older is refused, even inside the grace the remaining members' in-flight posts get. A newer
-   epoch's key only ever reaches a member pinned after the revoke (a re-invite), so such a post is
-   never refused here. Memory only: after a restart every post waits for an edge check, which
-   fills this again. */
+/* #5191 (residual of #5228): the member accounts each owner room rotated away from, account -> the
+   newest epoch that account held. The relay stamps every post with the poster's ticket member
+   (#4649 slice 3), which for an outside member is the edge's member_account_id and which the
+   sender cannot write. A stamped post from a noted account sealed at that epoch or older is
+   refused, even inside the grace the remaining members' in-flight posts get. Noted only by a
+   rotation that saved, from the pinned peers it dropped (each bound to its own edge id at pin
+   time), so an edges answer however old can neither note a member who is pinned now nor un-note
+   one: a re-invited member is pinned on a new edge and given the newer key. Memory only, cleared
+   when the room's seat stops. */
 const revokedMembers = new Map();
-/** Note `account` as revoked from this owner room at `epoch`, the newest key it can hold. An account
-    already noted keeps its epoch: every later check still lists the old edge as revoked, and moving
-    the epoch up to the room's newer key would refuse that account once it is re-invited onto it. */
 function noteRevokedMember(projectId, account, epoch) {
-  if (typeof account !== 'string' || !account || !Number.isInteger(epoch)) return;
   let m = revokedMembers.get(projectId);
   if (!m) { m = new Map(); revokedMembers.set(projectId, m); }
-  if (!m.has(account)) m.set(account, epoch);
-}
-/** Re-read from an edges answer: each account whose edges in this project are all not active is
-    noted at `epoch`; an account with an active edge again is dropped. */
-function noteRevokedFromEdges(projectId, ref, asOwner, epoch) {
-  const active = new Set();
-  const gone = new Set();
-  for (const e of asOwner) {
-    if (!e || e.project_ref !== ref || typeof e.member_account_id !== 'string' || !e.member_account_id) continue;
-    (e.status === 'active' ? active : gone).add(e.member_account_id);
-  }
-  const m = revokedMembers.get(projectId);
-  if (m) for (const a of active) m.delete(a);
-  for (const a of gone) if (!active.has(a)) noteRevokedMember(projectId, a, epoch);
+  m.set(account, Math.max(m.has(account) ? m.get(account) : epoch, epoch));
 }
 /** Whether a post the relay stamped `member`, opened under `epoch`, is a revoked member's. */
 function isRevokedPost(projectId, member, epoch) {
   const m = revokedMembers.get(projectId);
   return !!m && typeof member === 'string' && m.has(member) && Number.isInteger(epoch) && epoch <= m.get(member);
 }
-/** #5191: this board's own screen removed a member (the coordinator answered the revoke). Its
-    posts are refused from now, and the room rotates now instead of at the next edge check.
-    Resolves like rotateForRevoked; never rejects. */
-function afterRemove(projectId, memberAccount) {
-  const st = roomSeal(projectId);
-  if (st && st.role === 'owner' && hasKey(st)) noteRevokedMember(projectId, memberAccount, st.epoch);
+/** #5191: this board's own screen removed a member (the coordinator answered the revoke), so the
+    room rotates now instead of at the next edge check. Resolves like rotateForRevoked; never rejects. */
+function afterRemove(projectId) {
   let link = null;
   try { link = linkFor(projectId); } catch { link = null; }
   if (!link || link.role !== 'owner') return Promise.resolve(false);
@@ -783,8 +764,6 @@ function revokeCheck(projectId, link, edges) {
     const st = roomSeal(projectId);   // re-read: a hello may have pinned someone during the await
     if (st === undefined) return { checked: false, rotated: false, unreadable: true };
     if (!hasKey(st) || st.role !== 'owner') return { checked: true, rotated: false };
-    // Before any rotation below, so the noted epoch is the one the revoked member still holds.
-    noteRevokedFromEdges(projectId, link.ref, r.data.as_owner, st.epoch);
     const peers = st.peers || {};
     // Only an edge the coordinator names as no longer active counts; an edge it does not
     // list is not taken as revoked (a partial answer must not lock a member out).
@@ -801,6 +780,14 @@ function revokeCheck(projectId, link, edges) {
     // not show them unchecked under the key the revoked member still holds).
     try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys })); } catch {
       return { checked: false, rotated: false, unreadable: true };
+    }
+    // #5191: the accounts dropped, from this same answer by each dropped peer's own edge id, noted at
+    // the epoch they held. An account a kept peer also has (one account, two edges) is not noted.
+    const accountOf = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref && typeof e.member_account_id === 'string' && e.member_account_id).map((e) => [e.id, e.member_account_id]));
+    const keptAccounts = new Set(Object.values(keep).map((p) => p && accountOf.get(p.edge)).filter(Boolean));
+    for (const pub of gone) {
+      const account = accountOf.get(peers[pub].edge);
+      if (account && !keptAccounts.has(account)) noteRevokedMember(projectId, account, st.epoch);
     }
     const s = seats.get(projectId);
     if (s) sendRotates(projectId, s);
@@ -973,9 +960,6 @@ async function ownerHello(projectId, s, link, frame, me) {
   try { say(projectId, require('./fedmembers').joinedLine(projectId, inv.invite)); } catch { /* the line is furniture */ }
   // #4649 slice 3: and remembers which account that is, so its posts can carry the owner's label.
   try { require('./fedmembers').noteMember(projectId, inv.invite, edge.member_account_id); } catch { /* the label is furniture */ }
-  // #5191: an account pinned on an active edge is a member again, whatever epoch an earlier revoke noted.
-  const noted = revokedMembers.get(projectId);
-  if (noted && typeof edge.member_account_id === 'string') noted.delete(edge.member_account_id);
   if (firstKey) say(projectId, SEALED_LINE);   // #5195: the owner's side too, once, when the room first has its key
   flushHeld(projectId, s);
 }
@@ -1118,6 +1102,7 @@ function letGo(child, ms = STOP_KILL_MS) {
 }
 
 function stop(projectId) {
+  revokedMembers.delete(projectId);   // #5191: a recreated room starts its epochs again at 0
   const s = seats.get(projectId);
   if (!s) return;
   // Held posts go with the seat, silently: stop() also runs for an id that now names another

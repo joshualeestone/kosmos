@@ -3762,10 +3762,10 @@ test('#5285: the owner sees ONE line per outcome: nothing while the check runs, 
 
 // ---- #5191 (residual of #5228): the relay's member stamp refuses a revoked member at once, members left or not ----
 
-/** A room of `n` members, each edge carrying its member account (acct-<tag>-<i>), as the coordinator answers. */
-async function stampedRoom(id, tag, n) {
+/** A room of `n` members; each edge carries its member account (acct-<tag>-<i> unless `accounts` names it). */
+async function stampedRoom(id, tag, n, accounts = []) {
   const r = await pinnedRoom(id, tag, n);
-  const edges = (gone) => Array.from({ length: n }, (_, j) => ({ id: 'edge-inv-' + tag + '-' + j, project_ref: r.ref, status: gone.includes(j) ? 'revoked' : 'active', invite_id: 'inv-' + tag + '-' + j, member_account_id: 'acct-' + tag + '-' + j }));
+  const edges = (gone) => Array.from({ length: n }, (_, j) => ({ id: 'edge-inv-' + tag + '-' + j, project_ref: r.ref, status: gone.includes(j) ? 'revoked' : 'active', invite_id: 'inv-' + tag + '-' + j, member_account_id: accounts[j] || 'acct-' + tag + '-' + j }));
   r.h.edges = edges([]);
   const stamped = (member, text, epoch = 0) => say(r.seat, Object.assign({ event: 'message', data: fedseal.seal(fedseal.roomState(id).keys[epoch], epoch, r.room, { from: 'Guest', kind: 'person', text }, Date.now()) }, member === null ? {} : { member }));
   return Object.assign(r, { edges, stamped });
@@ -3788,56 +3788,73 @@ test('#5191: with a member left, a revoked member\'s stamped post is refused at 
   assert.deepStrictEqual(shown(h), ['remaining member, in flight', 'revoked, no stamp']);
 });
 
-test('#5191: removing from this screen rotates at once and refuses before any post asks for a check', async (t) => {
+test('#5191: removing from this screen rotates at once, where the next post\'s check would reuse an answer from before the remove', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
-  const id = 'proj-5191-rm';
-  const { h, edges, stamped } = await stampedRoom(id, 'rm', 2);
-  h.edges = edges([0]);
-  assert.strictEqual(fedseal.roomState(id).epoch, 0);
-  assert.strictEqual(await fedseats.afterRemove(id, 'acct-rm-0'), true);
-  assert.strictEqual(fedseal.roomState(id).epoch, 1, 'the room did not rotate when this screen removed the member');
-  stamped('acct-rm-0', 'revoked');
-  stamped('acct-rm-1', 'remaining');
-  await settle();
-  assert.deepStrictEqual(shown(h), ['remaining']);
+  for (const removeFromScreen of [true, false]) {
+    const id = 'proj-5191-rm-' + removeFromScreen;
+    const { h, edges, stamped } = await stampedRoom(id, 'rm' + removeFromScreen, 2);
+    // A post warms the Mac's shared edges answer (15 s) while both are still members.
+    t.mock.timers.tick(20 * 1000);
+    stamped('acct-rm' + removeFromScreen + '-1', 'before');
+    await settle();
+    h.edges = edges([0]);   // the coordinator now has the revoke
+    if (removeFromScreen) assert.strictEqual(await fedseats.afterRemove(id), true);
+    stamped('acct-rm' + removeFromScreen + '-0', 'revoked');
+    await settle();
+    if (removeFromScreen) {
+      assert.strictEqual(fedseal.roomState(id).epoch, 1, 'the room did not rotate when this screen removed the member');
+      assert.deepStrictEqual(shown(h), ['before']);
+    } else {
+      // CONTROL: without the remove's own check, the post's check reuses the answer from before the revoke.
+      assert.deepStrictEqual(shown(h), ['before', 'revoked'], 'control: this arm cannot show what the remove path adds');
+    }
+  }
 });
 
-test('#5191: a re-invited account posting on the new key shows; the owner\'s own computer is never refused', async (t) => {
+test('#5191: an edges answer from before a re-invite neither refuses the re-invited member nor un-refuses the revoked key', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
-  const id = 'proj-5191-again';
-  const { h, edges, stamped } = await stampedRoom(id, 'ag', 2);
+  const id = 'proj-5191-stale';
+  const { h, ref, room, edges, stamped } = await stampedRoom(id, 'sl', 2);
   h.edges = edges([0]);
+  const revokedAnswer = { ok: true, data: { as_owner: edges([0]), as_member: [] } };
+  const beforeRevoke = { ok: true, data: { as_owner: edges([]), as_member: [] } };
   assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), true);
-  stamped('acct-ag-0', 'new key', 1);   // only a member pinned after the revoke holds epoch 1's key
-  stamped('acct-ag-0:mac-2', 'own computer, old key');   // exact match only: an own-computer stamp is not the account
-  stamped('acct-ag-0', 'old key');
-  await settle();
-  assert.deepStrictEqual(shown(h), ['new key', 'own computer, old key']);
-});
-
-test('#5191: an account noted at the current key (revoked before it ever joined) is cleared when it is re-invited and pinned', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
-  const id = 'proj-5191-repin';
-  const { h, ref, room, edges, stamped } = await stampedRoom(id, 'rp', 1);
-  // An edge revoked before its member ever said hello: nothing to rotate, so the account is noted at the CURRENT key.
-  const old = { id: 'edge-old', project_ref: ref, status: 'revoked', invite_id: 'inv-old', member_account_id: 'acct-rp-9' };
-  h.edges = edges([]).concat([old]);
-  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), false);
-  assert.strictEqual(fedseal.roomState(id).epoch, 0);
-  // A post now makes the Mac's shared edges answer (cached 15 s), taken BEFORE the re-invite, and shows the note works.
-  stamped('acct-rp-0', 'member');
-  stamped('acct-rp-9', 'revoked, never joined');
-  await settle();
-  assert.deepStrictEqual(shown(h), ['member']);
-  // Re-invited: a new invite, its edge active, the hello pins it on epoch 0. The next post's check reuses the
-  // cached answer, which does not list the new edge, so only the pin itself can clear the note.
-  const inv = newInvite('rp-new');
+  // Re-invited: the same account on a new edge, pinned on epoch 1.
+  const inv = newInvite('sl-new');
   fedseal.stashInvite(ref, inv);
-  h.edges = edges([]).concat([old, { id: 'edge-' + inv.invite, project_ref: ref, status: 'active', invite_id: inv.invite, member_account_id: 'acct-rp-9' }]);
+  h.edges = edges([0]).concat([{ id: 'edge-' + inv.invite, project_ref: ref, status: 'active', invite_id: inv.invite, member_account_id: 'acct-sl-0' }]);
   say(h.spawned[0], { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), room) });
   await settle();
   assert.strictEqual(Object.keys(fedseal.roomState(id).peers).length, 2, 'fixture: the re-invited member pinned');
-  stamped('acct-rp-9', 'back again');
+  // Two late answers: one asked before the re-invite, one from before the revoke. Neither changes anything.
+  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), async () => revokedAnswer), false);
+  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), async () => beforeRevoke), false);
+  stamped('acct-sl-0', 'back again, new key', 1);
+  stamped('acct-sl-0', 'revoked copy, old key', 0);
   await settle();
-  assert.deepStrictEqual(shown(h), ['member', 'back again'], 'a re-invited member was refused as revoked');
+  assert.deepStrictEqual(shown(h), ['back again, new key']);
+});
+
+test('#5191: one account on two edges: removing one does not refuse the other\'s in-flight post', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  const id = 'proj-5191-shared';
+  const { h, edges, stamped } = await stampedRoom(id, 'sh', 2, ['acct-same', 'acct-same']);
+  h.edges = edges([0]);
+  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), true);
+  stamped('acct-same', 'the kept edge, in flight');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['the kept edge, in flight'], 'a member still in the room was refused because another edge of its account was removed');
+});
+
+test('#5191: only an exact stamp is refused, and only on a key the revoked member held', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  const id = 'proj-5191-exact';
+  const { h, edges, stamped } = await stampedRoom(id, 'ex', 2);
+  h.edges = edges([0]);
+  assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), true);
+  stamped('acct-ex-0:mac-2', 'stamp that only starts with the account');   // the shape an owner's own computer has
+  stamped('acct-ex-0', 'newer key', 1);
+  stamped('acct-ex-0', 'old key');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['stamp that only starts with the account', 'newer key']);
 });
