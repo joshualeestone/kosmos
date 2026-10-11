@@ -68,3 +68,17 @@ the way out when that is wrong.
   it; it now claims it (the sweep skips a claimed message), types, then removes it, and a failed removal is
   remembered so the sweep never types it again (tested: still kept while typing, gone after).
 - NIT taken: the sweep hooks' comment sits on sweepHooks.
+
+## Review 3 (opus)
+- FIXED: a person's message was held while the agent's screen waited on an answer, so nothing could answer it. Never
+  held while a question or permission menu is up, or past the reset while Claude Code's limit menu is on screen (the
+  person may be answering it); before the reset the hold stands (tested, with controls).
+- FIXED: a held message the sweep could not type for a lasting reason still read as only waiting for the reset. The
+  row stays held, keeps its time and flags, and records why (`stuck`, written once per reason); the row and the line
+  under the box say "Kosmos tried to send it and could not: ..." (tested).
+- FIXED: claim() accepted an id already typed whose removal had failed, so Send now anyway could type it twice; it
+  answers 409 (tested by making the removal fail).
+- FIXED: Send now anyway re-enabled silently on a refusal other than 409; it says the route's error under the box
+  (tested; a 409 still repaints, not an error).
+- Rebased onto limitmsg-5805 807b2a4ae (2a converged at iteration 20); claim() uses 2a's claim Map (stale after an hour).
+- NITs declined: setRow retry for permanent misses, same-millisecond `at`, member-panel button, settle on could_not.
