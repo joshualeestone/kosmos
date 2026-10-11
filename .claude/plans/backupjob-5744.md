@@ -30,4 +30,12 @@ the step that a scheduler will call, not the scheduler.
   counts toward the registration cap, #5736).
 
 ## Checks
-- (to fill as built) tests per piece, each mutant-checked red.
+- Piece 1: the two #5744 uploader tests now assert otherEpoch per case (integer answer epoch only; a string epoch, a
+  string other epoch and a key-path mismatch carry none). Mutants red: askSigned not passing it (2 fail), the integer
+  check dropped (1 fail).
+- Piece 2: backupsnapshot.test.js "#5744 slice 3" (chunks, manifest, a control with none). Each passthrough removed: red.
+- Pieces 3 to 5: engine/backupjob.test.js, 7 tests. Eight mutants, each red: no wait check, lostEpoch not sent, sealing
+  at or below lostEpoch, any other epoch marks lost, no 24 h cap, epoch as a number, lostEpoch dropped on a refusal,
+  and the ok-key gate removed (it first SURVIVED: building the snapshot input threw and read as a failed run; the test
+  now requires the key step's own reason, and the mutant goes red).
+- engine/backup*.test.js + engine.reachable.test.js: 356 pass, 0 fail. test-connector-verbs: 27 passed.
