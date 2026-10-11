@@ -239,14 +239,13 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   fs.writeFileSync(path.join(chatsDir, ASIDE), JSON.stringify({ messages: WHOLE }));
   const no = run();
   assert.equal(no.status, 3);
-  // The whole message, word for word, for the plainest state (one .full file): what happened, where, which file, why.
-  // Pinned whole so that a sentence of advice or a promise cannot be added without this test saying so: what to do
-  // with a file depends on whose it is.
+  // The whole message, word for word, for the plainest state (one .full file): what happened, where, which file.
+  // Pinned whole so that a reason, advice or a promise cannot be added without this test saying so: each depends on
+  // what the files are, which the tool cannot tell.
   assert.equal(no.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
     + 'This tool does not compile while ' + dl.shownName(chatsDir) + ' holds:\n'
     + 'Files whose names end in .full after a conversation file\'s name:\n'
-    + '  ' + JSON.stringify(ASIDE) + '\n'
-    + 'It stops because it does not read the part of a conversation that is kept in another file, so compiling now could prune days or drop messages from the daily files.\n');
+    + '  ' + JSON.stringify(ASIDE) + '\n');
   assert.equal(no.stdout, '', 'a refused run printed a success line');
   // a targeted run, and one into another folder, are refused the same way and create nothing
   const other = path.join(SANDBOX, 'elsewhere');
@@ -275,8 +274,7 @@ test('the command says why and exits non-zero, so a scheduled run cannot read as
   assert.equal(only.stderr, 'dailylog: not compiled. Nothing was written or removed.\n'
     + 'This tool does not compile while ' + dl.shownName(chatsDir) + ' holds:\n'
     + 'Conversation files that refer to an earlier file:\n'
-    + '  "direct..p.json"\n'
-    + 'It stops because it does not read the part of a conversation that is kept in another file, so compiling now could prune days or drop messages from the daily files.\n');
+    + '  "direct..p.json"\n');
   // a file name is somebody's bytes: whatever it holds, what is printed is printable ASCII, on one line
   const nasty = 'proj1.k.json.\u001b]0;TITLE\u0007\nFiles named as\u009b2J\u007f\u202e\u2028.full';
   let made = true;
@@ -304,7 +302,7 @@ test('the folder is shown escaped too: a data folder with a newline or an escape
   assert.equal(r.status, 3);
   assert.match(r.stderr, /^[\x20-\x7e\n]*$/, 'something outside printable ASCII reached the output: ' + JSON.stringify(r.stderr));
   assert.equal(r.stderr.split('\n').filter((l) => l.startsWith('FORGED')).length, 0, 'the folder path forged a line');
-  assert.equal(r.stderr.split('\n').length, 6, 'the message is not its five lines: ' + JSON.stringify(r.stderr));
+  assert.equal(r.stderr.split('\n').length, 5, 'the message is not its four lines: ' + JSON.stringify(r.stderr));
 });
 
 test('shownName: printable ASCII out, whatever comes in', () => {

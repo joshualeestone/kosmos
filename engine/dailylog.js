@@ -323,7 +323,7 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
  * needs to decide whether writing and pruning are safe:
  *   - `rolledOver` counts the files NAMED as a rolled-over conversation's `.full` file
  *     (kosmos#5855; isRolledOverFileName), whose rows this function does NOT return.
- *     By name only: they are not opened.
+ *     By name only: their contents are not read.
  *     A FOLDER with such a name is not counted.
  *   - `continued` counts thread files that NAME an earlier file (`continues`),
  *     INCLUDING one that names it but is otherwise not a readable conversation
@@ -548,14 +548,12 @@ if (require.main === module) {
       + (names.length > REFUSAL_NAMES_SHOWN ? `  and ${names.length - REFUSAL_NAMES_SHOWN} more\n` : '');
     const earlier = summary.rolledOverFiles;
     const pointing = summary.continuedFiles;
-    // What happened, where, which files, and why it stops. No advice: what to do with a file depends on whose it
-    // is, which this tool cannot tell.
+    // What happened, where, and which files. No reason and no advice are printed: both depend on what the files
+    // are (a real rollover, an interrupted one, a stray copy), which this tool cannot tell.
     process.stderr.write('dailylog: not compiled. Nothing was written or removed.\n'
       + `This tool does not compile while ${shownName(summary.chatsDir)} holds:\n`
       + (earlier.length ? 'Files whose names end in .full after a conversation file\'s name:\n' + list(earlier) : '')
-      + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : '')
-      + 'It stops because it does not read the part of a conversation that is kept in another file, so compiling '
-      + 'now could prune days or drop messages from the daily files.\n');
+      + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : ''));
     // exitCode, not exit(): the process ends once stderr has drained, so a piped reader gets the whole message.
     process.exitCode = EXIT_REFUSED;
   } else {
