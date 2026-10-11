@@ -83,8 +83,8 @@ async function register(macRequest, company, epoch, key) {
   return macRequest('POST', MEMBER_KEY_ROUTE, { epoch, member_public: b64(key.pk), wrap: b64(wrap) });
 }
 
-/* One at a time: two calls that each read "no key" would each make one, and the later write could replace a key
-   Kosmos+ had already taken. */
+/* One at a time. Today reading the file and writing a new key have no await between them, so a second call sees the
+   first call's key anyway; the chain keeps that true if the store ever gains one. */
 let chain = Promise.resolve();
 function ensureMemberKey(opts = {}) {
   const run = chain.then(() => ensureNow(opts));
