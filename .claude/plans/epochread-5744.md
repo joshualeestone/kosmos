@@ -49,3 +49,11 @@ holds only that line; a tunnel built before slice 1 prints no line at all, which
   (about 20) were not read one by one. Every field in `refusal` is validated, so a spread would carry nothing
   unchecked.
 - NIT taken: the keepStdout note is folded into setupRun's doc block.
+
+## Review 2 (opus)
+- FIXED: refusalOf now keeps currentEpoch only beside member_key_wrong_epoch, as the tunnel does, so slice 2b can act
+  on any currentEpoch it gets; tested with a 429 that carries one.
+- FIXED (conventions): macRequest's doc names the `refusal` key and when it is absent; the fake tunnel's header lists
+  the two new modes.
+- NIT taken: one rule for "a refusal line" (JSON with a `refusal` key), shared by the because filter and refusalOf,
+  so a differently spaced or keyed line is still kept out of because; tested.

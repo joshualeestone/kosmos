@@ -48,6 +48,8 @@ test('#5744: epoch 0 (no key registered yet) is kept; a null epoch is null', asy
   assert.equal((await ask('refusal:{"refusal":{"status":400,"code":"member_key_wrong_epoch","current_epoch":0}}')).refusal.currentEpoch, 0);
   assert.deepEqual((await ask('refusal:{"refusal":{"status":429,"code":"member_key_rotation_wait","current_epoch":null}}')).refusal,
     { status: 429, code: 'member_key_rotation_wait', currentEpoch: null });
+  // An epoch beside another code is not read: only member_key_wrong_epoch carries one.
+  assert.equal((await ask('refusal:{"refusal":{"status":429,"code":"member_key_rotation_wait","current_epoch":3}}')).refusal.currentEpoch, null);
 });
 
 test('#5744: malformed fields read as null, and a line with no usable status is no refusal at all', async () => {
@@ -58,6 +60,12 @@ test('#5744: malformed fields read as null, and a line with no usable status is 
     assert.equal(r.ok, false);
     assert.equal('refusal' in r, false, line);
   }
+});
+
+test('#5744: a refusal line spaced or keyed differently is still never because', async () => {
+  const r = await ask('refusal-quiet:{ "other": 1, "refusal": {"status":400,"code":"member_key_wrong_epoch","current_epoch":2} }');
+  assert.equal(r.because, 'setup failed (exit 1)', r.because);
+  assert.equal(r.refusal.currentEpoch, 2);
 });
 
 test('#5744: the refusal line is never because, even with an empty stderr', async () => {

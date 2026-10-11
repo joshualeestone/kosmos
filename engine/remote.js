@@ -976,7 +976,7 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
       if (code === 0) { finish({ ok: true, because: null, said: out.trim() }); return; }
       /* kosmos#5744: a {"refusal":...} line (mac-request prints one on stdout when refused) is data, never words
          for a person, so for any verb and from either stream it is never `because`, even when stderr is empty. */
-      const words = (t) => t.split('\n').filter((l) => l.trim() && !l.trim().startsWith('{"refusal"'));
+      const words = (t) => t.split('\n').filter((l) => l.trim() && !isRefusalLine(l));
       const errLines = words(errOut.trim());
       const lines = errLines.length ? errLines : words(out.trim());
       /* `stderr` is the WHOLE of it: a caller that must recognise a message clap prints
@@ -1006,7 +1006,9 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
     `mac-request` verb (#718): the key stays in the tunnel binary, never here.
     A POST body goes on stdin, never argv. Resolves to
     { ok: true, data } with the coordinator's parsed JSON, or
-    { ok: false, because }. */
+    { ok: false, because }, and, when the coordinator refused it and the tunnel printed the refusal's fields
+    (kosmos#5744), `refusal: { status, code, currentEpoch }` (refusalOf). No `refusal` key from an older tunnel, an
+    outage, a timeout, a tunnel that could not start, or a request refused here before it was sent (`notSent`). */
 // A signed request is one round trip; 20 s covers a slow network and still
 // frees a caller (a Settings turn-on) stuck on a hung tunnel.
 const MAC_REQUEST_TIMEOUT_MS = 20 * 1000;
@@ -1029,11 +1031,22 @@ function refusalOf(said) {
   const got = lastJsonLine(said);
   const r = got && got.value && typeof got.value === 'object' ? got.value.refusal : null;
   if (!r || typeof r !== 'object' || !Number.isInteger(r.status) || r.status < 100 || r.status > 599) return null;
+  const code = typeof r.code === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(r.code) ? r.code : null;
   return {
     status: r.status,
-    code: typeof r.code === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(r.code) ? r.code : null,
-    currentEpoch: Number.isSafeInteger(r.current_epoch) && r.current_epoch >= 0 ? r.current_epoch : null,
+    code,
+    // Only beside the code that carries it, as the tunnel keeps it: a caller can act on any currentEpoch it gets.
+    currentEpoch: code === WRONG_EPOCH_CODE && Number.isSafeInteger(r.current_epoch) && r.current_epoch >= 0 ? r.current_epoch : null,
   };
+}
+/* The one refusal that carries current_epoch (the coordinator's 400). */
+const WRONG_EPOCH_CODE = 'member_key_wrong_epoch';
+/* A line that is a refusal object: JSON with a `refusal` key. One rule for setupRun's `because` filter and
+   refusalOf, whatever the line's spacing or key order. */
+function isRefusalLine(line) {
+  const t = String(line || '').trim();
+  if (!t.startsWith('{')) return false;
+  try { const v = JSON.parse(t); return !!v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'refusal'); } catch { return false; }
 }
 async function macRequest(method, routePath, body, opts) {
   const keyOnly = !!(opts && opts.keyOnly);

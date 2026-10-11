@@ -13,6 +13,9 @@
  *   garbage       print text that is not JSON, exit 0
  *   old-tunnel    what a tunnel without the verb says, exit 2
  *   hang          never answers (for the timeout arm)
+ *   refusal:<json>        print <json> on stdout and a refusal sentence on stderr, exit 1 (kosmos#5744: a tunnel
+ *                         since relay epochfield-5744 prints a {"refusal":...} line when refused)
+ *   refusal-quiet:<json>  the same <json> on stdout with an empty stderr, exit 1
  *
  * Point AGENT_WORKFORCE_TUNNEL_BIN at `bin` BEFORE the first call; it is also the
  * seam the suite guards in mac-standing.js and updating.js key on.
