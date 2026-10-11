@@ -137,7 +137,9 @@ test('#5744 2b: a malformed company answer, an unreadable key file and a failed 
   assert.equal(c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE).length, 1, 'something was registered past a bad answer');
 });
 
-test('#5744 2b: two calls at once make one key, and Kosmos+ and this computer agree on it', async () => {
+// Not a red arm for the one-at-a-time chain: reading the file and writing a new key have no await between them, so
+// a second call already sees the first call's key without the chain. It pins the outcome either way.
+test('#5744 2b: two calls at once agree on one key with Kosmos+', async () => {
   const c = fakeCoordinator();
   const [a, b] = await Promise.all([mk.ensureMemberKey({ macRequest: c.macRequest }), mk.ensureMemberKey({ macRequest: c.macRequest })]);
   assert.deepEqual([a.ok, b.ok, a.epoch, b.epoch], [true, true, 1, 1], JSON.stringify([a, b]));

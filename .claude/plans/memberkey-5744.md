@@ -56,8 +56,10 @@ the API doc's missing `member` field.
   web.speech-kind-1397: 339 tests, 339 pass.
 
 ## Review 1 (sonnet)
-- FIXED: two calls at once could each make a key and the later write replace one Kosmos+ took; calls now run one at
-  a time in this process (a promise chain); tested.
+- Two calls at once could each make a key and the later write replace one Kosmos+ took: MEASURED NOT TO HAPPEN in
+  this code (read-to-write has no await, so the second call sees the first's key and sends it, a repeat; the test
+  passes with the chain removed). The chain is kept as cheap protection if the store gains an await; the test pins
+  the outcome and is not a red arm for the chain.
 - FIXED (doc): ensureMemberKey does not ask whether a taken key is still current; the header says the backup job
   compares its epoch with each grant's.
 - FIXED: the key folder is chmod 0700 even when it already existed; tested.
