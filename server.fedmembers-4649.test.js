@@ -98,19 +98,19 @@ test('#4649: from the screen: invite from an existing project, see it in Members
   assert.equal(m.status, 200, JSON.stringify(m.json));
   assert.deepEqual(m.json.invites.map((r) => [r.label, r.state]), [['Dana Ruiz', 'pending']]);
 
-  edgeList = [{ id: 'e-dana', invite_id: inv.json.invite_id, project_ref: link.ref, status: 'active', created_at: 1700000000, member_kind: 'person', member_account_id: 'acct-dana' }];
+  edgeList = [{ id: 'e-dana', invite_id: inv.json.invite_id, project_ref: link.ref, status: 'active', created_at: 1700000000, member_kind: 'person' }];
   m = await call('GET', '/api/federation/members?project=' + encodeURIComponent(pid), undefined, SCREEN);
   assert.deepEqual(m.json.invites.map((r) => [r.state, r.edge_id]), [['joined', 'e-dana']]);
 
-  // #5191: the route hands the removed member's account to the owner's seat, which refuses its posts and rotates now.
+  // #5191: the route has the owner's seat rotate the room now, not at its next edge check.
   const afterRemoved = [];
   const realAfterRemove = fedseats.afterRemove;
-  fedseats.afterRemove = (project, account) => { afterRemoved.push([project, account]); return Promise.resolve(false); };
+  fedseats.afterRemove = (...args) => { afterRemoved.push(args); return Promise.resolve(false); };
   let rm;
   try { rm = await call('POST', '/api/federation/remove', { project: pid, edge_id: 'e-dana' }, SCREEN); } finally { fedseats.afterRemove = realAfterRemove; }
   assert.equal(rm.status, 200, JSON.stringify(rm.json));
   assert.deepEqual(signedCalls.filter((c) => c.route === '/v1/mac/federation/revoke').at(-1).body, { edge_id: 'e-dana' });
-  assert.deepEqual(afterRemoved, [[pid, 'acct-dana']], 'the remove route did not tell the owner\'s seat who was removed');
+  assert.deepEqual(afterRemoved, [[pid]], 'the remove route did not have the owner\'s seat rotate the room');
 
   const second = await call('POST', '/api/federation/invite', { project: pid, invited_kind: 'agent', label: 'Scout' }, SCREEN);
   const wd = await call('POST', '/api/federation/withdraw', { project: pid, invite_id: second.json.invite_id }, SCREEN);
