@@ -4425,3 +4425,17 @@ test('#5786 (b): a remove that timed out keeps the "on this computer" note (it m
   }
   remote.setOn(false);
 });
+
+test('#5786 (b): a new identity drops the "on this computer" notes of the one before', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchid1');
+  plant([{ device_id: 'dev-id1', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  plant([{ device_id: 'dev-id1', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-id1') }]);
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-id1'], 'the vouched allow to be noted');
+  // A different name is a new identity at the coordinator (the #4610 snapshot test's premise).
+  await vouchSignedIn('vouchid2');
+  assert.equal(remote.read().vouched['dev-id1'], undefined, 'the previous identity\'s note survived');
+  assert.equal(remote.pendingDevices().connected_here, null, 'the previous identity\'s notice still shows');
+  remote.setOn(false);
+});

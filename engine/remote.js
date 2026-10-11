@@ -1620,6 +1620,9 @@ function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
 function forgetPendingSnapshot() {
   try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
   resetSelfGrant();   // round 2: every identity change also starts the self-grant over (all four call sites)
+  // kosmos#5786 (b): the "on this computer" notes belong to the identity they were made under.
+  const cur = read();
+  if (cur.ok !== false && Object.keys(cur.vouched || {}).length) write({ vouched: {} });
 }
 /* #4610, Josh's ruling (2026-09-29 13:00): "This computer one, the Kosmos app, should get auto-approved instantaneously
    behind the scenes and never display to the user." This Mac's own in-app sign-in is a device at the coordinator
@@ -1694,8 +1697,8 @@ function allowSelfQuietly() {
    minted here, in memory (it also passes through the opener's argv and the browser's history). That page, signed in as the person, sends the coordinator
    HMAC-SHA256(S, its own device id), never S. The tunnel's snapshot carries that back as the row's `vouch`, and this
    computer allows the ONE row whose vouch it can reproduce.
-   What it proves: the device asking holds a session on this account AND was opened by this computer in the last
-   VOUCH_WINDOW_MS; a stranger with a stolen match code has no S (#3311). The residual Josh accepted (10-10 19:04):
+   What it proves: the device asking holds a session on this account AND holds S, which this computer minted and put
+   in the browser it opened, inside the window; a stranger with a stolen match code has no S (#3311). The residual Josh accepted (10-10 19:04):
    the coordinator serves the page that reads S, so a compromised coordinator could vouch for one device of its own
    inside the window (kosmos-relay docs/coordinator-api.md, device-vouch).
    What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
