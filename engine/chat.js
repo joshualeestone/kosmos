@@ -3475,7 +3475,10 @@ function supersede(projectId, agent, kind, keepInPlace) {
      rename left no file between it and the write: an empty conversation, a reply refused as gone). A filesystem that
      cannot link falls back to the rename. */
   if (keepInPlace) {
-    try { fs.linkSync(file, aside); return { ok: true, aside, linked: true }; } catch { /* fall back to the rename */ }
+    try { fs.linkSync(file, aside); return { ok: true, aside, linked: true }; } catch (err) {
+      // The name appeared since the check above: a rename would OVERWRITE that file, so refuse rather than fall back.
+      if (err && err.code === 'EEXIST') return { ok: false, because: cannotMoveAside(kind) };
+    }
   }
   try {
     fs.renameSync(file, aside);

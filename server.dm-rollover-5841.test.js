@@ -362,3 +362,27 @@ test('#5841 when the newest full file is gone, the count stops at the current fi
   for (let b = t.json.olderCount; b > 0;) { const pg = await get(`/api/agent/${BROKEN}/thread/older?before=${b}`); seen.unshift(...texts(pg.json)); b = pg.json.olderCount; }
   assert.deepEqual([seen.length, seen[0], seen[seen.length - 1]], [300, 'b800', 'b1099'], 'paging did not reach the current file\'s rows before the tail');
 });
+
+test('#5841 with no link, a failed write puts the renamed full file back; a name taken since the check is refused, never overwritten', () => {
+  const store = require('./engine/store');
+  const realSave = store.saveFlushed;
+  const realLink = fs.linkSync;
+  const who = 'nolinkfail';
+  for (let i = 0; i < CAP; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'n' + i }).recorded, true);
+  let r;
+  fs.linkSync = () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); };
+  store.saveFlushed = () => { throw new Error('ENOSPC'); };
+  try { r = chat.appendMessage(chat.DIRECT, who, { text: 'one too many' }); } finally { store.saveFlushed = realSave; fs.linkSync = realLink; }
+  assert.equal(r.recorded, false, 'premise: the write failed');
+  const back = chat.readThread(chat.DIRECT, who);
+  assert.deepEqual([back.messages.length, back.continues, asides(who)], [CAP, null, []], 'the renamed full file was not put back');
+  // EEXIST: another file took the name between the check and the link. Falling back to the rename would overwrite it.
+  const realRename = fs.renameSync;
+  let renamed = false;
+  fs.linkSync = () => { throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); };
+  fs.renameSync = (...a) => { renamed = true; return realRename(...a); };
+  try { r = chat.appendMessage(chat.DIRECT, who, { text: 'one too many' }); } finally { fs.linkSync = realLink; fs.renameSync = realRename; }
+  assert.equal(r.recorded, false, 'a send was recorded over a taken aside name');
+  assert.equal(renamed, false, 'it fell back to a rename that would overwrite the file holding that name');
+  assert.equal(chat.readThread(chat.DIRECT, who).messages.length, CAP, 'the full file was changed');
+});

@@ -131,3 +131,17 @@ engine writes one, but a person could.
     nothing points to. The next send rolls over again. That leaves a second copy on disk, and nothing counts it twice.
 - **NIT, not taken:** `chainRows` and the counts disagree only on a `.full` holding no more rows than it carried.
   The engine never writes one, because every real `.full` holds 1000 rows.
+
+## Review 6 (sonnet)
+- **No blocker, no lost or double-counted row.** It traced `saveFlushed` to a fresh temp plus `renameSync`, so the
+  `.full` link keeps the old inode and is never written through. It also worked the crash at each step and the
+  arithmetic again.
+- **SHOULD-FIX, fixed:** the undo for the rename fallback (a failed write when a link could not be made) had no
+  test, and the reviewer's mutant survived. New arm: link refused and the write failed; the full file is back with
+  1000 rows and no `.full`. Mutant red at that assertion.
+- **NIT, taken:** if `linkSync` fails with EEXIST (the name was taken since the check), falling back to the rename
+  would overwrite that file. It now refuses. Arm: an EEXIST link records nothing and never renames. Mutant red at
+  its own assertion.
+- **NIT, not taken:** a throw between the set-aside and the save, outside the save's catch, is not undone. On the
+  linked path it leaves a harmless orphan `.full`. On the rename fallback the next send reattaches with carried 0,
+  which is the same state as review 4's not-taken NIT, and nothing is lost. No code in that span is known to throw.
