@@ -2487,6 +2487,20 @@ function unanswered(projectId, now) {
   if (!rec.ok) return {};
   const rows = rec.rows.filter((m) => m && m.project === projectId);
   const out = {};
+  /* kosmos#5805 part 2: an agent that answered the person on their direct thread (`kosmos reply`) instead of in the
+     room has answered the ask: the person who asked is the one who heard back, which is what this line and the nudge
+     exist for. Its own reply only (a row `from` it, not Kosmos's words in its name), at or after the ask. Read only
+     when the room shows silence, once per agent per call; a thread that cannot be read counts as no answer (as
+     before). Weakest premise: that reply may be about something else; the room then reads answered. */
+  const direct = new Map();
+  const repliedDirect = (name, since) => {
+    if (!direct.has(name)) {
+      let msgs = [];
+      try { const t = chat.readThread(chat.DIRECT, name); msgs = (t && Array.isArray(t.messages)) ? t.messages : []; } catch { msgs = []; }
+      direct.set(name, msgs);
+    }
+    return direct.get(name).some((m) => m && m.from === name && m.kosmos !== true && Date.parse(m.at) >= since);
+  };
   for (const p of rows) {
     if (p.kind !== 'post' || p.operator !== true || !Array.isArray(p.mentioned) || !p.mentioned.length) continue;
     const age = at - Date.parse(p.at);
@@ -2507,7 +2521,8 @@ function unanswered(projectId, now) {
          answer, the module's own never-promote-on-a-string-match rule
          read in the other direction. */
       return !rows.some((m) => m.kind === 'post' && m.operator !== true && m.from === name
-        && Date.parse(m.at) >= Date.parse(p.at));
+        && Date.parse(m.at) >= Date.parse(p.at))
+        && !repliedDirect(name, Date.parse(p.at));
     });
     if (silent.length) out[p.id] = silent;
   }

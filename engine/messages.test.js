@@ -3479,3 +3479,31 @@ test('#4888: a send that was refused does not hand its id to the next one', () =
     assert.notEqual(next.id, usedId, 'the next send was given the id the refused one had used');
   });
 });
+
+test('kosmos#5805 part 2: an ask answered on the person\'s direct thread is not unanswered; only the agent\'s own reply after the ask counts', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    try { fs.rmSync(chat.threadFile(chat.DIRECT, 'mara'), { force: true }); } catch { /* fresh */ }
+    arm([]);
+    messages.setUnansweredAfterForTests(1000);
+    try {
+      const sent = messages.sendPost({ operator: true, project: 'henderson-lease', projectName: 'Henderson Lease', text: '@mara where is the draft?' }, board.agents, MEMBERS);
+      assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+      const row = messages.record().rows.find((m) => m.kind === 'post');
+      const askAt = Date.parse(row.at);
+      const later = askAt + 5000;
+      const dm = (fields) => assert.equal(chat.appendMessage(chat.DIRECT, 'mara', { text: 'x', ...fields }).recorded, true, 'precondition: the row was kept');
+      // CONTROLS, none of them an answer: mara's reply from BEFORE the ask, Kosmos's own words in mara's name, and the
+      // person's own message on that thread.
+      dm({ from: 'mara', at: new Date(askAt - 60e3).toISOString(), text: 'an older reply' });
+      dm({ from: 'mara', kosmos: true, at: new Date(askAt + 1000).toISOString(), text: 'Kosmos: mara is out of usage today' });
+      dm({ at: new Date(askAt + 1500).toISOString(), text: 'the person, again' });
+      assert.deepEqual(messages.unanswered('henderson-lease', later), { [row.id]: ['mara'] }, 'a row that is not mara\'s own later reply counted as an answer');
+      // mara answers the person directly (kosmos reply) after the ask: answered.
+      dm({ from: 'mara', at: new Date(askAt + 2000).toISOString(), text: 'in the folder, one pass left' });
+      assert.deepEqual(messages.unanswered('henderson-lease', later), {}, 'a direct reply to the person after the ask still reads unanswered');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+    }
+  });
+});
