@@ -46981,7 +46981,7 @@ paintStyles(true);
 const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
   /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id
      whose notice was put away, and what its Undo said. */
-  here: null, hereGone: '', hereSaid: '', hereSaidFor: '' };
+  here: null, hereGone: '', hereSaid: '', hereSaidFor: '', hereSaidAt: 0 };
 /* kosmos#5786 (b): one connection's notice, by device AND when it was connected, so putting one away never hides a
    later automatic Allow of the same browser. */
 function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
@@ -47100,6 +47100,8 @@ function paintAsk() {
   const rows = ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state !== 'gone');
   const doneIds = Object.keys(ASK.done).filter((id) => ASK.done[id].state !== 'gone');
   /* kosmos#5786 (b): the browser this computer just connected without asking, until Got it, its Undo, or ten minutes. */
+  // What an Undo said stays as long as a Remove's line does (REMOVE_SAID_MS), then goes.
+  if (ASK.hereSaid && Date.now() - ASK.hereSaidAt > REMOVE_SAID_MS) ASK.hereSaid = '';
   const here = ASK.here && askHereKey(ASK.here) !== ASK.hereGone ? ASK.here : null;
   const anything = live.length || doneIds.length || here || ASK.hereSaid;
   /* #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the full cards render ABOVE the panel; on any
@@ -47243,6 +47245,7 @@ async function askAct(act, id, at) {
     ASK.removing = null;
     const said = res ? await res.json().catch(() => null) : null;
     ASK.hereSaidFor = key;
+    ASK.hereSaidAt = Date.now();
     // The same words the Devices list's Remove says (what it reached, what it did not), from the same answer.
     if (res && res.ok) { ASK.hereGone = key; ASK.hereSaid = removedWords(said); }
     else ASK.hereSaid = plusWords((said && said.error) || 'we could not disconnect it; try again, or remove it under Devices');
