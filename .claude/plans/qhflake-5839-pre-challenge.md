@@ -22,3 +22,9 @@ converged: true
 - [NIT] the retry alone does not fix the flake --> agreed; the capper fix is the fix, the retry covers the "never raced" case
 - [NIT] reap trusts an empty ps read (returns 0, or an unbounded wait) --> NOT CHANGED: rarer, and a change to reap reaches every arm that uses it; noted on the card
 - [NIT] arm names vary by value; a retry adds up to ~55 s --> ACCEPTED
+
+### Checked and fine (iteration 1)
+- The retry cannot pass a regression: only a 2 is retried, and the result is judged by the same conditions; a 1 for the new teardown or a 0 for the old still fails.
+- Cleanup before a retry is complete: the copy's marker dir (light-side-claim, machine-claim, pgid, suitewait marker) and log are removed; .r is overwritten on every return path.
+- The first attempt's KILLed wrapper is a zombie of $$ and its orphaned capper exits on its own within 7 s, touching only its own temp files; capper_of on the retry only looks at the NEW wrapper's children.
+- A 2 can also arise when the capper's intruder check fires on a shared runner (it then sleeps 10, not 7, so capper_of never matches): the retry is reasonable for that too.
