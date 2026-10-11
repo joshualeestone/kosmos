@@ -2,7 +2,7 @@
 # kosmos#4911 (Mona Lisa's finding, 2026-10-02): the pre-commit "$? after a pipe" lint (#632) refused
 # tools/test-light-side-4911.sh on six correct lines, so any commit staging that file (a merge of main into an
 # older branch) was refused. Two shapes were misread:
-#   - "cmd || sed ...": the "|" of "||" was read as a pipe into sed. Fixed exactly: "||" is never a pipe.
+#   - "cmd || sed ...": the "|" of "||" was read as a pipe into sed. Fixed: "||" (and an escaped "\|") is never a pipe.
 #   - "cmd; rc=<status>" one or two lines after an unrelated pipe: that status is cmd's own. A line-based lint cannot
 #     tell this from the hazard (nine review rounds of heuristics each let a real hazard through), so the author says
 #     so on the line: "# pipe-status-ok". Without it the line is still refused.
@@ -51,6 +51,14 @@ printf '%s\n' "yarn test $P tail -5" "true  # pipe-status-ok" "[ $Q -eq 0 ] || e
 flags "$T/markedother.sh" && ok "a marker on a line that reads no status excuses nothing" || bad "a marker on another line excused the read"
 printf '%s\n' "yarn test $P tail -5" "# see $Q  # pipe-status-ok" "[ $Q -eq 0 ] || exit 1" > "$T/markedcomment.sh"
 flags "$T/markedcomment.sh" && ok "a marked comment that only mentions the status excuses nothing" || bad "a marked comment line excused the real read"
+printf '%s\n' "yarn test $P tail -5" "foo; rc=$Q; echo \"x # pipe-status-ok\" y" > "$T/markedmid.sh"
+flags "$T/markedmid.sh" && ok "a marker in the middle of a line, with code after it, excuses nothing" || bad "a mid-line marker excused the read"
+printf '%s\n' "yarn test $P tail -5" "foo; rc=$Q#pipe-status-ok" > "$T/markednospace.sh"
+flags "$T/markednospace.sh" && ok "a marker glued to code (not a comment) excuses nothing" || bad "a marker that is not a comment excused the read"
+printf '%s\n' "yarn test $P tail -5" "n=\${#a[@]} foo; rc=$Q  # pipe-status-ok" > "$T/markedcount.sh"
+[ -z "$(lint "$T/markedcount.sh")" ] && ok "a correctly marked line with \${#...} in its code is accepted" || bad "a \${#...} before the status hid the marker: $(lint "$T/markedcount.sh")"
+printf '%s\n' "echo a\\$P$P tail -1" "rc=$Q" > "$T/escapedpipe.sh"
+flags "$T/escapedpipe.sh" && ok "an escaped pipe right before a real one keeps the real pipe" || bad "an escaped pipe hid the real pipe after it"
 
 printf '%s\n' "x $P grep y" 'true' "out=\"\$(run_it 2>&1)\"; rc=$Q  # pipe-status-ok" "V=1 run_it; rc=$Q  # pipe-status-ok" "out=\$(PATH=\"x:\$PATH\" run_it a b); rc=$Q  # pipe-status-ok" > "$T/assigncmd.sh"
 [ -z "$(lint "$T/assigncmd.sh")" ] && ok "marked assignments from or before a command are accepted" || bad "an assignment from or before a command was refused: $(lint "$T/assigncmd.sh")"

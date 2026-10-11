@@ -134,3 +134,16 @@ command's status.
 - NO CHANGE (NIT): a marked line clears the pipe, so a further read on the next line or two is that marked line's own
   status, not the pipe's. Accurate as worded.
 - The reviewer read all 11 marked lines with the lines above them: each is its own command's status.
+
+## Review 11 (opus, blind, on bfd8dfe27): no BLOCKER
+- FIXED (WARNING): no fixture pinned that the marker must END the line; dropping the anchor passed every test. Added
+  a mid-line marker followed by code; the anchor mutant turns it BAD (the first version put a quote before the "#",
+  so the comment-start rule caught it whatever the anchor did; sharpened).
+- FIXED (NIT): an escaped "\|" directly before a real pipe ("a\|| tail") hid the real pipe; "\|" is removed first.
+  Fixture; mutant BAD.
+- FIXED (NIT): "$#" or "${#...}" before the status counted as a comment start, refusing a correctly marked line; they
+  are ignored for that test. Fixture; mutant BAD.
+- FIXED (NIT): a marker glued to code ("rc=<status>#pipe-status-ok") is not a comment; the marker now needs a "#" at
+  the line start or after a space. Fixture; mutant BAD.
+- The reviewer confirmed the 11 marked lines are exactly main's 11 remaining refusals and each is its own command's
+  status (run, bcguard, leak_tmp_check, leak_launchd_check, kosmos_light_side_intruder, kosmos_wait_until_clear).

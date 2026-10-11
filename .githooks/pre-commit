@@ -29,12 +29,15 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(sh|bas
   hits="$(git show ":$f" | awk '
     /^[^#]*set -o pipefail|^[^#]*set -[a-zA-Z]*o pipefail/ { pf = 1 }
     # "a || b" is not a pipe: drop every || before looking for one (a "cmd || sed" fallback was read as "| sed").
-    { s = $0; gsub(/\|\|/, "  ", s) }
+    # An escaped "\|" is not a pipe either, and goes first so "a\|| tail" keeps its real pipe.
+    { s = $0; gsub(/\\\|/, "  ", s); gsub(/\|\|/, "  ", s) }
     s ~ /^[^#]*\| *(tail|head|grep|cut|sed|awk|wc|sort|tr|tee)([[:space:]]|$)/ { p = NR; line = $0 }
     # The author'"'"'s word, written where a reviewer sees it: a line ending in "# pipe-status-ok" reads its OWN
     # command'"'"'s status, so a pipe on an EARLIER line is not what it reads. A pipe on the same line still counts.
     # The status must be read in the line'"'"'s CODE (before any "#"): a comment that only mentions it excuses nothing.
-    p && p != NR && /^[^#]*\$\?/ && /#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
+    # "$#" and "${#x}" are not comments; the marker itself must be a real comment (a "#" at the start or after a space).
+    { c = $0; gsub(/\$\{#|\$#/, "", c) }
+    p && p != NR && c ~ /^[^#]*\$\?/ && /(^|[[:space:]])#[[:space:]]*pipe-status-ok[[:space:]]*$/ { p = 0 }
     !pf && p && NR - p <= 2 && /\$\?/ && !/PIPESTATUS|pipestatus/ { printf "  line %d: $? after a pipe reads the filter'"'"'s status, not the command'"'"'s: %s\n", NR, line; p = 0 }
     /^[^#]*grep -c[^|]*\|\| *echo 0/ { printf "  line %d: grep -c ... || echo 0 prints two lines when nothing matches: %s\n", NR, $0 }
   ')"
