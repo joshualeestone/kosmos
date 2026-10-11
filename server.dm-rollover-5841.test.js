@@ -166,6 +166,38 @@ test('#5841 a reaction on a row that lives only in an earlier file says so, rath
   assert.equal(chat.reactDirect(who, recent, '\u{1F44D}').ok, true, 'CONTROL: a carried row can still be reacted to');
 });
 
+test('#5841 a reaction made on a carried row survives when that row pages out of the latest (the newer copy is served)', async () => {
+  const who = 'reactbot';
+  // r990 was reacted to in the CURRENT file's carried copy; the full file's copy has no reaction. Push it out of the tail.
+  for (let i = 0; i < 205; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'push ' + i }).recorded, true);
+  const t = await get(`/api/agent/${who}/thread`);
+  const inTail = (t.json.messages || []).some((m) => m.text === 'r990');
+  assert.equal(inTail, false, 'premise: r990 has left the latest 200');
+  let row = null;
+  for (let b = t.json.olderCount; b > 0 && !row;) {
+    const pg = await get(`/api/agent/${who}/thread/older?before=${b}`);
+    row = (pg.json.messages || []).find((m) => m.text === 'r990') || null;
+    b = pg.json.olderCount;
+  }
+  assert.ok(row, 'r990 was not found on any earlier page');
+  assert.ok(Array.isArray(row.reactions) && row.reactions.length > 0, 'the reaction made after the rollover vanished when the row paged out: ' + JSON.stringify(row.reactions));
+});
+
+test('#5841 a project deleted and re-created under its name does NOT inherit the old one\'s earlier files', () => {
+  const P = 'proj-reborn';
+  const B1 = '2026-01-01T00:00:00.000Z';
+  const B2 = '2026-02-01T00:00:00.000Z';
+  for (let i = 0; i <= CAP; i += 1) assert.equal(chat.appendMessage(P, AGENT, { text: 'old ' + i }, B1).recorded, true);
+  const old = chat.readThread(P, AGENT, B1);
+  assert.ok(old.continues, 'premise: the first project rolled over');
+  const r = chat.appendMessage(P, AGENT, { text: 'the new project speaks' }, B2);
+  assert.equal(r.recorded, true, r.because);
+  const now = chat.readThread(P, AGENT, B2);
+  assert.equal(now.continues, null, 'the new project continued the OLD project\'s full file');
+  assert.deepEqual(chat.asideChain(P, AGENT, false), [], 'the old project\'s files counted under the new one');
+  assert.deepEqual(now.messages.map((m) => m.text), ['the new project speaks']);
+});
+
 test('#5841 if the full file cannot be set aside, the send is refused as before, saying why', () => {
   const was = fs.renameSync;
   fill(OTHER, CAP - chat.readThread(chat.DIRECT, OTHER).messages.length, 100);

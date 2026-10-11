@@ -15961,9 +15961,9 @@ const server = http.createServer(async (req, res) => {
     try {
       const rec = chat.readThread(chat.DIRECT, name);
       rows = rec.messages || [];
-      const earlier = rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues) : [];
-      // The current file's first `carried` rows are already the earlier file's last: served once, from there.
-      if (earlier.length) rows = [].concat(...earlier.map((a) => a.messages), rows.slice(rec.carried || 0));
+      const earlier = rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues, rec.projectBornAt) : [];
+      // Each carried overlap is served once, from the NEWER copy (chainRows): edits after a rollover live only there.
+      if (earlier.length) rows = chat.chainRows(earlier, rows, rec.carried);
     } catch (err) {
       // No file can ever exist (BAD_THREAD) reads as nothing older; anything else is a read that failed, said so.
       if (err && err.code === 'BAD_THREAD') { sendJson(res, 200, { messages: [], olderCount: 0 }); return; }
@@ -16223,7 +16223,7 @@ const server = http.createServer(async (req, res) => {
        (earlier files' own rows) - carried + i: the first row shown here is at that position for i = its index. */
     let asideCount = 0;
     if (Array.isArray(messages) && threadRec && threadRec.continues) {
-      try { for (const a of chat.asideChain(chat.DIRECT, name, false, threadRec.continues)) asideCount += a.count; } catch { /* the chain is extra; the tail stands */ }
+      try { for (const a of chat.asideChain(chat.DIRECT, name, false, threadRec.continues, threadRec.projectBornAt)) asideCount += a.count; } catch { /* the chain is extra; the tail stands */ }
     }
     const firstShown = Array.isArray(messages) && messages.length > TAIL ? messages.length - TAIL : 0;
     const olderCount = Array.isArray(messages)
@@ -16647,7 +16647,7 @@ const server = http.createServer(async (req, res) => {
             // kosmos#5841: older than the latest carried rows, it lives in an earlier file: read-only is enough to answer it.
             try {
               const rec = chat.readThread(chat.DIRECT, name);
-              for (const a of rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues) : []) {
+              for (const a of rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues, rec.projectBornAt) : []) {
                 answered = a.messages.find((r) => r && r.at === body.reply_to && typeof r.text === 'string'
                   && r.kind !== 'kosmos' && r.kind !== 'question' && (!r.from || r.from === name)) || answered;
               }
@@ -20982,7 +20982,7 @@ const server = http.createServer(async (req, res) => {
        how many messages are kept (it has no earlier reader yet; the count is the truth about what is kept). */
     let projAside = 0;
     if (Array.isArray(messages) && projRec && projRec.continues) {
-      try { for (const a of chat.asideChain(id, member.sessionName, false, projRec.continues)) projAside += a.count; } catch { /* the tail stands */ }
+      try { for (const a of chat.asideChain(id, member.sessionName, false, projRec.continues, projRec.projectBornAt)) projAside += a.count; } catch { /* the tail stands */ }
     }
     const projFirst = Array.isArray(messages) && messages.length > TAIL ? messages.length - TAIL : 0;
     const olderCount = Array.isArray(messages) ? Math.max(0, projAside - (projAside ? (projRec.carried || 0) : 0) + projFirst) : 0;
