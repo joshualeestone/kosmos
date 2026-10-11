@@ -5408,10 +5408,10 @@ const server = http.createServer(async (req, res) => {
       };
       /* #5804: for a running Gemini agent of ours, the model Kosmos started it on when its newest reply (since this run
          began) came from a different one (engine/geminimodelswitch.js decides; null otherwise). #5811: from what the
-         snapshot already read (a.model, a.geminiSeen), never a second job or session read per poll; no geminiSeen means
+         snapshot already read (a.model, the row's geminiSeen), never a second job or session read per poll; no geminiSeen means
          the snapshot could not read the session, so there is nothing to say. */
-      const settingGeminiModel = (a) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
-        ? require('./engine/geminimodelswitch').settingModelNameOfRow(a)
+      const settingGeminiModel = (a, seen) => (a.isNamedOurs && a.runner === 'gemini' && a.modelName && a.state !== STATE.STOPPED)
+        ? require('./engine/geminimodelswitch').settingModelNameOfRow(a, seen)
         : null;
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
@@ -5501,7 +5501,9 @@ const server = http.createServer(async (req, res) => {
           return create.recordedRunner(a.sessionName);
         } catch { return null; }
       };
-      const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map((a) => ({
+      /* #5811: `geminiSeen` is the snapshot's input to the "(set to X)" decision, not a card field: taken off here so the
+         page row never carries it, and handed to that decision directly. */
+      const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map(({ geminiSeen, ...a }) => ({
         ...a,
         runner: runnerOfCard(a),
         linkLost: a.linkLost === true && !removing.has(a.sessionName),   // #5333: never for an agent being removed
@@ -5534,7 +5536,7 @@ const server = http.createServer(async (req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
-        settingModelName: settingGeminiModel(a),   // #5804
+        settingModelName: settingGeminiModel(a, geminiSeen),   // #5804, #5811
         /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
            plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
            plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).
