@@ -492,6 +492,8 @@ LOG="$LOG_DIR/install.log"
 # a never-touched Mac we want to test the INSTALLER, not the CDN, so
 # KOSMOS_TMUX_SRC and KOSMOS_SRC can point at local files carried over on a
 # thumb drive. Same code path, one variable different.
+# KOSMOS_READONLY_APP=1 leaves the installed app/ folder read-only after an install or update (#4449). Off by
+# default; #4455 turns it on once every installer in circulation can lift it.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 
 # ⚠️ EVERY DOWNLOAD IS CHECKSUM-VERIFIED before anything is extracted. The
@@ -1055,6 +1057,9 @@ install_kosmos() {
   # is stopped during the swap, every rename is same-filesystem, and the
   # recovery is the installer's own re-run, which `kosmos start` names when
   # the tree is incomplete.
+  # #4449: the stage is ours to move and delete whatever its source was: a copy of an installed tree (which may
+  # have a read-only app, below) would otherwise refuse the mv into place AFTER the old app was removed, leaving no app at all.
+  chmod -R u+w "$stage" 2>/dev/null || true
   [ -f "$stage/bin/kosmos" ] && [ -x "$stage/bin/kosmos" ] || { rm -rf "$stage"; return 1; }
   if [ "$(uname -s)" = "Linux" ]; then
     if [ ! -f "$stage/runtime/bin/node" ] || ! "$stage/runtime/bin/node" --version >/dev/null 2>&1; then
@@ -1084,6 +1089,14 @@ install_kosmos() {
     return 1
   fi
   local part
+  # #4449: the previous install may have left `app` read-only (KOSMOS_READONLY_APP, below), and rm -rf cannot
+  # remove files from a folder nobody may write to, so every part is made writable again before the swap starts.
+  # Harmless on a part that never was read-only. A chmod that fails is tolerated here on purpose: with the switch
+  # off (the default) nothing was locked, so the swap below behaves as it always has. Refusing before anything is
+  # removed when a locked part cannot be unlocked is a condition of turning the switch on (#4455).
+  for part in bin app runtime; do
+    [ -d "$dest/$part" ] && chmod -R u+w "$dest/$part" 2>/dev/null || true
+  done
   for part in bin app runtime; do
     rm -rf "$dest/$part" || { rm -rf "$stage"; return 1; }
     mv "$stage/$part" "$dest/$part" || { rm -rf "$stage"; return 1; }
@@ -1095,6 +1108,19 @@ install_kosmos() {
     mv "$stage/VERSION" "$dest/VERSION" || { rm -rf "$stage"; return 1; }
   fi
   rm -rf "$stage"
+  # #4449: with KOSMOS_READONLY_APP=1 the installed app is left read-only, so an agent's edit is refused rather
+  # than changing the board every agent on this computer runs on (a tester's board went stale that way). OFF by
+  # default, see the stop sign below. Folders too, not only files: an editor
+  # writes a temp file beside the target and renames it over, which a read-only file alone does not stop
+  # (measured, the card). Nothing writes under app/ at runtime (measured on a live install); this updater is its one
+  # writer and lifts it for its own swap (above). Mode bits only: an ACL that allows writing is left as it is.
+  # 🛑 OFF UNTIL EVERY INSTALLER IN CIRCULATION CAN LIFT IT (review iteration 1): an installer from before #4449
+  # (a rollback of /setup, or a cache still serving the last one) cannot remove a read-only app, so its update would
+  # die with the board paused. This release ships the lifting (above, and in uninstall); a later release turns this
+  # on by default (follow-up card). KOSMOS_READONLY_APP=1 turns it on now (test-install does).
+  if [ "${KOSMOS_READONLY_APP:-0}" = 1 ]; then
+    chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
+  fi
   # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this
   # run DID; this is the only line that looks at what the destination
   # HOLDS. A landed version that differs from the run's target means some
@@ -1945,6 +1971,7 @@ KOSMOS_SWEEP_LIST
         info "removing this computer's Plus key (its agents and their files are left alone)"
         rm -rf "$_remote_state" 2>/dev/null || true
       fi
+      chmod -R u+w "$KOSMOS_HOME/app" 2>/dev/null || true   # #4449: the app may be read-only (KOSMOS_READONLY_APP)
       rm -rf "$KOSMOS_HOME"
     else
       info "note: $KOSMOS_HOME does not look like a Kosmos install, so it was left alone."
@@ -3538,7 +3565,7 @@ PLIST
   # produce an Info.plist naming an executable that does not exist.
   [ -f "$KOSMOS_HOME/app/bin/kosmos-app" ] && [ -x "$KOSMOS_HOME/app/bin/kosmos-app" ] || return 1
   cp "$KOSMOS_HOME/app/bin/kosmos-app" "$target/MacOS/Kosmos" || return 1
-  chmod +x "$target/MacOS/Kosmos" || return 1
+  chmod 755 "$target/MacOS/Kosmos" || return 1   # #4449: its own mode, not the app's (which may be read-only)
 
   # ⚠️ THE PER-INSTALL VALUES the old heredoc baked into shell text now
   # live here instead, because the binary itself never changes and reads
@@ -3560,7 +3587,8 @@ PLIST
   # the generic icon either way. A Dock that already pins Kosmos may
   # keep its cached tile until the Dock restarts; that is the Dock's
   # cache, not a bad icns.)
-  [ -f "$KOSMOS_HOME/app/assets/Kosmos.icns" ] && cp "$KOSMOS_HOME/app/assets/Kosmos.icns" "$target/Resources/Kosmos.icns"
+  [ -f "$KOSMOS_HOME/app/assets/Kosmos.icns" ] && cp "$KOSMOS_HOME/app/assets/Kosmos.icns" "$target/Resources/Kosmos.icns" \
+    && chmod 644 "$target/Resources/Kosmos.icns" || true   # best effort, like the copy it follows
   return 0
 }
 

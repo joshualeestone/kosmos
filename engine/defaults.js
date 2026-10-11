@@ -384,6 +384,17 @@ const BLOCK = [
   'browser (`open`, `start`, `Start-Process` or any such command) leaves a tab you',
   'have no way to close, so do that only for these, and leave that tab to them.',
   '',
+  '### Kosmos itself is not yours to edit',
+  '',
+  '**Never change the files Kosmos is installed from**, wherever it is',
+  'installed (on a Mac, the folder ~/.local/share/kosmos). That is the board',
+  'every agent on this computer runs on: an edit there changes it for all of',
+  'them at once, a wrong one stops it for everyone until the next update, and',
+  'the next update throws the edit away. If you think Kosmos itself has a bug,',
+  'say so and describe it. Do not patch the installed copy, even to fix',
+  'something. Updating Kosmos with its own update or its install line is fine:',
+  'that replaces it whole, which is not an edit.',
+  '',
   '### When your work reaches outside your own folder',
   '',
   'The first time you touch a folder like Desktop or Documents, this Mac may',
@@ -979,8 +990,21 @@ function block() {
  *     WEAKEST PREMISE, NAMED: the samples are small (1 to 3 per arm), Codex and Gemini were not measured, and the test
  *     agents could still reach the host account's connectors (one searched Gmail) and its first name, which the rules
  *     do not cause but the harness does not seal.
+ *  27. kosmos#4449. A tester's board on prod went stale because an agent edited a
+ *     file inside the installed app and another agent restored it (#4408 made the
+ *     freshness check content-based; nothing stopped the edit). A NEW heading,
+ *     `### Kosmos itself is not yours to edit`, so existing agents are re-offered
+ *     it (missingFrom matches by heading). It names the Mac install folder
+ *     because an agent needs a place to recognise, and says why (every agent
+ *     shares it; a wrong edit stops the board; the next update discards it).
+ *     The installer can leave the app folder read-only (KOSMOS_READONLY_APP, off
+ *     by default until #4455); that is the mechanical half, and this is the half
+ *     a same-user agent could otherwise chmod its way past.
+ *     WEAKEST PREMISE, NAMED: that an agent which reads this will not edit the
+ *     app anyway when asked to "fix Kosmos" by a person; the sentence says to
+ *     describe the bug instead, which is what the person needs from it.
  */
-const DOCTRINE_VERSION = 26;
+const DOCTRINE_VERSION = 27;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
