@@ -556,12 +556,14 @@ test('#5805 2a review 15: a message being typed by a run that outlived the guard
 });
 
 test('#5805 2a review 15: the board wires the sweep to the automatic gate, the release test and both outcome rows', () => {
+  // Slice 2b moved the hooks into limitqueue.sweepHooks; the board passes them, and they carry the same wiring.
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf('limitqueue.flush(');
-  assert.notEqual(at, -1, 'the sweep is not wired at all');
-  const call = src.slice(at, at + 900);
-  for (const want of [/deliver: chat\.deliverAutomaticAsync/, /isReleased: chat\.limitQueueReleased/, /onDelivered: messages\.logHeldDelivered/, /messages\.tellHeldDropped\(/]) {
-    assert.match(call, want);
+  assert.match(src, /limitqueue\.flush\(roster, limitqueue\.sweepHooks\(\{ chat, messages \}\)\)/, 'the sweep is not wired to sweepHooks');
+  const lq = fs.readFileSync(path.join(__dirname, 'limitqueue.js'), 'utf8');
+  const at = lq.indexOf('function sweepHooks(');
+  const body = lq.slice(at, at + 1400);
+  for (const want of [/chat\.deliverAutomaticAsync\(n, env, r\)/, /isReleased: chat\.limitQueueReleased/, /messages\.logHeldDelivered\(e, v\)/, /messages\.tellHeldDropped\(e, r\)/]) {
+    assert.match(body, want);
   }
 });
 
