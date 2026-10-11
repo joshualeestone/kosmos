@@ -53,6 +53,11 @@ Slice 3a added the time on the card but deliberately left these alone.
   row replaces the old one in the same capture (the old scrolled out exactly as the new arrived) keeps the old time.
 
 ## Residuals
+- A timed session row that scrolls off during a capture outage longer than two minutes while the pane stays active,
+  followed by a same-worded new limit seen first by the next good capture, inherits the old time and is retired at
+  once (reads idle while capped). Declined guard (review 10): marking rows late after any gap would also drop the time
+  of a row that stayed on screen through an ordinary Mac sleep, far more common than an active pane with failed
+  captures.
 - A weekly last-day row left on an idle agent's screen for a WEEK, with the next weekly limit printing identical words
   under it, is not re-timed, so the new limit is retired at once (the card reads idle while capped).
 - A pane relaunched under the same name faster than one snapshot pass, with the old limit row in its scrollback, is
@@ -131,3 +136,9 @@ Slice 3a added the time on the card but deliberately left these alone.
   wording). noteLimitRows applies the same rule (underPromptAt, now at module scope). Tested with a control.
 - Checked by the reviewer: "> " at column 0 is how Claude Code draws the person's turn in the only captured screens
   (status.test.js, 2026-10-02); the agent's text and tool output are under "●" or indented.
+
+## Review 10 (sonnet)
+- FIXED (WARNING): underPromptAt sat between retireResetLimits and its #5031 doc comment; moved above it.
+- STATED (NIT, declined guard): the capture-outage case (see Residuals).
+- NIT not taken: identical footer text for two turns; it fails safe (no re-time, not held), and a footer carries the
+  turn's duration and clock time ("Cooked for 3s · done 11:02 AM").
