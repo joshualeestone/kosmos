@@ -1574,7 +1574,7 @@ function allTasks(everyProject) {
         projectName: p.name,
         /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
         projectArchived: p.archived === true,
-        /* #4771: a paused project's tasks read as on hold on the Tasks view. */
+        /* #4771: a paused project's tasks read as on hold on the Tasks view, unless built (#5864). */
         projectPaused: p.paused === true,
         whoNames: whoOf(t),
         /* Named on the row rather than inferred by the screen: `progressOf`
