@@ -177,8 +177,16 @@ test('#5805 2a: a message still kept a day past its reset is dropped and logged,
 const opts = (extra = {}) => ({ deliver: chat.deliverAutomaticAsync, isReleased: chat.limitQueueReleased, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, onDelivered: messages.logHeldDelivered, onDropped: messages.logHeldDropped, ...extra });
 
 test('#5805 2a review 1: a name whose store key differs is not kept; an entry for another agent in a file is never typed', async () => {
-  assert.notEqual(store.safeKey('Casey.2'), 'Casey.2', 'CONTROL: this name is not its own key');
-  assert.equal(limitqueue.add('Casey.2', { id: 'm950', from: 'leo', envelope: 'x', at: new Date().toISOString(), reset: new Date().toISOString() }), false);
+  // Review 5: two names with one store key each keep their own messages (the file name carries a hash of the name).
+  assert.equal(store.safeKey('Casey.2'), store.safeKey('casey2'), 'CONTROL: these two names share a store key');
+  const t = new Date().toISOString();
+  assert.equal(limitqueue.add('Casey.2', { id: 'm950', from: 'leo', envelope: 'for Casey.2', at: t, reset: t }), true);
+  assert.equal(limitqueue.add('casey2', { id: 'm953', from: 'leo', envelope: 'for casey2', at: t, reset: t }), true);
+  assert.deepEqual(limitqueue.list('Casey.2').map((e) => e.envelope), ['for Casey.2']);
+  assert.deepEqual(limitqueue.list('casey2').map((e) => e.envelope), ['for casey2']);
+  assert.deepEqual(limitqueue.names().sort(), ['Casey.2', 'casey2']);
+  limitqueue.remove('Casey.2', 'm950');
+  limitqueue.remove('casey2', 'm953');
   fs.mkdirSync(limitqueue.dir(), { recursive: true });
   const now = new Date().toISOString();
   fs.writeFileSync(limitqueue.fileFor('casey'), JSON.stringify([{ id: 'm951', from: 'leo', to: 'casey', envelope: 'mine', at: now, reset: now }, { id: 'm952', from: 'leo', to: 'mallory', envelope: 'not hers', at: now, reset: now }]));
@@ -321,4 +329,30 @@ test('#5805 2a review 4: reads see only entries for that exact agent; an entry w
   const dropped = [];
   await limitqueue.flush([], { deliver: async () => ({ state: chat.DELIVERY.PLACED }), isReleased: () => false, resolveCard: () => null, DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id) });
   assert.deepEqual(dropped, ['m1002'], 'an entry with no readable reset was kept for ever');
+});
+
+test('#5805 2a review 5: an agent that cannot be reached is refused as before, kept messages or not', async () => {
+  const t = new Date().toISOString();
+  limitqueue.add('ghost', { id: 'm1010', from: 'leo', envelope: 'x', at: t, reset: t });
+  await withFleet(undefined, 'idle', async (board) => {
+    const v = await messages.sendAsync({ fromPane: '%7', to: 'ghost', text: 'hello?' }, board.agents);
+    assert.notEqual(v.held, true, 'a send to an agent not on the board was held: ' + JSON.stringify(v));
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+  });
+});
+
+test('#5805 2a review 5: after the held copy was typed and the two have spoken since, the same words are a new message', async () => {
+  let id;
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    id = (await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'ready?' }, board.agents)).id;
+  });
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    await limitqueue.flush(board.agents, opts());
+    messages.setRunner(() => ({ ok: true, session: 'casey-discord' }));
+    await messages.sendAsync({ fromPane: '%8', to: 'leo', text: 'yes' }, board.agents);   // casey answers
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    const again = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'ready?' }, board.agents);
+    assert.notEqual(again.id, id, 'folded into a message the two have talked past');
+    assert.equal(tmux.pastedTo('casey').length, 2);
+  });
 });

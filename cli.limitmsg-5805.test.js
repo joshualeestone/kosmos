@@ -73,6 +73,7 @@ function withStubBoard(fn, reply) {
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 
 const HELD = '{"delivery":{"state":"could_not","held":true,"heldBy":"limit","heldUntil":"2026-10-13T20:00:00.000Z","id":"m77","because":"held: casey is out of usage"}}';
+const BEHIND = '{"delivery":{"state":"could_not","held":true,"heldBy":"limit","heldUntil":null,"id":"m78","at":"x","because":"held: casey still has messages","behind":true}}';
 const NOT = '{"delivery":{"state":"could_not","because":"nobody by that name"}}';
 
 for (const [label, run] of [['bash', runCli], ['Windows', runWinCli]]) {
@@ -82,6 +83,12 @@ for (const [label, run] of [['bash', runCli], ['Windows', runWinCli]]) {
     assert.match(out.stdout, /Held for casey: it is out of usage until 2026-10-13T20:00:00\.000Z\. Kosmos types it after the reset; do not re-send\./);
     assert.doesNotMatch(out.stdout + out.stderr, /Not delivered/);
   }, HELD));
+  test(`#5805 2a review 5: ${label} kosmos msg words a message queued behind a backlog as that, not as out of usage`, () => withStubBoard(async (port) => {
+    const out = await run(['msg', 'casey', 'and another'], envFor(port));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Held for casey: it still has messages kept from while it was out of usage, and Kosmos types this one after them, within a minute or two\. Do not re-send\./);
+    assert.doesNotMatch(out.stdout, /it is out of usage/);
+  }, BEHIND));
   test(`#5805 2a CONTROL: ${label} kosmos msg still says Not delivered and exits 1 for a plain could_not`, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'go ahead'], envFor(port));
     assert.equal(out.code, 1, out.stdout + out.stderr);

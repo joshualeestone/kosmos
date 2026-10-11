@@ -1283,7 +1283,10 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
     const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
-    if (typed) return { state: typed.state, because: null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+    // As the fold below: only while the two have not spoken since (#4580); after that the same words are a new message.
+    if (typed && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) {
+      return { state: typed.state, because: typed.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+    }
   }
   if (sameMsg && sameMsg.state !== HELD_STATE && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true, ...(sameMsg.queued === true ? { queued: true } : {}) };
   const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
@@ -1364,7 +1367,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   try { limitHold = chat.limitHeldVerdict(toName, roster); } catch { limitHold = null; }
   /* Released, but messages kept while it was out of usage are still waiting for the minute sweep: this one goes
      behind them, so nothing it says arrives ahead of what was sent before it. */
-  const waiting = limitHold ? [] : require('./limitqueue').list(toName);
+  const waiting = limitHold || chat.addressable(toName, roster).ok !== true ? [] : require('./limitqueue').list(toName);
   if (!limitHold && waiting.length) limitHold = { limitReset: waiting[waiting.length - 1].reset, behind: true };
   if (limitHold) {
     const limitqueue = require('./limitqueue');
@@ -1379,7 +1382,10 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
     appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
     const receipt = heldReceipt(toName, id, at, until, false);
-    if (limitHold.behind) receipt.because = 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them, within a minute or two';
+    if (limitHold.behind) {
+      receipt.behind = true;
+      receipt.because = 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them, within a minute or two';
+    }
     return receipt;
   }
 

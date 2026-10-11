@@ -8,6 +8,7 @@
  * DROP_AFTER_MS past its reset. One small file per agent under the store. Never throws.
  */
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
@@ -17,7 +18,12 @@ const MAX_KEPT = 200;   // per agent, from all senders together
 const MAX_PER_SENDER = 20;   // per agent per sender: one sender in a loop cannot crowd out the others
 
 function dir() { return path.join(store.ROOT, 'limitqueue'); }
-function fileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.json'); }
+/* The store key alone can make two names one file (it lowercases and strips); a short hash of the exact name keeps
+   every agent its own file, so no name has to be refused. */
+function fileFor(name) {
+  const n = String(name);
+  return path.join(dir(), store.safeKey(n) + '-' + crypto.createHash('sha256').update(n).digest('hex').slice(0, 12) + '.json');
+}
 
 function list(name) {
   try {
@@ -34,12 +40,10 @@ function write(name, entries) {
   return true;
 }
 
-/* Keep one message for `name`. Returns true when kept. A name whose store key is not the name itself is refused: two
-   such names can share one file, and one agent's messages would be typed to the other. */
+/* Keep one message for `name`. Returns true when kept. */
 function add(name, entry) {
   try {
     if (!entry || typeof entry.id !== 'string' || typeof entry.envelope !== 'string') return false;
-    if (store.safeKey(String(name)) !== String(name)) return false;
     const now = list(name).filter((e) => e.id !== entry.id);
     if (now.length >= MAX_KEPT || now.filter((e) => e.from === String(entry.from || '')).length >= MAX_PER_SENDER) return false;
     now.push({ id: entry.id, from: String(entry.from || ''), to: String(name), envelope: entry.envelope, at: entry.at, reset: entry.reset,
@@ -60,7 +64,11 @@ function remove(name, id) {
 function names() {
   try {
     return fs.readdirSync(dir()).filter((f) => f.endsWith('.json')).map((f) => {
-      const first = list(f.slice(0, -5))[0];
+      let first = null;
+      try {
+        const got = JSON.parse(fs.readFileSync(path.join(dir(), f), 'utf8'));
+        first = Array.isArray(got) ? got.find((e) => e && typeof e.to === 'string' && fileFor(e.to) === path.join(dir(), f)) || null : null;
+      } catch { first = null; }
       // Nothing readable left in it: removed, so it is not looked at every minute for ever.
       if (!first) { try { fs.rmSync(path.join(dir(), f), { force: true }); } catch { /* next minute */ } }
       return first ? first.to : null;
@@ -72,18 +80,20 @@ function names() {
    when `isReleased(card)` (the card for the agent in `roster`), type the rest in order with `deliver`. A message typed
    (placed or unconfirmed) is removed and reported (onDelivered); the first that is not stops that agent's run and
    stays. Returns [{ name, id, state }] for what was typed. */
-let flushing = false;
+let flushingSince = 0;
+const FLUSH_STUCK_MS = 15 * 60 * 1000;
 async function flush(roster, opts) {
-  // One run at a time: a run still typing a backlog when the next minute starts would type each message twice.
-  if (flushing) return [];
-  flushing = true;
-  try { return await flushOnce(roster, opts); } finally { flushing = false; }
+  // One run at a time: a run still typing a backlog when the next minute starts would type each message twice. A run
+  // that has not finished in FLUSH_STUCK_MS (a delivery that never settled) no longer blocks the next one.
+  if (flushingSince && Date.now() - flushingSince < FLUSH_STUCK_MS) return [];
+  flushingSince = Date.now();
+  try { return await flushOnce(roster, opts); } finally { flushingSince = 0; }
 }
 async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, now = Date.now() }) {
   const out = [];
   for (const name of names()) {
     try {
-      const kept = list(name).filter((e) => e.to === name);
+      const kept = list(name);
       const live = [];
       for (const e of kept) {
         // Its reset, or when it arrived if the reset cannot be read: nothing is kept for ever.

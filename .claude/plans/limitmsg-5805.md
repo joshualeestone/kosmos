@@ -96,3 +96,18 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 - NIT taken: sendWithDelivery's header names the held answer and the 'held' row state. Duplicate: the pair valve
   counts held sends (stated under Residuals). Not taken: an in-memory count to skip the queue read on every send (a
   missing file is one failed open).
+
+## Review 5 (opus)
+- FIXED: review 1 refused a name that is not its own store key, so an adopted session with a capital or a dot lost the
+  hold. Queue files now carry a hash of the exact name: two names with one store key each keep their own file, and
+  no name is refused (tested). Reads still see only entries addressed to that exact agent.
+- FIXED: a send to an agent that cannot be reached joined its leftover backlog and was answered held; it is refused as
+  before (the held branch already required an addressable agent; tested).
+- FIXED: a repeat of a held message that was typed folded into it even after the two had spoken since; it now follows
+  #4580's rule (quiet since) and its unconfirmed wording (tested).
+- DECIDED (stated in chat.limitQueueReleased): the sweep types through the automatic gate, so a question or permission
+  menu on screen, or a quota hold, also keeps kept messages, and new ones behind them, waiting, where a fresh message
+  would be typed straight in. A line typed into a menu answers it; waiting a minute is the lesser cost.
+- NITs taken: both CLIs word a message queued behind the backlog as that (a `behind` flag; tested); the bash match no
+  longer depends on two keys sitting side by side; the sweep's one-run guard frees itself after 15 minutes; the double
+  filter is gone.
