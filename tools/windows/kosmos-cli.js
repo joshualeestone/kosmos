@@ -90,7 +90,7 @@ const USAGE = {
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran>',
+    'Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
@@ -111,6 +111,8 @@ const USAGE = {
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
     '      --unchanged                                              it found nothing new (the task\'s page rolls such runs up)',
+    '      --value "<reading>"                                      what it found, checked against what the person was last told',
+    '  kosmos task told <project-id> <task-number> [--value "<what you said>"]  record what you just told the person (default: the last --value)',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -1079,25 +1081,51 @@ async function taskRepeat(ctx, args) {
   if (reviewer) body.reviewer = reviewer;
   return taskRepeatCall(ctx, project, num, 'repeat', body, clear, every ? '' : reviewer, every && reviewer && reviewer !== 'none' ? reviewer : '');
 }
-const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...") [--unchanged]';
+const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...") [--unchanged] [--value "<reading>"]';
 async function taskRan(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err(RAN_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   /* #4787 review 1, as install/kosmos: --note is ran's one option, a bare -- ends options, any other --word is refused. */
   const words = [];
-  let past = false, want = false, unchanged = false;
+  let past = false, want = false, unchanged = false, wantValue = false, value;
   for (const a of args.slice(2)) {
     if (want) { words.push(a); want = false; continue; }
+    if (wantValue) { value = a; wantValue = false; continue; }   // kosmos#5836, as install/kosmos
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--note') { want = true; continue; }
+    if (!past && a === '--value') { wantValue = true; continue; }
     if (!past && a === '--unchanged') { unchanged = true; continue; }   // kosmos#5643, as install/kosmos
     if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task ran', RAN_USAGE, a); return 2; }
     words.push(a);
   }
-  if (want) { ctx.err('--note needs the note. ' + RAN_USAGE); return 2; }
+  if (want || wantValue) { ctx.err('--note and --value each need words. ' + RAN_USAGE); return 2; }
   // kosmos#5643: one id for this command, sent on every attempt, so the board takes a retry as the same run.
-  return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), unchanged, run_id: require('node:crypto').randomBytes(8).toString('hex'), from_pane: '' }, false);
+  return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), unchanged, run_id: require('node:crypto').randomBytes(8).toString('hex'), ...(value !== undefined ? { value } : {}), from_pane: '' }, false);
+}
+/* kosmos#5836, as install/kosmos cmd_task told: what the person was just told (default: the task's last --value reading). */
+const TOLD_USAGE = 'Usage: kosmos task told <project-id> <task-number> [--value "<what you told the person>"]';
+async function taskTold(ctx, args) {
+  const [project, num] = args;
+  if (!project || !num) { ctx.err(TOLD_USAGE); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  let want = false, value;
+  for (const a of args.slice(2)) {
+    if (want) { value = a; want = false; continue; }
+    if (a === '--value') { want = true; continue; }
+    refuseOption(ctx, 'task told', TOLD_USAGE, a); return 2;
+  }
+  if (want) { ctx.err('--value needs the words. ' + TOLD_USAGE); return 2; }
+  return taskRepeatCall(ctx, project, num, 'told', { ...(value !== undefined ? { value } : {}), from_pane: '' }, false);
+}
+/* kosmos#5836: the reading against what the PERSON was last told, never against the last run (install/kosmos says the same). */
+function vsToldLine(project, num, vs) {
+  if (!vs || typeof vs.state !== 'string') return '';
+  const told = vs.told && typeof vs.told.value === 'string' ? vs.told.value : '';
+  if (vs.state === 'never') return 'The person has never been told this task\'s reading, so this is news: tell them, then run: kosmos task told ' + project + ' ' + num;
+  if (vs.state === 'same') return 'It is the same as what the person was last told' + (told ? ' ("' + told + '")' : '') + ': nothing new to tell them.';
+  if (vs.state === 'changed') return 'It CHANGED since the person was last told' + (told ? ' (they were told "' + told + '")' : '') + ': tell them, then run: kosmos task told ' + project + ' ' + num;
+  return '';
 }
 async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnly, alsoReviewer) {
   const path = '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which;
@@ -1137,11 +1165,13 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {
+    if (which === 'told') { ctx.out('Recorded what the person was told about task ' + num + ' on ' + project + ". The next run's --value is checked against it."); return 0; }
     ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + (r.json.task && r.json.task.lastRunUnchanged === true ? (body && body.unchanged === true ? ' that found nothing new.' : ". It repeats the note before it.") : '.'))   // kosmos#5643 review 1/2: the board's answer, and who said it
       : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
         : reviewerOnly === 'none' ? 'Nobody is told now when task ' + num + ' on ' + project + ' misses a run.'
         : reviewerOnly ? reviewerOnly + ' will be told when task ' + num + ' on ' + project + ' misses a run.'
         : 'Task ' + num + ' on ' + project + ' now repeats ' + (r.json.words || 'on that schedule') + '.' + (alsoReviewer ? ' ' + alsoReviewer + ' will be told when it misses a run.' : '') + ' Each time its job runs, record it with: kosmos task ran ' + project + ' ' + num);
+    if (which === 'ran' && body && body.value !== undefined) { const line = vsToldLine(project, num, r.json.vs_told); if (line) ctx.out(line); }
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -1962,7 +1992,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
