@@ -161,7 +161,6 @@ test('round 1: ensureMemberKey\'s structured answers reach the run result (unrea
   const w = await job.runOnce({}, { ensureMemberKey: ensurer({ ok: false, waiting: true, because: 'wait' }), snapshot, now: () => 0 });
   assert.strictEqual(w.result.waiting, true);
   assert.strictEqual(snapshot.calls.length, 0);
-  assert.strictEqual(snapshot.calls.length, 0);
   // lostEpoch ignored because the newest registered key is ABOVE it: that key is current, sealed under, state cleared.
   const s2 = snapper({ ok: true });
   const i = await job.runOnce({ lostEpoch: 2 }, { ensureMemberKey: ensurer({ ok: true, epoch: 4, publicKey: PK, lostEpochIgnored: true }), snapshot: s2 });

@@ -27,8 +27,9 @@
  * retry), refusal, pendingEpoch and lostEpochIgnored.
  *
  * An ok key that comes with pendingEpoch is NEVER sealed under. ensureMemberKey keeps an unregistered key above a
- * registered one only when a move off a lost key is waiting out the day, or Kosmos+ took the newer key and this computer
- * could not note it: either way the answered key is already behind Kosmos+ (a run under it would walk and seal the
+ * registered one only on the lost path (a move waiting out the day, or a registration that was refused or got no
+ * answer) or when Kosmos+ took the newer key and this computer could not note it: either way the answered key is
+ * already behind Kosmos+ (a run under it would walk and seal the
  * whole tree to be refused at the grant). It is kept as lostEpoch instead, so the next call sends the pending key (a
  * repeat, if Kosmos+ already holds it). This also restores lostEpoch when the caller lost the job's state.
  *
@@ -53,7 +54,7 @@ function backoffMs(waits) {
   return Math.min(BACKOFF_MIN_MS * 2 ** Math.min(Math.max(waits - 1, 0), 10), BACKOFF_MAX_MS);
 }
 
-/* The key step. deps: { ensureMemberKey, now? }. Resolves { ok: true, key: { epoch, publicKey }, state, lostEpochIgnored? }
+/* The key step. deps: { ensureMemberKey, now? } (now in whole milliseconds, as Date.now). Resolves { ok: true, key: { epoch, publicKey }, state, lostEpochIgnored? }
    or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, state }. Never throws. */
 async function memberKeyFor(state, deps) {
   const st = cleanState(state);
