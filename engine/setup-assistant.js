@@ -722,9 +722,10 @@ function accountConfigHomes(home) {
 /* #4491 reviews 14 and 15: true when a rule's PATH has a character the rule syntax reads as a pattern (the guide's #4752
    RULE_SYNTAX). The separator is made '/' first, as the guide does, so a Windows path's backslashes are not read as
    pattern characters (review 15: without that every Windows rule was dropped); the globs this file adds itself are
-   taken out before testing. */
+   taken out before testing (a trailing /** or .*, a single-star segment, .claude-*, and .zcompdump with a star). */
 function ruleHasPatternChar(rule, sep = path.sep) {
-  const ownGlobs = String(rule).replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x');
+  const ownGlobs = String(rule).replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x')
+    .replace(/\/\.zcompdump\*\)$/, '/.zcompdump)');   // #5774 part 2: zsh's completion dump, any host suffix
   const inner = ownGlobs.replace(/^\w+\(/, '').replace(/\)$/, '').split(sep).join('/');
   return RULE_SYNTAX.test(inner.replace(/\*\*$/, '').replace(/\/\*$/, ''));
 }
@@ -1211,6 +1212,328 @@ function writeLaunchRecord(file, rec) {
 
 /* #5516 part 2: the names Claude Code gives its global config file (engine/startcommands.js keeps the one list). */
 const CLAUDE_GLOBAL_CONFIG_SUFFIXES = startcommands.CLAUDE_GLOBAL_CONFIG_SUFFIXES;
+/* #5774 part 2: the shell startup files in the home folder. A token-only agent's file tools could rewrite them, and
+   every shell the same user starts OUTSIDE the sandbox reads them: anything that runs zsh (.zshenv, even
+   non-interactive), a login shell, the person's own terminal, and each agent's shell snapshot. The sandboxed shell
+   cannot write the home folder already (its write scope), so this is the file tools' gap; they are denied in both
+   layers anyway, links followed, since the target of a linked dotfile is what gets written. */
+const SHELL_START_FILES = [path.join('.ssh', 'rc'), path.join('.ssh', 'config'), '.zshenv',   // review 15: ssh's config runs ProxyCommand and the like
+  '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.bashrc', '.bash_profile', '.bash_login', '.profile', '.bash_logout',
+  '.bash_aliases', '.bash_completion', '.cshrc', '.tcshrc', '.login', '.logout'];   // review 2: .bash_aliases, sourced by the common default .bashrc
+const ZSH_START_FILES = ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.zlogout'];
+/* Review 1: zsh runs a compiled copy (<file>.zwc) in place of a startup file when it is newer, so each is denied with
+   its .zwc; and compinit loads its dump file (.zcompdump, often with a host suffix) on every completing shell. */
+const zshFilesIn = (d) => ZSH_START_FILES.flatMap((f) => [path.join(d, f), path.join(d, f + '.zwc')]);
+/* A ZDOTDIR or XDG_CONFIG_HOME value, as the folders it can mean: absolute, or through ~, $HOME/${HOME}, or
+   $XDG_CONFIG_HOME (each folder that variable can be, review 3). Anything else (relative, another variable) is null:
+   Kosmos cannot say which folder it is, so the caller names it. An empty value is [] (unset: the default applies). */
+function foldersOf(value, home, xdgs, zdotNow = [], datas = []) {
+  const sets = { HOME: [home], XDG_CONFIG_HOME: xdgs, ZDOTDIR: zdotNow, XDG_DATA_HOME: datas };
+  // Review 9: a plain ${HOME} or ${XDG_CONFIG_HOME} inside a default (${XDG_CONFIG_HOME:-${HOME}/.config}) is the
+  // unbraced form; done first, so the default is not cut at its inner brace.
+  let v = String(value).trim().replace(/\$\{(HOME|XDG_CONFIG_HOME|ZDOTDIR|XDG_DATA_HOME)\}/g, '$$$1');
+  if (!v) return [];
+  /* Review 5: ${XDG_CONFIG_HOME:-default} and ${HOME:-...}, the common way to write these, are both arms: each folder
+     the variable can be, and the default resolved the same way. Review 7: ${ZDOTDIR:-default} too (the usual
+     `export ZDOTDIR="${ZDOTDIR:-$HOME/.config/zsh}"`), whose first arm is each ZDOTDIR already known. */
+  // Review 13: := , - and = too (assign or use the default); for these paths each has the same two arms as :-.
+  const dflt = /^\$\{(XDG_CONFIG_HOME|HOME|ZDOTDIR|XDG_DATA_HOME):?[-=]([^}]*)\}(.*)$/.exec(v);
+  if (dflt) {
+    const rest = dflt[3];
+    const set = sets[dflt[1]];
+    const viaDefault = foldersOf(dflt[2] + rest, home, xdgs, zdotNow, datas);
+    if (viaDefault === null) return null;
+    const viaSet = set.map((x) => x + rest).map((o) => (path.isAbsolute(o) && !/[$}{]/.test(o) ? path.resolve(o) : null));
+    return viaSet.includes(null) ? null : [...new Set([...viaSet, ...viaDefault])];
+  }
+  /* Review 17: the variable exactly ($HOME; ${HOME} was unbraced above). A lone ${HOME with no closing brace is a form
+     this does not read, so it stays and is named below, never read as the home folder. */
+  const lead = /^\$(HOME|XDG_CONFIG_HOME|XDG_DATA_HOME)(?=\/|$)/.exec(v);
+  const outs = lead ? sets[lead[1]].map((x) => x + v.slice(lead[0].length)) : [v.replace(/^~(?=\/|$)/, home)];
+  // Review 9: a brace left over means a form this does not read: named, never a path with a } in it.
+  return outs.every((o) => path.isAbsolute(o) && !/[$}{]/.test(o)) ? outs.map((o) => path.resolve(o)) : null;
+}
+/* The assignments `[export] NAME=value` in a startup file, each value as written (one quoted string unquoted), or
+   null for a value with a quote in the middle (review 2: ZDOTDIR="$HOME"/.zsh must not read as "$HOME"). */
+function assignmentsIn(text, name) {
+  const out = [];
+  /* Review 14: anywhere on a TOP-LEVEL line (not indented, not a comment): `export A=1 ZDOTDIR=x`,
+     `[[ -z $ZDOTDIR ]] && export ZDOTDIR=x`, `typeset -x ZDOTDIR=x`, and `: ${ZDOTDIR:=x}`. A conditional means "this
+     or what it was", and both are covered. Indented lines (if-blocks, functions, here-documents) stay unread (review 6). */
+  /* Review 23: a ${...} group (two levels: ${${(%):-%x}:A:h}, written unquoted since zsh does not split words) is one
+     part, so its ) is not an end; and # inside a word is literal (a comment starts only after a space, cut above). */
+  const val = '((?:"[^"]*"|\'[^\']*\'|\\$\\{(?:[^{}]|\\{[^{}]*\\})*\\}|[^\\s;"\'&|)]+)*)([^\\s;&|)]*)';
+  for (const raw of String(text).split('\n')) {
+    if (!raw || /^[\s#]/.test(raw)) continue;
+    /* Review 16: quote state along the line. A # outside quotes after a space ends the line (a trailing comment that
+       mentions NAME= is not read), and a NAME= that starts inside quotes (echo "set ZDOTDIR=x") is a mention. */
+    const quoted = [];
+    let q = '', line = raw;
+    for (let i = 0; i < raw.length; i++) {
+      const c = raw[i];
+      quoted[i] = q !== '';
+      if (q) { if (c === q) q = ''; else if (c === '\\' && q === '"') { i++; quoted[i] = true; } }
+      else if (c === '"' || c === "'") q = c;
+      else if (c === '\\') { i++; quoted[i] = false; }
+      else if (c === '#' && /[\s;&|(]/.test(raw[i - 1] || '')) { line = raw.slice(0, i); break; }   // a word's start
+    }
+    const forms = [new RegExp(`(?:^|[\\s;&|(])${name}=${val}`, 'g'), new RegExp(`\\$\\{${name}:?=((?:[^{}]|\\{[^{}]*\\})*)\\}()`, 'g')];
+    for (const [k, re] of forms.entries()) {
+      for (const m of line.matchAll(re)) {
+        if (k === 0 && quoted[line.indexOf(`${name}=`, m.index)]) continue;   // inside quotes: a mention
+        if (m[2]) { out.push(null); continue; }   // an unbalanced quote or a quote mid-part
+        // Review 16: a backslash (My\ Dir) is shell quoting this does not read: named, never a cut-off path.
+        if (m[1].includes('\\')) { out.push(null); continue; }
+        /* Review 11: a value of joined quoted and bare parts with no space ("$HOME"/.zsh) is unquoted part by part. A
+           quoted ~ stays literal and a single-quoted $ is not expanded, so either is named; a quoted space is read. */
+        const parts = [...m[1].matchAll(/"([^"]*)"|'([^']*)'|([^"']+)/g)];
+        if (parts.length && (parts[0][1] !== undefined || parts[0][2] !== undefined) && /^~/.test(parts[0][1] ?? parts[0][2])) { out.push(null); continue; }
+        if (parts.some((q) => q[2] !== undefined && q[2].includes('$'))) { out.push(null); continue; }
+        out.push(parts.map((q) => q[1] ?? q[2] ?? q[3]).join(''));
+      }
+    }
+  }
+  return out;
+}
+/* Links inside a folder denied whole point somewhere its rule does not reach (review 3: GNU Stow links each file, as
+   ~/.config/fish/config.fish -> ~/dotfiles/config.fish): each target is returned, a few levels deep and bounded. */
+function linkTargetsIn(dir, depth = 3, budget = { n: 500, seen: 50000, out: false }) {
+  const res = { files: [], dirs: [], hops: [] };
+  let names = [];
+  try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return res; }
+  for (const d of names) {
+    // Review 5: the caller names a scan cut short. Review 7: the budget counts LINKS (what gets denied); entries read
+    // have their own far larger cap, so a busy plugin folder with no links does not make the guard not whole.
+    if (--budget.seen < 0) { budget.out = true; break; }
+    const p = path.join(dir, d.name);
+    if (d.isSymbolicLink()) {
+      let real0 = null, dangle = null;
+      try { real0 = fs.realpathSync.native(p); } catch { /* dangling */ }
+      // Review 16: a dangling link's would-be target is checked against the Cellar too (uninstalled formulae leave many).
+      if (!real0) { try { dangle = realOrLeaf(danglingTarget(p)); } catch { /* unreadable link */ } }
+      const t0 = real0 || dangle;
+      if (!(t0 && budget.free && budget.free(t0)) && --budget.n < 0) { budget.out = true; break; }
+      res.hops.push(...chainHops(p));   // review 18
+      try {
+        const real = real0 || fs.realpathSync.native(p);
+        // Review 5: a linked FOLDER gets a whole-folder rule (/**), as every other folder this guard denies.
+        const isDir = fs.statSync(real).isDirectory();
+        (isDir ? res.dirs : res.files).push(real);
+        // Review 19: links inside a linked folder too (Stow folds a whole functions/ folder), within the same depth and budget.
+        if (isDir && depth > 1) { const sub = linkTargetsIn(real, depth - 1, budget); res.files.push(...sub.files); res.dirs.push(...sub.dirs); res.hops.push(...sub.hops); }
+      } catch {
+        /* Review 12: dangling. The target is not there YET, and anything that creates it (the agent's own tools) makes
+           the link run it, so the target as it would resolve is denied, as withTarget does for a dangling file. */
+        // Review 13: through danglingTarget (every hop, each relative one read from the link's REAL folder).
+        if (dangle) res.files.push(dangle);
+      }
+    } else if (d.isDirectory() && depth > 1) {
+      const sub = linkTargetsIn(p, depth - 1, budget);
+      res.files.push(...sub.files); res.dirs.push(...sub.dirs); res.hops.push(...sub.hops);
+    }
+  }
+  return res;
+}
+/* Review 13: "cannot write" means truly read-only: not writable now, and in a folder this user cannot write (a replace
+   by rename needs only that). A read-only store is exactly that. */
+function isReadOnlyTarget(p) {
+  let st;
+  try { st = fs.statSync(p); } catch { return false; }   // absent: the agent could create it
+  try { fs.accessSync(p, fs.constants.W_OK); return false; } catch { /* not writable now */ }
+  // Review 15: no owner check. Neither layer can chmod (the file tools do not; the sandboxed shell cannot outside its
+  // write scope), and a single-user Nix store is the user's own, so ownership would bring the pile-up back.
+  try { fs.accessSync(path.dirname(p), fs.constants.W_OK); return false; } catch { return true; }
+}
+/* Startup code outside the home folder that the user, not root, can write where Homebrew is the user's (review 3; on a
+   Linux /usr/local these are root's, and the rules are harmless): Homebrew's zsh site-functions
+   (on zsh's default fpath, run on tab-complete in the person's own terminal) and fish's vendor folders, which fish
+   reads at every start. Denied whole where they exist; on this fleet the Homebrew prefix is the user's. */
+const HOMEBREW_PREFIXES = ['/opt/homebrew', '/usr/local'];
+/* Review 17: a content-addressed store (Nix) names every file by a hash that changes at each switch. A single-user store
+   root is the user's own and writable, so a target directly in it is not read-only; it gets ONE stable rule for the
+   store instead of its hashed name, as a Cellar does. */
+const STORE_ROOTS = ['/nix/store'];
+const storeIn = (roots, t) => roots.find((r) => t.startsWith(r + path.sep)) || null;
+/* Review 21: the folder a versioned or hashed path lives in, which gets one stable rule: a Homebrew Cellar or Caskroom
+   (<...>/Cellar/<name>/<version>/...), or a store. Null for anything else. */
+const stableRootOf = (roots, t) => { const m = /^(.*\/(?:Cellar|Caskroom))\/[^/]+\/[^/]+(?:\/|$)/.exec(t); return m ? m[1] : storeIn(roots, t); };
+const USER_WRITABLE_SHELL_DIRS = HOMEBREW_PREFIXES.flatMap((pre) => [path.join(pre, 'share', 'zsh', 'site-functions'),
+  ...['vendor_conf.d', 'vendor_functions.d', 'vendor_completions.d'].map((v) => path.join(pre, 'share', 'fish', v))]);
+/* The files, the folders read whole, and the globs (permission layer only) for this home and environment.
+   - zsh: the home's files with their compiled copies, and those of every ZDOTDIR found: in the environment, in
+     ~/.zshenv, and in the .zshenv of each folder found that way (zsh reads $ZDOTDIR/.zshenv, which may move it again);
+     the conventional $XDG_CONFIG_HOME/zsh always.
+   - XDG_CONFIG_HOME (review 3): ~/.config always, AND the environment's, AND one ~/.zshenv sets, since a shell started
+     without that variable (the person's own terminal) still reads ~/.config.
+   - fish's and nushell's folders whole (functions, universal variables, autoload), links inside them followed. */
+function shellStartPaths(home, env, opts = {}) {
+  const e = env || {};
+  const unsafe = [];
+  /* Review 4: a regular file only (a FIFO there would block the guard), and its first 256 KB, which is far more than
+     any startup file's assignments need. */
+  const readText = (f) => {
+    try {
+      if (!fs.statSync(f).isFile()) return '';
+      const fd = fs.openSync(f, 'r');
+      try { const b = Buffer.alloc(256 * 1024); return b.toString('utf8', 0, fs.readSync(fd, b, 0, b.length, 0)); } finally { fs.closeSync(fd); }
+    } catch { return ''; }
+  };
+  const homeZshenv = readText(path.join(home, '.zshenv'));
+  const xdgs = new Set([path.join(home, '.config')]);
+  const datas = new Set([path.join(home, '.local', 'share')]);
+  const xdgVars = [['XDG_CONFIG_HOME', xdgs, 'a configuration folder'], ['XDG_DATA_HOME', datas, 'a data folder']];
+  for (const [k, set, what] of xdgVars) {
+    if (typeof e[k] === 'string' && path.isAbsolute(e[k])) set.add(path.resolve(e[k]));
+    // Review 4: relative, it is read from wherever a program runs, as a relative ZDOTDIR is: named, not dropped.
+    // Review 17: XDG_DATA_HOME the same way (it was dropped silently).
+    else if (typeof e[k] === 'string' && e[k]) unsafe.push(`${k} (${e[k]}, in the environment), ${what} Kosmos cannot work out`);
+  }
+  /* Review 17: unlike ZDOTDIR (which zsh fixes in .zshenv), these are commonly set in any startup file, and the
+     person's terminal, and the fish or nushell it starts, use that value. Read from each, the default kept. */
+  const xdgFromFile = (file, label) => {
+    const text = readText(file);
+    for (const [k, set, what] of xdgVars) {
+      for (const v of assignmentsIn(text, k)) {
+        const f = v === null ? null : foldersOf(v, home, [path.join(home, '.config')], [], [path.join(home, '.local', 'share')]);
+        if (f === null) unsafe.push(`${k} (${v === null ? 'a quoted value' : v}, set in ${label}), ${what} Kosmos cannot work out`);
+        else f.forEach((d) => set.add(d));
+      }
+    }
+  };
+  for (const f of ['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.profile', '.bash_profile', '.bash_login', '.bashrc']) xdgFromFile(path.join(home, f), f);
+  const files = [...SHELL_START_FILES.map((f) => path.join(home, f)), ...zshFilesIn(home)];
+  const globs = [path.join(home, '.zcompdump*')];
+  const zdots = new Set([...xdgs].map((x) => path.join(x, 'zsh')));   // the conventional folder, whatever names it
+  const readZshenvs = new Set();
+  const explicitZdots = new Set();   // the ZDOTDIRs something set, for ${ZDOTDIR:-...} (review 7)
+  const zdotFrom = (v, from) => {
+    const f = v === null ? null : foldersOf(v, home, [...xdgs], [...explicitZdots], [...datas]);
+    if (f === null) { unsafe.push(`ZDOTDIR (${v === null ? 'a quoted value' : v}, ${from}), a folder of zsh startup files Kosmos cannot work out`); return []; }
+    // Review 5: one that something SETS has its own .zshenv read, even when it is already listed (the conventional one).
+    const fresh = f.filter((d) => d !== path.resolve(home) && !readZshenvs.has(d));
+    f.forEach((d) => explicitZdots.add(d));
+    fresh.forEach((d) => { zdots.add(d); readZshenvs.add(d); });
+    return fresh;
+  };
+  let todo = [];
+  if (typeof e.ZDOTDIR === 'string') todo.push(...zdotFrom(e.ZDOTDIR, 'in the environment'));
+  /* Review 15: zsh's "the folder this file really is in" (${0:A:h}, ${${(%):-%x}:A:h}; :a keeps links), the usual way a
+     dotfiles repo points ZDOTDIR at itself, is that folder. */
+  const selfDir = (v, file) => {
+    if (v === null) return v;
+    const m = /^\$\{(?:0|\$\{\(%\):-%[xN]\})(:[Aa]):h\}(.*)$/.exec(v);
+    if (!m) return v;
+    let f = path.resolve(file);
+    if (m[1] === ':A') { try { f = fs.realpathSync.native(f); } catch { /* as written */ } }
+    return path.dirname(f) + m[2];
+  };
+  for (const v of assignmentsIn(homeZshenv, 'ZDOTDIR')) todo.push(...zdotFrom(selfDir(v, path.join(home, '.zshenv')), 'set in .zshenv'));
+  // Each ZDOTDIR's own .zshenv may set ZDOTDIR again (review 3); bounded, since a cycle is possible.
+  for (let i = 0; i < 8 && todo.length; i++) {
+    const next = [];
+    for (const d of todo) for (const v of assignmentsIn(readText(path.join(d, '.zshenv')), 'ZDOTDIR')) next.push(...zdotFrom(selfDir(v, path.join(d, '.zshenv')), `set in ${path.join(d, '.zshenv')}`));
+    todo = next;
+  }
+  /* Each folder's completion dumps: a glob for the file tools, and those that exist by name for both layers too (review
+     4: a ZDOTDIR outside the home folder can be inside the shell's write scope, where a glob does not reach). */
+  const dumpsIn = (d) => { try { return fs.readdirSync(d).filter((n) => n.startsWith('.zcompdump')).map((n) => path.join(d, n)); } catch { return []; } };
+  /* Review 7: by name only in a ZDOTDIR outside the home folder. In the home folder the glob already covers the file
+     tools and the shell cannot write there, and names there (oh-my-zsh's .zcompdump-<host>-<version>) would add
+     entries at every zsh upgrade that are never pruned. */
+  // Review 8: "outside" means not anywhere under the home (the conventional ~/.config/zsh is under it), by real path.
+  const realOf = (d) => { try { return fs.realpathSync.native(d); } catch { return path.resolve(d); } };
+  const homeR = realOf(home);
+  const underHome = (d) => { const r = realOf(d); return r === homeR || r.startsWith(homeR + path.sep); };
+  // Review 17: a ZDOTDIR's own startup files can set the XDG folders too (for fish, nushell and the data folders below).
+  for (const d of [...zdots]) {
+    if (d === path.resolve(home)) continue;
+    for (const f of ['.zshenv', '.zprofile', '.zshrc', '.zlogin']) xdgFromFile(path.join(d, f), path.join(d, f));
+  }
+  for (const d of zdots) {
+    if (d === path.resolve(home)) continue;
+    files.push(...zshFilesIn(d));
+    globs.push(path.join(d, '.zcompdump*'));
+    if (!underHome(d)) files.push(...dumpsIn(d));
+  }
+  for (const k of ['BASH_ENV', 'ENV']) {
+    if (typeof e[k] !== 'string' || !e[k]) continue;
+    if (path.isAbsolute(e[k])) {
+      // Review 21: only a file, or nothing yet. A device (BASH_ENV=/dev/null, the usual way to switch it off) or a
+      // folder runs nothing, and a write-deny on /dev/null could break every `> /dev/null` in the agent's shell.
+      let st = null;
+      try { st = fs.statSync(e[k]); } catch { /* absent: the agent could create it */ }
+      if (!st || st.isFile()) files.push(path.resolve(e[k]));
+    }
+    /* Review 2: ENV is also a common label (ENV=staging), and only an interactive sh reads it; a value that does not
+       look like a path is not read as one, so a label never makes every guard not whole. BASH_ENV is read by every
+       non-interactive bash, so any relative value is named. */
+    else if (k === 'ENV' && !/[\/\\]/.test(e[k]) && !/^[~.]/.test(e[k])) continue;
+    // Relative: read from whatever folder the shell runs in, which the agent can choose, so it is named, not guessed.
+    else unsafe.push(`$${k} (${e[k]}), a startup file named relative to the folder a shell runs in`);
+  }
+  const dirs = [...[...xdgs].flatMap((x) => [path.join(x, 'fish'), path.join(x, 'nushell')]), path.join(home, 'Library', 'Application Support', 'nushell'),
+    path.join(home, '.bashrc.d')];   // review 16: Fedora's default .bashrc runs every file in it
+  /* Review 15: the per-user data folders these shells load code from: fish's vendor folders (searched before the system
+     ones; vendor_conf.d runs at every start), nushell's vendor autoload, and bash-completion's per-user completions. */
+  for (const dd of datas) {
+    dirs.push(...['vendor_conf.d', 'vendor_functions.d', 'vendor_completions.d'].map((v) => path.join(dd, 'fish', v)),
+      path.join(dd, 'nushell', 'vendor', 'autoload'), path.join(dd, 'bash-completion', 'completions'));
+  }
+  const userDirs = (opts.userShellDirs || USER_WRITABLE_SHELL_DIRS).filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
+  dirs.push(...userDirs);
+  // Review 7: the Caskroom keeps casks by version too.
+  const cellars = (opts.homebrewPrefixes || HOMEBREW_PREFIXES).flatMap((pre) => [path.join(pre, 'Cellar'), path.join(pre, 'Caskroom')])
+    .filter((c) => { try { return fs.statSync(c).isDirectory(); } catch { return false; } });
+  const realCellars = cellars.map((c) => { try { return fs.realpathSync.native(c); } catch { return c; } });
+  // Review 8: a link into a Cellar or Caskroom does not spend the budget: the one stable rule below covers it.
+  const budget = { n: 500, seen: 50000, out: false, free: (t) => realCellars.some((c) => t === c || t.startsWith(c + path.sep)) || /\/(?:Cellar|Caskroom)\/[^/]+\/[^/]+(?:\/|$)/.test(t) };
+  const linked = dirs.map((d) => linkTargetsIn(d, 3, budget));
+  if (budget.out) unsafe.push('the links inside the shell startup folders (more than Kosmos follows), so some of their targets are not denied');
+  /* Review 5: Homebrew's links point into its Cellar by VERSION, and the deny lists only grow (only launch rules are
+     pruned, #5663), so each upgrade would add new versioned paths for good. Each prefix's Cellar is denied whole
+     instead, one stable rule; targets elsewhere are kept one by one. */
+  const inCellar = (t, c) => t === c || t.startsWith(c + path.sep);
+  /* Review 10: a Homebrew under another prefix (Linuxbrew, ~/homebrew) keeps the same <prefix>/Cellar/<name>/<version>/
+     shape; such a Cellar is found from the target itself and gets the same one stable rule. */
+  const cellarOf = (t) => stableRootOf(opts.storeRoots || STORE_ROOTS, t);
+  const outsideCellar = (t) => !realCellars.some((c) => inCellar(t, c)) && !cellarOf(t);
+  /* Review 14: a read-only target found INSIDE a startup folder (home-manager links ~/.config/fish/config.fish into the
+     store) protects nothing and its hashed name would pile up; the link itself is under that folder's own rule. */
+  const ro = opts.readOnlyTarget || isReadOnlyTarget;
+  const linkedFiles = linked.flatMap((l) => l.files).filter((t) => !ro(t));
+  const linkedDirs = linked.flatMap((l) => l.dirs).filter((t) => !ro(t));
+  // Review 7: only the Cellar or Caskroom a target is in, not every one that exists. Review 21: or a hop is in.
+  const allHops = [...new Set(linked.flatMap((l) => l.hops))];
+  const stableOfHop = (h) => realCellars.find((c) => inCellar(h, c)) || cellarOf(h);
+  const hitCellars = [...new Set([...realCellars.filter((c) => [...linkedFiles, ...linkedDirs].some((t) => inCellar(t, c))),
+    ...[...linkedFiles, ...linkedDirs].map(cellarOf).filter(Boolean), ...allHops.map(stableOfHop).filter(Boolean)])];
+  /* Review 6: a folder that is the root, the home folder, or contains the agent's folder would get a rule over the
+     agent's own work (Edit(<home>/**)); it is named instead, so the guard is not whole rather than over-broad. Applied
+     below to every folder denied whole, linked ones and the startup folders alike. */
+  const inside = (a, b) => a === b || b.startsWith(a + path.sep);
+  const homeReal = (() => { try { return fs.realpathSync.native(home); } catch { return path.resolve(home); } })();
+  const agent = opts.agentDir ? (() => { try { return fs.realpathSync.native(opts.agentDir); } catch { return path.resolve(opts.agentDir); } })() : null;
+  const tooBroad = (t) => {
+    return t === path.parse(t).root || inside(t, homeReal) || (agent !== null && inside(t, agent));
+  };
+  files.push(...linkedFiles.filter(outsideCellar));
+  dirs.push(...linkedDirs.filter(outsideCellar));   // each checked below with the startup folders themselves
+  dirs.push(...hitCellars);
+  // The startup folders themselves too: a linked ~/.config/fish pointing at the home would otherwise become <home>/**.
+  const keptDirs = [];
+  for (const d of new Set(dirs)) {
+    let real = d;
+    try { real = fs.realpathSync.native(d); } catch { /* absent: as written */ }
+    if (tooBroad(real)) unsafe.push(`${d} (a shell startup folder that leads to ${real}, too wide to deny: it holds the home or the agent's own folder)`);
+    else keptDirs.push(d);
+  }
+  // Review 18: the links a found link passes through, for the file tools (the caller lists them by their own path).
+  const hops = allHops.filter((h) => !stableOfHop(h));
+  /* Review 23: a glob reaches only the spelling it is written on, and the file tools write a linked ZDOTDIR's dump by its
+     real path, so each glob is also written on its folder's real path (one stable glob, nothing versioned). */
+  const allGlobs = globs.flatMap((g) => [g, path.join(realOrLeaf(path.dirname(g)), path.basename(g))]);
+  return { files: [...new Set(files)], dirs: keptDirs, globs: [...new Set(allGlobs)], hops, unsafe };
+}
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
    and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state
    (shell-snapshots, session-env, projects, backups). Folders denied whole; files by name. */
@@ -1257,6 +1580,25 @@ function danglingTarget(p) {
     cur = path.resolve(realOrLeaf(path.dirname(cur)), to);   // a relative target is read from the link's real folder
   }
   return cur;
+}
+/* Review 18 (#5774 part 2): the links a chain passes THROUGH on the way to its target (neither the path itself nor the
+   target), each by its real folder. A tool that replaces one with a file changes what the first path runs, so each one
+   in a folder the user can write is denied to the file tools; one in a read-only folder cannot be replaced, and is left
+   out. Review 21: one in a Cellar or store is the caller's to cover by that folder's one stable rule (by name it would
+   pile up, and skipped it would be uncovered). */
+function chainHops(p) {
+  const hops = [];
+  let cur = path.resolve(p);
+  for (let hop = 0; hop < 8; hop++) {
+    let to = null;
+    try { if (!fs.lstatSync(cur).isSymbolicLink()) break; to = fs.readlinkSync(cur); } catch { break; }
+    if (hop > 0) {
+      const h = path.join(realOrLeaf(path.dirname(cur)), path.basename(cur));   // an absolute link target may pass a linked folder
+      try { fs.accessSync(path.dirname(h), fs.constants.W_OK); hops.push(h); } catch { /* read-only folder */ }
+    }
+    cur = path.resolve(realOrLeaf(path.dirname(cur)), to);
+  }
+  return hops;
 }
 function withTarget(p, unsafe) {
   // Resolved through the nearest existing parent when the member does not exist yet (review 6: a linked config home
@@ -1412,6 +1754,69 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     pluginDirs.push(...both);
     wholeDenied.push(...both);   // review 9: a script inside it needs no rule of its own
   }
+  const shellStart = shellStartPaths(home, deps.env || process.env, { userShellDirs: deps.userShellDirs, homebrewPrefixes: deps.homebrewPrefixes, agentDir: dir, readOnlyTarget: deps.readOnlyTarget, storeRoots: deps.storeRoots });
+  configUnsafe.push(...shellStart.unsafe);
+  /* Review 9: a target the user cannot write (a read-only store such as /nix/store, whose hashed names change at every
+     home-manager switch, or a root-owned file) protects nothing and would only pile up in lists that never shrink. A
+     path that is not there yet is kept: the agent could create it. */
+  /* Review 13: "cannot write" means truly read-only: not writable now, and in a folder this user cannot write (a replace
+     by rename needs only that); review 15 dropped the owner test. Tests pass deps.readOnlyTarget. */
+  const readOnlyTarget = deps.readOnlyTarget || isReadOnlyTarget;
+  const writableOrAbsent = (p) => !readOnlyTarget(p);
+  /* Review 10: the LINK itself is always kept (it sits in a folder the user can write, so a tool could replace it);
+     only its target is judged, and before withTarget, so a read-only target is never named as uncarriable either. */
+  /* A link whose target is read-only goes to the FILE TOOLS only, by its own path: the sandbox side resolves a path to
+     its target (realOrLeaf), which would put the hashed store path back into denyWrite, and the shell can write
+     neither the home folder nor that target anyway. */
+  /* Review 11: "linked" means a link ANYWHERE on the path (a Stow-folded ~/.config, a linked ZDOTDIR folder), judged by
+     where the path really resolves, not by the leaf alone; and the path itself is always kept (a read-only ~/.bashrc
+     still sits in a folder the user can write). Only a resolved TARGET is judged for writability. */
+  const editOnlyLinks = [];
+  const editOnlyLinkDirs = [];
+  const storeHits = new Set();
+  /* Review 22: a Cellar- or store-shaped folder that holds the home or the agent's own folder (a person's own folder named
+     Cellar) is named, never denied whole, as the folder scan's tooBroad does. */
+  const homeR = realOrLeaf(home);
+  const agentR = realOrLeaf(dir);
+  const holds = (r, x) => x === r || x.startsWith(r + path.sep);
+  const tooWide = (r) => r === path.parse(r).root || holds(r, homeR) || holds(r, agentR);
+  const linkAware = (dirs) => (p) => {
+    // Review 22: a DANGLING link resolves to where it points (danglingTarget), as withTarget does; realOrLeaf alone
+    // keeps a dangling leaf's own name, which read as "not a link" and left its target, which the agent could create, uncovered.
+    let real;
+    try { real = fs.realpathSync.native(p); } catch { real = realOrLeaf(danglingTarget(p)); }
+    if (real === path.resolve(p)) return [p];
+    // Review 18: every replaceable link on the way, file tools only. Review 21: one in a Cellar or store, by its stable rule.
+    for (const h of chainHops(p)) {
+      const r = stableRootOf(deps.storeRoots || STORE_ROOTS, h);
+      if (r && !tooWide(r)) storeHits.add(r); else editOnlyLinks.push(h);
+    }
+    if (!writableOrAbsent(real)) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); return []; }
+    // Review 17: a writable target in a store: the link for the file tools, the store by one stable rule (both layers).
+    const st = stableRootOf(deps.storeRoots || STORE_ROOTS, real);
+    if (st && tooWide(st)) { configUnsafe.push(`${p} (it links into ${st}, a folder too wide to deny: it holds the home or the agent's own folder)`); (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); return []; }
+    if (st) { (dirs ? editOnlyLinkDirs : editOnlyLinks).push(p); storeHits.add(st); return []; }
+    return withTarget(p, configUnsafe);
+  };
+  const shellStartFiles = [...new Set(shellStart.files.flatMap(linkAware(false)))];
+  const shellStartDirs = [...new Set([...shellStart.dirs.flatMap(linkAware(true)), ...storeHits])];
+  editOnlyLinks.push(...(shellStart.hops || []));
+  /* Review 19: a target found inside a startup folder, or a link on the way, whose path the rule syntax cannot carry is
+     NAMED and left out of the file tools' rules, as withTarget does for a dotfile (review 5); left to the generic drop
+     below, it stops the whole guard being written and blames the agent's folder. The sandbox list keeps it. When the
+     home itself cannot be carried, the generic message is the right one, so nothing is named here. */
+  const homeCarries = !ruleHasPatternChar(`Edit(${ruleAbs(home)}/**)`);
+  const carries = (what) => (p) => {
+    if (!homeCarries || !ruleHasPatternChar(`Edit(${ruleAbs(p)}/**)`)) return true;
+    configUnsafe.push(`${p} (${what}, a path the permission rules cannot carry)`);
+    return false;
+  };
+  const shellEditFiles = shellStartFiles.filter(carries('a shell startup file or where its link leads'));
+  const shellEditDirs = shellStartDirs.filter(carries('a shell startup folder or where its link leads'));
+  const linkEditFiles = [...new Set(editOnlyLinks)].filter(carries('a link on the way to a shell startup file'));
+  const linkEditDirs = [...new Set(editOnlyLinkDirs)].filter(carries('a link on the way to a shell startup folder'));
+  // Review 21: the completion-dump globs too, judged by their folder (a ZDOTDIR under ~/Dropbox (Personal)).
+  const shellEditGlobs = shellStart.globs.filter((g) => carries('a folder of zsh startup files')(path.dirname(g)));
   const commandScripts = [];
   for (const f of startCmds.files) {
     if (coveredWhole(f)) continue;
@@ -1445,7 +1850,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   ];
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') },
-    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
+    ...configStartFiles.flatMap((p) => withTarget(p, configUnsafe)).map((p) => ({ f: p })), ...[...new Set(commandScripts)].map((p) => ({ f: p })), ...shellEditFiles.map((p) => ({ f: p })), ...linkEditFiles.map((p) => ({ f: p })), ...CLAUDE_GLOBAL_CONFIG_SUFFIXES.map((sfx) => ({ f: path.join(home, '.claude-*', `.claude${sfx}.json`) })),
     { f: path.join(home, '.claude-*', '.config.json') }, ...[...new Set(ancestorFiles)].map((p) => ({ f: p }))];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
@@ -1505,6 +1910,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
+    ...shellEditDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5774 part 2: fish's folder, read whole
+    ...linkEditDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 11: a linked folder whose target is read-only
+    ...shellEditGlobs.map((g) => `Edit(${ruleAbs(g)})`),   // review 1: zsh's completion dump; the shell cannot write there anyway
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
     ...siblingRules,
     ...[...CONFIG_HOME_CODE_DIRS, ...OTHERS_MEMORY_DIRS].map((d) => `Edit(${ruleAbs(path.join(home, '.claude-*', d))}/**)`),   // review 9: memory for a later home too
@@ -1567,7 +1975,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
   else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, commandScripts: [...new Set(commandScripts)], pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, launchSecretDirs, trustedFiles, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, configStartFiles, commandScripts: [...new Set(commandScripts)], shellStartFiles, shellStartDirs, pluginDirs, configUnsafe, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, launchSecretDirs, trustedFiles, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
@@ -1870,7 +2278,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.launchSecretDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.commandScripts || []).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf), ...(rules.trustedFiles || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || []), ...(rules.configStartFiles || []).flatMap((p) => withTarget(p)).map(realOrLeaf), ...(rules.commandScripts || []).map(realOrLeaf), ...(rules.shellStartFiles || []).map(realOrLeaf), ...(rules.shellStartDirs || []).map(realOrLeaf), ...(rules.pluginDirs || []).map(realOrLeaf), ...(rules.trustedFiles || []).map(realOrLeaf)];   // realOrLeaf resolves a linked folder to its target (measured, review 7): the sandbox carries even a target the permission syntax cannot
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
@@ -2510,6 +2918,7 @@ function mergeSetting(stored, patch) {
 }
 
 module.exports = {
+  shellStartPaths, SHELL_START_FILES, USER_WRITABLE_SHELL_DIRS,
   /* #5683: the token roots the guard denies, so engine/agentevents.js classes a refusal at them as the board's files. */
   tokenOnlyTokenRoots, kosmosHome, tokenOnlySettingsRules,
   ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
