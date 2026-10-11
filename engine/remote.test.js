@@ -4690,3 +4690,25 @@ test('#5786 (b): a Not me pressed after the secret stopped, while its allow is s
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   remote.setOn(false);
 });
+
+test('#5786 (b): a second sign-in while a refused Not me waits on its allow does not forget that Not me', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchnm2');
+  plant([{ device_id: 'dev-n2', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-allow,deny-fails';
+  try {
+    plant([{ device_id: 'dev-n2', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-n2') }]);
+    remote.vouchTickForTests();
+    await until(() => allowsOf().includes('dev-n2'), 'the allow to start');
+    const den = await remote.deviceDeny('dev-n2');
+    assert.equal(den.ok, false, 'premise: the deny was refused');
+    // A second sign-in on this computer mints a new secret while that allow is still out.
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    await remote.signinRegister('vouchnm2');
+    assert.ok(remote.vouchSecretForTests() && remote.vouchSecretForTests() !== secret, 'premise: a new secret while the allow is out');
+    const removes = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-n2')).length;
+    await until(() => removes() >= 1, 'the device to be taken back out once the old allow answered');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});

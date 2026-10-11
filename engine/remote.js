@@ -1622,6 +1622,7 @@ function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
 function forgetPendingSnapshot() {
   try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
   resetSelfGrant();   // round 2: every identity change also starts the self-grant over (all four call sites)
+  stopVouch();   // kosmos#5786 (b): and ends the open-browser secret now, not on the next tick
   // kosmos#5786 (b): the "on this computer" notes belong to the identity they were made under.
   lastVouched = null;
   const cur = read();
@@ -1723,7 +1724,7 @@ const VOUCH_NOTICE_MS = 10 * 60 * 1000;
 let lastVouched = null;   // { id, at }
 // Every Not me pressed during the current secret, whatever the tunnel answered: a deny the tunnel refuses (the allow
 // already landed there) writes no `denied`, and the allow's answer must still lose to it. Kept past stopVouch on purpose
-// (an allow can still be out); cleared when the next secret starts.
+// (an allow can still be out); cleared when the next secret starts, except for the id an allow is still out for.
 const notMeDuringVouch = new Set();
 // The device an automatic allow is out for right now. It outlives the secret (a window end, Sign out or switch-off stops
 // S, not an allow already out), so a Not me pressed then is still remembered.
@@ -1747,7 +1748,10 @@ function vouchUrl(secret) {
 }
 function startVouch() {
   stopVouch();
+  // A new secret forgets the old one's Not me presses, except for an allow still out: its answer must still lose.
+  const outAndRefused = vouchAllowingId && notMeDuringVouch.has(vouchAllowingId) ? vouchAllowingId : '';
   notMeDuringVouch.clear();
+  if (outAndRefused) notMeDuringVouch.add(outAndRefused);
   // A computer still waiting for another computer's Allow (held, #4737) cannot allow anyone: no secret.
   if (inState(HELD_FILE)) return;
   vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, ident: macIdHere(), opened: false, matched: '', allowing: false, tries: 0, matchedOk: false };
