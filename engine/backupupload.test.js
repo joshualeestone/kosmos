@@ -1554,15 +1554,18 @@ test('S3 saying "expired" after only connection failures is still the clock case
 test('#5744: a chunk grant naming another key epoch than the bytes were sealed under is refused before anything is sent', async () => {
   const b = await bucket();
   try {
-    for (const [what, opts, want] of [
-      ['the answer\'s epoch', { tamper: (d) => { d.epoch = 2; } }, /names key epoch 2, not 1/],
-      ['a string epoch', { tamper: (d) => { d.epoch = '1'; } }, /names key epoch "1", not 1/],
-      ['the keys\' epoch segment', { keyEpoch: 2 }, /is not under key epoch 1/],
+    for (const [what, opts, want, otherEpoch] of [
+      // otherEpoch (slice 3): only an integer answer epoch says the member moved; a string or a key path does not.
+      ['the answer\'s epoch', { tamper: (d) => { d.epoch = 2; } }, /names key epoch 2, not 1/, 2],
+      ['a string epoch', { tamper: (d) => { d.epoch = '1'; } }, /names key epoch "1", not 1/, undefined],
+      ['a string other epoch', { tamper: (d) => { d.epoch = '2'; } }, /names key epoch "2", not 1/, undefined],
+      ['the keys\' epoch segment', { keyEpoch: 2 }, /is not under key epoch 1/, undefined],
     ]) {
       const c = coordinator(b, Object.assign({ tag: what.length + 'e' }, opts));
       const r = await up.uploadChunks(deps(c), [chunk(1)], { epoch: '1' });
       assert.strictEqual(r.ok, false, what);
       assert.match(r.because, want, what);
+      assert.strictEqual(r.otherEpoch, otherEpoch, `${what}: otherEpoch`);
       assert.strictEqual(c.bodies.length, 1, `${what}: one grant asked, none asked again`);
       assert.strictEqual(r.grantSpent, true, `${what}: the refused grant's allowance is spent`);
     }
@@ -1585,14 +1588,15 @@ test('#5744: a chunk grant naming another key epoch than the bytes were sealed u
 test('#5744: a manifest grant naming another key epoch is refused before anything is sent; the matching one stores', async () => {
   const b = await bucket();
   try {
-    for (const [what, opts, want] of [
-      ['the answer\'s epoch', { tamper: (d) => { d.epoch = 2; } }, /names key epoch 2, not 1/],
-      ['the key\'s epoch segment', { keyEpoch: 2 }, /is not under key epoch 1/],
+    for (const [what, opts, want, otherEpoch] of [
+      ['the answer\'s epoch', { tamper: (d) => { d.epoch = 2; } }, /names key epoch 2, not 1/, 2],
+      ['the key\'s epoch segment', { keyEpoch: 2 }, /is not under key epoch 1/, undefined],
     ]) {
       const mc = manifestCoordinator(b, opts);
       const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { epoch: '1' }));
       assert.strictEqual(r.ok, false, what);
       assert.match(r.because, want, what);
+      assert.strictEqual(r.otherEpoch, otherEpoch, `${what}: otherEpoch`);
       assert.strictEqual(r.grantSpent, true, what);
     }
     assert.strictEqual(b.puts, 0, 'nothing was sent');

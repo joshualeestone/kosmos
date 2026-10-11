@@ -572,7 +572,8 @@ function upperBound(f, maxFile) {
  *                  bucket; memberKeyId binds each to the member key it was sealed to (an entry for another is stale)
  *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson? }
  * Resolves { ok: true, manifestKey, files, skipped, uploaded, reused, added, bucket } or
- * { ok: false, because, retryLater?, newPeriod?, grantedPeriod?, staleIndex?, tooLarge?, overAllowance?, grantSpent?, unsure?, added, bucket }.
+ * { ok: false, because, retryLater?, newPeriod?, grantedPeriod?, staleIndex?, tooLarge?, overAllowance?, grantSpent?, unsure?, otherEpoch?, added, bucket }.
+ *   otherEpoch: a grant named another key epoch than ctx.epoch (the uploaders' otherEpoch): nothing was sent under it.
  *   overAllowance: the week's backup allowance would be passed (refused before anything is spent), or is used up
  *     (backup_quota, which can arrive after some batches were stored: they are in `added`): not this period.
  *   newPeriod: a period boundary passed (the context's, or a grant's): start again with the new period's context and
@@ -766,7 +767,8 @@ async function snapshotInner(input, deps, added, state, fail) {
     // backup_quota: this period's allowance is spent (by earlier runs, or anything signing as this computer): not a
     // retry this period.
     if (r && r.code === 'backup_quota') return fail(`the period's backup allowance is used up: ${r.because || 'backup_quota'}`, Object.assign({ overAllowance: true }, r.unsure ? { unsure: r.unsure } : {}, spent));
-    if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {}, spent));
+    if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {},
+      r && r.otherEpoch !== undefined ? { otherEpoch: r.otherEpoch } : {}, spent));
     for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk', spent);
     uploaded += pending.size;
     pending.clear(); pendingBytes = 0;
@@ -863,7 +865,8 @@ async function snapshotInner(input, deps, added, state, fail) {
       m && m.code === 'backup_quota' ? { overAllowance: true } : (m && m.retryLater ? { retryLater: true } : {}),
       m && m.unsure ? { unsure: m.unsure } : {},
       passed ? { newPeriod: true } : (m && m.outlastsChunks && index.size ? { staleIndex: true } : {}),
-      m && m.otherBucket && index.size ? { staleIndex: true } : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
+      m && m.otherBucket && index.size ? { staleIndex: true } : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {},
+      m && m.otherEpoch !== undefined ? { otherEpoch: m.otherEpoch } : {}));
   }
   // The manifest's key must be this context's: Monday 00:00 UTC can pass between the check above and the
   // coordinator signing the grant, and uploadManifest checks only the owner. A key in another period files the manifest

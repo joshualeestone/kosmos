@@ -22388,16 +22388,28 @@ function paintUpdateAbort(ab) {
   // only reason; an unreadable same arrives as 0 and claims nothing).
   // The advice follows the latest stop too. #2055's reopen remedy was measured for a busy Kosmos and is kept for it.
   // For the other stops nobody has measured what clears them, so the sentence says so and offers what is worth a
-  // try: a failed check is not something reopening can fix, a held port may be. No sentence asks for a typed command.
+  // try: a failed check is not something reopening can fix, a held port may be. No sentence asks for a typed command,
+  // except on a Linux server (#5860): it has no Kosmos window to quit, so its one step is `kosmos restart` in a
+  // terminal there. That command restarts the board (through systemctl --user when the board runs under its unit,
+  // #4918), and the board unit's KillMode=process leaves the agents running (engine/linuxboard.js). #6 (Josh) scrapped
+  // the "run kosmos restart" instruction for a gentle GUI action, which needs a screen a headless server does not have.
   // "replaced nothing" is about files: by these stops the installer has stopped the board, and its exit puts it back.
   // The tables stay inside the function so a test can lift the function whole.
   const reason = typeof ab.reason === 'string' ? ab.reason : '';
-  const AGENTS_FINE = 'Your agents keep working, they do not live in this window.';
-  const REOPEN = 'Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one '
-    + 'can finish. ' + AGENTS_FINE;
+  const linux = onLinux();
+  const RESTART_CMD = 'run <b>kosmos restart</b> in a terminal on the computer running Kosmos (over SSH on a headless '
+    + 'server)';
+  const AGENTS_FINE = linux ? 'Your agents keep working.' : 'Your agents keep working, they do not live in this window.';
+  const REOPEN = linux
+    ? 'To clear it, ' + RESTART_CMD + ': restarting usually clears whatever was holding the update, so the next one '
+      + 'can finish. Your agents keep working through the restart.'
+    : 'Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one '
+      + 'can finish. ' + AGENTS_FINE;
   const TRY_RESTART = ' We do not yet know what clears this one; restarting this computer is worth a try.';
-  const TRY_BOTH = ' We do not yet know what clears this one; quitting and reopening Kosmos is worth a try, then '
-    + 'restarting this computer.';
+  const TRY_BOTH = linux
+    ? ' We do not yet know what clears this one; it is worth a try to ' + RESTART_CMD + ', then to restart that computer.'
+    : ' We do not yet know what clears this one; quitting and reopening Kosmos is worth a try, then '
+      + 'restarting this computer.';
   const PORT_HELD = 'something was still using the connection Kosmos runs on, so the update replaced nothing. '
     + AGENTS_FINE + TRY_BOTH;
   const UPDATE_ABORT_LAST = {
