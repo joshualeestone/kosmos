@@ -2903,6 +2903,44 @@ function reopenRoom(project, at) {
   return { ok: true, at: when };
 }
 
+/* #5800: is this room on hold right now, as the loop guard last left it? A room hold used to show
+   only as a band in the scrollback, and an agent learned of it only by being refused, so members
+   with real work waited without knowing why or who could clear it. This answers it for the room
+   page (the band and its Reopen button) and for `kosmos room` (one line at the top).
+
+   Held means: the limit is on, and the room's latest valve row that stopped the room is inside
+   the valve's own counting window, after the person's last post or reopen (the same countFrom
+   sendPost computes). It is a reading of the record, not a re-run of the budget: once the window
+   passes the hold row the room reads open, which is when the posts that spent the budget have
+   aged out too. `until` is that latest moment, not a promise: the #4786 allowance for work moving
+   can let a post through sooner. Returns { at, because, until } or null; an unreadable record
+   reads as not held (a screen hint, never a gate). */
+function roomHeld(project, now) {
+  const projectId = String(project == null ? '' : project);
+  if (!projectId) return null;
+  const at = Number.isFinite(now) ? now : Date.now();
+  const lim = limits.caps();
+  if (!lim.on) return null;
+  const rec = record();
+  if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
+  let lastOperatorAt = 0;
+  let hold = null;
+  for (const m of rec.rows) {
+    if (!m || m.project !== projectId) continue;
+    const t = Date.parse(m.at);
+    if (!Number.isFinite(t)) continue;
+    if ((m.kind === 'post' && m.operator === true) || m.kind === 'reopen') {
+      if (t > lastOperatorAt) lastOperatorAt = t;
+    } else if (m.kind === 'valve' && m.stopped !== false && (!hold || t >= hold.t)) {
+      hold = { t, at: m.at, because: m.because || null };
+    }
+  }
+  if (!hold) return null;
+  const countFrom = Math.max(at - lim.windowMs, lastOperatorAt);
+  if (hold.t < countFrom || hold.t > at) return null;
+  return { at: hold.at, because: hold.because, until: new Date(hold.t + lim.windowMs).toISOString() };
+}
+
 /* #3224, the proactive half: a post that is NOT a reply (no in_reply_to), sent by an
  * agent that owes the person an answer in a DIFFERENT room, is the likeliest shape of
  * the misroute Josh reported. This finds that owed question, so /api/post can ask the
@@ -3019,7 +3057,7 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   suspectedMisrouteCount, confirmedNewPostCount,
-  resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
+  resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests, mentionedMembers, ambiguousNote,
 };

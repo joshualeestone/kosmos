@@ -563,3 +563,21 @@ test('#5752 slice 3: pressing Add adds that agent, repaints the room from what i
   assert.ok(addRule, 'the base .pj-refused-add rule exists (so the next check is not vacuous)');
   assert.doesNotMatch(addRule[0], /nowrap/);
 });
+
+test('#5800: the CURRENT hold\'s band says who can end it and offers Reopen; an older band and an open room do not', () => {
+  const scope = pageScope();
+  scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
+  const because = 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.';
+  const old = { kind: 'valve', project: 'proj-1', because, at: ago(240) };
+  const now = { kind: 'valve', project: 'proj-1', because, at: ago(3) };
+  const until = new Date(Date.parse(now.at) + 60 * 60 * 1000).toISOString();
+  scope.paintRoom({ ok: true, rows: [old, now], held: { at: now.at, because, until } });
+  const html = scope.written['pj-room'];
+  assert.equal((html.match(/data-reopen-room/g) || []).length, 1, 'exactly the current band offers Reopen: ' + html);
+  assert.ok(html.lastIndexOf('bring you in') < html.indexOf('data-reopen-room'), 'the button sits on the newer band, not the older one');
+  assert.match(html, /Your agents cannot post here until you step in: post something yourself, or reopen the room\. If nobody does, it opens again by itself by /);
+  assert.match(html, />Reopen the room<\/button>/);
+
+  scope.paintRoom({ ok: true, rows: [old, now] });
+  assert.doesNotMatch(scope.written['pj-room'], /data-reopen-room|step in/, 'CONTROL: with no held in the read, no band offers Reopen');
+});
