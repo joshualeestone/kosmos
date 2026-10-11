@@ -89,7 +89,8 @@ test('job fields that are not engine/backupjob.js state are dropped on write and
 test('writeState refuses a period it would not read back (a bad label, a short key)', () => {
   const [org, member] = ids();
   assert.throws(() => bs.writeState(org, member, { job: {}, period: { label: 'x', namingKey: crypto.randomBytes(32), bucket: null, index: new Map() } }), /would not read back/);
-  assert.throws(() => bs.writeState(org, member, { job: {}, period: { label: '2026-W41', namingKey: Buffer.alloc(31), bucket: null, index: new Map() } }));
+  // A malformed index row (no bucket) reaches the read-back refusal itself (a 31-byte key would throw earlier, in namingKeyId).
+  assert.throws(() => bs.writeState(org, member, { job: {}, period: { label: '2026-W41', namingKey: crypto.randomBytes(32), bucket: null, index: new Map([entry(1)]) } }), /would not read back/);
   assert.deepEqual(bs.readState(org, member), { ok: true, state: { job: {}, period: null } }, 'nothing was written');
 });
 
@@ -111,6 +112,7 @@ test('forPeriod keeps the same period (its key and index) and starts a new one f
   const mixed = { job: {}, period: { label: '2026-W41', namingKey: nk, bucket: 'b/', index: new Map([
     entry(1), [name(2), { key: 'o1/acct1/1/2026-W41/k2', lockedUntilMs: 1800000000002, memberKeyId: 'cd'.repeat(16) }],
     [name(3), { key: 'o1/acct1/1/2026-W41/k3', lockedUntilMs: NOW, memberKeyId: MK }]]) } };
+  // (The ended lock is a defensive case: withRun only keeps rows takeSnapshot already checked against the manifest lock.)
   assert.deepEqual([...bs.forPeriod(mixed, '2026-W41', { memberKeyId: MK, nowMs: NOW }).index.keys()], [name(1)]);
   assert.equal(mixed.period.index.size, 3, 'the input is not changed');
 });
@@ -174,4 +176,26 @@ test('round 1: discardState sets a refused file aside (never deletes it), and th
   assert.equal(aside.length, 1);
   assert.equal(fs.readFileSync(path.join(path.dirname(f), aside[0]), 'utf8'), '{ not ours');
   assert.deepEqual(bs.discardState(org, member), { ok: true }, 'nothing there is fine');
+});
+
+test('round 2: an EARLIER label keeps the stored later period (the coordinator granted ahead of this clock)', () => {
+  const nk = crypto.randomBytes(32);
+  const state = { job: {}, period: { label: '2026-W42', namingKey: nk, bucket: 'b/', index: new Map([entry(1, '2026-W42')]) } };
+  const p = bs.forPeriod(state, '2026-W41', { memberKeyId: MK, nowMs: NOW, newKey: () => crypto.randomBytes(32) });
+  assert.equal(p.label, '2026-W42'); assert.ok(p.namingKey.equals(nk)); assert.equal(p.index.size, 1);
+  // Across a year: 2026-W53 is before 2027-W01.
+  const y = { job: {}, period: { label: '2027-W01', namingKey: nk, bucket: null, index: new Map() } };
+  assert.equal(bs.forPeriod(y, '2026-W53', { memberKeyId: MK, nowMs: NOW }).label, '2027-W01');
+  // Control: a LATER label starts fresh.
+  const later = bs.forPeriod(state, '2026-W43', { memberKeyId: MK, nowMs: NOW });
+  assert.equal(later.label, '2026-W43'); assert.ok(!later.namingKey.equals(nk));
+});
+
+test('round 2: withRun says how many added rows it left out', () => {
+  const period = { label: '2026-W41', namingKey: crypto.randomBytes(32), bucket: 'b/', index: new Map() };
+  const r = bs.withRun({ job: {}, period }, period, { ok: true, added: new Map([entry(1), entry(2, '2026-W40')]), bucket: 'b/' });
+  assert.equal(r.leftOut, 1); assert.equal(r.period.index.size, 1);
+  const [org, member] = ids();
+  bs.writeState(org, member, r);
+  assert.equal('leftOut' in bs.readState(org, member).state, false, 'not persisted');
 });
