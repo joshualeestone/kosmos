@@ -38,7 +38,8 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
  * ⚠️ Evaluating the whole script is also the only version that CANNOT drift:
  * there is no list of dependencies to keep in step with the page.
  */
-function pageScope() {
+/* fetchImpl (#5800): a stand-in network for a test that drives a handler; by default fetch never settles. */
+function pageScope(fetchImpl) {
   /* NON-GREEDY (*?), because the page carries more than one <script> region: the
      attributed theme-boot block, the main app script (the single BARE <script>),
      and #718's attributed push-client block. A greedy [\s\S]* runs to the LAST
@@ -92,9 +93,10 @@ function pageScope() {
     src[1] + `
     return { pjJoinNames, pjNameOf,
              pjReceiptSentence, pjOldEnoughToJudge, pjRoomRow, pjFoldRoomRows, PJ_SILENCE_AFTER_MS,
-             paintRoom, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; },
+             paintRoom, pjHeldReopenClick, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; },
+             current: () => PJ_CURRENT, setCurrent: (id) => { PJ_CURRENT = id; },
              setLast: (cards) => { LAST = cards; } };`,
-  )(document, window, {}, () => new Promise(() => {}), () => 0, () => 0, () => {},
+  )(document, window, {}, fetchImpl || (() => new Promise(() => {})), () => 0, () => 0, () => {},
     function EventSource() {}, window.location, window.localStorage);
   return Object.assign(api, { written });
 }
@@ -575,9 +577,52 @@ test('#5800: the CURRENT hold\'s band says who can end it and offers Reopen; an 
   const html = scope.written['pj-room'];
   assert.equal((html.match(/data-reopen-room/g) || []).length, 1, 'exactly the current band offers Reopen: ' + html);
   assert.ok(html.lastIndexOf('bring you in') < html.indexOf('data-reopen-room'), 'the button sits on the newer band, not the older one');
-  assert.match(html, /Your agents cannot post here until you step in: post something yourself, or reopen the room\. If nobody does, it opens again by itself by /);
+  assert.match(html, /Your agents' posts are held until you step in: post something yourself, or reopen the room\. Otherwise it opens again on its own by /);
   assert.match(html, />Reopen the room<\/button>/);
 
   scope.paintRoom({ ok: true, rows: [old, now] });
   assert.doesNotMatch(scope.written['pj-room'], /data-reopen-room|step in/, 'CONTROL: with no held in the read, no band offers Reopen');
+});
+
+test('#5800: Reopen posts the release for the room it was pressed in, then rereads it; a refusal says why and re-arms', async () => {
+  const calls = [];
+  let reopenAnswer = { status: 200, body: { ok: true } };
+  let onReopen = () => {};
+  /* Only the two room routes answer; the page's own start-up requests never settle, as in every other test here. */
+  const fetchImpl = (url, opts) => {
+    const u = String(url);
+    const m = (opts && opts.method) || 'GET';
+    if (!/^\/api\/project\/[^/]+\/room(\/reopen)?$/.test(u)) return new Promise(() => {});
+    calls.push([u, m]);
+    const isReopen = u.endsWith('/room/reopen');
+    if (isReopen) onReopen();
+    const a = isReopen ? reopenAnswer : { status: 200, body: { ok: true, rows: [] } };
+    return Promise.resolve({ ok: a.status < 300, status: a.status, json: () => Promise.resolve(a.body), text: () => Promise.resolve('') });
+  };
+  const scope = pageScope(fetchImpl);
+  scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
+  const msg = { textContent: '', classList: { contains: (c) => c === 'pj-refused-msg' } };
+  const btn = { disabled: false, nextElementSibling: msg, getAttribute: () => '1' };
+  const ev = { target: { closest: (sel) => (sel === '[data-reopen-room]' ? btn : null) } };
+
+  await scope.pjHeldReopenClick(ev);
+  assert.deepEqual(calls[0], ['/api/project/proj-1/room/reopen', 'POST'], 'the release did not go to this room\'s reopen route: ' + JSON.stringify(calls));
+  assert.deepEqual(calls[1], ['/api/project/proj-1/room', 'GET'], 'the room was not read again after the release: ' + JSON.stringify(calls));
+  assert.equal(msg.textContent, '', 'a successful release left a message beside the button');
+
+  calls.length = 0;
+  reopenAnswer = { status: 404, body: { ok: false, because: 'there is no project by that name' } };
+  btn.disabled = false;
+  await scope.pjHeldReopenClick(ev);
+  assert.equal(msg.textContent, 'We could not reopen the room: there is no project by that name. Try again, or post in the room.');
+  assert.equal(btn.disabled, false, 'a refused release left the button disabled');
+  assert.equal(calls.length, 1, 'CONTROL: a refused release reread the room as if it had worked: ' + JSON.stringify(calls));
+
+  /* The person moves to another room while the release is in flight: the release still names the room pressed in,
+     and the room on screen is not reread under the old room's name. */
+  calls.length = 0;
+  reopenAnswer = { status: 200, body: { ok: true } };
+  onReopen = () => scope.setCurrent('proj-2');
+  await scope.pjHeldReopenClick(ev);
+  assert.deepEqual(calls, [['/api/project/proj-1/room/reopen', 'POST']], 'after moving rooms mid-release: ' + JSON.stringify(calls));
 });

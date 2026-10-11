@@ -2903,18 +2903,17 @@ function reopenRoom(project, at) {
   return { ok: true, at: when };
 }
 
-/* #5800: is this room on hold right now, as the loop guard last left it? A room hold used to show
-   only as a band in the scrollback, and an agent learned of it only by being refused, so members
-   with real work waited without knowing why or who could clear it. This answers it for the room
-   page (the band and its Reopen button) and for `kosmos room` (one line at the top).
+/* #5800: is this room on hold right now? A room hold used to show only as a band in the scrollback, and an agent
+   learned of it only by being refused, so members with real work waited without knowing why or who could clear it.
+   This answers it for the room page (the band and its Reopen button) and for `kosmos room` (one line at the top).
 
-   Held means: the limit is on, and the room's latest valve row that stopped the room is inside
-   the valve's own counting window, after the person's last post or reopen (the same countFrom
-   sendPost computes). It is a reading of the record, not a re-run of the budget: once the window
-   passes the hold row the room reads open, which is when the posts that spent the budget have
-   aged out too. `until` is that latest moment, not a promise: the #4786 allowance for work moving
-   can let a post through sooner. Returns { at, because, until } or null; an unreadable record
-   reads as not held (a screen hint, never a gate). */
+   Held means the limit is on, the valve has stopped this room since the person last posted or reopened it, and the
+   agent posts counted since then (sendPost's own sum: arrivals, from countFrom) still fill the room's budget, so the
+   next agent post would be refused. `until` is when enough of those posts age out of the window for one to land.
+   Not counted: the #4786 allowance for work moving, which reads task and file times (too heavy for a 5 s poll), so a
+   post can land sooner than `until`, never later. Returns { at, because, until } (at and because are the latest
+   stopping valve row's, which the page matches its band on) or null. An unreadable record reads as not held: this is
+   a screen hint, never a gate. */
 function roomHeld(project, now) {
   const projectId = String(project == null ? '' : project);
   if (!projectId) return null;
@@ -2924,21 +2923,37 @@ function roomHeld(project, now) {
   const rec = record();
   if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
   let lastOperatorAt = 0;
+  for (const m of rec.rows) {
+    if (!m || m.project !== projectId) continue;
+    if ((m.kind === 'post' && m.operator === true) || m.kind === 'reopen') {
+      const t = Date.parse(m.at);
+      if (Number.isFinite(t) && t > lastOperatorAt) lastOperatorAt = t;
+    }
+  }
+  const countFrom = Math.max(at - lim.windowMs, lastOperatorAt);
   let hold = null;
+  const counted = [];
   for (const m of rec.rows) {
     if (!m || m.project !== projectId) continue;
     const t = Date.parse(m.at);
-    if (!Number.isFinite(t)) continue;
-    if ((m.kind === 'post' && m.operator === true) || m.kind === 'reopen') {
-      if (t > lastOperatorAt) lastOperatorAt = t;
-    } else if (m.kind === 'valve' && m.stopped !== false && (!hold || t >= hold.t)) {
+    if (!Number.isFinite(t) || t > at) continue;
+    if (m.kind === 'valve' && m.stopped !== false && t > lastOperatorAt && (!hold || t >= hold.t)) {
       hold = { t, at: m.at, because: m.because || null };
+    } else if (m.kind === 'post' && !m.operator && t >= countFrom) {
+      counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
     }
   }
   if (!hold) return null;
-  const countFrom = Math.max(at - lim.windowMs, lastOperatorAt);
-  if (hold.t < countFrom || hold.t > at) return null;
-  return { at: hold.at, because: hold.because, until: new Date(hold.t + lim.windowMs).toISOString() };
+  let arrivals = counted.reduce((n, c) => n + c.n, 0);
+  if (arrivals < lim.roomArrivalsPerWindow) return null;
+  counted.sort((a, b) => a.t - b.t);
+  let freeAt = at;
+  for (const c of counted) {
+    arrivals -= c.n;
+    freeAt = c.t + lim.windowMs;
+    if (arrivals < lim.roomArrivalsPerWindow) break;
+  }
+  return { at: hold.at, because: hold.because, until: new Date(freeAt).toISOString() };
 }
 
 /* #3224, the proactive half: a post that is NOT a reply (no in_reply_to), sent by an

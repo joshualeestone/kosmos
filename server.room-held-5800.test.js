@@ -57,40 +57,76 @@ function append(row) {
 }
 const valve = (project, at, stopped = true) => append({ kind: 'valve', from: 'ann', to: project, project, at: iso(at),
   because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.', stopped });
+let seq = 9000;
+/* An agent post in the shape sendPost logs, reaching `n` members (each one arrival, sendPost's own sum). */
+const agentPost = (project, at, n) => append({ kind: 'post', id: 'm' + (++seq), from: 'ann', project, text: 'x', at: iso(at),
+  to: Array.from({ length: n }, (_, i) => 'mem' + i), outcomes: Object.fromEntries(Array.from({ length: n }, (_, i) => ['mem' + i, 'placed'])) });
+const CAP = () => limits.caps().roomArrivalsPerWindow;
 
-test('the window this file assumes is the limit module\'s, and the limit is on in a fresh sandbox', () => {
+test('the window and budget this file assumes are the limit module\'s, and the limit is on in a fresh sandbox', () => {
   assert.equal(limits.caps().windowMs, 60 * MIN);
   assert.equal(limits.caps().on, true, 'a fresh board must have the limit on, or every held case below reads open for that reason');
+  assert.ok(CAP() > 2, 'the room budget is too small for the split posts below: ' + CAP());
 });
 
-test('#5800 engine: held while the latest stopping valve is in the window, per project', () => {
+test('#5800 engine: held while the valve stopped the room and its posts still fill the budget; per project', () => {
   const now = Date.now();
+  agentPost('heldA', now - 12 * MIN, CAP());
   valve('heldA', now - 10 * MIN);
   const h = messages.roomHeld('heldA', now);
-  assert.ok(h, 'a valve ten minutes ago did not read as held');
-  assert.equal(h.at, iso(now - 10 * MIN));
-  assert.equal(h.until, iso(now + 50 * MIN), 'until is the valve time plus the window');
-  assert.equal(messages.roomHeld('otherRoom', now), null, 'another project\'s valve held this one');
-  assert.equal(messages.roomHeld('heldA', now + 51 * MIN), null, 'past the window the room still read held');
+  assert.ok(h, 'a full budget and a valve ten minutes ago did not read as held');
+  assert.equal(h.at, iso(now - 10 * MIN), 'at is the valve row\'s, which the page matches its band on');
+  assert.equal(h.until, iso(now + 48 * MIN), 'until is when the posts filling the budget age out of the window');
+  assert.equal(messages.roomHeld('otherRoom', now), null, 'another project\'s hold held this one');
+  assert.equal(messages.roomHeld('heldA', now + 49 * MIN), null, 'once those posts aged out the room still read held');
+});
+
+test('#5800 engine: a hold ends when the posts behind it age out, even while its valve row is still in the window', () => {
+  const now = Date.now();
+  agentPost('heldE', now - 55 * MIN, CAP() - 1);
+  agentPost('heldE', now - 30 * MIN, 1);
+  valve('heldE', now - 10 * MIN);
+  const h = messages.roomHeld('heldE', now);
+  assert.ok(h, 'CONTROL: held while the budget is full');
+  assert.equal(h.until, iso(now + 5 * MIN), 'until is when the OLDEST posts age out enough, not the valve time plus an hour');
+  assert.equal(messages.roomHeld('heldE', now + 6 * MIN), null, 'the room read held after it could take an agent post again');
+});
+
+test('#5800 engine: a room still over budget reads held after its valve row left the window', () => {
+  const now = Date.now();
+  valve('heldF', now - 70 * MIN);
+  agentPost('heldF', now - 20 * MIN, CAP());
+  assert.ok(messages.roomHeld('heldF', now), 'a full room whose valve fired 70 minutes ago (no person since) read open');
+  assert.equal(messages.roomHeld('heldF', now).at, iso(now - 70 * MIN));
+});
+
+test('#5800 engine: a valve with the budget no longer full is not a hold (agent posts landing after it)', () => {
+  const now = Date.now();
+  valve('heldG', now - 5 * MIN);
+  agentPost('heldG', now - 2 * MIN, 1);
+  assert.equal(messages.roomHeld('heldG', now), null, 'a valve row alone, with one post since, read as held');
 });
 
 test('#5800 engine: a person\'s post or a reopen after the valve ends it; one before it does not', () => {
   const now = Date.now();
+  agentPost('heldB', now - 25 * MIN, CAP());
   valve('heldB', now - 20 * MIN);
   append({ kind: 'reopen', from: 'you', to: 'heldB', project: 'heldB', operator: true, at: iso(now - 30 * MIN) });
   assert.ok(messages.roomHeld('heldB', now), 'a reopen BEFORE the valve cleared it');
   append({ kind: 'reopen', from: 'you', to: 'heldB', project: 'heldB', operator: true, at: iso(now - 5 * MIN) });
   assert.equal(messages.roomHeld('heldB', now), null, 'a reopen after the valve did not clear it');
 
+  agentPost('heldC', now - 25 * MIN, CAP());
   valve('heldC', now - 20 * MIN);
-  append({ kind: 'post', id: 'm9001', from: 'you', to: ['ann'], project: 'heldC', operator: true, text: 'here', outcomes: { ann: 'placed' }, at: iso(now - 2 * MIN) });
+  append({ kind: 'post', id: 'm' + (++seq), from: 'you', to: ['ann'], project: 'heldC', operator: true, text: 'here', outcomes: { ann: 'placed' }, at: iso(now - 2 * MIN) });
   assert.equal(messages.roomHeld('heldC', now), null, 'the person posting after the valve did not clear it');
-  append({ kind: 'post', id: 'm9002', from: 'ann', to: ['bob'], project: 'heldC', text: 'hi', outcomes: { bob: 'placed' }, at: iso(now - MIN) });
-  assert.equal(messages.roomHeld('heldC', now), null, 'an agent post must not bring a cleared hold back');
+  agentPost('heldC', now - MIN, CAP());
+  assert.equal(messages.roomHeld('heldC', now), null, 'agent posts after the person, with no new valve, must not bring the hold back');
 });
 
 test('#5800 engine: a valve that did not stop the room (limit off when it fired) is not a hold', () => {
   const now = Date.now();
+  agentPost('heldD', now - 12 * MIN, CAP());
   valve('heldD', now - 10 * MIN, false);
   assert.equal(messages.roomHeld('heldD', now), null);
   valve('heldD', now - 5 * MIN, true);
@@ -112,12 +148,13 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
   const openText = await room(p.id, true);
   assert.doesNotMatch(openText.text, /on hold/, 'CONTROL: an open room says nothing about a hold');
 
+  agentPost(p.id, Date.now() - 4 * MIN, CAP());
   valve(p.id, Date.now() - 3 * MIN);
   const j = await room(p.id, false);
   assert.ok(j.json.held && typeof j.json.held.until === 'string', 'the held room\'s JSON has no held: ' + j.text.slice(0, 300));
   const t = await room(p.id, true);
   const first = t.text.split('\n')[0];
-  assert.match(first, /^\[kosmos\] This room is on hold: .* until your person posts here or reopens the room, or until \d\d:\d\d at the latest\. Do not send your post another way meanwhile\.$/,
+  assert.match(first, /^\[kosmos\] This room is on hold: .* A post from you now will most likely be refused\. Only your person can lift the hold, by posting here or reopening the room; otherwise it lifts by \d\d:\d\d at the latest\. Do not send your post another way meanwhile\.$/,
     'the hold line is not the first line of the text view: ' + t.text.slice(0, 400));
   assert.doesNotMatch(first, /bring you in/, 'the agents\' line reused the sentence written to the person');
 

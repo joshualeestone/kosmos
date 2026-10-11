@@ -66220,8 +66220,8 @@ function pjHeldAct(m) {
   if (!held || !m || m.kind !== 'valve' || m.at !== held.at) return '';
   const until = new Date(held.until);
   const by = Number.isNaN(until.getTime()) ? ''
-    : ' If nobody does, it opens again by itself by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
-  return '<div class="pj-held-why">Your agents cannot post here until you step in: post something yourself, or reopen the room.'
+    : ' Otherwise it opens again on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
+  return '<div class="pj-held-why">Your agents\' posts are held until you step in: post something yourself, or reopen the room.'
     + esc(by) + '</div>'
     + '<div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="1">Reopen the room</button>'
     + '<span class="pj-refused-msg" role="status"></span></div>';
