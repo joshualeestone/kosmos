@@ -196,7 +196,8 @@ test('a device signed out of the relay renders SIGN IN AGAIN with a Sign in butt
 test('the two signed-out sentences say the same two things, so a wording change cannot reach only one (#718 state 3)', () => {
   /* ORG_SIGNED_OUT_SENTENCE sits beside a Sign in button; SIGNED_OUT_SENTENCE is for surfaces with
      none, so it adds where to sign in. They are two strings by design; this pins what they share. */
-  const value = (name) => new Function(page.liftConst(SCRIPT, name) + '\nreturn ' + name + ';')();
+  // #5865: the sentences name the machine through the platform helpers (no document here, so the Mac's words).
+  const value = (name) => new Function(page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n' + page.liftConst(SCRIPT, name) + '\nreturn ' + name + ';')();
   const short = value('ORG_SIGNED_OUT_SENTENCE');
   const long = value('SIGNED_OUT_SENTENCE');
   const [lead, fine] = short.split('. ');
@@ -207,7 +208,7 @@ test('the two signed-out sentences say the same two things, so a wording change 
 
 test('the projects list gets its own Sign in button and says projects (#718 state 3)', () => {
   // eslint-disable-next-line no-new-func
-  const html = new Function(lift('esc') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n'
+  const html = new Function(page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n' + lift('esc') + '\n' + page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE') + '\n'
     + page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\n' + lift('deviceSignedOutHtml')
     + '\nreturn deviceSignedOutHtml("projects");')();
   assert.match(html, /Sign in again to see your projects/);

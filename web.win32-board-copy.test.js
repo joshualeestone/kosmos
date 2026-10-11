@@ -291,7 +291,7 @@ test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits
     'its status line': /<p class="dhint" id="auto-msg"[^>]*data-win-hide>/,
     'Open Terminal (W-18)': /<div class="field" data-win-hide>\s*<button class="btn" id="d-open-terminal"/,
     // #4025: the App icon switch, until a Windows taskbar count exists to switch.
-    'Settings App icon box': /<section class="dbox" data-win-hide>\s*<h3 class="dlab">App icon<\/h3>/,
+    'Settings App icon box': /<section class="dbox" data-win-hide data-linux-hide>\s*<h3 class="dlab">App icon<\/h3>/,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_WINDOWS)) assert.match(PAGE, re, `${name} is not hidden on Windows`);
   /* Counted on the MARKUP only (scripts, styles and comments stripped), so the rule and the
@@ -511,8 +511,10 @@ test('#5862: on a Linux server the offline note, the restart screen and the worl
     assert.doesNotMatch(text, /Applications folder|Quit|reopen|Command-Q|Kosmos\.exe|Start menu/i, 'a Linux server was given a Mac or Windows step: ' + text);
   }
   // CONTROL: the same code on a Mac and on Windows does not name the command, so the words above are Linux's arm.
+  // #5865: Windows has its own step now (its restartKosmos sentence); the Mac keeps "quit and reopen".
+  assert.equal(stuck('darwin'), 'quit and reopen Kosmos.', 'darwin: the reconnect step changed off Linux');
+  assert.equal(stuck('win32'), table.worldswStuck, 'win32: the reconnect step is not the Windows one');
   for (const platform of ['darwin', 'win32']) {
-    assert.equal(stuck(platform), 'quit and reopen Kosmos.', platform + ': the reconnect step changed off Linux');
     assert.doesNotMatch(offlineNote(platform), /kosmos restart/, platform);
     assert.doesNotMatch(runPage(platform, ['restartHowMac', 'restartHowText'], 'restartHowText()', { window: {} }), /kosmos restart/, platform);
     assert.doesNotMatch(said(platform), /kosmos restart/, platform);
@@ -680,4 +682,77 @@ test('#4408: a refused restart promises no remedy it cannot keep, on any platfor
   const fn = page.lift(SCRIPT, 'engineRestartClick');
   assert.match(fn, /small\.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started\.';/);
   assert.doesNotMatch(fn, /restart your computer|Restarting your computer|Kosmos\.exe|sign out/i);
+});
+
+/* #5865: the rest of the Mac-only words that reached a Linux board (a headless server, often seen from a phone
+   through Kosmos+): the remote "Your Mac" view and its sentences, the Settings Dock line and App icon box, and the
+   daily-report "from its icon" line. Each arm runs the page's own source with the served platform set, and the Mac
+   runs the same source as the control. */
+const sentence = (platform, name) => runPage(platform, [], '(() => { ' + page.liftConst(SCRIPT, name) + ' return ' + name + '; })()');
+function remoteNote(platform, deviceIsOffline) {
+  const slot = { dataset: {}, innerHTML: '' };
+  runPage(platform, ['bakedVersion', 'kplusRemote', 'offlineRemoteView', 'paintOfflineNote'],
+    'paintOfflineNote(true, ' + (deviceIsOffline ? 'true' : 'false') + ')', {
+      esc, location: { host: 'box.kosmosplus.com', hostname: 'box.kosmosplus.com' }, __byId: { 'uoffline-slot': slot },
+      MAC_ASLEEP_SENTENCE: sentence(platform, 'MAC_ASLEEP_SENTENCE'),   // the page's constant, chosen for this platform
+    });
+  return slot.innerHTML;
+}
+const SENTENCES = ['MAC_ASLEEP_SENTENCE', 'OFFLINE_SENTENCE', 'SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE'];
+
+test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos", never "your Mac"', () => {
+  const asleep = remoteNote('linux', false);
+  assert.ok(asleep.includes('<b>The computer running Kosmos is not answering</b>'), asleep);
+  assert.ok(asleep.includes('Run kosmos restart in a terminal on that computer'), asleep);
+  assert.ok(asleep.includes('Nothing answered at box.kosmosplus.com.'), 'premise: this is the remote arm: ' + asleep);
+  const offline = remoteNote('linux', true);
+  assert.ok(offline.includes('so it cannot reach the computer running Kosmos.</small>'), offline);
+  for (const name of SENTENCES) {
+    const text = sentence('linux', name);
+    assert.doesNotMatch(text, /\bMac\b|asleep|Wake it/, name + ' told a Linux board about a Mac: ' + text);
+  }
+  assert.match(sentence('linux', 'OFFLINE_SENTENCE'), /cannot reach the computer running Kosmos\./);
+  assert.match(sentence('linux', 'SIGNED_OUT_SENTENCE'), /The computer running Kosmos and your agents are fine\./);
+  assert.match(sentence('linux', 'ORG_SIGNED_OUT_SENTENCE'), /The computer running Kosmos and your agents are fine\./);
+  // CONTROL: the same source on a Mac says "your Mac", as before.
+  assert.ok(remoteNote('darwin', false).includes('<b>Your Mac is not answering</b>'));
+  assert.ok(remoteNote('darwin', true).includes('so it cannot reach your Mac.</small>'));
+  assert.match(sentence('darwin', 'MAC_ASLEEP_SENTENCE'), /^It may be asleep or turned off\. Wake it/);
+  for (const name of ['OFFLINE_SENTENCE', 'SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {
+    assert.match(sentence('darwin', name), /your Mac|Your Mac/, name + ' lost the Mac words on a Mac');
+  }
+});
+
+test('#5865: Settings on Linux has no Dock line or App icon box, and says how Kosmos starts again', () => {
+  assert.match(PAGE, /html\[data-kosmos-platform="linux"\] \[data-linux-hide\] \{ display: none !important; \}/, 'the Linux hide rule is gone');
+  assert.match(PAGE, /<img class="dockrow-i" data-win-hide data-linux-hide /, 'the Dock icon picture shows on Linux');
+  assert.match(PAGE, /<section class="dbox" data-win-hide data-linux-hide>\s*<h3 class="dlab">App icon<\/h3>/, 'the App icon box shows on Linux');
+  assert.match(PAGE, /<p class="dhint" style="margin:0;" data-win-copy="settingsOpenKosmos" data-linux-copy="settingsOpenKosmos">/);
+  // The real applyPlatformCopy, on a stub root holding that line: Linux stamps the page and swaps the words.
+  const run = (platform) => {
+    const el = { innerHTML: 'Kosmos is already in your Dock.', getAttribute: (k) => (k === 'data-linux-copy' || k === 'data-win-copy' ? 'settingsOpenKosmos' : null) };
+    const html = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } };
+    const doc = Object.assign(docFor(platform), { documentElement: html });
+    const root = { querySelectorAll: (sel) => (sel === '[data-linux-copy]' || sel === '[data-win-copy]' ? [el] : []) };
+    runPage(platform, ['applyPlatformCopy'], 'applyPlatformCopy(root)', { document: doc, root, window: {} });
+    return { text: el.innerHTML, stamp: html.attrs['data-kosmos-platform'] };
+  };
+  const linux = run('linux');
+  assert.equal(linux.stamp, 'linux');
+  assert.equal(linux.text, 'Kosmos runs in the background on the computer it is installed on. If it stops, run '
+    + '<b>kosmos restart</b> in a terminal on that computer (over SSH on a headless server).');
+  assert.doesNotMatch(linux.text, /Dock|Applications|Kosmos\.exe/);
+  // CONTROLS: a Mac is untouched; Windows still gets its own copy.
+  assert.deepEqual(run('darwin'), { text: 'Kosmos is already in your Dock.', stamp: undefined });
+  assert.equal(run('win32').text, table.settingsOpenKosmos);
+});
+
+test('#5865: an unreadable daily-report setting on Linux does not send the person to an app icon', () => {
+  const msg = (platform) => {
+    const els = { 'feedback-toggle': { classList: { toggle() {}, remove() {} }, setAttribute() {}, removeAttribute() {}, hidden: false }, 'feedback-msg': { textContent: '' } };
+    runPage(platform, ['paintSwitch', 'feedbackPaint'], 'feedbackPaint(null)', { __byId: els });
+    return els['feedback-msg'].textContent;
+  };
+  assert.equal(msg('linux'), 'We could not check this setting here. Open Kosmos on the computer running it and you can change it.');
+  assert.equal(msg('darwin'), 'We could not check this setting here. Open Kosmos from its icon and you can change it.', 'CONTROL: the Mac line changed');
 });
