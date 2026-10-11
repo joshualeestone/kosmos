@@ -88,3 +88,13 @@ costs every agent on this Mac a board restart. The real restart is on record onc
 - **The half-sandbox override leaned on two exports nobody checked.** A check before the control install now
   fails if tmux is not this run's fake or the agent home is outside the sandbox. Shown red both ways by hand.
 - Comment fixes.
+
+## Review round 3 (2026-10-11)
+
+- **The override check did not protect the install after it.** A failed `chk` only counts; the install still ran
+  with the guard off. The override is now given only while the two exports hold, so otherwise the install runs
+  guarded, is refused, and the leg goes red having touched nothing.
+- **"Cannot see launchd" was green and uncounted.** It now counts as a skipped block, like the file's others.
+- Dated incident history moved out of the code comments; it is in this file and on the card.
+- Left alone: the control's stop inherits the harness's data folder (nothing reads the file it touches, and the
+  older #924 stop has the same shape); the explicit LAUNCH on that stop is redundant and kept as a statement.
