@@ -1,8 +1,8 @@
 'use strict';
 /**
  * kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel). An agent whose instructions say to answer
- * the person somewhere Kosmos cannot see declares it, so the reminders stop saying nothing reached the person. Over HTTP
- * on a sandboxed board: an agent sets only its own channel (by token or by pane), a page request names nobody, and the refusals.
+ * the person somewhere Kosmos cannot see declares it, so the first-reply nudge stops saying nothing reached the person. Over HTTP
+ * on a sandboxed board: an agent sets only its own channel (by token or by pane), a page request is refused, and the refusals.
  *
  *   node --test server.reply-channel-5805.test.js
  */
@@ -74,7 +74,7 @@ test('kosmos#5805: an agent declares its own reply channel, a name in its body i
   } finally { board.restore(); }
 });
 
-test('kosmos#5805: refusals (too long, two lines, not words, nobody named); a page request names no agent', async () => {
+test('kosmos#5805: refusals (too long, two lines, not words, a flag, nobody named); a page request is refused', async () => {
   const { board, ada, bo } = twoAgents();
   try {
     const minted = sendertoken.mint(ada);
@@ -92,10 +92,17 @@ test('kosmos#5805: refusals (too long, two lines, not words, nobody named); a pa
     assert.ok(r.status >= 400 && r.status < 500, 'an unnamed caller got ' + r.status);
     assert.equal(declared(ada), null);
     assert.equal(declared(bo), null);
-    // A page request carries no pane and the body's name is never read, so it names no agent and sets nothing.
-    r = await asScreen({ channel: 'Discord', name: bo });
-    assert.ok(r.status >= 400 && r.status < 500, 'the screen set a channel: ' + r.status);
+    // A page request is refused outright, even carrying a real pane: only an agent declares its own channel.
+    const adaCard = board.agents.find((c) => c.sessionName === ada);
+    r = await asScreen({ channel: 'Discord', name: bo, from_pane: adaCard.target });
+    assert.equal(r.status, 403, 'a page request with a pane was taken as that agent: ' + r.status);
+    assert.match((await r.json()).error, /only an agent declares its reply channel/);
     assert.equal(declared(bo), null, 'a name typed on the screen set that agent\'s channel');
+    assert.equal(declared(ada), null, 'a page request set the pane\'s agent\'s channel');
+    // The board refuses a mistyped flag too, whatever command sent it.
+    r = await asAgent(minted.token, { channel: '--clear Discord' });
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /a channel cannot start with -/);
     assert.deepEqual(store.readProfile('rc-nobody-by-this-name'), {}, 'control: no stray profile');
     r = await asScreen({ channel: 'Discord', name: 'rc-nobody-by-this-name' });
     assert.deepEqual(store.readProfile('rc-nobody-by-this-name'), {}, 'a profile was written for a name that is no agent');

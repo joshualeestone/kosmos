@@ -353,8 +353,33 @@ test('kosmos#5805: an injected replyChannel is honoured, and a throwing one is n
 
 test('kosmos#5805: the reminder teaches the opt-out, by a verb both commands ship', () => {
   assert.match(nudge.NUDGE_TEXT, /Only if your instructions say to answer them somewhere else: answer there, then run kosmos reply-channel "<where>"/);
-  assert.match(nudge.NUDGE_TEXT, /never run it just to quiet one/, 'the opt-out is taught without saying what it is not for');
+  assert.match(nudge.NUDGE_TEXT, /never run it just to quiet it/, 'the opt-out is taught without saying what it is not for');
   assert.ok(require('../tools/windows/kosmos-cli').VERBS.includes('reply-channel'), 'the reminder names a verb the Windows command lacks');
   const mac = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   assert.match(mac, /^ {2}reply-channel\) shift; cmd_reply_channel "\$@" ;;/m, 'the reminder names a verb the Mac command lacks');
+});
+
+test('kosmos#5805: a skip for a declared channel is logged once per channel, books no nudge, and --clear brings the nudge back', () => {
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  const book = new Map();
+  const logged = [];
+  let channel = 'Discord';
+  const sent = [];
+  const sweep = () => nudge.sweepOnce({
+    roster, book, now: NOW, DELIVERY, replyChannel: () => channel, paused: () => null, log: (r) => logged.push(r),
+    thread: () => ({ messages: [{ text: 'hi', at: HEARD, delivery: { state: 'placed' } }] }),
+    deliver: (session) => { sent.push(session); return { state: DELIVERY.PLACED }; },
+  });
+  sweep(); sweep();
+  assert.equal(sent.length, 0, 'a declared agent was nudged');
+  assert.deepEqual(logged.map((r) => r.act), ['declared'], 'the skip was not logged exactly once');
+  assert.match(logged[0].because, /on Discord \(kosmos reply-channel\)/);
+  channel = 'Slack';
+  sweep();
+  assert.equal(logged.length, 2, 'a new channel was not logged');
+  channel = null;   // --clear
+  sweep();
+  assert.equal(sent.length, 1, 'clearing the channel did not bring the nudge back');
+  assert.equal(logged[2].act, 'nudge');
 });

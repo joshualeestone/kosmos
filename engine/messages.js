@@ -2470,20 +2470,9 @@ function setUnansweredAfterForTests(ms) {
   UNANSWERED_AFTER_MS = Number.isFinite(ms) ? ms : 10 * 60 * 1000;
 }
 
-/* kosmos#5805 part 2: has `name` declared another channel it answers the person on (kosmos reply-channel)? An answer
-   there is out of Kosmos's sight, so the agent is never called silent. The one test unanswered and owedElsewhere share,
-   so the room line, its nudge and the which-room question cannot disagree. `declared` (a Map, one per caller's pass)
-   holds each agent's declaration once read, so a render reads a profile once per name, not per ask. */
-function answersElsewhere(name, declared) {
-  if (declared.has(name)) return declared.get(name);
-  const has = Boolean(require('./replychannel').forAgent(name, store));
-  declared.set(name, has);
-  return has;
-}
-
 /**
  * Which addressed agents have not answered which operator posts in this
- * project. Returns { <postId>: [names...] }.
+ * project, from the record alone. Returns { <postId>: [names...] }.
  *
  * ⚠️ OPERATOR posts only, MENTIONED names only, TYPED deliveries only:
  * a colleague's mention is a different contract (the room model refuses
@@ -2498,7 +2487,6 @@ function unanswered(projectId, now) {
   if (!rec.ok) return {};
   const rows = rec.rows.filter((m) => m && m.project === projectId);
   const out = {};
-  const declared = new Map();   // kosmos#5805 part 2: one profile read per name for this pass
   for (const p of rows) {
     if (p.kind !== 'post' || p.operator !== true || !Array.isArray(p.mentioned) || !p.mentioned.length) continue;
     const age = at - Date.parse(p.at);
@@ -2519,8 +2507,7 @@ function unanswered(projectId, now) {
          answer, the module's own never-promote-on-a-string-match rule
          read in the other direction. */
       return !rows.some((m) => m.kind === 'post' && m.operator !== true && m.from === name
-        && Date.parse(m.at) >= Date.parse(p.at))
-        && !answersElsewhere(name, declared);
+        && Date.parse(m.at) >= Date.parse(p.at));
     });
     if (silent.length) out[p.id] = silent;
   }
@@ -2622,10 +2609,7 @@ function sweepUnanswered(roster, now) {
    project B: an operator post in B before this post, with W in its `mentioned`,
    delivered (TYPED, not could_not -- an undelivered ask is not owed), and NO room
    post from W in B in [askAt, postAt). This mirrors `unanswered`'s own definition
-   of an owed answer (operator + mentioned + typed), bounded to the post's instant,
-   with one difference kept on purpose: it does not read declared reply channels
-   (kosmos#5805 part 2, answersElsewhere), so an agent that answers on one still
-   counts here. It is an aggregate "suspected" count over the whole record.
+   of an owed answer (operator + mentioned + typed), bounded to the post's instant.
 
    ⚠️ AS-OF-POST-TIME is deliberate, and it is why this does NOT reuse `unanswered`
    (whose answer-check is unbounded, "answered ever after the ask"). A misroute
@@ -2930,10 +2914,9 @@ function reopenRoom(project, at) {
  * agent which room it meant instead of posting blind. Returns { id, project } for the
  * most recent owed question, or null when there is nothing to ask about.
  *
- * "Owed" is the same test the #185 nudge (`unanswered`) uses: an operator post that
- * mentioned this agent and reached its pane (anything but could_not), with no room post
- * from the agent in that project since, and no declared reply channel (answersElsewhere,
- * kosmos#5805 part 2). Two bounds keep
+ * "Owed" is the same test the #185 nudge (`unanswered`) and the daily misroute count
+ * use: an operator post that mentioned this agent and reached its pane (anything but
+ * could_not), with no room post from the agent in that project since. Two bounds keep
  * the cost of a wrong guess to one rerun, and rarely:
  * - only questions from the last WHICH_ROOM_WINDOW_MS count, so an ask the agent
  *   ignored yesterday does not hold every post it makes today;
@@ -2979,9 +2962,7 @@ function owedElsewhere(agent, targetProject, now, opts) {
      ask at or before the agent's latest --new post is treated as acknowledged. That is
      slightly wider than "was put to it": a question landing between the hold and the
      --new rerun is cleared too. Accepted: the window is one rerun long. */
-  // kosmos#5805 part 2: an agent that answers on a declared channel owes nothing here, as unanswered reads it.
-  const declared = new Map();
-  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt && !answersElsewhere(who, declared));
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt);
   const elsewhere = owed.filter((a) => a.project !== target && (() => {
     try { return canPostIn(a.project) === true; } catch { return false; }
   })());

@@ -57,10 +57,9 @@ const NUDGE_TEXT = 'Kosmos here, a one-time reminder: the person you work for se
   + 'nothing has reached them yet. Writing an answer here does not send it. To answer them, run: '
   + 'kosmos reply "<your answer>". If their message did not reach you, read it with: kosmos inbox. '
   /* kosmos#5805 part 2: the agent in the report was told to answer elsewhere and had no way to learn the opt-out;
-     this reminder is the moment it is needed. Only this one teaches it (the report's case), and it says what it is
-     not for: it ends Kosmos's reminders for good, so it is never a way to quiet one. */
+     this reminder is the moment it is needed, and it says what the command is not for. */
   + 'Only if your instructions say to answer them somewhere else: answer there, then run kosmos reply-channel "<where>" '
-  + '(it stops these reminders for good, so never run it just to quiet one)';
+  + '(it stops this reminder for good, so never run it just to quiet it)';
 
 /* Has this session's one nudge been spent? A book entry with a nudge time, however it went. */
 function nudged(entry) {
@@ -176,11 +175,19 @@ function sweepOnce(o) {
       if (p.act !== 'nudge') continue;
       /* kosmos#5805 part 2: an agent that declared where it answers the person (kosmos reply-channel) may have answered
          there, out of Kosmos's sight, so "nothing has reached them yet" would be a guess. It is never nudged. Read only
-         once a nudge is due, so a sweep does not read every profile. Nothing is booked, so an agent that clears its
-         channel is reminded of a first message still unanswered on the next sweep, as one that never declared is. */
+         once a nudge is due, so a sweep does not read every profile. Only the channel last logged is booked (never a
+         nudge or a try), so an agent that clears its channel is reminded of a first message still unanswered on the
+         next sweep, as one that never declared is. The first skip per channel is logged, so a person asking why an
+         agent was never reminded finds the answer in the log. */
       let declared = null;
       try { declared = channelFor(session); } catch { declared = null; }
-      if (declared) continue;
+      if (declared) {
+        if (!entry || entry.declaredSaid !== declared) {
+          book.set(session, { ...(entry || {}), declaredSaid: declared });
+          say({ name: card.name || session, session, act: 'declared', delivered: false, delivery: null, because: 'it answers its person on ' + declared + ' (kosmos reply-channel), out of Kosmos\'s sight' });
+        }
+        continue;
+      }
       const display = card.name || session;
       let state = null;
       let held = false;
@@ -209,7 +216,7 @@ function nudgeEnabled(allowed, env) {
 }
 
 /* The server's per-tick wrapper, separate so its gating is testable. deps = { allowed, env, paused?,
-   roster, deliver, DELIVERY, log, book, now, thread? }. Each call returns the sweep's result, or
+   roster, deliver, DELIVERY, log, book, now, thread?, replyChannel? }. Each call returns the sweep's result, or
    null when it did not run. Never throws. */
 function makeTick(deps) {
   return function tick() {

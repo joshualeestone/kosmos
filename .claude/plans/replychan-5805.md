@@ -2,31 +2,36 @@
 
 ## The defect (the collected 10-10 report, read at the source)
 An agent whose instructions said to answer the person through a different channel answered there, and a reminder then
-said *nothing had reached the person*. That wording is the first-reply nudge (engine/firstreply-nudge.js); the room's
-#185 reminder (messages.unanswered, its "has not answered" line, sweepUnanswered's nudge, owedElsewhere's which-room
-question) calls such an agent silent the same way. Kosmos cannot see that channel.
+said *nothing had reached the person*. That wording is the first-reply nudge (engine/firstreply-nudge.js). Kosmos
+cannot see that channel.
 
 ## The change
 `kosmos reply-channel "<where>"` (empty, "kosmos" or `--clear` clears it), on the Mac and Windows CLIs, POST
 /api/agent/reply-channel, stored as `replyChannel` on the agent's profile (engine/replychannel.js). With one declared,
-neither reminder speaks for that agent (messages.answersElsewhere, shared by unanswered and owedElsewhere; the
-first-reply sweep's replyChannel reader). suspectedMisrouteCount (a daily aggregate) does not read it, and says so.
+the first-reply nudge does not fire for that agent; its first skip per channel is logged. Nothing else reads it: the
+room's #185 reminder, its "has not answered" line and the which-room question are main's (engine/messages.js is
+unchanged).
 
 ## Decided (PigeonPete took this over from Baron at 34aedd9ef)
 - **The agent declares it, as the report asked.** Baron's branch had instead counted a `kosmos reply` to the person
-  within an hour of a room ask as answering it, with no declaration. That cannot see the reported case (the answer
-  never touched a Kosmos thread). It was kept at first beside the declaration, then **removed in review 7**: review 6
-  found Kosmos rows ending its window early, review 7 found one reply clearing every room's asks for an hour (it did
-  not look at the project). It was never asked for, and a third patch was the wrong direction.
-- An unreadable profile counts as no declaration (today's behaviour), and a stored value the command would refuse
-  counts as none.
-- The route is in AGENT_TOKEN_ROUTES (every Windows agent holds a token and no board token). Its handler names the
-  caller with processCaller (a token exactly; a pane as given) and sets only that agent's own channel; no name in the
-  body is read. A page request carries no pane, so it names nobody (review 5 removed a screen branch no page called).
-- **How an agent learns the verb:** the first-reply nudge (the report's case) ends by teaching it, and says it is
-  never a way to quiet a reminder (review 7: teaching it on every reminder steered forgetful agents toward it). The
-  room line is unchanged. Rejected: a line in the agents' working rules (engine/defaults.js): a doctrine change for
-  every agent, with a version bump and a measured rollout, for one sentence.
+  within an hour of a room ask as answering it. That cannot see the reported case. Kept at first, then **removed in
+  review 7** after two real defects (review 6: Kosmos rows ended its window early; review 7: one reply cleared every
+  room's asks, not project-scoped). It was never asked for.
+- **Only the first-reply nudge (review 9).** Until then a declaration also hid the room's line, its nudge and the
+  which-room question. The report was the direct-thread nudge only; a room ask is answered in the room, and the
+  which-room question is a misroute guard, not a "you are silent" reminder. Narrowing it also bounds the pane
+  question below to one one-time nudge.
+- **Who can set it.** The route is in AGENT_TOKEN_ROUTES (every Windows agent holds a token and no board token). The
+  handler names the caller with processCaller (a token exactly; a pane, from_pane, as given) and sets only that
+  agent's own channel; no name in the body is read; a page request is refused (403), pane or not. **Accepted:** a
+  process holding the board token can name another agent's pane, as on the role route; the most it can do now is
+  silence that agent's one-time first-reply nudge, and the skip is logged with the channel. Requiring the token here
+  would break Mac agents that run without one.
+- One validation rule for every caller, in normalize: one line, at most 60 characters, words, not starting with `-`
+  (a mistyped `--clear Discord`); "kosmos" or empty clears. A stored value it would refuse counts as none.
+- **How an agent learns the verb:** the first-reply nudge ends by teaching it, and says it is never for quieting the
+  reminder. Rejected: a line in the agents' working rules (a doctrine change for every agent, with a version bump and
+  a measured rollout, for one sentence).
 - **The person cannot yet see or clear a declaration:** kosmos#5820 (follow-up, needs a page change).
 
 ## Rejected
@@ -36,8 +41,8 @@ first-reply sweep's replyChannel reader). suspectedMisrouteCount (a daily aggreg
   engine/musefront.js recognises that envelope by its exact text, so a change breaks a parser silently. Follow-up.
 
 ## Weakest premise
-A declared agent that does not answer on its channel is never reminded: the declaration removes the safety net and
-nothing checks the claim. What would change it: a missed message from an agent that declared a channel; then show the
+A declared agent that does not answer its person's first message on its channel is never reminded of it: the
+declaration removes that one safety net and nothing checks the claim (the skip is logged). What would change it: a missed message from an agent that declared a channel; then show the
 declared channel where the reminder would have been, rather than staying silent.
 
 
@@ -48,17 +53,17 @@ declared channel where the reminder would have been, rather than staying silent.
   widened, with the two internal Mac arms (board-run, keep-copy) excluded by name and asserted present.
 
 ## Tests
-- engine/messages.test.js: a declared-channel test (control: the same ask undeclared is owed, nudged and asked
-  about; declared it is none of those; cleared, it is back).
-- engine/firstreply-nudge.test.js: the real store, the sweep's own default reader, the card's own case nudged
-  undeclared and not declared; an injected reader honoured, a throwing one no declaration.
-- engine/replychannel.test.js: normalize, of (a hand-edited value the command would refuse is no declaration), set.
-- server.reply-channel-5805.test.js: over HTTP, an agent sets only its own; refusals; the screen names a real agent.
-- cli.reply-channel-5805.test.js: Mac against a stub board, Windows with fetch captured: set, --clear, bare, --help.
-- Mutations (13, each restored and byte-compared): every one went red. Skip in the nudge; ignore the declaration in
-  the room; old predicate in owedElsewhere; old predicate in unanswered; screen accepts any name; agent names
-  another; of() unvalidated; "kosmos" not clearing; Mac --clear; Windows --clear; Mac help guard; token set; Windows
-  help column.
+- engine/firstreply-nudge.test.js: the real store and the sweep's own default reader, the card's own case nudged
+  undeclared and not declared; an injected reader honoured, a throwing one no declaration; the skip logged once per
+  channel, no nudge booked, and --clear brings the nudge back; the nudge text teaches the verb both commands ship.
+- engine/replychannel.test.js: normalize (one line, length, words, no leading dash incl. after a no-break space,
+  "kosmos" clears), of (a hand-edited value the command would refuse is no declaration), set.
+- server.reply-channel-5805.test.js: over HTTP, an agent sets only its own (by token, and by pane with no token); a
+  body name is never read; a page request is refused even with a real pane; refusals.
+- cli.reply-channel-5805.test.js: Mac against a stub board, Windows with fetch captured: set, --clear, bare, --help,
+  two lines, a mistyped flag, quotes and backslashes.
+- Mutations: every site above was broken in turn and its test went red (each file restored and byte-compared); the
+  ledger sections below name them.
 
 ## Review 1 (opus)
 - FIXED (WARNING): unbounded window; see Decided.
@@ -144,3 +149,16 @@ declared channel where the reminder would have been, rather than staying silent.
   regexes). The guard still goes red when a read-only verb joins the exit-0 case (mutation checked).
 - Lesson: the targeted runs covered the node CLI tests but not the shell tests that read install/kosmos. All 15 of
   those (minus the install, release and queue ones) now pass alone.
+
+## Review 9 (opus, blind, on 26f0b72c1)
+- FIXED (WARNING): a declaration reached past the report (the room's line and nudge in every project, and the
+  which-room misroute guard). Narrowed to the first-reply nudge; engine/messages.js is main's again.
+- FIXED (WARNING): a skip for a declared channel left no trace; the first skip per channel is logged (test).
+- DEFERRED, NARROWED (WARNING, raised in reviews 2, 4 and 9): a board-token process can name another agent's pane.
+  A page request is now refused outright (test with a real pane); the remaining reach is one one-time nudge, logged.
+- FIXED (NIT): makeTick's doc lists replyChannel.
+- FIXED (NIT): the leading-dash rule moved into normalize, so the board refuses it for every caller and both trims
+  agree (a no-break space before the dash is refused too).
+- FIXED (NIT): the page-request test carried no pane, so it proved less than its title; it now carries a real one.
+- NO CHANGE (NIT): cli.help-lines-4785's dispatchVerbs still reads [a-z]+ (widening it would demand help rows for
+  the two internal arms); the parity test reads the Mac banner with hyphens.

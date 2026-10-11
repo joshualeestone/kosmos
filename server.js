@@ -19912,14 +19912,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* kosmos#5805 part 2: an agent declares where it answers the person (`kosmos reply-channel`). Body { channel }
-     (empty, or "kosmos", clears it). With one declared, the first-reply nudge and the room's #185 reminder stay quiet
-     for it (engine/replychannel.js says why). Only an agent sets it, and only its own: processCaller names the caller
-     (a token exactly; a pane, from_pane, as given). Reminders only; it decides no routing. */
+     (empty, or "kosmos", clears it). With one declared, the first-reply nudge stays quiet for it
+     (engine/replychannel.js says why). Only an agent sets it, and only its own: processCaller names the caller (a
+     token exactly; a pane, from_pane, as given). A page request is refused outright, pane or not. */
   if (pathname === '/api/agent/reply-channel' && req.method === 'POST') {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || '{}'); } catch { body = null; }
       if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      if (isViaScreen(req, body)) { sendJson(res, 403, { error: 'only an agent declares its reply channel, with kosmos reply-channel' }); return; }
       const roster = safeRoster();
       const caller = processCaller(req, body, roster, false, 'the reply channel was not set');
       if (caller.refusal) { sendJson(res, caller.refusal[0], { error: caller.refusal[1] }); return; }
@@ -19931,7 +19932,7 @@ const server = http.createServer(async (req, res) => {
       catch (err) {
         const because = String((err && err.message) || '');
         // Only the module's own sentences go back; a failed write is ours, said without its details.
-        if (/^say the channel |^keep the channel to /.test(because)) { sendJson(res, 400, { error: because }); return; }
+        if (/^say the channel |^keep the channel to |^a channel cannot start with /.test(because)) { sendJson(res, 400, { error: because }); return; }
         sendJson(res, 500, { error: 'Kosmos could not save that reply channel just now' });
         return;
       }
