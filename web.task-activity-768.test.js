@@ -238,7 +238,7 @@ test('#5842: a kept message sent after the reset, or dropped, reads plainly with
   ])).innerHTML;
   assert.match(html, /Your message to Mona, kept while Mona was out of usage, was sent once Mona was back</);
   assert.match(html, /Kosmos tried to send your message to Mona once Mona was back, but could not confirm Mona got it/);
-  assert.match(html, /Your message to Mona was never sent: Mona was out of usage, and Kosmos kept it for more than a day without being able to send it/);
+  assert.match(html, /Your message to Mona was never sent: Kosmos kept it while Mona was out of usage and could not send it within a day/);
   assert.match(html, /leo\u2019s message to Mona was never sent/, 'from and to mixed up, or the sender lost');
   assert.doesNotMatch(html, /was sent[^<]*could not confirm/, 'an unconfirmed message read as sent');
   assert.doesNotMatch(html, /reset/, 'a reset nobody saw was named');
@@ -252,7 +252,7 @@ test('#5842: an agent\'s kept message, and one kept behind earlier messages, rea
   ])).innerHTML;
   assert.match(html, /Kosmos tried to send leo\u2019s message to Mona once Mona was back, but could not confirm Mona got it/);
   assert.match(html, /Your message to Mona, kept behind earlier messages, was sent once the messages ahead of it had gone</);
-  assert.match(html, /Your message to Mona was never sent: Kosmos kept it behind earlier messages for more than a day without being able to send it/);
+  assert.match(html, /Your message to Mona was never sent: Kosmos kept it behind earlier messages and could not send it within a day/);
   assert.doesNotMatch(html.split('leo\u2019s')[1] || '', /out of usage/, 'a message kept behind others spoke of a usage limit');
   assert.doesNotMatch(html, /kept-sent|kept-dropped/, 'a raw event kind reached the screen');
 });
