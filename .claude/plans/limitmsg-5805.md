@@ -73,8 +73,8 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
 
 ## Review 2 (sonnet)
 - FIXED: the repeat-send fold looks back minutes and a hold lasts days, so a later retry kept a second copy. The same
-  send (sender, text, the message it answers) already kept for that agent is that copy at any age; at most 100 are kept
-  per agent (one more is refused as could-not-keep). Both tested.
+  send (sender, text, the message it answers) already kept for that agent is that copy at any age; a cap per agent
+  (now 200, with 20 per sender since review 3; one more is refused as could-not-keep). Both tested.
 - FIXED: a dropped long message left its spilled file behind; it is removed with the drop (tested).
 - FIXED: after an unconfirmed delivery the next kept message was typed on top of it; it waits for the next minute
   (tested).
@@ -155,3 +155,12 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   backlog that never clears is dropped a day after it was sent, its sender told.
 - Verified covered: a repeat of a typed held message after the two have spoken since goes as new (review 5's test).
 - CONVENTION taken: the per-send queue read is commented where it happens. NITs not taken.
+
+## Review 11 (opus)
+- FIXED: a run that outlived the one-run guard let a newer run skip the message it held and type later ones ahead of
+  it; a claimed message now holds that agent's run (tested with the clock moved past the guard).
+- FIXED: a long backlog was typed against a roster read once, so an agent that hit its limit again mid-backlog got the
+  rest anyway; at most 5 messages per agent per minute (tested).
+- CONVENTIONS taken: the claim's comment says what it guards (another flush run), and limitqueue.js is in the #5434
+  writer guard's two lists (its title no longer counts the writers, so two branches adding one do not collide).
+- NIT taken: the plan's cap figure matches the code. Not taken: heldUntil in UTC; the repeated addressable call.

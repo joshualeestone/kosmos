@@ -15,7 +15,10 @@ const store = require('./store');
 
 const DROP_AFTER_MS = 24 * 60 * 60 * 1000;
 const MAX_KEPT = 200;   // per agent, from all senders together
-const MAX_PER_SENDER = 20;   // per agent per sender: one sender in a loop cannot crowd out the others
+const MAX_PER_SENDER = 20;
+/* Typed per agent per minute: the roster is read once a minute, so an agent that hits its limit again mid-backlog is
+   noticed within this many messages, not after the whole backlog. */
+const PER_RUN = 5;   // per agent per sender: one sender in a loop cannot crowd out the others
 
 function dir() { return path.join(store.ROOT, 'limitqueue'); }
 /* The store key alone can make two names one file (it lowercases and strips); a short hash of the exact name keeps
@@ -81,8 +84,8 @@ function names() {
 /* Ids this board already typed or dropped whose removal from the file failed: skipped (and their removal tried again)
    so a failed write never types a message twice or tells its sender twice. */
 const done = new Set();
-/* Ids being typed this moment: claimed before the await, so no other run (one that outlived the guard below) and
-   no other path can type the same message alongside it. */
+/* Ids being typed this moment: claimed before the await, so no other flush run (one that outlived the guard below)
+   types the same message alongside it, or ahead of it. */
 const typing = new Set();
 function isTyping(id) { return typing.has(id); }
 let flushingSince = 0;
@@ -122,9 +125,14 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       if (!live.length) continue;
       const card = resolveCard(roster, name);
       if (!card || !isReleased(card, roster)) continue;
+      let typedNow = 0;
       for (const e of live) {
         // Still kept, and not typed by a run that outlived the one-run guard: checked just before typing.
-        if (done.has(e.id) || typing.has(e.id) || !has(name, e.id)) continue;
+        // Claimed by a run that outlived the guard: this agent waits, so nothing is typed ahead of it.
+        if (typing.has(e.id)) break;
+        if (done.has(e.id) || !has(name, e.id)) continue;
+        if (typedNow >= PER_RUN) break;
+        typedNow += 1;
         typing.add(e.id);
         let v;
         try { v = await deliver(name, e.envelope, roster); } catch { v = null; } finally { typing.delete(e.id); }
@@ -143,4 +151,4 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
 
 function resetForTests() { done.clear(); typing.clear(); flushingSince = 0; }
 
-module.exports = { isTyping, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER };
+module.exports = { isTyping, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN };

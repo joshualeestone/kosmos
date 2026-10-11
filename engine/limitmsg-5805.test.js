@@ -442,3 +442,34 @@ test('#5805 2a review 9: a message being typed is claimed (isTyping), and a seco
   assert.equal(limitqueue.isTyping('m1050'), false);
   assert.deepEqual(typed, ['one']);
 });
+
+test('#5805 2a review 11: a run that outlived the guard holds this agent: a newer run types nothing ahead of it', async () => {
+  const t = new Date().toISOString();
+  for (const id of ['m1060', 'm1061']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: t, reset: t });
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const typed = [];
+  const o = { deliver: async (n, env) => { typed.push(env); if (env === 'm1060') await gate; return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY };
+  const run1 = limitqueue.flush(caseyRoster(), o);
+  await new Promise((r) => setTimeout(r, 20));
+  const realNow = Date.now;
+  Date.now = () => realNow() + 16 * 60e3;   // the first run has outlived the one-run guard
+  let run2;
+  try { run2 = await limitqueue.flush(caseyRoster(), o); } finally { Date.now = realNow; }
+  assert.deepEqual(run2, []);
+  assert.deepEqual(typed, ['m1060'], 'a later message was typed ahead of one still being typed');
+  release();
+  await run1;
+});
+
+test('#5805 2a review 11: at most PER_RUN messages per agent each minute, the rest next minute', async () => {
+  const t = new Date().toISOString();
+  for (let i = 0; i < limitqueue.PER_RUN + 2; i += 1) limitqueue.add('casey', { id: 'mr' + i, from: 'agent' + i, envelope: 'e' + i, at: t, reset: t });
+  const typed = [];
+  const o = { deliver: async (n, env) => { typed.push(env); return { state: chat.DELIVERY.PLACED }; }, isReleased: () => true, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY };
+  await limitqueue.flush(caseyRoster(), o);
+  assert.equal(typed.length, limitqueue.PER_RUN);
+  assert.equal(limitqueue.list('casey').length, 2);
+  await limitqueue.flush(caseyRoster(), o);
+  assert.equal(typed.length, limitqueue.PER_RUN + 2);
+});
