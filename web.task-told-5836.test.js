@@ -16,7 +16,7 @@ const base = { repeatWords: 'every day at 9am', lastRunAt: hoursAgo(1), lastRunB
 
 test('#5836: a reading that changed since the person was told says both, and when they were told', () => {
   const s = lib.tskRepeatSentence({ ...base, verified: { value: 'price is $45', at: hoursAgo(1) }, told: { value: 'price is $40', at: hoursAgo(26) } }, NOW);
-  assert.match(s, /Its latest check found “price is \$45”\. When you were last told \([^)]*\), it was “price is \$40”\./);
+  assert.match(s, /Its latest check found “price is \$45”\. You were last told “price is \$40” \([^)]*\)\./);
 });
 
 test('#5836: a reading the same as what the person was told says so', () => {
@@ -24,9 +24,9 @@ test('#5836: a reading the same as what the person was told says so', () => {
   assert.match(s, /You were last told “status ok” \([^)]*\), the same as its latest check\./);
 });
 
-test('#5836: a reading never told says the person has not been told it yet', () => {
+test('#5836: a reading never told says Kosmos has no record of the person being told it', () => {
   const s = lib.tskRepeatSentence({ ...base, verified: { value: '2 errors', at: hoursAgo(1) } }, NOW);
-  assert.match(s, /Its latest check found “2 errors”\. You have not been told this yet\./);
+  assert.match(s, /Its latest check found “2 errors”\. Kosmos has no record of you being told this\./);
 });
 
 test('#5836: CONTROL: a task with neither field adds nothing (the line reads as before)', () => {
@@ -39,5 +39,5 @@ test('#5836: CONTROL: a task with neither field adds nothing (the line reads as 
 test('#5836 review 1: told AFTER the reading, in other words, says the order as it happened (not "changed since")', () => {
   const s = lib.tskRepeatSentence({ ...base, verified: { value: 'price is $45', at: hoursAgo(3) }, told: { value: 'up to forty-five', at: hoursAgo(1) } }, NOW);
   assert.match(s, /You were last told \u201cup to forty-five\u201d \([^)]*\), after its latest check found \u201cprice is \$45\u201d\./);
-  assert.doesNotMatch(s, /When you were last told/);
+  assert.doesNotMatch(s, /Its latest check found/);   // only the changed case leads with the check
 });

@@ -943,7 +943,7 @@ const SCREENS = [
     if (st !== 200) throw new Error('could not clear the repeat rule after the shot (' + st + ')');
   } },
   /* kosmos#5836 (Angel): a repeating task whose latest reading changed since the person was last told: its page's
-     repeat line says both ("has changed since you were last told"). Its own task, closed in `after`, since what the
+     repeat line says both, the new value first. Its own task, closed in `after`, since what the
      person was told outlives the rule by design and would otherwise show on a later screen. */
   { name: 'task-told-5836', owner: 'Angel', go: async (page, data) => {
     const post = (path, body) => page.evaluate(([pth, b]) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })
@@ -965,7 +965,7 @@ const SCREENS = [
     await page.evaluate(() => document.getElementById('tk-repeat-row').scrollIntoView({ block: 'center' }));
   }, verify: async (page) => {
     const t = await page.evaluate(() => (document.getElementById('tk-repeat-line') || {}).textContent || '');
-    if (!/When you were last told \([^)]*\), it was \u201cprice is \$40\u201d/.test(t)) throw new Error('the repeat line says: ' + JSON.stringify(t));
+    if (!/Its latest check found \u201cprice is \$45\u201d\. You were last told \u201cprice is \$40\u201d \(/.test(t)) throw new Error('the repeat line says: ' + JSON.stringify(t));
   }, after: async (page, data) => {
     if (typeof data.toldTask !== 'number') return;
     const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), [data.projectId, data.toldTask]);
