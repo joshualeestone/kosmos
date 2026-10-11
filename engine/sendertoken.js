@@ -275,7 +275,7 @@ function othersTokens(held, sessionName) {
 function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 /* kosmos#5208: the live file above is the history every build reads (a build from before this change reads only it). It
    is bounded by compactEnded, which replaces it whole with the newest line per name. Each file it replaces stays, as a
-   hard link under ENDED_DIRNAME (`sealed.*.jsonl`), for an hour, and this build reads those too, so an append that
+   hard link under ENDED_DIRNAME (`sealed.*.jsonl`), for at least an hour, and this build reads those too, so an append that
    lands in a replaced file is never lost. setup-assistant.js denies token-only agents writes to that folder. */
 const ENDED_DIRNAME = 'ended-agents.d';
 function endedDir() { return path.join(store.ROOT, ENDED_DIRNAME); }
@@ -308,7 +308,7 @@ function noteEnded(sessionName) {
    name always has one slug. The history then grows with distinct names (not capped), not with events.
    HOW (compactEnded), so that no end is lost to this build or to an older one that reads only the live file:
    1. the sealed files and the live file are read and folded; anything it cannot read whole stops it here;
-   2. the fold is written to a temp file beside the live file and FLUSHED to disk;
+   2. the fold is written to a temp file in ENDED_DIRNAME and FLUSHED to disk;
    3. if the live file is still the file that was read, it is hard-linked to a new sealed name (so the file about to be
       replaced, and anything appended to it even later, stays readable), and the temp file is RENAMED over it, and the
       folder flushed: the live path always holds either the whole old history or the whole fold;
@@ -371,7 +371,7 @@ function compactEnded(opts = {}) {
     // 1. Read and fold. Any failure leaves every file as it was.
     const read = [];
     for (const f of sealedFiles()) {
-      let fst; try { fst = fs.statSync(f); } catch { continue; }
+      let fst; try { fst = fs.statSync(f); } catch (e) { if (e && e.code === 'ENOENT') continue; return { compacted: false }; }
       read.push({ f, mtimeMs: fst.mtimeMs, text: fs.readFileSync(f, 'utf8') });
     }
     const liveText = fs.readFileSync(live, 'utf8');
@@ -386,9 +386,10 @@ function compactEnded(opts = {}) {
       }
       return { compacted: false, stuck: true };
     }
-    // 2. The fold, flushed, beside the live file (a rename must stay within one folder's file system).
+    // 2. The fold, flushed, in ended-agents.d: a token-only agent is denied that folder, so it can never hold the file
+    //    that becomes the live one. (The hard link in step 3 already needs that folder on the live file's device.)
     fs.mkdirSync(endedDir(), { recursive: true });
-    const tmp = live + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
+    const tmp = path.join(endedDir(), 'live.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp');
     try { writeFlushed(tmp, next, st.mode & 0o777); } catch { try { fs.unlinkSync(tmp); } catch { /* none */ } return { compacted: false }; }
     // 3. Only over the file that was read (a compaction that slept after its lock was stolen finds a newer one: stop).
     let cur; try { cur = fs.statSync(live); } catch { cur = null; }
@@ -429,11 +430,9 @@ function compactEnded(opts = {}) {
       try { fs.unlinkSync(r.f); removed++; } catch { /* still read; tried again next time */ }
     }
     try {
-      const dir = path.dirname(live);
-      const base2 = path.basename(live);
-      for (const n of fs.readdirSync(dir)) {
-        if (!n.startsWith(base2 + '.') || !/\.[0-9]+\.[0-9a-f]+\.tmp$/.test(n)) continue;
-        const f = path.join(dir, n);
+      for (const n of fs.readdirSync(endedDir())) {
+        if (!/^live\.[0-9]+\.[0-9a-f]+\.tmp$/.test(n)) continue;
+        const f = path.join(endedDir(), n);
         try { if (now - fs.statSync(f).mtimeMs > SEALED_KEEP_MS) fs.unlinkSync(f); } catch { /* not ours to fail on */ }
       }
     } catch { /* tidying only */ }

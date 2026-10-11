@@ -19,14 +19,14 @@ endedSince's only reader is the token-only removal check (Angel confirmed).
   (recorded in `ended-agents.d/compacted-bytes`):
   1. reads the sealed files and the live file and folds them; a line it cannot read whole stops it here (said once,
      naming the file), with every file as it was;
-  2. writes the fold to a temp file beside the live file and FLUSHES it (securewrite.flushOrThrow); a failed flush
-     stops it;
+  2. writes the fold to a temp file in ended-agents.d (denied to token-only agents, so none can hold the file that
+     becomes the live one) and FLUSHES it (securewrite.flushOrThrow); a failed flush stops it;
   3. if the live file is still the file it read (inode), hard-links it to `ended-agents.d/sealed.<ms>.<pid>.<hex>.jsonl`
      (the file about to be replaced, and anything appended to it even later, stays readable), RENAMES the temp over the
      live file and flushes both folders. A failed rename drops the link and the temp, says so once, and leaves the
      live file as it was. The live path is never absent: it holds the whole old history or the whole fold;
   4. appends back (and flushes) any line that reached the replaced file after the read (only an unlocked append can);
-  5. only then deletes a sealed file read in this run and unchanged for an hour.
+  5. only then deletes a sealed file read in this run and unchanged for at least an hour.
 - endedSince reads the live file, the sealed files, then the live file again: a live file replaced after the first
   read was linked as a sealed file first (listed next if the replace came first, else its lines were read); a sealed
   file deleted before it is read was folded into the live file that replaced it before the deletion.
@@ -141,3 +141,16 @@ the rewrite of anything appended to. The create.js/server.js refactor that desig
 - FIXED (NIT): a failed put-back after the replace no longer reports "not compacted" (the line stays in the sealed file).
 - NO CHANGE (NITs): stray temps are swept only after a successful compaction (harmless until then); the swap itself is
   one atomic rename, which a test cannot interleave.
+
+## Review 7 (opus, blind, on 9f58e2fff): no BLOCKER
+- FIXED (WARNING): the temp that becomes the live file was made in the store root, outside every deny rule; it is made
+  in ended-agents.d now (test pins where it is made; mutation red).
+- FIXED (WARNING): `Edit(dir/**)` does not cover the folder path itself, so a token-only agent's file tools could make a
+  plain FILE named ended-agents.d (every removal would then refuse: a denial of service, not a fail-open). `Edit(dir)` is
+  added beside each, for the folder and the lock (boardkeychain-4491 asserts both; mutation red).
+- FIXED (NIT): the put-back of a replaced file that no longer starts with what was read had no test (all of it goes
+  back; a test now rewrites the file in place mid-compaction; "always slice" mutation red).
+- FIXED (NIT): a sealed file whose stat fails for any reason but ENOENT stops the compaction instead of being skipped.
+- FIXED (NIT): "for an hour" is "for at least an hour" (a sealed file goes at the first compaction after the hour).
+- RECORDED (NIT): once compaction is stuck (a torn line, no hard links, a rename that always fails), every noteEnded still
+  reads and folds the whole history under the lock. Each stuck state is said once and is rare.

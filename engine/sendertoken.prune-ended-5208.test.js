@@ -23,12 +23,12 @@ const iso = (ms) => new Date(ms).toISOString();
 const LIVE = () => sendertoken.endedLogFile();
 const DIR = () => sendertoken.endedDir();
 const sealed = () => { try { return fs.readdirSync(DIR()).filter((f) => f.startsWith('sealed.')); } catch { return []; } };
-const temps = () => fs.readdirSync(path.dirname(LIVE())).filter((f) => f.endsWith('.tmp'));
+const temps = () => [path.dirname(LIVE()), DIR()].flatMap((d) => { try { return fs.readdirSync(d).filter((f) => f.endsWith('.tmp')); } catch { return []; } });
 function reset() {
   fs.rmSync(LIVE(), { force: true });
   fs.rmSync(DIR(), { recursive: true, force: true });
   fs.mkdirSync(path.dirname(LIVE()), { recursive: true });
-  for (const t of temps()) fs.rmSync(path.join(path.dirname(LIVE()), t), { force: true });
+  for (const t of temps()) fs.rmSync(path.join(path.dirname(LIVE()), t), { force: true });   // the folder itself is removed above
 }
 const line = (name, ms) => JSON.stringify({ name, at: iso(ms) });
 function writeLive(lines) { fs.writeFileSync(LIVE(), '\n' + lines.join('\n') + '\n'); }
@@ -74,7 +74,14 @@ test('kosmos#5208: a compaction changes no answer, for this build or a rolled-ba
   const before = views(names, times);
   assert.ok(before.some((a) => a[2] === true) && before.some((a) => a[2] === false), 'fixture: both answers must occur');
   const oldIno = ino();
-  const r = sendertoken.compactEnded({ force: true });
+  // The file that becomes the live one is made only inside the folder token-only agents are denied.
+  const realOpen = fs.openSync;
+  const opened = [];
+  fs.openSync = function (f, ...rest) { if (String(f).endsWith('.tmp')) opened.push(String(f)); return realOpen.call(this, f, ...rest); };
+  let r;
+  try { r = sendertoken.compactEnded({ force: true }); } finally { fs.openSync = realOpen; }
+  assert.ok(opened.length >= 1, 'fixture: no temp file was seen being made');
+  for (const f of opened) assert.equal(path.dirname(f), DIR(), 'the temp that becomes the live file was made outside ended-agents.d: ' + f);
   assert.equal(r.compacted, true, 'nothing was compacted, so the arm below proves nothing');
   assert.notEqual(ino(), oldIno, 'the live file was rewritten in place, not replaced by a rename');
   assert.equal(fs.readFileSync(LIVE(), 'utf8').split('\n').filter(Boolean).length, 4, 'the live file is not one line per exact name');
@@ -255,4 +262,18 @@ test('kosmos#5208: an end is appended even when the lock cannot be had', () => {
   sendertoken.revoke('free-agent');   // CONTROL: with the lock free it goes in too, and the lock is released
   assert.match(fs.readFileSync(LIVE(), 'utf8'), /"name":"free-agent"/);
   assert.equal(fs.existsSync(lock), false, 'the lock was left held');
+});
+
+test('kosmos#5208: if the replaced file no longer starts with what was read, all of it is put back (both builds keep it)', () => {
+  reset();
+  writeLive([line('a', T0)]);
+  const realLink = fs.linkSync;
+  // Rewritten in place (same file) between the read and the link: the sealed text does not start with what was read.
+  fs.linkSync = function (from, to) { fs.linkSync = realLink; fs.writeFileSync(LIVE(), '\n' + line('rewritten', T0 + 9) + '\n'); return realLink.call(this, from, to); };
+  let r;
+  try { r = sendertoken.compactEnded({ force: true }); } finally { fs.linkSync = realLink; }
+  assert.equal(r.compacted, true);
+  assert.equal(oldEndedSince('rewritten', iso(T0), false), true, 'a rolled-back build lost a line of the replaced file');
+  assert.equal(sendertoken.endedSince(['rewritten'], iso(T0)), true);
+  assert.equal(sendertoken.endedSince(['nobody'], iso(T0)), false, 'a torn fragment was put back (it would refuse forever)');
 });

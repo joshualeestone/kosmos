@@ -1509,6 +1509,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     // rules are added after the filter below, as the launch folders' are.
     ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...trustedDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // kosmos#5208
+    ...trustedDirs.map((d) => `Edit(${ruleAbs(d)})`),      // the folder path itself too: /** matches only what is inside it
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
     ...pluginDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516 part 2
     ...[...new Set(ancestorDirs)].map((d) => `Edit(${ruleAbs(d)}/**)`),
