@@ -258,9 +258,10 @@ DEFAULT_PORT_BEFORE=free
 curl -s -m 1 -o /dev/null "http://127.0.0.1:$KOSMOS_DEFAULT_PORT/" 2>/dev/null && DEFAULT_PORT_BEFORE=busy
 # #5831: the port check above cannot see a RESTART. On 2026-10-11 a leg of this harness kicked the real board on
 # Mortals; launchd had it answering again within a second, so "busy before, busy after" passed. The process is what
-# changes, so that is what is recorded: the pid and start time of the real com.kosmos.board job, or empty when no
-# job has no running process (not loaded, or loaded and stopped). The here-doc instead of a pipe keeps awk's early
-# exit from becoming a SIGPIPE failure under this file's pipefail.
+# changes, so that is what is recorded: the pid and start time of the real com.kosmos.board job, or empty
+# when the job has no running process (not loaded, or loaded and stopped). The first `pid = ` line is the
+# service's own. The here-doc instead of a pipe keeps awk's early exit from becoming a SIGPIPE failure under this
+# file's pipefail.
 live_board_id() {
   local _out _pid
   _out="$(/bin/launchctl print "gui/$(/usr/bin/id -u)/com.kosmos.board" 2>/dev/null || true)"
@@ -272,6 +273,10 @@ EOF
   printf '%s started %s' "$_pid" "$(ps -o lstart= -p "$_pid" 2>/dev/null || true)"
 }
 LIVE_BOARD_BEFORE="$(live_board_id)"
+# An empty read also comes back when this shell cannot see the person's launchd domain at all (ssh, sudo, no
+# login session). Then "nothing before, nothing after" proves nothing, and the closing check says so instead.
+LIVE_BOARD_SEEN=yes
+/bin/launchctl print "gui/$(/usr/bin/id -u)" > /dev/null 2>&1 || LIVE_BOARD_SEEN=no
 
 # A free port, probed rather than assumed: several agents and a real board
 # share dev machines.
@@ -457,7 +462,11 @@ closing_checks() {
   # the start: a harness that STARTS the real job is the same fault as one that restarts it.
   if [ "${KOSMOS_INSTALL_GATE:-0}" != 1 ]; then
     echo "== the live board on this Mac was not restarted (#5831) =="
-    chk "the real com.kosmos.board job is the same process as when this run began: ${LIVE_BOARD_BEFORE:-no running process} (a FAIL here can also mean something else started or restarted it DURING the run, an update for one; check before blaming the harness)" "[ \"\$(live_board_id)\" = \"$LIVE_BOARD_BEFORE\" ]"
+    if [ "$LIVE_BOARD_SEEN" = no ]; then
+      echo "      note: this shell cannot read the person's launchd domain, so a live board could not be watched here"
+    else
+      chk "the real com.kosmos.board job is the same process as when this run began: ${LIVE_BOARD_BEFORE:-no running process} (a FAIL here can also mean something else started or restarted it DURING the run, an update for one; check before blaming the harness)" "[ \"\$(live_board_id)\" = \"$LIVE_BOARD_BEFORE\" ]"
+    fi
   fi
 
   echo "== the operator's real folders were never touched (top-level entries) =="
@@ -1892,7 +1901,7 @@ chk "default install's plist keeps the literal, unsuffixed label" "[ -f \"$DEF_P
 chk "default install's plist adds no AGENT_WORKFORCE_DATA key" "! grep -q AGENT_WORKFORCE_DATA \"$DEF_PLIST\""
 chk "default install's plist adds no AGENT_WORKFORCE_PROJECTS key" "! grep -q AGENT_WORKFORCE_PROJECTS \"$DEF_PLIST\""
 chk "default install's plist adds no AGENT_WORKFORCE_WORKERS key" "! grep -q AGENT_WORKFORCE_WORKERS \"$DEF_PLIST\""
-HOME="$SBH_DEF" "$SBH_DEF/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
+env -u KOSMOS_HOME HOME="$SBH_DEF" "$SBH_DEF/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before the trailing-slash default scenario starts" "wait_port_free"
 
 echo "-- default KOSMOS_HOME, but \$HOME carries a trailing slash: still byte-identical --"
@@ -1912,7 +1921,7 @@ chk "trailing-slash-HOME default install exits 0" "rc_ok $RC"
 DEF_SLASH_PLIST="$SB/launchdefslash/com.kosmos.board.plist"
 chk "trailing-slash-HOME install still keeps the literal, unsuffixed label" "[ -f \"$DEF_SLASH_PLIST\" ]"
 chk "trailing-slash-HOME install still adds no AGENT_WORKFORCE_DATA key" "! grep -q AGENT_WORKFORCE_DATA \"$DEF_SLASH_PLIST\""
-HOME="$SBH_SLASH/" "$SBH_SLASH/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
+env -u KOSMOS_HOME HOME="$SBH_SLASH/" "$SBH_SLASH/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before Pete's-convention scenario starts" "wait_port_free"
 
 echo "-- Pete's exact convention: unique label, all three roots under KOSMOS_HOME --"
@@ -2129,7 +2138,10 @@ printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Supp
 # half-sandboxed (#634), and an earlier version of this leg hit exactly that refusal. Those three are unset ON
 # PURPOSE here (the default data root is what this control is about). Their defaults resolve inside the sandbox,
 # under this fake HOME or under the AGENT_WORKFORCE_HOME exported at the top, and tmux is this run's own
-# (AGENT_WORKFORCE_TMUX_BIN), so the guard's own override is stated for this one install.
+# (AGENT_WORKFORCE_TMUX_BIN), so the guard's own override is stated for this one install. The override leans on
+# those two exports, so they are checked first: without them this leg would reach the real tmux with no guard.
+chk "#5831: the control's half-sandbox override is safe: tmux is this run's fake and the agent home is in the sandbox" \
+  "[ \"\${AGENT_WORKFORCE_TMUX_BIN:-}\" = \"$HERE/test-support/fake-tmux.sh\" ] && case \"\${AGENT_WORKFORCE_HOME:-}\" in \"$SB\"/*) true ;; *) false ;; esac"
 RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
   HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$D924_DEFHOME/Library/LaunchAgents" AGENT_WORKFORCE_HALF_SANDBOX_OK=1 \
   KOSMOS_HOME_APP_DIR="$SB/d924home-apps-c" KOSMOS_APP_DIR="$SB/apps924c" \
@@ -2349,7 +2361,7 @@ RC=0; cat "$SETUP" | env -u KOSMOS_HOME \
   KOSMOS_APP_DIR="$SB/apps918d" KOSMOS_BIN_DIR="$SB/bin918d" \
   sh > "$SB/d918-install-d.log" 2>&1 || RC=$?
 chk "#918 scenario-D (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
-HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
+env -u KOSMOS_HOME HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before #918's uninstall runs" "wait_port_free"
 
 # #2955: each install now writes a SECOND plist too -- the board watchdog
@@ -2448,7 +2460,7 @@ chk "a degenerate plist (ProgramArguments[1] with no home prefix) is left alone,
 # survived.
 chk "a plist PlistBuddy cannot even read (no ProgramArguments key) does not crash the uninstall, and is left alone" \
   "[ -f \"$D918_LAUNCH/com.kosmos.board.noargs.plist\" ]"
-HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
+env -u KOSMOS_HOME HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 KOSMOS_HOME="$D918_KHOME_C" "$D918_KHOME_C/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free after #918's scenario" "wait_port_free"
 

@@ -77,3 +77,14 @@ costs every agent on this Mac a board restart. The real restart is on record onc
 - Comments corrected: where the unset folders really resolve, and why the here-doc.
 - Not changed: the reviewer found no other leg with this hazard (the #931 leg unsets LAUNCH with a sandboxed home,
   so its label is hashed).
+
+## Review round 2 (2026-10-11)
+
+- **Four more stops read the wrong home** (the two default-home legs and the #918 scenario D, twice). Not a
+  live-board hazard, LAUNCH is pinned for them, but each left its sandbox board running until the port check
+  killed it by force. Same one-word fix as the control's stop. Every other stop in the file names its home.
+- **The closing check was green when it could see nothing.** If this shell cannot read the person's launchd
+  domain (ssh, sudo), both reads are empty. It now prints a note for that case and checks nothing.
+- **The half-sandbox override leaned on two exports nobody checked.** A check before the control install now
+  fails if tmux is not this run's fake or the agent home is outside the sandbox. Shown red both ways by hand.
+- Comment fixes.
