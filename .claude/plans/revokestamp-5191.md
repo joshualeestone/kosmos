@@ -11,10 +11,8 @@ new-key posts show.
 ## Change (engine/fedseats.js, server.js; owner side only)
 1. The owner room's record (rooms file) gains `revokedAccounts`: account -> the newest epoch it
    held. Written ONLY in the same save as a rotation, from the pinned peers it dropped. So no edges
-   answer, however old (the 60 s pass, the 15 s shared cache), can add or remove one (challenge
-   iteration 1 found the first design, which re-read every answer, did both); it survives a
-   restart; and a forgotten or recreated room starts without it (iteration 2: in-memory notes
-   could be re-written by a check queued before a stop).
+   answer, however old (the 60 s pass, the 15 s shared cache), can add or remove one; it survives a
+   restart; and a forgotten or recreated room starts without it.
 2. The member's account is recorded on its peer at the pin (ownerHello already holds it), so the
    rotation names it without relying on the revoke's answer; a peer pinned before this change
    falls back to that answer by its edge id.

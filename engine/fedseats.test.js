@@ -4103,3 +4103,20 @@ test('#5191: a post that arrives after a remove stays held under an older answer
   assert.deepStrictEqual(recorded, ['before the remove'], 'the revoked member\'s post was shown');
 });
 
+test('#5191: the remove\'s own check counts as after the remove on a timer too coarse to tell them apart', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
+  const id = 'proj-5191-coarse';
+  const { h, edges, stamped } = await stampedRoom(id, 'co', 2);
+  h.edges = edges([0]);
+  const real = process.hrtime.bigint;
+  process.hrtime.bigint = () => 5n;   // every monotonic read in the remove returns the same value
+  let rotated;
+  try { rotated = await fedseats.afterRemove(id); } finally { process.hrtime.bigint = real; }
+  assert.strictEqual(rotated, true);
+  const asked = h.asked;
+  stamped('acct-co-1', 'remaining', 1);
+  await settle();
+  assert.deepStrictEqual(shown(h), ['remaining']);
+  assert.strictEqual(h.asked, asked, 'the remove\'s own check was taken as older than the remove');
+});
+
