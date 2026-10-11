@@ -85,6 +85,7 @@ test('#5812 review 1: on an enforcing board a token-only agent notes only its ow
   const folder = path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'shared');
   fs.mkdirSync(folder, { recursive: true });
   projects.writeAll([...projects.readAll(), { id: 'fw-q', name: 'Shared', folder, agents: ['wen', 'xia'], tasks: [] }]);
+  require('./engine/filewriters').resetForTests();   // a project made a moment ago is outside the 10 s roots cache
   const keepAs = (tok, body) => fetch(base + '/api/undo/keep', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok }, body: JSON.stringify(body) });
   const forged = path.join(folder, 'forged.md');
   const own = path.join(folder, 'own.md');

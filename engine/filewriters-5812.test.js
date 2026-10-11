@@ -89,3 +89,25 @@ test('#5812 review 1: the deepest project folder wins; the agent lookup runs onl
   assert.equal(asked, 1);
   assert.equal(fw.noteWrite(path.join(folder, 'nobody.md'), () => null, { now, projects: PROJECTS }), false, 'a lookup that found nobody was recorded');
 });
+
+test('#5812 review 2: a Write that creates new folders, through a linked project folder, is still recorded', () => {
+  const now = Date.now();
+  const viaLink = path.join(link, 'lease', 'new', 'deeper', 'made.md');   // neither folder exists yet
+  assert.equal(fs.existsSync(path.dirname(viaLink)), false, 'CONTROL: the folders already exist');
+  assert.equal(fw.noteWrite(viaLink, 'uri', { now, projects: [{ id: 'lease', folder }] }), true);
+  const [row] = fw.annotate('lease', [{ name: 'new/deeper/made.md', modified: iso(now + 500) }]);
+  assert.equal(row.changedBy, 'uri');
+});
+
+test('#5812 review 2: the same agent again within seconds does not rewrite the record; another agent does', () => {
+  const now = Date.now();
+  const f = path.join(folder, 'steps.md');
+  fw.noteWrite(f, 'uri', { now, projects: PROJECTS });
+  const before = fs.statSync(fw.fileFor('lease')).mtimeMs;
+  const first = JSON.parse(fs.readFileSync(fw.fileFor('lease'), 'utf8'))['steps.md'].at;
+  assert.equal(fw.noteWrite(f, 'uri', { now: now + 1000, projects: PROJECTS }), true);
+  assert.equal(JSON.parse(fs.readFileSync(fw.fileFor('lease'), 'utf8'))['steps.md'].at, first, 'the record was rewritten');
+  assert.equal(fs.statSync(fw.fileFor('lease')).mtimeMs, before);
+  fw.noteWrite(f, 'mona', { now: now + 2000, projects: PROJECTS });
+  assert.equal(JSON.parse(fs.readFileSync(fw.fileFor('lease'), 'utf8'))['steps.md'].agent, 'mona', 'another agent was skipped');
+});

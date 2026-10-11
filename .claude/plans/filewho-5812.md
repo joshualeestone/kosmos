@@ -60,3 +60,12 @@ toward naming nobody. If either case shows up in practice, a PostToolUse record 
   interleave its read and write.
 - NITs taken: the display name read once per request; the deepest project folder wins; realpathSync.native for the
   letter case on macOS.
+
+## Review 2 (sonnet)
+- FIXED: every edit read all projects and resolved their folders; the resolved roots are kept for 10 s (a project made
+  less than 10 s before an edit names nobody for that edit), and the same agent again within 5 s does not rewrite the
+  record.
+- FIXED: a Write that creates new folders fell back to the unresolved path, so a project reached through a link missed
+  it; the deepest folder that exists is resolved and the rest joined back (tested through a link).
+- Duplicate of review 1: "changed by" is approximate; the weakest premise above states how.
+- Not taken: removing a deleted project's record (bounded by 30 days and 2000 entries); the route's extra try/catch.

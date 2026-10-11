@@ -31,40 +31,73 @@ function readRecord(projectId) {
   } catch { return {}; }
 }
 
-/* The path with its folder's links resolved, so ~/Kosmos/Projects reached through a link matches. The file itself may
-   not exist yet (a Write that creates it), so only its folder is resolved. */
+/* The path with its links resolved, so ~/Kosmos/Projects reached through a link matches. The file, and even its
+   folders, may not exist yet (a Write that creates them), so the deepest part that exists is resolved and the rest is
+   joined back on. */
 function resolved(p) {
   const abs = path.resolve(p);
-  try { return path.join(fs.realpathSync.native(path.dirname(abs)), path.basename(abs)); } catch { return abs; }
+  let head = abs;
+  const tail = [];
+  while (true) {
+    try { return path.join(fs.realpathSync.native(head), ...tail); } catch { /* not there yet: one level up */ }
+    const up = path.dirname(head);
+    if (up === head) return abs;
+    tail.unshift(path.basename(head));
+    head = up;
+  }
 }
+
+/* The projects' folders, resolved, kept for ROOTS_TTL_MS: noteWrite runs on every edit an agent makes. */
+const ROOTS_TTL_MS = 10 * 1000;
+let rootsCache = { at: 0, roots: [] };
+function projectRoots(now) {
+  if (now - rootsCache.at < ROOTS_TTL_MS && now >= rootsCache.at) return rootsCache.roots;
+  const roots = [];
+  for (const p of require('./projects').readAll()) {
+    if (!p || !p.id || typeof p.folder !== 'string' || !p.folder) continue;
+    try { roots.push({ id: p.id, root: fs.realpathSync.native(p.folder) }); } catch { /* a folder that is gone */ }
+  }
+  rootsCache = { at: now, roots };
+  return roots;
+}
+function resetForTests() { rootsCache = { at: 0, roots: [] }; }
 
 /* The project whose folder holds `file` (the deepest one, when one project's folder sits inside another's), and the
    file's name relative to it ('/'-joined), or null. */
-function projectOf(file, projects) {
+function projectOf(file, roots) {
   const abs = resolved(file);
   let best = null;
-  for (const p of projects) {
-    if (!p || !p.id || typeof p.folder !== 'string' || !p.folder) continue;
-    let root;
-    try { root = fs.realpathSync.native(p.folder); } catch { continue; }
+  for (const { id, root } of roots) {
     const rel = path.relative(root, abs);
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
-    if (!best || root.length > best.root.length) best = { root, projectId: p.id, name: rel.split(path.sep).join('/') };
+    if (!best || root.length > best.root.length) best = { root, projectId: id, name: rel.split(path.sep).join('/') };
   }
   return best && { projectId: best.projectId, name: best.name };
 }
+/* `projects` given (tests): resolved now, not cached. */
+function rootsOf(projects) {
+  const roots = [];
+  for (const p of projects) {
+    if (!p || !p.id || typeof p.folder !== 'string' || !p.folder) continue;
+    try { roots.push({ id: p.id, root: fs.realpathSync.native(p.folder) }); } catch { /* gone */ }
+  }
+  return roots;
+}
+const REWRITE_MS = 5000;
 
 /* Record that `who` is about to write `file`. `who` may be a function, called only for a file inside a project (the
    agent lookup is not paid for any other edit). Returns true when recorded. */
 function noteWrite(file, who, { now = Date.now(), projects } = {}) {
   try {
     if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return false;
-    const list = Array.isArray(projects) ? projects : require('./projects').readAll();
-    const at = projectOf(file, list);
+    const at = projectOf(file, Array.isArray(projects) ? rootsOf(projects) : projectRoots(now));
     if (!at) return false;
     if (typeof who === 'function') who = who();
     if (typeof who !== 'string' || !who) return false;
     const rec = readRecord(at.projectId);
+    const prev = rec[at.name];
+    // The same agent again within REWRITE_MS (an edit in several steps): the record already says it.
+    if (prev && prev.agent === who && now - Date.parse(prev.at) >= 0 && now - Date.parse(prev.at) < REWRITE_MS) return true;
     rec[at.name] = { agent: who, at: new Date(now).toISOString() };
     const kept = Object.entries(rec)
       .filter(([, v]) => v && typeof v === 'object' && now - Date.parse(v.at) <= KEEP_MS)
@@ -98,4 +131,4 @@ function annotate(projectId, files, nameOf = (s) => s) {
   });
 }
 
-module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS };
+module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS };
