@@ -239,7 +239,7 @@ test('#5805 2a review 1: a message dropped a day past its reset is told to its s
     await Promise.all(told);
     const lines = tmux.pastedTo('leo');
     assert.equal(lines.length, 1, 'the sender was not told');
-    assert.match(lines[0], /Your message m970 to casey was never delivered/);
+    assert.match(lines[0], /Your message m970 to casey was never delivered: Kosmos kept it for a day and could not type it\./);
     assert.deepEqual(tmux.pastedTo('casey'), [], 'the dropped message was typed');
     assert.ok(rows().some((r) => r.kind === 'held-dropped' && r.of === 'm970'));
   });
@@ -373,4 +373,20 @@ test('#5805 2a review 6: a typed message whose removal from the file fails is no
   await limitqueue.flush([{ sessionName: 'casey' }], o);
   assert.deepEqual(limitqueue.list('casey'), [], 'the removal was not tried again once it could succeed');
   assert.deepEqual(typed, ['once']);
+});
+
+test('#5805 2a review 7: a message queued behind an old backlog has its own day, not the backlog\'s', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS + 10 * 60e3).toISOString();   // a day old in 10 minutes
+  limitqueue.add('casey', { id: 'm1030', from: 'mona', envelope: 'old', at: old, reset: old });
+  let v;
+  await withFleet(undefined, 'idle', async (board) => {
+    v = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'new' }, board.agents);
+  });
+  assert.equal(v.held, true, JSON.stringify(v));
+  assert.doesNotMatch(v.because, /minute/, 'promised a time the sweep cannot keep');
+  const dropped = [];
+  // Fifteen minutes on, the sweep still cannot type (a menu on screen): the old one is a day old, the new one is not.
+  await limitqueue.flush([{ sessionName: 'casey' }], { now: Date.now() + 15 * 60e3, deliver: async () => ({ state: chat.DELIVERY.COULD_NOT }), isReleased: () => true, resolveCard: (r, n) => r.find((c) => c.sessionName === n), DELIVERY: chat.DELIVERY, onDropped: (e) => dropped.push(e.id) });
+  assert.deepEqual(dropped, ['m1030']);
+  assert.deepEqual(limitqueue.list('casey').map((e) => e.id), [v.id], 'the new message was dropped on the backlog\'s clock');
 });

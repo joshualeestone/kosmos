@@ -86,7 +86,7 @@ for (const [label, run] of [['bash', runCli], ['Windows', runWinCli]]) {
   test(`#5805 2a review 5: ${label} kosmos msg words a message queued behind a backlog as that, not as out of usage`, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'and another'], envFor(port));
     assert.equal(out.code, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /Held for casey: it still has messages kept from while it was out of usage, and Kosmos types this one after them, within a minute or two\. Do not re-send\./);
+    assert.match(out.stdout, /Held for casey: it still has messages kept from while it was out of usage, and Kosmos types this one after them\. Do not re-send\./);
     assert.doesNotMatch(out.stdout, /it is out of usage/);
   }, BEHIND));
   test(`#5805 2a CONTROL: ${label} kosmos msg still says Not delivered and exits 1 for a plain could_not`, () => withStubBoard(async (port) => {

@@ -1278,7 +1278,8 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* #5805 slice 2a: the same send again while its first copy is still kept for an agent out of usage answers with
      that copy's held receipt; nothing is kept twice. */
   if (sameMsg && sameMsg.state === HELD_STATE) {
-    if (require('./limitqueue').has(toName, sameMsg.id)) {
+    const typedFirst = log.some((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
+    if (!typedFirst && require('./limitqueue').has(toName, sameMsg.id)) {
       return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true);
     }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
@@ -1368,7 +1369,8 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* Released, but messages kept while it was out of usage are still waiting for the minute sweep: this one goes
      behind them, so nothing it says arrives ahead of what was sent before it. */
   const waiting = limitHold || chat.addressable(toName, roster).ok !== true ? [] : require('./limitqueue').list(toName);
-  if (!limitHold && waiting.length) limitHold = { limitReset: waiting[waiting.length - 1].reset, behind: true };
+  // Its own day counts from now (limitReset is the drop clock): a reset inherited from the backlog could drop it at once.
+  if (!limitHold && waiting.length) limitHold = { limitReset: at, behind: true };
   if (limitHold) {
     const limitqueue = require('./limitqueue');
     /* The same send already kept, at any age (the fold above looks back minutes; a hold lasts days): that copy. */
@@ -1384,7 +1386,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const receipt = heldReceipt(toName, id, at, until, false);
     if (limitHold.behind) {
       receipt.behind = true;
-      receipt.because = 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them, within a minute or two';
+      receipt.because = 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them';
     }
     return receipt;
   }
@@ -1441,8 +1443,8 @@ function logHeldDropped(entry) {
 async function tellHeldDropped(entry, roster) {
   logHeldDropped(entry);
   unspill(entry.spill);   // a long message's file, kept only for the line that was never typed
-  const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: ' + entry.to
-    + ' stayed out of usage for a day past its reset. Send it again, or to someone else, if it still matters.';
+  const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: Kosmos kept it for a'
+    + ' day and could not type it. Send it again, or to someone else, if it still matters.';
   try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
 }
 

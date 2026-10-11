@@ -2208,10 +2208,10 @@ cmd_msg() {
       say "Not confirmed: ${because:-the text may already be in their composer}. Do not re-send; check with them."
       exit 3
       ;;
-    *'"heldBy":"limit"'*)
+    *'"heldBy":"limit"'*|*'"heldBy": "limit"'*)
       # #5805 slice 2a: kept for an agent out of usage, typed after its reset. Accepted, so 0, as Queued is.
       case "$body" in
-        *'"behind":true'*) say "Held for $to: it still has messages kept from while it was out of usage, and Kosmos types this one after them, within a minute or two. Do not re-send." ;;
+        *'"behind":true'*|*'"behind": true'*) say "Held for $to: it still has messages kept from while it was out of usage, and Kosmos types this one after them. Do not re-send." ;;
         *)
           held_until=$(printf '%s' "$body" | sed -n 's/.*"heldUntil":"\([^"]*\)".*/\1/p')
           say "Held for $to: it is out of usage${held_until:+ until $held_until}. Kosmos types it after the reset; do not re-send." ;;

@@ -119,3 +119,14 @@ reply sooner must send it elsewhere; the held answer tells it when, so it can.
   delete failed; a failed delete is now a failed removal.
 - NITs: none taken (a message queued behind takes the last entry's reset, which the receipt already treats as no time
   to promise; the bash CLI's substring match runs only on a held reply).
+
+## Review 7 (opus)
+- FIXED: a message queued behind the backlog took the backlog's reset as its drop clock, so it could be dropped minutes
+  after it was sent; its day counts from when it was sent (tested).
+- FIXED: the behind receipt promised "within a minute or two", which a menu or quota hold on screen can break; the
+  receipt and both CLIs no longer promise a time.
+- FIXED: the dropped-message notice named a cause ("stayed out of usage") that is not the only one; it says what is
+  known: Kosmos kept it for a day and could not type it.
+- NITs taken: the sweep checks a message is still kept just before typing it (so a run that outlived the one-run guard
+  cannot type it twice); a repeat of a held message that was typed reads the delivery row before the queue; the bash
+  CLI accepts a space after the colon; the flush comment sits on flush.

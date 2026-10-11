@@ -77,15 +77,15 @@ function names() {
   } catch { return []; }
 }
 
-/* The minute sweep. For each agent with kept messages: drop those DROP_AFTER_MS past their reset (onDropped); then,
-   when `isReleased(card)` (the card for the agent in `roster`), type the rest in order with `deliver`. A message typed
-   (placed or unconfirmed) is removed and reported (onDelivered); the first that is not stops that agent's run and
-   stays. Returns [{ name, id, state }] for what was typed. */
 /* Ids this board already typed or dropped whose removal from the file failed: skipped (and their removal tried again)
    so a failed write never types a message twice or tells its sender twice. */
 const done = new Set();
 let flushingSince = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
+/* The minute sweep. For each agent with kept messages: drop those DROP_AFTER_MS past their reset (onDropped); then,
+   when `isReleased(card)` (the card for the agent in `roster`), type the rest in order with `deliver`. A message typed
+   (placed or unconfirmed) is removed and reported (onDelivered); the first that is not stops that agent's run and
+   stays. Returns [{ name, id, state }] for what was typed. */
 async function flush(roster, opts) {
   // One run at a time: a run still typing a backlog when the next minute starts would type each message twice. A run
   // that has not finished in FLUSH_STUCK_MS (a delivery that never settled) no longer blocks the next one.
@@ -115,6 +115,8 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       const card = resolveCard(roster, name);
       if (!card || !isReleased(card, roster)) continue;
       for (const e of live) {
+        // Still kept, and not typed by a run that outlived the one-run guard: checked just before typing.
+        if (done.has(e.id) || !has(name, e.id)) continue;
         let v;
         try { v = await deliver(name, e.envelope, roster); } catch { v = null; }
         const state = v && v.state;
