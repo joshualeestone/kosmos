@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: tellstate-5836
-diff_hash: 8a0a0e4a10b692756c3a255f53e833c7081b4f9b24ed6b0390537d24a8317e67
+diff_hash: 2d3ebe777db1617a6b743034db415cb518019631c1330869f6fe1247d0cc9391
 validation: pending (full suite not run locally: Agent1s queue busy; the PR's GitHub CI runs it. Focused on the final head, branch even with origin/main: 293 pass, 0 fail across the card's tests, the task/ran tests, the CLI parity and help pins, doctrine/defaults, agent-token gate, fixture-discipline, brand/name refs, sandbox, the three Windows guards; tools/test-kosmos-help-exit0-3036.sh 0 failures; browser-check surface and coarse gates pass)
 subdir_audit: passed
-timestamp: 2026-10-11T11:34:16Z
+timestamp: 2026-10-11T11:48:57Z
 iterations: 2
 converged: true
 ---
@@ -35,6 +35,8 @@ converged: true
 
 ### After the loop
 - A design-shots screen, task-told-5836, added for the house screenshot rule (docs/browser-checks/mobile-shots.js + README line); test-only, not re-reviewed. tools.mobile-shots-desktop and browser-checks-reason-grep pass; both browser-check gates pass.
+
+- CI's node suite found two pins of the old lists the focused set missed (tools.windows-kosmos-cli-570, server.agent-token-sender-570); updated, 52/52.
 
 ### Mutation checks
 - engine duplicate-keeps-reading removed: the duplicate test FAILS; server vs_told-from-sent removed together with it: FAILS (the server half alone is a second line of defence, not independently pinned)
