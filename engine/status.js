@@ -2943,14 +2943,15 @@ const CLAUDE_LIMIT_MENU_TITLE = /^\s*What do you want to do\?/;
 function claudeLimitMenuUp(text) {
   return String(text == null ? '' : text).split('\n').some((row) => CLAUDE_LIMIT_MENU_TITLE.test(row));
 }
-/* #5805 slice 3b review 8/9: is row i straight under the person's prompt? The nearest column-0 row above it is "> ..."
-   (Claude Code draws the person's turn that way, observed 2026-10-02 in status.test.js's captured screens), not a "●"
-   row (the agent's text or a tool call, whose output is indented under it). A limit Claude Code printed for a turn the
-   person started sits there; a quoted limit line in a tool result does not. */
+/* #5805 slice 3b review 8/9: is row i straight under the person's prompt? The nearest column-0 row above it is the
+   person's past turn, not a "●" row (the agent's text or a tool call, whose output is indented under it). A limit
+   Claude Code printed for a turn the person started sits there; a quoted limit line in a tool result does not.
+   Review 11: Claude Code 2.1.29x draws a past turn as "❯ text" (test-support/claude-screens/question-menu-2.1.29x.txt,
+   and every live pane on this box, 2026-10-10); "> text" is the older form some fixtures still use. Both count. */
 function underPromptAt(rows, i) {
   for (let k = i - 1; k >= 0; k--) {
     if (!rows[k].trim() || /^\s/.test(rows[k])) continue;
-    return /^>\s/.test(rows[k]);
+    return /^[>❯]\s/.test(rows[k]);
   }
   return false;
 }

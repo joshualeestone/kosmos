@@ -38,7 +38,7 @@ const RULE = '─'.repeat(80) + '\n';
 const STATUS_LINE = RULE + '❯ \n' + RULE + '  casey · Opus 4.8 · 7d 100%\n' + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
 const FOOTER = '✻ Sautéed for 0s · done 10:35 PM\n';
 const NEW_FOOTER = '✻ Baked for 2s · done 11:02 AM\n';   // the footer of a later turn
-const limitScreen = (line, menu) => '> hello\n' + `  ⎿  ${line}\n` + FOOTER
+const limitScreen = (line, menu) => '❯ hello\n' + `  ⎿  ${line}\n` + FOOTER
   + (menu ? '   What do you want to do?\n   1. Stop and wait for limit to reset\n' : '') + STATUS_LINE;
 
 test('#5805 3b: retireResetLimits retires a dateless row past its first-seen reset, and only then', () => {
@@ -116,7 +116,7 @@ test('#5805 3b review 1: a row seen late, a quoted row, and a new limit printing
   assert.equal(status.limitFirstSeenOf('leo', line), t0, 'CONTROL: the first limit was timed');
   const nextDay = t0 + 24 * 3600e3;
   status.noteLimitRows('leo', limitScreen(line), nextDay - 3600e3);   // still on screen overnight
-  const twice = '> hello\n' + `  ⎿  ${line}\n` + FOOTER + '> again\n' + `  ⎿  ${line}\n` + NEW_FOOTER + STATUS_LINE;   // a new turn's footer
+  const twice = '❯ hello\n' + `  ⎿  ${line}\n` + FOOTER + '❯ again\n' + `  ⎿  ${line}\n` + NEW_FOOTER + STATUS_LINE;   // a new turn's footer
   status.noteLimitRows('leo', twice, nextDay);
   assert.equal(status.limitFirstSeenOf('leo', line), nextDay, 'a new limit printing the same words kept yesterday\'s time');
   assert.ok(status.retireResetLimits(twice, nextDay + 60e3, (row) => status.limitFirstSeenOf('leo', row)).split('\n').filter((r) => r.includes('session limit')).length >= 1, 'today\'s live limit was retired on yesterday\'s time');
@@ -154,7 +154,7 @@ test('#5805 3b review 2: a row back within its span is late; a new one after it 
 
 test('#5805 3b review 3: a second copy of the same row (a redraw) never re-times a late row, one ahead of its reset, or a retired weekly row', () => {
   const t0 = Date.parse('2026-10-10T16:00:00Z');   // 11:00 CDT
-  const twice = (line) => '> a\n' + `  ⎿  ${line}\n` + FOOTER + '> b\n' + `  ⎿  ${line}\n` + FOOTER + STATUS_LINE;
+  const twice = (line) => '❯ a\n' + `  ⎿  ${line}\n` + FOOTER + '❯ b\n' + `  ⎿  ${line}\n` + FOOTER + STATUS_LINE;
   const weekly = `You've hit your weekly limit · resets 4pm ${Z}`;
   const session = `You've hit your session limit · resets 4pm ${Z}`;
   // A. Seen late (first capture), then drawn twice: still late.
@@ -180,7 +180,7 @@ test('#5805 3b review 3: a second copy of the same row (a redraw) never re-times
   // a new turn: new.
   const nextDay = t0 + 24 * 3600e3;
   status.noteLimitRows('leo', limitScreen(session), nextDay - 3600e3);
-  status.noteLimitRows('leo', '> a\n' + `  ⎿  ${session}\n` + FOOTER + '> b\n' + `  ⎿  ${session}\n` + NEW_FOOTER + STATUS_LINE, nextDay);
+  status.noteLimitRows('leo', '❯ a\n' + `  ⎿  ${session}\n` + FOOTER + '❯ b\n' + `  ⎿  ${session}\n` + NEW_FOOTER + STATUS_LINE, nextDay);
   assert.equal(status.limitFirstSeenOf('leo', session), nextDay, 'CONTROL: a new session limit with the same words was not timed');
 });
 
@@ -216,7 +216,7 @@ test('#5805 3b review 5: a redraw the next day (the old block copied, footer and
   for (let t = t0 + 60e3; t < Date.parse('2026-10-11T18:00:00Z'); t += 60e3) status.noteLimitRows('casey', limitScreen(session), t);
   // Next day 13:00 CDT (18:00Z): a resize reprints the transcript, so the capture shows the row twice, same footer.
   const redraw = Date.parse('2026-10-11T18:00:00Z');
-  const copied = '> hello\n' + `  ⎿  ${session}\n` + FOOTER + '> hello\n' + `  ⎿  ${session}\n` + FOOTER + STATUS_LINE;
+  const copied = '❯ hello\n' + `  ⎿  ${session}\n` + FOOTER + '❯ hello\n' + `  ⎿  ${session}\n` + FOOTER + STATUS_LINE;
   status.noteLimitRows('casey', copied, redraw);
   assert.equal(status.limitFirstSeenOf('casey', session), t0, 'a redraw re-timed the retired row');
   assert.equal(status.claudeLimitUntil('casey', session, redraw), Date.parse('2026-10-10T21:00:00Z'), 'its reset moved');
@@ -234,8 +234,8 @@ test('#5805 3b review 7: an older row the board saw late does not hide a newer l
   };
   const old = `You've hit your session limit · resets 4pm ${Z}`;
   const fresh = `You've hit your session limit · resets 9pm ${Z}`;
-  const oldBlock = '> hello\n' + `  ⎿  ${old}\n` + FOOTER;
-  const both = oldBlock + '> carry on\n' + `  ⎿  ${fresh}\n` + NEW_FOOTER + STATUS_LINE;
+  const oldBlock = '❯ hello\n' + `  ⎿  ${old}\n` + FOOTER;
+  const both = oldBlock + '❯ carry on\n' + `  ⎿  ${fresh}\n` + NEW_FOOTER + STATUS_LINE;
   const t14 = Date.parse('2026-10-10T19:00:00Z');   // 14:00 CDT: the board restarts with the 4pm row on screen
   read(t14, oldBlock + STATUS_LINE, 'rate_limited', (card) => assert.equal(card.limitUntil, null, 'CONTROL: the row seen late has no time'));
   // 17:00 CDT: woken, it worked and hit a new limit (9pm) under the old row; the board captured all along.
@@ -256,12 +256,12 @@ test('#5805 3b review 8: a quoted limit line ending a turn never retires the rea
   const t0 = Date.parse('2026-10-10T16:00:00Z');
   const weekly = `You've hit your weekly limit · resets Oct 14 at 12am ${Z}`;   // binding, days ahead
   const quoted = `You've hit your session limit · resets 4pm ${Z}`;
-  const screen = '> hello\n' + `  ⎿  ${weekly}\n` + FOOTER
+  const screen = '❯ hello\n' + `  ⎿  ${weekly}\n` + FOOTER
     + '● Bash(cat old-capture.txt)\n' + `  ⎿  ${quoted}\n` + NEW_FOOTER + STATUS_LINE;   // the turn ended on the tool result
   const out = status.retireResetLimits(screen, t0, () => t0 - 6 * 3600e3);
   assert.ok(out.includes('weekly limit'), 'a quoted line under a tool call retired the binding weekly row');
   // CONTROL: the same newer row straight under the person's prompt is a newer limit, and the older row goes.
-  const real = '> hello\n' + `  ⎿  ${weekly}\n` + FOOTER + '> again\n' + `  ⎿  ${quoted}\n` + NEW_FOOTER + STATUS_LINE;
+  const real = '❯ hello\n' + `  ⎿  ${weekly}\n` + FOOTER + '❯ again\n' + `  ⎿  ${quoted}\n` + NEW_FOOTER + STATUS_LINE;
   assert.ok(!status.retireResetLimits(real, t0, () => null).includes('weekly limit'), 'CONTROL: a newer limit under a prompt did not retire the older row');
 });
 
@@ -275,6 +275,6 @@ test('#5805 3b review 9: a quoted limit line ending a turn is never timed, so a 
   assert.equal(status.claudeLimitUntil('casey', quoted, t0), null);
   // CONTROL: the same row straight under the person's prompt is a limit Claude Code printed, and is timed.
   status.noteLimitRows('kim', STATUS_LINE, t0 - 30e3);
-  status.noteLimitRows('kim', '> hello\n' + `  ⎿  ${quoted}\n` + '✻ Cooked for 3s · done 11:02 AM\n' + STATUS_LINE, t0);
+  status.noteLimitRows('kim', '❯ hello\n' + `  ⎿  ${quoted}\n` + '✻ Cooked for 3s · done 11:02 AM\n' + STATUS_LINE, t0);
   assert.equal(status.limitFirstSeenOf('kim', quoted), t0, 'CONTROL: a real limit under the prompt was not timed');
 });
