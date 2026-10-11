@@ -198,6 +198,38 @@ test('#5841 a project deleted and re-created under its name does NOT inherit the
   assert.deepEqual(now.messages.map((m) => m.text), ['the new project speaks']);
 });
 
+test('#5841 when the chain stops early (an earlier file unreadable), the count and the pages still agree on every position', async () => {
+  const dir = path.dirname(chat.threadFile(chat.DIRECT, AGENT));
+  const oldest = asides(AGENT).map((n) => ({ n, at: fs.statSync(path.join(dir, n)).mtimeMs })).sort((x, y) => x.at - y.at)[0].n;
+  const keep = fs.readFileSync(path.join(dir, oldest), 'utf8');
+  fs.writeFileSync(path.join(dir, oldest), '{ not json');   // the walk now stops at the file after it
+  try {
+    const t = await get(`/api/agent/${AGENT}/thread`);
+    let b = t.json.olderCount; let got = 0;
+    while (b > 0) { const pg = await get(`/api/agent/${AGENT}/thread/older?before=${b}`); assert.equal(pg.json.olderCount + pg.json.messages.length, b, 'a page is not the range asked for: the routes disagree'); got += pg.json.messages.length; b = pg.json.olderCount; }
+    assert.equal(got, t.json.olderCount, 'paging to the start did not reach exactly olderCount rows');
+  } finally { fs.writeFileSync(path.join(dir, oldest), keep); }
+});
+
+test('#5841 a damaged current file in a rolled-over conversation keeps its chain; a failed write after the rename puts the full file back', () => {
+  const file = chat.threadFile(chat.DIRECT, AGENT);
+  const before = chat.readThread(chat.DIRECT, AGENT).continues;
+  fs.writeFileSync(file, '{ damaged');
+  assert.equal(chat.appendMessage(chat.DIRECT, AGENT, { text: 'after damage' }).recorded, true);
+  assert.equal(chat.readThread(chat.DIRECT, AGENT).continues, before, 'a damaged current file orphaned the earlier files');
+  // Write failure right after a rollover's rename.
+  const who = 'writefail';
+  for (let i = 0; i < CAP; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'w' + i }).recorded, true);
+  const store = require('./engine/store');
+  const was = store.saveFlushed;
+  store.saveFlushed = () => { throw new Error('ENOSPC'); };
+  let r;
+  try { r = chat.appendMessage(chat.DIRECT, who, { text: 'one too many' }); } finally { store.saveFlushed = was; }
+  assert.equal(r.recorded, false, 'premise: the write failed');
+  const back = chat.readThread(chat.DIRECT, who);
+  assert.deepEqual([back.messages.length, back.continues], [CAP, null], 'the full file was not put back after the failed write');
+});
+
 test('#5841 if the full file cannot be set aside, the send is refused as before, saying why', () => {
   const was = fs.renameSync;
   fill(OTHER, CAP - chat.readThread(chat.DIRECT, OTHER).messages.length, 100);

@@ -64,3 +64,29 @@ engine writes one, but a person could.
     needs care the day it is wired.
   - the unread count covers the current file only, and the carried rows cover the recent ones.
   - the older route re-reads every earlier file per page (a rare, explicit action).
+
+## Review 2 (sonnet)
+- **BLOCKER:** a project deleted and re-created under its name could reattach to the old project's `.full` file. Fix:
+  the chain and the reattach require the same projectBornAt, and an other-project set-aside never reattaches.
+- Carried overlaps are served from the NEWER copy (`chainRows`), so an edit made after a rollover survives paging.
+- `carried` counts only on a file that continues another.
+- **Mutants**, each failed its named test: older copy wins; projectBornAt checks removed; name check removed.
+
+## Review 3 (opus)
+- **Fixed:**
+  - The routes disagreed when the chain stopped at a file that itself carried rows. chainRows now always drops a
+    file's carried rows, as the counts do. Tested by corrupting the oldest file: every page is the range asked for,
+    and paging to the start reaches exactly olderCount rows.
+  - A cached count is trusted only while its file has the same size and modification time.
+  - A DAMAGED current file in a rolled-over conversation now keeps its chain. Only an other-project set-aside starts
+    over. The plan and the code now agree.
+  - A failed write after the rename puts the full file back. My first version referenced a const that was out of scope
+    in the catch, and its own empty catch hid it; a test caught it.
+  - newestOwnAside orders by the rename time in the name, not mtime, which a restore or a copy moves (a test touched
+    it).
+- **Filed as its own card:** engine/dailylog.js skips `.full` files and would prune days whose rows moved aside.
+  Nothing calls it today.
+- **Not taken (NITs):**
+  - a legacy project thread with no projectBornAt breaks its chain at its first rollover; it affects a count only,
+    and project threads have no earlier reader;
+  - a held message older than the 200 carried rows keeps "Held" in its `.full` copy.

@@ -3075,6 +3075,8 @@ function keptAttachment(a) {
 function appendLocked(projectId, agent, entry, bornAt) {
   let existing;
   let supersededBecause = null;
+  let otherProject = false;   // kosmos#5841
+  let rolledAside = null;   // kosmos#5841: the full file a rollover just renamed, put back if the write then fails
   try {
     existing = readThread(projectId, agent, bornAt);
   } catch (err) {
@@ -3098,6 +3100,7 @@ function appendLocked(projectId, agent, entry, bornAt) {
       }
       existing = { messages: [] };
       supersededBecause = 'an earlier project had this name; its messages have been kept aside.';
+      otherProject = true;   // kosmos#5841: a new conversation, never reattached to the old one's full files
     } else if (err && err.code === 'UNPARSEABLE') {
       /**
        * ⚠️ A DAMAGED FILE LOCKED RECORDING OUT FOREVER, and the argument
@@ -3155,12 +3158,13 @@ function appendLocked(projectId, agent, entry, bornAt) {
        tail) keeps working unchanged. The full file keeps them too; the chain skips the overlap, so nothing doubles. */
     const carry = existing.messages.slice(-ROLL_CARRY);
     existing = { messages: carry, projectBornAt: existing.projectBornAt || null, continues: path.basename(moved.aside), carried: carry.length };
+    rolledAside = moved.aside;
     ASIDE_META.delete(path.basename(moved.aside));
-  } else if (!existing.continues && !existing.messages.length && !supersededBecause) {
+  } else if (!existing.continues && !existing.messages.length && !otherProject) {
     /* An EMPTY current file with this conversation's own full files on disk (a crash between a rollover's rename and
-       its write): continue from the newest, so the earlier messages are not orphaned. Never when the file was just
-       set aside for another project or as damaged (supersededBecause): that is a new conversation. And only a file of
-       THIS conversation (same projectBornAt). */
+       its write, or a DAMAGED current file set aside): continue from the newest, so the earlier messages are not
+       orphaned. Never when the file was just set aside for ANOTHER project: that is a new conversation. And only a
+       file of THIS conversation (same projectBornAt). */
     const newest = newestOwnAside(projectId, agent, existing.projectBornAt || (bornAt ? String(bornAt) : null));
     if (newest) existing = { ...existing, continues: newest };
   }
@@ -3276,6 +3280,12 @@ function appendLocked(projectId, agent, entry, bornAt) {
     // #5434 slice 18: store.saveFlushed (flushed before the rename, the folder after on POSIX; a unique temp), so a crash cannot leave the thread at full length but zero-filled (#5431), which parses as no messages.
     store.saveFlushed(file, JSON.stringify(record, null, 2));
   } catch {
+    /* kosmos#5841: a rollover renamed the full file and the write of the new one failed: put the full file back, so
+       the conversation does not read as empty (it was not written; nothing is lost either way). */
+    if (rolledAside) {
+      try { const tf = threadFile(projectId, agent); if (!fs.existsSync(tf)) fs.renameSync(rolledAside, tf); }
+      catch { /* the reattach covers it on the next send */ }
+    }
     /**
      * ⚠️ OUR SENTENCE, NOT THE ERRNO. Forwarding `err.message` put
      * "EISDIR: illegal operation on a directory, open '/var/folders/rn/…/
@@ -3317,7 +3327,7 @@ const ASIDE_META = new Map();
  * conversation: the same agent and the same `projectBornAt` (a project deleted and re-created under its name must not
  * inherit the old one's messages, which is what bornAt guards everywhere else). A cycle or a broken link ends the
  * chain where it is: what was read is kept, nothing is invented. A count is taken from the cache only while its file
- * is still there.
+ * has the same size and modification time.
  */
 function asideChain(projectId, agent, withRows, from, bornAt) {
   const file = threadFile(projectId, agent);
@@ -3338,7 +3348,8 @@ function asideChain(projectId, agent, withRows, from, bornAt) {
   while (ok(next) && !seen.has(next) && out.length < 1000) {
     seen.add(next);
     const known = ASIDE_META.get(next);
-    if (known && !withRows && known.born === born && fs.existsSync(path.join(dir, next))) {
+    let st = null; try { st = fs.statSync(path.join(dir, next)); } catch { st = null; }
+    if (known && !withRows && known.born === born && st && st.size === known.size && st.mtimeMs === known.mtime) {
       out.unshift({ name: next, carried: known.carried, count: known.count });
       next = known.continues;
       continue;
@@ -3350,7 +3361,7 @@ function asideChain(projectId, agent, withRows, from, bornAt) {
     const cont = typeof rec.continues === 'string' ? rec.continues : null;
     const rows = rec.messages.filter((m) => m && typeof m === 'object' && typeof m.text === 'string');
     const carried = cont && Number.isInteger(rec.carried) && rec.carried > 0 ? Math.min(rec.carried, rows.length) : 0;
-    ASIDE_META.set(next, { count: rows.length - carried, carried, continues: cont, born });
+    ASIDE_META.set(next, { count: rows.length - carried, carried, continues: cont, born, size: st ? st.size : -1, mtime: st ? st.mtimeMs : -1 });
     out.unshift(withRows ? { name: next, carried, messages: rows } : { name: next, carried, count: rows.length - carried });
     next = cont;
   }
@@ -3366,7 +3377,11 @@ function asideChain(projectId, agent, withRows, from, bornAt) {
 function chainRows(earlier, currentRows, currentCarried) {
   const out = [];
   const add = (rows, carried) => {
-    if (out.length && carried) out.splice(Math.max(0, out.length - carried), carried);
+    if (!carried) { out.push(...rows); return; }
+    // The first file read may itself have carried rows from a file the walk could not follow: those positions are
+    // dropped here as the counts drop them (count = own rows), so both routes agree on every position.
+    if (!out.length) { out.push(...rows.slice(carried)); return; }
+    out.splice(Math.max(0, out.length - carried), carried);
     out.push(...rows);
   };
   for (const a of earlier) add(a.messages, a.carried);
@@ -3384,7 +3399,10 @@ function newestOwnAside(projectId, agent, born) {
   const found = [];
   for (const n of names) {
     if (!n.startsWith(base + '.') || !n.endsWith('.' + ROLL_KIND)) continue;
-    try { found.push({ n, at: fs.statSync(path.join(dir, n)).mtimeMs }); } catch { /* gone: skip */ }
+    /* Ordered by the time IN THE NAME (supersede stamps the rename's millisecond: <file>.<stamp>.<pid>.<ms>[.<n>].full),
+       not the file's mtime, which a backup, a copy or a restore can move. */
+    const ms = (n.slice(base.length).match(/\.(\d{13})(?:\.\d+)?\.[a-z]+$/) || [])[1];
+    found.push({ n, at: ms ? Number(ms) : -1 });
   }
   found.sort((a, b) => b.at - a.at);
   for (const { n } of found) {
