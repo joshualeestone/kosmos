@@ -392,11 +392,14 @@ test('#5744 2b: Kosmos+ took the key but the note could not be written: ok false
 test('#5744 2b: lostEpoch twice inside the day sends the same pending key both times', async () => {
   const c = fakeCoordinator({ day: false });
   await mk.ensureMemberKey({ macRequest: c.macRequest });   // registered at 1
+  // The member's current epoch is 2 (a key this file never had), so a new key goes 2 (409) -> 3 (waits a day): the
+  // pending key sits ABOVE lost + 1, which is where a second call must find it.
+  c.setCurrent(2, backupkeys.newMemberKey().pk.toString('base64url'));
   const sent = [];
   const watch = async (m, route, b) => { if (route === mk.MEMBER_KEY_ROUTE) sent.push(b); return c.macRequest(m, route, b); };
   const a = await mk.ensureMemberKey({ macRequest: watch, lostEpoch: 1 });
   const b = await mk.ensureMemberKey({ macRequest: watch, lostEpoch: 1 });
   assert.deepEqual([a.waiting, b.waiting], [true, true], JSON.stringify([a, b]));
   assert.equal(new Set(sent.map((x) => x.member_public)).size, 1, 'a different key was sent on the second call');
-  assert.equal(sent.length, 2, 'more sends than one a call');
+  assert.deepEqual(sent.map((x) => x.epoch), [2, 3, 3], 'the second call did not go straight to the pending epoch');
 });
