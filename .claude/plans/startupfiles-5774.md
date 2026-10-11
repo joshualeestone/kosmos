@@ -18,7 +18,7 @@
   - A folder to be denied whole that is the root, the home folder, or holds the agent's own folder (a link pointing there) is named instead of denied (review 6), since its rule would take the agent's own work.
   - What it cannot work out is named, so the guard is not whole: a relative BASH_ENV; a path-like relative ENV; a relative or unexpandable ZDOTDIR or XDG_CONFIG_HOME; a quote in the middle of a value.
 - Both layers: the file tools' Edit rules, and the sandbox denyWrite through realOrLeaf.
-- Tests: engine/startupfiles-5774.test.js, 33 tests, each fix mutated red (counts per iteration below).
+- Tests: engine/startupfiles-5774.test.js, 34 tests, each fix mutated red (counts per iteration below).
 
 ## Decided
 - Both layers, though the shell's write scope already refuses the home folder: consistent with part 1, and it covers a linked target that sits somewhere the shell can write. Cost, re-measured after review 20 at 04a615925 against origin/main d9ce32be3 (both from the same probe on this host, with its real Homebrew folders, a linked .zshrc, ZDOTDIR set in .zshenv and BASH_ENV): 59 more denyWrite entries (140 against 81; 9.0 KB against 5.2 KB as JSON) and 63 more deny rules (1012 against 949). The guard's own profile-size check (#5663) still passes.
@@ -29,7 +29,7 @@
 - Not covered here: system-wide startup files under /etc (root-owned, not writable by the agent), and files a startup file pulls in (`source ~/x`), which is route 3 ("what start-time files pull in"). User-writable startup folders outside the home (Homebrew's zsh site-functions and fish vendor folders, review 3) ARE covered, where they exist.
 
 ## Gaps, stated
-- A shell beyond zsh, bash, sh, csh and tcsh, fish and nushell is not listed (ksh's .kshrc, xonsh, PowerShell profiles); nor ~/.inputrc (key bindings, not code).
+- A shell beyond zsh, bash, sh, csh and tcsh, fish and nushell is not listed (ksh's .kshrc, xonsh, PowerShell profiles); nor ~/.inputrc (key bindings, not code). PowerShell profiles are Windows' MAIN per-user startup code, so on a Windows host this part covers little beyond Git Bash's files (review 23); they stay with route 3 on the card.
 - ENV=rc (a bare name with no slash) is read as a label and skipped (review 2), which fails open, but only for an interactive sh. ENV=prod/us (a label with a slash) reads as a relative path and is named, which fails closed (review 12).
 - Link targets that carry a version or a hash, outside a Homebrew Cellar or Caskroom and outside a read-only store (an asdf or mise shim folder, a store that rotates writable names), are listed by name, and can pile up at upgrades. DECIDED (review 12): rare among shell startup files, and capping it would need pruning these rules, which only launch rules have today.
 - Dumps by name in a ZDOTDIR outside the home can pile up at zsh upgrades (rare; accepted in review 11).
@@ -183,4 +183,10 @@
   - [WARNING] DUPLICATE, decided in review 11 and stated under Gaps: completion dumps by name in a ZDOTDIR outside the home.
   - [NIT] NOT A DEFECT: DEPS does pin userShellDirs and homebrewPrefixes (assigned just below its declaration).
   - [NIT] TAKEN: the test realOrLeaf (above).
+- Iteration 23 (Opus), on 2ab667f52:
+  - [WARNING] FIXED (reproduced by the reviewer). A LINKED ZDOTDIR (~/.config/zsh -> ~/dotfiles/zsh, Stow's usual shape) had its .zcompdump* glob written on the link's spelling only, and the file tools write the dump by its real path: a silent miss, with the guard whole. Every glob is now also written on its folder's real path (realOrLeaf): one stable glob, nothing versioned. Tested with a home that has no link above it (the /var trap of review 22). Mutation red.
+  - [WARNING] FIXED (reproduced by the reviewer). The unquoted `export ZDOTDIR=${${(%):-%x}:A:h}` (normal in zsh) was cut at its ) and named, so creation failed on a harmless setup; review 15's selfDir read only the quoted spelling. A ${...} group (two levels) is now one part of a value. Tested for the %x/:A and %N/:a spellings, each resolving to the right folder (:A follows the link to the repo, :a keeps the link's folder). Mutation red.
+  - [NIT] TAKEN, it failed open. A # inside a word (ZDOTDIR=$HOME/z#1) is literal in the shell, but ended the value, which read as a different folder with nothing named. # now ends a value only where a comment can start: at a word's start, after a space or ; & | (. Both arms tested (z#23 read whole; `;# ZDOTDIR=...` is a comment). Two mutations red.
+  - [NIT] TAKEN (plan only): the Windows sentence above.
+  - [NIT] not taken: tooWide and tooBroad are two copies of one rule (each tested); chainHops' read-only folder check is not injectable (its test uses a real 0555 folder); the refusal's heading names start-time files generally.
 

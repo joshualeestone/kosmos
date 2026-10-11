@@ -1260,7 +1260,9 @@ function assignmentsIn(text, name) {
   /* Review 14: anywhere on a TOP-LEVEL line (not indented, not a comment): `export A=1 ZDOTDIR=x`,
      `[[ -z $ZDOTDIR ]] && export ZDOTDIR=x`, `typeset -x ZDOTDIR=x`, and `: ${ZDOTDIR:=x}`. A conditional means "this
      or what it was", and both are covered. Indented lines (if-blocks, functions, here-documents) stay unread (review 6). */
-  const val = '((?:"[^"]*"|\'[^\']*\'|[^\\s;#"\'&|)]+)*)([^\\s;#&|)]*)';
+  /* Review 23: a ${...} group (two levels: ${${(%):-%x}:A:h}, written unquoted since zsh does not split words) is one
+     part, so its ) is not an end; and # inside a word is literal (a comment starts only after a space, cut above). */
+  const val = '((?:"[^"]*"|\'[^\']*\'|\\$\\{(?:[^{}]|\\{[^{}]*\\})*\\}|[^\\s;"\'&|)]+)*)([^\\s;&|)]*)';
   for (const raw of String(text).split('\n')) {
     if (!raw || /^[\s#]/.test(raw)) continue;
     /* Review 16: quote state along the line. A # outside quotes after a space ends the line (a trailing comment that
@@ -1273,7 +1275,7 @@ function assignmentsIn(text, name) {
       if (q) { if (c === q) q = ''; else if (c === '\\' && q === '"') { i++; quoted[i] = true; } }
       else if (c === '"' || c === "'") q = c;
       else if (c === '\\') { i++; quoted[i] = false; }
-      else if (c === '#' && /\s/.test(raw[i - 1] || '')) { line = raw.slice(0, i); break; }
+      else if (c === '#' && /[\s;&|(]/.test(raw[i - 1] || '')) { line = raw.slice(0, i); break; }   // a word's start
     }
     const forms = [new RegExp(`(?:^|[\\s;&|(])${name}=${val}`, 'g'), new RegExp(`\\$\\{${name}:?=((?:[^{}]|\\{[^{}]*\\})*)\\}()`, 'g')];
     for (const [k, re] of forms.entries()) {
@@ -1527,7 +1529,10 @@ function shellStartPaths(home, env, opts = {}) {
   }
   // Review 18: the links a found link passes through, for the file tools (the caller lists them by their own path).
   const hops = allHops.filter((h) => !stableOfHop(h));
-  return { files: [...new Set(files)], dirs: keptDirs, globs: [...new Set(globs)], hops, unsafe };
+  /* Review 23: a glob reaches only the spelling it is written on, and the file tools write a linked ZDOTDIR's dump by its
+     real path, so each glob is also written on its folder's real path (one stable glob, nothing versioned). */
+  const allGlobs = globs.flatMap((g) => [g, path.join(realOrLeaf(path.dirname(g)), path.basename(g))]);
+  return { files: [...new Set(files)], dirs: keptDirs, globs: [...new Set(allGlobs)], hops, unsafe };
 }
 /* The config-home members whose contents Claude Code runs, starts servers from, or reads as instructions: the folders
    and files of its OWN protected list in 2.1.296 that carry code or instructions (review 3), not its runtime state

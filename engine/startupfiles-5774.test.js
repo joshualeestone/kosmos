@@ -1048,3 +1048,43 @@ test('#5774 part 2 review 22: a dangling dotfile link has its target denied (the
     assert.ok(!s.sandbox.filesystem.denyWrite.includes(ownR), 'the folder holding the agent is in denyWrite');
   } finally { fs.rmSync(zlogin, { force: true }); }
 });
+
+test('#5774 part 2 review 23: a linked ZDOTDIR\'s real dump is covered; the unquoted ${${(%):-%x}:A:h} is read; a # inside a word is literal', () => {
+  // A home with no link above it, so a linked ZDOTDIR is the only link (the sandbox HOME sits under /var).
+  const home = path.join(fs.realpathSync.native(SANDBOX), 'realhome23');
+  const dots = path.join(home, 'dotfiles', 'zsh');
+  fs.mkdirSync(dots, { recursive: true });
+  fs.mkdirSync(path.join(home, '.config'), { recursive: true });
+  fs.symlinkSync(dots, path.join(home, '.config', 'zsh'));
+  fs.writeFileSync(path.join(dots, '.zcompdump'), '');
+  const run = (body, name) => {
+    fs.rmSync(path.join(home, '.zshenv'), { force: true });
+    if (body !== null) fs.writeFileSync(path.join(home, '.zshenv'), body);
+    const d = agentDir(name);
+    return { g: setup.guardTokenOnlyFolder(d, name, { ...DEPS, env: ENV0, home }), s: () => readSettings(d) };
+  };
+  const a = run('export ZDOTDIR=$HOME/.config/zsh\n', 'pilot-linkdump23');
+  assert.equal(a.g.ok, true, JSON.stringify(a.g));
+  assert.ok(editDeniedBy(a.s().permissions.deny, path.join(dots, '.zcompdump')).length > 0, 'the real dump of a linked ZDOTDIR');
+  assert.ok(editDeniedBy(a.s().permissions.deny, path.join(dots, '.zcompdump-host-5.9')).length > 0, 'a host-suffixed one');
+  // The unquoted self-folder form, and its %N and :a spellings: whole, and the folder is the .zshenv's own.
+  const repo = path.join(home, 'repo23');
+  fs.mkdirSync(repo, { recursive: true });
+  for (const form of ['${${(%):-%x}:A:h}', '${${(%):-%N}:a:h}']) {
+    fs.writeFileSync(path.join(repo, 'zshenv'), `export ZDOTDIR=${form}\n`);
+    fs.rmSync(path.join(home, '.zshenv'), { force: true });
+    fs.symlinkSync(path.join(repo, 'zshenv'), path.join(home, '.zshenv'));
+    const d = agentDir(`pilot-selfx23-${form.includes('%x') ? 'x' : 'n'}`);
+    const g = setup.guardTokenOnlyFolder(d, path.basename(d), { ...DEPS, env: ENV0, home });
+    assert.equal(g.ok, true, `${form}: ${JSON.stringify(g)}`);
+    const want = form.includes(':A') ? repo : home;   // :A follows the link to the repo; :a keeps the link's own folder
+    assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(want, '.zshrc')).length > 0, `${form}: its folder`);
+  }
+  // A # inside a word is part of it: the folder is z#23, not z.
+  const c = run('export ZDOTDIR=$HOME/z#23\n', 'pilot-hash23');
+  assert.equal(c.g.ok, true, JSON.stringify(c.g));
+  assert.ok(editDeniedBy(c.s().permissions.deny, path.join(home, 'z#23', '.zshrc')).length > 0, 'the folder with its #');
+  // and a # starting a word after ; is a comment (not a second assignment).
+  const e = run('export A=1;# ZDOTDIR=$HOME/zc23\n', 'pilot-semicmt23');
+  assert.ok(!editDeniedBy(e.s().permissions.deny, path.join(home, 'zc23', '.zshrc')).length, 'a comment after ; was read');
+});
