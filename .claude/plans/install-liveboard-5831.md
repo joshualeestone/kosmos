@@ -98,3 +98,11 @@ costs every agent on this Mac a board restart. The real restart is on record onc
 - Dated incident history moved out of the code comments; it is in this file and on the card.
 - Left alone: the control's stop inherits the harness's data folder (nothing reads the file it touches, and the
   older #924 stop has the same shape); the explicit LAUNCH on that stop is redundant and kept as a statement.
+
+## Review round 4 (2026-10-11)
+
+- **"The unset folders resolve inside the sandbox" was a comment with no trace.** The comment now names where
+  each resolves, and a check after the control install requires the board's pid file under the fake home: the
+  sandbox board came up from its own install, which is exactly what was missing when the real one was kicked.
+- The closing check's failure text now also names "this shell lost sight of launchd by the end".
+- The override's condition is an `if`, not an `&&` list.

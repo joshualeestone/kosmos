@@ -465,7 +465,7 @@ closing_checks() {
       echo "SKIP  this shell cannot read the person's launchd domain, so a live board could not be watched here"
       SKIPS=$((SKIPS + 1))
     else
-      chk "the real com.kosmos.board job is the same process as when this run began: ${LIVE_BOARD_BEFORE:-no running process} (a FAIL here can also mean something else started or restarted it DURING the run, an update for one; check before blaming the harness)" "[ \"\$(live_board_id)\" = \"$LIVE_BOARD_BEFORE\" ]"
+      chk "the real com.kosmos.board job is the same process as when this run began: ${LIVE_BOARD_BEFORE:-no running process} (a FAIL here can also mean something else started or restarted it DURING the run, an update for one, or that this shell lost sight of launchd by the end; check before blaming the harness)" "[ \"\$(live_board_id)\" = \"$LIVE_BOARD_BEFORE\" ]"
     fi
   fi
 
@@ -2135,12 +2135,15 @@ printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Supp
 # installer registers nothing with launchd and `kosmos start` starts a plain board of this sandbox's own.
 # Pinning LAUNCH while DATA, PROJECTS and WORKERS stay unset is the shape engine/sandbox.js refuses as
 # half-sandboxed (#634). Those three are unset ON PURPOSE here (the default data root is what this control is
-# about). Their defaults resolve inside the sandbox, under this fake HOME or under the AGENT_WORKFORCE_HOME
-# exported at the top, and tmux is this run's own (AGENT_WORKFORCE_TMUX_BIN), so the guard's own override is
+# about). Their defaults resolve inside the sandbox: engine/store.js and engine/create.js take
+# AGENT_WORKFORCE_HOME (exported at the top) before the home folder, and engine/status.js takes os.homedir(),
+# which follows this fake HOME. tmux is this run's own (AGENT_WORKFORCE_TMUX_BIN). So the guard's own override is
 # stated for this one install. The override leans on those two exports, so it is GIVEN only while they hold:
 # without them the install below runs with the guard on, is refused, and this leg goes red having touched nothing.
 D924_OVERRIDE=0
-[ "${AGENT_WORKFORCE_TMUX_BIN:-}" = "$HERE/test-support/fake-tmux.sh" ] && case "${AGENT_WORKFORCE_HOME:-}" in "$SB"/*) D924_OVERRIDE=1 ;; esac
+if [ "${AGENT_WORKFORCE_TMUX_BIN:-}" = "$HERE/test-support/fake-tmux.sh" ]; then
+  case "${AGENT_WORKFORCE_HOME:-}" in "$SB"/*) D924_OVERRIDE=1 ;; esac
+fi
 chk "#5831: the control's half-sandbox override is safe: tmux is this run's fake and the agent home is in the sandbox" "[ $D924_OVERRIDE = 1 ]"
 RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
   HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$D924_DEFHOME/Library/LaunchAgents" AGENT_WORKFORCE_HALF_SANDBOX_OK="$D924_OVERRIDE" \
@@ -2157,6 +2160,8 @@ RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFOR
   echo "DEBUG #924 control install.log:"; cat "$D924_DEFHOME/.local/share/kosmos/logs/install.log" 2>&1 || true;
 }
 chk "#924 control (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
+chk "#5831: the control's board is this sandbox's own, started from the fake home (its pid file is there)" \
+  "[ -s \"$D924_DEFHOME/.local/share/kosmos/board.pid\" ]"
 # #5831: KOSMOS_HOME is dropped here as on the install above. The harness still exports the previous scenario's
 # home, and with it this stop would read that home's pid file and stop nothing.
 env -u KOSMOS_HOME HOME="$D924_DEFHOME" AGENT_WORKFORCE_LAUNCH="$D924_DEFHOME/Library/LaunchAgents" "$D924_DEFHOME/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
