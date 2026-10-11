@@ -72,12 +72,12 @@ test('#4675 control: board-would-not-pause keeps the #2055 sentence, word for wo
   assert.equal(paint({ count: 2, reason: 'board-would-not-pause', same: null }).innerHTML, old);
 });
 
-test('#4675: a failed port check says the update could not check, and the step is a restart, not a reopen', () => {
+test('#4675: a failed port check says the update could not check, and offers a restart as a try, not as the fix', () => {
   const h = paint({ count: 4, reason: 'port-check-failed', same: 4 }).innerHTML;
   assert.match(h, /tried to install it 4 times and could not, because this computer could not check whether Kosmos had stopped, so the update replaced nothing\./);
-  assert.match(h, /Restarting this computer is the step to try\./, 'no step a person can take');
+  assert.match(h, /We do not yet know what clears this one; restarting this computer is worth a try\./, 'no step a person can take, or a remedy claimed that nobody has measured');
   assert.match(h, /agents keep working/i);
-  assert.ok(h.indexOf('agents keep working') < h.indexOf('Restarting this computer'), 'the reassurance about agents follows the restart, which would stop them');
+  assert.ok(h.indexOf('agents keep working') < h.indexOf('restarting this computer'), 'the reassurance about agents follows the restart, which would stop them');
   assert.ok(!/was busy|quit and reopen/i.test(h), 'it blamed a busy Kosmos, or offered a reopen that cannot fix a failing check');
   assert.ok(!TYPED.test(h), 'the notice offered a dead button or a type instruction');
 });
@@ -160,7 +160,7 @@ test('#4675: the board marks its own installer run, and setup.sh records the por
   }
   // every reason setup.sh can write has its own entry in the page's table (none falls to the plain sentence by accident)
   // calls only: a reason is hyphenated and ends the command, so prose that names the function is not counted
-  const written = [...setup.matchAll(/^[^#\n]*_kosmos_note_pause_abort ([a-z]+(?:-[a-z]+)+)(?:;|$)/gm)].map((m) => m[1]).sort();
+  const written = [...setup.matchAll(/^[^#\n]*_kosmos_note_pause_abort ([a-z]+(?:-[a-z]+)*)(?:;|$)/gm)].map((m) => m[1]).sort();
   assert.deepEqual(written, ['board-would-not-pause', 'port-check-failed', 'port-still-held', 'port-unreachable']);
   const fn = page.liftAll(SCRIPT, ['paintUpdateAbort']);
   for (const reason of written) assert.ok(fn.includes("'" + reason + "': "), 'the page has no words for ' + reason);

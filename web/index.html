@@ -22385,7 +22385,8 @@ function paintUpdateAbort(ab) {
   // whole count only when every stop in the streak had it (same >= count; with no same at all, only
   // 'board-would-not-pause' does, since a marker from before `same` existed could hold nothing else). A mixed streak,
   // or a reason this page does not know (a newer installer, a damaged file), gets the plain sentence. 'board-would-not-pause' keeps #2055's words exactly, and the other sentences borrow its
-  // remedy unchanged where reopening can help; a failed check is not something reopening fixes.
+  // remedy unchanged where reopening can help. A failed check is not something reopening fixes, and no remedy for it
+  // has been measured, so its sentence says so and offers a restart as a try, not as the fix.
   // "replaced nothing" is about files: by these stops the installer has stopped the board, and its exit puts it back.
   // The tables stay inside the function so a test can lift the function whole.
   const reason = typeof ab.reason === 'string' ? ab.reason : '';
@@ -22398,7 +22399,7 @@ function paintUpdateAbort(ab) {
   const UPDATE_ABORT_WHY = {
     'board-would-not-pause': 'Kosmos was busy each time. ' + REOPEN,
     'port-check-failed': 'this computer could not check whether Kosmos had stopped, so the update replaced nothing. '
-      + AGENTS_FINE + ' Restarting this computer is the step to try.',
+      + AGENTS_FINE + ' We do not yet know what clears this one; restarting this computer is worth a try.',
     'port-unreachable': PORT_HELD,
     'port-still-held': PORT_HELD,
   };

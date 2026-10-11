@@ -71,9 +71,9 @@ function check(name, pass, detail) {
   const TYPED = /paste|install line|kosmos stop|in a terminal|run this|update now/i;
   const REOPEN = /Quit and reopen Kosmos: reopening usually clears whatever was holding the update, so the next one can finish\. Your agents keep working/;
   const chk = await slotAfter({ count: 2, reason: 'port-check-failed', same: 2, port: 16180, ts: '' });
-  check('#4675 port-check-failed: says the update could not check, names N, and the step is a restart, not a reopen',
+  check('#4675 port-check-failed: says the update could not check, names N, and offers a restart as a try, not a reopen',
     /tried to install it 2 times and could not, because this computer could not check whether Kosmos had stopped/i.test(chk)
-      && /Restarting this computer is the step to try/.test(chk) && /agents keep working/i.test(chk)
+      && /We do not yet know what clears this one; restarting this computer is worth a try/.test(chk) && /agents keep working/i.test(chk)
       && !/was busy|quit and reopen/i.test(chk) && !TYPED.test(chk), chk.slice(0, 260));
   const unr = await slotAfter({ count: 1, reason: 'port-unreachable', same: 1, port: 16180, ts: '' });
   check('#4675 port-unreachable: says something was still using the connection, with the #2055 remedy',
