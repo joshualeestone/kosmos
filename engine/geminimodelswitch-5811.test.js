@@ -109,3 +109,20 @@ test('#5811: the snapshot carries what the decision needs, on both row builders,
   assert.match(server, /snap\.agents\.filter\(\(a\) => !gone\.has\(a\.sessionName\)\)\.map\(\(\{ geminiSeen, \.\.\.a \}\) => \(\{/, 'the page row would carry geminiSeen');
   assert.match(server, /settingModelName: settingGeminiModel\(a, geminiSeen\),/);
 });
+
+/* Review 5: with every read injected, the decision loads neither create nor status. Run in a fresh process (this file
+   already loaded both). CONTROL: leave `display` out and status IS loaded, so the probe can see a load. */
+test('#5811: injecting all four reads loads neither real module (and leaving one out does)', () => {
+  const { execFileSync } = require('node:child_process');
+  const probe = (withDisplay) => JSON.parse(execFileSync(process.execPath, ['-e', `
+    const sw = require(${JSON.stringify(path.join(__dirname, 'geminimodelswitch.js'))});
+    const deps = { planned: () => ({ id: 'gemini-2.5-flash' }), session: () => ({ found: true, model: 'gemini-3.5-flash', modelAt: 5000 }), startedAt: () => 0 };
+    if (${withDisplay}) deps.display = (id) => id;
+    const out = sw.settingModelName('x', deps);
+    const loaded = Object.keys(require.cache).map((k) => k.replace(/\\\\/g, '/')).filter((k) => /engine\\/(create|status)\\.js$/.test(k)).length;
+    process.stdout.write(JSON.stringify({ out, loaded }));
+  `], { env: { ...process.env } }).toString());
+  const injected = probe(true);
+  assert.deepEqual(injected, { out: 'gemini-2.5-flash', loaded: 0 });
+  assert.ok(probe(false).loaded > 0, 'CONTROL: a real read loads its module');
+});

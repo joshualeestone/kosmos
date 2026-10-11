@@ -52,7 +52,7 @@ test('#5804 review 7: the real wiring names functions that exist (a rename would
   for (const f of ['readGeminiSession', 'sessionStartedAtFromTmux', 'modelDisplayName']) assert.equal(typeof status[f], 'function', 'status.' + f);
   assert.equal(typeof create.plannedModelOf, 'function', 'create.plannedModelOf');
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'geminimodelswitch.js'), 'utf8');
-  for (const call of ['create.plannedModelOf(name)', 'status.readGeminiSession(name)', 'status.sessionStartedAtFromTmux(name)', 'status.modelDisplayName(id)']) {
+  for (const call of ['create().plannedModelOf(name)', 'status().readGeminiSession(name)', 'status().sessionStartedAtFromTmux(name)', 'status().modelDisplayName(id)']) {   // #5811: required lazily
     assert.ok(src.includes(call), 'realDeps no longer calls ' + call);
   }
 });

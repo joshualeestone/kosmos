@@ -29,15 +29,16 @@ function canonicalId(id) {
 
 /* Everything it reads, injectable. #5811: deps may be PARTIAL, the given ones overriding the real ones, so server.js
    passes the planned model and the session from the snapshot it already read and keeps the rest. A key left out is
-   read for real, so a test that must not touch the machine passes all four. */
+   read for real, so a test that must not touch the machine passes all four. Each real read requires its module only
+   when it runs, so a caller that injects all four loads neither. */
 function realDeps() {
-  const create = require('./create');
-  const status = require('./status');
+  const create = () => require('./create');
+  const status = () => require('./status');
   return {
-    planned: (name) => create.plannedModelOf(name),
-    session: (name) => status.readGeminiSession(name),   // review 2: the one reader (its own account's home), not a copy
-    startedAt: (name) => status.sessionStartedAtFromTmux(name),
-    display: (id) => status.modelDisplayName(id),
+    planned: (name) => create().plannedModelOf(name),
+    session: (name) => status().readGeminiSession(name),   // review 2: the one reader (its own account's home), not a copy
+    startedAt: (name) => status().sessionStartedAtFromTmux(name),
+    display: (id) => status().modelDisplayName(id),
   };
 }
 

@@ -14,7 +14,7 @@ once #5804 merges.
   `geminiSeen` off first (review 1: it would otherwise reach the page) and passes it to the decision. `safeRoster` takes
   it off too (review 4), so no route forwarding a roster row carries it; exported for its test.
 - engine/geminimodelswitch.js `settingModelName(name, deps)`: deps may now be PARTIAL (the given ones override the real
-  ones), so the server passes only what the snapshot carries (settingModelNameOfRow).
+  ones; each real read requires its module only when it runs, review 5), so the server passes only what the snapshot carries (settingModelNameOfRow).
 - engine/geminimodelswitch.js `settingModelNameOfRow(a, seen)`: with no `geminiSeen`, null (the snapshot could not read the
   session, so neither could a second read on the same tick); otherwise `planned` and `session` come from the row
   (`seen` only). server.js `settingGeminiModel` keeps its gate and calls it.
@@ -38,5 +38,7 @@ session, same model, earlier run, unknown time, no job, alias, no model),
 and the server path calls neither the job reader nor the session reader (counting seams, with a control that counts).
 create.plannedModelOfJob unit cases. engine/status.geminiseen-5811.test.js: status.snapshot() through a real fleet card
 with a real-shaped job and session (found: reply model, its time, the job's model; a modelless job: the default, marked;
-no session: null), checked to fail when the row drops `planned`. Rows come from test-support/fleet (fixture-discipline forbids a hand-built card),
+no session: null), checked to fail when the row drops `planned`. server.gemini-seen-5811.test.js also drives /api/status end to end
+(review 5): a switched Gemini agent gets the decision's value, the same agent on its own model gets null (checked red
+when the server hands the decision null). Rows come from test-support/fleet (fixture-discipline forbids a hand-built card),
 with the session-derived fields laid over the real card, as server.whoami-grok-4603 does. Source pins for the row field and the server wiring (update #5804's wiring pin).
