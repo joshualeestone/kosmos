@@ -21,8 +21,14 @@ new-key posts show.
 3. An account that a KEPT peer also has (one account on two edges) is not recorded.
 4. handleEvent (owner, sealed, opened): a post whose relay stamp `ev.member` equals a recorded
    account and whose authenticated epoch is <= the recorded epoch is refused with one note.
-5. server.js /api/federation/remove: on success, `fedseats.afterRemove(project)` runs the revoke
-   check at once with a fresh answer, so the room rotates (and records) now.
+5. server.js /api/federation/remove: on success, `fedseats.afterRemove(project)` records the
+   moment (wall and monotonic) and runs the room's check (checkRoom) with a fresh answer, so the
+   room rotates and records now, and held posts are judged on an answer asked after the remove.
+   Until such a check succeeds, a room check or shared answer asked before the remove does not
+   count: holdForCheck holds the next post and asks sharedEdges for a newer answer, and checkRoom
+   releases only posts that arrived before the remove under an older answer. The order is judged
+   on the monotonic clock where the check's moment is known there (a remove and its own check
+   share a millisecond), and by wall time otherwise, the same millisecond counting as before.
 
 ## Not covered (stated)
 - An older relay sends no stamp: unchanged, #5228's grace is the bound.
