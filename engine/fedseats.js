@@ -564,12 +564,13 @@ const REPLAY_WINDOW_MS = 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 /* #5191: the grace after a rotation, during which the previous epoch still opens (a
    message sealed just before it, still in flight), then never again. An owner rotates
-   only when a member is revoked, and during a grace the revoked member's old-key posts open too (a sealed post
-   does not say which member sealed it), so it is short: in-flight posts plus
-   the relay's room-ticket life (about 60 s). With no member left it is none at all:
-   an old-key post can then only come from the revoked member. So with members left a
-   revoked member can still be shown for about min(this, the ticket life) plus
-   EDGE_FRESH_MS, about 75 s, relying on the relay to cut the revoked member at its ticket.
+   only when a member is revoked, and the seal does not say which member sealed a post, so it is
+   short: in-flight posts plus the relay's room-ticket life (about 60 s). With no member left it
+   is none at all: an old-key post can then only come from the revoked member. With members left,
+   an owner refuses an old-key post the relay stamps with a revoked account (revokedAccounts,
+   below); a post with no stamp (an older relay), or from a member whose account the rotation
+   could not name, can still be shown for about min(this, the ticket life) plus EDGE_FRESH_MS,
+   about 75 s, relying on the relay to cut the revoked member at its ticket.
    Owner-side alone it is about 15 s + a 20 s round trip + this grace. While Kosmos+ cannot
    answer, the pass shows held posts unchecked: then only the relay's ticket bounds it (a
    sealed room does not trust the relay, so that is not a guarantee).
@@ -616,8 +617,7 @@ function roomSeal(projectId) {
    which for an outside member is the edge's member_account_id and which the sender cannot write.
    A stamped post from a recorded account sealed at that epoch or older is refused, even inside the
    grace the remaining members' in-flight posts get. Written only in the same save as a rotation,
-   from the pinned peers it dropped, so no edges answer, however old, can add or remove an account,
-   and a forgotten or recreated room starts without one. */
+   from the pinned peers it dropped; a forgotten room's record goes with it. */
 /** Whether a post the relay stamped `member`, opened under `epoch`, is a revoked member's. */
 function isRevokedPost(st, member, epoch) {
   const m = st && st.revokedAccounts;
@@ -775,9 +775,12 @@ function revokeCheck(projectId, link, edges) {
     // held. An account a kept peer also has (one account, two edges) is not recorded.
     const accountOf = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref && typeof e.member_account_id === 'string' && e.member_account_id).map((e) => [e.id, e.member_account_id]));
     const accountOfPeer = (p) => (p && typeof p.account === 'string' && p.account) || (p && accountOf.get(p.edge)) || null;
-    const keptAccounts = new Set(Object.values(keep).map(accountOfPeer).filter(Boolean));
+    const keptList = Object.values(keep).map(accountOfPeer);
+    const keptAccounts = new Set(keptList.filter(Boolean));
     const revokedAccounts = Object.assign({}, st.revokedAccounts && typeof st.revokedAccounts === 'object' ? st.revokedAccounts : {});
-    for (const pub of gone) {
+    // A kept peer whose account cannot be named might share a dropped one's: then nothing is recorded,
+    // and the grace bounds this revoke as before, rather than refusing that peer's in-flight posts.
+    if (!keptList.includes(null)) for (const pub of gone) {
       const account = accountOfPeer(peers[pub]);
       if (account && !keptAccounts.has(account)) revokedAccounts[account] = Math.max(Number.isInteger(revokedAccounts[account]) ? revokedAccounts[account] : st.epoch, st.epoch);
     }

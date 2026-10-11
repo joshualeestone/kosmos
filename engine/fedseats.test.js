@@ -3916,14 +3916,16 @@ test('#5191: a restarted owner board still refuses the revoked member: the accou
   assert.deepStrictEqual(shown(h), ['remaining, in the grace']);
 });
 
-test('#5191: a forgotten room starts again with no revoked accounts', async (t) => {
+test('#5191: a kept member whose account cannot be named stops the rotation recording any account', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-11T15:00:00Z') });
-  const id = 'proj-5191-forget';
-  const { h, edges } = await stampedRoom(id, 'fg', 2);
-  h.edges = edges([0]);
+  // Pinned before #5191 (no account on the peers), one account on both edges, and the revoke's answer
+  // lists only the revoked edge: the kept peer might be the same account, so nothing is recorded.
+  const id = 'proj-5191-unnamed';
+  const { h, edges, stamped } = await stampedRoom(id, 'un', 2, ['acct-two', 'acct-two'], { pinAccounts: false });
+  h.edges = edges([0]).slice(0, 1);
   assert.strictEqual(await fedseats.rotateForRevoked(id, federation.linkFor(id), null), true);
-  assert.deepStrictEqual(fedseal.roomState(id).revokedAccounts, { 'acct-fg-0': 0 }, 'fixture: the account was recorded with the rotation');
-  assert.strictEqual(fedseal.forgetRoom(id), true);
-  assert.strictEqual(fedseal.roomState(id), null, 'a forgotten room keeps no record, revoked accounts included');
+  assert.deepStrictEqual(fedseal.roomState(id).revokedAccounts, {});
+  stamped('acct-two', 'the kept edge, in flight');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['the kept edge, in flight']);
 });
-
