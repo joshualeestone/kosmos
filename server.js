@@ -17923,7 +17923,8 @@ const server = http.createServer(async (req, res) => {
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
          state          tasks.taskState: closed / decision / held / built / scheduled / nobody / working / assigned
-         projectPaused  its project is paused (#4771; with the task's own onHold, the held state)
+         projectPaused  its project is paused (#4771; with the task's own onHold, the held state, except that a
+                        built task in a paused project reads built, #5864)
          lastActivityAt the newest transcript event, else created/closed
        A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
        Added fields only, and only on ?view=tasks, which also leaves out archived
