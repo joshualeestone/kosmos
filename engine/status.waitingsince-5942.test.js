@@ -75,11 +75,15 @@ test('kosmos#5942: a paneless card that is asking carries waitingSince too', () 
   assert.equal(card.waitingSince, ASKED);
 });
 
-test("kosmos#5942: with no wrapper, the card carries the self-report's own askedAt (#5943 on main)", () => {
-  assert.equal(selfreport.record('wsreal', { state: 'needs_you', because: 'a real question for the person' }).recorded, true);
+test("kosmos#5942: with no wrapper, the card carries the self-report's own askedAt (#5943 on main), not the latest report's time", async () => {
+  const q = { state: 'needs_you', because: 'a real question for the person' };
+  assert.equal(selfreport.record('wsreal', q).recorded, true);
+  await new Promise((r) => setTimeout(r, 15));
+  assert.equal(selfreport.record('wsreal', q).recorded, true, 'the same question re-reported later');
   const report = selfreport.read('wsreal');
   assert.equal(typeof report.askedAt, 'string', "PRE-CONTROL: main's self-report carries askedAt (#5943)");
   assert.ok(Number.isFinite(Date.parse(report.askedAt)), 'PRE-CONTROL: a real time');
+  assert.notEqual(report.askedAt, report.at, 'PRE-CONTROL: askedAt is the first report of the run, not the latest');
   const board = fleet.install([fleet.agent('wsreal', { state: 'needs_you' })]);
   let cards;
   try { cards = board.agents; } finally { board.restore(); }
