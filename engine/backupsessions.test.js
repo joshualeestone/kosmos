@@ -215,3 +215,27 @@ test('#5883: moreHomes add a root per further home, refuse a bad tag, read one f
     assert.ok(l['sessions/mikey/codex-linked'] && l['sessions/mikey/codex-linked'].refused, JSON.stringify(Object.keys(l)));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
+
+test('#5883 slice 2: an agent\'s Grok conversations by its folder; never the prompt files, never another folder\'s', () => {
+  const s = world();
+  try {
+    const grok = path.join(s.base, '.grok');
+    const mine = path.join(grok, 'sessions', encodeURIComponent(s.agent), '01a0-sid');
+    for (const f of ['chat_history.jsonl', 'events.jsonl', 'updates.jsonl', 'summary.json', 'system_prompt.txt', 'prompt_context.json', 'summary.json.lock']) s.w(path.join(mine, f), 'x\n');
+    s.w(path.join(grok, 'sessions', encodeURIComponent(s.other), 'other-sid', 'chat_history.jsonl'), 'theirs\n');
+    const r = byName(bs.sessionsFor(s.agent, { id: 'mikey', grokHome: grok }));
+    assert.deepEqual(r['sessions/mikey/grok'].only.sort(), ['01a0-sid/chat_history.jsonl', '01a0-sid/events.jsonl', '01a0-sid/summary.json', '01a0-sid/updates.jsonl']);
+    assert.equal(fs.realpathSync(r['sessions/mikey/grok'].path), fs.realpathSync(path.dirname(mine)));
+    // The other agent's folder gives the other agent's root, never this one's.
+    const o = byName(bs.sessionsFor(s.other, { id: 'leo', grokHome: grok }));
+    assert.deepEqual(o['sessions/leo/grok'].only, ['other-sid/chat_history.jsonl']);
+    // A linked session folder is refused, never followed.
+    const linkedHome = path.join(s.base, '.grok-linked');
+    fs.mkdirSync(path.join(linkedHome, 'sessions'), { recursive: true });
+    fs.symlinkSync(path.dirname(mine), path.join(linkedHome, 'sessions', encodeURIComponent(s.agent)));
+    const l = byName(bs.sessionsFor(s.agent, { id: 'mikey', grokHome: linkedHome }));
+    assert.ok(l['sessions/mikey/grok'] && l['sessions/mikey/grok'].refused);
+    // CONTROL: no Grok home, no Grok root.
+    assert.equal(byName(bs.sessionsFor(s.agent, { id: 'mikey' }))['sessions/mikey/grok'], undefined);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
