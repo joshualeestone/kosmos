@@ -45,3 +45,7 @@ Measured 19:03 CDT (first written as 19:4x, a guess, corrected from `date`), eac
    the key and the snapshot input carry the answer's pair.
 2. The "equal is never answered" comment missed the new cause. Fixed.
 3. A test comment claimed the frozen constant was checked. Reworded to what it proves.
+Mutants after review 1 (19:2x CDT by `date`, engine/backupjob.test.js, node --check first, each reverted): J1 no-pair
+guard removed: red. J2 lostEpoch sent without lostFor: red. J3 otherPair check removed: red. J4 member not compared:
+red. J5 pair not passed to the snapshot: red. J7 otherPair checked only on ok answers (so another pair's WAIT backs
+off this state): red. (A cruder J6 that broke every wait also went red; it proved less than J7, so J7 is the one cited.)
