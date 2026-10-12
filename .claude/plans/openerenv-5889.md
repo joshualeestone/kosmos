@@ -21,3 +21,8 @@ through the seam, so it keeps testing exit codes on a Linux runner. remote.test.
 
 ## Next
 Mutants (env omitted; display check removed), then blind review, the four guards, Mortals, proof, PR.
+
+## Mutants (22:05 CDT, engine/remote.test.js, control 215/215)
+- env omitted (`const env = undefined`, the child inherits everything): red, 214 pass 1 fail.
+- the Linux display check removed: red, 214 pass 1 fail.
+File restored by a trap and compared with cmp after each run.
