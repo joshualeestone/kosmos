@@ -11002,7 +11002,7 @@ const server = http.createServer(async (req, res) => {
         } catch { museSub = []; }
         /* #5948: an account an agent uses whose sign-in or key is gone is not in the lists above (they list a folder only
            when it holds a credential). Sent apart, so no account picker offers it; `kosmos accounts` prints it. */
-        let signedOutAccounts = [];
+        let unlistedAccounts = [];
         try {
           const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
           // The account walk's names (knownAgentNames): the roster's cards, then known profiles not on it. Its `complete` is
@@ -11010,11 +11010,11 @@ const server = http.createServer(async (req, res) => {
           const known = knownAgentNames();
           const onRoster = new Set((known.roster || []).map((c) => c && c.sessionName));
           const cards = [...(known.roster || []), ...[...known.names].filter((n) => !onRoster.has(n)).map((n) => ({ sessionName: n, name: n }))];
-          signedOutAccounts = require('./engine/signedoutaccounts').signedOutRows(cards,
+          unlistedAccounts = require('./engine/signedoutaccounts').signedOutRows(cards,
             { openai: openaiRows, google: geminiRows, xai: grokRows }, (n) => create.readJob(n), (p, d) => readers[p].readName(d),
             undefined, (p) => readers[p].defaultDir());
-        } catch { signedOutAccounts = []; }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], signedOutAccounts });
+        } catch { unlistedAccounts = []; }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], unlistedAccounts });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;

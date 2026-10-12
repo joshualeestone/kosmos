@@ -46,12 +46,12 @@ test('#5948: a signed-out row carries the folder\'s chosen name, and a throwing 
 
 test('#5948: kosmos accounts prints the signed-out accounts after the listed ones; with none listed it no longer says none are set up', () => {
   const gone = signedOutRows([card('gk', 'grok', 'Gk')], { xai: [] }, readJob, readName);
-  const both = answer(200, { accounts: [{ providerName: 'Claude', email: 'a@example.com', connection: { state: 'connected' } }], signedOutAccounts: gone });
+  const both = answer(200, { accounts: [{ providerName: 'Claude', email: 'a@example.com', connection: { state: 'connected' } }], unlistedAccounts: gone });
   assert.deepEqual(both.lines, ['Claude: a@example.com: signed in', 'Grok: work: not signed in: its sign-in or key is no longer on this computer, and Gk uses it']);
-  const only = answer(200, { accounts: [], signedOutAccounts: gone });
+  const only = answer(200, { accounts: [], unlistedAccounts: gone });
   assert.equal(only.lines.length, 1);
   assert.match(only.lines[0], /^Grok: work: not signed in/);
-  // CONTROL: an older board with no signedOutAccounts field answers as before.
+  // CONTROL: an older board with no unlistedAccounts field answers as before.
   assert.deepEqual(answer(200, { accounts: [] }).lines, ['No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.']);
 });
 
@@ -109,4 +109,22 @@ test('#5948 review 3: on a real disk, a folder Kosmos cannot read reads unchecke
     const [m] = signedOutRows([card('m', 'grok')], { xai: [] }, (n) => jobsHere[n], () => null);
     assert.deepEqual([m.unreadable, m.connection.badge], [false, 'signed_out'], 'CONTROL: ' + JSON.stringify(m));
   } finally { fs.chmodSync(locked, 0o700); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#5948 review 4: a listed folder named through a symlink is the same folder, not a second unlisted row', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-so-link-5948-'));
+  try {
+    const real = path.join(root, '.grok-real');
+    fs.mkdirSync(real);
+    const link = path.join(root, 'linked');
+    fs.symlinkSync(root, link);
+    const viaLink = path.join(link, '.grok-real');
+    const jobsHere = { s: { configDir: viaLink, runner: 'grok' } };
+    assert.deepEqual(signedOutRows([card('s', 'grok')], { xai: [{ dir: real }] }, (n) => jobsHere[n], () => null), []);
+    // CONTROL: with no listed row, the same job does produce one, so the empty answer above is the match.
+    assert.equal(signedOutRows([card('s', 'grok')], { xai: [] }, (n) => jobsHere[n], () => null).length, 1);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

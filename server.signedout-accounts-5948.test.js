@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #5948 step 2, end to end through GET /api/accounts: a Grok agent whose job names an account folder with no sign-in
- * or key is reported in `signedOutAccounts` (and printed by `kosmos accounts`), never in `accounts`, so no account
+ * or key is reported in `unlistedAccounts` (and printed by `kosmos accounts`), never in `accounts`, so no account
  * picker offers it. CONTROL: an agent whose folder holds a key is listed in `accounts` and not as signed out.
  *
  *   node --test server.signedout-accounts-5948.test.js
@@ -58,7 +58,7 @@ test.after(() => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
-test('#5948: the agent\'s account with no credential is in signedOutAccounts, not in accounts; the kept one is the reverse', async () => {
+test('#5948: the agent\'s account with no credential is in unlistedAccounts, not in accounts; the kept one is the reverse', async () => {
   // Created agents join the board only in the real board process (createdroster), so each gets a pane here.
   const fleet = require('./test-support/fleet');
   const board = fleet.install([fleet.agent('grokgone', { state: null, runner: 'grok', command: 'grok', screen: '' }), fleet.agent('grokkept', { state: null, runner: 'grok', command: 'grok', screen: '' })]);
@@ -66,7 +66,7 @@ test('#5948: the agent\'s account with no credential is in signedOutAccounts, no
   try { body = await (await fetch(base + '/api/accounts')).json(); } finally { board.restore(); }
   assert.ok(create.readJob('grokgone') && create.readJob('grokgone').configDir, 'setup: the job does not name its account folder');
   const accounts = body.accounts || [];
-  const gone = body.signedOutAccounts || [];
+  const gone = body.unlistedAccounts || [];
   assert.ok(accounts.some((a) => a.provider === 'xai' && a.dir === KEPT), 'CONTROL: the folder with a key is not listed: ' + JSON.stringify(accounts.map((a) => a.dir)));
   assert.ok(!accounts.some((a) => a.dir === GONE), 'a folder with no credential was offered as an account');
   assert.deepEqual(gone.map((a) => [a.provider, a.dir, a.connection && a.connection.badge]), [['xai', GONE, 'signed_out']], JSON.stringify(gone));
