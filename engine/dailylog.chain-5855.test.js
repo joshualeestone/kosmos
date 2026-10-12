@@ -359,18 +359,44 @@ test('rows that are not messages, and a carried count out of bounds, are read as
   isolate('odd', 'chain', 'agents');
 });
 
-test('a thread file with no project date that rolls over under one is refused', () => {
-  // The fresh file is stamped with the project's date and the full file has none, so this compiler does not follow
-  // the link and refuses, which loses nothing. engine/chat.js does follow it since kosmos#5900; making this compiler
-  // follow it by the same rule is a change of its own (kosmos#5855), and then this test is the one to change.
+test('a thread file with no project date that rolls over under one compiles whole, as chat.js follows it (kosmos#5900)', () => {
+  // The fresh file is stamped with the project's date and the full file has none. Since kosmos#5900 engine/chat.js
+  // follows that link, so this compiler does too, by the same rule. The comparison below covers this one shape (a dated
+  // current file, one undated full file); the test after it checks the other half of the rule without chat.js.
   const file = chat.threadFile('chain', 'agentm');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ project: 'chain', agent: 'agentm', messages: Array.from({ length: MAX }, (_, i) => row('undated', i)) }));
   rollOver('chain', 'agentm', 'undated after the rollover', '2026-09-16T09:00:00Z');
+  const fromChat = chat.asideChain('chain', 'agentm', true);
+  assert.equal(fromChat.length, 1, 'precondition: chat.js follows a full file with no project date');
   const { chatsDir, outDir, base } = isolate('undated', 'chain', 'agentm');
+  const cur = JSON.parse(fs.readFileSync(path.join(chatsDir, base), 'utf8'));
+  assert.ok(cur.projectBornAt, 'precondition: the fresh file carries the project date');
+  assert.equal(fromChat[0].messages.length, MAX);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(chatsDir, fromChat[0].name), 'utf8')).projectBornAt, undefined, 'precondition: the full file has no project date');
+  const mine = dl.followChain(chatsDir, base, 'agentm', cur);
+  assert.equal(mine.complete, true);
+  assert.deepEqual(mine.earlier, fromChat);
   const s = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
-  assert.equal(s.refused, 'rolled-over');
-  assert.deepEqual(s.continuedFiles, [base]);
+  assert.equal(s.refused, null);
+  assert.equal(s.messages, MAX + 1);
+  assert.deepEqual(s.chainFiles, [fromChat[0].name]);
+});
+
+test('a dated full file behind an undated one is not followed: after the first undated file only undated ones follow', () => {
+  // The control for the rule above: the walk may drop the date once, never pick one up again.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-undated-'));
+  const base = 'chain.agentp.json';
+  const rows = (tag) => [0, 1].map((i) => row(tag, i));
+  fs.writeFileSync(path.join(dir, base + '.a.full'), JSON.stringify({ project: 'chain', agent: 'agentp', projectBornAt: BORN, messages: rows('oldest') }));
+  fs.writeFileSync(path.join(dir, base + '.b.full'), JSON.stringify({ project: 'chain', agent: 'agentp', continues: base + '.a.full', carried: 0, messages: rows('middle') }));
+  const cur = { project: 'chain', agent: 'agentp', projectBornAt: BORN, continues: base + '.b.full', carried: 0, messages: rows('newest') };
+  fs.writeFileSync(path.join(dir, base), JSON.stringify(cur));
+  try {
+    const got = dl.followChain(dir, base, 'agentp', cur);
+    assert.equal(got.complete, false);
+    assert.deepEqual(got.earlier.map((e) => e.name), [base + '.b.full']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a direct conversation that rolled over compiles whole', () => {
