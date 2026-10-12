@@ -2199,7 +2199,8 @@ KOSMOS_SWEEP_LIST
   # install, and its config is not this uninstall's to remove). Same anchored match as bundle_is_ours.
   if [ -f "$INSTALL_CONFIG_DIR/kosmos-install.json" ] && [ ! -L "$INSTALL_CONFIG_DIR/kosmos-install.json" ] \
      && /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$INSTALL_CONFIG_DIR/kosmos-install.json" 2>/dev/null; then
-    rm -f "$INSTALL_CONFIG_DIR/kosmos-install.json"
+    # A write interrupted between mktemp and mv leaves its temporary file, which would keep the folder.
+    rm -f "$INSTALL_CONFIG_DIR/kosmos-install.json" "$INSTALL_CONFIG_DIR"/.kosmos-install.json.??????
     rmdir "$INSTALL_CONFIG_DIR" 2>/dev/null || true
   fi
   # ⚠️ Deliberately NOT removed: the user's agents' folders, their instruction

@@ -36,6 +36,11 @@ for, one the installer can write without touching the bundle.
 A self-host install with a custom KOSMOS_HOME and the real home is now treated as a sandbox for this file, so it keeps
 relying on the bundle copy. Fine in slice 1; slice 2 must answer it before the bundle copy goes away.
 
+## Gates slice 2 must clear before the bundle copy is dropped (challenge iteration 2)
+- The custom-KOSMOS_HOME-with-real-home install above gets its config some other way (it writes no account file).
+- The account file becomes the only source, so a stale one (its kosmosHome gone after a reinstall elsewhere) needs
+  handling; today a same-account bundle copy outranks it.
+
 Known, not changed here: #677 wording. Another account that opens the shared icon and has its own account file now
 resolves through the config's ownerUid == getuid() path, so it gets the generic "Kosmos" wording rather than the
 #664 fallback's "your Kosmos". Cosmetic, and slice 2 (the bundle copy goes away) is where that branch is reshaped.
