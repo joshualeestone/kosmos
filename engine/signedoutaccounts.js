@@ -24,9 +24,9 @@ const PROVIDER_OF_RUNNER = Object.freeze({
 });
 const SHOWN_AGENTS = 3;   // a folder many agents share names the first few, then a count
 
-/* Whether a file with something in it is there (an empty or whitespace-only credential file holds no credential). Only ENOENT is "not
-   there": a folder Kosmos cannot read (EACCES) throws,
-   so the row says it could not be checked rather than gone. fs.existsSync would answer false for both. */
+/* Whether a credential file with something in it is there (empty or whitespace-only holds no credential). ENOENT and
+   ENOTDIR are "not there"; any other fault (EACCES on a locked folder) throws, so the row reads "not checked", never
+   "gone". fs.existsSync would answer false for both. */
 function fileThere(file) {
   // Content, not size: a key file holding only whitespace is no key (the launch reads its first line; readKey trims).
   try { return require('node:fs').readFileSync(file, 'utf8').trim() !== ''; } catch (e) {

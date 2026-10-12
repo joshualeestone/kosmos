@@ -1,5 +1,7 @@
 # signedoutacct-5948: a signed-out account stays listed (kosmos#5948 step 2)
 
+"Review N" below is challenge-loop iteration N on this branch.
+
 ## Problem
 Josh's report: the signed-out provider was "missing from `kosmos accounts` entirely". The keyed account lists
 (openaiaccounts, geminiaccounts, grokaccounts) list a folder only when it holds a credential (a key file, or a sign-in
@@ -13,8 +15,9 @@ of reading signed out.
   agents, the first three named), and `connection: { state: 'none', badge: 'signed_out', because }`. When one of the
   provider's credential files IS in the folder (the list left it out because it could not read or recognise it), the
   row says so instead: `{ state: 'unknown', badge: 'unlisted' }`, printed "not checked by Kosmos" (the file may be unreadable, or the folder outside the
-  one the list scans). So is a folder Kosmos cannot look into at all: only ENOENT counts as missing (statSync, not
-  existsSync, which answers false for a permission error). "We cannot tell" is never written as "gone" (reviews 1, 3).
+  one the list scans). So is a folder Kosmos cannot look into at all: the file is READ, and only ENOENT or ENOTDIR (a path
+  component that is a regular file, so no folder) counts as missing; existsSync was not used, since it answers false
+  for a permission error. "We cannot tell" is never written as "gone" (reviews 1, 3).
 - A gemini/grok folder whose own key is gone while this computer's secrets/env door holds that provider's key
   (GEMINI_API_KEY / XAI_API_KEY, the fallback a launch uses) is also `unlisted`: the agent may still be working on the
   shared key, so "not signed in" would be confidently wrong (review 9). A door that cannot be read counts as unsure.
