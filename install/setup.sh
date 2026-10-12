@@ -365,7 +365,8 @@ sealed_config_reaches() {
 # keeps the icon (the contract is on #5912's card).
 shared_sealed_stays() {
   bundle_looks_sealed "$1" || return 1
-  bundle_is_ours "$1" remove && ! sealed_opens_another "$2" && ! sealed_icon_other_users "$(file_owner_uid "$1")" && return 1
+  # Removal needs the reader's explicit "no other account" (exit 1); any other exit, now or after a later edit, keeps it.
+  bundle_is_ours "$1" remove && ! sealed_opens_another "$2" && { sealed_icon_other_users "$(file_owner_uid "$1")"; [ $? -eq 1 ]; } && return 1
   return 0
 }
 # #5912 review: would a sealed icon this account owns still open an install of THIS account after this uninstall?
@@ -490,7 +491,9 @@ sealed_left_note() {
   if [ "$(file_owner_uid "$SYS_APP_DIR/Kosmos.app")" != "$(/usr/bin/id -u)" ]; then
     info "note: the Kosmos app in $SYS_APP_DIR belongs to another account on this computer, so it was left in place."
   else
-    info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+    # Merge review: this account's icon that is not proven THIS install's (the config named another install of this
+    # account, usually): "or install", or the person is invited to trash an icon their other install still opens.
+    info "note: the Kosmos app in $SYS_APP_DIR may be used by another account or install on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
   fi
 }
 
@@ -2429,7 +2432,8 @@ UNWIREEOF
     # (Ownership cannot be proven through a dangling link, so the refusal
     # note prints; that is honest, and the note names the survivor.)
     if [ -e "$SYS_APP_DIR/Kosmos.app" ] || [ -L "$SYS_APP_DIR/Kosmos.app" ]; then
-      # #5912: a sealed icon stays only when another install can still open it (shared_sealed_stays); otherwise it is
+      # #5912 + #5913: a sealed icon stays when another install can still open it or another account may use it
+      # (shared_sealed_stays); otherwise it is
       # removed like any other icon of this install, by the branch below.
       if shared_sealed_stays "$SYS_APP_DIR/Kosmos.app" "$_board_label"; then
         _sys_sealed_left=yes
@@ -2438,7 +2442,8 @@ UNWIREEOF
         if bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove && sealed_opens_another "$_board_label"; then
           info "note: the Kosmos app in $SYS_APP_DIR still opens this account's main Kosmos install, so it was left in place."
         elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then
-          info "note: the Kosmos app in $SYS_APP_DIR is also used by another account on this computer, so it was left in place."
+          # "may": the reader also keeps the icon when it cannot judge the marker folder (merge review).
+          info "note: the Kosmos app in $SYS_APP_DIR may be used by another account on this computer, so it was left in place."
         else
           sealed_left_note   # #5913 review 4: says whose icon it is
         fi

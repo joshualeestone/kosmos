@@ -166,9 +166,10 @@ function scanline(full, cut, n, f,   s, t, u, off, at, len, p, g) {
 }
 FNR == 1 && buf != "" { scanline(buf, buf, bufn, buff); buf = "" }
 # A line that is only a comment runs nothing (and may sit inside a continued command).
+# #5913 (merge review): reset before the comment skip, which a file whose first line is #! would otherwise hide.
+FNR == 1 { prevcode = "" }
 /^[ \t]*#/ { next }
 # #5913: the key of this physical line (FILENAME, the code line before, this line trimmed); comment lines never get here.
-FNR == 1 { prevcode = "" }
 {
   tl = $0; sub(/^[ \t]+/, "", tl); sub(/[ \t]+$/, "", tl)
   key = FILENAME "\n" prevcode "\n" tl
@@ -275,7 +276,9 @@ flagged "$_f" '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"'
 [ "$_n" -eq "$_total" ] && pass "in its own file, a listed test after any other line before it (the scan does not parse || or heredocs; only the exact line before counts) or alone is flagged; so is it in another file, and every unlisted folder test ($_total controls)"
 # The line before does not carry across files: the first file ends with a listed line-before, the second starts with
 # its listed test, and the test is flagged.
-printf '  %s\n' "$(rel 1 2)" > "$_cdir/install/a-first.sh"; printf '  %s\n' "$(rel 1 3)" > "$_cdir/$(rel 1 1)"
+# Both start with #! as the installer files do (merge review: a #! first line hid the reset when it sat below the
+# comment skip).
+printf '#!/bin/sh\n  %s\n' "$(rel 1 2)" > "$_cdir/install/a-first.sh"; printf '#!/bin/sh\n  %s\n' "$(rel 1 3)" > "$_cdir/$(rel 1 1)"
 if [ "$(cd "$_cdir" && awk "$_scan" install/a-first.sh "$(rel 1 1)" 2>/dev/null | grep -c .)" -ge 1 ]; then pass "the line before a listed test does not carry over from the previous file"
 else fail "a listed test at the top of a file was excused by the last line of the file before it"; fi
 rm -rf "$_cdir"
