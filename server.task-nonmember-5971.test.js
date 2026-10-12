@@ -6,8 +6,9 @@
  * Measured before this test: the engine already refuses both (engine/tasks.js create and assignPart), and the route
  * answers 400 with the engine's sentence. What was missing is a test through the routes with the REAL engine:
  * server.task-who-4887.test.js stubs tasks.create, so a regression that let a non-member through would pass it.
- * Every arm runs TWICE: as the agent CLI sends it (no sec-fetch-site, the calling member's agent token, so the
- * process path: processCaller, the runaway valve, made.via 'process') and as the page sends it (the screen path).
+ * Every arm runs TWICE: on the same path the agent CLI takes (no sec-fetch-site, the calling member's agent token,
+ * which wins over from_pane in processCaller: the runaway valve, made.via 'process'; the CLIs' from_pane and world
+ * headers are left out) and as the page sends it (the screen path).
  * Every refusal has its member control, and the refusals check that nothing was written. The assign arm overlaps
  * server.task-assign-4914 (agent path); here it also runs on the real engine through the screen path.
  *
@@ -92,7 +93,7 @@ test(`#5971 [${via}] task assign to a non-member is refused, says so, and leaves
   const n = (stored(p.id).tasks || [])[0].number;
   const refused = await post(`/api/project/${p.id}/task/${n}/assign`, { who: 'outsider' }, via);
   assert.equal(refused.code, 400, JSON.stringify(refused.json));
-  assert.match(refused.json.error, /not on this project/);
+  assert.match(refused.json.error, /that agent is not on this project, so the part cannot be given to it/);
   assert.deepEqual(tasks.whoOf(tasks.byNumber(stored(p.id), n)), [], 'the task moved to a non-member');
   const moved = await post(`/api/project/${p.id}/task/${n}/assign`, { who: 'member' }, via);
   assert.equal(moved.code, 200, JSON.stringify(moved.json));
