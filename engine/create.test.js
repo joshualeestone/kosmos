@@ -6799,6 +6799,17 @@ test('#4006: a new agent never inherits a failed-restart record left under its n
   assert.equal(disruption.read('failheir').found, false, 'the new agent was born under an old failed-restart record');
 });
 
+test('#5957 slice 3: a new agent never inherits an old agent\'s last report under its name', () => {
+  const liveness = require('./liveness');
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  liveness.seen('idleheir', new Date(Date.now() - 40 * 86400000).toISOString());
+  assert.equal(liveness.read('idleheir').found, true, 'precondition: an old report is on file under the name');
+  const made = create.createAgent({ ...BINS, name: 'idleheir', role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because || '');
+  assert.equal(liveness.read('idleheir').found, false, 'the new agent was born under an old last report');
+});
+
 test('#5534: a company policy in force refuses creating or switching an agent onto a provider it does not allow', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);

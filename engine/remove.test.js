@@ -388,6 +388,18 @@ test('#4475: a removal ends the agent in the history sendertoken.revoke keeps, a
 // The round trip
 // ─────────────────────────────────────────────────────────────────────────────
 
+test('#5957 slice 3: a removal takes the agent\'s last report with it, so a recreate never says "has not run"', () => {
+  const liveness = require('./liveness');
+  const name = foreignAgent('lastreport');
+  boardShows(name, `${name}-discord`);
+  world();
+  remove.setDryRun(false);
+  liveness.seen(name, new Date(Date.now() - 40 * 86400000).toISOString());
+  assert.equal(liveness.read(name).found, true, 'precondition: a report is on file');
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(liveness.read(name).found, false, 'the last report outlived the removal');
+});
+
 test('restore re-enables exactly the job that was disabled, and puts the agent back', () => {
   // ⚠️ "Reversible by design" is only true if the implementation reverses. This
   // is the assertion that makes the claim honest, and it matters most for an
