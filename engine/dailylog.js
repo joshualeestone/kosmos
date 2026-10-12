@@ -19,6 +19,10 @@
  * late-arriving message is picked up, an edited/deleted one is reflected, and an
  * emptied day's stale file is removed.
  *
+ * NOT READ: a rolled-over conversation, one whose earlier rows sit in a `.full`
+ * file beside its thread file. While there is any sign of one the whole run is
+ * refused and nothing is written or pruned (kosmos#5855; see compileAll).
+ *
  * Why a sibling directory, not inside chats/: `engine/forget.js` enumerates
  * `chats/` as "conversations", and a reader (or a future removal sweep) must
  * never mistake a compiled rollup for a real conversation. Keeping it out of
@@ -73,6 +77,38 @@ function dayFromFileName(name) {
    one whose id is "direct". */
 const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
 const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
+
+/* kosmos#5855: a rolled-over conversation's rows from before the ones its fresh file carries are only in a `.full`
+   file beside its thread file (`<thread file>.<stamp>.<pid>.<ms>[.<n>].full`), which the two patterns above do not
+   match; its fresh thread file names that file in `continues`.
+   isRolledOverFileName recognises the name: any thread file's name, a dot, `.full` at the end. That is deliberately
+   wide (a stray file named this way counts): counting too much refuses a run, counting too little prunes history. */
+const ROLLED_OVER_SUFFIX = 'full';
+/* How a thread file's name ends, as DIRECT_THREAD_FILE and PROJECT_THREAD_FILE above require. */
+const THREAD_FILE_END = '.json';
+function isRolledOverFileName(filename) {
+  if (typeof filename !== 'string' || !filename.endsWith('.' + ROLLED_OVER_SUFFIX)) return false;
+  // Any ".json." may be where the thread file's name ends: a key may itself be "json" (`p.json.json`), so each is tried.
+  for (let cut = filename.indexOf(THREAD_FILE_END + '.'); cut >= 0; cut = filename.indexOf(THREAD_FILE_END + '.', cut + 1)) {
+    if (parseChatFileName(filename.slice(0, cut + THREAD_FILE_END.length)) !== null) return true;
+  }
+  return false;
+}
+/* The second sign in a file that will not parse: `"continues"` followed by a non-empty string,
+   anywhere in the raw text (wider than the parsed read, which takes the top-level field only). */
+const NAMES_AN_EARLIER_FILE = /"continues"\s*:\s*"[^"]/;
+/* What compileAll's summary says in `refused`, and the command's exit code for it (2 is a usage error). */
+const REFUSED_ROLLED_OVER = 'rolled-over';
+const EXIT_REFUSED = 3;
+/* How many file names of each kind a refusal prints before it says "and N more": enough to find the files, short
+   enough to read in a terminal. */
+const REFUSAL_NAMES_SHOWN = 10;
+/* A file or folder name as a refusal prints it: quoted and escaped as JSON does, then every character still outside
+   printable ASCII written as a backslash-u escape. So the output is printable ASCII on one line whatever the name
+   holds (a newline, a terminal escape, a right-to-left mark). */
+function shownName(name) {
+  return JSON.stringify(String(name)).replace(/[^\x20-\x7e]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+}
 
 /**
  * Classify a filename in the chats dir. Returns a descriptor or null for
@@ -283,8 +319,20 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
 
 /**
  * Read + parse every conversation file in a chats dir. Returns
- * `{ conversations, readable, readErrors }`, all of which the caller needs to
- * decide whether pruning is safe:
+ * `{ conversations, readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles }`, which the caller
+ * needs to decide whether writing and pruning are safe:
+ *   - `rolledOver` counts the files NAMED as a rolled-over conversation's `.full` file
+ *     (kosmos#5855; isRolledOverFileName), whose rows this function does NOT return.
+ *     By name only: their contents are not read.
+ *     A FOLDER with such a name is not counted.
+ *   - `continued` counts thread files that NAME an earlier file (`continues`),
+ *     INCLUDING one that names it but is otherwise not a readable conversation
+ *     (cut short, or its messages are not a list). It is the same fact read from
+ *     the other side, and it still shows when the `.full` file is not in the
+ *     listing: moved away by a person, or created by a rollover that landed
+ *     after the folder was listed.
+ *   - `rolledOverFiles` and `continuedFiles` are the file names behind those two
+ *     counts, each sorted, for the refusal to show.
  *   - `readable` is true ONLY if the directory LISTING succeeded. A failed
  *     listing (permissions, a transient error, a wrong root, the dir absent)
  *     means "could not read the source", which is NOT "the source is empty".
@@ -300,10 +348,18 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedN
 function readConversations(chatsDir) {
   let names;
   try { names = fs.readdirSync(chatsDir); }
-  catch { return { conversations: [], readable: false, readErrors: 0 }; }
+  catch { return { conversations: [], readable: false, readErrors: 0, rolledOver: 0, continued: 0, rolledOverFiles: [], continuedFiles: [] }; }
   const out = [];
   let readErrors = 0;
+  const rolledOverFiles = [];
+  const continuedFiles = [];
   for (const name of names) {
+    if (isRolledOverFileName(name)) {
+      let isDir = false;
+      try { isDir = fs.statSync(path.join(chatsDir, name)).isDirectory(); } catch { /* cannot tell: count it, the safe way */ }
+      if (!isDir) rolledOverFiles.push(name);
+      continue;
+    }
     const desc = parseChatFileName(name);
     if (!desc) continue;
     let raw;
@@ -311,16 +367,24 @@ function readConversations(chatsDir) {
     catch { readErrors += 1; continue; }
     let parsed;
     try { parsed = JSON.parse(raw); }
-    catch { continue; }
+    catch { if (NAMES_AN_EARLIER_FILE.test(raw)) continuedFiles.push(name); continue; }
+    if (parsed && typeof parsed.continues === 'string' && parsed.continues) continuedFiles.push(name);
     if (!parsed || !Array.isArray(parsed.messages)) continue;
     out.push({ desc, parsed });
   }
-  return { conversations: out, readable: true, readErrors };
+  rolledOverFiles.sort();
+  continuedFiles.sort();
+  return {
+    conversations: out, readable: true, readErrors,
+    rolledOver: rolledOverFiles.length, continued: continuedFiles.length, rolledOverFiles, continuedFiles,
+  };
 }
 
 /**
  * Compile the daily logs. Reads `chatsDir`, writes one `<day>.md` per day into
- * `outDir` (created if absent). Returns a summary. `onlyDay` restricts the write
+ * `outDir` (created if absent). Returns a summary. A run can be REFUSED
+ * (kosmos#5855): then `refused` says why, `rolledOver`, `continued` and the two
+ * `...Files` lists say what was seen, and nothing was written or pruned. `onlyDay` restricts the write
  * to a single day (a targeted run); by default every day found is written.
  * `dayOf`/`timeOf`/`misrouteCountForDay` are injectable for deterministic tests
  * (`misrouteCountForDay(dayStr)` -> the per-day #3224 count, default derives the
@@ -342,7 +406,21 @@ function compileAll(opts = {}) {
   const misrouteCountForDay = opts.misrouteCountForDay || defaultMisrouteCountForDay;
   const confirmedNewCountForDay = opts.confirmedNewCountForDay || defaultConfirmedNewCountForDay;
 
-  const { conversations, readable, readErrors } = readConversations(chatsDir);
+  const { conversations, readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles } = readConversations(chatsDir);
+
+  /* 🛑 kosmos#5855 FAIL CLOSED: this compiler does not read `.full` files. From the current files alone it would
+     REWRITE a day that straddles a rollover with only the rows the fresh file carried, and PRUNE every day whose rows
+     are only in a `.full` file. So on either sign of a rollover the run writes nothing and prunes nothing, and says
+     why (`refused`). An `onlyDay` run too: that day may be the straddling one. `messages` and `undated` are 0 here
+     because nothing was flattened, not because there are none. */
+  if (rolledOver > 0 || continued > 0) {
+    return {
+      conversations: conversations.length, messages: 0, days: 0, written: [], pruned: [], undated: 0,
+      readable, readErrors, rolledOver, continued, rolledOverFiles, continuedFiles, refused: REFUSED_ROLLED_OVER,
+      chatsDir, outDir,
+    };
+  }
+
   const { rows, undated } = flattenMessages(conversations, dayOf);
   const byDay = groupByDay(rows);
 
@@ -398,6 +476,12 @@ function compileAll(opts = {}) {
     undated,
     readable,
     readErrors,
+    rolledOver,
+    continued,
+    rolledOverFiles,
+    continuedFiles,
+    refused: null,
+    chatsDir,
     outDir,
   };
 }
@@ -407,6 +491,7 @@ module.exports = {
   dayFileName,
   dayFromFileName,
   parseChatFileName,
+  isRolledOverFileName,
   conversationLabel,
   localDayOf,
   localTimeOf,
@@ -416,6 +501,7 @@ module.exports = {
   groupByDay,
   renderDay,
   readConversations,
+  shownName,
   compileAll,
 };
 
@@ -424,7 +510,9 @@ module.exports = {
    scheduled run wants; --day targets one day. */
 if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
-    + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n';
+    + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
+    + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file named as\n`
+    + '  the earlier part of a conversation (ending .full) or a conversation file that refers to an earlier file\n';
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};
@@ -453,12 +541,35 @@ if (require.main === module) {
     else die(`unrecognized argument '${argv[i]}'`);
   }
   const summary = compileAll(opts);
-  process.stdout.write(
-    `dailylog: ${summary.messages} messages across ${summary.conversations} conversations `
-    + `-> ${summary.days} daily file(s) in ${summary.outDir}`
-    + (summary.undated ? ` (${summary.undated} undated message(s) skipped)` : '')
-    + (summary.pruned && summary.pruned.length ? ` (${summary.pruned.length} stale day file(s) pruned)` : '')
-    + '\n',
-  );
-  if (summary.written.length) process.stdout.write(`dailylog: wrote ${summary.written.join(', ')}\n`);
+  if (summary.refused) {
+    // kosmos#5855: say it on stderr, print no success line, and exit non-zero, so a scheduled run cannot read as
+    // "compiled, nothing new".
+    const list = (names) => names.slice(0, REFUSAL_NAMES_SHOWN).map((n) => `  ${shownName(n)}\n`).join('')
+      + (names.length > REFUSAL_NAMES_SHOWN ? `  and ${names.length - REFUSAL_NAMES_SHOWN} more\n` : '');
+    const earlier = summary.rolledOverFiles;
+    const pointing = summary.continuedFiles;
+    // What happened, where, which files, then three sentences that hold whatever the files are (a real rollover, an
+    // interrupted one, a stray copy): what this tool does on finding them; that IF they come from a rollover this is
+    // expected; and not to remove one on this message's say-so. The tool cannot tell which case it is, so nothing here
+    // asserts one.
+    process.stderr.write('dailylog: not compiled. Nothing was written or removed.\n'
+      + `Found in ${shownName(summary.chatsDir)}:\n`
+      + (earlier.length ? 'Files whose names end in .full after a conversation file\'s name:\n' + list(earlier) : '')
+      + (pointing.length ? 'Conversation files that refer to an earlier file:\n' + list(pointing) : '')
+      + 'This tool does not compile while a file listed here is present, and it changes none of them. If they come '
+      + 'from a conversation that reached its message limit, this is expected: this version of the tool cannot '
+      + 'compile such a conversation. They can be Kosmos\'s own files, so do not move or delete one unless you know '
+      + 'that it is not Kosmos\'s.\n');
+    // exitCode, not exit(): the process ends once stderr has drained, so a piped reader gets the whole message.
+    process.exitCode = EXIT_REFUSED;
+  } else {
+    process.stdout.write(
+      `dailylog: ${summary.messages} messages across ${summary.conversations} conversations `
+      + `-> ${summary.days} daily file(s) in ${summary.outDir}`
+      + (summary.undated ? ` (${summary.undated} undated message(s) skipped)` : '')
+      + (summary.pruned && summary.pruned.length ? ` (${summary.pruned.length} stale day file(s) pruned)` : '')
+      + '\n',
+    );
+    if (summary.written.length) process.stdout.write(`dailylog: wrote ${summary.written.join(', ')}\n`);
+  }
 }
