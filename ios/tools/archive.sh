@@ -26,22 +26,29 @@ ios=$(cd "$here/.." && pwd)
 
 build=""
 upload=0
+check_only=0
+# The signing settings this run reads. Overridable only so ios/tools/test-archive-config.sh can point the
+# checks below at a scratch copy; a real archive reads the project's own file.
+xcconfig="${KOSMOS_IOS_XCCONFIG:-$ios/Signing.xcconfig}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --build) [ $# -ge 2 ] || { echo "archive.sh: --build needs a number" >&2; exit 2; }; build="$2"; shift 2 ;;
     --upload) upload=1; shift ;;
+    --check-config) check_only=1; shift ;;   # run the signing-settings checks below, then stop
     -h|--help) sed -n '2,/^[^#]/p' "$0" | sed '$d'; exit 0 ;;   # the whole header, however long
     *) echo "archive.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
-case "$build" in
-  ''|*[!0-9]*) echo "archive.sh: --build <N> is required, a whole number higher than any build already uploaded" >&2; exit 2 ;;
-esac
+if [ "$check_only" -eq 0 ]; then
+  case "$build" in
+    ''|*[!0-9]*) echo "archive.sh: --build <N> is required, a whole number higher than any build already uploaded" >&2; exit 2 ;;
+  esac
+fi
 
 # The value Xcode reads: the DEVELOPMENT_TEAM line, less any trailing // comment and spaces.
-team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
+team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$xcconfig" | tr -d '[:space:]')
 # The bundle id the project builds with (KOSMOS_BUNDLE_ID in the same file), checked on the export.
-bundle=$(sed -n 's|//.*||; s/^[[:space:]]*KOSMOS_BUNDLE_ID[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
+bundle=$(sed -n 's|//.*||; s/^[[:space:]]*KOSMOS_BUNDLE_ID[[:space:]]*=[[:space:]]*//p' "$xcconfig" | tr -d '[:space:]')
 if ! printf '%s' "$bundle" | LC_ALL=C grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'; then
   echo "archive.sh: KOSMOS_BUNDLE_ID in ios/Signing.xcconfig is '${bundle}', not a bundle id." >&2; exit 1
 fi
@@ -52,6 +59,18 @@ fi
 if ! printf '%s' "$team" | LC_ALL=C grep -Eq '^[A-Z0-9]{10}$'; then
   echo "archive.sh: DEVELOPMENT_TEAM in ios/Signing.xcconfig is '$team', not a Team ID (10 uppercase letters or digits)." >&2
   exit 1
+fi
+# io.kosmos.app is never built under the Stone Syndicate team (#4089): Apple cannot transfer an app that was
+# never released on the App Store, so one upload would leave Kosmos's real bundle id there for good. The team id
+# is written in two pieces so the cut-sign sweep (tools/test-cut-sign-preflight.sh) does not count this file.
+stone_team="864QZ""69GF2"
+if [ "$bundle" = "io.kosmos.app" ] && [ "$team" = "$stone_team" ]; then
+  echo "archive.sh: io.kosmos.app must not be built under the Stone Syndicate team: the interim app is io.kosmos.app.preview. Change DEVELOPMENT_TEAM to Kosmos Agent Manager, Inc.'s Team ID in the same edit." >&2
+  exit 1
+fi
+if [ "$check_only" -eq 1 ]; then
+  echo "archive.sh: signing settings ok: $bundle under team $team"
+  exit 0
 fi
 
 

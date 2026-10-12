@@ -43,6 +43,12 @@ the iOS app's own decision, so the Mac team switch in tools/lib/signing-identity
 iOS move; once the file builds io.kosmos.app, Stone Syndicate there is a leftover and the sweep fails. Both arms are
 tested on temporary copies inside the test.
 
+## The irreversible pairing is refused by the tool (review 13)
+archive.sh refuses KOSMOS_BUNDLE_ID = io.kosmos.app with the Stone Syndicate Team ID before it archives (an Admin
+key would register the App ID at the archive step). archive.sh --check-config runs only the settings checks;
+ios/tools/test-archive-config.sh (new, in iOS CI) shows each refusal, including that pairing; a mutant that removes
+the refusal fails it.
+
 ## Checks
 - archive.sh reads 864QZ69GF2 from the file (its own sed, run by hand).
 - ios/tools/test-check-ipa-entitlements.sh: VERDICT PASS, with four new cases: preview build passes as preview;
