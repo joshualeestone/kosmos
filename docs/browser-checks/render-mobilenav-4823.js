@@ -380,7 +380,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
       }
     } finally {
       for (const [ctx, page] of live) await unroute(ctx, page);
-      await browser.close();
+      await browser.close().catch(() => {});   // never replaces the arm's own error
     }
   }
   chk(errs.length === 0, 'no page errors', JSON.stringify(errs.slice(0, 3)));

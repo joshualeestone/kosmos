@@ -14,7 +14,8 @@ the real error. The page is closed between the two unroutes, because on WebKit t
 remote.test and a page still polling without it would reach real DNS. Precedent: render-login-expiry-3532,
 render-teamcreate-4557, render-engine-restart-4408, render-update-win32-manual and render-updates-stale call
 page.unrouteAll with ignoreErrors at teardown (render-project-done-4583 uses 'wait', a different semantic). No other
-check routes on the context, so ctx.unrouteAll is new here.
+check calls ctx.unrouteAll, so that is new here; render-allagents-4812, render-push-718 and mobile-shots do route on
+the context and may carry the same teardown race (noted on #5921, not changed here).
 
 ## Decided
 - The repo's established unrouteAll-before-close, not a per-handler message match (my first version, reviewed and
@@ -27,9 +28,9 @@ check routes on the context, so ctx.unrouteAll is new here.
 
 ## Measured
 - Before: alone on Mortals at 5621723a5, 3 runs, 1 crashed (169 pass, then disposed); in the cut, 2 of 2 crashed.
-- After: alone on Mortals at origin/main, 16 of 16 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
-  8 before the finally change, 4 with it, 4 on this final file (page closed between the unroutes).
-- At the before-rate (1 in 3), 16 clean runs happen by chance about 0.2% of the time. Evidence, not proof.
+- After: alone on Mortals at origin/main, 20 of 20 clean with the unroute approach (171 pass, 0 fail, 0 disposed):
+  8 before the finally change, 4 with it, 4 with the page closed between the unroutes, 4 on this final file.
+- At the before-rate (1 in 3), 20 clean runs happen by chance about 0.03% of the time. Evidence, not proof.
 - The fix rests on Playwright's documented ignoreErrors semantics, not on a reproduced failure.
 - NOT measured: a deterministic red arm. Two injections were tried, applied identically to the old and new files:
   - a pause of 400 ms before the status fulfil: both passed (not discriminating)
