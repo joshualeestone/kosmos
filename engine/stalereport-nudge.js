@@ -8,7 +8,7 @@
  * Who is told, all of:
  *  - its latest report (selfreport.read) is a waiting one (needs_you or blocked, selfreport.WAITING_ON_A_PERSON),
  *    written at least STALE_WAIT_MS ago (selfreport.STALE_WAIT_MS, the threshold `kosmos report show` uses);
- *  - its card still shows that state (the board's reconcile can set a report aside; then the card is not stale);
+ *  - its card shows that report (stateReported, and the same state: the board's reconcile can set a report aside);
  *  - its card is ours and not a switched-off swarm.
  *
  * How often: once per report line. The book keys the reminder on the report's `at`, so a fresh report of the same
@@ -16,7 +16,7 @@
  * delivery that reached nothing is retried on later sweeps, up to MAX_TRIES.
  *
  * Known limit: the book lives in memory, so a board restart forgets it and a still-stale report is reminded about once
- * more after the restart.
+ * more after the restart. So the typed line says "a reminder", not "a one-time reminder".
  *
  * The planner is pure; the reads and the delivery are injected, so tests drive it without a pane.
  */
@@ -34,19 +34,22 @@ function nudgeText(rep, ageMs) {
   const passed = rep.state === 'blocked' ? 'If it is no longer in your way' : 'If nobody needs to answer it any more';
   const whose = rep.by === 'agent' ? 'Your own `' + rep.state + '` report'
     : rep.by === 'auto' ? 'A `' + rep.state + '` report Kosmos wrote for you'
-      : 'Your `' + rep.state + '` report';
+      : 'This `' + rep.state + '` report';   // someone else, or no writer recorded: named as report show names it
   const todo = rep.by === 'auto' ? 'If what it was about has passed' : passed;
-  return 'Kosmos here, a one-time reminder: ' + whose + ' has been standing on your card for ' + age + '. '
+  return 'Kosmos here, a reminder: ' + whose + ' has been standing on your card for ' + age + '. '
     + todo + ', clear it with: kosmos report clear. If it still holds, leave it. To see your card as the person sees it, run: kosmos report show';
 }
 
 function plan(card, rep, entry, now) {
   if (!card || !rep || rep.found !== true) return { act: 'none', because: 'no report' };
   if (!selfreport.WAITING_ON_A_PERSON.includes(rep.state)) return { act: 'none', because: 'its report is not a waiting one' };
-  if (card.state !== rep.state) return { act: 'none', because: 'its card does not show that report' };
+  /* The card shows THE REPORT, not only its state: reconcile can show a screen reading of the same state over a report
+     it set aside, and then stateReported is false. */
+  if (card.stateReported !== true || card.state !== rep.state) return { act: 'none', because: 'its card does not show that report' };
   const at = typeof rep.at === 'string' ? Date.parse(rep.at) : NaN;
   if (!Number.isFinite(at) || !Number.isFinite(now)) return { act: 'none', because: 'no readable time for its report' };
-  if (now - at < selfreport.STALE_WAIT_MS) return { act: 'none', because: 'its report is under a day old' };
+  // The comparison `kosmos report show` uses (over STALE_WAIT_MS), so the two agree on which report is stale.
+  if (!(now - at > selfreport.STALE_WAIT_MS)) return { act: 'none', because: 'its report is not over a day old' };
   if (entry && entry.forAt === rep.at && entry.nudgedAt != null) return { act: 'none', because: 'already reminded about this report' };
   if (entry && entry.forAt === rep.at && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) {
     return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };

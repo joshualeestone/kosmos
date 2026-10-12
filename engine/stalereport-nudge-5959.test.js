@@ -38,7 +38,7 @@ function cardsFor(specs) {
     return specs.map(([name, state]) => {
       const c = board.agents.find((x) => x.name === name || (x.sessionName || '').startsWith(name));
       assert.ok(c, 'CONTROL: no card for ' + name);
-      return { ...c, state };
+      return { ...c, state, stateReported: true };   // the card shows the agent's report, as reconcile marks it
     });
   } finally { board.restore(); }
 }
@@ -58,28 +58,48 @@ function run(cards, reports, opts = {}) {
 }
 
 test('#5959 slice 3: a waiting report over a day old on its card is told once, in report show\'s words', () => {
-  const [casey, kim, leo, mara] = cardsFor([['casey', 'blocked'], ['kim', 'needs_you'], ['leo', 'blocked'], ['mara', 'needs_you']]);
+  const [casey, kim, leo, mara, nia] = cardsFor([['casey', 'blocked'], ['kim', 'needs_you'], ['leo', 'blocked'], ['mara', 'needs_you'], ['nia', 'needs_you']]);
   const reports = {
     [casey.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'agent' },
     [kim.sessionName]: { found: true, state: 'needs_you', at: iso(NOW - DAY - 60e3), by: 'auto' },
     // CONTROLS: under a day; and a report the card does not show (reconcile set it aside).
     [leo.sessionName]: { found: true, state: 'blocked', at: iso(NOW - DAY + 10 * 60e3), by: 'agent' },
     [mara.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'agent' },
+    // The way reconcile really sets a report aside: the same state on the card, read from the screen (stateReported false).
+    [nia.sessionName]: { found: true, state: 'needs_you', at: iso(NOW - 3 * DAY), by: 'agent' },
   };
+  const niaScreen = { ...nia, stateReported: false };
   const book = new Map();
-  const { sent } = run([casey, kim, leo, mara], reports, { book });
+  const { sent } = run([casey, kim, leo, mara, niaScreen], reports, { book });
   assert.deepEqual(sent.map((x) => x.s), [casey.sessionName, kim.sessionName], 'the wrong agents were told');
-  assert.equal(sent[0].text, 'Kosmos here, a one-time reminder: Your own `blocked` report has been standing on your card for 3 days. '
+  assert.equal(sent[0].text, 'Kosmos here, a reminder: Your own `blocked` report has been standing on your card for 3 days. '
     + 'If it is no longer in your way, clear it with: kosmos report clear. If it still holds, leave it. '
     + 'To see your card as the person sees it, run: kosmos report show');
   assert.match(sent[1].text, /A `needs_you` report Kosmos wrote for you has been standing on your card for over a day\. If what it was about has passed, clear it with: kosmos report clear\./);
   // Once: the next sweep tells nobody.
-  const again = run([casey, kim, leo, mara], reports, { book, now: NOW + 60e3 }).sent.map((x) => x.s);
+  const again = run([casey, kim, leo, mara, niaScreen], reports, { book, now: NOW + 60e3 }).sent.map((x) => x.s);
   assert.deepEqual(again, [], 'told twice about one report: ' + JSON.stringify([...book.entries()]));
   // A new report of the same state is a new report: told again only once it, too, is a day old.
   reports[casey.sessionName] = { found: true, state: 'blocked', at: iso(NOW), by: 'agent' };
   assert.equal(run([casey], reports, { book, now: NOW + 60e3 }).sent.length, 0, 'a fresh report was told about');
   assert.equal(run([casey], reports, { book, now: NOW + DAY + 60e3 }).sent.length, 1, 'a fresh report a day later was not');
+});
+
+test('#5959 slice 3: a report written by someone else, or with no writer, is not called the agent\'s own', () => {
+  const [e, f] = cardsFor([['eve', 'blocked'], ['fay', 'needs_you']]);
+  const { sent } = run([e, f], {
+    [e.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 2 * DAY), by: 'operator' },
+    [f.sessionName]: { found: true, state: 'needs_you', at: iso(NOW - 2 * DAY), by: null },
+  });
+  assert.equal(sent.length, 2);
+  for (const x of sent) assert.match(x.text, /: This `(blocked|needs_you)` report has been standing/, x.text);
+});
+
+test('#5959 slice 3: exactly a day old is not yet stale, as for kosmos report show', () => {
+  const [g] = cardsFor([['gus', 'blocked']]);
+  const at = (ms) => ({ [g.sessionName]: { found: true, state: 'blocked', at: iso(NOW - ms), by: 'agent' } });
+  assert.equal(run([g], at(DAY)).sent.length, 0, 'told at exactly a day');
+  assert.equal(run([g], at(DAY + 1)).sent.length, 1, 'CONTROL: told a millisecond later');
 });
 
 test('#5959 slice 3: no report, a working card, a paused swarm, a stranger: nobody is told', () => {
@@ -111,6 +131,13 @@ test('#5959 slice 3: the sweep runs only with live execution allowed and the bra
   assert.equal(nudge.nudgeEnabled(true, { AGENT_WORKFORCE_STALEREPORT_NUDGE_OFF: '1' }), false);
   const tick = nudge.makeTick({ allowed: () => false, roster: () => { throw new Error('read while off'); } });
   assert.equal(tick(), null);
+  const braked = nudge.makeTick({ allowed: () => true, env: { AGENT_WORKFORCE_STALEREPORT_NUDGE_OFF: '1' }, roster: () => { throw new Error('read while braked'); } });
+  assert.equal(braked(), null);
+  // CONTROL: allowed and unbraked, the tick runs and sweeps the roster it is given.
+  let read = false;
+  const on = nudge.makeTick({ allowed: () => true, env: {}, roster: () => { read = true; return []; } });
+  assert.deepEqual(on(), { results: [] });
+  assert.equal(read, true, 'the tick did not read the roster while allowed');
 });
 
 test('#5959 slice 3: the server runs the sweep on its own timer, typing through deliverAutomatic', () => {
