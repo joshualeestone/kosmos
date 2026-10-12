@@ -70,11 +70,12 @@ test('a shard runs its commands in order and stops at the first failure, with it
   const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-4317-'));
   try {
     const ran = path.join(dir, 'ran'); const after = path.join(dir, 'after');
-    const code = sh.runShard([`touch '${ran}'`, 'exit 3', `touch '${after}'`], 1, 1, 'ignore');
+    const quiet = () => {};   // #5907: the timing lines are not this test's subject
+    const code = sh.runShard([`touch '${ran}'`, 'exit 3', `touch '${after}'`], 1, 1, 'ignore', quiet);
     assert.equal(code, 3, 'the first failure is the result');
     assert.ok(fs.existsSync(ran), 'the command before the failure ran');
     assert.ok(!fs.existsSync(after), 'the command after the failure did not run');
-    assert.equal(sh.runShard(['true', 'true'], 1, 1, 'ignore'), 0);
+    assert.equal(sh.runShard(['true', 'true'], 1, 1, 'ignore', quiet), 0);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -119,6 +120,17 @@ test('#5907: the summary names only the slowest SLOWEST, and a red shard still p
   assert.match(red.text, /\[2\/3\] 9\.0 s: exit 4\n/);
   assert.match(red.text, /2 commands took 11\.0 s; the slowest:\n\s+9\.0 s  exit 4\n\s+2\.0 s  true # a\n$/);
   assert.doesNotMatch(red.text, /# never|all \d+ passed/);
+});
+
+test('#5907: a command\'s start line is written before it runs, so a run that hangs names the command it hangs in', () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-5907-'));
+  try {
+    const log = path.join(dir, 'log');
+    const write = (s) => fs.appendFileSync(log, s);
+    // Each command passes only if its own start line is already in the log while it runs.
+    const list = [1, 2].map((k) => `grep -q '\\[${k}/2\\] start: grep' '${log}' # c${k}`);
+    assert.equal(sh.runShard(list, 1, 1, 'ignore', write), 0, fs.readFileSync(log, 'utf8'));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('#5907: the real clock: a command that sleeps is timed at least as long as it slept', () => {

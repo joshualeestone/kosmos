@@ -47,7 +47,7 @@ else
 fi
 
 # The strip must precede the node suite -- the FIRST test invocation, since
-# `yarn -s test:shell` runs after it in run-tests.sh, so preceding the node suite
+# test:shell (through tools/shell-shard.js) runs after it in run-tests.sh, so preceding the node suite
 # guarantees preceding test:shell too. The node pattern is pinned to the real
 # invocation (`node --test` with KOSMOS_TEST_FILES), NOT a bare `node --test`, so a
 # comment that mentions `node --test` above the strip cannot red this falsely. (An
