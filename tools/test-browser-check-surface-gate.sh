@@ -396,9 +396,34 @@ for _chg in '+<i id="plain-tok_x">' '+<i id="plain-tok-y">' '+<i id="tokxZ">' '+
   _got="$(bc_surface_scan_checks "$_nd" "$_chg" | awk -F '\t' '{ print ($2 == "HIT" ? $2 " " $3 : $2) }')"
   [ "$_got" = "$_want" ] || { fail "SCAN: run.js on '$_chg': the scan says '$_got', the per-token primitives say '$_want'"; _sbad=1; }
 done
+# A later token is the only hit, or both are: the first token in the annotation's order is the one named.
+printf '// Browser-check-surface: first-tok second-tok\n' > "$_nd/run.js"
+for _chg in '+<i id="second-tok">' '+<i id="second-tok"> <b id="first-tok">' '+<i id="first-tok">'; do
+  _sn=$((_sn + 1))
+  _want="$(_expect "$_nd/run.js" "$_chg")"
+  _got="$(bc_surface_scan_checks "$_nd" "$_chg" | awk -F '\t' '{ print ($2 == "HIT" ? $2 " " $3 : $2) }')"
+  [ "$_got" = "$_want" ] || { fail "SCAN: run.js on '$_chg': the scan says '$_got', the per-token primitives say '$_want'"; _sbad=1; }
+done
+# A Unicode space (U+00A0) around the key: the ambient-locale sed can read it as space, the C-locale scan cannot, so the
+# scan must leave the check SLOW (to the sed), never skip it as unannotated.
+printf '\302\240// Browser-check-surface: nb-tok\n' > "$_nd/run.js"
+_nbv="$(bc_surface_scan_checks "$_nd" '+<i id="nb-tok">' | cut -f2)"
+[ "$_nbv" = SLOW ] || { fail "SCAN: a key after a Unicode space was decided by the scan ('$_nbv'), not left SLOW"; _sbad=1; }
 rm -rf "$_nd"
 [ "$_sreal" -ge 20 ] || { fail "SCAN: only $_sreal real cases were sampled (want at least 20): the sampling found too few checks"; _sbad=1; }
 [ "$_sbad" -eq 0 ] && pass "SCAN: bc_surface_scan_checks agrees with the per-token primitives on $_sreal real and $((_sn - _sreal)) synthetic cases, and leaves a non-plain token SLOW"
+
+# #5907: the fallback (the scan cannot run, so every check takes the per-check path) gives the gate the same answer,
+# word for word, as the scan does: forced by a TMPDIR the scan cannot write, on a diff touching a real mapped token.
+_fbtok="$(bc_surface_tokens_of "$(find "$_SDIR" -maxdepth 1 -type f -name '*.js' | while IFS= read -r _c; do [ -n "$(bc_surface_tokens_of "$_c")" ] && { echo "$_c"; break; }; done)" | tr ' \t' '\n\n' | grep -v '^$' | head -1)"
+printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' "+<p id=\"$_fbtok\">x</p>" > "$TMP/fb.wd"; : > "$TMP/fb.files"; : > "$TMP/fb.msgs"
+_fbn="$( (KOSMOS_BCSG_WEBDIFF="$TMP/fb.wd" KOSMOS_BCG_FILES="$TMP/fb.files" KOSMOS_BCG_MSGS="$TMP/fb.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>&1; echo "rc=$?")"
+_fbf="$( (TMPDIR="$TMP/no-such-dir" KOSMOS_BCSG_WEBDIFF="$TMP/fb.wd" KOSMOS_BCG_FILES="$TMP/fb.files" KOSMOS_BCG_MSGS="$TMP/fb.msgs" KOSMOS_BCSG_DIR="$_SDIR" kosmos_browser_check_surface_gate) 2>&1; echo "rc=$?")"
+if [ -n "$_fbtok" ] && [ "$_fbn" = "$_fbf" ] && printf '%s' "$_fbn" | grep -q 'rc=1'; then
+  pass "FALLBACK: with the scan unable to run, the gate refuses '$_fbtok' with the same words and exit as the scan path"
+else
+  fail "FALLBACK: the fallback and the scan path disagree on '$_fbtok' (or nothing was refused): scan='$(printf '%s' "$_fbn" | tail -1)' fallback='$(printf '%s' "$_fbf" | tail -1)'"
+fi
 
 echo "browser-check surface gate: $fails FAILED"
 [ "$fails" -eq 0 ]

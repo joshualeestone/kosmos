@@ -28,6 +28,12 @@ escape `sed`s, a `grep` of the changed files, a `sed` of the trailers) and per t
   first token touched, and nothing mapped touched), on a plain token inside runs joined by `_`, `-` and capitals, and
   checks a non-plain token is left SLOW. Mutations: dropping `_`, `-` or capitals from the scan's class each go red.
 
+- A line that carries the key in a shape the C-locale match refuses (measured: a U+00A0 before `//` or before the key,
+  which macOS sed in a UTF-8 locale reads as space) sends that check to the per-check path, so the scan never hides an
+  annotation the sed would read. 4 of 175 real checks go that way today (prose that mentions the key).
+- Test arms: a later token as the only hit and both hit (the first is named); the Unicode-space line left SLOW; the
+  fallback (a TMPDIR the scan cannot write) gives the gate the same words and exit as the scan path. Each mutation-checked.
+
 ## Rejected
 - Rewriting the whole gate in awk: the override and updated-file paths (and their exact messages) stay in shell,
   unchanged, so only the token decision moved.
