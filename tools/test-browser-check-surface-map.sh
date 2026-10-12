@@ -191,6 +191,18 @@ _chk tok-url   "1 0" "a token in a // that is really a URL (https://) stays func
 _chk tok-strcmt "0 1" "a // line comment right after a string quote is comment, not a URL" "quote-then-linecomment"
 _chk 'tok.dot' "0 0" "a token with an ERE metachar is escaped, so tok.dot does NOT match tokXdot" "metachar-escaped"
 _chk tok-absent "0 0" "an absent token is neither functional nor comment"                  "absent"
+# #5907: the one-pass counter agrees with token_web_scan on every plain control token above, so the faster path is the
+# same match (a parity arm: if count_plain_tokens drifted from the grep, this names the token).
+_ptoks="$(_mktmp)"; printf '%s\n' tok-func tok-cont tok-trail tok-split tok-note tok-block tok-url tok-strcmt tok-absent tokXdot other > "$_ptoks"
+_pfn="$(_mktmp)"; _pcm="$(_mktmp)"
+count_plain_tokens "$_ptoks" "$_fxc" > "$_pfn"; count_plain_tokens "$_ptoks" "$_fxm" > "$_pcm"
+_pbad=0
+while IFS= read -r t; do
+  want="$(token_web_scan "$t" "$_fxc" "$_fxm")"
+  got="$(awk -v t="$t" '$1 == t { print $2; exit }' "$_pfn") $(awk -v t="$t" '$1 == t { print $2; exit }' "$_pcm")"
+  [ "$got" = "$want" ] || { bad "PARITY: count_plain_tokens says '$got' for $t, token_web_scan says '$want'"; _pbad=1; }
+done < "$_ptoks"
+[ "$_pbad" -eq 0 ] && ok "PARITY: the one-pass counter matches token_web_scan on all $(wc -l < "$_ptoks" | tr -d ' ') plain control tokens"
 
 [ "$FAILS" -eq 0 ] && echo "browser-check surface map: all arms passed" || echo "browser-check surface map: $FAILS FAILED"
 exit "$FAILS"
