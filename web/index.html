@@ -7799,6 +7799,7 @@ html.has-voice .micbtn { display: grid; }
 .convbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-speak.conv-on .convbtn { display: grid; }
+@media (hover: none) { .convbtn { width: 44px; height: 44px; } }   /* a touch target the size of its row's others */
 .convbtn:hover { background: color-mix(in srgb, var(--k-ink) 8%, transparent); color: var(--k-ink); }
 .convbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .convbtn[aria-pressed="true"] { color: var(--k-ink); background: color-mix(in srgb, var(--k-ink) 14%, transparent);
@@ -10799,7 +10800,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 @media (max-width: 60rem) {
   html.has-speak.conv-on .pjmidhead:has(.pjhead) > .pjconvsearch { display: flex; flex: none; align-items: center; gap: 8px; }
   html.has-speak.conv-on .pjmidhead:has(.pjhead) > .pjconvsearch > .tsearch { flex: 1 1 auto; }
-  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch { flex: 1 0 100%; }
+  :root[data-look="new"].has-speak.conv-on body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch { flex: 1 0 100%; }
   /* Outweighs the look's own full-line rule for the search (one id each, more classes here), which inside the row
      would push the search past the toggle. */
   :root[data-look="new"].has-speak.conv-on body:not(.consolidated) #pj-one-view .pjmidhead > .pjconvsearch > .tsearch { flex: 1 1 auto; }
@@ -16613,12 +16614,12 @@ window.kosmosMeasureScrollbarWidth();
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
         <div class="pjconvsearch">
           <button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
-          <div class="tsearch">
-            <span class="tsearch-i" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-            </span>
-            <input type="search" id="pj-room-search" placeholder="Search" aria-label="Search this conversation">
-          </div>
+        <div class="tsearch">
+          <span class="tsearch-i" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </span>
+          <input type="search" id="pj-room-search" placeholder="Search" aria-label="Search this conversation">
+        </div>
         </div>
       </div>
       <!-- THE ROOM (View D): this project's thread, drawn from the record
