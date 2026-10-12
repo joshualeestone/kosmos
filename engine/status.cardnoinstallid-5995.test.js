@@ -55,6 +55,7 @@ test('#5995: the card of an agent with a pane carries its profile, and not the i
 
 test('#5995: the card of an agent with no pane carries its profile, and not the install id', () => {
   const id = ping.installId();
+  store.writeProfile('mara', { role: 'researcher' });   // the sweep below reads her card too, so this test seeds it itself
   store.writeProfile('winbox', { role: 'operations' });
   assert.equal(store.readProfile('winbox').idInstall, id, 'the fixture profile holds no copy');
   assert.ok(sendertoken.mint('winbox'), 'the fixture could not mint a token');
@@ -77,4 +78,20 @@ test('#5995: servedProfile copies, and passes on a profile that is not there', (
   assert.equal(stored.idInstall, 'an-install', 'the stored object was changed');
   assert.equal(store.servedProfile(null), null);
   assert.deepEqual(store.servedProfile({}), {});
+  const odd = ['not', 'a', 'profile'];
+  assert.equal(store.servedProfile(odd), odd, 'a stored value that is not a record is passed on as it is');
+});
+
+/* The one place a saved profile is handed back whole is the save route's answer. Read from the source: driving the
+   route needs a signed-in board, and what matters is that the record it spreads has been through servedProfile. A
+   new place that keeps writeProfile's answer is the moment to ask where it goes, so the count is held too. */
+test('#5995: the answer to a profile save is the served profile, and nothing else keeps a whole saved record', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const kept = src.match(/[=(:,]\s*(?:await\s+)?store\.writeProfile\(/g) || [];
+  assert.equal(kept.length, 1, 'server.js keeps the answer of store.writeProfile in ' + kept.length + ' places; this test knows one');
+  assert.match(src, /const written = store\.servedProfile\(store\.writeProfile\(name, clean\)\);/, 'the save route keeps the whole stored record');
+  assert.match(src, /sendJson\(res, 200, \{ \.\.\.written,/, 'CONTROL: the save route no longer answers with that record, so this test reads the wrong line');
+  const written = store.writeProfile('mara', { role: 'researcher' });
+  assert.equal(written.idInstall, ping.installId(), 'CONTROL: writeProfile no longer answers with the whole record');
+  assert.ok(!JSON.stringify({ ...store.servedProfile(written) }).includes(ping.installId()), 'the answer the route builds holds the install id');
 });

@@ -8,14 +8,17 @@ Addresses #5995 (the fifth finding, comment 6132409431). Found while fixing item
   agent with a pane and one for an agent without. A card goes to the page, and through Kosmos+ to a phone.
 - Nothing reads it there. `idInstall` appears in no file under `web/`, in none of the Windows or native sources, and in
   no file of the relay, the community service or the site (each count taken with a control word that did match).
-  Outside tests and plans the name is in `engine/store.js`, `engine/agentfile.js` (a comment), `tools/capture-agent-card.js`
-  and the recorded card fixture.
+  Outside tests and plans the name is in `engine/store.js`, `engine/agentfile.js` (a comment), `tools/capture-agent-card.js`,
+  the recorded card fixture, and two comments in `docs/browser-checks/render-talk.js` (missed in the first count: that
+  search left the browser checks out. Recounted with `git grep -l -F idInstall` over the whole tree).
 
 ## Change
 - `engine/store.js`: `servedProfile(profile)` returns a copy without `idInstall`. The store owns the identity fields,
   so the name stays in the one file that writes it.
 - `engine/status.js`: both card sites serve `store.servedProfile(...)`. The swarm read beside the pane site still takes
   the whole profile; it never leaves the engine.
+- `server.js`: the answer to a profile save spread the whole saved record back to the page, the same id by the door
+  next to the card (review 1). It answers with `store.servedProfile(...)` of it now.
 - The recorded card (`docs/browser-checks/fixtures/agent-card.json`) loses the key, because a recording mirrors what a
   card serves; its test asserts the key is absent. The capture tool still blanks one, for a card captured from a board
   that predates this.
@@ -54,3 +57,14 @@ A consumer that needs to tell, from a card alone, which install made an agent. T
 Both touch what is said about this field. Whichever merges second must, in `engine/installid-senders-5995.test.js`,
 drop the recorded card fixture from the set of files that hold `idInstall` (it no longer does), and correct the two
 sentences that say `engine/status.js` serves the profile's copy (`engine/ping.js` list, and that test's header).
+
+## Review 1 (2026-10-12, default model)
+- **WARNING, taken:** the premise "the card was the only way out" was wrong. The profile save route answered with the
+  whole saved record, `idInstall` in it. Fixed where the record is kept, so nothing downstream of it can spread the id.
+  The test holds it from the source (the route's line, the number of places that keep `writeProfile`'s answer, which is
+  one, and that the answer built the route's way holds no install id). Reverting the route's line turns that test red
+  by name. It does not drive the route over HTTP: that needs a signed-in board, and this is a text check, with the
+  limits of one.
+- **NIT, taken:** the file list in "What was measured" left out two comments in a browser check. Recounted.
+- **NIT, taken:** the no-pane test leaned on the pane test's leftover profile; it seeds its own now.
+- **NIT, taken:** a stored value that is an array is passed on as it is, not turned into an object.

@@ -693,7 +693,7 @@ function profilePath(name) {
    phone, and neither reads the install's id, so the copy kept beside each agent's own id stays on this computer.
    A copy, never the stored object; a missing profile (null) passes through as it is. */
 function servedProfile(profile) {
-  if (!profile || typeof profile !== 'object') return profile;
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return profile;
   const out = { ...profile };
   delete out.idInstall;
   return out;
