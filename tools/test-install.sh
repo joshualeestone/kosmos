@@ -711,7 +711,15 @@ kill "$LAUNCHER_PID" >/dev/null 2>&1 || true
 wait "$LAUNCHER_PID" 2>/dev/null || true
 deregister_kosmos_app
 chk "launcher passes its own account and starts the board" "[ -s \"$SB/launcher.log\" ] && grep -qx 'start' \"$SB/launcher.log\""
-chk "the launcher's baked port travels with it" "grep -q '\"port\":'\"$PORT\"'[,}]' \"$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json\""
+# #5896 slice 2: when the build shipped the sealed Kosmos.app and this install wrote the account's config, the icon IS
+# that sealed app (signed, nothing per-install inside it), and the config lives only in the account's Library.
+APP_CFG="$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json"
+[ -f "$APP_CFG" ] || APP_CFG="$SB/home/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"
+if [ -d "$KOS_SRC/app/Kosmos.app" ]; then
+  chk "#5896: the icon is the sealed app the build shipped (no per-install file inside, signature verifies)" \
+    "[ ! -e \"$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json\" ] && /usr/bin/codesign --verify --deep --strict \"$SB/apps/Kosmos.app\""
+fi
+chk "the launcher's baked port travels with it" "grep -q '\"port\":'\"$PORT\"'[,}]' \"$APP_CFG\""
 # #5896: the app's config also lives in the account's own Library (AGENT_WORKFORCE_HOME here), where the app reads first.
 # Here that Library sits inside KOSMOS_HOME, so the --uninstall below cannot show the file's own removal; that is
 # covered only by install.app-config-5896.test.js.
@@ -726,7 +734,7 @@ chk "#5896: the account's own copy of the app config names this install" "grep -
 # Still editing plain text, still no second real macOS account required.
 WRONG_UID=$(( $(id -u) + 1 ))
 sed -e "s/\"ownerUid\":[0-9]*/\"ownerUid\":$WRONG_UID/" \
-  "$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json" > "$SB/wrong-owner-config.json"
+  "$APP_CFG" > "$SB/wrong-owner-config.json"
 LNS_BEFORE="$(wc -l < "$SB/launcher.log" | tr -d ' ')"
 # 🛑 A SANDBOX HOME FOR THE OTHER ACCOUNT, AND NO KOSMOS_HOME OVERRIDE.
 # Since #720 the launcher looks for the clicking account's OWN Kosmos and
@@ -1427,7 +1435,14 @@ else
   # #677: the anchor moved off the (now compiled) launcher and onto its
   # per-install config file -- bundle_is_ours checks the same new anchor,
   # see install/setup.sh.
-  chk "the new bundle is provably ours" "grep -qF '\"kosmosHome\":\"$SB/home19\"' \"$SYS_DEEP/Kosmos.app/Contents/Resources/kosmos-install.json\""
+  # #5896 slice 2: a sealed icon is proven by its signature, and this install's config is in the account's Library
+  # (AGENT_WORKFORCE_HOME, still "$SB/home" here); the older shape carries the anchor inside the bundle.
+  if [ -e "$SYS_DEEP/Kosmos.app/Contents/Resources/kosmos-install.json" ]; then
+    chk "the new bundle is provably ours" "grep -qF '\"kosmosHome\":\"$SB/home19\"' \"$SYS_DEEP/Kosmos.app/Contents/Resources/kosmos-install.json\""
+  else
+    chk "the new bundle is provably ours (#5896: sealed, and the account's config names this install)" \
+      "/usr/bin/codesign --verify --deep --strict \"$SYS_DEEP/Kosmos.app\" && grep -qF '\"kosmosHome\":\"$SB/home19\"' \"$SB/home/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json\""
+  fi
   chk "the locked aside is named at install time" "grep -q 'could not remove the leftover hidden folder' \"$SB/deep.log\""
   KOSMOS_HOME="$SB/home19" "$SB/bin19/kosmos" stop > /dev/null 2>&1 || true
   # ⚠️ The lock STAYS for the uninstall. The first version of this pass

@@ -288,8 +288,28 @@ bundle_is_ours() {
   # link at this leaf would make the fallback read a file the bundle does
   # not own just as surely as a link at the executable would.
   [ ! -L "$1/Contents/Resources/kosmos-install.json" ] || return 1
+  # #5896 slice 2: the SEALED shape carries no per-install file at all (every per-install fact lives in the account's
+  # own Library), so its proof is its signature instead. Only a bundle with no such file is asked for it.
+  if [ ! -e "$1/Contents/Resources/kosmos-install.json" ]; then
+    bundle_is_sealed "$1"
+    return
+  fi
   [ -f "$1/Contents/Resources/kosmos-install.json" ] || return 1
   /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$1/Contents/Resources/kosmos-install.json" 2>/dev/null
+}
+
+# #5896 slice 2: is this the sealed Kosmos.app? Its signature must be valid and satisfy the designated requirement of
+# THIS install's own shipped copy ($KOSMOS_HOME/app/Kosmos.app), which carries the identifier and the signing team,
+# so the Team ID is never spelled here. Every account's sealed icon is the same app, so this proves "a Kosmos we
+# built", not "this install's": safe for REPLACING an icon (each account reads its own config), never enough for
+# deleting a shared one (uninstall leaves that). /usr/bin/codesign by absolute path, as /usr/bin/grep above.
+bundle_is_sealed() {
+  local ours="$KOSMOS_HOME/app/Kosmos.app" req
+  [ -d "$ours" ] && [ ! -L "$ours" ] || return 1
+  # An implicit requirement (the usual case, Developer ID or ad-hoc) prints as a comment: "# designated => ...".
+  req="$(/usr/bin/codesign -d -r- "$ours" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p')"
+  [ -n "$req" ] || return 1
+  /usr/bin/codesign --verify --deep --strict "-R=$req" "$1" >/dev/null 2>&1
 }
 
 # SYS_APP_DIR is overridable ONLY so the harness can drive the probe AND its
@@ -2045,7 +2065,11 @@ KOSMOS_SWEEP_LIST
       # The same anchored token as resolve_app_dir: the closing `}"` keeps
       # two homes in a prefix relationship from cross-matching, because
       # this grep is the sole gate on an rm -rf in a shared folder.
-      if bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then
+      if bundle_is_sealed "$SYS_APP_DIR/Kosmos.app"; then
+        # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
+        # using it, so a shared one is left in place and named.
+        info "note: the Kosmos app in $SYS_APP_DIR is the one every account on this Mac opens, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+      elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then
         info "removing the Kosmos app from $SYS_APP_DIR"
         # A standard user cannot always delete from /Applications; an icon
         # that survives is NAMED, never silently skipped. The flag feeds
@@ -3441,7 +3465,7 @@ make_app() {
   # the planter is already an admin, so this is hardening rather than a
   # live hole; it costs one word.)
   /bin/mkdir "$stage" 2>/dev/null || return 1
-  if ! build_app_bundle "$stage"; then
+  if ! app_bundle_into "$stage"; then
     rm -rf "$stage" 2>/dev/null || true
     return 1
   fi
@@ -3545,6 +3569,21 @@ write_install_config() {
   printf '{"kosmosHome":"%s","ownerUid":%s,"port":%s}' \
     "$KOSMOS_HOME" "$owner_uid" "$PORT" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
   mv -f "$tmp" "$INSTALL_CONFIG_DIR/kosmos-install.json" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+# #5896 slice 2: the sealed, signed Kosmos.app the build shipped, copied as it is, when this install wrote the
+# account's own config (_wic_rc 0, from write_install_config before the icon step): that file is the only thing that
+# tells the sealed app which install it opens. Otherwise (a sandbox, a custom-home install with the real home, a
+# failed write, a tarball without the sealed app) the per-install bundle is built exactly as before.
+app_bundle_into() {
+  local src="$KOSMOS_HOME/app/Kosmos.app"
+  if [ "${_wic_rc:-1}" = 0 ] && [ -d "$src" ] && [ ! -L "$src" ] \
+     && /usr/bin/codesign --verify --deep --strict "$src" >/dev/null 2>&1; then
+    /usr/bin/ditto "$src" "$1" || return 1
+    /usr/bin/codesign --verify --deep --strict "$1" >/dev/null 2>&1 || return 1
+    return 0
+  fi
+  build_app_bundle "$1"
 }
 
 build_app_bundle() {
