@@ -590,6 +590,9 @@ function decline(sessionName) {
  * returns before any file is touched; a far-behind one costs finding its file (fileFor reads its job record) and one
  * stat per poll. Entries are not pruned when an agent is removed: one small entry per name, and a re-created agent of
  * the same name has a new file and profile, so it is recomputed.
+ * The NUMBER is the recorded gap (what Kosmos last wrote into the file); if the person edited a later block in by hand,
+ * the file may be closer than that while the page still offers the update. The page's note gives no number, so the two
+ * never disagree on whether to update, only the count can overstate.
  * `profile` is the row's own read, passed in so the card does not read it twice. Never throws.
  */
 const RULES_FAR_BEHIND = 5;
