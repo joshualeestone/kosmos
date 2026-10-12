@@ -2003,7 +2003,7 @@ function limitReleased(card) {
    with no date never holds (slice 1's stated gap), so it releases the backlog too, as it lets a fresh send through. */
 function limitQueueReleased(card, roster) {
   /* #5948: a signed-out agent keeps its queue until it is signed in again, whatever else its card reads. */
-  try { if (card && signinHeldVerdict(card.sessionName, roster) !== null) return false; } catch { /* as the send gates do: a fault never holds */ }
+  try { if (card && module.exports.signinHeldVerdict(card.sessionName, roster) !== null) return false; } catch { /* as the send gates do: a fault never holds */ }
   if (limitReleased(card)) return true;
   try { return !!card && limitHeldVerdict(card.sessionName, roster) === null; } catch { return false; }
 }
