@@ -96,7 +96,7 @@ _bcm_covering() {
     changed="$(printf '%s\n' "$changed" | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' 2>/dev/null || true)"
   fi
   [ -n "$changed" ] || return 0
-  # #5907: every check in one pass (bc_surface_scan_checks, the gate's own scan): a HIT is covering, a MISS is not, and
+  # #5907: every check in one pass (bc_surface_scan_checks, the scan shared with the gate): a HIT is covering, a MISS is not, and
   # only a SLOW check (a non-plain token first, or a key line the scan's C-locale match refuses) is read the original
   # way, token by token. If the scan cannot run, every check is read that way, as before.
   local scan verdict _hit ann   # _hit: the scan's token, not needed here

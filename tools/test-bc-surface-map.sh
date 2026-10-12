@@ -202,6 +202,14 @@ for _in in "$TMP/wd-parent" "$TMP/ids-two"; do
   [ "$_scan" = "$_fall" ] && [ "$_scan" != "rc=0" ] || { fail "covering: the fallback answered '$_fall' where the scan path answered '$_scan' (${_in##*/})"; _fbok=0; }
 done
 [ "$_fbok" -eq 1 ] && pass "covering: the fallback (scan unable to run) answers exactly as the scan path, on a diff and an id list"
+# And the scan path is really the one covering takes by default: the scan itself runs here and finds the pj-parent HIT,
+# so a scan that always failed (every query back on the slow path, still right) goes red here.
+_scanout="$(bash -c '. "$1" && bc_surface_scan_checks "$2" "$3"' _ "$HERE/lib/browser-check-surface-lib.sh" "$HERE/../docs/browser-checks" "$(cat "$TMP/wd-parent")" 2>/dev/null)"; _scanrc=$?
+if [ "$_scanrc" -eq 0 ] && printf '%s\n' "$_scanout" | grep -q "render-subprojects-1994.js${TAB_CHAR:-	}HIT"; then
+  pass "covering: the one-pass scan runs (rc 0) and finds the pj-parent HIT itself"
+else
+  fail "covering: the one-pass scan did not run or did not find the pj-parent HIT (rc=$_scanrc), so covering is on the slow path"
+fi
 
 echo "bc-surface-map: $fails FAILED"
 [ "$fails" -eq 0 ]
