@@ -9,6 +9,8 @@ require('./test-support/tmpscope');   // #4273: this file's temp dirs are remove
  *   - PUT /api/agent/:name/instructions   the text saves; the rename does not, and the reply says why (nameKept)
  *   - create.createAgent (POST /api/agents, POST /api/team, the setup guide)   refused at the name field, nothing made
  * Each with a control that a free name (or the agent's own) still works, so a refusal of everything cannot pass.
+ * Plus the fleet's second source (created agents that are not running) and both connect paths.
+ * ⚠️ The tests run IN ORDER and build on each other: the renames in one are the names the next one expects.
  *
  *   node --test server.dupname-5957.test.js
  */
@@ -59,6 +61,7 @@ const send = (method, p, body) => fetch(base + p, {
   method, headers: { 'content-type': 'application/json', origin: base }, body: body === undefined ? undefined : JSON.stringify(body),
 });
 const shownOf = (s) => store.readProfile(s).displayName;
+const removedFile = () => path.join(store.ROOT, 'removed.json');
 
 test('fixture: both agents are on the board under their display names', async () => {
   const res = await fetch(base + '/api/status');
@@ -118,4 +121,46 @@ test('#5957: creating an agent under a name another agent has is refused at the 
   // Control: a free name is not refused for its name.
   const free = await create.createAgent({ name: 'Brand New', role: 'ea' });
   assert.doesNotMatch(String(free.because || ''), /already an agent called/);
+});
+
+test('#5957: a created agent that is not running still holds its name; a REMOVED one does not', async (t) => {
+  /* createdKeys() is the board's list of agents Kosmos created, running or not, and it includes removed ones (for
+     Restore). Stub it with one stopped agent and one removed agent, as the plist source would report them. */
+  const status = require('./engine/status');
+  for (const [key, shown] of [['sleepy', 'Sleepy'], ['gone', 'Gone Girl']]) {
+    fs.mkdirSync(create.workerDir(key), { recursive: true });
+    store.writeProfile(key, { provider: 'anthropic', displayName: shown });
+  }
+  fs.writeFileSync(removedFile(), JSON.stringify([{ name: 'gone', removedAt: '2026-10-12T00:00:00.000Z' }]));
+  status.setCreatedSource(() => ['sleepy', 'gone']);
+  t.after(() => { status.setCreatedSource(null); fs.rmSync(removedFile(), { force: true }); });
+
+  const res = await send('PUT', '/api/agent/other/profile', { displayName: 'SLEEPY' });
+  assert.equal(res.status, 400, 'a stopped agent\'s name was free');
+  assert.equal((await res.json()).error, 'there is already an agent called Sleepy (@sleepy). Pick another name, or rename that one first.');
+
+  const ok = await send('PUT', '/api/agent/other/profile', { displayName: 'Gone Girl' });
+  assert.equal(ok.status, 200, 'a removed agent still held its name: ' + JSON.stringify(await ok.clone().json()));
+  assert.equal(shownOf('other'), 'Gone Girl');
+});
+
+test('#5957: connecting a folder under a name another agent has is refused, on both connect paths', () => {
+  const discover = require('./engine/discover');
+  /* registerOnly: a folder with no instructions, named by the person. */
+  const bare = mk('bare-folder');
+  const r1 = discover.connect(bare, { name: 'Ge Mini' });
+  assert.equal(r1.ok, false);
+  assert.equal(r1.because, 'there is already an agent called GEMINI (@gemini). Pick another name, or rename that one first.');
+  assert.equal(store.readProfile('Ge Mini').dir, undefined, 'a refused connect recorded the folder');
+
+  /* connect: a folder whose own instructions name the agent. */
+  const named = mk('newbie');
+  fs.writeFileSync(path.join(named, 'CLAUDE.md'), '# x\n\nYou are **Gemini**, an assistant.\n');
+  const r2 = discover.connect(named, {});
+  assert.equal(r2.ok, false);
+  assert.match(String(r2.because), /^there is already an agent called GEMINI \(@gemini\)/);
+
+  // Control: the same bare folder under a free name is not refused for its name.
+  const r3 = discover.connect(bare, { name: 'freshname' });
+  assert.doesNotMatch(String(r3.because || ''), /already an agent called/);
 });

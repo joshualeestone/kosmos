@@ -14512,10 +14512,11 @@ const server = http.createServer(async (req, res) => {
           clean.displayName = patch.displayName.trim().slice(0, 80);
           /* kosmos#5957: a name another agent answers to is refused before anything is written; the agent's own
              names never clash with it (a change of capitals is a rename to itself). */
-          const taken = require('./engine/agentnames').refusalFor(clean.displayName, { except: name });
+          const agentnames = require('./engine/agentnames');
+          const taken = agentnames.refusalFor(clean.displayName, { except: name });
           if (taken) {
             const body = { error: taken };
-            if (taken !== require('./engine/agentnames').COULD_NOT_CHECK) body.field = 'displayName';
+            if (taken !== agentnames.COULD_NOT_CHECK) body.field = 'displayName';
             sendJson(res, 400, body);
             return;
           }
@@ -21870,16 +21871,19 @@ function start(port = PORT) {
   /* kosmos#5957: the names already in use, for engine/agentnames.js. Every agent the board shows (the roster's own
      agents, by display name) plus every agent Kosmos created that is not running (createdKeys, stopped ones too), named
      the way the board names them. A roster that cannot be read THROWS, so a create or rename refuses rather than
-     passing a name nobody could check. Removed agents are not in it (restore keeps its own checks). Windows has no
-     created source yet, so there a stopped agent's name is not seen until it runs (the win32 follow-up of #1078). */
+     passing a name nobody could check. Removed agents are taken OUT here (createdKeys includes them for Restore, and
+     a person cannot rename an agent the board does not show); create's removed-list refusal still covers a removed
+     agent's handle. Windows has no created source yet, so there a stopped agent's name is not seen until it runs
+     (the win32 follow-up of #1078). */
   require('./engine/agentnames').setFleetSource(() => {
     const roster = safeRoster();
     if (!Array.isArray(roster)) throw new Error('the roster could not be read');
     const status = require('./engine/status');
+    const gone = new Set(removal.removedAgents().map((r) => r && r.name));
     const named = new Map();
     for (const a of roster) if (a && a.isNamedOurs === true && a.sessionName) named.set(a.sessionName, a.name || a.sessionName);
     for (const key of status.createdKeys()) {
-      if (named.has(key)) continue;
+      if (named.has(key) || gone.has(key)) continue;
       let shown = key;
       try { shown = status.readIdentity(key).displayName || key; } catch { /* the handle still counts */ }
       named.set(key, shown);
