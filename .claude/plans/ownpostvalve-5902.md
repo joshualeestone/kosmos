@@ -1,8 +1,7 @@
 # ownpostvalve-5902: a person's post from their own other computer releases a held room
 
-Card kosmos#5902 (filed by Mona Lisa in review of #5732). Branch `ownpostvalve-5902`, STACKED on
-`ownroomnudge-on-5732` (#5732, unmerged), because it builds on that branch's `ownPostNudges` and
-`nudgeOwnComputerPost`. Rebase onto main once #5732 merges.
+Card kosmos#5902 (filed by Mona Lisa in review of #5732). Branch `ownpostvalve-5902`, built on
+`ownroomnudge-on-5732` (#5732) and rebased onto main after #5919 merged (2026-10-12 10:52 UTC).
 
 ## Why
 roomHeldRead counts the valve from the last operator post or reopen. A post from the same person on another of their
@@ -84,4 +83,4 @@ held.
 - Confirmed the rewritten #2710 sentence matches the code.
 - **NITs, not taken:** the id regex (decided in review 1; ids come from fedseats); `from: 'you'` on the reopen row (it
   is never rendered, and `reason: 'own-computer'` tells the two apart in the log).
-- NEXT: once #5732 (ownroomnudge-on-5732) merges, rebase onto main, full suite, proof, PR.
+- Rebased onto main after #5919 merged: clean, related suites 412/412 on the new base. Full suite next.
