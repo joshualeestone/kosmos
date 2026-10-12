@@ -38226,7 +38226,7 @@ function paintTalkThread(body, name) {
   DM_ROWS_NAME = name;
   DM_ROWS_OLDER = CURRENT && earlierOn(CURRENT.sessionName) ? EARLIER.before : (Number(body.olderCount) || 0);   // kosmos#5841
   DM_ROWS_OLDEST = null;
-  for (const r of allRows) if (r && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;
+  for (const r of allRows) if (r && r.kind !== 'question' && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;   // #5943: the dated question is not a stored row
   dmReplyPaint(DM_ROWS_OF);
   convPaint();   // #5624 review 1: the toggle follows the agent on screen, whatever this paint shows
   if (TALK_QUERY && String(TALK_QUERY).trim()) convPause();   // #5624 review 4: any search, a no-match one too

@@ -16331,7 +16331,10 @@ const server = http.createServer(async (req, res) => {
        time instead of under every later message, and the person may clear it from the bubble (clear-selfreport, the
        same route as the Engineering-mode control). A question only read off the screen has neither. */
     let questionRow = question;
-    if (question && card && card.stateReported === true) {
+    /* Review 1: only when the question SERVED is the reported one. A question read off the screen (a permission
+       menu, a later prompt) wins over the report and is answered on that screen: it stays undated, last, and has no
+       clear button, even while some report stands. */
+    if (question && question === reportedQuestion && card && card.stateReported === true) {
       let askedAt = null;
       try { const rep = selfreport.read(card.sessionName); askedAt = rep && rep.found ? rep.askedAt : null; } catch { askedAt = null; }
       questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
@@ -16734,10 +16737,23 @@ const server = http.createServer(async (req, res) => {
            it (clear it, or leave it open and say what it still needs). Rides with the reaction note, under the same rule
            (never on a numbered menu answer), and never on the automatic hello, which answers nothing. Only a question
            the agent REPORTED: one read off its screen is answered by this message going into that screen. */
-        const questionNote = (!automatic && chat.dmNoteMayRide(body.text, chose) && askingCard
+        /* Review 1: never for a permission wait the hook filed (it is answered on the screen, not cleared), never while
+           a question stands on the screen itself, and ONCE per ask (keyed on when it was asked), recorded only once the
+           message is placed, like the reactions: a person chatting about other things is not asked again and again. */
+        let questionNote = '';
+        let questionAsk = null;
+        if (!automatic && chat.dmNoteMayRide(body.text, chose) && askingCard
           && askingCard.state === STATE.NEEDS_YOU && askingCard.stateReported === true
-          && typeof askingCard.because === 'string' && askingCard.because !== ASKING_GENERIC)
-          ? chat.dmStandingQuestionNote(askingCard.because) : '';
+          && typeof askingCard.because === 'string' && askingCard.because !== ASKING_GENERIC
+          && !(seenNow && typeof seenNow.text === 'string' && chat.questionIn(seenNow.text, askingCard.runner))) {
+          let rep = null;
+          try { rep = selfreport.read(askingCard.sessionName); } catch { rep = null; }
+          if (rep && rep.found && rep.state === 'needs_you' && !selfreport.isAutoPermissionWait(rep) && rep.askedAt
+            && !chat.dmQuestionTold(askingCard.sessionName, rep.askedAt)) {
+            questionNote = chat.dmStandingQuestionNote(askingCard.because);
+            questionAsk = rep.askedAt;
+          }
+        }
         const reactionNote = news.note + questionNote;
         /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
@@ -16814,7 +16830,7 @@ const server = http.createServer(async (req, res) => {
             const at = new Date().toISOString();
             const signin = !!hold && hold.heldFor === 'signin';   // #5948: no reset to wait for, only a sign-in
             const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
-            const trailer = (attachments.wireNote(files.recs) || '') + reactionNote;
+            const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
             if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind })) {
               const heldDelivery = {
@@ -16874,6 +16890,7 @@ const server = http.createServer(async (req, res) => {
         if (news.note && delivery && delivery.state === chat.DELIVERY.PLACED) {   // #5943: the reactions' own part, not the question note riding with it
           chat.markDmReactionsTold(name, news.named);
         }
+        if (questionAsk && delivery && delivery.state === chat.DELIVERY.PLACED) chat.markDmQuestionTold(askingCard.sessionName, questionAsk);   // #5943: once per ask
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
