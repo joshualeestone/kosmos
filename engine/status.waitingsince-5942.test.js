@@ -1,16 +1,76 @@
 'use strict';
-require('../test-support/tmpscope');
-/* kosmos#5942: the card's waitingSince comes from the self-report's askedAt (#5943), and only a real time is kept. */
+/* kosmos#5942: the card's waitingSince comes from the self-report's askedAt (#5943), only while the report's own
+   state is the card's, and only a real time is kept. Both card paths (a pane card and a paneless one) carry it. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const status = require('./status');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
-test('kosmos#5942 waitingSinceFrom: a real askedAt is kept; missing, garbage and future are null', () => {
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-waitingsince-5942-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+const status = require('./status');
+const selfreport = require('./selfreport');
+const sendertoken = require('./sendertoken');
+const liveness = require('./liveness');
+const fleet = require('../test-support/fleet');
+
+const ASKED = '2026-10-01T10:00:00.000Z';
+
+test('kosmos#5942 waitingSinceFrom: kept only for the same state and a real time in the past', () => {
   const now = Date.parse('2026-10-12T16:00:00Z');
-  assert.equal(status.waitingSinceFrom({ found: true, askedAt: '2026-10-01T10:00:00Z' }, now), '2026-10-01T10:00:00.000Z');
-  assert.equal(status.waitingSinceFrom({ found: true }, now), null, 'no askedAt (before #5943, or not waiting)');
-  assert.equal(status.waitingSinceFrom({ found: true, askedAt: 'last week' }, now), null);
-  assert.equal(status.waitingSinceFrom({ found: true, askedAt: '2026-10-13T10:00:00Z' }, now), null, 'a time ahead of the clock is not a wait');
-  assert.equal(status.waitingSinceFrom({ found: false, askedAt: '2026-10-01T10:00:00Z' }, now), null, 'no report');
-  assert.equal(status.waitingSinceFrom(null, now), null);
+  const r = (over) => Object.assign({ found: true, state: 'needs_you', askedAt: ASKED }, over);
+  assert.equal(status.waitingSinceFrom(r(), 'needs_you', now), ASKED);
+  assert.equal(status.waitingSinceFrom(r({ state: 'blocked' }), 'blocked', now), ASKED);
+  assert.equal(status.waitingSinceFrom(r({ state: 'blocked' }), 'needs_you', now), null,
+    'a question read off the screen over an older blocked report is a different wait');
+  assert.equal(status.waitingSinceFrom(r({ askedAt: undefined }), 'needs_you', now), null, 'no askedAt (before #5943)');
+  assert.equal(status.waitingSinceFrom(r({ askedAt: 'last week' }), 'needs_you', now), null);
+  assert.equal(status.waitingSinceFrom(r({ askedAt: '2026-10-12T16:00:30Z' }), 'needs_you', now), null, 'ahead of the clock');
+  assert.equal(status.waitingSinceFrom(r({ found: false }), 'needs_you', now), null, 'no report');
+  assert.equal(status.waitingSinceFrom(null, 'needs_you', now), null);
+});
+
+/* The self-report on origin/main does not carry askedAt yet (#5943 adds it), so the read is wrapped to add it the way
+   #5943 will: on a waiting report only. Everything else on the board is real. */
+function withAskedAt(fn) {
+  const real = selfreport.read;
+  selfreport.read = function (name) {
+    const out = real.apply(this, arguments);
+    return out && out.found === true && (out.state === 'needs_you' || out.state === 'blocked') ? Object.assign({}, out, { askedAt: ASKED }) : out;
+  };
+  try { return fn(); } finally { selfreport.read = real; }
+}
+
+test('kosmos#5942: a pane card that is asking carries waitingSince; an idle one does not', () => {
+  assert.equal(selfreport.record('wsasker', { state: 'needs_you', because: 'a question for the person' }).recorded, true);
+  const cards = withAskedAt(() => {
+    const board = fleet.install([fleet.agent('wsasker', { state: 'needs_you' }), fleet.agent('wsidle', { state: 'idle' })]);
+    try { return board.agents; } finally { board.restore(); }
+  });
+  const asker = cards.find((c) => c.sessionName === 'wsasker');
+  assert.equal(asker.state, 'needs_you', 'PRE-CONTROL: the card is asking');
+  assert.equal(asker.waitingSince, ASKED);
+  assert.equal(cards.find((c) => c.sessionName === 'wsidle').waitingSince, null, 'CONTROL: not waiting, no time');
+});
+
+test('kosmos#5942: a paneless card that is asking carries waitingSince too', () => {
+  const tok = sendertoken.mint('wspaneless');
+  assert.ok(tok && tok.token, 'the fixture could not mint a token');
+  liveness.seen('wspaneless');
+  assert.equal(selfreport.record('wspaneless', { state: 'needs_you', because: 'a question for the person' }).recorded, true);
+  const cards = withAskedAt(() => {
+    const board = fleet.install([fleet.agent('wsmac', { state: 'working' })]);
+    try { return board.agents; } finally { board.restore(); }
+  });
+  const card = cards.find((c) => c.sessionName === 'wspaneless');
+  assert.ok(card, 'PRE-CONTROL: the paneless agent is on the board');
+  assert.equal(card.paneless, true, 'PRE-CONTROL: it is the paneless path');
+  assert.equal(card.state, 'needs_you');
+  assert.equal(card.waitingSince, ASKED);
 });

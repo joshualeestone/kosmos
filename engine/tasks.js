@@ -1727,6 +1727,8 @@ function waitingOnPerson(task, roster, members) {
  * kosmos#5942: since when this open task has needed the person, for the task list's "Waiting 12 days": the OLDEST
  * `waitingSince` among the cards that make waitingOnPerson true (the same holders and the same project rule), as an
  * ISO string, or null when none of them knows when its wait began. Null is shown as no age, never as "just now".
+ * A LOWER BOUND when holders disagree: a holder that never said when it began waiting adds nothing, so if it has
+ * waited longer the row reads younger than the truth, never older.
  */
 function waitingSinceOf(task, roster, members) {
   if (!task || progressOf(task).closed || !Array.isArray(roster)) return null;

@@ -843,6 +843,25 @@ function chk(ok, label, extra) {
         const wireBack = await page.evaluate(async () => { await tskLoad(); return { num: document.querySelector('#tsk-tiles [data-tile="decision"] .num').textContent, flag: TSK.rosterUnknown }; });
         chk(wire.num === '?' && wire.flag === true && wire.group && /cannot tell/.test(wire.group) && wireBack.num === '1' && wireBack.flag === false,
           `${tag} an unreadable roster from the route reaches the tile and its group through the page's own read, and a good read clears it`, JSON.stringify({ wire, wireBack }));
+        /* kosmos#5942: a decision row says how long it has waited. The route's own rows, with the one field #5943's
+           askedAt will fill (until it merges no card carries it), so the real row renders it through the real page. */
+        await page.route('**/api/tasks?view=tasks*', async (route) => {
+          const resp = await route.fetch();
+          const json = await resp.json();
+          const since = new Date(Date.now() - (12 * 86400 + 3600) * 1000).toISOString();
+          json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { waitingSince: since }) : t));
+          await route.fulfill({ response: resp, json });
+        });
+        const aged = await page.evaluate(async () => {
+          await tskLoad();
+          const lines = [...document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting')];
+          const shown = lines.filter((l) => l.getBoundingClientRect().height > 0);
+          return { n: lines.length, shown: shown.length, text: shown[0] ? shown[0].innerText.trim() : null };
+        });
+        await page.unroute('**/api/tasks?view=tasks*');
+        const agedBack = await page.evaluate(async () => { await tskLoad(); return document.querySelectorAll('#tsk-groups .tsk-row .tsk-waiting').length; });
+        chk(aged.n === 1 && aged.shown === 1 && aged.text === 'Waiting on you for 12 days' && agedBack === 0,
+          `${tag} a decision row says how long it has waited on you, and says nothing with no known start (#5942)`, JSON.stringify({ aged, agedBack }));
         await page.fill('#tsk-search', 'podcast');
         /* Its own clear button: shown with text, clears and hides again. */
         const clr = await page.evaluate(() => !document.getElementById('tsk-qclear').hidden);

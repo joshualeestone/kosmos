@@ -3174,21 +3174,25 @@ function freshestActivity(name, opts) {
  * waiting report's OWN beat (the route pins it to the report's `at`), so a
  * just-filed needs_you never self-triggers a false "still working".
  */
-/**
- * kosmos#5942: when the standing wait began, for the task list's "Waiting 12 days". The self-report's `askedAt`
- * (#5943: the first of the trailing run of identical waiting reports, so re-reporting the same question does not
- * re-date it). A missing, unparseable or future value is null, never a guess: the screen then shows no age.
- */
-function waitingSinceFrom(waitReport, nowMs = Date.now()) {
-  if (!waitReport || waitReport.found !== true || typeof waitReport.askedAt !== 'string') return null;
-  const at = Date.parse(waitReport.askedAt);
-  return Number.isFinite(at) && at <= nowMs + 60000 ? new Date(at).toISOString() : null;
-}
 function activeWhileWaitingFrom(state, freshest, askedAtMs) {
   if (state !== STATE.NEEDS_YOU && state !== STATE.BLOCKED) return false;
   if (!freshest) return false;
   if (freshest.source === 'pane') return true;
   return Number.isFinite(askedAtMs) && freshest.atMs > askedAtMs;
+}
+
+/**
+ * kosmos#5942: when the standing wait began, for the task list's "Waiting on you for 12 days". The self-report's
+ * `askedAt` (#5943: the first of the trailing run of identical waiting reports, so re-reporting the same question
+ * does not re-date it). Kept only when the report's own state is the card's state: a question read off the screen
+ * over an older blocked report is a different wait, and its start is not known. A missing, unparseable or future
+ * value is null too, never a guess: the screen then shows no age.
+ */
+function waitingSinceFrom(waitReport, cardState, nowMs = Date.now()) {
+  if (!waitReport || waitReport.found !== true || typeof waitReport.askedAt !== 'string') return null;
+  if (waitReport.state !== cardState) return null;
+  const at = Date.parse(waitReport.askedAt);
+  return Number.isFinite(at) && at <= nowMs ? new Date(at).toISOString() : null;
 }
 
 /**
@@ -8167,7 +8171,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     const waitReport = selfreport.read(key);
     const fresh = freshestActivity(key, { nowMs, paneWorking: false });
     activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
-    waitingSince = waitingSinceFrom(waitReport);
+    waitingSince = waitingSinceFrom(waitReport, status.state, nowMs);
   }
   return {
     name: identity.displayName,
@@ -8860,7 +8864,7 @@ function snapshot() {
         paneWorking: scrapedStatus.state === STATE.WORKING,
       });
       activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
-      waitingSince = waitingSinceFrom(waitReport);
+      waitingSince = waitingSinceFrom(waitReport, status.state, now);
     }
     /* Read once: the card carries it, and #3564's swarm field is computed from it. */
     const rowProfile = tied ? store.readProfile(pane.name) : null;
@@ -9331,7 +9335,8 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
   return null;
 }
 
-module.exports = { waitingSinceFrom,
+module.exports = {
+  waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number
   waitingBadgeOn, // #4025: the switch for it
   /* #1500: exported so discover.foundCodex can honour the same refusal.
