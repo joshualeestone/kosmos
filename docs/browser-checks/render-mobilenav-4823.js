@@ -105,6 +105,10 @@ const settled = (page) => page.waitForFunction(() => {
     && document.getAnimations().filter((a) => a.playState === 'running' && a.effect && a.effect.target && n.contains(a.effect.target)).length === 0;
 }, null, { timeout: 5000 }).then(() => true, () => { unsettled++; return false; });
 let unsettled = 0;   // a wait that timed out is reported, never swallowed (review round 2)
+// kosmos#5921: a proxied request aborted while its page was still open, and a teardown call that failed, are counted
+// and checked at the end, so neither can pass silently; neither replaces an arm's own error.
+let abortedLive = 0;
+const teardownFails = [];
 
 (async () => {
   fleet.install([
@@ -134,21 +138,25 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
     const shut = async (ctx, page) => {
       await unroute(ctx, page);
       live.delete(ctx);
-      await ctx.close().catch((e) => console.log('teardown: ctx.close failed: ' + (e && e.message)));
+      await ctx.close().catch((e) => teardownFails.push('ctx.close: ' + (e && e.message)));
     };
     const open = async (host, theme, opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 430, height: 932 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' }, opts || {}));
       if (engine === 'webkit' && host === 'remote.test') {
         // remote.test answered by the same board on loopback; the Host header stays remote.test, which the board accepts.
         // Self-contained (kosmos#5921): this route outlives the page at teardown, so a fetch or fulfil it cannot finish
-        // (the page closed under it) aborts that one request instead of throwing where nothing catches it. During the
-        // arms an abort is a failed request the page and its assertions see, never a silent pass.
+        // (the page closed under it) aborts that one request instead of throwing where nothing catches it. An abort
+        // while the page is still open is counted, and the end of the run fails on any.
         await ctx.route(/^http:\/\/remote\.test(:\d+)?\//, async (r) => {
           try {
             const u = new URL(r.request().url());
             const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
             return await r.fulfill({ response: res });
-          } catch { return r.abort().catch(() => {}); }
+          } catch {
+            const pg = live.get(ctx);
+            if (pg && !pg.isClosed()) abortedLive++;
+            return r.abort().catch(() => {});
+          }
         });
       }
       const page = await ctx.newPage();
@@ -385,11 +393,13 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
       }
     } finally {
       for (const [ctx, page] of live) await unroute(ctx, page);
-      await browser.close().catch((e) => console.log('teardown: browser.close failed: ' + (e && e.message)));   // said, never replacing the arm's error
+      await browser.close().catch((e) => teardownFails.push('browser.close: ' + (e && e.message)));
     }
   }
   chk(errs.length === 0, 'no page errors', JSON.stringify(errs.slice(0, 3)));
   chk(unsettled === 0, 'every wait for the menu to settle settled', String(unsettled));
+  chk(abortedLive === 0, 'no proxied remote.test request failed while its page was open (kosmos#5921)', String(abortedLive));
+  chk(teardownFails.length === 0, 'every context and browser closed cleanly (kosmos#5921)', JSON.stringify(teardownFails));
   server.close();
   for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   console.log(`\nrender-mobilenav-4823: ${pass} passed, ${fail.length} failed`);
