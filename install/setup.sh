@@ -318,7 +318,8 @@ bundle_is_ours() {
 # so the Team ID is never spelled here. Every account's sealed icon is the same app, so this proves "a Kosmos we
 # built", not "this install's": safe for REPLACING an icon (each account reads its own config), never enough for
 # deleting one in the SHARED folder (uninstall leaves that). In the person's own ~/Applications an uninstall may
-# remove it: an account has one install (one config file in its Library), so its own icon there is that install's. /usr/bin/codesign by absolute path, as /usr/bin/grep above.
+# remove it: an account has one install (one config file in its Library), so its own icon there is that install's.
+# /usr/bin/codesign by absolute path, as /usr/bin/grep above.
 sealed_requirement() {
   local ours="$KOSMOS_HOME/app/Kosmos.app"
   [ -d "$ours" ] && [ ! -L "$ours" ] || return 1
@@ -413,6 +414,10 @@ resolve_app_dir() {
   if { [ -e "$SYS_APP_DIR/Kosmos.app" ] || [ -L "$SYS_APP_DIR/Kosmos.app" ]; } \
      && ! bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then
     APP_OTHER_OWNER=yes
+    # #5896 slice 2: the occupant may be THIS account's own sealed icon, refused only because this run cannot place the
+    # sealed app (its config could not be saved where the app looks). The transcript says that, not "something else".
+    APP_OWN_SEALED=no
+    if [ ! -L "$SYS_APP_DIR/Kosmos.app" ] && bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then APP_OWN_SEALED=yes; fi
     # ⚠️ THE DIVERT ITSELF NEEDS THE ALIASING GUARD. "Send the icon to the
     # per-user folder instead" is only an escape if the per-user folder is
     # a DIFFERENT folder: with ~/Applications symlinked to the system one,
@@ -2093,7 +2098,7 @@ KOSMOS_SWEEP_LIST
       if [ ! -L "$SYS_APP_DIR/Kosmos.app" ] && bundle_is_sealed "$SYS_APP_DIR/Kosmos.app"; then
         # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
         # using it, so a shared one is left in place and named.
-        info "note: the Kosmos app in $SYS_APP_DIR is the one every account on this computer opens, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+        info "note: the Kosmos app in $SYS_APP_DIR is the one every account on this computer opens, so it was left in place (it no longer opens anything for this account); drag it to the Trash if no one else here uses Kosmos."
       elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app" remove; then
         info "removing the Kosmos app from $SYS_APP_DIR"
         # A standard user cannot always delete from /Applications; an icon
@@ -3929,8 +3934,13 @@ if [ "$APP_MADE" = "yes" ]; then
       # by this install" covers another account's Kosmos AND a third-party
       # app carrying the name, where "another account has Kosmos" would
       # assert something never established.
-      info "something else already has the Kosmos spot in Applications, so yours went to the"
-      info "Applications folder inside your home folder, as Kosmos (or type Kosmos into Spotlight)"
+      if [ "${APP_OWN_SEALED:-no}" = yes ]; then
+        info "your Kosmos icon is already in Applications, but this install could not save where it lives for that"
+        info "icon, so this install's icon went to the Applications folder inside your home folder, as Kosmos"
+      else
+        info "something else already has the Kosmos spot in Applications, so yours went to the"
+        info "Applications folder inside your home folder, as Kosmos (or type Kosmos into Spotlight)"
+      fi
     else
       info "you will find it in the Applications folder inside your home folder, as Kosmos"
       info "(or type Kosmos into Spotlight)"
