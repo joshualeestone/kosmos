@@ -3492,7 +3492,7 @@ test('#5732: each member agent gets ONE line naming the room, with no post text,
     const r = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', row.id, MEMBERS, board.agents);
     assert.equal(r.ok, true);
     assert.deepEqual(r.nudged.map((n) => n.to).sort(), MEMBERS.slice().sort(), 'not every member agent was told');
-    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('from your other computer'));
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('other computer is in the room'));
     assert.equal(typed.length, MEMBERS.length, 'not one line per member');
     assert.match(typed[0], /read it with: kosmos room henderson-lease/);
     assert.ok(typed.every((t) => !t.includes('SECRET-WORDS')), 'the post\'s own words reached a pane');
@@ -3513,14 +3513,14 @@ test('#5732: a burst of posts is one line per agent until the gap passes; only t
     assert.deepEqual(again.nudged, [], 'a second post inside the gap typed another line');
     const later = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-3', ['mara'], board.agents, t0 + messages.OWN_POST_NUDGE_GAP_MS + 1);
     assert.deepEqual(later.nudged.map((n) => n.to), ['mara'], 'after the gap the agent was not told again');
-    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('from your other computer'));
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('other computer is in the room'));
     assert.equal(typed.length, 2);
     // leo and april are not members here: nothing reaches them
     assert.ok(messages.record().rows.filter((m) => m.kind === 'nudge').every((m) => m.to === 'mara'));
   });
 });
 
-test('#5732: only a person\'s own post nudges, on by default, off with KOSMOS_OWN_ROOM_NUDGE=0 (run, not read)', () => {
+test('#5732: only a person\'s own post nudges, on by default, off with KOSMOS_OWN_ROOM_NUDGE=0 (the rule run; the server wrapper read as source)', () => {
   const own = { sameAccount: true, fromKind: 'person', text: 'x' };
   assert.equal(messages.ownPostNudges(own, {}), true, 'on by default');
   assert.equal(messages.ownPostNudges(own, { KOSMOS_OWN_ROOM_NUDGE: '1' }), true);
@@ -3554,6 +3554,30 @@ test('#5732: an agent switched off in the project is not woken by the nudge; the
   } finally { projects.setSwarmOn(pid, 'april', true); }
 });
 
+test('#5732: a paused or archived project nudges nobody, as every other automatic nudge', () => {
+  const projects = require('./projects');
+  const made = projects.create({ name: 'Own Nudge Paused' });
+  const pid = made.id || (made.project && made.project.id);
+  const set = (field, v) => projects.mutate(pid, (p) => { p[field] = v; return p; });
+  try {
+    withFleet(room3(), (board) => {
+      for (const field of ['paused', 'archived']) {
+        set(field, true);
+        messages._resetOwnPostNudgesForTests();
+        const tmux = arm([]);
+        const r = messages.nudgeOwnComputerPost(pid, 'Own Nudge Paused', 'x-' + field, MEMBERS, board.agents);
+        assert.deepEqual(r.nudged, [], 'a ' + field + ' project woke its agents');
+        assert.equal(tmux.sends().length, 0);
+        set(field, false);
+      }
+      messages._resetOwnPostNudgesForTests();
+      arm([]);
+      const ctl = messages.nudgeOwnComputerPost(pid, 'Own Nudge Paused', 'x-live', MEMBERS, board.agents);
+      assert.equal(ctl.nudged.length, MEMBERS.length, 'CONTROL: the same project, live, nudges its agents');
+    });
+  } finally { set('paused', false); set('archived', false); }
+});
+
 test('#5732: a room the valve holds nudges nobody (a reply could not be posted there)', () => {
   withFleet(room3(), (board) => {
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -3568,7 +3592,7 @@ test('#5732: a room the valve holds nudges nobody (a reply could not be posted t
     const r = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', 'x-held', MEMBERS, board.agents);
     assert.equal(r.held, true);
     assert.deepEqual(r.nudged, []);
-    assert.equal(tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('from your other computer')).length, 0, 'typed into a held room');
+    assert.equal(tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('other computer is in the room')).length, 0, 'typed into a held room');
   });
 });
 

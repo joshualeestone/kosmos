@@ -75,6 +75,6 @@ test('#5732 CONTROL: an idle Claude agent is nudged, with no post text in the li
     const r = messages.nudgeOwnComputerPost('p1', 'Plans', 'post-1', ['casey'], board.agents, Date.now());
     assert.equal(r.nudged.length, 1, JSON.stringify(r));
     const typed = calls.typed().map((a) => a.join(' ')).join('\n');
-    assert.match(typed, /a new post from your other computer is in the room Plans; read it with: kosmos room p1/);
+    assert.match(typed, /a new post from the person\u2019s other computer is in the room Plans; read it with: kosmos room p1/);
   } finally { chat.resetForTests(); board.restore(); }
 });
