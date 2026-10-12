@@ -1491,6 +1491,7 @@ async function tellHeldDropped(entry, roster) {
 function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
   let behindNow = false;
+  let signinNow = false;   // #5948: decided on a sign-in hold, for the catch below
   try {
     const limitqueue = require('./limitqueue');
     /* The delivery's free refusals first: a line it refuses whenever it is typed (not sendable, the agent not
@@ -1513,6 +1514,7 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     decided = true;
     const behind = hold.behind === true;
     behindNow = behind;
+    signinNow = !behind && hold.heldFor === 'signin';
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
     const id = 'k' + crypto.randomBytes(6).toString('hex');
@@ -1528,7 +1530,7 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     // heldReceipt is `kosmos msg`'s answer (could_not, held: true); the task route reports the row state instead.
     return { ...heldReceipt(toName, id, at, until, false, behind, hold.heldFor === 'signin'), state: HELD_STATE };
   } catch {
-    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? ' still has messages kept from while it was out of usage' : ' is out of usage')
+    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? ' still has messages kept from while it was out of usage' : signinNow ? ' is signed out' : ' is out of usage')
       + ', and Kosmos could not keep this one for it, so it was not told' } : null;
   }
 }

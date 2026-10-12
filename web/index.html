@@ -58536,6 +58536,10 @@ function wakeHeldLine(manualText, delivery) {
   if (delivery && delivery.heldBy === 'menu') {
     return manualText + ' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.';
   }
+  // #5948: held because its sign-in stopped working (heldBy stays 'limit'; heldFor says why). No reset to name.
+  if (delivery && delivery.heldFor === 'signin') {
+    return manualText + ' It is signed out, so Kosmos sent nothing. Sign it in again and Kosmos sends it then.';
+  }
   /* #5805: held because this Claude agent is out of usage. The time is the printed reset (limitReset) while it is
      ahead; heldUntil may be only the next look after it, so it is not used here. */
   if (delivery && delivery.heldBy === 'limit') {
@@ -63121,7 +63125,8 @@ async function tkSayPost() {
             const at = Date.parse(d.heldUntil || '');
             const until = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
             // "will try": a kept line can still be dropped a day after the reset (recording that is #5842's second slice).
-            lines.push(until ? lead + ' is out of usage until ' + until + '. Kosmos will try to send your message to ' + who + ' after that.'
+            lines.push(d.heldFor === 'signin' ? lead + ' is signed out. Kosmos will try to send your message to ' + who + ' once it is signed in again.'   // #5948
+              : until ? lead + ' is out of usage until ' + until + '. Kosmos will try to send your message to ' + who + ' after that.'
               : /still has messages kept/.test(why) ? 'Kosmos will try to send your message to ' + who + ' after the ones already waiting for it.'
               : 'Kosmos is keeping your message and will try to send it to ' + who + ' later.');   // no time known: claim nothing more
           } else lines.push('Kosmos could not confirm that ' + who + ' got it.');

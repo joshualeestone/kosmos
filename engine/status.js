@@ -7481,7 +7481,7 @@ function providerAuthReport(reported) {
 }
 
 // #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
-function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
+function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
      never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
@@ -7517,7 +7517,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
         conflict: 'the account sign-in currently reads valid, but its screen is still producing new Claude sign-in rejections, so a live rejection loop is running' + saidWords(reported, nowMs),
       };
     }
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
+    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
   /* #4006: a restart that did NOT come back (disruption.fail). Not "restarting" and not a quiet
@@ -7772,7 +7772,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        (rate_limit)", the #3723 case in Claude's words: it says the turn hit the limit, so it cannot outrank the screen
        that says so, and the card keeps its dated limit line (the usage-limit hold reads it). */
     if (freshRl && !autoOverCodexLimit && !providerLimitReport(reported)) {
-      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
+      const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
     return { ...scraped, reported: false, conflict: 'its screen shows it has hit a usage limit, which its reports cannot know about' + saidWords(reported, nowMs) };
@@ -7967,7 +7967,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        (chat.withAccountRow) and the manager notice (accountnotify) say so, and messages are held (chat.signinHeldVerdict).
        Claude Code's StopFailure hook writes it on an authentication_failed turn; a Windows per-turn supervisor writes
        the same line, with the vendor's own sentence in `because`, when its CLI answers "Not signed in". */
-    if (providerAuthReport(reported)) {
+    if (runner && runner !== 'claude' && providerAuthReport(reported)) {
       const said0 = typeof reported.because === 'string' && reported.because.trim() ? reported.because.trim() : null;
       return {
         state: STATE.AUTH_FAILED, confidence: CONFIDENCE.STRUCTURED, because: 'its sign-in is not working',
@@ -8515,7 +8515,7 @@ function snapshot() {
     }
     const status = reconcileReport(
       isNamedOurs(pane) ? selfreport.read(pane.name) : { found: false },
-      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh);
+      scrapedStatus, now, liveAuth, disruptionRec, codexLiveAuth, activityFresh, pane.runner || null);
     /* #2019 forward self-heal (challenge iter 2): a disruption record on file
        but a reconciled state that is a confident LIVE reading means the restart
        COMPLETED -- drop the record now rather than waiting out the window. This

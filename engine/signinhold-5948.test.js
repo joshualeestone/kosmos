@@ -76,8 +76,8 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
 
 /* leo sends; casey is the recipient, signed out through the seam (signedOut) or not. The fleet is installed twice:
    once to learn casey's board name for the report, then again so the card is read with the report in place. */
-async function withFleet(signedOut, fn) {
-  const specs = (st) => [fleet.agent('leo', { state: 'idle' }), fleet.agent('casey', { state: st, runner: 'claude', command: 'claude', screen: IDLE_SCREEN })];
+async function withFleet(signedOut, fn, runner = 'grok') {
+  const specs = (st) => [fleet.agent('leo', { state: 'idle' }), fleet.agent('casey', { state: st, runner, command: runner, screen: IDLE_SCREEN })];
   const first = fleet.install(specs('idle'));
   const name = first.agents.find((c) => c.sessionName === 'casey').name;
   first.restore();
@@ -136,4 +136,13 @@ test('#5948: kosmos msg to a signed-out agent is kept, told in signin words; the
     assert.match(typed[0], /\[kept for you while you were signed out; sent /);
     assert.deepEqual(limitqueue.list('casey'), []);
   });
+});
+
+test('#5948 review 1: a Claude agent\'s own sign-in StopFailure line does not hold its messages (nothing on the Mac clears it)', async () => {
+  await withFleet(true, async (board, tmux) => {
+    assert.notEqual(caseyOf(board).state, status.STATE.AUTH_FAILED, JSON.stringify(caseyOf(board).state));
+    const v = chat.deliverAutomatic('casey', 'A colleague line.', board.agents);
+    assert.notEqual(v.held, true, JSON.stringify(v));
+    assert.equal(tmux.pastedTo('casey').length, 1, 'a Claude agent was held on its own sign-in report');
+  }, 'claude');
 });
