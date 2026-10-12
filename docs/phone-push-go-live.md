@@ -248,7 +248,8 @@ control. Record the live build and rollback anchor on #3763 when deployed.
 
 ## Step 4. Get the iOS app onto testers' phones [Josh for signing and upload; fleet for the build]
 
-**Carries:** a signed TestFlight build. It turns on native APNs registration
+**Carries:** a signed TestFlight build (the interim `io.kosmos.app.preview` build gets no push; see
+"Interim" below). For `io.kosmos.app`, it turns on native APNs registration
 and tap handling on an iPhone after Step 3 allows the bundle id. It does not
 open the Mac's send lock or make Step 8's log-only coordinator send for real.
 

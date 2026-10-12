@@ -42,9 +42,9 @@ esac
 team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
 # The bundle id the project builds with (KOSMOS_BUNDLE_ID in the same file), checked on the export.
 bundle=$(sed -n 's|//.*||; s/^[[:space:]]*KOSMOS_BUNDLE_ID[[:space:]]*=[[:space:]]*//p' "$ios/Signing.xcconfig" | tr -d '[:space:]')
-case "$bundle" in
-  ''|*[!A-Za-z0-9.-]*) echo "archive.sh: KOSMOS_BUNDLE_ID in ios/Signing.xcconfig is '${bundle}', not a bundle id." >&2; exit 1 ;;
-esac
+if ! printf '%s' "$bundle" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'; then
+  echo "archive.sh: KOSMOS_BUNDLE_ID in ios/Signing.xcconfig is '${bundle}', not a bundle id." >&2; exit 1
+fi
 if [ -z "$team" ]; then
   echo "archive.sh: DEVELOPMENT_TEAM is empty in ios/Signing.xcconfig. Set it to the Team ID that signs the app (see the comment in that file)." >&2
   exit 1
