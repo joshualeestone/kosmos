@@ -30,7 +30,9 @@ const WRITE = fnSource('write_install_config');
 const UNINSTALL_BLOCK = (() => {
   const at = SETUP.indexOf('  if [ -f "$INSTALL_CONFIG_DIR/kosmos-install.json" ]');
   assert.notEqual(at, -1, 'the uninstall removal of the account config is gone');
-  return SETUP.slice(at, SETUP.indexOf('\n  fi\n', at) + 5);
+  const block = SETUP.slice(at, SETUP.indexOf('\n  fi\n', at) + 5);
+  assert.match(block, /rmdir "\$INSTALL_CONFIG_DIR"/, 'the lifted uninstall block was cut short');
+  return block;
 })();
 const DIR_LINE = SETUP.match(/^INSTALL_CONFIG_DIR="[^\n]+"$/m);
 assert.ok(DIR_LINE, 'INSTALL_CONFIG_DIR is no longer set on one line');
