@@ -746,7 +746,7 @@ case "$_plist" in
   *) echo "could not read the Info.plist out of install/setup.sh build_app_bundle (#5896): the heredoc moved or changed shape" >&2; exit 1 ;;
 esac
 _floor="$(cat "$REPO/tools/macos-floor")"
-printf '%s\n' "$_plist" | sed -e "s/\\\$MACOS_FLOOR_MAJOR\\.\\\$MACOS_FLOOR_MINOR/$_floor/" -e "s/\\\$ver/$_ver/g" > "$_sealed/Contents/Info.plist"
+printf '%s\n' "$_plist" | sed -e "s/\\\$MACOS_FLOOR_MAJOR\\.\\\$MACOS_FLOOR_MINOR/$_floor/" -e "s/\\\$ver</$_ver</g" > "$_sealed/Contents/Info.plist"
 if grep -q '\$' "$_sealed/Contents/Info.plist"; then
   echo "the sealed app's Info.plist still holds an unfilled \$ value (#5896): setup.sh's heredoc gained a variable this build does not fill" >&2; exit 1
 fi

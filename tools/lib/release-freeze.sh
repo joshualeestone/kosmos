@@ -197,11 +197,13 @@ release_bundle_expected_files() {
 # assembled and signed by the build, so like the two binaries they are never sought in the tree: the bundle's own
 # signature (codesign --verify --deep --strict) is their source of truth, checked once. With "sealed", a tarball
 # without the bundle fails; without it, a bundle that is present is still verified.
+# $6 (optional, #5896): the code requirement the sealed app must satisfy beyond its identifier (a real cut passes our
+# Developer ID team from tools/lib/signing-identity.sh, so an ad-hoc or foreign-signed app fails here).
 # Then THE OTHER DIRECTION (#609): every file the tree and the app say the
 # bundle must carry is in it; a missing one is named. 2 when the set could not
 # be derived (not a Kosmos tree, no node for the require walk).
 release_bundle_matches_tree() {
-  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" want_native_app_sha="${4:-}" want_sealed="${5:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 got_native_app_sha saw_native_app=0 saw_sealed=0 bad=0 expected
+  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" want_native_app_sha="${4:-}" want_sealed="${5:-}" want_sealed_req="${6:-}" tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 got_native_app_sha saw_native_app=0 saw_sealed=0 bad=0 expected
   [ -f "$tar" ] && [ -d "$tree" ] || { echo "release_bundle_matches_tree: need a tarball and a tree" >&2; return 2; }
   ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bundle-cmp.XXXXXX")" || return 2
@@ -256,7 +258,7 @@ release_bundle_matches_tree() {
     fi
   done < <(cd "$tmp" && find app bin -type f 2>/dev/null | sed 's|^\./||')
   if [ "$saw_sealed" -eq 1 ]; then
-    codesign --verify --deep --strict '-R=identifier "com.chaoskosmos.kosmos"' "$tmp/app/Kosmos.app" >/dev/null 2>&1 \
+    codesign --verify --deep --strict "-R=identifier \"com.chaoskosmos.kosmos\"${want_sealed_req:+ and $want_sealed_req}" "$tmp/app/Kosmos.app" >/dev/null 2>&1 \
       || { echo "   the sealed app's signature does not verify (--deep --strict, identifier com.chaoskosmos.kosmos): app/Kosmos.app"; bad=1; }
   elif [ "$want_sealed" = sealed ]; then
     echo "   the bundle carries no sealed app (app/Kosmos.app) but one was expected"; bad=1
