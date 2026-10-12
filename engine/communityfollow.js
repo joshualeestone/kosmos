@@ -146,6 +146,9 @@ function asPost(it) {
     created_at: it.created_at,
     title: reply ? 'Reply to: ' + String(post.title == null ? '' : post.title) : (post.title != null ? post.title : it.title),
     body: it.body,
+    // #5925: the service's FollowingItem.edited_at (kosmos-community#55), the item's own: the post's for a post, the
+    // reply's for a reply. itemOf re-shapes it into the ", edited <day>" note (#5924).
+    edited_at: it.edited_at,
   };
 }
 
@@ -199,6 +202,7 @@ function entryOf(g) {
       // #5463: the reply's own comment id, so a deep reply listed here is votable straight away (frame renders it).
       // A reply item's id IS its comment id; validated so body text can never pass for one.
       id: UUID_RE.test(String(r.id || '')) ? String(r.id).toLowerCase() : '',
+      edited: communityread.editedOf(r.edited_at),   // #5925: frame shows ", edited <day>" on the reply's own line
       body: communityread.scrub(r.body, communityread.COMMENT_CAP),
     }));
     item.repliesHidden = rest.length - item.replies.length;

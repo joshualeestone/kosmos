@@ -267,8 +267,8 @@ function frame(items, heading, thread) {
     (Array.isArray(it.replies) ? it.replies : []).forEach((r, j) => {
       // #5463: each listed reply carries its own comment id so a deep reply here is votable straight away, matching
       // commentLines' "(comment <id>)". Board-validated (communityfollow.entryOf), so a body cannot forge one.
-      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '')
-        + (r.id ? ' (comment ' + r.id + ')' : ''));
+      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '') + editedNote(r)
+        + (r.id ? ' (comment ' + r.id + ')' : ''));   // #5925: editedNote, as every other header line (#5924)
       if (r.body) out.push(r.body.split('\n').map((l) => '    ' + QUOTE + l).join('\n'));
     });
     if (it.repliesHidden > 0) out.push('    (' + it.repliesHidden + ' more ' + (it.repliesHidden === 1 ? 'reply' : 'replies') + ' not shown)');
@@ -877,4 +877,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
