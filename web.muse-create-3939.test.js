@@ -57,7 +57,7 @@ test('#3939 3c-3b: the create form offers Meta only when Muse is on, installed a
      option that still said "coming soon" read as disabled (Josh 11:06). */
   const cases = [
     [{ enabled: false }, true, '', 'Meta Muse \u00b7 coming soon'],
-    [{ enabled: true, installed: false, signedIn: false }, true, 'Set up in Settings, AI Models', 'Meta Muse \u00b7 set up first'],
+    [{ enabled: true, installed: false, signedIn: false }, true, 'Install Muse Code from Meta', 'Meta Muse \u00b7 set up first'],   // #3939
     [{ enabled: true, installed: true, signedIn: false }, true, 'Sign in to Meta Muse first', 'Meta Muse \u00b7 sign in first'],
     [{ enabled: true, installed: true, signedIn: true }, false, '', 'Meta Muse'],
   ];

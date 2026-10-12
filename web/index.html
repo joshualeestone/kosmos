@@ -26477,8 +26477,9 @@ function paintMuseOption(sel, current) {
   const signIn = pending && MUSE_CREATE.installed === true;   // installed, only the sign-in is missing
   opt.textContent = on ? 'Meta Muse' : signIn ? 'Meta Muse \u00b7 sign in first' : pending ? 'Meta Muse \u00b7 set up first' : 'Meta Muse \u00b7 coming soon';
   // The logo list's pill.
+  // #3939: switched on and not signed in means Muse Code is not on this computer, which Settings cannot fix either.
   if (signIn) opt.dataset.off = 'Sign in to Meta Muse first';
-  else if (pending) opt.dataset.off = 'Set up in Settings, AI Models';
+  else if (pending) opt.dataset.off = 'Install Muse Code from Meta';
   else delete opt.dataset.off;
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // a Swarm keeps non-Claude providers greyed
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
@@ -31287,8 +31288,9 @@ async function frPaintMeta(opts) {
   /* #4569 (Josh: the Meta label everywhere): switched on, the row names what the person connects, Muse (from Meta),
      as Gemini / Google and Grok / xAI do; off, it keeps today's coming-soon Llama. */
   const nm = row.querySelector('.llm-w b'); if (nm) nm.textContent = live ? 'Muse' : 'Llama';
-  /* #5856: the under-18 sentence names Meta Muse only when a person can actually pick it. */
-  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live ? 'OpenAI, Grok or Meta Muse' : 'OpenAI or Grok';
+  /* #5856: the under-18 sentence names Meta Muse only when a person can actually pick it: with Muse on by default
+     (#3939), that is once Muse Code is on this computer, not merely switched on. */
+  const ages = document.getElementById('fr-age-list'); if (ages) ages.textContent = live && m.installed === true ? 'OpenAI, Grok or Meta Muse' : 'OpenAI or Grok';
   const msg = document.getElementById('fr-muse-msg');
   if (!live) {
     frMuseCollapse();
