@@ -32,7 +32,7 @@ test('#5686 deny-list: Kosmos credential stores in the data root are skipped by 
 
 test('#5871: mac_identity (mac_id and mac_key in one file) is denied like mac_key, its temp and copies too', () => {
   for (const p of ['Kosmos/remote/mac_identity', 'worlds/w1/Kosmos/remote/mac_identity', 'remote/mac_identity',
-    'Kosmos/remote/.mac_identity.tmp.4711', 'Kosmos/remote/mac_identity copy', 'Kosmos/remote copy/mac_identity']) {
+    'Kosmos/remote/.mac_identity.tmp', 'Kosmos/remote/.mac_identity.tmp.4711', 'Kosmos/remote/mac_identity copy', 'Kosmos/remote copy/mac_identity']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   // CONTROL: a person's own identity files, and the id alone (no key), are kept.

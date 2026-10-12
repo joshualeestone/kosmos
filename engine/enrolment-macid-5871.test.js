@@ -35,3 +35,29 @@ test('#5871: a mac_identity with no id is no id, never the other file\'s', () =>
 test('#5871: with no mac_id file, mac_identity names the computer', () => {
   assert.equal(pick({ [IDENTITY_FILE]: 'mac-only\nKEY\n' }), 'mac-only');
 });
+
+/* The SAME rows as the tunnel's identity_rule_table (kosmos-relay crates/tunnel/src/coordinator.rs): change both. */
+test('#5871: the rule table shared with the tunnel', () => {
+  const rows = [
+    ['no mac_identity', null, 'mac-a', '=', 'mac-a'],
+    ['nothing at all', null, null, '=', null],
+    ['mid-registration', 'mac-n\nK\n', 'mac-o', 'i', 'mac-n'],
+    ['an older connector since', 'mac-n\nK\n', 'mac-o', 'p', 'mac-o'],
+    ['an empty mac_id, newer', 'mac-n\nK\n', '', 'p', 'mac-n'],
+    ['an id but no key', 'mac-n\n', 'mac-n', '=', null],
+    ['a blank first line', '\nK\n', 'mac-x', '=', null],
+    ['CRLF lines', 'mac-n\r\nK\r\n', 'mac-n', '=', 'mac-n'],
+    ['a tie in mtime', 'mac-n\nK\n', 'mac-o', '=', 'mac-n'],
+  ];
+  for (const [what, identity, pair, newer, want] of rows) {
+    const files = {}; const times = {};
+    if (identity !== null) { files[IDENTITY_FILE] = identity; times[IDENTITY_FILE] = newer === 'i' ? 2000 : 1000; }
+    if (pair !== null) { files.mac_id = pair; times.mac_id = newer === 'p' ? 2000 : 1000; }
+    assert.equal(pick(files, times), want, `row: ${what}`);
+  }
+});
+
+test('#5871: a mac_identity that cannot be read is no id (the tunnel errors too), never the pair\'s', () => {
+  const read = (f) => { if (f === IDENTITY_FILE) throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); return 'mac-o'; };
+  assert.equal(currentMacIdBy(read, () => 1000), null);
+});

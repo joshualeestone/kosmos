@@ -33,14 +33,17 @@ function enrolledBy(exists) {
    writes only the pair, registered since). No `mac_identity` (registered before it existed): the `mac_id` file.
    ⚠️ COUPLING, across a repo: this is the rule of kosmos-relay crates/tunnel/src/coordinator.rs
    MacState::identity_record, so the app and the tunnel always name the same computer. Change them together.
-   A mac_identity without an id is no id (null), never the other file's. A tie in mtime keeps mac_identity. */
+   A mac_identity without BOTH an id and a key, or one that cannot be read (read throws), is no id (null), never
+   the other file's: the tunnel refuses those too. An empty mac_id counts as no mac_id. A tie in mtime keeps
+   mac_identity. engine/enrolment-macid-5871.test.js and the tunnel's identity_rule_table hold the same cases. */
 const IDENTITY_FILE = 'mac_identity';
 function currentMacIdBy(read, mtimeOf) {
-  const pairId = ((read('mac_id') || '').trim()) || null;
-  const text = read(IDENTITY_FILE);
+  let pairId; let text;
+  try { pairId = ((read('mac_id') || '').trim()) || null; text = read(IDENTITY_FILE); } catch { return null; }
   if (text === null || text === undefined) return pairId;
-  const id = String(text).split('\n')[0].trim() || null;
-  if (!id) return null;
+  const lines = String(text).split('\n').map((l) => l.trim());
+  const id = lines[0] || null;
+  if (!id || !lines[1]) return null;
   if (pairId && pairId !== id) {
     const pairAt = mtimeOf('mac_id'); const fileAt = mtimeOf(IDENTITY_FILE);
     if (pairAt !== null && fileAt !== null && pairAt > fileAt) return pairId;

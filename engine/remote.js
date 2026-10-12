@@ -2565,7 +2565,8 @@ function abandonChangedIdentity(before, addressBefore, startedAt) {
    which a registration writes first, unless an older tunnel's newer mac_id names another. Reading only mac_id let a
    register cut between the two leave the app and the tunnel naming different computers. */
 const macIdHere = () => require('./enrolment').currentMacIdBy(
-  (f) => { try { return fs.readFileSync(path.join(STATE_DIR(), f), 'utf8'); } catch { return null; } },
+  // A missing file is null; any other read failure throws, and the rule then answers no id (the tunnel errors too).
+  (f) => { try { return fs.readFileSync(path.join(STATE_DIR(), f), 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') return null; throw e; } },
   (f) => { try { return fs.statSync(path.join(STATE_DIR(), f)).mtimeMs; } catch { return null; } });
 function cancelledAfter(result, before, addressBefore, startedAt) {
   // Failed after writing a new id: the same clean-up as an uncancelled failure,
@@ -3113,7 +3114,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   ownDeviceIds,
