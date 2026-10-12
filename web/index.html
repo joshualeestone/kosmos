@@ -18961,7 +18961,7 @@ window.kosmosMeasureScrollbarWidth();
              what fits before the " (Kosmos app)" ending the engine adds. -->
         <div class="field" id="plus-si-computer-field" hidden>
           <label class="flabel" for="plus-si-computer">Name for this computer</label>
-          <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account lists this computer under this name. Change it if you like. An empty box sends "This computer".</p>
+          <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account lists this computer under this name, with "(Kosmos app)" after it. Change it if you like. An empty box sends "This computer".</p>
           <input type="text" id="plus-si-computer" class="tk-inp plus-si-wide" maxlength="47" autocomplete="off" spellcheck="false"
             placeholder="This computer" aria-describedby="plus-si-computer-hint">
         </div>
@@ -49119,13 +49119,20 @@ function plusSiKStop() {
    (the start then behaves as it did before this box existed). One read at a time; a read left over from a sign-in
    that was since cleared is dropped. */
 const PLUS_SI_COMPUTER = { loaded: false, reading: null };
+const PLUS_SI_COMPUTER_WAIT_MS = 3000;
 function plusSiComputerName() {
   const el = document.getElementById('plus-si-computer');
   if (!el || PLUS_SI_COMPUTER.loaded) return Promise.resolve();
   if (PLUS_SI_COMPUTER.reading) return PLUS_SI_COMPUTER.reading;
   const mine = (async () => {
     let r = null;
-    try { const res = await fetch('/api/remote/computer-name', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
+    /* Given up on after PLUS_SI_COMPUTER_WAIT_MS: the start waits for this read, so a board that accepts the request
+       and never answers must not hold "Email me a code" busy for good. Giving up is a failed read (no box, and the
+       start sends what it sent before). */
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), PLUS_SI_COMPUTER_WAIT_MS);
+    try { const res = await fetch('/api/remote/computer-name', { cache: 'no-store', signal: stop.signal }); r = res.ok ? await res.json() : null; } catch { r = null; }
+    clearTimeout(timer);
     if (PLUS_SI_COMPUTER.reading !== mine) return;   // cleared meanwhile: that sign-in is over
     PLUS_SI_COMPUTER.reading = null;
     if (!r || typeof r.name !== 'string') return;
@@ -49308,8 +49315,9 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
-  /* #5995: the computer's name is read again for the next sign-in (a name typed and never sent is not carried over;
-     one that was sent is kept by the engine, so it comes back). */
+  /* #5995: the computer's name is read again for the next sign-in. A name typed and never sent is not carried over,
+     and neither is one whose start did not go out (the engine puts back what it kept before); one a start carried
+     is kept by the engine, so it comes back. */
   {
     const cn = document.getElementById('plus-si-computer'); if (cn) cn.value = '';
     const cf = document.getElementById('plus-si-computer-field'); if (cf) cf.hidden = true;

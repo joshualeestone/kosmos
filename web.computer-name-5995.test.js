@@ -31,10 +31,14 @@ function world(answer) {
     measured: 0,
     plusSiMeasure: () => { ctx.measured += 1; },
     reads: 0,
+    AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; if (ctx.onAbort) ctx.onAbort(); } },
+    setTimeout: (fn, ms) => { ctx.timers.push({ fn, ms }); return ctx.timers.length; }, clearTimeout: (id) => { if (ctx.timers[id - 1]) ctx.timers[id - 1].cleared = true; },
+    timers: [],
     document: { getElementById: (id) => (id === 'plus-si-computer' ? box : id === 'plus-si-computer-field' ? field : null) },
-    fetch: async (path) => {
+    fetch: async (path, init) => {
       assert.equal(path, '/api/remote/computer-name');
       ctx.reads += 1;
+      if (ctx.hang) await new Promise((_, reject) => { ctx.onAbort = () => reject(new Error('aborted')); assert.ok(init && init.signal, 'the read cannot be given up on'); });
       if (ctx.hold) await new Promise((r) => { release = r; });
       const [status, json] = answer();
       return { ok: status === 200, status, json: async () => json };
@@ -101,6 +105,23 @@ test('#5995: one read at a time, a caller can wait for it, and a read from a sig
   c.release();
   await old;
   assert.deepEqual([c.box.value, c.field.hidden, plain(c.ctx.sent())], ['', true, {}], 'a read from the cleared sign-in filled the box');
+});
+
+test('#5995: a board that takes the request and never answers is given up on, so the start is not held for good', async () => {
+  const w = world(() => [200, { ok: true, name: 'Studio Mac', fromComputer: true }]);
+  w.ctx.hang = true;
+  const reading = w.ctx.fill();
+  await new Promise((r) => setImmediate(r));
+  const live = w.ctx.timers.filter((t) => !t.cleared);
+  assert.equal(live.length, 1, 'no give-up timer was set for the read');
+  assert.ok(live[0].ms > 0 && live[0].ms <= 5000, 'the read is waited for longer than a person would: ' + live[0].ms);
+  live[0].fn();            // the wait runs out
+  await reading;           // CONTROL by construction: without the give-up this never settles and the test times out
+  assert.deepEqual([w.field.hidden, plain(w.ctx.sent())], [true, {}], 'a read that was given up on showed a box or sent a name');
+  // A read that answers in time clears its timer.
+  const ok = world(() => [200, { ok: true, name: 'Studio Mac', fromComputer: true }]);
+  await ok.ctx.fill();
+  assert.equal(ok.ctx.timers.filter((t) => !t.cleared).length, 0, 'the give-up timer was left running after the read answered');
 });
 
 test('#5995: the page wires the box: the email step fills it, the start waits for it and sends it, a new sign-in reads again', () => {

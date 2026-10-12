@@ -190,22 +190,26 @@ function secureStateDir() {
   } catch { /* best-effort; the binary still writes its files 0600 */ }
 }
 
+/* What read() answers when there is no file, or none it can use: every field at its empty value, in ONE place, so a
+   field added to read() cannot be missing from one of the four early answers (kosmos#5995: computer_name was). */
+const blankSettings = (ok) => ({ on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok });
+
 /** Off until somebody turns it on. `relay` may be stored here so a
     self-hoster can point at their own relay without an env var. */
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok: true };
-    return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok: false };
+    if (err && err.code === 'ENOENT') return blankSettings(true);
+    return blankSettings(false);
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok: false }; }
+  try { parsed = JSON.parse(raw); } catch { return blankSettings(false); }
   // A JSON array passes `typeof === 'object'`, but that is harmless HERE, unlike
   // in heartbeat-setting: `on` below is read as `parsed.on === true` (an explicit
   // true test), never defaulted to true, so an array reads off -- the safe value
   // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
   // guard because heartbeat DID default true; this copy needs no Array.isArray.
-  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok: false };
+  if (!parsed || typeof parsed !== 'object') return blankSettings(false);
   return {
     on: parsed.on === true,
     relay: typeof parsed.relay === 'string' ? parsed.relay : '',
@@ -2536,20 +2540,36 @@ function computerNameShown() {
 }
 /** Keep what the person left in that field. The name the computer has is not kept (so an untouched field goes on
     following the computer if it is renamed); anything else is, an empty field included. The stored name is the
-    cleaned one (one line, no control characters, cut to fit), so what is shown next time is what was sent.
+    cleaned one (one line, no control characters, cut to fit, and without a " (Kosmos app)" ending the person typed:
+    the engine adds its own), so what is shown next time is what was sent.
     Nothing is written when nothing changes: an untouched field on a computer with no remote.json creates none, and
-    on a damaged remote.json it is not refused (the sign-in start never was). A real choice is written as the
-    sign-in's other writes are, repairing a damaged file (#4308). */
+    on a damaged remote.json it is not refused (the sign-in start never was).
+    A real choice on a remote.json that HOLDS UNREADABLE TEXT repairs it, as the sign-in's other writes do (#4308).
+    One that could not be read AT ALL just now (the disk, a permission, too many open files) is refused: the file
+    may be whole, and a repair would rewrite it from nothing for the sake of a name.
+    `was` is what was kept before, for putBackComputerName(). */
 function setComputerName(raw) {
   if (typeof raw !== 'string') return { ok: false, because: 'that is not a name' };
-  const typed = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  let typed = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  while (typed.endsWith(DEVICE_SUFFIX.trim())) typed = typed.slice(0, -DEVICE_SUFFIX.trim().length).trim();
   const kept = typed ? withoutSuffix(deviceNameFrom(typed)) : '';
   const own = withoutSuffix(ownComputerDeviceName());
   const next = kept === own ? null : kept;
-  if (read().computer_name === next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
+  const current = read();
+  const was = current.computer_name;
+  if (was === next) return { ok: true, name: withoutSuffix(thisComputerDeviceName()), was };
+  if (current.ok === false) {
+    try { fs.readFileSync(FILE, 'utf8'); } catch { return { ok: false, because: 'we could not keep that name just now' }; }
+  }
   const wrote = write({ computer_name: next }, { repair: true });
   if (!wrote || wrote.ok === false) return { ok: false, because: (wrote && wrote.because) || 'we could not keep that name' };
-  return { ok: true, name: withoutSuffix(thisComputerDeviceName()) };
+  return { ok: true, name: withoutSuffix(thisComputerDeviceName()), was };
+}
+/** Put back what was kept before a setComputerName() whose sign-in start then did not go out, so a name is only ever
+    kept once a start carried it. Best effort: a start that failed is already being reported, and this must not mask it. */
+function putBackComputerName(was) {
+  const before = typeof was === 'string' ? was : null;
+  try { if (read().computer_name !== before) write({ computer_name: before }); } catch { /* the start's own refusal stands */ }
 }
 
 /** Append --device-name. A caller's label goes through only when clean (trimmed
@@ -3163,7 +3183,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, setComputerName /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, setComputerName, putBackComputerName /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   ownDeviceIds,

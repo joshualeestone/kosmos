@@ -48,11 +48,11 @@ does not make anyone read it. Second: a phone reached through the relay can read
 the person's own allowed device, and the same name is already in their device list.
 
 ## Verify (each run on the branch; the full suite is not in this list)
-- `node --test --test-name-pattern='#5995|#3831' engine/remote.test.js`: 8 pass. The whole file at
+- `node --test --test-name-pattern='#5995|#3831' engine/remote.test.js`: 10 pass. The whole file at
   25357d9df: 220 pass.
 - `node --test --test-name-pattern='#5995' server.test.js`: 1 pass.
-- `node --test web.computer-name-5995.test.js web.code-box.test.js`: 10 pass.
-- every `web*.test.js`: see the line added with the review 1 commit below.
+- `node --test web.computer-name-5995.test.js web.code-box.test.js`: 11 pass.
+- every `web*.test.js` at fe4f20ab7 (after review 1): 2742 pass, 0 fail.
 - Mutants at 25357d9df, each red by name in a throwaway worktree: the chosen name ignored; the
   computer's own name kept as a choice; the quiet approval naming the computer itself; start and verify
   naming the computer itself; the start not keeping the name; another website reading the name; the
@@ -77,3 +77,23 @@ Not taken, with the reason:
   new directories; the sibling route `signin-addresses` has no row either.
 - "`thisComputerDeviceName()` reads remote.json on every call": two or three small reads per sign-in
   step, and one read passed through would thread a parameter through three callers.
+
+## Review 2 (sonnet)
+3 WARNING, 1 CONVENTION, 2 NIT, plus the four NITs of review 1 that arrived late.
+Taken:
+- a name was kept by REPAIRING remote.json whenever it read badly, including when it could not be read at all for
+  a passing reason (the file may be whole): a real choice now repairs only a file that holds unreadable text, and is
+  refused when the file cannot be read at all. An untouched box is still never refused.
+- a start that did not go out left the typed name kept, and it would then name this computer on a later, unrelated
+  approval: the server puts back what was kept before (`putBackComputerName`), so a name is only kept once a start
+  carried it. Tested with a tunnel that fails the start.
+- the start waited on a read with no limit: the read is given up on after 3 s, which is a failed read (no box).
+- the four empty-settings literals in `read()` are one `blankSettings()` (the convention finding; it is what let
+  `computer_name` go missing from three of them).
+- late NITs: a typed " (Kosmos app)" ending was sent twice (stripped now, and the hint says the account shows the
+  name with that ending); an assertion that compared a value with itself; the browser check gets a phone-width,
+  light-theme pass.
+Not taken:
+- "the fallback This computer is stored as a choice when typed text is unusable": the person did type something;
+  it behaves as a cleared box does.
+- "read remote.json once and pass it through" (second time raised): the reason in Review 1 stands.

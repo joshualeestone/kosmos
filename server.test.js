@@ -11971,12 +11971,13 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
   const argvLog = nodePath.join(sb, 'argv.jsonl');
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     'const a = process.argv.slice(2);',
+    "if (a[0] === 'signin' && a[1] === 'start' && process.env.FAKE_NAME_FAIL) { process.stderr.write('error: the coordinator is not answering\\n'); process.exit(1); }",
     "if (a[0] === 'signin' && a[1] === 'start') { require('node:fs').appendFileSync(process.env.FAKE_NAME_ARGV, JSON.stringify(a) + '\\n'); console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     // An older tunnel refuses the device-key verb as a usage error (exit 2), as real ones do (kosmos#5422).
     "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
     'process.exit(0);', ''].join('\n'));
   fs.chmodSync(fakeBin, 0o755);
-  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_NAME_ARGV'];
+  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_NAME_ARGV', 'FAKE_NAME_FAIL'];
   const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
@@ -12014,6 +12015,16 @@ test('#5995: the name this computer is sent under can be read first, is kept fro
     // Not text: ignored, as an absent field is.
     assert.equal((await start({ computer_name: 7 })).status, 200);
     assert.deepEqual(sentNames(), [first.name + ' (Kosmos app)', 'Studio Mac (Kosmos app)', 'Studio Mac (Kosmos app)', 'This computer (Kosmos app)', 'This computer (Kosmos app)']);
+    // A start that does not go out keeps nothing new: what was kept before it is put back.
+    assert.equal(remoteEngine.read().computer_name, '', 'CONTROL: the cleared choice is not what is kept going in');
+    process.env.FAKE_NAME_FAIL = '1';
+    const failed = await start({ computer_name: 'Never Sent' });
+    assert.equal(failed.status, 400, 'CONTROL: the start that should fail went out: ' + failed.body);
+    assert.equal(remoteEngine.read().computer_name, '', 'a name typed for a start that never went out was kept');
+    delete process.env.FAKE_NAME_FAIL;
+    assert.equal((await start({ computer_name: 'Never Sent' })).status, 200);
+    assert.equal(remoteEngine.read().computer_name, 'Never Sent', 'CONTROL: the same name on a start that went out was not kept');
+    assert.equal(sentNames().at(-1), 'Never Sent (Kosmos app)');
     // Leaving the computer's own name in the field goes back to following the computer.
     assert.equal((await start({ computer_name: first.name })).status, 200);
     assert.equal(remoteEngine.read().computer_name, null, 'the computer\'s own name was kept as a choice');

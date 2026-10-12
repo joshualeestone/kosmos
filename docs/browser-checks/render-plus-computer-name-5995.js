@@ -7,7 +7,8 @@
  * This drives the real page against the board's REAL routes (GET /api/remote/computer-name and POST
  * /api/remote/signin-start are not answered here), with a stand-in tunnel program that records what it was asked to
  * send. So each claim is read where it lands: the name on the tunnel's command line.
- *  - the box is on the email step, laid out between the email box and the button, filled with this computer's name;
+ *  - the box is on the email step, laid out between the email box and the button, filled with this computer's name
+ *    (dark at desktop width, and light at phone width);
  *  - left alone, the start sends exactly that name, and nothing is kept;
  *  - a typed name is sent (Enter in the box asks for the code), kept, and shown again on the next sign-in;
  *  - a cleared box sends "This computer", and the next sign-in shows that;
@@ -74,8 +75,8 @@ const box = (page, sel) => page.evaluate((s) => {
 const valueOf = (page, id) => page.evaluate((i) => document.getElementById(i).value, id);
 
 /** A fresh page on the email step of the sign-in. Only the board's own status and device list are answered here. */
-async function openWizard(browser, BASE, errs, before) {
-  const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'dark' });
+async function openWizard(browser, BASE, errs, before, look = { viewport: { width: 1400, height: 950 }, colorScheme: 'dark' }) {
+  const page = await browser.newPage(look);
   page.on('pageerror', (e) => errs.push(e.message));
   await page.addInitScript(() => { window.__kosmosRestartHoldMs = 0; });
   await page.route('**/api/remote', (route, req) => {
@@ -135,6 +136,24 @@ async function codeStep(page) {
       chk(fits, 'the explanation stays inside the card and the page does not scroll sideways');
       await page.fill('#plus-si-computer', 'A shown name');   // so the shot carries no real computer name
       await page.screenshot({ path: path.join(OUT, 'computer-name-email-step.png') });
+      await page.close();
+    }
+    // The same box at phone width in the light theme: the explanation is a full sentence in a narrow card.
+    {
+      const page = await openWizard(browser, BASE, errs, null, { viewport: { width: 390, height: 844 }, colorScheme: 'light' });
+      await shownName(page);
+      const email = await box(page, '#plus-signin-email');
+      const name = await box(page, '#plus-si-computer');
+      const hint = await box(page, '#plus-si-computer-hint');
+      const go = await box(page, '#plus-signin-code');
+      chk(!!name && !!hint && !!email && !!go && email.bottom <= hint.top && hint.bottom <= name.top && name.bottom <= go.top, 'phone width, light: the explanation, the box and the button stack without overlapping', JSON.stringify({ email, hint, name, go }));
+      chk(!!name && name.width >= 200 && name.height >= 24, 'phone width, light: the box is a usable size', JSON.stringify(name));
+      const inside = await page.evaluate(() => { const h = document.getElementById('plus-si-computer-hint').getBoundingClientRect(); return h.left >= 0 && h.right <= window.innerWidth + 1 && document.documentElement.scrollWidth <= window.innerWidth; });
+      chk(inside, 'phone width, light: the explanation wraps inside the screen and the page does not scroll sideways');
+      const seen = await page.evaluate(() => { const e = document.getElementById('plus-si-computer-hint'); const c = getComputedStyle(e); return c.color !== getComputedStyle(document.body).backgroundColor && Number(c.opacity) > 0 && c.visibility === 'visible'; });
+      chk(seen, 'phone width, light: the explanation is drawn in a colour that is not the page\'s');
+      await page.fill('#plus-si-computer', 'A shown name');
+      await page.screenshot({ path: path.join(OUT, 'computer-name-email-step-phone-light.png') });
       await page.close();
     }
     {
