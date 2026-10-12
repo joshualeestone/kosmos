@@ -315,7 +315,7 @@ const chk = (ok, label, extra) => {
   const missing = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
   // #3939: on by default, most Macs see this pill, and the logo list's pill cannot shrink: a short one that says what to do.
   chk(missing.disabled && missing.off === 'Install Muse Code from Meta', 'turned on but not installed: the Meta option stays disabled and its pill says to install Muse Code from Meta', JSON.stringify(missing));
-  chk(missing.text === 'Meta Muse \u00b7 set up first', '#5316: not installed, the option\'s words say to set it up first', JSON.stringify(missing));
+  chk(missing.text === 'Meta Muse \u00b7 install Muse Code first', '#5316: not installed, the option\'s words say to install Muse Code first (#3939)', JSON.stringify(missing));
   await q(() => { window.__museInstalled = true; closeAcctAdd(); openAcctAdd(); }); await settle();
   const live = await q(() => { const o = document.querySelector('#acct-provider-pick option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '', text: o.textContent }; });
   chk(!live.disabled && !live.off, 'installed again: live, with no leftover reason', JSON.stringify(live));

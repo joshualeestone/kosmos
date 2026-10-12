@@ -163,7 +163,7 @@ test('#3939 3c-3b: the "back on Claude" sentence names the real reason', () => {
   assert.equal(off.prov, 'anthropic');
   assert.match(off.why, /^Meta Muse is not available on this computer, so this is back on Claude\.$/);
   const notSetUp = goneSays({ on: true, installed: false, ready: false });
-  assert.match(notSetUp.why, /^Meta Muse is not set up on this computer, .*Set it up in Settings, AI Models: Add a provider, then Meta\.$/);
+  assert.match(notSetUp.why, /^Muse Code is not on this computer, .*Install Muse Code from Meta, then try again\.$/);   // #3939: says what can fix it
   const signedOut = goneSays({ on: true, installed: true, ready: false });
   assert.match(signedOut.why, /^Meta Muse is not signed in on this computer, .*Sign in to it in Settings, AI Models: Add a provider, then Meta\.$/);
 });
@@ -214,7 +214,7 @@ const loadAsk = new Function('document', 'fetch', `
 test('#5316: Add a provider\'s Meta option says what its state is (live, not installed, off, a failed read)', async () => {
   const cases = [
     [{ enabled: true, installed: true, signedIn: false }, false, 'Meta Muse'],
-    [{ enabled: true, installed: false, because: 'Muse Code is not on this computer' }, true, 'Meta Muse \u00b7 set up first'],
+    [{ enabled: true, installed: false, because: 'Muse Code is not on this computer' }, true, 'Meta Muse \u00b7 install Muse Code first'],
     [{ enabled: false }, true, 'Meta Muse \u00b7 coming soon'],
     ['throw', true, 'Meta Muse \u00b7 coming soon'],
   ];
