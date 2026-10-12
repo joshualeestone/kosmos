@@ -23746,11 +23746,13 @@ function healthLine(a, nowMs) {
      only for Claude. */
   else if (quiet && a.runner === 'claude') parts.push('Sign-in: no problem showing');
   if (a.state === 'rate_limited') parts.push('Usage: ' + (looks ? 'looks like a limit' : 'limit reached'));
-  else if (quiet) parts.push('Usage: no limit showing');
+  /* Usage likewise, only for the runners whose limit the board reads (Claude's screen, Codex's and Gemini's own words,
+     status.js limitFrom): nothing reads a Grok limit yet. */
+  else if (quiet && (a.runner === 'claude' || a.runner === 'codex' || a.runner === 'gemini')) parts.push('Usage: no limit showing');
   parts.push('Last seen working: ' + last);
   return parts.join(' · ');
 }
-/* #5959 slice 2: a past time as this computer's clock reads it, with the weekday when it was not today's, and the date
+/* #5959 slice 2: a past time as the viewer's clock reads it (in a Kosmos+ view of another computer, the viewer's own), with the weekday when it was not today's, and the date
    when it was over six days ago. */
 function seenAtWords(atMs, nowMs) {
   const age = nowMs - atMs;
