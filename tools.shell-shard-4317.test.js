@@ -150,6 +150,11 @@ test('#5907: writeAll finishes a partial write, waits out EAGAIN, and gives up a
   assert.throws(() => sh.writeAll(1, 'x', () => { const e = new Error('EPIPE'); e.code = 'EPIPE'; throw e; }), (e) => e.code === 'EPIPE');
 });
 
+test('#5907: a FAILED line that cannot be written still returns the failing command\'s own status', () => {
+  const brokenStderr = (s, fd = 1) => { if (fd === 2) { const e = new Error('EPIPE'); e.code = 'EPIPE'; throw e; } };
+  assert.equal(sh.runShard(['true', 'exit 127'], 1, 1, 'ignore', brokenStderr), 127);
+});
+
 test('#5907: the real clock: a command that sleeps is timed at least as long as it slept', () => {
   const out = [];
   assert.equal(sh.runShard(['sleep 0.3'], 1, 1, 'ignore', (s) => out.push(s)), 0);

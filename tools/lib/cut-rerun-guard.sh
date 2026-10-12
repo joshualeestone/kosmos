@@ -55,7 +55,7 @@ kosmos_failing_test_files() {
 # the shell stage, but node's `ℹ fail 0` TALLY is not node's EXIT status: node can
 # exit non-zero while printing `ℹ fail 0` and no `test at` line (a top-level
 # unhandled rejection, a lingering handle), in which case run-tests.sh stops AT node,
-# the shell stage NEVER RAN, and re-running only `yarn -s test:shell` would pass on a
+# the shell stage NEVER RAN, and re-running only the shell stage would pass on a
 # quiet box and WRONGLY DISMISS a genuine node-stage red. So do not try to guess which
 # stage failed from the tally -- re-run the exact gate the cut ran (`yarn test`),
 # which reproduces a real red in ANY stage (node process-error, shell test, or the
