@@ -1,0 +1,77 @@
+'use strict';
+/**
+ * #5948 step 2, end to end through GET /api/accounts: a Grok agent whose job names an account folder with no sign-in
+ * or key is reported in `signedOutAccounts` (and printed by `kosmos accounts`), never in `accounts`, so no account
+ * picker offers it. CONTROL: an agent whose folder holds a key is listed in `accounts` and not as signed out.
+ *
+ *   node --test server.signedout-accounts-5948.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+const jobfix = require('./test-support/jobfixture');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-signedout-accts-5948-'));
+const HOME = nodePath.join(SANDBOX, 'home');
+for (const d of [HOME, nodePath.join(SANDBOX, 'data'), nodePath.join(SANDBOX, 'workers'), nodePath.join(SANDBOX, 'launch'), nodePath.join(SANDBOX, 'projects')]) {
+  fs.mkdirSync(d, { recursive: true });
+}
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = nodePath.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
+process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(HOME, '.grok');
+process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(HOME, '.gemini');
+process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+delete process.env.CODEX_HOME;
+
+// The signed-out account: a folder an agent is set up to use, with neither a key file nor a sign-in file in it.
+const GONE = nodePath.join(HOME, '.grok-gone');
+fs.mkdirSync(GONE, { recursive: true });
+// CONTROL: a folder that does hold a key.
+const KEPT = nodePath.join(HOME, '.grok-kept');
+fs.mkdirSync(KEPT, { recursive: true });
+fs.writeFileSync(nodePath.join(KEPT, '.kosmos-grok-apikey'), 'xai-testkey-abcd', { mode: 0o600 });
+
+const create = require('./engine/create');
+const grokAccounts = require('./engine/grokaccounts');
+fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+for (const [name, dir] of [['grokgone', GONE], ['grokkept', KEPT]]) {
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, '/usr/bin/true', process.env.AGENT_WORKFORCE_TMUX_BIN, null, dir, 'grok'), 'utf8');
+}
+const { start, server } = require('./server');
+
+let base;
+test.before(async () => {
+  grokAccounts.setFetcher(async () => ({ status: 200, body: { data: [] } }));   // never a real xAI call
+  await start(0); base = `http://127.0.0.1:${server.address().port}`;
+});
+test.after(() => {
+  grokAccounts.setFetcher(null);
+  try { server.close(); } catch { /* best effort */ }
+  try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
+test('#5948: the agent\'s account with no credential is in signedOutAccounts, not in accounts; the kept one is the reverse', async () => {
+  // Created agents join the board only in the real board process (createdroster), so each gets a pane here.
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('grokgone', { state: null, runner: 'grok', command: 'grok', screen: '' }), fleet.agent('grokkept', { state: null, runner: 'grok', command: 'grok', screen: '' })]);
+  let body;
+  try { body = await (await fetch(base + '/api/accounts')).json(); } finally { board.restore(); }
+  assert.ok(create.readJob('grokgone') && create.readJob('grokgone').configDir, 'setup: the job does not name its account folder');
+  const accounts = body.accounts || [];
+  const gone = body.signedOutAccounts || [];
+  assert.ok(accounts.some((a) => a.provider === 'xai' && a.dir === KEPT), 'CONTROL: the folder with a key is not listed: ' + JSON.stringify(accounts.map((a) => a.dir)));
+  assert.ok(!accounts.some((a) => a.dir === GONE), 'a folder with no credential was offered as an account');
+  assert.deepEqual(gone.map((a) => [a.provider, a.dir, a.connection && a.connection.badge]), [['xai', GONE, 'signed_out']], JSON.stringify(gone));
+  assert.equal(gone[0].usedBy.length, 1);
+  const { answer } = require('./engine/accountline');
+  assert.ok(answer(200, body).lines.some((l) => /^Grok: gone: not signed in: its sign-in or key is no longer on this computer/.test(l)),
+    'kosmos accounts does not print it');
+});

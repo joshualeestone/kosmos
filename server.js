@@ -10991,7 +10991,15 @@ const server = http.createServer(async (req, res) => {
             }
           }
         } catch { museSub = []; }
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub] });
+        /* #5948: an account an agent uses whose sign-in or key is gone is not in the lists above (they list a folder only
+           when it holds a credential). Sent apart, so no account picker offers it; `kosmos accounts` prints it. */
+        let signedOutAccounts = [];
+        try {
+          const readers = { openai: openaiAccounts, google: geminiAccounts, xai: grokAccounts };
+          signedOutAccounts = require('./engine/signedoutaccounts').signedOutRows(safeRoster(),
+            { openai: openaiRows, google: geminiRows, xai: grokRows }, (n) => create.readJob(n), (p, d) => readers[p].readName(d));
+        } catch { signedOutAccounts = []; }
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub], signedOutAccounts });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
