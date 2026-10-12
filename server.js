@@ -13101,7 +13101,7 @@ const server = http.createServer(async (req, res) => {
            cross-home link), so their chat stays behind exactly as Codex's does. The word
            names the chat the person would look for. */
         const moveChatWord = wrote.account
-          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok' })[String(wrote.account.provider || '').toLowerCase()];
+          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' })[String(wrote.account.provider || '').toLowerCase()];
         const isPerHomeMove = !!moveChatWord;
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
