@@ -306,6 +306,9 @@ bundle_is_ours() {
     # And the account's config must name THIS install: an account can also hold a second, custom-home install
     # (write_install_config stands down for it), and the sealed icon serves the install the config names, not it.
     # An uninstall decides that before it deletes anything (SEALED_REQ is set only then).
+    # The config checked here must be the one the app at $1 will read: with AGENT_WORKFORCE_HOME elsewhere, only an
+    # icon in a sandboxed icon folder qualifies (a real ~/Applications icon reads the real home's config).
+    sealed_config_reaches "$1" || return 1
     case "${2:-}" in
       remove) [ -n "${SEALED_REQ:-}" ] || return 1 ;;   # set only inside uninstall(), so this refuses elsewhere
       *) sealed_serves_this_install || return 1 ;;
@@ -339,6 +342,17 @@ sealed_requirement() {
 sealed_serves_this_install() {
   local f="$INSTALL_CONFIG_DIR/kosmos-install.json"
   [ -f "$f" ] && [ ! -L "$f" ] && /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$f" 2>/dev/null
+}
+# Is the account config this run reads (INSTALL_CONFIG_DIR, under AGENT_WORKFORCE_HOME) the one the sealed app at
+# $1 will read when opened? Yes with no AGENT_WORKFORCE_HOME elsewhere; otherwise only for an icon in an icon folder
+# the harness itself sandboxed (which launches the app with that environment).
+sealed_config_reaches() {
+  if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "$AGENT_WORKFORCE_HOME" -ef "$HOME" ]; then return 0; fi
+  local d
+  d="$(/usr/bin/dirname "$1")"
+  { [ -n "${KOSMOS_APP_DIR:-}" ] && [ "$d" -ef "$KOSMOS_APP_DIR" ]; } \
+    || { [ -n "${KOSMOS_SYS_APP_DIR:-}" ] && [ "$d" -ef "$SYS_APP_DIR" ]; } \
+    || { [ -n "${KOSMOS_HOME_APP_DIR:-}" ] && [ "$d" -ef "$HOME_APP_DIR" ]; }
 }
 # A sealed Kosmos icon of ANY install (no per-install file, a valid signature with our identifier). Weaker than
 # bundle_is_sealed and used only where the answer LEAVES an icon in place and names it, never to delete one.
@@ -3650,12 +3664,14 @@ sealed_placeable() {
 app_bundle_into() {
   local src="$KOSMOS_HOME/app/Kosmos.app"
   if sealed_placeable; then
-    /usr/bin/ditto "$src" "$1" || return 1
     # #4449: the icon's own modes, not the app tree's (KOSMOS_READONLY_APP makes that read-only, and a read-only icon
     # could not be replaced or removed later). Modes are not part of the signature.
-    /bin/chmod -R u+w "$1" || return 1
-    /usr/bin/codesign --verify --deep --strict "$1" >/dev/null 2>&1 || return 1
-    return 0
+    if /usr/bin/ditto "$src" "$1" && /bin/chmod -R u+w "$1" \
+       && /usr/bin/codesign --verify --deep --strict "$1" >/dev/null 2>&1; then
+      return 0
+    fi
+    # A copy that did not come out whole: this run's own stage is emptied and the per-install bundle built instead.
+    /bin/chmod -R u+w "$1" 2>/dev/null; rm -rf "$1" && /bin/mkdir "$1" || return 1
   fi
   build_app_bundle "$1"
 }
@@ -3963,8 +3979,8 @@ if [ "$APP_MADE" = "yes" ]; then
       # app carrying the name, where "another account has Kosmos" would
       # assert something never established.
       if [ "${APP_OWN_SEALED:-no}" = yes ]; then
-        info "your Kosmos icon is already in Applications and this install could not refresh it, so a copy went to"
-        info "the Applications folder inside your home folder, as Kosmos"
+        info "your Kosmos icon is already in Applications and this install could not refresh it, so this install's"
+        info "icon went to the Applications folder inside your home folder, as Kosmos"
       else
         info "something else already has the Kosmos spot in Applications, so yours went to the"
         info "Applications folder inside your home folder, as Kosmos (or type Kosmos into Spotlight)"
@@ -3995,7 +4011,11 @@ elif [ "$APP_HOME_FOREIGN" = "yes" ]; then
   info "note: a Kosmos.app not created by this install is in the Applications folder inside"
   info "your home folder; it was left alone and no icon was created."
   if [ "$APP_OTHER_OWNER" = "yes" ]; then
-    info "(something else also has the Kosmos spot in Applications; it was left alone too)"
+    if [ "${APP_OWN_SEALED:-no}" = yes ]; then
+      info "(your Kosmos icon in Applications could not be refreshed by this install; it was left alone too)"
+    else
+      info "(something else also has the Kosmos spot in Applications; it was left alone too)"
+    fi
   fi
   if [ "$APP_SYS_STALE" = "swap" ]; then
     info "(the Kosmos icon already in Applications could not be replaced and is still there)"
