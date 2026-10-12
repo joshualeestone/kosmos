@@ -245,7 +245,7 @@ out="$(KOSMOS_SUITE_RERUN_CMD=true bash -c "$G5932_SRC" 2>&1)"; rc=$?
 out="$(KOSMOS_SUITE_RERUN_CMD= bash -c "$G5932_SRC" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && ok "#5932 an EMPTY export refuses too" || bad "#5932 an empty export passed (rc=$rc): $out"
 out="$(env -u KOSMOS_SUITE_RERUN_CMD KOSMOS_SUITE_RERUN_MAX=3 KOSMOS_SUITE_RERUN_SLEEP=1 bash -c "$G5932_SRC" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && ok "#5932 KOSMOS_SUITE_RERUN_MAX and _SLEEP alone are allowed (operator settings)" || bad "#5932 refused MAX/SLEEP (rc=$rc): $out"
+[ "$rc" = 0 ] && ok "#5932 KOSMOS_SUITE_RERUN_SLEEP, and _MAX (#5907's rerunbudget branch adds it), alone are allowed" || bad "#5932 refused MAX/SLEEP (rc=$rc): $out"
 out="$(env -u KOSMOS_SUITE_RERUN_CMD bash -c "$G5932_SRC" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "#5932 a clean environment passes (control)" || bad "#5932 refused a clean env (rc=$rc): $out"
 else
