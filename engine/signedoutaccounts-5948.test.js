@@ -82,3 +82,12 @@ test('#5948 review 1: a job pinned to the provider\'s default home is the defaul
   assert.equal(m.usedBy.length, 5);
   assert.match(m.connection.because, /and A1, A2, A3 and 2 more use it$/);
 });
+
+test('#5948 review 2: each provider\'s credential file names are the ones its own account module reads', () => {
+  const { PROVIDER_OF_RUNNER } = require('./signedoutaccounts');
+  const path = require('node:path');
+  const base = (f) => path.basename(f('/x'));
+  assert.deepEqual(PROVIDER_OF_RUNNER.codex.files, [base(require('./openaiaccounts').authFile)]);
+  assert.deepEqual(PROVIDER_OF_RUNNER.gemini.files, [base(require('./geminiaccounts').keyFile)]);
+  assert.deepEqual(PROVIDER_OF_RUNNER.grok.files, [base(require('./grokaccounts').keyFile), base(require('./grokaccounts').authFile)]);
+});
