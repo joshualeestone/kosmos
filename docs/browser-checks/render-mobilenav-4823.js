@@ -140,10 +140,15 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 430, height: 932 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' }, opts || {}));
       if (engine === 'webkit' && host === 'remote.test') {
         // remote.test answered by the same board on loopback; the Host header stays remote.test, which the board accepts.
+        // Self-contained (kosmos#5921): this route outlives the page at teardown, so a fetch or fulfil it cannot finish
+        // (the page closed under it) aborts that one request instead of throwing where nothing catches it. During the
+        // arms an abort is a failed request the page and its assertions see, never a silent pass.
         await ctx.route(/^http:\/\/remote\.test(:\d+)?\//, async (r) => {
-          const u = new URL(r.request().url());
-          const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
-          return r.fulfill({ response: res });
+          try {
+            const u = new URL(r.request().url());
+            const res = await r.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search, headers: Object.assign({}, r.request().headers(), { host: 'remote.test:' + port }) });
+            return await r.fulfill({ response: res });
+          } catch { return r.abort().catch(() => {}); }
         });
       }
       const page = await ctx.newPage();
@@ -380,7 +385,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
       }
     } finally {
       for (const [ctx, page] of live) await unroute(ctx, page);
-      await browser.close().catch(() => {});   // never replaces the arm's own error
+      await browser.close().catch((e) => console.log('teardown: browser.close failed: ' + (e && e.message)));   // said, never replacing the arm's error
     }
   }
   chk(errs.length === 0, 'no page errors', JSON.stringify(errs.slice(0, 3)));
