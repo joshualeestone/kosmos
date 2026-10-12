@@ -62,11 +62,33 @@ struct KosmosInstallConfig: Codable {
     let port: Int
 
     static func load() -> KosmosInstallConfig? {
-        let path = ProcessInfo.processInfo.environment["KOSMOS_APP_CONFIG"]
-            ?? (Bundle.main.resourcePath.map { $0 + "/kosmos-install.json" })
-        guard let path, let data = FileManager.default.contents(atPath: path) else { return nil }
-        return try? JSONDecoder().decode(KosmosInstallConfig.self, from: data)
+        let env = ProcessInfo.processInfo.environment
+        let home = env["KOSMOS_APP_TEST_HOME"] ?? NSHomeDirectory()
+        return load(from: installConfigCandidates(env: env, home: home, resourcePath: Bundle.main.resourcePath))
     }
+
+    /// The first candidate that exists and reads as a config wins. One that is missing or unreadable is skipped, so a
+    /// damaged per-account file falls back to the bundle's copy rather than to nothing.
+    static func load(from paths: [String]) -> KosmosInstallConfig? {
+        for path in paths {
+            guard let data = FileManager.default.contents(atPath: path),
+                  let config = try? JSONDecoder().decode(KosmosInstallConfig.self, from: data) else { continue }
+            return config
+        }
+        return nil
+    }
+}
+
+/// #5896: where this account's install config is read from, in order. PURE, for --kosmos-app-mode-selftest.
+/// A notarized, sealed Kosmos.app cannot be written to after it is signed, so the installer writes the config into
+/// the RUNNING account's own Library (install/setup.sh write_install_config); the bundle's copy is what installs made
+/// before that still carry. KOSMOS_APP_CONFIG names one file outright (tests).
+let installConfigDirName = "com.chaoskosmos.kosmos"
+func installConfigCandidates(env: [String: String], home: String, resourcePath: String?) -> [String] {
+    if let only = env["KOSMOS_APP_CONFIG"] { return [only] }
+    var out = [home + "/Library/Application Support/" + installConfigDirName + "/kosmos-install.json"]
+    if let r = resourcePath { out.append(r + "/kosmos-install.json") }
+    return out
 }
 
 // MARK: - Resolving which install to open (#664: another account clicked
@@ -6805,8 +6827,31 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.removeItem(atPath: computerModePath(kosmosHome: dir.path))
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
+    // #5896: the install config is read from this account's own Library first, then the bundle's copy.
+    func cfg(_ got: [String], _ want: [String], _ why: String) {
+        ran += 1
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "config".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    let acct = "/Users/a/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"
+    cfg(installConfigCandidates(env: [:], home: "/Users/a", resourcePath: "/Applications/Kosmos.app/Contents/Resources"),
+        [acct, "/Applications/Kosmos.app/Contents/Resources/kosmos-install.json"], "this account's own file first, then the bundle's copy")
+    cfg(installConfigCandidates(env: [:], home: "/Users/a", resourcePath: nil), [acct], "no bundle resources: only this account's file")
+    cfg(installConfigCandidates(env: ["KOSMOS_APP_CONFIG": "/tmp/x.json"], home: "/Users/a", resourcePath: "/R"), ["/tmp/x.json"],
+        "KOSMOS_APP_CONFIG names one file outright")
+    cfg(installConfigCandidates(env: [:], home: "/Users/b", resourcePath: "/R").first.map { [$0] } ?? [],
+        ["/Users/b/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"], "another account reads ITS OWN Library, never the installer's")
+    let cdir = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-cfg-selftest-\(getpid())")
+    try? FileManager.default.createDirectory(at: cdir, withIntermediateDirectories: true)
+    let own = cdir.appendingPathComponent("own.json").path, bundled = cdir.appendingPathComponent("bundled.json").path
+    FileManager.default.createFile(atPath: bundled, contents: Data(#"{"kosmosHome":"/b","ownerUid":502,"port":16200}"#.utf8))
+    FileManager.default.createFile(atPath: own, contents: Data(#"{"kosmosHome":"/a","ownerUid":501,"port":16180}"#.utf8))
+    disk(KosmosInstallConfig.load(from: [own, bundled])?.kosmosHome == "/a", "the account's own config wins over the bundle's")
+    FileManager.default.createFile(atPath: own, contents: Data("not json".utf8))
+    disk(KosmosInstallConfig.load(from: [own, bundled])?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
+    try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 98   // #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 104   // #5896: +6 (4 config-order rows, 2 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
