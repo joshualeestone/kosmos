@@ -1121,6 +1121,35 @@ test('kosmos#5900: a conversation from before projectBornAt still reaches its ea
   }
 });
 
+test('kosmos#5900 residuals, pinned so a change to either is deliberate', () => {
+  const full = (P, born) => {
+    const file = chat.threadFile(P, 'casey');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const many = Array.from({ length: chat.MAX_MESSAGES }, (_, i) => ({ at: new Date().toISOString(), text: P + i }));
+    fs.writeFileSync(file, JSON.stringify({ project: P, agent: 'casey', ...(born ? { projectBornAt: born } : {}), messages: many }));
+    return file;
+  };
+  // 1. A project from before dates, deleted and re-created under its name (a new date), reads the old conversation:
+  //    readThread adopts an undated file, and the chain now reaches its undated earlier file too.
+  const OLD = 'reborn-undated-5900';
+  full(OLD, null);
+  assert.equal(chat.appendMessage(OLD, 'casey', { text: 'old rolls over undated' }).recorded, true);
+  assert.equal(chat.readThread(OLD, 'casey').projectBornAt, null, 'premise: the old conversation is still undated');
+  assert.equal(chat.appendMessage(OLD, 'casey', { text: 'the re-created project speaks' }, '2026-09-01T00:00:00.000Z').recorded, true);
+  assert.deepEqual(chat.asideChain(OLD, 'casey', false).map((a) => a.count), [chat.MAX_MESSAGES],
+    'a re-created pre-date project no longer reaches the old undated file (the accepted residual changed)');
+
+  // 2. A lost current file of a conversation dated after it rolled over does NOT reattach to its undated earlier file:
+  //    newestOwnAside keeps the strict date match, because relaxing it would let a re-created project's lost file adopt one.
+  const LOST = 'lost-undated-5900';
+  const file = full(LOST, null);
+  assert.equal(chat.appendMessage(LOST, 'casey', { text: 'rolls over' }, '2026-08-01T00:00:00.000Z').recorded, true);
+  fs.rmSync(file);
+  assert.equal(chat.appendMessage(LOST, 'casey', { text: 'after a loss' }, '2026-08-01T00:00:00.000Z').recorded, true);
+  assert.equal(chat.readThread(LOST, 'casey').continues, null,
+    'a lost file reattached to an undated earlier file (the strict newestOwnAside residual changed)');
+});
+
 test('a recording failure NEVER throws, so a delivered message cannot come back looking undelivered', () => {
   const kept = chat.appendMessage('../hostile', 'casey', { text: 'hi', delivery: { state: chat.DELIVERY.PLACED } });
   assert.equal(kept.recorded, false);

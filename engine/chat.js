@@ -3375,11 +3375,9 @@ function asideChain(projectId, agent, withRows, from, bornAt) {
     let rec;
     try { rec = JSON.parse(fs.readFileSync(path.join(dir, next), 'utf8')); } catch { break; }
     if (!rec || rec.agent !== String(agent) || !Array.isArray(rec.messages)) break;
-    // Another conversation's file is never part of this chain. kosmos#5900: a file with NO date is this conversation's
-    // when this conversation's link names it, the reading readThread gives an undated file (a mismatch only when both
-    // are dated).
-    // A conversation dated after it rolled over reaches its undated earlier files this way, and from there on only
-    // undated files can follow.
+    // Another conversation's file is never part of this chain. kosmos#5900: a file with NO date is followed when this
+    // conversation's link names it, as readThread reads an undated file (a mismatch only when both are dated). After
+    // the first undated file, only undated files can follow.
     const recBorn = rec.projectBornAt || null;
     if (recBorn !== born) {
       if (recBorn !== null) break;
