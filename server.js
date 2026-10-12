@@ -1005,6 +1005,8 @@ const teamseed = require('./engine/teamseed'); // #4557: a seeded team's members
 const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
+// #5959: a waiting self-report (needs_you / blocked) standing longer than this is pointed out to the agent (kosmos report show).
+const REPORT_STALE_MS = 24 * 3600 * 1000;
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
    the agents it can see; this is the same question asked about an agent with no
    pane, not a second idea of where a face lives. */
@@ -15104,6 +15106,13 @@ const server = http.createServer(async (req, res) => {
       });
       if (!sender.ok) { fail(403, sender.because); return; }
       const rep = selfreport.read(sender.card.sessionName);
+      /* #5959: the card as the PERSON sees it (its label is the page's own word, engine/cardlabel), so an agent can
+         check its own card without reading the board; and a waiting state standing over a day is pointed out. */
+      const cardLabel = require('./engine/cardlabel').labelOf(sender.card);
+      const atMs = rep && rep.found === true ? Date.parse(rep.at || '') : NaN;
+      const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
+      const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
+        && ageMs !== null && ageMs > REPORT_STALE_MS);
       /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
          found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
          server-fault paths above are non-2xx. */
@@ -15132,11 +15141,17 @@ const server = http.createServer(async (req, res) => {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
           }
         }
+        line = 'Your card on the board shows: ' + cardLabel + '.\n' + line;
+        if (stale) {
+          const days = Math.floor(ageMs / (24 * 3600 * 1000));
+          line += '\nThis ' + rep.state + ' has been standing for ' + (days >= 2 ? days + ' days' : 'over a day')
+            + '. If nobody needs to answer it any more, clear it with a fresh report (for example `kosmos report working ...`).';
+        }
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         res.end(line + '\n');
         return;
       }
-      sendJson(res, 200, { ok: true, report: rep });
+      sendJson(res, 200, { ok: true, report: rep, card: { state: sender.card.state || null, label: cardLabel }, stale });
     } catch (err) {
       fail(500, String((err && err.message) || 'we could not read your report right now'));
     }
