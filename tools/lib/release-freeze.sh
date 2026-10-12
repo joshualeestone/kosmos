@@ -256,8 +256,8 @@ release_bundle_matches_tree() {
     fi
   done < <(cd "$tmp" && find app bin -type f 2>/dev/null | sed 's|^\./||')
   if [ "$saw_sealed" -eq 1 ]; then
-    codesign --verify --deep --strict "$tmp/app/Kosmos.app" >/dev/null 2>&1 \
-      || { echo "   the sealed app's signature does not verify (--deep --strict): app/Kosmos.app"; bad=1; }
+    codesign --verify --deep --strict '-R=identifier "com.chaoskosmos.kosmos"' "$tmp/app/Kosmos.app" >/dev/null 2>&1 \
+      || { echo "   the sealed app's signature does not verify (--deep --strict, identifier com.chaoskosmos.kosmos): app/Kosmos.app"; bad=1; }
   elif [ "$want_sealed" = sealed ]; then
     echo "   the bundle carries no sealed app (app/Kosmos.app) but one was expected"; bad=1
   fi

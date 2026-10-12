@@ -24,7 +24,7 @@ function fnSource(name) {
   const end = SETUP.indexOf('\n}\n', at);
   return SETUP.slice(at + 1, end + 3);
 }
-const FNS = ['bundle_is_ours', 'bundle_is_sealed', 'app_bundle_into'].map(fnSource).join('\n');
+const FNS = ['bundle_is_ours', 'sealed_requirement', 'bundle_is_sealed', 'app_bundle_into'].map(fnSource).join('\n');
 
 let tmpRoot;
 test.before(() => { tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sealed-5896-')); });
@@ -114,4 +114,63 @@ test('#5896: uninstall checks for the shared sealed icon BEFORE the branch that 
   const rm = SETUP.indexOf('elif bundle_is_ours "$SYS_APP_DIR/Kosmos.app"; then', at);
   assert.ok(rm > at && rm - at < 600, 'the sealed check is not directly before the removal branch');
   assert.doesNotMatch(SETUP.slice(at, rm), /rm -rf/, 'the sealed branch removes something');
+});
+
+test('#5896: uninstall in its real order: the requirement is read, the home is deleted, and the icon is still proven ours', () => {
+  const home = makeHome('v1');
+  const icon = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), 'Kosmos.app');
+  execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), icon]);
+  const order = (capture) => run({ KOSMOS_HOME: home }, [
+    capture ? 'SEALED_REQ="$(sealed_requirement 2>/dev/null)" || SEALED_REQ=""' : 'SEALED_REQ=""',
+    `/bin/mv "${home}" "${home}.gone"`,   // the uninstall's rm -rf of KOSMOS_HOME, kept reversible here
+    `bundle_is_ours "${icon}"; echo "rc=$?"`,
+    `/bin/mv "${home}.gone" "${home}"`,
+  ].join('\n')).out;
+  assert.match(order(true), /rc=0/, 'with the requirement read first, the sealed icon was not proven ours after the home went');
+  assert.match(order(false), /rc=[1-9]/, 'CONTROL: without reading it first, the deleted home should leave nothing to prove against');
+  const un = SETUP.slice(SETUP.indexOf('\nuninstall() {\n'));
+  const cap = un.indexOf('SEALED_REQ="$(sealed_requirement');
+  const del = un.indexOf('rm -rf "$KOSMOS_HOME"');
+  assert.ok(cap !== -1 && del !== -1 && cap < del, 'uninstall does not read the requirement before it deletes KOSMOS_HOME');
+});
+
+test('#5896: residue sweeps never take a sealed leftover (it could be another account\'s), and all three pass the flag', () => {
+  const home = makeHome('v1');
+  const res = path.join(fs.mkdtempSync(path.join(tmpRoot, 'apps-')), '.Kosmos.app.old.123');
+  execFileSync('/usr/bin/ditto', [path.join(home, 'app', 'Kosmos.app'), res]);
+  assert.match(run({ KOSMOS_HOME: home }, `BUNDLE_SEALED_OK=0 bundle_is_ours "${res}"; echo "rc=$?"`).out, /rc=[1-9]/);
+  assert.match(run({ KOSMOS_HOME: home }, `bundle_is_ours "${res}"; echo "rc=$?"`).out, /rc=0/, 'CONTROL: the same leftover is ours without the flag');
+  const sweeps = SETUP.match(/^\s*if (BUNDLE_SEALED_OK=0 )?bundle_is_ours "\$_res"; then$/gm) || [];
+  assert.equal(sweeps.length, 3, 'expected the three residue sweeps');
+  assert.ok(sweeps.every((l) => l.includes('BUNDLE_SEALED_OK=0')), 'a residue sweep can delete a sealed leftover: ' + sweeps.join(' | '));
+});
+
+test('#5896: the sealed app is placed only where the app will read the config (AGENT_WORKFORCE_HOME)', () => {
+  const realHome = fs.mkdtempSync(path.join(tmpRoot, 'realhome-'));
+  const elsewhere = fs.mkdtempSync(path.join(tmpRoot, 'awh-'));
+  const cases = [
+    [{ HOME: realHome }, false],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: realHome }, false],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere }, true],
+    [{ HOME: realHome, AGENT_WORKFORCE_HOME: elsewhere, KOSMOS_APP_DIR: '/sb/apps' }, false],
+  ];
+  for (const [env, wantBuilt] of cases) {
+    const st = stageOf();
+    run({ ...env, KOSMOS_HOME: makeHome('v1'), _wic_rc: '0' }, `app_bundle_into "${st}"`);
+    assert.equal(built(st), wantBuilt, JSON.stringify(env) + (wantBuilt ? ': the sealed app was placed where the app would not read the config' : ': the sealed app was not placed'));
+  }
+});
+
+test('#5896: a read-only shipped app is placed writable for its owner, and still verifies', () => {
+  const home = makeHome('v1');
+  execFileSync('/bin/chmod', ['-R', 'a-w', path.join(home, 'app', 'Kosmos.app')]);
+  const st = stageOf();
+  try {
+    run({ KOSMOS_HOME: home, _wic_rc: '0' }, `app_bundle_into "${st}"`);
+    assert.equal(built(st), false);
+    assert.ok(fs.statSync(path.join(st, 'Contents')).mode & 0o200, 'the placed icon is not writable, so it could not be replaced or removed later');
+    execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', st]);
+  } finally {
+    execFileSync('/bin/chmod', ['-R', 'u+w', path.join(home, 'app', 'Kosmos.app')]);
+  }
 });
