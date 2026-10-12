@@ -221,14 +221,16 @@ function inputsHere(deps = {}) {
   let geminiHome, codexHome;
   try { geminiHome = require('./geminisession').HOME(); } catch { /* none */ }
   try { codexHome = require('./codexupdate').defaultHome(); } catch { /* none */ }
-  // Each agent's OWN provider homes (kosmos#5883), from its launch job, by the helpers the status reader uses. The
-  // board reads ONE home (the current session); a backup owes EVERY conversation (review 1), so it reads each home the
-  // agent's sessions can be in, each under a name for its kind: a Codex agent's account home (CODEX_HOME, or the
-  // default) as `codex`, its private runtime home (#4592) as `codex-runtime`, and the default home as `codex-default`
-  // when the account is a named one (what it kept before moving). A Gemini agent's account storage home
-  // (create.geminiStorageHome) as `gemini`, the default as `gemini-default` likewise. Every one is filtered to this
-  // agent's own files (backupsessions). Any other agent, or one whose job cannot be read, keeps the defaults.
-  // NOT covered: a move between two NAMED accounts leaves the first account's sessions unread (#5883).
+  // Each agent's OWN provider homes (kosmos#5883), from its launch job. The board reads ONE home (the current session);
+  // a backup owes EVERY conversation (review 1), so it reads each home the agent's sessions can be in. Each root is
+  // named for its FOLDER, never its role (review 2: a role name moved to another folder when the agent changed account,
+  // and the same files were stored again under the new name): the default home is `codex` / `gemini` (as before this
+  // change), the runtime home (#4592) `codex-runtime`, and a named account's home `codex-a<8 hex of its path>` /
+  // `gemini-a<...>`. Every one is filtered to this agent's own files (backupsessions). The homes come from the helpers
+  // the board's readers use (create.defaultAgentCodexHome, create.geminiStorageHome). An agent whose job cannot be
+  // read keeps the plain defaults. NOT covered: a move between two NAMED accounts leaves the first account's sessions
+  // unread (#5883).
+  const acctTag = (home) => '-a' + require('crypto').createHash('sha256').update(path.resolve(home)).digest('hex').slice(0, 8);
   const sessions = (dir, id, name) => {
     let job = null;
     try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
@@ -236,13 +238,13 @@ function inputsHere(deps = {}) {
     const moreHomes = [];
     try {
       if (job && job.runner === 'codex') {
-        cx = job.configDir || create.defaultAgentCodexHome();
+        cx = create.defaultAgentCodexHome();
         const runtime = require('./codexruntime').forAgent(name);
         if (fs.existsSync(runtime)) moreHomes.push({ provider: 'codex', home: runtime, tag: '-runtime' });
-        if (job.configDir) moreHomes.push({ provider: 'codex', home: create.defaultAgentCodexHome(), tag: '-default' });
+        if (job.configDir) moreHomes.push({ provider: 'codex', home: job.configDir, tag: acctTag(job.configDir) });
       } else if (job && job.runner === 'gemini') {
-        gm = create.geminiStorageHome(job.configDir);
-        if (job.configDir) moreHomes.push({ provider: 'gemini', home: create.geminiStorageHome(null), tag: '-default' });
+        gm = create.geminiStorageHome(null);
+        if (job.configDir) moreHomes.push({ provider: 'gemini', home: create.geminiStorageHome(job.configDir), tag: acctTag(job.configDir) });
       }
     } catch { /* the defaults */ }
     return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, moreHomes });

@@ -42,3 +42,16 @@ Measured 20:34 CDT from `date`: T1 Codex home always the default: red. T2 Gemini
 Mutants (20:37 CDT from `date`): R1 no runtime home: red. R2 no default home: red. R3 the one-folder check in
 sessionsFor removed: SURVIVES, equivalent today: inputsHere never passes a home that resolves to one already read (the
 default is added only beside a named account).
+
+## Review 2 (sonnet, blind, on 205ef933): one must-fix, two nits, all fixed
+1. MUST-FIX: my "a name never moves between snapshots" was false. `codex` meant "the account home", so the folder behind
+   it changed when the agent changed account, and the same rollouts were stored again under another name. FIXED: each
+   root is named for its FOLDER, never its role: the default home is `codex` / `gemini` (its name before this change),
+   the runtime home `codex-runtime`, a named account `codex-a<8 hex of its path>` / `gemini-a<...>`. Test: one folder
+   keeps one name across an account move, with a control that both homes are read after it.
+2. FIXED: backupsessions had no moreHomes test. Added: a bad tag, a home equal to the primary, an unknown provider, a
+   linked sessions folder (refused, never followed). My first bad-tag case reused a folder the one-folder rule already
+   dropped, so the tag rule never ran (R4 survived); the bad tag now has a folder of its own.
+3. FIXED: a Gemini agent's default arm is create.geminiStorageHome(null) (the board reader's), the same on both paths.
+Mutants (20:40 CDT from `date`): R3 one-folder check removed: red. R4 any tag accepted: red (after the fix
+above). R5 the account home named codex: red. R6 a role tag (-default) instead of the folder's: red.
