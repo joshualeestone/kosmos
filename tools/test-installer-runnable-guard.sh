@@ -38,15 +38,20 @@ rm -rf "$_td"
 #    Any missing guard is a directory-accepting site. Red if any is added.
 _scan='
 # #5913: a SEARCH test on a folder (can this account enter it) is not the class, but only when a folder test
-# gates THIS -x: an un-negated [ -d P ] earlier on the line, and between the two nothing but " && " joining
-# bracket tests on the same P (for example [ ! -L P ] or [ -r P ]). Then a path that is not a folder never
-# reaches the -x. Anything else between them (||, ;, a pipe, &, a string, a subshell, another path) is not
-# read as a gate: a folder test written another way is flagged, which is the safe direction (review 7).
-function dgated(line, p, xi,    pre, d, from, k, di, t, tail) {
+# gates THIS -x: a [ -d P ] earlier on the line that STARTS a command, and between the two nothing but " && "
+# joining bracket tests on the same P (for example [ ! -L P ] or [ -r P ]). "Starts a command" means the text
+# before it is empty (and the line before does not continue into it with \, ||, && or |), or ends in ; { ( or
+# then, do, else, if, elif, while, until. So a negation (! [ -d P ]) or an earlier list (a || [ -d P ], which
+# the shell groups as (a || [ -d P ]) && [ -x P ], review 8) is not a gate. Then a path that is not a folder
+# never reaches the -x. Anything else (||, ;, a pipe, &, a string, a subshell, another path) is not read as a
+# gate: a folder test written another way is flagged, which is the safe direction (reviews 7, 8).
+function dgated(line, p, xi,    pre, d, from, k, di, t, tail, before) {
   pre = substr(line, 1, xi - 1); d = "[ -d " p " ]"; tail = p " ]"; from = 1
   while ((k = index(substr(pre, from), d)) > 0) {
     di = from + k - 1; from = di + 1
-    if (substr(line, 1, di - 1) ~ /![ \t]*$/) continue
+    before = substr(line, 1, di - 1); sub(/[ \t]+$/, "", before)
+    if (before == "") { if (contprev) continue }
+    else if (before !~ /[;{(]$/ && before !~ /(^|[ \t;])(then|do|else|if|elif|while|until)$/) continue
     t = substr(pre, di + length(d))
     while (t != " && ") {
       if (substr(t, 1, 6) != " && [ ") break
@@ -61,6 +66,7 @@ function dgated(line, p, xi,    pre, d, from, k, di, t, tail) {
   }
   return 0
 }
+FNR == 1 { contprev = 0 }
 {
   line = $0
   s = line; off = 0
@@ -78,6 +84,8 @@ function dgated(line, p, xi,    pre, d, from, k, di, t, tail) {
       printf "%s:%d: bare [ ! -x %s ] (a directory reads as executable)\n", FILENAME, FNR, p
     t = substr(t, RSTART + RLENGTH)
   }
+  # Does this line continue into the next one (a trailing \, ||, && or |)? Then the next line does not start a command.
+  contprev = (line ~ /(\\|&&|\|)[ \t]*$/)
 }'
 bare="$(cd "$HERE" && awk "$_scan" $FILES 2>/dev/null)"
 if [ -z "$bare" ]; then
@@ -108,11 +116,16 @@ else fail "the scan flagged a folder search test guarded by -d on the same path"
 printf '  [ -d "$S" ] && [ ! -L "$S" ] && [ -r "$S" ] && [ -x "$S" ] || return 0\n' > "$_ctl"
 if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test with other && tests between is not flagged"
 else fail "the scan flagged a folder search test joined by && through other tests"; fi
-# Each of these lets a path that is NOT a folder reach an -x, so each must be flagged exactly once (reviews 6, 7).
+printf '  if [ -d "$P" ] && [ -x "$P" ]; then :; fi\n  x=1; [ -d "$P" ] && [ -x "$P" ] || return 0\n' > "$_ctl"
+if [ -z "$(awk "$_scan" "$_ctl" 2>/dev/null)" ]; then pass "a folder search test after if, or after a ; is not flagged (it starts a command)"
+else fail "the scan flagged a folder search test that starts a command after if or ;"; fi
+# Each of these lets a path that is NOT a folder reach an -x, so each must be flagged exactly once (reviews 6, 7, 8).
 _n=0
 for _l in '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0' \
           '  [ -d "$P" ] || [ -x "$P" ] && run "$P"' \
-          '  [ -d "$P" ] && mkdir y; [ -x "$P" ] && "$P" --version' \
+          '  [ -d "$P" ] && [ -r "$P" ]; [ -x "$P" ] && "$P" --version' \
+          '  true || [ -d "$P" ] && [ -x "$P" ] && run "$P"' \
+          '  [ -z "$X" ] || [ -d "$P" ] && [ -x "$P" ]' \
           '  [ -x "$P" ] && run "$P"   # was [ -d "$P" ] before' \
           '  [ -x "$P" ] && [ -d "$P" ] && run "$P"' \
           '  ! [ -d "$P" ] && [ -x "$P" ] && run "$P"' \
@@ -125,7 +138,11 @@ for _l in '  [ -d "$OTHER" ] && [ -x "$DIR" ] || return 0' \
   if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then _n=$((_n + 1))
   else fail "a -d that does not gate the -x excused it: $_l"; fi
 done
-[ "$_n" -eq 11 ] && pass "a -d that does not gate the -x excuses nothing: another path, ||, ;, a comment, after it, negated, a second -x, a pipe, &, a string (11 controls)"
+[ "$_n" -eq 13 ] && pass "a -d that does not gate the -x excuses nothing: another path, ||, ;, after a || list, a comment, after it, negated, a second -x, a pipe, &, a string (13 controls)"
+# The same || list split over two lines with a trailing \ (review 8): the second line does not start a command.
+printf '  true || \\\n  [ -d "$P" ] && [ -x "$P" ] && run "$P"\n' > "$_ctl"
+if [ "$(awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a -d on a line continued from a || list is not a gate"
+else fail "a -d on a line continued from a || list excused the -x"; fi
 rm -f "$_ctl"
 
 echo "installer runnable-guard: $fails failures"
