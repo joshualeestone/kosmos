@@ -22465,6 +22465,22 @@ function start(port = PORT) {
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
+      /* #5959 slice 3: an agent whose own waiting report (needs_you / blocked) has stood on its card over a day is told
+         ONCE per report, typed into its session (engine/stalereport-nudge.js), in the words `kosmos report show` uses.
+         Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_STALEREPORT_NUDGE_OFF=1, own timer (a report a few minutes past a day is late by that much),
+         unref'd, best-effort. */
+      const STALEREPORT_BOOK = new Map();
+      const stalereportTick = require('./engine/stalereport-nudge').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: STALEREPORT_BOOK,
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`stalereport-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+      });
+      const stalereportSweep = setInterval(stalereportTick, Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) : 5 * 60 * 1000); // the env is the test seam only
+      if (stalereportSweep && typeof stalereportSweep.unref === 'function') stalereportSweep.unref();
       /* #4588: Antigravity agents paused on their Google account's shared quota get ONE carry-on line after the reset,
          one agent at a time (engine/agyquota.js). Same gating as the sweeps above: inert under `node --test` and before
          the live-execution opt-in, operator brake AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1, own ~1-min timer, unref'd,
