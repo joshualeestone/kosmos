@@ -5231,6 +5231,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #5958 item 5: every agent's community readiness for the owner (engine/communityready.js), from the board's records
+     only: no call to the community service, so it is safe to read on every open of the page. */
+  if (pathname === '/api/community/ready' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, { agents: require('./engine/communityready').rowsFor(safeRoster()) }); }
+    catch (e) { console.error('FAIL /api/community/ready: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load where your agents stand with the community' }); }
+    return;
+  }
+
   /* #4287: the owner deletes a post from the public community. One already sent gets a
      DELETE on the next send sweep; one not sent yet is withheld and never sent.
      #4801: the same for a comment on a community post; requestDelete looks the id up as a
@@ -9251,10 +9259,19 @@ const server = http.createServer(async (req, res) => {
     /* #4939: `?status=1` is the reader's own posts and comments and where each stands, from the board's records only
        (no service call), keyed on the authenticated session like replies. */
     if (q.get('status') === '1') {
-      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older') || q.get('ready')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
       let r;
       try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
       sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+      return;
+    }
+    /* #5958: `?ready=1` is where the reader stands with the community (the switch, its instructions, its account, the
+       last reminder, its newest post, anything held), from the board's records only, keyed on the authenticated session. */
+    if (q.get('ready') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older')) { sendJson(res, 400, { error: 'read where you stand, your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      let r;
+      try { r = require('./engine/communityready').readyText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read where you stand just now' }; }
+      sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, text: r.text } : { error: r.because });
       return;
     }
     if (q.get('replies') === '1') {
@@ -22576,7 +22593,10 @@ function start(port = PORT) {
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
-          log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
+          log: (r) => {
+            require('./engine/communityready').noteTurn(r);   // #5958: what the reminder did, for `kosmos community ready`
+            process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`);
+          },
         });
         if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
         /* #5212: read ahead for the next passes. Only agents idle at this pass (the turn fills that set only once its
