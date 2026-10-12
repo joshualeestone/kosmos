@@ -46,6 +46,7 @@ function installerEnv(from = process.env) {
 
 /* The two processes the install runs; a test replaces this to see exactly what Meta's installer would be given. */
 let execSeam = (cmd, args, opts, cb) => execFile(cmd, args, opts, cb);
+const REAL = {};
 let runInstall = (done) => {
   let dir;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-muse-install-')); } catch (e) { done(e); return; }
@@ -66,6 +67,10 @@ function installOnce() {
     if (!musestatus.enabled(platform())) { resolve({ ok: false, installed: false, because: 'Meta Muse is switched off on this computer' }); return; }
     if (musestatus.installed().installed) { resolve({ ok: true, installed: true }); return; }
     if (sandboxed()) { resolve({ ok: false, installed: false, because: 'this board is set to a different home, so Kosmos will not install Muse Code into this computer\'s own' }); return; }
+    // Convention 3 (engine/live-execution.js): a test process never fetches or runs Meta's real installer.
+    if (require('./live-execution').inTestProcess() && runInstall === REAL.runInstall && execSeam === REAL.execSeam) {
+      resolve({ ok: false, installed: false, because: 'Kosmos will not run Meta\'s installer from a test' }); return;
+    }
     /* A hard cap of our own: an installer child that holds stdout would keep execFile's callback from firing, and an
        unsettled install would hold every later one (the shared run below). */
     let done = false;
@@ -75,19 +80,22 @@ function installOnce() {
       resolve(musestatus.installed().installed ? { ok: true, installed: true }
         : { ok: false, installed: false, because: 'Meta\'s Muse Code installer took too long, so we stopped waiting' });
     }, DOWNLOAD_MS + INSTALL_MS + 10000);
-    runInstall((err) => {
+    const onDone = (err) => {
       if (done) return;
       done = true; clearTimeout(cap);
       resolve(musestatus.installed().installed ? { ok: true, installed: true }
         : { ok: false, installed: false, because: err ? 'Meta\'s Muse Code installer did not finish' : 'the installer finished but Muse Code was not found where it installs' });
-    });
+    };
+    // A throw from the run itself is a failed install, never a rejected promise ("never rejects" below).
+    try { runInstall(onDone); } catch (e) { onDone(e); }
   });
 }
 const sharedInstall = inflight.collapse(installOnce);
 /** Install Muse Code once; concurrent presses share one run. Promise of { ok, installed, because? }; never rejects. */
 function install() { return sharedInstall(); }
 
-const REAL = { runInstall, execSeam };
+
+REAL.runInstall = runInstall; REAL.execSeam = execSeam;
 function setExecForTests(fn) { execSeam = fn || REAL.execSeam; }
 function setInstallerForTests(fn) { runInstall = fn; }
 function setPlatformForTests(p) { platformForTests = p || null; }
