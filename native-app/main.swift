@@ -29,12 +29,17 @@
 //                 uid-derived value 16181-20179 for any other account --
 //                 see kosmosDefaultPort() below)
 //   KOSMOS_APP_CONFIG   path to a kosmos-install.json to read instead of
-//                       the bundle's own Contents/Resources copy (testing only)
+//                       the account's own Library copy and the bundle's
+//                       Contents/Resources copy (testing only). #5896:
+//                       it replaces every other source, so it keeps a
+//                       sandboxed launch off the account's own Library copy.
 //   KOSMOS_APP_TEST_HOME   stands in for NSHomeDirectory() in the #664
 //                       different-account fallback lookup (testing only --
 //                       NSHomeDirectory() does not honor $HOME, so this is
 //                       the only way to simulate a different account
-//                       without a second real macOS account)
+//                       without a second real macOS account). #5896: it
+//                       also picks whose Library the install config is
+//                       read from, ahead of AGENT_WORKFORCE_HOME.
 
 import Cocoa
 import WebKit
@@ -62,11 +67,42 @@ struct KosmosInstallConfig: Codable {
     let port: Int
 
     static func load() -> KosmosInstallConfig? {
-        let path = ProcessInfo.processInfo.environment["KOSMOS_APP_CONFIG"]
-            ?? (Bundle.main.resourcePath.map { $0 + "/kosmos-install.json" })
-        guard let path, let data = FileManager.default.contents(atPath: path) else { return nil }
-        return try? JSONDecoder().decode(KosmosInstallConfig.self, from: data)
+        let env = ProcessInfo.processInfo.environment
+        return load(from: installConfigCandidates(env: env, home: NSHomeDirectory(), resourcePath: Bundle.main.resourcePath),
+                    uid: UInt32(getuid()))
     }
+
+    /// The LAST candidate is the bundle's copy whenever there is more than one (installConfigCandidates). Order:
+    /// a bundle copy that is THIS account's own (ownerUid == uid); else the first config whose install is usable (its
+    /// bin/kosmos is executable, the #664 test); else the bundle's copy, then whatever else reads. Pinned by the "disk"
+    /// rows of --kosmos-app-mode-selftest.
+    static func load(from paths: [String], uid: UInt32,
+                     isInstalled: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0 + "/bin/kosmos") })
+        -> KosmosInstallConfig? {
+        let read = paths.map { path -> KosmosInstallConfig? in
+            guard let data = FileManager.default.contents(atPath: path) else { return nil }
+            return try? JSONDecoder().decode(KosmosInstallConfig.self, from: data)
+        }
+        if let last = read.last, let bundled = last, bundled.ownerUid == uid { return bundled }
+        let decoded = read.compactMap { $0 }
+        return decoded.first { isInstalled($0.kosmosHome) } ?? decoded.last
+    }
+}
+
+/// #5896: where this account's install config is read from: the account's own file, then the bundle's copy (always
+/// LAST; KosmosInstallConfig.load prefers it when it is this account's own). PURE, for --kosmos-app-mode-selftest.
+/// A notarized, sealed Kosmos.app cannot be written to after it is signed, so the installer writes the config into
+/// the RUNNING account's own Library (install/setup.sh write_install_config); the bundle's copy is what installs made
+/// before that still carry. KOSMOS_APP_CONFIG names one file outright (tests).
+let installConfigDirName = "com.chaoskosmos.kosmos"
+func installConfigCandidates(env: [String: String], home: String, resourcePath: String?) -> [String] {
+    if let only = env["KOSMOS_APP_CONFIG"] { return [only] }
+    // The installer writes under ${AGENT_WORKFORCE_HOME:-$HOME} (install/setup.sh INSTALL_CONFIG_DIR).
+    let set = { (k: String) in env[k].flatMap { $0.isEmpty ? nil : $0 } }
+    let base = set("KOSMOS_APP_TEST_HOME") ?? set("AGENT_WORKFORCE_HOME") ?? home
+    var out = [base + "/Library/Application Support/" + installConfigDirName + "/kosmos-install.json"]
+    if let r = resourcePath { out.append(r + "/kosmos-install.json") }
+    return out
 }
 
 // MARK: - Resolving which install to open (#664: another account clicked
@@ -150,7 +186,7 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
     // shared icon gets ITS OWN true home this same way, with no override
     // needed -- this seam exists only so a test harness can simulate that
     // without provisioning a second real account.
-    let realHome = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_HOME"] ?? NSHomeDirectory()
+    let realHome = testHomeOverride() ?? NSHomeDirectory()
     let defaultHome = realHome + "/.local/share/kosmos"
     // An explicit KOSMOS_HOME in the environment names the copy to open
     // outright (a self-host layout, or a harness pointing at a disposable
@@ -971,8 +1007,13 @@ func resolveBundledTmux(kosmosHome: String) -> String? {
 // NSHomeDirectory() is resolved against the REAL running identity and does NOT honor an inherited/
 // spoofable $HOME, and KOSMOS_APP_TEST_HOME is the same testing-only override resolveInstall uses.
 // One named place chooses "the real home" for #3188 so it cannot diverge from resolveInstall's copy.
+/// KOSMOS_APP_TEST_HOME, with an empty value treated as unset, as installConfigCandidates treats it.
+func testHomeOverride() -> String? {
+    ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+}
+
 func realUserHome() -> URL {
-    let path = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_HOME"] ?? NSHomeDirectory()
+    let path = testHomeOverride() ?? NSHomeDirectory()
     return URL(fileURLWithPath: path)
 }
 
@@ -6805,8 +6846,57 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.removeItem(atPath: computerModePath(kosmosHome: dir.path))
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
+    // #5896: the install config is read from this account's own Library first, then the bundle's copy.
+    func cfg(_ got: [String], _ want: [String], _ why: String) {
+        ran += 1
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "config".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    let acct = "/Users/a/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"
+    cfg(installConfigCandidates(env: [:], home: "/Users/a", resourcePath: "/Applications/Kosmos.app/Contents/Resources"),
+        [acct, "/Applications/Kosmos.app/Contents/Resources/kosmos-install.json"], "this account's own file first, then the bundle's copy")
+    cfg(installConfigCandidates(env: [:], home: "/Users/a", resourcePath: nil), [acct], "no bundle resources: only this account's file")
+    cfg(installConfigCandidates(env: ["KOSMOS_APP_CONFIG": "/tmp/x.json"], home: "/Users/a", resourcePath: "/R"), ["/tmp/x.json"],
+        "KOSMOS_APP_CONFIG names one file outright")
+    cfg(installConfigCandidates(env: [:], home: "/Users/b", resourcePath: "/R").first.map { [$0] } ?? [],
+        ["/Users/b/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"], "another account reads ITS OWN Library, never the installer's")
+    cfg(installConfigCandidates(env: ["AGENT_WORKFORCE_HOME": "/sb"], home: "/Users/a", resourcePath: nil),
+        ["/sb/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"], "AGENT_WORKFORCE_HOME moves the account file, as it moves the installer's write")
+    cfg(installConfigCandidates(env: ["KOSMOS_APP_TEST_HOME": "/t", "AGENT_WORKFORCE_HOME": "/sb"], home: "/Users/a", resourcePath: nil),
+        ["/t/Library/Application Support/com.chaoskosmos.kosmos/kosmos-install.json"], "KOSMOS_APP_TEST_HOME outranks AGENT_WORKFORCE_HOME")
+    cfg(installConfigCandidates(env: ["KOSMOS_APP_TEST_HOME": "", "AGENT_WORKFORCE_HOME": ""], home: "/Users/a", resourcePath: nil),
+        [acct], "empty overrides are unset, never the machine-wide /Library")
+    let cdir = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-cfg-selftest-\(getpid())")
+    try? FileManager.default.createDirectory(at: cdir, withIntermediateDirectories: true)
+    let own = cdir.appendingPathComponent("own.json").path, bundled = cdir.appendingPathComponent("bundled.json").path
+    FileManager.default.createFile(atPath: bundled, contents: Data(#"{"kosmosHome":"/b","ownerUid":502,"port":16200}"#.utf8))
+    FileManager.default.createFile(atPath: own, contents: Data(#"{"kosmosHome":"/a","ownerUid":501,"port":16180}"#.utf8))
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/a", "the account's own config wins over a bundle copy written for another account")
+    let bundledOurs = cdir.appendingPathComponent("bundled-ours.json").path
+    FileManager.default.createFile(atPath: bundledOurs, contents: Data(#"{"kosmosHome":"/c","ownerUid":501,"port":16180}"#.utf8))
+    disk(KosmosInstallConfig.load(from: [own, bundledOurs], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/c",
+         "a bundle copy that is THIS account's own wins over an account file naming another of its installs")
+    disk(KosmosInstallConfig.load(from: [own, cdir.appendingPathComponent("absent.json").path], uid: 502, isInstalled: { _ in false })?.kosmosHome == "/a",
+         "no bundle copy: the account file is read even when it names another uid and its install is gone")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { $0 == "/b" })?.kosmosHome == "/b",
+         "an account file whose install is gone (no runnable bin/kosmos) yields to another account's bundle copy (the #664 path)")
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in false })?.kosmosHome == "/b",
+         "no usable install can be seen: the bundle's copy, not this account's file")
+    // The default test, on real folders: a half-removed install (folder there, no bin/kosmos) is not usable.
+    let half = cdir.appendingPathComponent("half").path, whole = cdir.appendingPathComponent("whole").path
+    try? FileManager.default.createDirectory(atPath: half, withIntermediateDirectories: true)
+    try? FileManager.default.createDirectory(atPath: whole + "/bin", withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: whole + "/bin/kosmos", contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+    let ownHalf = cdir.appendingPathComponent("own-half.json").path, foreignWhole = cdir.appendingPathComponent("foreign-whole.json").path
+    FileManager.default.createFile(atPath: ownHalf, contents: Data(#"{"kosmosHome":"\#(half)","ownerUid":501,"port":16180}"#.utf8))
+    FileManager.default.createFile(atPath: foreignWhole, contents: Data(#"{"kosmosHome":"\#(whole)","ownerUid":502,"port":16200}"#.utf8))
+    disk(KosmosInstallConfig.load(from: [ownHalf, foreignWhole], uid: 501)?.kosmosHome == whole,
+         "a half-removed install (folder there, no runnable bin/kosmos) yields to another account's usable one")
+    FileManager.default.createFile(atPath: own, contents: Data("not json".utf8))
+    disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
+    try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 98   // #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 112   // #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

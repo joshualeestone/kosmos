@@ -62214,6 +62214,24 @@ function tkActPhrase(ev, p) {
     // an authored message reads correctly when two-way delivery lands later). The
     // whole return is esc()'d once at the render site, like every other phrase.
     case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
+    /* #5842: a message kept for an agent out of usage, sent once it could be, or dropped a day later. */
+    case 'kept-sent': case 'kept-dropped': {
+      /* No reset time is named: the queue can count its day from when the message arrived, so "after the reset" could
+         describe a reset nobody saw. Kept behind earlier messages (`behind`): no usage limit is named either. */
+      const to = nameOf(ev.to) || 'an agent';
+      /* Whose: "Your" only when the person sent it from the screen (`person`); an agent by name; and an empty `from`
+         without `person` is an agent the route could not name, never the person. No possessive, so a name ending in
+         s reads cleanly and is never re-cased. */
+      const subject = ev.person === true ? 'your message' : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
+      const Subject = ev.person === true ? 'Your message' : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
+      const behind = ev.behind === true;
+      if (ev.kind === 'kept-dropped') return Subject + ' to ' + to + ' was never sent: '
+        + 'Kosmos kept it ' + (behind ? 'behind earlier messages' : 'while ' + to + ' was out of usage') + ' and could not send it within a day';
+      const kept = behind ? ', kept behind earlier messages, ' : ', kept while ' + to + ' was out of usage, ';
+      const when = behind ? 'once the messages ahead of it had gone' : 'once ' + to + ' was back';
+      return ev.state === 'unconfirmed'
+        ? 'Kosmos tried to send ' + subject + ' to ' + to + ' ' + when + ', but could not confirm ' + to + ' got it'
+        : Subject + ' to ' + to + kept + 'was sent ' + when; }
     case 'closed': return 'Marked done';
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': return 'Put back';

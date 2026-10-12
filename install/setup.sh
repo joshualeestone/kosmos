@@ -319,6 +319,11 @@ SYS_APP_DIR="${KOSMOS_SYS_APP_DIR:-/Applications}"
 # folder. Unset outside a harness: the block sees the real ~/Applications and
 # the #226 gate still applies exactly as before.
 HOME_APP_DIR="${KOSMOS_HOME_APP_DIR:-$HOME/Applications}"
+# #5896: where the app reads this ACCOUNT's install config (native-app/main.swift installConfigCandidates). A sealed,
+# notarized Kosmos.app cannot be written to after it is signed, so the config lives in the account's own Library
+# rather than only inside the bundle. Under AGENT_WORKFORCE_HOME like the other Library writes, so a sandboxed run
+# writes into its sandbox and never the real Library.
+INSTALL_CONFIG_DIR="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support/com.chaoskosmos.kosmos"
 # ⚠️ APP_DIR IS RESOLVED LAZILY, by the install path only, right before the
 # icon is written. Resolving it here would run the write probe on EVERY
 # invocation -- --uninstall, the unrecognised-flag refusal, the platform
@@ -2190,6 +2195,14 @@ KOSMOS_SWEEP_LIST
   rm -f "$_support/first-run.json" "$_support/seen-version.json" \
     "$_support/found-agents-dismissed.json" "$_support/found-agents-declined.json" \
     "$_support/board-alive.json" "$_support/board-restart-note.json"
+  # #5896: the app's per-account install config, only when it names THIS install (an account can have another
+  # install, and its config is not this uninstall's to remove). Same anchored match as bundle_is_ours.
+  if [ -f "$INSTALL_CONFIG_DIR/kosmos-install.json" ] && [ ! -L "$INSTALL_CONFIG_DIR/kosmos-install.json" ] \
+     && /usr/bin/grep -qF "\"kosmosHome\":\"$KOSMOS_HOME\"" "$INSTALL_CONFIG_DIR/kosmos-install.json" 2>/dev/null; then
+    # A write interrupted between mktemp and mv leaves its temporary file, which would keep the folder.
+    rm -f "$INSTALL_CONFIG_DIR/kosmos-install.json" "$INSTALL_CONFIG_DIR"/.kosmos-install.json.??????
+    rmdir "$INSTALL_CONFIG_DIR" 2>/dev/null || true
+  fi
   # ⚠️ Deliberately NOT removed: the user's agents' folders, their instruction
   # files, and anything under ~/work. Uninstalling the app must never delete
   # somebody's work, and an installer that cleans up too enthusiastically is
@@ -3506,6 +3519,34 @@ make_app() {
   return 0
 }
 
+# #5896: this account's install config, written where the app looks first. Written whole to a temporary name and
+# renamed, so the app never reads half a file. Returns non-zero on any failure; the caller notes it and goes on,
+# because the bundle's own copy (build_app_bundle) still points the app at this install.
+write_install_config() {
+  local owner_uid tmp
+  # 🛑 A SANDBOXED INSTALL NEVER WRITES THE REAL ACCOUNT'S FILE. The app reads this file FIRST, so a harness that moved
+  # KOSMOS_HOME but not AGENT_WORKFORCE_HOME would point the real Kosmos.app on this Mac at the sandbox. So a
+  # non-default KOSMOS_HOME (compared as a string, like the rest of this file) with the real home is a sandbox here. (A self-host install with a custom KOSMOS_HOME therefore keeps relying on the bundle's copy.)
+  # 🔑 `-ef` (same directory), NOT a string compare: /System/Volumes/Data/Users/<u> and a doubled or trailing slash all
+  # name the real home, and each passed a string compare (tools/release.sh uses -ef for the same reason).
+  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ "${AGENT_WORKFORCE_HOME:-$HOME}" -ef "$HOME" ]; then
+    return 2
+  fi
+  owner_uid="$(/usr/bin/id -u)" || return 1
+  case "$owner_uid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  # The JSON below is not escaped, so a home it could not carry intact is refused rather than written wrong.
+  case "$KOSMOS_HOME" in
+    *'"'*|*'\'*|*[[:cntrl:]]*) return 1 ;;
+  esac
+  mkdir -p "$INSTALL_CONFIG_DIR" 2>/dev/null || return 1
+  tmp="$(/usr/bin/mktemp "$INSTALL_CONFIG_DIR/.kosmos-install.json.XXXXXX" 2>/dev/null)" || return 1
+  printf '{"kosmosHome":"%s","ownerUid":%s,"port":%s}' \
+    "$KOSMOS_HOME" "$owner_uid" "$PORT" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$INSTALL_CONFIG_DIR/kosmos-install.json" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
 build_app_bundle() {
   # ⚠️ EVERY STEP CARRIES ITS OWN `|| return 1`. This function runs as an `if`
   # condition, and that DISABLES `set -e` for its whole body (measured: a
@@ -3630,6 +3671,11 @@ PLIST
 
 if [ "$(uname -s)" != "Linux" ]; then
 step "Adding Kosmos to your Applications."
+# #5896: before the icon, and whether or not this install gets to write one: an account that opens the shared icon
+# another account installed reads its own config from here.
+_wic_rc=0; write_install_config || _wic_rc=$?
+[ "$_wic_rc" -eq 0 ] || [ "$_wic_rc" -eq 2 ] \
+  || info "note: Kosmos could not save where this install lives for the app ($INSTALL_CONFIG_DIR)."
 resolve_app_dir
 # ⚠️ THE ONE DIALOG THIS RUN CAN SHOW IS NAMED BEFORE IT CAN APPEAR.
 # Anticipatory, NOT measured on this machine (which had already granted

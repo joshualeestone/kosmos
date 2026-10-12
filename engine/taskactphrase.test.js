@@ -45,6 +45,13 @@ const EVENTS = [
   { kind: 'built', person: true, note: 'shipped' }, { kind: 'built', by: 'mara-discord' }, { kind: 'built' },
   { kind: 'unbuilt', reason: 'new work' }, { kind: 'unbuilt', reason: 'it repeats', person: true }, { kind: 'unbuilt', reason: 'it repeats' },
   { kind: 'unbuilt', by: 'leo-discord' }, { kind: 'unbuilt', person: true }, { kind: 'unbuilt' },
+  { kind: 'kept-sent', to: 'mara-discord', from: '', person: true, state: 'placed' },
+  { kind: 'kept-sent', to: 'mara-discord', from: '', person: true, state: 'unconfirmed' },
+  { kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'placed', behind: true },
+  { kind: 'kept-sent', to: 'mara-discord', from: '', state: 'unconfirmed', behind: true },
+  { kind: 'kept-dropped', to: 'mara-discord', from: '', person: true },
+  { kind: 'kept-dropped', to: 'mara-discord', from: 'leo-discord', behind: true },
+  { kind: 'kept-dropped', to: '', from: '' },
   { kind: 'something-added-later' },
 ];
 

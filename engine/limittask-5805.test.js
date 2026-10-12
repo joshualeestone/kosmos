@@ -85,7 +85,7 @@ test.beforeEach(() => {
   chat.resetForTests();
   messages.resetForTests();
   limitqueue.resetForTests();
-  for (const d of [messages.LOG, limitqueue.dir()]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
+  for (const d of [messages.LOG, limitqueue.dir(), require('./taskchat').taskChatsDir()]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -193,7 +193,7 @@ test('#5805 task: one still kept a day past its reset is dropped, untyped, and t
 
 test('#5805 task: a dropped line the person sent is told to no pane (the task conversation holds it)', async () => {
   const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
-  limitqueue.add('casey', { id: 'k2', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old });
+  limitqueue.add('casey', { id: 'k2', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old, person: true });
   await withFleet(undefined, 'idle', async (board, tmux) => {
     const out = captureStdout();
     try {
@@ -261,5 +261,100 @@ test('#5805 task: a line the delivery refuses anyway (swarm paused, or not senda
     assert.equal(messages.keepTaskLine('casey', 'x'.repeat(100000), board.agents, 'leo', ABOUT), null, 'an unsendable line was kept');
     assert.deepEqual(kept(), []);
     assert.deepEqual(tmux.pastedTo('casey'), []);
+  });
+});
+
+/* #5842 slice 2: a kept task line carries its task (project id and number), so the task's own conversation records it
+   sent after the reset or dropped a day later: the person, who has no pane, sees the outcome where the message is. */
+const taskchat = require('./taskchat');
+const WHERE = (task) => ({ projectId: 'launch-5842', task });
+const outcomes = (task) => taskchat.read('launch-5842', task).filter((e) => e.kind === 'kept-sent' || e.kind === 'kept-dropped');
+
+test('#5842: a kept task line carries its task; one kept without it (an older caller) carries none', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    messages.keepTaskLine('casey', LINE, board.agents, 'leo', ABOUT, WHERE(11));
+    messages.keepTaskLine('casey', LINE + ' again', board.agents, 'leo', ABOUT);
+    const [withTask, without] = kept();
+    assert.deepEqual([withTask.projectId, withTask.task], ['launch-5842', 11]);
+    assert.ok(!('projectId' in without) && !('task' in without), 'CONTROL: a line kept with no task gained one');
+  });
+});
+
+test('#5842: the sweep typing a kept task line records it sent on its task, with the delivery state', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    messages.keepTaskLine('casey', LINE, board.agents, '', ABOUT, { ...WHERE(12), person: true });   // the person's, from the screen
+  });
+  assert.deepEqual(outcomes(12), [], 'recorded before it was typed');
+  await withFleet(undefined, 'idle', async (board) => {
+    assert.equal((await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }))).length, 1);
+  });
+  const ev = outcomes(12);
+  assert.equal(ev.length, 1);
+  assert.deepEqual([ev[0].kind, ev[0].to, ev[0].from, ev[0].state, ev[0].person], ['kept-sent', 'casey', '', chat.DELIVERY.PLACED, true]);
+});
+
+test('#5842: a kept task line dropped a day past its reset is recorded dropped on its task, whoever sent it', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'k5842a', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old, ...WHERE(13), person: true });
+  limitqueue.add('casey', { id: 'k5842b', kind: 'task', from: 'leo', envelope: LINE + ' b', about: ABOUT, at: old, reset: old, ...WHERE(14) });
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k5842b')));
+    } finally { out.restore(); }
+    assert.deepEqual(tmux.pastedTo('casey'), [], 'a dropped line was typed');
+  });
+  assert.deepEqual(outcomes(13).map((e) => [e.kind, e.to, e.from, e.person]), [['kept-dropped', 'casey', '', true]]);
+  assert.deepEqual(outcomes(14).map((e) => [e.kind, e.to, e.from, e.person]), [['kept-dropped', 'casey', 'leo', undefined]]);
+  assert.ok(outcomes(13).every((e) => !('behind' in e)), 'a line kept for a reset was recorded as kept behind others');
+});
+
+test('#5842: a line kept behind earlier messages is recorded as such, so the page speaks of no reset', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'k5842d', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old, behind: true, ...WHERE(15) });
+  await withFleet(undefined, 'idle', async (board) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k5842d')));
+    } finally { out.restore(); }
+  });
+  assert.deepEqual(outcomes(15).map((e) => [e.kind, e.behind]), [['kept-dropped', true]]);
+});
+
+test('#5842 CONTROL: a kept task line with no task (kept before this change) is dropped as before and records nothing', async () => {
+  /* Every kept-* row in every task's conversation: this line, with no task, must add none anywhere. */
+  const keptRows = () => {
+    const dir = taskchat.taskChatsDir();
+    if (!fs.existsSync(dir)) return 0;
+    return fs.readdirSync(dir).reduce((n, f) => n + fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter((l) => /"kind":"kept-(sent|dropped)"/.test(l)).length, 0);
+  };
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'k5842c', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old });
+  assert.ok(!('projectId' in kept()[0]), 'the fixture carries a task');
+  const before = keptRows();
+  await withFleet(undefined, 'idle', async (board) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k5842c')));
+    } finally { out.restore(); }
+  });
+  assert.deepEqual(kept(), [], 'not dropped as before');
+  assert.equal(keptRows(), before, 'a line with no task was recorded on some task');
+});
+
+test('#5842: a dropped line with no sender named and no person mark is not logged as the person\'s', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  limitqueue.add('casey', { id: 'k5842e', kind: 'task', from: '', envelope: LINE, about: ABOUT, at: old, reset: old });
+  await withFleet(undefined, 'idle', async (board) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.some((l) => l.includes('task line k5842e')));
+    } finally { out.restore(); }
+    const line = out.lines.find((l) => l.includes('task line k5842e')).trim();
+    assert.match(line, /told nobody \(no sender named\)$/, line);
   });
 });

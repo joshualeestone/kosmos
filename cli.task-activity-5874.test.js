@@ -3,8 +3,8 @@
 /**
  * #5874: `kosmos task activity <project-id> <task-number>` prints a task's conversation, oldest first, one line per event,
  * in the page's words, on both commands (Mac install/kosmos, Windows tools/windows/kosmos-cli.js), from the board's
- * route. #5842's kept-sent and kept-dropped events reach it (as their bare kind until their words land in
- * engine/taskactphrase.js and the page, the page's own rule for a kind it does not know).
+ * route. #5842's kept-sent and kept-dropped events reach it in the page's words (engine/taskactphrase.js), worded for
+ * an agent: the person's own message is "the person's message".
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
  *
@@ -61,8 +61,8 @@ test.before(async () => {
   tasks.say(projectId, num, 'clear\u001b[2J\u202eit');
   // The person's own run, as the board records it.
   assert.ok(taskchat.record(projectId, num, { kind: 'run', person: true, note: 'all good' }));
-  assert.ok(taskchat.record(projectId, num, { kind: 'kept-sent', who: 'mara' }));
-  assert.ok(taskchat.record(projectId, num, { kind: 'kept-dropped', who: 'mara' }));
+  assert.ok(taskchat.record(projectId, num, { kind: 'kept-sent', to: 'mara', from: '', person: true, state: 'placed' }));
+  assert.ok(taskchat.record(projectId, num, { kind: 'kept-dropped', to: 'mara', from: '', person: true }));
   assert.ok(taskchat.record(projectId, num, { kind: 'closed' }));
   /* mara on the board as a real card, so the words name her as the page does (her card's name), not by her session. */
   board = fleet.install([fleet.agent('mara', { state: 'idle', ours: 'claim', displayName: 'Mara Lane' })]);
@@ -82,7 +82,10 @@ const WORDS = (out) => out.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2} \d{2}:\
 /* The page's words, worded for an agent: "The person" for the page's "You", and words people and agents wrote quoted
    (a message marked too), so the message "Marked done" cannot pass for the real one at the end. */
 const WANT = ['Created and given to Mara Lane', 'A message: "on it, starting now"', 'A message: "Marked done"', 'A message: "clear (2Jit"',
-  'The person ran it: "all good"', 'kept-sent', 'kept-dropped', 'Marked done'];
+  'The person ran it: "all good"',
+  'The person\u2019s message to Mara Lane, kept while Mara Lane was out of usage, was sent once Mara Lane was back',
+  'The person\u2019s message to Mara Lane was never sent: Kosmos kept it while Mara Lane was out of usage and could not send it within a day',
+  'Marked done'];
 
 // ── Windows: tools/windows/kosmos-cli.js ────────────────────────────────────
 async function win(argv, url = base) {

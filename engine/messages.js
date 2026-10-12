@@ -1478,9 +1478,11 @@ async function tellHeldDropped(entry, roster) {
    kept like a `kosmos msg` and typed by the same minute sweep after the reset; so is one for an agent whose messages
    kept from then are still waiting, so it never arrives ahead of them. null: not held, type it now. Otherwise the
    outcome the route reports for that agent: held when kept, could_not when it could not be kept (and was not typed).
-   `from` is the sending agent's name, or '' for the person. Never throws: a throw before a hold is found types it
+   `from` is the sending agent's name, or '' for the person (or an agent the route could not name). `where` (#5842,
+   optional): { projectId, task, person }, the task the line belongs to and whether the person sent it from the screen,
+   kept with it so its outcome is recorded in that task's conversation. Never throws: a throw before a hold is found types it
    (as an unreadable limit verdict does for `kosmos msg`); one after a hold is found refuses it, untyped. */
-function keepTaskLine(toName, line, roster, from, about) {
+function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
   let behindNow = false;
   try {
@@ -1508,7 +1510,8 @@ function keepTaskLine(toName, line, roster, from, about) {
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
     const id = 'k' + crypto.randomBytes(6).toString('hex');
-    const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind });
+    const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind,
+      projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true) });
     if (why) {
       const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
         : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
@@ -1523,11 +1526,26 @@ function keepTaskLine(toName, line, roster, from, about) {
       + ', and Kosmos could not keep this one for it, so it was not told' } : null;
   }
 }
-/* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane. One the person sent
-   is told to nobody: the task page shows no delivery outcome yet (#5842). */
+/* #5842: a kept task line's outcome, recorded in its task's conversation so the person sees it where the message is:
+   'kept-sent' (typed after the reset; `state` placed or unconfirmed) or 'kept-dropped'. An entry kept before the task
+   was carried on it records nothing. Best-effort, like every taskchat record. */
+function recordTaskLineOutcome(entry, v, dropped) {
+  if (!entry || typeof entry.projectId !== 'string' || !entry.projectId || !Number.isSafeInteger(entry.task) || entry.task < 1) return false;
+  // `behind`: kept behind earlier messages rather than for a usage reset, so the page does not speak of a reset.
+  // `person`: the person sent it from the screen. An empty `from` alone is not that: an agent the route could not name
+  // also arrives with none.
+  const flags = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}) };
+  return require('./taskchat').record(entry.projectId, entry.task, dropped
+    ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || ''), ...flags }
+    : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || ''), ...flags });
+}
+/* A kept task line dropped a day past its reset: the agent that sent it is told in its own pane, and (#5842) the task's
+   conversation records it, which is where the person sees it. */
 async function tellTaskLineDropped(entry, roster) {
+  try { recordTaskLineOutcome(entry, null, true); } catch { /* the record never stops the sender being told */ }
   let v = null;
-  let told = 'nobody (the person sent it)';
+  // An empty `from` is the person only when the route marked it so (#5842); otherwise an agent it could not name.
+  let told = entry.person === true ? 'nobody (the person sent it)' : 'nobody (no sender named)';
   if (entry.from) {
     const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it'
       + ' for a day while ' + entry.to + ' was out of usage and could not type it. Send it again if it still matters.';
@@ -3264,7 +3282,7 @@ function projectOfPost(id) {
 
 module.exports = {
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
-  keepTaskLine, tellTaskLineDropped,   // kosmos#5805: task messages
+  keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3
   staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
