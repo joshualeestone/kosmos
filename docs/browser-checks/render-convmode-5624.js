@@ -1,3 +1,4 @@
+// Browser-check-surface: d-conv pj-conv convbtn pjconvsearch conv-on
 'use strict';
 /**
  * kosmos#5624 (Josh 2026-10-08: "conversation mode ... as soon as an agent posts in a project or direct agent message
@@ -291,9 +292,9 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
         before: b.right <= s.left + 1, inside: s.right <= mid.getBoundingClientRect().right + 1 };
     });
     await page.setViewportSize({ width: 1200, height: 800 });
-    chk(c20c.drawn && c20c.dy <= 6 && c20c.before && c20c.inside, 'C20c at 375px the room toggle still sits on the search line, inside the header', JSON.stringify(c20c));
     chk(c20.stacked && c20.head && c20.drawn && c20.dy <= 6 && c20.before, 'C20 at 700px the room toggle sits on the search line, not a row of its own', JSON.stringify(c20));
     chk(c20b.look && c20b.drawn && c20b.dy <= 6 && c20b.before && c20b.inside, 'C20b the same in the new look, with the search inside the row', JSON.stringify(c20b));
+    chk(c20c.drawn && c20c.dy <= 6 && c20c.before && c20c.inside, 'C20c at 375px the room toggle still sits on the search line, inside the header', JSON.stringify(c20c));
     await page.click('#pj-conv');   // off again for the room
     await page.evaluate(() => {
       PJ_CURRENT = null;
