@@ -658,6 +658,13 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_CUT_NO_WHATS_NEW: noWhatsNew ? '1' : undefined,
       KOSMOS_STEP1_PAST_BOUND: undefined,
       KOSMOS_LATE_PAST_BOUND: undefined,
+      /* #5137: step 1c refuses a cut while any of these is set, even empty, so an operator's
+         local-build export (KOSMOS_NOTARIZE=0) must not turn every arm red here. */
+      KOSMOS_NOTARIZE: undefined,
+      KOSMOS_NOTARYTOOL_CMD: undefined,
+      KOSMOS_NOTARY_CODESIGN_CMD: undefined,
+      KOSMOS_NOTARY_LIPO_CMD: undefined,
+      KOSMOS_NOTARY_RETRY_DELAYS: undefined,
       KOSMOS_FUTURE_BOUND: undefined,
       HOME: home,
       KOSMOS_SITE: site,
@@ -690,6 +697,10 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_SECURITY_BIN: path.join(SIGN_STUBS, 'security'),
       KOSMOS_SECRETS_MAP_BIN: path.join(SIGN_STUBS, 'secrets-map'),
       KOSMOS_INSTALLER_CERT: SANDBOX_INSTALLER_ID,
+      /* #5137: step 1c also makes one authenticated request to Apple's notary service. The
+         sandbox has no key and CI's Linux has no xcrun, so the probe's own test-only seam
+         stands in, as KOSMOS_CODESIGN_BIN does. Step 4 never reads it. */
+      KOSMOS_NOTARY_PROBE_BIN: 'true',
       /* #3884: step 1d, against the current fixture connector above. */
       KOSMOS_TUNNEL_BIN: TUNNEL_BIN,
       KOSMOS_RELAY_REPO: RELAY_REPO,

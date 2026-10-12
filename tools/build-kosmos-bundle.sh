@@ -28,6 +28,8 @@
 # release bundle is built from the official binary, always.
 #
 # Usage:  tools/build-kosmos-bundle.sh [output-dir]
+#         Notarises kosmos-app and kosmos-tunnel with Apple before packing (#5137), so it
+#         needs the notary key; KOSMOS_NOTARIZE=0 skips that for a local test build.
 # Output: <out>/kosmos-<arch>.tar.gz plus the staged tree it was made from.
 
 set -euo pipefail
@@ -42,6 +44,13 @@ OUT="${1:-dist}"
 ARCH="$(uname -m)"
 STAGE="$OUT/kosmos-bundle"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# #5137: the binaries are notarised just before packing, so check the notary key resolves HERE, in
+# seconds, rather than after the whole build. KOSMOS_NOTARIZE=0 skips both for a local test build.
+. "$REPO/tools/lib/notarize-binaries.sh"
+if [ "${KOSMOS_NOTARIZE:-1}" != 0 ]; then
+  _notarize_key >/dev/null || { echo "this build notarises with Apple before packing (#5137); set KOSMOS_NOTARIZE=0 for a local test build" >&2; exit 1; }
+fi
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE/bin" "$STAGE/app" "$STAGE/runtime/bin"
@@ -945,6 +954,17 @@ fi
   echo "node:   $("$STAGE/runtime/bin/node" --version)"
   echo "built:  $(date -u +%Y-%m-%dT%H:%M:%SZ) on macOS $(sw_vers -productVersion 2>/dev/null || echo '?')"
 } > "$STAGE/VERSION"
+
+# #5137: NOTARISE both signed binaries, after every self-test and local gate above (so a
+# build they refuse never waits on Apple) and just before packing. Signed but unnotarised,
+# Gatekeeper rejects them the moment anything quarantines them. Then both shas are checked
+# against the ones taken after signing, since those are what the logs and manifest describe.
+# KOSMOS_NOTARIZE=0 skips it for a local test build only (it says so loudly).
+notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" || {
+  echo "could not notarise the native app and the Plus connector (#5137). NOT shipping binaries Gatekeeper rejects." >&2; exit 1; }
+[ "$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')" = "$_app_bin_sha" ] \
+  && [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')" = "$_tunnel_sha" ] || {
+  echo "a signed binary changed between signing and packing; the checksums taken after signing no longer describe what ships" >&2; exit 1; }
 
 echo "==> packing"
 TARBALL_OUT="$OUT/kosmos-$ARCH.tar.gz"

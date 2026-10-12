@@ -82,7 +82,7 @@ improvement it gained would have died with the session that wrote it.
    cut detached (nohup) into another. The preflight prints these commands when it
    finds the lock.
    Since #3647, 1c also checks the two credentials that step 3c's pkg rebuild
-   would need, on every cut (it does not contact Apple's notary service): that
+   would need, on every cut: that
    `security find-identity -v` lists the **Developer ID Installer** identity
    (missing or expired refuses), and that the notary key's secrets-map target
    (`KOSMOS_NOTARY_SECRET_TARGET` in `tools/lib/signing-identity.sh`, today
@@ -90,10 +90,26 @@ improvement it gained would have died with the session that wrote it.
    1c, naming every missing credential and its fix, instead of dying at 3c after
    the suite. Mortals holds all three signing credentials (app, installer, notary
    key).
+   Since #5137, step 4 notarises the app binaries on every cut, so 1c also
+   refuses a cut while `KOSMOS_NOTARIZE`, `KOSMOS_NOTARYTOOL_CMD`,
+   `KOSMOS_NOTARY_CODESIGN_CMD`, `KOSMOS_NOTARY_LIPO_CMD` or
+   `KOSMOS_NOTARY_RETRY_DELAYS` is exported (even empty), and then makes one
+   authenticated `notarytool history` request to Apple with the notary key, so a
+   bad key or an outage refuses before the bump is pushed. `KOSMOS_NOTARY_PROBE_BIN`
+   is deliberately not refused: like `KOSMOS_CODESIGN_BIN` it replaces only that
+   probe (the release-gate tests set it), says "not probed" when set, and step 4
+   still notarises for real.
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against
    the served `latest.json`, numerically rather than lexically.
 3. **The whole suite**, on the tree that ships.
 4. **Build**, then copy the bundle, `.sha256` and `latest.json` to the site.
+   The build notarises `kosmos-app` and `kosmos-tunnel` with Apple just before
+   packing (#5137) and refuses unless Apple's ticket lists every architecture
+   slice's cdhash. That waits on Apple: usually minutes, and past an hour when
+   Apple is slow (each wait gives up at 30 minutes and is tried twice, and the
+   upload and log fetch retry). A failure there comes after the bump. It counts
+   toward the cut's duration `D`, so a hand-stamped page (option (b) under the
+   versions entry below) has less room than it did before #5137.
    ⚠️ The tarball and `latest.json` must land in the **same deploy**: shipping
    one without the other tells every installed copy to update to a version the
    download does not contain.
@@ -326,7 +342,9 @@ Ctrl-C ends that wait safely.
    re-stamping repeatedly to chase it, stop: re-stamping cannot succeed.** The
    fix is to shorten the cut, or to widen `KOSMOS_LATE_PAST_BOUND` deliberately,
    never to keep guessing at the stamp. Nothing in the code pins `D <= 40`; it
-   is a property of the machine on the night.
+   is a property of the machine on the night. Since #5137 `D` includes step 4's
+   wait on Apple's notary service, which a slow night at Apple alone can push
+   past 40 minutes; prefer option (a) when Apple is slow.
 
    ⚠️ **AND IF STEP 1 SAYS "IN THE PAST" ON AN ENTRY YOU JUST WROTE, CHECK THAT
    YOU STAMPED IN CENTRAL.** The gate reads the stamp as an America/Chicago

@@ -18,12 +18,18 @@
  *
  *   node tools/shell-shard.js list <i> <n>     print shard i of n (1-based), one command per line
  *   node tools/shell-shard.js run <i> <n>      run it
+ *
+ * #5907: a local full run (tools/run-tests.sh, part all or shell with no shard) runs test:shell here
+ * as shard 1 of 1, the whole list in order, so every log, local or CI, names each command's time and
+ * ends on the slowest ones. The card found the local suite running 75 to 110 minutes with no way to
+ * tell from its log which files the time went to.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const cp = require('node:child_process');
+const { performance } = require('node:perf_hooks');
 
 const ROOT = path.join(__dirname, '..');
 // How many shell jobs test.yml runs. 2 was projected at 464 s and 557 s of shell time from the
@@ -54,24 +60,70 @@ function parseShard(i, n) {
   return [ii, nn];
 }
 
+// #5907: how many of the slowest commands the closing summary names.
+const SLOWEST = 10;
+
+// #5907: the closing summary: the shard's total and its slowest commands, slowest first. `times` is
+// [command, seconds] in run order; it is printed for a red shard too, since a slow red is still slow.
+function slowestSummary(ii, nn, times) {
+  const total = times.reduce((s, [, t]) => s + t, 0);
+  const lines = [`shell-shard ${ii}/${nn}: ${times.length} commands took ${total.toFixed(1)} s; the slowest:`];
+  for (const [c, t] of [...times].sort((a, b) => b[1] - a[1]).slice(0, SLOWEST)) lines.push(`  ${t.toFixed(1).padStart(7)} s  ${c}`);
+  return lines.join('\n') + '\n';
+}
+
+// #5907: write all of `s` to `fd`, synchronously. A child that inherits a pipe can leave it
+// non-blocking, so a full pipe answers EAGAIN: wait a moment and retry (up to `tries` times), and
+// finish a partial write rather than drop its tail. `writeSync` is a seam for the test.
+// The default bound is 2000 waits of 5 ms, 10 s in all.
+function writeAll(fd, s, writeSync = fs.writeSync, tries = 2000) {
+  const buf = Buffer.from(s);
+  let off = 0; let waits = 0;
+  while (off < buf.length) {
+    try {
+      off += writeSync(fd, buf, off, buf.length - off);
+    } catch (err) {
+      if (!err || err.code !== 'EAGAIN' || ++waits > tries) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    }
+  }
+}
+
 // Run a shard's commands in order, stopping at the first that fails, and return its exit status
 // (a signal is 1). `list` is the whole test:shell list, so the count in the first line is honest.
-function runShard(list, ii, nn, stdio = 'inherit') {
+// #5907: each command's place is printed before it starts and its time after it ends, and the shard
+// ends on a summary of its slowest commands. `write(s, fd)` and `clock` (seconds) are seams for the test.
+function runShard(list, ii, nn, stdio = 'inherit', write = (s, fd = 1) => writeAll(fd, s), clock = () => performance.now() / 1000) {
   const mine = select(list, ii, nn);
+  // The shard's own lines are diagnostics: the status comes from its commands. So a line that cannot
+  // be written is dropped, and so is every later line to that fd, rather than ending the shard.
+  const broken = new Set();
+  const say = (s, fd = 1) => {
+    if (broken.has(fd)) return;
+    try { write(s, fd); } catch { broken.add(fd); }
+  };
   // A shard with nothing to run would pass having run nothing.
   if (!mine.length) { console.error(`shell-shard ${ii}/${nn}: no commands in this shard; refusing to report green`); return 1; }
   // Written synchronously: stdout to a pipe is asynchronous on macOS, and the first command's own
   // output (inherited stdio) would otherwise land in the log before this line.
-  fs.writeSync(1, `shell-shard ${ii}/${nn}: ${mine.length} of ${list.length} test:shell commands\n`);
-  for (const c of mine) {
+  say(`shell-shard ${ii}/${nn}: ${mine.length} of ${list.length} test:shell commands\n`);
+  const times = [];
+  for (const [k, c] of mine.entries()) {
+    say(`shell-shard ${ii}/${nn} [${k + 1}/${mine.length}] start: ${c}\n`);
+    const t0 = clock();
     const r = cp.spawnSync('sh', ['-c', c], { cwd: ROOT, stdio });
+    const took = clock() - t0;
+    times.push([c, took]);
+    say(`shell-shard ${ii}/${nn} [${k + 1}/${mine.length}] ${took.toFixed(1)} s: ${c}\n`);
     if (r.status !== 0) {
       const why = r.error ? `could not run: ${r.error.message}` : `exit ${r.status === null ? r.signal : r.status}`;
-      console.error(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c}`);
+      say(slowestSummary(ii, nn, times));
+      say(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c} (its own output is between its [${k + 1}/${mine.length}] start and time lines)\n`, 2);
       return r.status || 1;
     }
   }
-  fs.writeSync(1, `shell-shard ${ii}/${nn}: all ${mine.length} passed\n`);
+  say(slowestSummary(ii, nn, times));
+  say(`shell-shard ${ii}/${nn}: all ${mine.length} passed\n`);
   return 0;
 }
 
@@ -83,7 +135,7 @@ function main(argv) {
   return runShard(commands(), ii, nn);
 }
 
-module.exports = { commands, shardOf, select, parseShard, runShard, SHELL_SHARDS };
+module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, SHELL_SHARDS, SLOWEST };
 
 if (require.main === module) {
   try { process.exitCode = main(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exitCode = 2; }

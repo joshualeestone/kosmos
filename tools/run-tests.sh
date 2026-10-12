@@ -143,7 +143,7 @@ fi
 
 # #2858: strip the ambient Codex-home vars ONCE here, at the single runner every
 # `yarn test` (and the canonical validation / pre-challenge gate) routes through,
-# so the whole suite -- node AND `yarn test:shell`, every test including ones not
+# so the whole suite -- node AND test:shell, every test including ones not
 # yet written -- is isolated from whoever invoked it. Invoking the suite from a
 # Codex (gpt) agent's session inherits that agent's live CODEX_HOME (e.g.
 # /Users/<u>/.codex-work2), and the tests that read it (server.create-live-1903,
@@ -438,8 +438,8 @@ unset ${KOSMOS_WAIT_CONTROL_VARS:-}
 # by setting TMPDIR to two different values and getting /var/folders back both
 # times. Node's `os.tmpdir()` DOES honour it, which is why this catches 91 of
 # the 92. The four that remain are three `tmp.*` from shell tests and one yarn
-# scratch dir. Those need their own cleanup at their own call sites; do not
-# assume this line covers them.
+# scratch dir, from the `yarn -s test:shell` this file ran before #5907. Those need
+# their own cleanup at their own call sites; do not assume this line covers them.
 KOSMOS_RUN_TMPDIR="${TMPDIR:-/tmp}"
 KOSMOS_RUN_TMPDIR="${KOSMOS_RUN_TMPDIR%/}/kt$$"
 if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
@@ -544,7 +544,9 @@ elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
   else
-    yarn -s test:shell
+    # #5907: the whole of test:shell as shard 1 of 1 (the same commands in the same order, stopping at the first
+    # red, as the && chain did), so the log names each command's time and the slowest ones.
+    node "$REPO/tools/shell-shard.js" run 1 1
   fi
   NODE_STATUS=$?
 fi
@@ -613,7 +615,7 @@ fi
 if [ "$NODE_STATUS" -eq 126 ] || [ "$NODE_STATUS" -eq 127 ]; then
   echo
   echo "=== exit $NODE_STATUS is not a failing test ==="
-  echo "Something the suite needs could not be run (missing or not executable: node itself, yarn, or a program a shell test calls). Read the last line before the exit; no assertion failed."
+  echo "Something the suite needs could not be run (missing or not executable: node itself, or a program a shell test calls). Read the failing command's own output (in a shell-part red, between its start and time lines, above the shell-shard summary); no assertion failed."
 fi
 if [ "$NODE_STATUS" -ne 0 ]; then
   echo

@@ -48,14 +48,14 @@ kosmos_failing_test_files() {
 #
 # Why the whole gate, not just the shell stage. run-tests.sh runs, in order: the
 # coverage assertion (BEFORE node), then `node --test`, then -- only if node exited
-# 0 -- `yarn -s test:shell` (a sequential &&-chain of shell tests, several of which
+# 0 -- test:shell through tools/shell-shard.js (its shell tests one after another, several of which
 # are the most contention-sensitive tests in the suite because they walk process
 # ancestry and count live `bash tools/browser-checks.sh` runs, so an unrelated
 # agent's page layer reds them), then the browser-check gate. A fail-0 red is USUALLY
 # the shell stage, but node's `ℹ fail 0` TALLY is not node's EXIT status: node can
 # exit non-zero while printing `ℹ fail 0` and no `test at` line (a top-level
 # unhandled rejection, a lingering handle), in which case run-tests.sh stops AT node,
-# the shell stage NEVER RAN, and re-running only `yarn -s test:shell` would pass on a
+# the shell stage NEVER RAN, and re-running only the shell stage would pass on a
 # quiet box and WRONGLY DISMISS a genuine node-stage red. So do not try to guess which
 # stage failed from the tally -- re-run the exact gate the cut ran (`yarn test`),
 # which reproduces a real red in ANY stage (node process-error, shell test, or the

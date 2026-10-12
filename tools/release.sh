@@ -428,6 +428,7 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # #3579: the signing preflight run at step 1c. Sourced with the other libs, before the
 # freeze, for the same reason: loaded from the checkout the operator launched.
 . "$REPO/tools/lib/cut-sign-preflight.sh"
+. "$REPO/tools/lib/notarize-binaries.sh"   # #5137: step 1c probes the notary key, step 4 notarises
 # #3884: the connector-currency check run at step 1d (with the provenance reader it
 # builds on). Sourced here, before the freeze, like the libs above.
 . "$REPO/tools/lib/connector-provenance.sh"
@@ -714,6 +715,21 @@ step "== 1c. the signing key answers, before anything is bumped or built (#3579)
 # here costs about a second and mutates nothing, so a refusal leaves no pushed bump. It also
 # checks the Installer identity and the notary key that 3c's pkg rebuild needs (#3647).
 kosmos_sign_preflight || exit 1
+# #5137: step 4 notarises kosmos-app and kosmos-tunnel. The local-test opt-out and the test seams for
+# notarytool and codesign must not reach a cut: a leftover export would ship binaries Gatekeeper
+# rejects, or "notarise" through a stub that never contacted Apple, and print one line about it.
+# KOSMOS_NOTARY_PROBE_BIN is deliberately NOT refused: like KOSMOS_CODESIGN_BIN it replaces only
+# the 1c probe below, says "not probed" when set, and tools.release-gate.test.js needs it.
+for _nv in KOSMOS_NOTARIZE KOSMOS_NOTARYTOOL_CMD KOSMOS_NOTARY_CODESIGN_CMD KOSMOS_NOTARY_LIPO_CMD KOSMOS_NOTARY_RETRY_DELAYS; do
+  if [ -n "${!_nv+x}" ]; then
+    echo "$_nv is set in this shell (even an empty value counts). A cut always notarises the app binaries for real (#5137): unset it and run again."; exit 1
+  fi
+done
+# One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
+# before the bump is pushed. Step 4 can still fail at Apple after the bump (a notary outage that
+# starts mid-cut, or a submission still unfinished after its two 30-minute waits), the same exposure
+# the build already has.
+notarize_probe_credentials || exit 1
 
 step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 # 0.6.95 bundled a prebuilt kosmos-tunnel from 19:00 and missed relay #145 (the #3832 HSTS

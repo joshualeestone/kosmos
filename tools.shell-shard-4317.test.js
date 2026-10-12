@@ -70,12 +70,115 @@ test('a shard runs its commands in order and stops at the first failure, with it
   const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-4317-'));
   try {
     const ran = path.join(dir, 'ran'); const after = path.join(dir, 'after');
-    const code = sh.runShard([`touch '${ran}'`, 'exit 3', `touch '${after}'`], 1, 1, 'ignore');
+    const quiet = () => {};   // #5907: the timing lines are not this test's subject
+    const code = sh.runShard([`touch '${ran}'`, 'exit 3', `touch '${after}'`], 1, 1, 'ignore', quiet);
     assert.equal(code, 3, 'the first failure is the result');
     assert.ok(fs.existsSync(ran), 'the command before the failure ran');
     assert.ok(!fs.existsSync(after), 'the command after the failure did not run');
-    assert.equal(sh.runShard(['true', 'true'], 1, 1, 'ignore'), 0);
+    assert.equal(sh.runShard(['true', 'true'], 1, 1, 'ignore', quiet), 0);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5907: shard 1 of 1 is the whole list, in the order test:shell lists it', () => {
+  const all = sh.commands();
+  assert.deepEqual(sh.select(all, 1, 1), all);
+});
+
+/* #5907: a runShard whose clock and output are seams. The clock is read once before and once after
+   each command, so it moves by that command's step on every second read, and the order of the
+   summary is known before the run. */
+function timedRun(list, steps) {
+  const out = [];
+  let now = 0; let reads = 0; let k = 0;
+  const clock = () => { reads += 1; if (reads % 2 === 0) now += steps[k++]; return now; };
+  const code = sh.runShard(list, 1, 1, 'ignore', (s, fd = 1) => out.push(fd === 1 ? s : `[fd ${fd}] ${s}`), clock);
+  return { code, text: out.join('') };
+}
+
+test('#5907: each command prints its place and its time, and the shard ends on its slowest, slowest first', () => {
+  const steps = [3, 50, 0.25, 12];
+  const { code, text } = timedRun(['true', 'true # b', 'true # c', 'true # d'], steps);
+  assert.equal(code, 0);
+  assert.match(text, /^shell-shard 1\/1: 4 of 4 test:shell commands\n/);
+  assert.match(text, /shell-shard 1\/1 \[1\/4\] 3\.0 s: true\n/);
+  assert.match(text, /shell-shard 1\/1 \[2\/4\] 50\.0 s: true # b\n/);
+  assert.match(text, /shell-shard 1\/1 \[3\/4\] 0\.3 s: true # c\n/);
+  assert.match(text, /shell-shard 1\/1 \[4\/4\] 12\.0 s: true # d\n/);
+  assert.match(text, /4 commands took 65\.3 s; the slowest:\n\s+50\.0 s  true # b\n\s+12\.0 s  true # d\n\s+3\.0 s  true\n\s+0\.3 s  true # c\nshell-shard 1\/1: all 4 passed\n$/);
+});
+
+test('#5907: the summary names only the slowest SLOWEST, and a red shard still prints it before it stops', () => {
+  const n = sh.SLOWEST + 3;
+  const list = Array.from({ length: n }, (_, i) => `true # c${i}`);
+  const { text } = timedRun(list, Array.from({ length: n }, (_, i) => i + 1));
+  const named = text.split('the slowest:\n')[1].split('\n').filter((l) => /^\s+\d/.test(l));
+  assert.equal(named.length, sh.SLOWEST);
+  assert.match(named[0], /# c12$/, 'the slowest is first');
+  assert.ok(!named.some((l) => /# c[012]$/.test(l)), 'the three fastest are not named');
+  const red = timedRun(['true # a', 'exit 4', 'true # never'], [2, 9, 1]);
+  assert.equal(red.code, 4);
+  assert.match(red.text, /\[2\/3\] 9\.0 s: exit 4\n/);
+  assert.match(red.text, /2 commands took 11\.0 s; the slowest:\n\s+9\.0 s  exit 4\n\s+2\.0 s  true # a\n\[fd 2\] shell-shard 1\/1: FAILED \(exit 4\): exit 4 \(its own output is between its \[2\/3\] start and time lines\)\n$/);
+  assert.doesNotMatch(red.text, /# never|all \d+ passed/);
+});
+
+test('#5907: a command\'s start line is written before it runs, so a run that hangs names the command it hangs in', () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-5907-'));
+  try {
+    const log = path.join(dir, 'log');
+    const write = (s) => fs.appendFileSync(log, s);
+    // Each command passes only if its own start line is already in the log while it runs.
+    const list = [1, 2].map((k) => `grep -q '\\[${k}/2\\] start: grep' '${log}' # c${k}`);
+    assert.equal(sh.runShard(list, 1, 1, 'ignore', write), 0, fs.readFileSync(log, 'utf8'));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5907: writeAll finishes a partial write, waits out EAGAIN, and gives up after its bound', () => {
+  const eagain = () => { const e = new Error('EAGAIN'); e.code = 'EAGAIN'; throw e; };
+  let got = ''; let calls = 0;
+  const flaky = (fd, buf, off, len) => {
+    calls += 1;
+    if (calls <= 2) eagain();
+    const n = Math.min(3, len); got += buf.toString('utf8', off, off + n); return n;
+  };
+  sh.writeAll(1, 'hello world\n', flaky);
+  assert.equal(got, 'hello world\n', 'every byte, once, in order');
+  assert.equal(calls, 2 + Math.ceil(12 / 3));
+  let tries = 0;
+  assert.throws(() => sh.writeAll(1, 'x', () => { tries += 1; eagain(); }, 3), (e) => e.code === 'EAGAIN');
+  assert.equal(tries, 4, 'three waits, then the fourth EAGAIN is thrown');
+  assert.throws(() => sh.writeAll(1, 'x', () => { const e = new Error('EPIPE'); e.code = 'EPIPE'; throw e; }), (e) => e.code === 'EPIPE');
+});
+
+test('#5907: a shard line that cannot be written never changes the status or stops the commands', () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-5907-'));
+  try {
+    for (const badFd of [1, 2]) {
+      for (const [list, want] of [[['true', 'exit 127'], 127], [['true', 'true'], 0]]) {
+        const ran = path.join(dir, `ran-${badFd}-${want}`);
+        const calls = { 1: 0, 2: 0 };
+        const broken = (s, fd = 1) => {
+          calls[fd] += 1;
+          if (fd === badFd) { const e = new Error('EPIPE'); e.code = 'EPIPE'; throw e; }
+        };
+        const code = sh.runShard([`touch '${ran}'`, ...list], 1, 1, 'ignore', broken);
+        const label = `fd ${badFd} broken, want ${want}`;
+        assert.equal(code, want, label);
+        assert.ok(fs.existsSync(ran), `${label}: the commands still ran`);
+        // fd 2 is written only on a red, so a broken fd 2 on a green shard is never touched.
+        assert.ok(calls[badFd] <= 1, `${label}: ${calls[badFd]} writes to a broken fd; one failure must stop them`);
+        if (badFd === 2) assert.ok(calls[1] > 3, `${label}: stdout lines stopped with stderr`);
+      }
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5907: the real clock: a command that sleeps is timed at least as long as it slept', () => {
+  const out = [];
+  assert.equal(sh.runShard(['sleep 0.3'], 1, 1, 'ignore', (s) => out.push(s)), 0);
+  const m = out.join('').match(/\[1\/1\] (\d+\.\d) s: sleep 0\.3/);
+  assert.ok(m, out.join(''));
+  assert.ok(Number(m[1]) >= 0.3, `timed ${m[1]} s`);
 });
 
 test('a bad shard is refused, not read as a subset', () => {
@@ -194,7 +297,9 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   assert.match(src, /if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_TEST_PART" != node \]; then\n\s+if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]/, 'the shell half runs for every part but node, so the default all runs it');
   assert.match(src, /\*\) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell/);
   assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left (three guards find it by ^node --test)');
-  assert.match(src, /else\n\s+yarn -s test:shell\n\s+fi/);
+  // #5907: an unsharded run is the whole list as shard 1 of 1, through the runner that times each command.
+  assert.match(src, /else\n(\s+#.*\n)*\s+node "\$REPO\/tools\/shell-shard\.js" run 1 1\n\s+fi/, 'an unsharded run must run the whole list as shard 1 of 1');
+  assert.doesNotMatch(src, /^\s*yarn\b/m, 'no line of run-tests.sh may run yarn: the shell part goes through shell-shard.js');
   assert.match(src, /if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]; then\n\s+node "\$REPO\/tools\/shell-shard\.js" run "\$\{KOSMOS_SHELL_SHARD%\/\*\}" "\$\{KOSMOS_SHELL_SHARD#\*\/\}"/, 'the shard arm must RUN its shard');
   assert.match(src, /grep -Eq '\^\[0-9\]\+\/\[0-9\]\+\$'/, 'a shard that is not i/n is refused');
   assert.match(src, /\[ "\$KOSMOS_TEST_PART" != shell \] \|\|/, 'a shard outside a shell-only run is refused');
