@@ -3676,7 +3676,7 @@ step "Adding Kosmos to your Applications."
 # another account installed reads its own config from here.
 _wic_rc=0; write_install_config || _wic_rc=$?
 [ "$_wic_rc" -eq 0 ] || [ "$_wic_rc" -eq 2 ] \
-  || info "note: Kosmos could not save where this install lives for the app ($INSTALL_CONFIG_DIR); the app icon still knows."
+  || info "note: Kosmos could not save where this install lives for the app ($INSTALL_CONFIG_DIR)."
 resolve_app_dir
 # ⚠️ THE ONE DIALOG THIS RUN CAN SHOW IS NAMED BEFORE IT CAN APPEAR.
 # Anticipatory, NOT measured on this machine (which had already granted

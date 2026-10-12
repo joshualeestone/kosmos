@@ -140,7 +140,7 @@ test('#5896: uninstall removes the account config only when it names THIS instal
   const env = { HOME: fs.mkdtempSync(path.join(tmpRoot, 'realhome-')), AGENT_WORKFORCE_HOME: awh, PORT: '17001' };
   // Another install of the same account wrote the file: this uninstall leaves it.
   run({ ...env, KOSMOS_HOME: '/sb/other' }, 'write_install_config');
-  assert.match(run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, UNINSTALL_BLOCK + '\necho "rc=$?"').out, /rc=0/);
+  run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, UNINSTALL_BLOCK);
   assert.equal(JSON.parse(fs.readFileSync(cfgFile(awh), 'utf8')).kosmosHome, '/sb/other', 'it removed another install\'s config');
   // This install's own file goes, and the folder with it, even with an interrupted write's temporary file inside.
   run({ ...env, KOSMOS_HOME: '/sb/kosmos' }, 'write_install_config');

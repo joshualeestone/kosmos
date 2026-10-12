@@ -19,7 +19,10 @@ for, one the installer can write without touching the bundle.
   installs cannot redirect the app (challenge iteration 1). Otherwise the first file that exists AND decodes wins, so a
   damaged account file falls back to the bundle copy. Among the rest, a config whose install folder still exists wins
   (challenge iteration 3): an account file naming a deleted install yields to another account's bundle copy, so that
-  account keeps reaching the #664 path and its named refusal instead of starting a board on a missing folder.
+  account keeps reaching the #664 path and its named refusal instead of starting a board on a missing folder. When no
+  folder can be seen (another account's home may not be readable), the bundle's copy wins (iteration 5).
+- The app reads the account file from KOSMOS_APP_TEST_HOME, else AGENT_WORKFORCE_HOME, else the real home, the same
+  base the installer writes under (iteration 5).
 - A sandboxed launch of the app must set KOSMOS_APP_CONFIG or KOSMOS_APP_TEST_HOME (main.swift header), since the app
   now reads the real account's Library first.
 - The account file path uses the app's bundle identifier as its folder name.
@@ -47,9 +50,10 @@ resolves through the config's ownerUid == getuid() path, so it gets the generic 
 #664 fallback's "your Kosmos". Cosmetic, and slice 2 (the bundle copy goes away) is where that branch is reshaped.
 
 ## Tests
-- native-app/main.swift --kosmos-app-mode-selftest: 9 new rows (4 order: account then bundle, no bundle, override,
-  another account; 5 disk: own file beats a foreign bundle copy, an own bundle copy beats the account file, no bundle
-  copy, a gone install folder yields to a foreign bundle copy, damaged file falls back); expected 98 -> 107, pinned in
+- native-app/main.swift --kosmos-app-mode-selftest: 11 new rows (5 order: account then bundle, no bundle, override,
+  another account, AGENT_WORKFORCE_HOME; 6 disk: own file beats a foreign bundle copy, an own bundle copy beats the
+  account file, no bundle copy, a gone install folder yields to a foreign bundle copy, no folder visible picks the
+  bundle copy, damaged file falls back); expected 98 -> 109, pinned in
   native-app.computer-mode-4356 and native-app.download-5167. Perturbing the order fails the two order rows; removing
   the own-bundle preference or the folder-exists rule fails its row.
 - install.app-config-5896.test.js: lifts write_install_config and the uninstall block from setup.sh and runs them in
