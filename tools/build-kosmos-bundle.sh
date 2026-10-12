@@ -1003,8 +1003,9 @@ fi
 # against the ones taken after signing, since those are what the logs and manifest describe.
 # KOSMOS_NOTARIZE=0 skips it for a local test build only (it says so loudly).
 # #5896 slice 3: the sealed Kosmos.app rides the same submission, then has its ticket stapled and a quarantined copy
-# assessed (tools/lib/notarize-binaries.sh). Josh, 0.7.42: a quarantined app whose bundle was never sealed reads
-# "Kosmos is damaged"; a sealed, notarised and stapled one opens. Stapling adds the ticket inside the bundle only.
+# assessed (tools/lib/notarize-binaries.sh): a quarantined copy that is sealed but not notarised is refused by
+# Gatekeeper, and a notarised, stapled one is accepted (measured). This is not shown to be the cause of Josh's 0.7.42
+# "Kosmos is damaged" (#5896). Stapling adds the ticket inside the bundle only.
 notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" "$STAGE/app/Kosmos.app" || {
   echo "could not notarise and staple the native app, the Plus connector and the sealed Kosmos.app (#5137, #5896). NOT shipping what Gatekeeper rejects." >&2; exit 1; }
 [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')" = "$_app_bin_sha" ] \
