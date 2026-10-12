@@ -40,13 +40,13 @@
 # Prints the cdhash (40 hex) of one architecture slice, or nothing.
 _notarize_cdhash() {
   local cs="${KOSMOS_NOTARY_CODESIGN_CMD:-codesign}"
-  "$cs" -dvvv --arch "$2" "$1" 2>&1 | sed -n 's/^CDHash=\([0-9a-f]\{40\}\)$/\1/p' | head -1
+  { "$cs" -dvvv --arch "$2" "$1" 2>&1 | sed -n 's/^CDHash=\([0-9a-f]\{40\}\)$/\1/p' | head -1; } || :
 }
 
 # Prints the architectures in a Mach-O file, space-separated, or nothing.
 _notarize_archs() {
   local lp="${KOSMOS_NOTARY_LIPO_CMD:-lipo}"
-  "$lp" -archs "$1" 2>/dev/null
+  "$lp" -archs "$1" 2>/dev/null || :
 }
 
 # Runs notarytool with the given arguments. A function so the seam can be a shell function.

@@ -219,6 +219,12 @@ NT_STATUS=Accepted NT_HASHES="$HA" NT_NOID_TIMES=9; rc=$( (set -u; KOSMOS_NOTARY
 [ "$rc" = 1 ] && [ "$(ran submit)" = 1 ] && grep -q 'no submission id after 1 tries' "$WORK/out" && ok "an empty retry list makes exactly one try under set -u" || bad "empty retry list (rc=$rc, submits=$(ran submit)): $(cat "$WORK/out")"
 unset NT_NOID_TIMES
 
+# --- called bare under set -euo pipefail (no ||), a refusal still says why ---
+out="$( (set -euo pipefail; notarize_binaries "$WORK/bin/unsigned") 2>&1)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"could not read"*) true ;; *) false ;; esac && ok "a bare call under set -euo pipefail still prints why it refused" || bad "bare call (rc=$rc): $out"
+out="$( (set -euo pipefail; notarize_binaries "$WORK/bin/notmacho") 2>&1)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"could not read the architectures"*) true ;; *) false ;; esac && ok "a bare call on a non-Mach-O file still prints why it refused" || bad "bare non-Mach-O (rc=$rc): $out"
+
 # --- step 1c's probe: Apple's answer decides, not notarytool's exit status ---
 out="$(notarize_probe_credentials 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(ran history)" -ge 1 ] && ok "the probe passes on an answer carrying history" || bad "probe pass (rc=$rc): $out"
@@ -260,6 +266,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=56   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=58   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]
