@@ -41,13 +41,15 @@ bc_surface_token_hits() {
 #     <path> TAB <verdict> TAB <token>
 # HIT: the first token (in the check's order) that is PLAIN ([A-Za-z0-9_-]+) and occurs whole in $2; it is that token.
 # MISS: every token is plain and none occurs whole in $2.
-# SLOW: a non-plain token comes before any plain hit; the consumer must decide it with bc_surface_token_hits, as before.
+# SLOW: a non-plain token comes before any plain hit, or a line carries the key in a shape this C-locale match refuses
+# (the ambient-locale sed may still read it); the consumer decides it with bc_surface_tokens_of and bc_surface_token_hits,
+# as before, and skips it if the sed finds no annotation either.
 # A plain token is whole in $2 exactly when it is one of $2's maximal runs of [A-Za-z0-9_-], which is
 # bc_surface_token_hits's boundary. Paths go through a file and awk's getline, never shell word-splitting (this lib is
 # sourced into zsh too). Returns non-zero, printing nothing, when it cannot run; the consumer then takes the slow path.
-# It reads in the C locale: on INVALID UTF-8 (a byte in the changed text, or in a check file above or on its annotation
-# line) it can find a match or an annotation that the ambient-locale grep and sed fail on, so the gate is then stricter
-# than before, never looser. On valid UTF-8 the answers are the same.
+# It reads in the C locale. A non-ASCII space around the key cannot hide an annotation (that line goes SLOW, above). On
+# INVALID UTF-8 (a byte in the changed text, or in a check file above its annotation) it can find a match or an
+# annotation the ambient-locale grep and sed fail on, so the gate is then stricter than before, never looser.
 #   $1 = checks dir   $2 = changed text
 bc_surface_scan_checks() {
   local _list _chg _rc
@@ -58,12 +60,16 @@ bc_surface_scan_checks() {
   LC_ALL=C command awk '
     FILENAME == ARGV[1] { n = split($0, w, /[^A-Za-z0-9_-]+/); for (k = 1; k <= n; k++) if (w[k] != "") word[w[k]] = 1; next }
     $0 != "" {
-      f = $0; found = 0
+      f = $0; found = 0; odd = 0
       while ((r = (getline line < f)) > 0) {
         if (match(line, /^[[:space:]]*\/\/[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*/)) { found = 1; break }
+        # The key on a line this C-locale match refuses (a Unicode space the ambient-locale sed counts as space, say):
+        # the sed may take it as the annotation, so this check is left to the per-check path rather than guessed.
+        if (line ~ /[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:/) { odd = 1; break }
       }
       close(f)
       if (r < 0) { bad = 1; exit 3 }
+      if (odd) { printf "%s\tSLOW\t\n", f; next }
       if (!found) next
       rest = substr(line, RSTART + RLENGTH)
       if (rest == "") next
