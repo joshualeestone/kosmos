@@ -221,6 +221,12 @@ function inputsHere(deps = {}) {
   let geminiHome, codexHome;
   try { geminiHome = require('./geminisession').HOME(); } catch { /* none */ }
   try { codexHome = require('./codexupdate').defaultHome(); } catch { /* none */ }
+  // The homes AGENTS are launched against (review 3): `sessions/<id>/codex` and `.../gemini` name these for EVERY agent,
+  // so the folder behind those names never depends on the agent's runner or on the board's own CODEX_HOME or
+  // GEMINI_CLI_HOME. The board's homes above stay in `protect`.
+  let agentCodexHome = codexHome, agentGeminiHome = geminiHome;
+  try { agentCodexHome = create.defaultAgentCodexHome(); } catch { /* the board's */ }
+  try { agentGeminiHome = create.geminiStorageHome(null); } catch { /* the board's */ }
   // Each agent's OWN provider homes (kosmos#5883), from its launch job. The board reads ONE home (the current session);
   // a backup owes EVERY conversation (review 1), so it reads each home the agent's sessions can be in. Each root is
   // named for its FOLDER, never its role (review 2: a role name moved to another folder when the agent changed account,
@@ -234,19 +240,18 @@ function inputsHere(deps = {}) {
   const sessions = (dir, id, name) => {
     let job = null;
     try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
-    let cx = codexHome, gm = geminiHome;
+    const cx = agentCodexHome, gm = agentGeminiHome;
     const moreHomes = [];
-    try {
-      if (job && job.runner === 'codex') {
-        cx = create.defaultAgentCodexHome();
+    // Each lookup on its own (review 3): one that throws must not take the others with it.
+    if (job && job.runner === 'codex') {
+      if (job.configDir) { try { moreHomes.push({ provider: 'codex', home: job.configDir, tag: acctTag(job.configDir) }); } catch { /* left */ } }
+      try {
         const runtime = require('./codexruntime').forAgent(name);
         if (fs.existsSync(runtime)) moreHomes.push({ provider: 'codex', home: runtime, tag: '-runtime' });
-        if (job.configDir) moreHomes.push({ provider: 'codex', home: job.configDir, tag: acctTag(job.configDir) });
-      } else if (job && job.runner === 'gemini') {
-        gm = create.geminiStorageHome(null);
-        if (job.configDir) moreHomes.push({ provider: 'gemini', home: create.geminiStorageHome(job.configDir), tag: acctTag(job.configDir) });
-      }
-    } catch { /* the defaults */ }
+      } catch { /* left */ }
+    } else if (job && job.runner === 'gemini' && job.configDir) {
+      try { moreHomes.push({ provider: 'gemini', home: create.geminiStorageHome(job.configDir), tag: acctTag(job.configDir) }); } catch { /* left */ }
+    }
     return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, moreHomes });
   };
   // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
@@ -269,7 +274,7 @@ function inputsHere(deps = {}) {
   // Windows keeps browser password stores and Credential Manager files under %USERPROFILE%\\AppData, which is not
   // dot-named (review 9): protected whole.
   const winAppData = process.platform === 'win32' ? [path.join(process.env.USERPROFILE || require('os').homedir(), 'AppData')] : [];
-  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, ...accountDirs, ...hidden, ...winAppData]
+  const protect = [store.ROOT, ...claudeRoots, geminiHome, codexHome, agentGeminiHome, agentCodexHome, ...accountDirs, ...hidden, ...winAppData]
     .filter((x) => typeof x === 'string' && x).map((x) => path.resolve(x));
   return { workersDir: create.WORKERS_DIR, projectsDir, agents, projects, sessions, protect, protectIncomplete };
 }
