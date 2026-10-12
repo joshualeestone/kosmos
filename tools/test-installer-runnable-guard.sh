@@ -41,7 +41,8 @@ rm -rf "$_td"
 #    purpose, so loosen it only with a control that shows the -x cannot run without the -f. A line ending in
 #    \, &&, || or | is joined to the next before it is judged (and reported at its first line). So
 #    "[ -f P ] || [ -x P ]", "[ -x P ] # [ -f P ]", "x || [ -f P ] && [ -x P ]" and "! [ -f P ] && [ -x P ]"
-#    are all flagged. Quoted text is blanked before the joiners are read; ${ does not start a command.
+#    are all flagged. Quoted text is blanked before the joiners are read. A case arm "a) [ -f P ] && ..." and a
+#    prefix assignment "x=1 [ -f P ] && ..." are flagged too (fail-closed): put the test on its own line.
 #      The -x tests are found on the whole line; a comment is cut only when looking for guards, so a [ -f P ]
 #    in a comment guards nothing and an -x written after code in a comment is flagged (fail-closed).
 #      KNOWN FAIL-OPEN LIMIT: quotes are tracked one logical line at a time, so a string begun on an earlier
@@ -85,16 +86,12 @@ function reaches(line, gpos, glen, xpos, p, join, bad,   btw, sk, seg, i, c) {
     btw = substr(btw, length(p) + 3)
   }
   sk = skel(line); seg = substr(sk, 1, gpos - 1)
-  for (i = length(seg); i >= 1; i--) {
-    c = substr(seg, i, 1)
-    if (c == ";" || c == "(" || c == "`" || (c == "{" && !(i > 1 && substr(seg, i - 1, 1) == "$"))) break
-  }
+  for (i = length(seg); i >= 1; i--) { c = substr(seg, i, 1); if (c == ";" || c == "{" || c == "(" || c == "`") break }
   seg = substr(seg, i + 1)
   while (sub(/^[ \t]*(then|do|else|if|elif|while|until)[ \t]+/, "", seg)) ;
   if (index(seg, bad) > 0) return 0
-  if (match(seg, /(^|&&|\|\|)[ \t]*![ \t]/)) return 0
   # The guard must itself be a command: at the start of the segment or right after a joiner, not an
-  # argument (echo [ -f P ] && [ -x P ] runs the -x unguarded).
+  # argument (echo [ -f P ] && [ -x P ] runs the -x unguarded). This also refuses a ! before the guard.
   if (seg !~ /^[ \t]*$/ && seg !~ /(&&|\|\|)[ \t]*$/) return 0
   return 1
 }
@@ -103,14 +100,14 @@ function otherx(l) { return match(l, /(\[[^]]*|(^|[^A-Za-z0-9_])test([ \t][^;|&]
 # scanline: judge one logical line (continuation lines joined) of file f; n is where it starts. full is the
 # line as written and cut is the same line with its comment cut off. The -x tests are found on full, so a
 # false comment cut (a # inside $( ) or in a string begun on the line before) cannot hide one; the guards
-# are looked for only on cut, so a [ -f P ] in a comment guards nothing. An -x past the cut is flagged.
+# are looked for only on cut, so a [ -f P ] in a comment guards nothing and an -x in a comment has no guard.
 function scanline(full, cut, n, f,   s, t, u, off, at, len, p, g) {
   s = full; off = 0
   while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) {
     at = RSTART; len = RLENGTH   # reaches() calls match(), which resets RSTART and RLENGTH
     p = substr(s, at, len); sub(/^\[ -x /, "", p); sub(/ \]$/, "", p)
     g = "[ -f " p " ]"
-    if (off + at + len - 1 > length(cut) || !reaches(cut, lastat(cut, g, off + at), length(g), off + at, p, "&&", "||"))
+    if (!reaches(cut, lastat(cut, g, off + at), length(g), off + at, p, "&&", "||"))
       printf "%s:%d: bare [ -x %s ] (a directory passes)\n", f, n, p
     off += at + len - 1; s = substr(s, at + len)
   }
@@ -119,7 +116,7 @@ function scanline(full, cut, n, f,   s, t, u, off, at, len, p, g) {
     at = RSTART; len = RLENGTH
     p = substr(t, at, len); sub(/^\[ ! -x /, "", p); sub(/ \]$/, "", p)
     g = "[ ! -f " p " ]"
-    if (off + at + len - 1 > length(cut) || !reaches(cut, lastat(cut, g, off + at), length(g), off + at, p, "\\|\\|", "&&"))
+    if (!reaches(cut, lastat(cut, g, off + at), length(g), off + at, p, "\\|\\|", "&&"))
       printf "%s:%d: bare [ ! -x %s ] (a directory reads as executable)\n", f, n, p
     off += at + len - 1; t = substr(t, at + len)
   }
@@ -227,9 +224,10 @@ done <<'CLEAN'
   [ -f "$P" ] && [ -x "$P" ] && run "$P"   # a trailing comment, with no test written in it
   echo "it\'s || not a join" && [ -f "$P" ] && [ -x "$P" ] && run "$P"
   echo "$P" | grep -q test; tar -x -f "$A"
+  [ -n it\'s ] && [ -f "$P" ] && [ -x "$P" ] && run "$P"
 CLEAN
-if [ "$_clean" -eq "$_nclean" ] && [ "$_nclean" -ge 12 ]; then pass "#5986: the guarded shapes the installer uses stay clean ($_clean controls)"
-else fail "#5986: $_clean of $_nclean guarded shapes stayed clean (at least 12 expected)"; fi
+if [ "$_clean" -eq "$_nclean" ] && [ "$_nclean" -ge 13 ]; then pass "#5986: the guarded shapes the installer uses stay clean ($_clean controls)"
+else fail "#5986: $_clean of $_nclean guarded shapes stayed clean (at least 13 expected)"; fi
 # Continued lines are one command: an || ending the line before reaches a guard on this one (flagged), and
 # a guard continued from the line before still counts (clean). Each must-flag pair passes the old rule.
 printf '%s\n' '  command -v foo >/dev/null ||' '  [ -f "$P" ] && [ -x "$P" ] && run "$P"' > "$_ctl"
@@ -240,8 +238,11 @@ printf '%s\n' '  if [ -n "$P" ] \' '      && [ -f "$P" ] && [ -x "$P" ]; then ru
 _o3="$(awk "$_scan" "$_ctl" 2>/dev/null)"
 printf '%s\n' '  [ -n "$C" ] && # why this one' '  [ -f "$C" ] && [ -x "$C" ] && run "$C"' > "$_ctl"
 _o3="$_o3$(awk "$_scan" "$_ctl" 2>/dev/null)"
+# A comment ending in || is not a continuation: without the comment cut this pair would be joined and flagged.
+printf '%s\n' '  run "$A"   # then a ||' '  [ -f "$P" ] && [ -x "$P" ] && run "$P"' > "$_ctl"
+_o3="$_o3$(awk "$_scan" "$_ctl" 2>/dev/null)"
 if [ -n "$_o1" ] && [ -n "$_o2" ] && [ -z "$_p1" ] && [ -z "$_p2" ] && [ -z "$_o3" ]; then
-  pass "#5986: an || ending the line before is flagged (both forms, each passing the old rule); a && continuation, also with a comment on the line before, stays clean"
+  pass "#5986: an || ending the line before is flagged (both forms, each passing the old rule); a && continuation (with a comment) and a comment ending in || stay clean"
 else fail "#5986: continued lines judged wrongly (flagged: [$_o1] [$_o2]; old rule: [$_p1] [$_p2]; must stay clean: [$_o3])"; fi
 # A # inside $( ) or inside quotes is not a comment, and the line scan cannot always tell: a false cut must
 # not hide an -x after it. (The old rule flagged these too; this keeps it so.)
