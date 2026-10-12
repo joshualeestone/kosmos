@@ -535,7 +535,7 @@ kosmos_refuse_if_suite_live() {
 # --- #4498: wait for a quiet box instead of refusing at once ------------------
 # The guards above refuse at once. On a busy Mac a suite is usually running, so a refusal sent the
 # agent round by hand, or to the override. kosmos_wait_until_clear asks a caller's check again every
-# KOSMOS_WAIT_EVERY_S (30) seconds for up to KOSMOS_WAIT_MAX_S (1200, 20 minutes; in the suite queue 2700 s,
+# KOSMOS_WAIT_EVERY_S (30) seconds for up to KOSMOS_WAIT_MAX_S (1200, 20 minutes; in the suite queue 5400 s,
 # counted as the #4574 note below says), then refuses with the check's own message. KOSMOS_NO_WAIT=1 asks once, as
 # before. KOSMOS_WAIT_SLEEP and KOSMOS_WAIT_NOW are test seams.
 #
@@ -552,13 +552,12 @@ kosmos_refuse_if_suite_live() {
 # KNOWN RESIDUAL: a harness jumps the queue (a waiting suite yields to any test-install, even one
 # that arrived later), so a suite behind a long harness can reach its bound. That is the safe side.
 #
-# #4574: the queue's bound. A full suite takes 14 to 26 minutes, so a bound on the TOTAL wait gave up on every waiter
-# second in line or later. In the queue the bound (default 2700 s) runs from the last time a waiter AHEAD of this run
-# left (the count from _kosmos_suite_waiters_ahead fell): a queue that keeps moving is waited through, and the waiter at
-# the front gives up when no waiter ahead has left for the whole bound. The bound covers EVERY blocker run-tests.sh
-# waits on in the queue, a release claim and an install harness as well as a suite, so a queued suite now waits up to
-# 45 minutes behind those too (20 before); all three are long runs, and a claim or a harness that outlives the bound
-# still ends the wait. A harness or a suite's own subshells are not waiters, so they never restart it. A rise (a waiter
+# #4574: the queue's bound. A bound on the TOTAL wait gave up on every waiter second in line or later, so in the queue
+# the bound runs from the last time a waiter AHEAD of this run left (the count from _kosmos_suite_waiters_ahead fell): a
+# queue that keeps moving is waited through, and the waiter at the front gives up when no waiter ahead has left for the
+# whole bound. The bound covers EVERY blocker run-tests.sh waits on in the queue, a release claim and an install harness
+# as well as a suite, so a queued suite now waits up to 90 minutes behind those too (45 before #5907, 20 before #4574);
+# all three are long runs, and a claim or a harness that outlives the bound still ends the wait. A harness or a suite's own subshells are not waiters, so they never restart it. A rise (a waiter
 # re-marked by the second ask) only arms the next fall, so each restart needs a waiter ahead to leave or to read as gone
 # for one pass: one briefly unmarked by its second ask, one whose marker a failed ps removed until it writes it again
 # (the loop re-marks a run whose own marker vanished), or one an OLDER copy of this lib in another zone keeps deleting
@@ -570,7 +569,7 @@ kosmos_refuse_if_suite_live() {
 # one per live waiter at entry) ends a FLAPPING wait whatever the heuristic says; a healthy deep queue normally stays
 # inside it (an entry count a failed ps made too low shrinks it: the safe side, it gives up sooner).
 # ⚠️ THE COST, which the ceiling does NOT cap: behind a HUNG suite each waiter ahead that gives up is a fall for the ones
-# behind, so the waiter k deep gives up at about (k+1) bounds (45, 90, 135 minutes...), inside its (4+k)-bound ceiling.
+# behind, so the waiter k deep gives up at about (k+1) bounds (90, 180, 270 minutes...), inside its (4+k)-bound ceiling.
 # Before #4574 every waiter gave up at 20 minutes. Accepted: a hung suite is rare, and the jam this card measured was
 # not one (the live-count side is #4609: see _kosmos_drop_suite_waiters).
 # #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
@@ -677,7 +676,7 @@ kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_ko
 
 # #4609 light lane: a run declared light (KOSMOS_QUEUE_CLASS=light: one browser check, one focused test file) goes ahead
 # of heavy waiters (full suites, cargo runs, pushes), still ONE run at a time: the class changes the order, never how
-# many hold the box. A heavy waiter that has waited KOSMOS_QUEUE_STARVE_S (default 2700 s, the queue's bound) goes ahead
+# many hold the box. A heavy waiter that has waited KOSMOS_QUEUE_STARVE_S (default 2700 s, 45 minutes) goes ahead
 # of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
 # 10:07): 22 waiters, 19 of them one-offs that hold the box 7 to 200 s, queued behind suites that hold it 15 to 20 min.
 # #5272: KOSMOS_QUEUE_CLASS=canary is the main canary (a full suite on origin/main's tip, the backstop for merges that
@@ -853,8 +852,11 @@ kosmos_wait_until_clear() {
     side="$2"; shift 2
   fi
   KOSMOS_WAIT_LANE=main
-  # #4574: in the suite queue the bound is 2700 s and counts from the last time a waiter ahead left (the queue note).
-  local dflt=1200; [ "$queue" = 1 ] && dflt=2700
+  # #4574: in the suite queue the bound counts from the last time a waiter ahead left (the queue note).
+  # #5907: 5400 s. The holder the front waiter waits behind is often a full browser-check run, which held the box
+  # 74 min at the median and 81 at p90 (50 of 50 over 45 min, Agent1s 09-30 to 10-12); at 2700 s the front waiter
+  # gave up behind every one and re-queued at the back.
+  local dflt=1200; [ "$queue" = 1 ] && dflt=5400
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
   local ceil="${KOSMOS_WAIT_QUEUE_CEIL_S:-}" over=0
   local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart side_err=""
