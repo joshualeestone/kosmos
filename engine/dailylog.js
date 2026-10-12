@@ -23,10 +23,10 @@
  * file beside its thread file. While there is any sign of one the whole run is
  * refused and nothing is written or pruned (kosmos#5855; see compileAll).
  *
- * EXCEPT (kosmos#5866): a daily file for a day before a thread file that is not
- * read as a conversation (a `.damaged` or unparseable one) was last written is
- * left as it is, neither overwritten nor pruned, because it may hold that file's
- * messages, which cannot be compiled again (see compileAll).
+ * EXCEPT the prune (kosmos#5866): a daily file with no readable messages left,
+ * for a day before a thread file that is not read as a conversation (a `.damaged`
+ * or unparseable one) could last have gained a message, is kept. Its messages may
+ * be that file's, which cannot be compiled again (see compileAll).
  *
  * Why a sibling directory, not inside chats/: `engine/forget.js` enumerates
  * `chats/` as "conversations", and a reader (or a future removal sweep) must
@@ -113,7 +113,7 @@ const SUPERSEDED_SUFFIX = 'superseded';
 const DAMAGED_SUFFIX = 'damaged';
 /* When a set-aside file was set aside, read from its own name (`<thread file>.<stamp>.<pid>.<ms>[.<n>].<kind>`: the
    `<ms>` chat.js's supersede puts there), as an ISO string, or null when the name carries none. */
-const SET_ASIDE_MS = /\.(\d{12,14})(?:\.\d{1,2})?\.[a-z]+$/;
+const SET_ASIDE_MS = /\.(\d{12,14})(?:\.\d{1,2})?\.(?:superseded|damaged|full)$/;   // 13 digits until the year 2286; a kind chat.js sets aside under
 function setAsideAt(filename) {
   const m = SET_ASIDE_MS.exec(String(filename));
   if (!m) return null;
@@ -398,8 +398,8 @@ function readConversations(chatsDir, now = new Date()) {
   const unknownFiles = [];
   let unknownThrough = null;
   // A file not read as a conversation: remember it, and the latest moment one could last have gained a message.
-  // That is the earliest of: when the file was last written, when its name says it was set aside, and now. Each is an
-  // upper bound on its own, so a file time in the future (or one that cannot be read) does not move the line.
+  // That is the earliest of: when the file was last written, when a set-aside file's name says it was set aside, and
+  // now. Each is an upper bound on its own.
   const nowIso = now.toISOString();
   const unknown = (name, setAside) => {
     unknownFiles.push(name);
@@ -454,7 +454,8 @@ function readConversations(chatsDir, now = new Date()) {
       continue;
     }
     if (parsed && typeof parsed.continues === 'string' && parsed.continues) continuedFiles.push(name);
-    if (!parsed || !Array.isArray(parsed.messages)) continue;
+    // A thread file with no message list is one chat.js would set aside as damaged at the next message: unknown too.
+    if (!parsed || !Array.isArray(parsed.messages)) { unknown(name, false); continue; }
     out.push({ desc, parsed });
   }
   rolledOverFiles.sort();
@@ -472,9 +473,9 @@ function readConversations(chatsDir, now = new Date()) {
  * `outDir` (created if absent). Returns a summary. A run can be REFUSED
  * (kosmos#5855): then `refused` says why, `rolledOver`, `continued` and the two
  * `...Files` lists say what was seen, and nothing was written or pruned.
- * `held` (kosmos#5866) lists the days whose existing daily file this run left as
- * it was, neither rewritten nor pruned, because a set-aside file that is not read
- * as a conversation (`unknownFiles`) may have put rows in it. `now` is injectable. `onlyDay` restricts the write
+ * `held` (kosmos#5866) lists the days whose daily file this run would have pruned
+ * and did not, because a thread file that is not read as a conversation
+ * (`unknownFiles`) may be where its messages were. `now` is injectable. `onlyDay` restricts the write
  * to a single day (a targeted run); by default every day found is written.
  * `dayOf`/`timeOf`/`misrouteCountForDay` are injectable for deterministic tests
  * (`misrouteCountForDay(dayStr)` -> the per-day #3224 count, default derives the
@@ -516,26 +517,18 @@ function compileAll(opts = {}) {
   const { rows, undated } = flattenMessages(conversations, dayOf);
   const byDay = groupByDay(rows);
 
-  /* kosmos#5866 HELD DAYS: a thread file that is not read as a conversation (`unknownFiles`) may have put rows in
-     daily files compiled while it could still be read, and those rows cannot be compiled again. None of ITS
-     messages is later than `unknownThrough`, so a daily file for a day BEFORE that day is held: neither rewritten
-     nor pruned. That day, and every later day, are compiled as usual: holding them would freeze days that are
-     still gaining messages at their first compile.
-     What a held day costs: a later change to that day in a file that CAN be read is not picked up. That is an edit
-     or a deletion, or a message kept late under its original time (a drained reply).
-     If the day of that moment cannot be worked out (an injected `dayOf` that returns nothing for it), every existing
-     daily file is held: not knowing where the line is, is not a reason to drop it.
-     A thread file that could not be READ this run (`readErrors`) holds nothing: as before this change it stops the
-     prune, and a day rewritten without it is rewritten in full the next time it can be read. */
+  /* kosmos#5866 HELD DAYS: a thread file that is not read as a conversation (`unknownFiles`) may be the only place
+     some days' messages ever were. Those days have no readable rows, so nothing below rewrites them: the only thing
+     that would remove their daily file is the prune. None of that file's messages is later than `unknownThrough`,
+     so a daily file for a day BEFORE that day is held: not pruned. Nothing else changes: every day that has
+     readable rows is rewritten exactly as before, so no day is ever less current than it was without this.
+     What it does not do: a day that has BOTH readable rows and that file's rows is rewritten without the latter,
+     as before this change.
+     If the day of that moment cannot be worked out (an injected `dayOf` that returns nothing for it), every daily
+     file is held from the prune: not knowing where the line is, is not a reason to drop it. */
   const heldBefore = unknownThrough ? (dayOf(unknownThrough) || null) : null;
   const holdEvery = unknownFiles.length > 0 && heldBefore === null;
   const isHeld = (day) => holdEvery || (heldBefore !== null && day < heldBefore);
-  const compiledDays = new Set();
-  if (holdEvery || heldBefore !== null) {
-    let listed = [];
-    try { listed = fs.readdirSync(outDir); } catch { listed = []; }
-    for (const name of listed) { const d = dayFromFileName(name); if (d) compiledDays.add(d); }
-  }
   const held = [];
 
   const written = [];
@@ -544,7 +537,6 @@ function compileAll(opts = {}) {
   }
   for (const [day, dayRows] of byDay) {
     if (onlyDay && day !== onlyDay) continue;
-    if (compiledDays.has(day) && isHeld(day)) { held.push(day); continue; }
     const md = renderDay(day, dayRows, timeOf, misrouteCountForDay(day), confirmedNewCountForDay(day));
     fs.writeFileSync(path.join(outDir, dayFileName(day)), md);
     written.push(day);
@@ -567,8 +559,8 @@ function compileAll(opts = {}) {
      transient failure. A successful, fully-read listing that is genuinely empty
      still prunes, which is correct: chats/ is there and has nothing, so every
      daily file is stale. (A file that read fine but is not valid JSON is not a
-     read failure: it does not stop the prune here. It holds the days before it was last written, which the
-     loop below skips -- kosmos#5866, see HELD DAYS above.) */
+     read failure: it does not stop the prune here. It holds the days before it could last have gained a message,
+     which the loop below skips -- kosmos#5866, see HELD DAYS above.) */
   const pruned = [];
   if (prune && !onlyDay && readable && readErrors === 0) {
     const keep = new Set(written);
@@ -577,8 +569,8 @@ function compileAll(opts = {}) {
     for (const name of existing) {
       const day = dayFromFileName(name);
       if (!day) continue;
-      if (keep.has(day) || held.includes(day)) continue;   // written this run, or already held above
-      // kosmos#5866: a held day with no readable rows left may still hold rows this run could not see; it is kept.
+      if (keep.has(day)) continue;
+      // kosmos#5866: a held day's daily file may hold rows this run could not read; it is kept.
       if (isHeld(day)) { held.push(day); continue; }
       try { fs.rmSync(path.join(outDir, name)); pruned.push(day); } catch { /* leave it rather than fail the run */ }
     }
@@ -623,6 +615,7 @@ module.exports = {
   renderDay,
   readConversations,
   shownName,
+  setAsideAt,
   compileAll,
 };
 
@@ -632,7 +625,7 @@ module.exports = {
 if (require.main === module) {
   const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
     + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n'
-    + '  daily files from before a conversation file that cannot be read as one was last written are left as they are\n'
+    + '  a daily file with no readable messages left is kept when a conversation file that cannot be read as one may hold them\n'
     + `  exits ${EXIT_REFUSED}, having written and removed nothing, while the chats folder holds a file named as\n`
     + '  the earlier part of a conversation (ending .full) or a conversation file that refers to an earlier file\n';
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
@@ -693,10 +686,10 @@ if (require.main === module) {
       + '\n',
     );
     if (summary.written.length) process.stdout.write(`dailylog: wrote ${summary.written.join(', ')}\n`);
-    // kosmos#5866: what was left alone, and the fact it rests on. No advice: the tool cannot tell why a file is so.
+    // kosmos#5866: what was kept from the prune, and the fact it rests on. No advice: the tool cannot tell why a file is so.
     if (summary.held.length) {
       const n = summary.unknownFiles.length;
-      process.stdout.write(`dailylog: left ${summary.held.length} daily file(s) already there as they were `
+      process.stdout.write(`dailylog: kept ${summary.held.length} daily file(s) with no readable messages left `
         + `(${summary.held.length > 1 ? 'between ' + summary.held[0] + ' and ' + summary.held[summary.held.length - 1] : summary.held[0]}), because `
         + `${n} file(s) in the chats folder could not be read as conversations and may hold messages from those days\n`);
     }
