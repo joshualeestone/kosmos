@@ -12,7 +12,8 @@ lib is loaded:
 1. Say it: compare tools/lib/cut-guard.sh and tools/lib/process-fixture.sh (the two files loaded) as they are on
    disk with origin/main's, and print one QUEUED-HEAVY line: match, moved, or DIFFERS and not moved (with why).
 2. Move it only when safe: the DEFAULT checkout only (QUEUED_HEAVY_LIB unset, no #5446 fallback), detached, clean,
-   its commit an ancestor of origin/main (a checkout ahead or diverged is never moved back), no queue marker (suitewait.*, machine-claim, light-side-claim), and no other queued-heavy.sh process. Then
+   its commit an ancestor of origin/main (a checkout ahead or diverged is never moved back), origin/main's
+   cut-guard.sh still defining every function this copy calls (else every later join would exit 3), no queue marker (suitewait.*, machine-claim, light-side-claim), and no other queued-heavy.sh process. Then
    `git checkout --detach origin/main`. Otherwise join on the lib as it is (one generation per queue, #4977).
 
 origin/main is read from the checkout's own refs (on Agent1s it is a worktree of ~/work/kosmos, which every agent
@@ -39,7 +40,8 @@ Residuals, stated:
 - Past about 5 minutes on the lock a run loads the lib unchecked rather than wait without bound, and says it may be
   in the middle of a move. A checkout takes about a second, so a holder that long is hung; git and lsof have no
   timeout of their own. The checkout runs with hooks off. An unwritable marker dir skips the check and says so.
-- The ps match is split on spaces: shell options before the path, `env bash`, or a path with a space is not seen.
+- The ps match is split on spaces: a path with a space is not seen, nor, for the instant before the #5467 re-exec,
+  shell options before the path or `env bash`.
   A ps that fails or prints nothing blocks the move ("could not list processes").
 - A move replaces the whole checkout, so a process whose working directory is inside it blocks the move (lsof -d
   cwd, about 0.3 s). A process using files there without its working directory there is not seen.
@@ -47,7 +49,7 @@ Residuals, stated:
   A lock whose pid was reused by another command is taken over (the holder records its command line).
 
 ## Tests
-tools/test-queued-heavy-4977.sh, sixteen #5923 arms (EXPECTED 121), listed in the file. Two use the REAL ps under a
+tools/test-queued-heavy-4977.sh, twenty #5923 arms (EXPECTED 125), listed in the file. Two use the REAL ps under a
 private script name (QH_TEST_PS_NAME): the run does not count itself (perturbed by removing the ppid exclusion: that
 arm went red), and its control, a live process of that name, blocks the move. The rest use the QH_TEST_PS and
 QH_TEST_CWD seams so real processes on the box cannot sway them.

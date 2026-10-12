@@ -245,7 +245,7 @@ run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with 
 lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
 lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
 printf 'p1\nn/\n' > $S/cwd5923
-for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
+for n in mv mk ps sh set dirty nops cwd nocwd reuse dead ahead same branch claim need; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
 run5923 mv
 ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
 run5923 mv
@@ -266,9 +266,9 @@ run5923 dirty
 ok "#5923: a checkout with local changes is not moved and keeps them" '[ "$rc" = 0 ] && [ "$(lh5923 dirty)" != "$(lm5923 dirty)" ] && [[ "$o" == *"not moved (it has local changes)"* ]] && tail -1 $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh | grep -q local'
 run5923 nops QH_TEST_PS=false
 ok "#5923: a process list that fails is not read as nothing live: NOT moved, says so" '[ "$rc" = 0 ] && [ "$(lh5923 nops)" != "$(lm5923 nops)" ] && [[ "$o" == *"not moved (could not list processes)"* ]]'
-printf 'p1\nn/\np4246\nn%s/tools\n' $S/l5923-cwd/work/kosmos-bc-main-4610 > $S/cwd5923-in
+printf 'p1\nn/\np4246\nn%s/tools\n' "$(cd $S/l5923-cwd/work/kosmos-bc-main-4610 && pwd -P)" > $S/cwd5923-in   # lsof prints the resolved path
 run5923 cwd QH_TEST_CWD="cat $S/cwd5923-in"
-ok "#5923: a process working inside the checkout blocks the move (a move replaces the whole tree)" '[ "$rc" = 0 ] && [ "$(lh5923 cwd)" != "$(lm5923 cwd)" ] && [[ "$o" == *"not moved (a process is working inside it)"* ]]'
+ok "#5923: a process working inside the checkout blocks the move (a move replaces the whole tree)" '[ "$rc" = 0 ] && [ "$(lh5923 cwd)" != "$(lm5923 cwd)" ] && [[ "$o" == *"not moved (a process is working inside it (pid 4246))"* ]]'
 run5923 nocwd QH_TEST_CWD=false
 ok "#5923: a working-directory probe that fails blocks the move and says so" '[ "$rc" = 0 ] && [ "$(lh5923 nocwd)" != "$(lm5923 nocwd)" ] && [[ "$o" == *"not moved (could not list working directories)"* ]]'
 # A lib lock left by a holder whose pid now runs another command (here the test's own live holder H) is taken over at once.
@@ -284,15 +284,31 @@ ok "#5923: a lib lock whose holder has died is taken over, and the run moves the
 d5923=$S/l5923-ahead/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && echo '# ahead' >> $d5923/tools/lib/cut-guard.sh && $GE git -C $d5923 -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam ahead
 run5923 ahead
 ok "#5923: a checkout ahead of origin/main is not moved back, and the line says so" '[ "$rc" = 0 ] && [ "$(lh5923 ahead)" != "$(lm5923 ahead)" ] && [[ "$o" == *"not moved (its commit is not behind origin/main (ahead or diverged))"* ]]'
+GC5923="-c user.name=t -c user.email=t@t -c commit.gpgsign=false"
+# Behind origin/main by a commit that leaves both queue files alone: the files match, so nothing moves (the measure is
+# the files, not commit distance).
+d5923=$S/l5923-same/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && echo x > $d5923/README && $GE git -C $d5923 add README && $GE git -C $d5923 $GC5923 commit -qm readme && $GE git -C $d5923 update-ref refs/remotes/origin/main HEAD && $GE git -C $d5923 checkout -q --detach HEAD~1
+run5923 same
+ok "#5923: behind origin/main but with both queue files identical: says they match, moves nothing" '[ "$rc" = 0 ] && [ "$(lh5923 same)" != "$(lm5923 same)" ] && [[ "$o" == *"files match origin/main"* ]] && [[ "$o" != *moved* ]]'
+$GE git -C $S/l5923-branch/work/kosmos-bc-main-4610 checkout -q -b side5923
+run5923 branch
+ok "#5923: a checkout on a branch is not moved" '[ "$rc" = 0 ] && [ "$(lh5923 branch)" != "$(lm5923 branch)" ] && [[ "$o" == *"not moved (it is on a branch, not detached)"* ]]'
+mkdir -p $S/ml5923-claim && : > $S/ml5923-claim/machine-claim
+run5923 claim KOSMOS_IGNORE_MACHINE_CLAIM=1
+ok "#5923: a machine claim blocks the move like a waiter marker" '[ "$(lh5923 claim)" != "$(lm5923 claim)" ] && [[ "$o" == *"not moved (a queue marker is present (machine-claim))"* ]]'
+# origin/main's lib dropped a function this copy calls: moving would make every later join exit 3, so it does not move.
+d5923=$S/l5923-need/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && sed -i.bak 's/^kosmos_release_machine()/kosmos_release_machine_gone()/' $d5923/tools/lib/cut-guard.sh && rm -f $d5923/tools/lib/cut-guard.sh.bak && $GE git -C $d5923 $GC5923 commit -qam drop && $GE git -C $d5923 update-ref refs/remotes/origin/main HEAD && $GE git -C $d5923 checkout -q --detach HEAD~2
+run5923 need
+ok "#5923: origin/main's lib lacks a function this copy calls: not moved, names it, and the run still runs" '[ "$rc" = 0 ] && [ -e $S/l5923-need-ran ] && [ "$(lh5923 need)" != "$(lm5923 need)" ] && [[ "$o" == *"has no kosmos_release_machine, which this copy calls"* ]]'
 # The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
 # QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
-for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self.sh; done
-o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rp KOSMOS_RUN_MARKER_DIR=$S/ml5923-rp QH_TEST_PS_NAME=qh5923self.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rp/qh5923self.sh "lib-rp" true 2>&1); rc=$?
+for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self-$U.sh; done
+o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rp KOSMOS_RUN_MARKER_DIR=$S/ml5923-rp QH_TEST_PS_NAME=qh5923self-$U.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rp/qh5923self-$U.sh "lib-rp" true 2>&1); rc=$?
 ok "#5923: with the real ps, the run does not count itself or its own subshell, so the move happens" '[ "$rc" = 0 ] && [ "$(lh5923 rp)" = "$(lm5923 rp)" ] && [[ "$o" == *moved* ]]'
-mkdir -p $S/rp5923-other && printf '#!/bin/bash\nwhile :; do sleep 1; done\n' > $S/rp5923-other/qh5923self.sh && chmod +x $S/rp5923-other/qh5923self.sh
-/bin/bash $S/rp5923-other/qh5923self.sh </dev/null >/dev/null 2>&1 & RP5923=$!
-until_true 5 '[[ "$(ps -ww -o command= -p $RP5923)" == *qh5923self.sh* ]]'
-o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rpc KOSMOS_RUN_MARKER_DIR=$S/ml5923-rpc QH_TEST_PS_NAME=qh5923self.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rpc/qh5923self.sh "lib-rpc" true 2>&1); rc=$?
+mkdir -p $S/rp5923-other && printf '#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do sleep 1; done\n' > $S/rp5923-other/qh5923self-$U.sh   # ends by itself within a minute && chmod +x $S/rp5923-other/qh5923self-$U.sh
+/bin/bash $S/rp5923-other/qh5923self-$U.sh </dev/null >/dev/null 2>&1 & RP5923=$!
+until_true 5 '[[ "$(ps -ww -o command= -p $RP5923)" == *qh5923self-$U.sh* ]]'
+o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rpc KOSMOS_RUN_MARKER_DIR=$S/ml5923-rpc QH_TEST_PS_NAME=qh5923self-$U.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rpc/qh5923self-$U.sh "lib-rpc" true 2>&1); rc=$?
 kill $RP5923 2>/dev/null   # its one-second sleep ends on its own
 ok "#5923 CONTROL: with the real ps, another live process of that name blocks the move and is named" '[ "$rc" = 0 ] && [ "$(lh5923 rpc)" != "$(lm5923 rpc)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid $RP5923)"* ]]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
@@ -437,7 +453,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=121   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, sixteen #5923 lib-drift arms
+EXPECTED=125   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, twenty #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

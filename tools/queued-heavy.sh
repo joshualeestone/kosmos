@@ -124,8 +124,8 @@ fi
 # line says why and this run joins on the lib as it is. The check, the move and the load below are one step under a
 # lock, so a joiner never loads the lib halfway through another's move.
 # Weakest premise: a process is matched only as `<shell> <path>/queued-heavy.sh ...` or a direct exec of it (what a
-# waiter shows, before and after its #5467 re-exec), split on spaces; a queued-heavy.sh started some other way (shell
-# options before the path, `env bash`, a path with a space) is not seen as a waiter.
+# waiter shows, before and after its #5467 re-exec), split on spaces. A path with a space is not seen, nor (for the
+# instant before its re-exec) one started with shell options before the path or through `env bash`.
 # This run and its direct children are not counted (the subshell of the `out="$(ps ...)"` substitution below keeps
 # this script's argv; keep ps in that substitution, not deeper in a pipeline, or a grandchild carries it too).
 # A copy of this script older than #5923 takes no lock here, so one that STARTS during a move is not held off by it.
@@ -133,10 +133,12 @@ fi
 # QH_TEST_PS_NAME replaces the script name matched (queued-heavy.sh), so a test sees only its own processes;
 # QH_TEST_CWD names a command printing lsof -Fn style lines (n<directory>) in place of the working-directory probe.
 QH_LIB_LOCK=""
+# The functions this script calls unguarded from the lib (checked again after the load, below).
+QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
 _qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git -C "$LIB_CHECKOUT" "$@"; }
 _qh_lib_check() {
   # The files the queue loads: cut-guard.sh and what it sources itself (process-fixture.sh, at its top).
-  local files="tools/lib/cut-guard.sh tools/lib/process-fixture.sh" f head main diff="" why="" g=_qh_libgit
+  local files="tools/lib/cut-guard.sh tools/lib/process-fixture.sh" f head main diff="" why="" p="" g=_qh_libgit
   head="$($g rev-parse --verify -q HEAD 2>/dev/null)" || return 0   # not a git checkout (a test fixture): nothing to say
   main="$($g rev-parse --verify -q origin/main 2>/dev/null)" || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}; it has no origin/main to compare with (#5923)"; return 0; }
   # The files on disk (what is sourced), against origin/main's.
@@ -174,19 +176,30 @@ _qh_lib_check() {
       real="$(cd "$LIB_CHECKOUT" 2>/dev/null && pwd -P)" || real=""
       cw="$(${QH_TEST_CWD:-lsof -nP -d cwd -Fn} 2>/dev/null)"
       if [ -z "$real" ] || [ -z "$cw" ]; then why="could not list working directories"
-      elif printf '%s\n' "$cw" | grep -qxF -e "n$real" -e "n$LIB_CHECKOUT" || printf '%s\n' "$cw" | grep -qF -e "n$real/" -e "n$LIB_CHECKOUT/"; then
-        why="a process is working inside it"
+      else
+        p="$(printf '%s\n' "$cw" | awk -v a="n$real" -v b="n$LIB_CHECKOUT" '
+          /^p/ { pid = substr($0, 2) }
+          $0 == a || $0 == b || index($0, a "/") == 1 || index($0, b "/") == 1 { print pid; exit }')"
+        [ -n "$p" ] && why="a process is working inside it (pid $p)"
       fi
     fi
   fi
+  # Origin/main's lib must still define every function this copy calls, or the move would make every later join exit 3
+  # until this copy (the installed one, say) is updated too.
+  if [ -z "$why" ]; then
+    local fn tgt; tgt="$($g show "$main:tools/lib/cut-guard.sh" 2>/dev/null)"
+    for fn in $QH_NEED_BASE; do
+      printf '%s\n' "$tgt" | grep -qE "^$fn\(\)" || { why="origin/main's cut-guard.sh has no $fn, which this copy calls; update this copy first"; break; }
+    done
+  fi
   if [ -z "$why" ]; then
     if $g -c core.hooksPath=/dev/null checkout -q --detach "$main" 2>/dev/null; then
-      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: its ${diff} differed and no queue run was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach ${head:0:9})"
+      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue run was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach ${head:0:9})"
       return 0
     fi
     why="git checkout failed"
   fi
-  echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} DIFFERS: its ${diff} differ from origin/main ${main:0:9}; not moved ($why), so this run joins on the lib as it is (#5923)"
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} DIFFERS from origin/main ${main:0:9} (${diff}); not moved ($why), so this run joins on the lib as it is (#5923)"
 }
 # The marker dir as the lib names it (_kosmos_marker_dir), needed before the lib is loaded.
 _qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
@@ -227,7 +240,7 @@ fi
   exit 3; }
 _qh_lib_unlock   # #5923: loaded, so a move by the next joiner can no longer reach this run
 # The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
-_qh_need="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
+_qh_need="$QH_NEED_BASE"
 declare -F kosmos_light_side_clear >/dev/null && _qh_need="$_qh_need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
 for _qh_fn in $_qh_need; do
   declare -F "$_qh_fn" >/dev/null || {
