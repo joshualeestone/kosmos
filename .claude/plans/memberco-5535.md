@@ -14,7 +14,8 @@ root) would retire THIS member's registered key whenever the epochs agreed (both
   answer, an unreadable answer) neither. Done in the wrapper from a `seen` holder, so the body is untouched.
 - opts.lostFor { org, member }: lostEpoch is honoured only when lostFor names the company Kosmos+ answered. Without it,
   or for another pair, it is ignored, and an answer from disk says lostEpochIgnored (the existing signal).
-- backupjob header: the caller's deps.ensureMemberKey adds lostFor and checks the answer's pair.
+- backupjob: memberKeyFor takes deps.pair and sends lostFor itself, refuses another pair's answer, and reports the
+  answer's pair (this line first said the caller's wrapper would do it; review 1 moved it into code).
 
 ## Rejected
 - Re-indenting the body into a forCompany function: 211-line diff for 4 lines of logic.
@@ -84,3 +85,5 @@ Mutants after review 3 (19:10 CDT from `date`): L1 no top pair on the ok path: r
    the run builds the manifest context from its own pair. A guard would police only stubs; 27 test calls use that shape.
    What would change my mind: a second ensureMemberKey implementation, or a wrapper that drops fields.
 Mutant after review 4 (19:12 CDT from `date`): N1 null read as malformed again: red (pass 53 fail 1).
+
+## Review 5 (opus, blind, on 0dbd18bf): NO NEW ISSUES. Converged at 5. It noted the stale Change line above; fixed.
