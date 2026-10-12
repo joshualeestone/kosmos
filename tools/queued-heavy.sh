@@ -136,6 +136,8 @@ fi
 # QH_TEST_CWD names a command printing lsof -Fn style lines (n<directory>) in place of the working-directory probe;
 # QH_TEST_MOVE_FAIL stands in for a checkout stopped part way (=nochange: one that failed before touching anything);
 # QH_TEST_RESTORE_FAIL stands in for the forced checkout back failing too.
+# All five are ignored when HOME is this user's real home (every test arm runs under a scratch HOME), so one left
+# exported in a shell cannot swap out a safety probe or append to the shared lib.
 QH_LIB_LOCK=""
 # The functions this script calls unguarded from the lib (checked again after the load, below).
 QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
@@ -143,6 +145,10 @@ _qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FI
 _qh_lib_check() {
   # The files the queue loads: cut-guard.sh and what it sources itself (process-fixture.sh, at its top).
   local files="tools/lib/cut-guard.sh tools/lib/process-fixture.sh" f head main diff="" why="" p="" g=_qh_libgit
+  local rh; rh="$(eval "printf '%s' ~$(id -un)" 2>/dev/null)"
+  if [ -z "$rh" ] || [ "${HOME:-}" = "$rh" ]; then   # the real home (or unknown): no test seams
+    local QH_TEST_PS="" QH_TEST_CWD="" QH_TEST_PS_NAME="" QH_TEST_MOVE_FAIL="" QH_TEST_RESTORE_FAIL=""
+  fi
   head="$($g rev-parse --verify -q HEAD 2>/dev/null)" || return 0   # not a git checkout (a test fixture): nothing to say
   main="$($g rev-parse --verify -q origin/main 2>/dev/null)" || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}; it has no origin/main to compare with (#5923)"; return 0; }
   # The files on disk (what is sourced), against origin/main's.
@@ -210,7 +216,8 @@ _qh_lib_check() {
     local mrc=0 gp gerr
     gerr="$(mktemp "${TMPDIR:-/tmp}/qh-libmove.XXXXXX" 2>/dev/null || mktemp /tmp/qh-libmove.XXXXXX)" || gerr=/dev/null
     # No trap is set yet at this point (the EXIT and signal traps come later), so the reset below drops nothing; a trap
-    # added earlier in the script would be wiped by it and must be restored here instead.
+    # added earlier in the script would be wiped by it and must be restored here instead. The ignored signals are
+    # inherited by git, which installs its own handlers, so a signal sent to git itself still stops it.
     trap '' INT TERM HUP
     if [ "${QH_TEST_MOVE_FAIL:-}" = nochange ]; then mrc=128   # test seam: a checkout that failed before changing anything
     elif [ -n "${QH_TEST_MOVE_FAIL:-}" ]; then
