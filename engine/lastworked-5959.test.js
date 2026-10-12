@@ -53,7 +53,9 @@ test('#5959 slice 2: create, remove and delete-leftover forget the name, beside 
   const fs2 = require('node:fs');
   for (const [file, v] of [['create.js', 'name'], ['remove.js', 'clean'], ['delete-leftover.js', 'p.name']]) {
     const src = fs2.readFileSync(path.join(__dirname, file), 'utf8');
-    assert.ok(src.includes("require('./observed').forgetAgent(" + v + ')'), file + ' does not forget the name\'s last-seen time');
+    // A real call line, not a comment that mentions one: the try statement opens the line, as crashloop's beside it does.
+    const call = new RegExp("^\\s*try \\{ require\\('\\./observed'\\)\\.forgetAgent\\(" + v.replace('.', '\\.') + "\\); \\}", 'm');
+    assert.match(src, call, file + ' does not forget the name\'s last-seen time');
   }
 });
 

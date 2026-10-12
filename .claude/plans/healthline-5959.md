@@ -18,7 +18,8 @@ the pane working (a short turn between sweeps is not seen); for Codex, Gemini an
   its poll both call, so the line follows the state pill. Sign-in and usage say only
   what the card's state shows ("no problem showing" / "no limit showing" otherwise), hedged with "looks like" for a
   screen reading as the state sentence is (#215). A problem the state shows is always said; "no problem" only for an
-  agent Kosmos has seen work, in a state it reads, and for sign-in only on Claude: a Codex 401 loop reads as working
+  agent Kosmos has seen work within the last hour, in a state it reads, and for sign-in only on Claude (`runner ===
+  'claude'`): a Codex 401 loop reads as working
   and the other runners' sign-in report is written by the Windows supervisor alone. A clock time, not "N minutes ago",
   which would age between polls. A provider switch clears the line until the next poll (it spoke for the old runner).
 
