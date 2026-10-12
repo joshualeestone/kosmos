@@ -115,18 +115,18 @@ printf '%s\n' "$out" | grep -q "attempt 2/3 -> contention" && ok "narration show
 if out="$(env -u KOSMOS_SUITE_RERUN_MAX KOSMOS_SUITE_RERUN_CMD="sh $flip" bash -c '. "$1/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$2" "$3"' _ "$REPO" "$log_shellred" "$WORK")"; then rc=0; else rc=$?; fi
 [ "$rc" -eq 1 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 1 ] && printf '%s\n' "$out" | grep -q "re-cut with KOSMOS_SUITE_RERUN_MAX=3 set to allow up to 3" && ok "by default the whole suite is re-run ONCE, whatever the file-by-file max (one red attempt, then abort, naming the override)" \
   || bad "default whole-suite budget: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
-for badmax in 0 abc 007 1000 99999999999999999999; do
+for badmax in 0 abc 007 6 1000 99999999999999999999; do
   : > "$cnt"
   if out="$(KOSMOS_SUITE_RERUN_MAX="$badmax" KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 3)"; then rc=0; else rc=$?; fi
-  { [ "$rc" -eq 1 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 1 ] && printf '%s\n' "$out" | grep -q "budget '$badmax' is not a whole number from 1 to 999"; } \
+  { [ "$rc" -eq 1 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 1 ] && printf '%s\n' "$out" | grep -q "budget '$badmax' is not a whole number from 1 to 5"; } \
     && ok "KOSMOS_SUITE_RERUN_MAX=$badmax runs the suite once and says so (never 'across all 0 attempts')" \
     || bad "bad budget $badmax: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
 done
 : > "$cnt"
-if out="$(KOSMOS_SUITE_RERUN_MAX=999 KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+if out="$(KOSMOS_SUITE_RERUN_MAX=5 KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
 { [ "$rc" -eq 0 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 2 ] && ! printf '%s\n' "$out" | grep -q "not a whole number"; } \
-  && ok "KOSMOS_SUITE_RERUN_MAX=999 is accepted (the top of the range): a second attempt runs and dismisses" \
-  || bad "budget 999: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
+  && ok "KOSMOS_SUITE_RERUN_MAX=5 is accepted (the top of the range): a second attempt runs and dismisses" \
+  || bad "budget 5: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
 if out="$(KOSMOS_SUITE_RERUN_MAX=3 KOSMOS_SUITE_RERUN_CMD=false kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
 { [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q "across all 3 attempts" && ! printf '%s\n' "$out" | grep -q "re-cut with KOSMOS_SUITE_RERUN_MAX=3 set"; } \
   && ok "an abort at a budget of 3 or more does not tell the person to set 3" \

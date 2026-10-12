@@ -95,11 +95,11 @@ kosmos_failing_test_files() {
 # inter-attempt pause is guarded by an `if` (a bare `&&` list could trip errexit).
 kosmos_whole_suite_rerun_verdict() {
   local repo="$1" max="${2:-1}" attempt rc
-  # #5907: a budget that is not a whole number from 1 to 999 runs once and says so, so a typo (or a number too long
-  # for [ -le ]) is never logged as "red across all N attempts" with no suite run. 999 is a deliberate cap: each
-  # attempt is a full suite, so anything near it is a mistake.
+  # #5907: a budget other than 1 to 5 runs once and says so, so a typo is never logged as "red across all N attempts"
+  # with no suite run. Each attempt is a full suite held on the box, so more than 5 is treated as a mistake.
   case "$max" in
-    ''|0*|*[!0-9]*|????*) echo "isolation-rerun: whole-suite budget '$max' is not a whole number from 1 to 999; re-running the whole suite once."; max=1 ;;
+    [1-5]) ;;
+    *) echo "isolation-rerun: whole-suite budget '$max' is not a whole number from 1 to 5; re-running the whole suite once."; max=1 ;;
   esac
   local cmd="${KOSMOS_SUITE_RERUN_CMD:-yarn test}"
   local sleep_s="${KOSMOS_SUITE_RERUN_SLEEP:-5}"
