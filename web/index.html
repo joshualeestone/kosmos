@@ -74340,6 +74340,11 @@ function frStepSequence() {
   // ORDER changes here, not the numbering. Windows still drops Access(2) + Notifications(4)
   // by pane NUMBER, unaffected by the reorder.
   const order = [1, 5, 2, 3, 4, 6, 7, 8, 9];   // Welcome, Model, Access, Automation, Notifications, Self-improving, Success, About-you, Your-agents
+  /* #5877: a Linux board (a server reached in a browser) walks only the steps that are not about a desktop Mac: no
+     folder-access dialog (2) or Accessibility/sleep grant (3), which it can never grant, so Next would stay greyed
+     forever; no macOS background-activity notice (4); and no Success screen (7), which shows the Dock and the
+     Applications folder. Welcome, Model, Help make Kosmos better, About you and Your agents stay. */
+  if (onLinux()) return order.filter((s) => s !== 2 && s !== 3 && s !== 4 && s !== 7);
   return onWindows() ? order.filter((s) => s !== 2 && s !== 4) : order;
 }
 function frStepAfter(step) {
