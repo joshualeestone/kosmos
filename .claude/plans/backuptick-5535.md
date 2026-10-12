@@ -82,3 +82,10 @@ Mutants after review 2 (19:56 CDT from `date`): Z1 no transcript pass, Z2 no sna
    never in my "7" (those are all backup*.js). createChunker's IS needed: printed orphan list with both removed shows it.
 3. NIT, FIXED: the header now names overAllowance among the reasons said once.
 Mutant after review 3 (20:00 CDT from `date`): C1 back to plain realpath: red (tests 17 pass 16 fail 1).
+
+## Review 4 (sonnet, blind, on ecd6d8be): no must-fix; two nits, both fixed
+It traced the native spellings through listRoots, the walk, readListed and restore: nothing downstream compares them
+against a plain realpath (the only equality check is for `only` roots, which keep their path).
+1. FIXED: a runBackup that throws (it never should) is said once, not swallowed every hour.
+2. FIXED: transcripts are looked up by the agent folder as Kosmos recorded it, not its true spelling, since a
+   transcript records the folder its agent started in. Tests 17 -> 18.
