@@ -29,14 +29,13 @@ say is better gone).
   3 and 7. Text painted at run time is not rendered by the test; the one Linux-specific painter arm, pane 5's sign-in
   hatch (#5449), is read from source and holds none. The other painters in the kept panes (frPaintYou, frPaintFleet)
   hold no Mac words in their painted text (frPaintYou, frPaintFleet; checked in reviews 1 and 2).
-- Pane 9's scan list (frPaintScan) and the Create panel's (populateFoundImports) no longer say "Could not scan
-  Documents, Downloads, or Desktop this time" on Linux (review 2): it is a macOS folder-permission result, and a Linux
-  board reports those folders unavailable because the engine routes them to the macOS hatch. frPaintScan is painted for
-  real in the test with a Mac control. The engine half (those folders are never scanned on Linux) is #5882.
-- A third reader (review 4): frPaintFleet held back pane 9's "They are already here. There is nothing to import" when
-  the flag was set, so a Linux board with nothing to import saw an empty pane. All three readers now ask one helper,
-  scanBlockedByMacPermission, false on Linux; a test runs the helper with a Mac control, and a source check fails if
-  any code line reads tccUnavailable outside it. Deep links: 2, 3, 4 land on Model (5) and 7 on About you (8), by number.
+- The scan line "Could not scan Documents, Downloads, or Desktop this time" stays on Linux, unchanged (review 5). In
+  review 2 I hid it on Linux as a macOS-permission line; review 5 showed it names no permission and is TRUE on Linux
+  (those folders are not scanned there, #5882), so hiding it made the import list look complete when it is not. I
+  reverted that, and the review-4 helper with it. My review-4 claim that pane 9 could go empty on Linux was also wrong:
+  frPaintFleet returns after the "Setup complete" paint, so the adopt arm and frPaintScan are not reached today. #5882
+  is the real fix (scan those folders on Linux), and once it lands the line stops appearing there on its own.
+- Deep links: 2, 3, 4 land on Model (5) and 7 on About you (8), by number.
 - web.firstrun-linux-5877.test.js fails on main's page (the Linux sequence, deep-link and kept-pane tests; the controls
   and the pane-9 boundary and hatch checks pass there by design).
 
