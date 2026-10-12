@@ -427,21 +427,20 @@ sealed_icon_other_users() {
 
 # #5913: record that THIS install reuses another account's sealed icon. Best effort and said: a marker that could
 # not be written leaves #5912 unaware, so the transcript names it. The parent is made 755 and the folder 1777
-# explicitly (mkdir -m ignores the umask). The marker holds this install's KOSMOS_HOME, so only this install's own
-# uninstall takes it back (review 2: a sandboxed uninstall never removes the real install's marker).
-# Review 2: ANY existing entry at this account's name that is not its own regular file is refused before writing:
-# noclobber refuses only an existing REGULAR file, and opening a FIFO someone planted there would hang the installer.
+# explicitly (mkdir -m ignores the umask). The marker holds sealed_marker_tag (a hash of this install's KOSMOS_HOME,
+# never the path, which names the account; review 3), written owner-only, so only this install's own uninstall
+# takes it back (review 2: a sandboxed uninstall never removes the real install's marker).
+# Review 4: the marker is written to a private temp file in the same folder and LINKED into place. ln is atomic,
+# never follows an entry and fails if the name exists, so no FIFO or link someone plants at this account's name is
+# ever opened, whatever the timing (a check followed by a write left a window). The temp file is always removed.
 # Trust assumption, stated: the folder is shared by the accounts of one Mac; an account could remove another's
 # marker only through the folder's owner (the first account to reuse), and the worst outcome is that the shared icon
 # is removed by its owner's uninstall, which the next run of this installer repairs.
-# #5913 review 3: what a marker holds. A hash of this install's KOSMOS_HOME, never the path itself (the path names the
-# account, and the folder is shared by every account on the Mac); the file is also written owner-only. Enough for
-# this install's uninstall to tell its own marker from a marker another install of this account wrote.
 sealed_marker_tag() {
   printf '%s' "$KOSMOS_HOME" | /usr/bin/shasum -a 256 | /usr/bin/cut -d' ' -f1
 }
 sealed_icon_mark_reuse() {
-  local me parent f
+  local me parent f tmp rc
   me="$(/usr/bin/id -u)"
   parent="$(/usr/bin/dirname "$SEALED_USERS_DIR")"
   [ -d "$parent" ] || /bin/mkdir -m 755 "$parent" 2>/dev/null || [ -d "$parent" ] || return 1
@@ -454,8 +453,11 @@ sealed_icon_mark_reuse() {
     /usr/bin/grep -qxF "$(sealed_marker_tag)" "$f" 2>/dev/null && return 0
     rm -f "$f" 2>/dev/null || return 1   # this account's own marker for another of its installs: replaced
   fi
-  { [ -e "$f" ] || [ -L "$f" ]; } && return 1
-  ( umask 077; set -C; printf '%s\n' "$(sealed_marker_tag)" > "$f" ) 2>/dev/null
+  tmp="$(umask 077; /usr/bin/mktemp "$SEALED_USERS_DIR/.mark.$me.XXXXXX" 2>/dev/null)" || return 1
+  printf '%s\n' "$(sealed_marker_tag)" > "$tmp" 2>/dev/null && /bin/ln "$tmp" "$f" 2>/dev/null
+  rc=$?
+  rm -f "$tmp" 2>/dev/null
+  return $rc
 }
 
 # #5913: this install's uninstall takes back ITS OWN marker: a regular file this account owns, naming this install.
@@ -2260,7 +2262,12 @@ KOSMOS_SWEEP_LIST
         # #5896 slice 2: the sealed icon is the same app for every account on this Mac, and another account may be
         # using it, so a shared one is left in place and named.
         _sys_sealed_left=yes
-        info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+        # #5913 review 4: an account that only REUSED another account's icon neither owns nor can delete it.
+        if [ "$(file_owner_uid "$SYS_APP_DIR/Kosmos.app")" != "$(/usr/bin/id -u)" ]; then
+          info "note: the Kosmos app in $SYS_APP_DIR belongs to another account on this computer, so it was left in place."
+        else
+          info "note: the Kosmos app in $SYS_APP_DIR is a Kosmos app shared by every account on this computer, so it was left in place; drag it to the Trash if no one else here uses Kosmos."
+        fi
       # The same anchored token as resolve_app_dir: the closing `}"` keeps
       # two homes in a prefix relationship from cross-matching, because
       # this grep is the sole gate on an rm -rf in a shared folder.
@@ -4164,7 +4171,7 @@ elif [ "$APP_SKIP_ICON" = "yes" ]; then
     # #5913: another account's sealed Kosmos icon opens this install too, so none is made here.
     info "Kosmos is already in Applications for every account on this computer; it opens your Kosmos too."
     sealed_icon_mark_reuse \
-      || info "(this computer could not note that your account uses that icon: something is in the way at $SEALED_USERS_DIR. If the icon's owner uninstalls Kosmos, your icon goes too; run this installer again after that)"
+      || info "(this computer could not note that your account uses that icon: something is in the way at $SEALED_USERS_DIR. If the icon's owner uninstalls Kosmos, your icon may go too; if it does, run this installer again)"
   elif [ "$APP_SKIP_REASON" = "same" ]; then
     info "something else already has the Kosmos spot in Applications, and this computer's home"
     info "Applications folder is the same folder, so no icon was created."

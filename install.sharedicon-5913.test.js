@@ -244,6 +244,11 @@ it('#5913 review 2: a FIFO planted at the marker name is refused, never opened (
   } catch (e) { out = 'TIMEOUT or error: ' + (e.signal || e.status); }
   assert.match(out, /rc=[1-9]/, 'the writer did not refuse the FIFO: ' + out);
   assert.ok(Date.now() - t0 < 5000, 'the writer hung on the FIFO');
+  // Review 4: the write goes through a private temp file linked into place; none is left, refused or not.
+  assert.deepEqual(fs.readdirSync(w.users).filter((n) => n.startsWith('.mark.')), [], 'a temp marker file was left behind');
+  fs.unlinkSync(path.join(w.users, ME));
+  assert.match(run(w, 'sealed_icon_mark_reuse; echo "rc=$?"').out, /rc=0/, 'CONTROL: a clean name is written');
+  assert.deepEqual(fs.readdirSync(w.users).filter((n) => n.startsWith('.mark.')), [], 'a temp marker file was left after a success');
 });
 
 it('#5913 review 2: the reader keeps the icon when an ancestor above the parent cannot be searched', () => {
