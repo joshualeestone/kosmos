@@ -40,7 +40,12 @@ cancel a reauth while a staging sign-in still writes into the folder.
 - any other hold (a new sign-in staging into that name) still refuses.
 - a forget that FAILS at the move (no free name) cancels nothing.
 - The mock codex execs its sleep, so a kill reaches it (the file took 30 s with a surviving sleep; now under 1 s).
-- Mutants, all red (after review 1): no release in remove (3), late exit ignores the flag (1), any hold counted as
-  own (1), release before the agents guard (2), release before the move (1). Earlier list: no release in remove (3 fail); reauthDir not cleared (1); any hold counted as own (1); cancel
-  moved before the agents guard (1).
+- an account already gone from the disk still has its own reauth cancelled (review 2: that success branch skipped it).
+- a reauth cancelled a moment ago, its child not exited yet, does not refuse the remove (review 2).
+- any other hold refuses for forget as well as remove.
+- server.disconnect-stop-2570: the real route, an own unfinished reauth plus a registered agent: the pre-flight is
+  refused and cancels nothing; stopAgents stops, deletes and cancels (review 2).
+- Mutants, all red: no release in remove (3 fail); late exit ignores the flag (1); any hold counted as own (1);
+  release before the agents guard (2); release before the move (1); settled reauths filtered out (1); no release
+  when already gone (2); own reauth never counted (the route test, 1).
 - Wide run: 31 files (openaiaccounts*, server account/disconnect/openai/chatgpt, engine.reachable) 359 pass 0 fail.

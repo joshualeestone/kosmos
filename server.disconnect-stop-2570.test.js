@@ -884,3 +884,38 @@ test('#2570 CONTROL: the OpenAI route with no flag still refuses and names the a
   assert.deepEqual(calls, [], 'the runner was called, so something tried to stop an agent unasked');
   assert.ok(fs.existsSync(dir));
 });
+
+/* #5994 end to end through this route: an account whose own "Sign in again" was left unfinished. The pre-flight (agents
+   on the account, no stopAgents) is refused and cancels nothing; with stopAgents the agent is stopped, the account is
+   deleted, and the abandoned sign-in is cancelled rather than refusing the delete after the agent was already stopped. */
+test('#5994: disconnect-and-stop on an account with its own unfinished Sign in again stops, deletes and cancels', async () => {
+  installRunner();
+  const openai = require('./engine/openaiaccounts');
+  const dir = nodePath.join(HOME, '.codex-reauth5994');
+  fs.mkdirSync(dir, { recursive: true });
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const idToken = `${b64({ alg: 'none' })}.${b64({ email: 'r5994@example.com' })}.`;
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken } }));
+  const mock = nodePath.join(SANDBOX, 'codex-reauth-5994.sh');
+  fs.writeFileSync(mock, '#!/bin/bash\necho "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"\nexec sleep 30\n');
+  fs.chmodSync(mock, 0o755);
+  const started = openai.startChatgptLogin({ codexBin: mock, mode: 'browser', reauthDir: dir });
+  assert.equal(started.ok, true, started.because);
+  registeredNotRunning('reauth5994', dir, 'codex');
+  try {
+    // CONTROL, the pre-flight: refused, names the agent, and the sign-in is NOT cancelled.
+    const refused = await del('openai', { dir, remove: true });
+    assert.equal(refused.code, 400, JSON.stringify(refused.json));
+    assert.match(String(refused.json.error), /reauth5994 is set up to run on this account/);
+    assert.notEqual(openai.chatgptLoginStatus(started.sessionId).state, 'cancelled', 'a refused call cancelled the sign-in');
+    assert.ok(fs.existsSync(dir));
+    // The real call.
+    const r = await del('openai', { dir, stopAgents: true, remove: true });
+    assert.equal(r.code, 200, 'the abandoned sign-in still blocked the delete. body: ' + JSON.stringify(r.json));
+    assert.deepEqual(r.json.stopped, ['reauth5994']);
+    assert.ok(!fs.existsSync(dir), 'the account was not deleted');
+    assert.equal(openai.chatgptLoginStatus(started.sessionId).state, 'cancelled');
+  } finally {
+    openai.cancelChatgptLogin(started.sessionId);
+  }
+});
