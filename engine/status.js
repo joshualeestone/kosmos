@@ -7487,18 +7487,35 @@ function providerLimitReport(reported) {
 function cardRunnerOf(pane) {
   return (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude';
 }
-/* #5959 slice 2: which provider's observations speak for a card's runner. Antigravity and Muse have none: nothing
-   in observed.js is recorded for them, so their card says Kosmos cannot see their turns rather than "not seen". */
-const RUNNER_OBSERVED_PROVIDER = Object.freeze({
-  claude: observed.PROVIDER.ANTHROPIC, codex: observed.PROVIDER.OPENAI, gemini: observed.PROVIDER.GOOGLE, grok: observed.PROVIDER.XAI,
-});
-/* #5959 slice 2: when this agent was last seen working, for its page's health line. { at: ISO } when Kosmos saw it;
-   { at: null, why: 'not_seen' } when its runner is observed but nothing was seen since the board started (the record
-   is in memory); { at: null, why: 'no_source' } for a runner with no observation at all. Null for a pane that is not
-   ours, which is never observed. */
-function lastWorkedOf(pane, runner) {
+/* Which runner a pane is, as the observation arms in snapshot read it: a tag, or (codex, grok, agy) a command before its
+   tag lands (#3953). #5959 slice 2 reads the provider from this too, so an observation is read back under the provider
+   it was filed under. */
+function paneObservedKinds(pane) {
+  return {
+    codex: pane.runner === 'codex' || isCodexCommand(pane.command),
+    gemini: pane.runner === 'gemini',
+    grok: pane.runner === 'grok' || isGrokCommand(pane.command),   // #3953: before its tag lands too
+    agy: pane.runner === 'antigravity' || isAntigravityCommand(pane.command),
+    muse: pane.runner === 'muse',   // #3939: kept out of the Claude arm, like agy
+  };
+}
+/* #5959 slice 2: the provider whose observations speak for this pane, in the arms' order (codex, gemini, grok, then
+   Claude for a pane that is none of them). Null for Antigravity and Muse: nothing is recorded for them. */
+function observedProviderOf(pane) {
+  const k = paneObservedKinds(pane);
+  if (k.codex) return observed.PROVIDER.OPENAI;
+  if (k.gemini) return observed.PROVIDER.GOOGLE;
+  if (k.grok) return observed.PROVIDER.XAI;
+  if (k.agy || k.muse) return null;
+  return observed.PROVIDER.ANTHROPIC;
+}
+/* #5959 slice 2: when this agent was last seen working, for its page's health line. { at: ISO, why: null } when Kosmos
+   saw it; { at: null, why: 'not_seen' } when its provider is observed but nothing was seen since the board started (the
+   record is in memory); { at: null, why: 'no_source' } for Antigravity and Muse. Null for a pane that is not ours,
+   which is never observed. */
+function lastWorkedOf(pane) {
   if (!isNamedOurs(pane)) return null;
-  const provider = RUNNER_OBSERVED_PROVIDER[runner];
+  const provider = observedProviderOf(pane);
   if (!provider) return { at: null, why: 'no_source' };
   const at = observed.lastOk(provider, pane.name);
   return at === null ? { at: null, why: 'not_seen' } : { at: new Date(at).toISOString(), why: null };
@@ -8634,7 +8651,8 @@ function snapshot() {
     // codexsession.read WALKS THE SESSIONS TREE to match by workdir, so a second
     // derivation per pane per sweep is avoidable duplicate work. null for a non-codex or
     // untied pane (neither consumer reads a rollout for it).
-    const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
+    const kinds = paneObservedKinds(pane);   // #5959 slice 2: one derivation, shared with observedProviderOf
+    const isCodexPane = kinds.codex;
     const codexSess = (isNamedOurs(pane) && isCodexPane) ? readCodexSession(pane.name) : null;
     /* #3296: the Gemini arm. TAG-ONLY recognition -- a Gemini agent runs as
        `node <bundle>/gemini.js`, so its pane command is `node` (the dev-server
@@ -8642,16 +8660,16 @@ function snapshot() {
        So key ONLY on the @kosmos_runner tag the supervisor records, never on the
        command. Read the session once for the context ring below (no observation
        arm yet -- the account badge's GOOGLE provider is the launcher slice). */
-    const isGeminiPane = pane.runner === 'gemini';
+    const isGeminiPane = kinds.gemini;
     const geminiSess = (isNamedOurs(pane) && isGeminiPane) ? readGeminiSession(pane.name) : null;
     /* #3391: the Grok arm, keyed on the @kosmos_runner tag the supervisor records.
        Read the session once for the context ring below (no observation arm yet --
        the account badge's XAI provider is the launcher slice). */
-    const isGrokPane = pane.runner === 'grok' || isGrokCommand(pane.command);   // #3953: before its tag lands too
+    const isGrokPane = kinds.grok;
     /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
        observation arm below so it can never record a false Claude-account reading. */
-    const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
-    const isMusePane = pane.runner === 'muse';   // #3939: kept out of the Claude arm below, like agy
+    const isAgyPane = kinds.agy;
+    const isMusePane = kinds.muse;
     // #4039: the agy conversation, read once per tick (the ring and the model both use it).
     const agySess = (isNamedOurs(pane) && isAgyPane) ? readAgySession(pane.name) : null;
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
@@ -8920,7 +8938,7 @@ function snapshot() {
          screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */
       limitUntil: claudeLimitUntilIso(pane, status),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
-      lastWorked: lastWorkedOf(pane, cardRunnerOf(pane)),
+      lastWorked: lastWorkedOf(pane),
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a

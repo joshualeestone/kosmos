@@ -47,11 +47,14 @@ test('#5959 slice 2: the card says when it last worked, per runner, and why when
   observed.saw(observed.PROVIDER.OPENAI, 'kim', observed.OUTCOME.OK, t - 60e3);
   // Recorded for the wrong provider: a gemini agent must not read a Claude observation filed under its name.
   observed.saw(observed.PROVIDER.ANTHROPIC, 'gem', observed.OUTCOME.OK, t);
+  // A pane tagged gemini but running codex is read by the codex arm, so its time is filed under OpenAI and read back there.
+  observed.saw(observed.PROVIDER.OPENAI, 'mix', observed.OUTCOME.OK, t - 120e3);
   const board = fleet.install([
     fleet.agent('casey', { runner: 'claude' }),
     fleet.agent('kim', { runner: 'codex', command: 'codex', state: 'unknown' }),
     fleet.agent('gem', { runner: 'gemini', command: 'node' }),
     fleet.agent('rok', { runner: 'grok', command: 'grok' }),
+    fleet.agent('mix', { runner: 'gemini', command: 'codex', state: 'unknown' }),
     fleet.agent('agy', { runner: 'antigravity', command: 'agy', state: 'unknown' }),
     fleet.agent('muse', { runner: 'muse', command: 'node', state: 'unknown' }),
     fleet.stranger('leo'),
@@ -67,6 +70,7 @@ test('#5959 slice 2: the card says when it last worked, per runner, and why when
     assert.deepEqual(card('kim'), { at: new Date(t - 60e3).toISOString(), why: null });
     assert.deepEqual(card('gem'), { at: null, why: 'not_seen' });
     assert.deepEqual(card('rok'), { at: null, why: 'not_seen' });
+    assert.deepEqual(card('mix'), { at: new Date(t - 120e3).toISOString(), why: null }, 'read back under another provider than it was filed under');
     assert.deepEqual(card('agy'), { at: null, why: 'no_source' });
     assert.deepEqual(card('muse'), { at: null, why: 'no_source' });
     assert.equal(card('leo'), null, 'a pane that is not ours carried a lastWorked');
