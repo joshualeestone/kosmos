@@ -91,6 +91,16 @@ function validName(name) {
 }
 
 /** The whole record, sessionId -> { name, runner, at }. Empty on any read fault. */
+function read() {
+  let raw;
+  try { raw = fs.readFileSync(file(), 'utf8'); }
+  catch { return {}; }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return {}; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  return parsed;
+}
+
 /* kosmos#5957: read(), but a record that is there and cannot be read or parsed THROWS instead of reading as "no
    sessions", so the name check refuses rather than passing a stopped agent's name as free. Absent is empty. */
 function readStrict() {
@@ -99,16 +109,6 @@ function readStrict() {
   catch (e) { if (e && e.code === 'ENOENT') return {}; throw e; }
   const parsed = JSON.parse(raw);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('the session record is not an object');
-  return parsed;
-}
-
-function read() {
-  let raw;
-  try { raw = fs.readFileSync(file(), 'utf8'); }
-  catch { return {}; }
-  let parsed;
-  try { parsed = JSON.parse(raw); } catch { return {}; }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
   return parsed;
 }
 

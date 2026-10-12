@@ -1208,7 +1208,7 @@ function createdKeys() {
    name check refuses rather than passing a stopped agent's name as free. [] when no source is wired. */
 function createdKeysStrict() {
   if (!createdSource) return [];
-  const k = createdSource(new Set(), { includeRemoved: true });
+  const k = createdSource(new Set(), { includeRemoved: true, strict: true });
   if (!Array.isArray(k)) throw new Error('the created agents could not be read');
   return k;
 }

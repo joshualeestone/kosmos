@@ -14467,8 +14467,8 @@ const server = http.createServer(async (req, res) => {
           const agentnames = require('./engine/agentnames');
           /* Only a CHANGE is checked: a client resending the name it already has (beside a role edit) must not be
              refused because an older duplicate exists. */
-          let stored = null;
-          try { stored = store.readProfile(name).displayName; } catch { stored = null; }
+          let stored = null;   // the name the board shows: the record, else the "You are" line (readIdentity)
+          try { stored = require('./engine/status').readIdentity(name).displayName; } catch { stored = null; }
           const taken = clean.displayName === stored ? null : agentnames.refusalFor(clean.displayName, { except: name });
           if (taken) {
             const body = { error: taken };
