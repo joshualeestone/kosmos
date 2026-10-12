@@ -222,6 +222,18 @@ test('a promote FAILURE (live dir not writable) is refused and the live account 
 /* #5994 (replaces "forget/remove refuse while a reauth is in flight"): the account's OWN unfinished "Sign in again"
    is cancelled by a remove or forget that passes every other guard, so a person who abandoned it is not refused for
    up to the watchdog's five minutes with a cancel they cannot reach. */
+test.afterEach(() => { delete process.env.FAKE_CODEX_SLEEP; delete process.env.FAKE_CODEX_IGNORE_TERM; });   // a failing test leaks no mock mode
+
+/* #5994's premise, pinned: a live account folder is never also a sign-in's staging folder, so a hold on it can only be
+   its own reauth. A new sign-in under an existing account's name is refused before it reserves anything. */
+test('#5994 premise: a new sign-in cannot stage into an existing account\'s folder', () => {
+  const dir = writeChatgptAccount('.codex-taken9', 'taken9@example.com');
+  const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', label: 'taken9' });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /already an OpenAI account by that name/);
+  assert.equal(openai.removeAccount(dir, []).removed, true, 'the refused start left a hold on the account');
+});
+
 async function startHeldReauth(dirName, email) {
   const dir = writeChatgptAccount(dirName, email);
   process.env.FAKE_CODEX_SLEEP = '1'; // the person opens Sign in again and walks away
