@@ -54,6 +54,15 @@ if [ "$check_only" -eq 0 ]; then
   esac
 fi
 
+# Each setting must be set exactly once, in plain form: a second line (xcconfig takes the last) or a
+# conditional one (KEY[sdk=...]) would make the value read here differ from the one Xcode builds with.
+for key in DEVELOPMENT_TEAM KOSMOS_BUNDLE_ID; do
+  any=$(sed 's|//.*||' "$xcconfig" | grep -cE "^[[:space:]]*${key}([^A-Za-z0-9_]|\$)")
+  plain=$(sed 's|//.*||' "$xcconfig" | grep -cE "^[[:space:]]*${key}[[:space:]]*=")
+  if [ "$any" -ne 1 ] || [ "$plain" -ne 1 ]; then
+    echo "archive.sh: $key must be set exactly once, as '$key = <value>', in ios/Signing.xcconfig (found $any)." >&2; exit 1
+  fi
+done
 # The value Xcode reads: the DEVELOPMENT_TEAM line, less any trailing // comment and spaces.
 team=$(sed -n 's|//.*||; s/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' "$xcconfig" | tr -d '[:space:]')
 # The bundle id the project builds with (KOSMOS_BUNDLE_ID in the same file), checked on the export.

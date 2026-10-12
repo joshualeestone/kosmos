@@ -29,6 +29,11 @@ expect empty-team               1 ""           io.kosmos.app.preview
 expect short-team               1 ABC          io.kosmos.app.preview
 expect bad-bundle-dots          1 "$stone"     io..kosmos
 expect bad-bundle-empty         1 "$stone"     ""
+# A second KOSMOS_BUNDLE_ID line (xcconfig takes the last) must not slip io.kosmos.app past the pairing check.
+printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app.preview\nKOSMOS_BUNDLE_ID = io.kosmos.app\n' "$stone" > "$work/dup.xcconfig"
+if KOSMOS_IOS_XCCONFIG="$work/dup.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'must be set exactly once'; then echo "PASS  a second KOSMOS_BUNDLE_ID line is refused"; else echo "FAIL  a second KOSMOS_BUNDLE_ID line was not refused"; fail=1; fi
+printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app.preview\nKOSMOS_BUNDLE_ID[sdk=iphoneos*] = io.kosmos.app\n' "$stone" > "$work/cond.xcconfig"
+if KOSMOS_IOS_XCCONFIG="$work/cond.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'must be set exactly once'; then echo "PASS  a conditional KOSMOS_BUNDLE_ID line is refused"; else echo "FAIL  a conditional KOSMOS_BUNDLE_ID line was not refused"; fail=1; fi
 # The project file takes its bundle id from the xcconfig, in every configuration. An id typed into Xcode's
 # General pane is written there and would win over Signing.xcconfig, out of sight of every check above.
 pbx="$here/../Kosmos.xcodeproj/project.pbxproj"
