@@ -14619,7 +14619,11 @@ const server = http.createServer(async (req, res) => {
         }
         sendJson(res, 200, { ...written, ...(renamed ? { renamed } : {}), ...(told ? { reports: told } : {}) });
       })
-      .catch((err) => sendJson(res, 400, { error: String(err.message) }));
+      /* #5957: the agent page now shows this route's error, so it must be a sentence, never an errno or a temp path
+         (the instructions route's round-40 rule). Its own refusals above answer with their sentences directly. */
+      .catch((err) => sendJson(res, 400, { error: err instanceof SyntaxError
+        ? 'we could not read that request; send it as JSON'
+        : 'that did not save; try again in a moment' }));
     return;
   }
 
@@ -17710,22 +17714,23 @@ const server = http.createServer(async (req, res) => {
                posture as create.js's own display-name write: a rename we
                could not record is a card that keeps its old name, not a
                failure. */
-            /* kosmos#5957: a line naming a name another agent answers to keeps the file (the person's text, already
-               saved) but not the rename, and the reply says so beside "Saved." rather than renaming into a clash. */
-            const agentnames = require('./engine/agentnames');
-            const taken = agentnames.refusalFor(typed, { except: name });
-            if (taken) {
-              wrote.nameKept = taken === agentnames.COULD_NOT_CHECK
-                ? 'The name was not changed, because we could not check the names already in use; try again in a moment.'
-                : `The name was not changed: ${taken}`;
-            } else {
-              try {
-                const had = store.readProfile(name);
-                if (had && typeof had.displayName === 'string' && had.displayName !== typed) {
+            try {
+              const had = store.readProfile(name);
+              if (had && typeof had.displayName === 'string' && had.displayName !== typed) {
+                /* kosmos#5957: a rename into a name another agent answers to keeps the file (the person's text,
+                   already saved) but not the rename, and the reply says so beside "Saved.". Checked only when the
+                   record would change, as the profile route does. */
+                const agentnames = require('./engine/agentnames');
+                const taken = agentnames.refusalFor(typed, { except: name });
+                if (taken) {
+                  wrote.nameKept = taken === agentnames.COULD_NOT_CHECK
+                    ? 'The name was not changed, because we could not check the names already in use; try again in a moment.'
+                    : `The name was not changed: ${taken}`;
+                } else {
                   store.writeProfile(name, { displayName: typed });
                 }
-              } catch { /* the save succeeded; the follow is best-effort */ }
-            }
+              }
+            } catch { /* the save succeeded; the follow is best-effort */ }
           }
         }
         sendJson(res, 200, wrote);
@@ -21883,6 +21888,8 @@ function start(port = PORT) {
     const roster = safeRoster();
     if (!Array.isArray(roster)) throw new Error('the roster could not be read');
     const status = require('./engine/status');
+    /* Every removed agent, wider than safeRoster's hidesCard filter on purpose: a removed agent whose card still
+       shows is in the roster rows above, so it is counted there; this set only stops createdKeys re-adding the rest. */
     const gone = new Set(removal.removedAgents().map((r) => r && r.name));
     const named = new Map();
     for (const a of roster) if (a && a.isNamedOurs === true && a.sessionName) named.set(a.sessionName, a.name || a.sessionName);

@@ -69,7 +69,7 @@ It names the other agent by display name and handle, as `ambiguousNote` does, so
 - **The create test calls `create.createAgent`** with the board's wiring live. Through POST /api/agents the sandbox
   refuses first for having no Claude account signed in, which says nothing about names.
 - **Connect checks both** the display name its instructions give and the handle.
-- Measured: engine/agentnames.test.js 6/6, server.dupname-5957.test.js 5/5. Mutants, each restored by
+- Measured at the first build (the counts have grown since; the PR states the final ones): engine/agentnames.test.js 6/6, server.dupname-5957.test.js 5/5. Mutants, each restored by
   `git checkout` on a clean tree: a case-sensitive key 5 fail, no `except` 4 fail, a no-op create check 1 fail. The
   nearest existing files (mentions, create, rename x3, connect, team x3, setup guide, CLI create, inline errors,
   messages): 538 tests, 0 fail.
