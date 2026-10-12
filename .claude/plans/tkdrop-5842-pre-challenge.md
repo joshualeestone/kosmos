@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: tkdrop-5842
-diff_hash: 0e1a14bf926e48d0480864f835eb9ceb0e0ee147dbdb4872376be972088ec24b
+diff_hash: 0f2ff7fe7a78987b7955ebfef04a4b110f087aafc4a68c87bbe0a6e94d626e33
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-12T02:55:46Z
-iterations: 10
+timestamp: 2026-10-12T05:37:49Z
+iterations: 11
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 10 (plus one final-validation red handled as a synthetic finding)
+**Iterations:** 11 (plus final-validation reds handled as synthetic findings, and one CI red after #5874 landed)
 **Converged:** Yes
 **Total findings:** 21 actionable (0 BLOCKERs, 19 WARNINGs, 0 CONVENTIONs real, 1 synthetic 6j BLOCKER, 1 SELF prose)
 **Fixed:** 18 | **Deferred:** 4 (reasoned, in the plan) | **Asked (awaiting user):** 0
@@ -23,8 +23,12 @@ web.task-activity-768, engine/tasks.repeat-4787), with a negative control (main'
 reverted in place) for each new behaviour. Full validation at 6j ran twice: the first red on the browser-check surface
 gate (local names `msg`/`Msg` shared a token with two DM checks; renamed) plus a one-off aw-projects temp leak from
 server.projects.test.js (unchanged by this branch; that file alone passes 178/178 with no leak, and the next full run
-was clean). A later queued run was stopped before it started because round 9 changed the code. The final run, on the
-final HEAD: VAL rc=0, AUDIT rc=0, surface gate rc=0, 19,242 node tests with 0 failing, no leaks, EXIT=0.
+was clean). A later queued run was stopped before it started because round 9 changed the code. That run on 2abd61728
+was clean (19,242 tests, 0 failing) and PR #5890 opened; its CI then went red on #5874's parity test, which had landed
+on main meanwhile (engine/taskactphrase.js, the CLI's copy of the page's words, did not know kept-sent/kept-dropped).
+Fixed after merging main (a669b16b9). The next full run's only red was a `kts-*` temp leak (tmpscope's hard-kill
+leftover); the six files this branch touches leave nothing when run alone with their own TMPDIR, so it was re-run. The
+final run, on a669b16b9: VAL rc=0, AUDIT rc=0, surface gate rc=0, 19,367 node tests with 0 failing, no leaks, EXIT=0.
 
 ### Per-Iteration Breakdown
 
@@ -88,7 +92,16 @@ final HEAD: VAL rc=0, AUDIT rc=0, surface gate rc=0, 19,242 node tests with 0 fa
 **Reviewer model:** sonnet
 **New findings:** 0 actionable (one WARNING repeats the deferred restart duplicate; the reviewer: nothing new needed), 3 NITs
 **Self-generated:** 0
-**Converged** — 6j clean on 2abd617286.
+**Converged** (then main moved: #5874)
+
+#### After merging main (CI red on #5890)
+- [BLOCKER] engine/taskactphrase.test.js — the page knows kept-sent/kept-dropped and the CLI's copy does not --> FIXED (a669b16b9): both kinds added in the page's words (agent wording: "the person's message"), parity fixtures for every branch, cli.task-activity-5874.test.js fixtures moved to the real shape. April told.
+
+#### Iteration 11
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 4 NITs
+- [WARNING] engine/messages.js tellTaskLineDropped — the sender's pane line says "while out of usage" for a line kept behind earlier messages (pre-existing, #5848) --> DEFERRED to its owner: Baron builds it on main after #5890 lands (his reply 22:35), with "gave it up a day after the reset".
+**Converged** — 6j clean on a669b16b9.
 
 ### Final Ledger (actionable)
 
@@ -106,6 +119,8 @@ final HEAD: VAL rc=0, AUDIT rc=0, surface gate rc=0, 19,242 node tests with 0 fa
 | 10 | 7 | WARNING | server.js / tkActPhrase | SELF | unnamed agent shown as the person | FIXED | 31668b1c1 |
 | 11 | 8a | BLOCKER | surface gate | SELF | token msg on two DM checks | FIXED | 23dfd8e06 |
 | 12 | 9 | WARNING | web/index.html tkActPhrase comment | SELF | stale claim about empty from | FIXED (deleted) | 2abd617286 |
+| 13 | CI | BLOCKER | engine/taskactphrase.js | BRANCH | CLI words lacked the two kinds (#5874 landed) | FIXED | a669b16b9 |
+| 14 | 11 | WARNING | engine/messages.js tellTaskLineDropped | BRANCH | pane line for a behind line | DEFERRED | Baron, after #5890 |
 
 ### NITs (non-blocking; selection)
 - Boolean third argument to recordTaskLineOutcome (iteration 8)
