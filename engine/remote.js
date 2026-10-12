@@ -76,6 +76,7 @@ let setupSpawn = spawn;
 const SETUP_CLOSE_GRACE_MS = 2000;
 const os = require('node:os');
 const store = require('./store');
+const childenv = require('./childenv');   // kosmos#5889: what a desktop opener is started with
 
 // #1848: route through store.ROOT (= store.dataRootFor(platform, home, env)) rather
 // than reading AGENT_WORKFORCE_DATA directly. The direct read bypassed both #1820's
@@ -1448,11 +1449,10 @@ let companyOpenSourceForTests = null;   // { platform, env }: the platform and e
 function runCompanyOpener(url) {
   /* kosmos#5889: on macOS and Linux the opener gets only what a desktop needs (engine/childenv.js), never the board's
      whole environment (its tokens among it), since the child can be a browser that runs for a long time. On Linux with
-     no display it cannot show anything, so it is not started (the answer is "use the link" at once). Windows keeps the
+     nothing that can show a page (engine/childenv.js hasDesktop) it is not started (the answer is "use the link" at once). Windows keeps the
      environment as it was: rundll32 needs Windows' own variables (SystemRoot and others), and a list for it is not
      checked on a Windows machine here (said on #5889). */
   const src = companyOpenSourceForTests || { platform: process.platform, env: process.env };
-  const childenv = require('./childenv');
   if (src.platform === 'linux' && !childenv.hasDesktop(src.env)) return Promise.resolve(false);
   const env = src.platform === 'win32' ? undefined : childenv.openerEnv(src.env);
   return new Promise((resolve) => {
