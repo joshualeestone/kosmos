@@ -895,6 +895,7 @@ function providerRunner(provider) {
   if (provider === 'xai') return 'grok';
   if (provider === 'antigravity') return 'antigravity'; // #3568
   if (provider === 'meta') return 'muse'; // #3939: Meta Muse, run one turn at a time by engine/musefront.js
+  if (provider === 'alibaba') return 'codex'; // #5977: Qwen, codex pointed at its account's endpoint
   return 'claude';
 }
 /* #3519: the INVERSE of providerRunner -- the ONE runner -> provider map. The
@@ -915,6 +916,14 @@ function runnerProvider(runner) {
   if (runner === 'antigravity') return 'antigravity'; // #3568
   if (runner === 'muse') return 'meta'; // #3939
   return 'anthropic';
+}
+/* #5977: the provider a launch job runs on. Qwen shares the codex runner with OpenAI, so the runner alone cannot
+   say which: a codex job whose account home holds a Qwen endpoint is Qwen. Read from the job itself, so the
+   switch's "already runs on" check and the job cannot disagree. Every other runner maps one-to-one. */
+function jobProvider(job) {
+  const runner = job && job.runner ? job.runner : 'claude';
+  if (runner === 'codex' && job.configDir && require('./qwenaccounts').isEndpointHome(job.configDir)) return 'alibaba';
+  return runnerProvider(runner);
 }
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
    {codex, gemini, grok, antigravity}. plistFor (which slots run only for a non-claude runner),
@@ -941,6 +950,7 @@ function providerLabel(provider) {
   // program ("an Antigravity agent", "signs in to Antigravity") say Antigravity on purpose.
   if (provider === 'antigravity') return 'Gemini (Google subscription)';
   if (provider === 'meta') return 'Meta Muse'; // #3939
+  if (provider === 'alibaba') return 'Qwen'; // #5977
   return 'Anthropic';
 }
 /* #3568: the Antigravity runner (Google's agy): Gemini on a Google subscription. ON by default
@@ -1856,9 +1866,14 @@ function setProvider(name, provider, opts) {
   /* #3296/#3391: the four-way guard createAgentInner already uses. google launches
      the gemini runner, xai the grok runner; the switch path was the last post-birth
      setter still refusing both (setAccount/setModel already handle them). */
-  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai'
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
     && !(provider === 'antigravity' && antigravityEnabled())) { // #3568: behind its flag
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
+  }
+  /* #5977: Qwen runs on the account a person set up (an endpoint), so a switch onto it names one; there is no
+     default Qwen account to fall back to. */
+  if (provider === 'alibaba' && !(opts && typeof opts.accountDir === 'string' && opts.accountDir !== '')) {
+    return { outcome: OUTCOME.REFUSED, because: 'pick which Qwen account it should run on, so nothing was changed' };
   }
   /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
   {
@@ -1893,7 +1908,9 @@ function setProvider(name, provider, opts) {
   /* The ONE provider -> runner map (providerRunner), shared with createAgentInner
      and recordedRunner, so the routes to a runner cannot disagree. */
   const runner = providerRunner(provider);
-  if (job.runner === runner) {
+  /* #5977: compared by PROVIDER, read from the job (jobProvider), not by runner: OpenAI and Qwen share codex, so a
+     runner comparison would refuse every switch between them. For every other provider the two are the same test. */
+  if (jobProvider(job) === provider) {
     /* The vendor word a person reads, from the shared providerLabel map. */
     const already = providerLabel(provider);
     return {
@@ -1929,7 +1946,7 @@ function setProvider(name, provider, opts) {
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
     /* The existing OpenAI/Claude wording is kept verbatim (create.runner-dir-1616
        asserts `/could not find the OpenAI runner/`); gemini/grok get the same shape. */
-    const missing = runner === 'codex' ? 'the OpenAI runner'
+    const missing = provider === 'alibaba' ? 'Codex, the runner Qwen agents use' : runner === 'codex' ? 'the OpenAI runner'
       : runner === 'gemini' ? 'the Gemini runner'
         : runner === 'grok' ? 'the Grok runner'
           : runner === 'antigravity' ? 'Antigravity'
@@ -1973,7 +1990,7 @@ function setProvider(name, provider, opts) {
    * is the ACCOUNT check.
    */
   let openaiAccount = null;
-  if (runner === 'codex' && !DRY_RUN) {
+  if (runner === 'codex' && provider === 'openai' && !DRY_RUN) { // #5977: not Qwen, which shares codex
     const openai = require('./openaiaccounts');
     /* 🛑 `list()`, NOT `defaultDir()` (#1313). I wrote the default-home version
        in #1211 and it refused Josh's switch on a freshly wiped Mac while his
@@ -2188,6 +2205,16 @@ function setProvider(name, provider, opts) {
     return { outcome: OUTCOME.REFUSED, because: 'an Antigravity agent signs in to Antigravity in its own window, so it cannot be given an account here yet' };
   }
   let switchAccount = null;
+  /* #5977: a Qwen account, by name only (checked above), fail-closed like the gemini and grok arms below: an unknown
+     or unusable account refuses, since the only alternative is an agent started on nothing. */
+  if (provider === 'alibaba' && !DRY_RUN) {
+    const qwen = require('./qwenaccounts');
+    const wantDir = path.resolve(opts.accountDir);
+    const acct = qwen.list().find((a) => a.dir === wantDir);
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen') };
+    if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used (${acct.endpointProblem}), so nothing was changed` };
+    switchAccount = { ...acct, chosen: opts.pickedByPerson === true };
+  }
   if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
     const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
     const providerName = runner === 'gemini' ? 'Gemini' : 'Grok';
@@ -2267,7 +2294,8 @@ function setProvider(name, provider, opts) {
          default is an env-key door, not a home a launchd job resolves differently
          from the server). claude carries no account, so null. */
         runner === 'codex'
-          ? (openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden()) ? openaiAccount.dir : null)
+          ? (provider === 'alibaba' ? (switchAccount ? switchAccount.dir : null)   // #5977: always the named Qwen account
+            : (openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden()) ? openaiAccount.dir : null))
           : (switchAccount && !switchAccount.isDefault ? switchAccount.dir : null),
     }, platform);
     if (unwritten) return unwritten;
@@ -4514,7 +4542,7 @@ function createAgentInner(opts) {
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : runner === 'muse' ? museBin : claudeBin;
 
   const steps = [];
-  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai'
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
     && !(provider === 'antigravity' && antigravityEnabled())   // #3568: behind its flag
     && !(provider === 'meta' && museEnabled(opts && opts.platform))) { // #3939: behind its flag, Mac only
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
@@ -4569,6 +4597,13 @@ function createAgentInner(opts) {
     // respawns forever. Kept beside the provider decision for symmetry.
     if (!DRY_RUN && !runnerRunnable(grokBin)) {
       return { outcome: OUTCOME.REFUSED, because: 'we could not find the Grok runner on this computer, so an agent made now would never start', steps };
+    }
+  }
+  /* #5977: Qwen runs on codex, against the account's endpoint. The account is required (there is no default Qwen
+     account) and checked in the account block below; the runner is checked here, as for OpenAI. */
+  if (provider === 'alibaba') {
+    if (!DRY_RUN && !runnerRunnable(codexBin)) {
+      return { outcome: OUTCOME.REFUSED, because: 'we could not find Codex, the runner Qwen agents use, on this computer, so an agent made now would never start', steps };
     }
   }
   if (provider === 'openai') {
@@ -4706,7 +4741,11 @@ function createAgentInner(opts) {
   if (provider === 'meta' && wantModelKey !== undefined && wantModelKey !== null && String(wantModelKey).trim() !== '') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_MODEL, steps };
   }
-  if (wantModelKey !== undefined && provider !== 'meta') {
+  // #5977: a Qwen agent runs the model its account names; the account is where a person changes it.
+  if (provider === 'alibaba' && wantModelKey !== undefined && wantModelKey !== null && String(wantModelKey).trim() !== '') {
+    return { outcome: OUTCOME.REFUSED, because: 'a Qwen agent runs the model its Qwen account names; change the model on the account instead', steps };
+  }
+  if (wantModelKey !== undefined && provider !== 'meta' && provider !== 'alibaba') {
     if (provider === 'openai' || provider === 'google' || provider === 'xai' || provider === 'antigravity') {
       /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
          entries in the static MODELS list `modelFor` reads (OpenAI's are per-account
@@ -4818,6 +4857,16 @@ function createAgentInner(opts) {
       .find((a) => a.dir === path.resolve(String(wantAccountDir)));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Grok'), steps };
     configDir = acct.isDefault ? null : acct.dir;
+  } else if (provider === 'alibaba') {
+    /* #5977: a NAMED Qwen account, required and fail-closed. configDir is always the account folder: it is the
+       codex account home the supervisor reads the endpoint from, and there is no default Qwen home. */
+    if (wantAccountDir === undefined || wantAccountDir === null || String(wantAccountDir) === '') {
+      return { outcome: OUTCOME.REFUSED, because: 'pick which Qwen account it should run on', steps };
+    }
+    const acct = require('./qwenaccounts').list().find((a) => a.dir === path.resolve(String(wantAccountDir)));
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen'), steps };
+    if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used: ${acct.endpointProblem}`, steps };
+    configDir = acct.dir;
   } else if (provider === 'meta' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_ACCOUNT, steps };   // #3939
   } else if (provider === 'antigravity' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
@@ -6457,6 +6506,7 @@ module.exports = {
   briefFilename,
   providerRunner,
   runnerProvider,
+  jobProvider,   // #5977
   providerLabel,
   isNonClaudeRunner,
   antigravityEnabled,

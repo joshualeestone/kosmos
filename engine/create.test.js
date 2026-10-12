@@ -3967,7 +3967,8 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   assert.equal(launches.length, 2, 'the supervisor launch seams moved; update this test with them');
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch seam does not pass the pane environment: ' + l);
   const helperCalls = script.split('\n').filter((l) => /^\s+launch_pane(?!\(\))\b/.test(l));
-  assert.equal(helperCalls.length, 7, 'a provider stopped using the shared pane launch that carries PANE_ENV');
+  // #5977: 8 with the codex endpoint (Qwen) launch, which uses the same helper.
+  assert.equal(helperCalls.length, 8, 'a provider stopped using the shared pane launch that carries PANE_ENV');
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently
   // (#577, #540, #529). #3296/#3391 added GEMINI_CLI_HOME + GROK_HOME so a per-account gemini/grok
   // home reaches the pane the same way CODEX_HOME does.
