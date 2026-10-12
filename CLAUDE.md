@@ -34,8 +34,8 @@ explicitly to learn the repo's pre-PR commands and conventions.
   (Windows-branching files left out).
 - **Use yarn, not npm.** The scripts are also npm-runnable, and `tools/run-tests.sh` itself
   runs test:shell through tools/shell-shard.js rather than through yarn (#4317 for CI's shards,
-  #5907 for the local whole list), but its own coverage-mismatch message names `yarn test` the
-  canonical helper, so use yarn. There is no committed lockfile or `packageManager` pin.
+  #5907 for the local whole list), so it does not need yarn itself; its own coverage-mismatch
+  message still names `yarn test` the canonical helper, so use yarn. There is no committed lockfile or `packageManager` pin.
 
 ### Build / Lint
 

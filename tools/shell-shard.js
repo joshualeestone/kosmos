@@ -72,11 +72,27 @@ function slowestSummary(ii, nn, times) {
   return lines.join('\n') + '\n';
 }
 
+// #5907: write all of `s` to `fd`, synchronously. A child that inherits a pipe can leave it
+// non-blocking, so a full pipe answers EAGAIN: wait a moment and retry (up to `tries` times), and
+// finish a partial write rather than drop its tail. `writeSync` is a seam for the test.
+function writeAll(fd, s, writeSync = fs.writeSync, tries = 2000) {
+  const buf = Buffer.from(s);
+  let off = 0; let waits = 0;
+  while (off < buf.length) {
+    try {
+      off += writeSync(fd, buf, off, buf.length - off);
+    } catch (err) {
+      if (!err || err.code !== 'EAGAIN' || ++waits > tries) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    }
+  }
+}
+
 // Run a shard's commands in order, stopping at the first that fails, and return its exit status
 // (a signal is 1). `list` is the whole test:shell list, so the count in the first line is honest.
 // #5907: each command's place is printed before it starts and its time after it ends, and the shard
-// ends on a summary of its slowest commands. `write` and `clock` (seconds) are seams for the test.
-function runShard(list, ii, nn, stdio = 'inherit', write = (s) => fs.writeSync(1, s), clock = () => performance.now() / 1000) {
+// ends on a summary of its slowest commands. `write(s, fd)` and `clock` (seconds) are seams for the test.
+function runShard(list, ii, nn, stdio = 'inherit', write = (s, fd = 1) => writeAll(fd, s), clock = () => performance.now() / 1000) {
   const mine = select(list, ii, nn);
   // A shard with nothing to run would pass having run nothing.
   if (!mine.length) { console.error(`shell-shard ${ii}/${nn}: no commands in this shard; refusing to report green`); return 1; }
@@ -94,8 +110,7 @@ function runShard(list, ii, nn, stdio = 'inherit', write = (s) => fs.writeSync(1
     if (r.status !== 0) {
       const why = r.error ? `could not run: ${r.error.message}` : `exit ${r.status === null ? r.signal : r.status}`;
       write(slowestSummary(ii, nn, times));
-      // Synchronous, as the summary above is, so the FAILED line lands after it in a log that takes both.
-      fs.writeSync(2, `shell-shard ${ii}/${nn}: FAILED (${why}): ${c}\n`);
+      write(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c} (its own output is between its [${k + 1}/${mine.length}] start and time lines)\n`, 2);
       return r.status || 1;
     }
   }
@@ -112,7 +127,7 @@ function main(argv) {
   return runShard(commands(), ii, nn);
 }
 
-module.exports = { commands, shardOf, select, parseShard, runShard, SHELL_SHARDS, SLOWEST };
+module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, SHELL_SHARDS, SLOWEST };
 
 if (require.main === module) {
   try { process.exitCode = main(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exitCode = 2; }

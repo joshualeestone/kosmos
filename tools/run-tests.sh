@@ -438,8 +438,8 @@ unset ${KOSMOS_WAIT_CONTROL_VARS:-}
 # by setting TMPDIR to two different values and getting /var/folders back both
 # times. Node's `os.tmpdir()` DOES honour it, which is why this catches 91 of
 # the 92. The four that remain are three `tmp.*` from shell tests and one yarn
-# scratch dir (measured while test:shell still ran through yarn, before #5907). Those need their own cleanup at their own call sites; do not
-# assume this line covers them.
+# scratch dir, from the `yarn -s test:shell` this file ran before #5907. Those need
+# their own cleanup at their own call sites; do not assume this line covers them.
 KOSMOS_RUN_TMPDIR="${TMPDIR:-/tmp}"
 KOSMOS_RUN_TMPDIR="${KOSMOS_RUN_TMPDIR%/}/kt$$"
 if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
@@ -615,7 +615,7 @@ fi
 if [ "$NODE_STATUS" -eq 126 ] || [ "$NODE_STATUS" -eq 127 ]; then
   echo
   echo "=== exit $NODE_STATUS is not a failing test ==="
-  echo "Something the suite needs could not be run (missing or not executable: node itself, or a program a shell test calls). Read the last line before the exit; no assertion failed."
+  echo "Something the suite needs could not be run (missing or not executable: node itself, or a program a shell test calls). Read the failing command's own output (in a shell-part red, between its start and time lines, above the shell-shard summary); no assertion failed."
 fi
 if [ "$NODE_STATUS" -ne 0 ]; then
   echo
