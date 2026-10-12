@@ -7,11 +7,13 @@ runs `kosmos report show`; this says it without being asked. Stacked on slice 1 
 
 ## The call
 - `engine/stalereport-nudge.js`, the shape of `firstreply-nudge.js`: a pure `plan`, an injected `sweepOnce`, a gated
-  `makeTick`. Told: a card of ours whose state is needs_you or blocked, whose latest report (`selfreport.read`) is that
-  same state, written at least `selfreport.STALE_WAIT_MS` (a day) ago, and whose swarm is not switched off.
+  `makeTick`. Told: a card of ours whose state is needs_you or blocked and shows the agent's report (`stateReported`),
+  whose latest report (`selfreport.read`) is that same state, written over `selfreport.STALE_WAIT_MS` (a day) ago, the
+  comparison report show uses, and whose swarm is not switched off.
 - Once per report line: the book keys on the report's `at`. A fresh report of the same state starts a new day. A
   delivery that reached nothing is retried up to MAX_TRIES (3); a held delivery spends no try.
-- The words are `kosmos report show`'s for the same report (own / written by Kosmos / other), then how to see the card.
+- The words are `kosmos report show`'s for the same report (own / written by Kosmos / "This" for anyone else or no
+  writer), then how to see the card. "A reminder", not "a one-time reminder": a board restart can repeat it.
   The report's own `on` text is not repeated to the agent.
 - server.js: its own timer (5 minutes), gated like the sibling sweeps: live execution allowed, brake
   `AGENT_WORKFORCE_STALEREPORT_NUDGE_OFF=1`, typed through `chat.deliverAutomatic`.
