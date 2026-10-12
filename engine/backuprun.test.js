@@ -330,3 +330,21 @@ test('review 4: a refused or failed snapshot is never called a backup that ran, 
     assert.doesNotMatch(r.stateBecause, /ran/, JSON.stringify(answer));
   }
 });
+
+test('review 6: every result names the pair the run worked under, so a refused file can be set aside by its pair', async () => {
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: true }) }));
+  // Kosmos+ now names B, whose file is not this computer's: the refusal is about B, and says so.
+  fs.mkdirSync(path.dirname(backupstate.fileFor(B.org, B.member)), { recursive: true });
+  fs.writeFileSync(backupstate.fileFor(B.org, B.member), 'not ours');
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(B)), takeSnapshot: taker({ ok: true }) }));
+  assert.deepEqual([r.ok, r.refusedState, r.pair], [false, true, B], JSON.stringify(r));
+  // The caller can act on it: set B's file aside, and the next run goes on under B.
+  assert.equal(backupstate.discardState(r.pair.org, r.pair.member).ok, true);
+  const take = taker({ ok: true, manifestKey: 'm' });
+  const next = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(B)), takeSnapshot: take }));
+  assert.deepEqual([next.ok, next.pair, take.calls[0].input.ctx.org], [true, B, 'org2'], JSON.stringify(next));
+  // A run that never learned a pair names none.
+  wipe();
+  const none = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer({ ok: false, because: 'no answer' }) }));
+  assert.equal('pair' in none, false);
+});

@@ -99,3 +99,10 @@ Mutants after review 3 (19:25 CDT from `date`): V1 bucket dropped from the snaps
 Mutants after review 4 (19:30 CDT from `date`), each tests 18 pass 17 fail 1: W1 took set on any pass, W2 no device-key check before the key step, W3 no re-check before the snapshot.
 
 ## Review 5 (opus, blind, on 2e110082): no must-fix; one nit FIXED (the keyFlags comment had been left above deviceKeyRefusal by the review-4 edit).
+
+## Review 6 (sonnet, blind, on 99f36e39): one must-fix, one nit, both fixed
+1. MUST-FIX: refusedState told the caller to discardState a file without naming whose; after an otherPair move the
+   caller could not know the pair (the pointer is not exported). FIXED: every result names the pair the run worked
+   under (`pair`), set in one place (runNow over runPaired), never the key step's own copy.
+2. NIT: the key step's `pair` leaked through stripState undocumented and inconsistently. FIXED by 1 (replaced or
+   removed in one place) and documented. Tests 18 -> 19.
