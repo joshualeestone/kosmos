@@ -126,6 +126,7 @@ test('#4583: done is one line, capped at 1000 characters, and must be words; the
 });
 
 test('#5951: the project read carries no coordinator warning, and the engine exports none', () => {
+  reset();
   store.writeProfile('pm1', { role: 'Project Manager' });
   store.writeProfile('pm2', { role: 'Project Manager' });
   try {

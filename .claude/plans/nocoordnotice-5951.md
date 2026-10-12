@@ -39,7 +39,8 @@ need a warning that there are two coordinators here. lets kill that message".
     stand-ins updated to the two-term notice.
 - Browser check `docs/browser-checks/render-project-done-4583.js`: with the add answer and the project read stubbed
   to still carry the old sentence (a board served by an older build), the person sees no notice (control: the add
-  went through and the stubbed read reached the page). 23 of 23, headless.
+  went through and the open project, as the page holds it, carries the stubbed sentence), neither in what they can
+  see nor in the text of either notice box. 24 of 24, headless.
 - Mutants, each run, each red by name and restored:
   - the create answer carries `coordinators` again: red at the server #5951 test;
   - the project read carries `coordinators: null` again: red at the engine #5951 test;
@@ -54,3 +55,14 @@ client that is not in this repo would not show up in that grep; I did not look o
 ## What would change this
 A recurrence of the #4583 finding (two managers splitting the work by hand, at a cost somebody saw). Then the nudge
 belongs in the project room, addressed to the agents, never on the person's page.
+
+## Review 1 (2026-10-12)
+- **CONVENTION, taken:** `engine/projects.member-roles-4896.test.js` still listed the warning among what `role`
+  drives. Reworded like its twin in `engine/projects.js`.
+- **CONVENTION, taken:** the browser-check README row still said "items 3 and 4". Now says item 4 was removed here.
+- **CONVENTION, taken:** the first commit's subject was not in the `<branch> -- <message>` form. Recommitted; same tree.
+- **NIT, taken:** the browser check's control was looser than its label (any stubbed read, the box merely
+  existing). It now reads the open project out of the page's own list and requires the stubbed sentence there.
+- **NIT, taken:** the check read only visible text. It now also reads the text of both notice boxes.
+- **NIT, taken:** the new engine test calls `reset()` like its siblings.
+- **NIT, not taken:** the plan's file name has no timestamp. It follows the current practice in this directory.

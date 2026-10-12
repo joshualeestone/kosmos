@@ -164,12 +164,11 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
 
     // ---- coordinators (#5951): no notice, even when the add answer and the read still carry the old warning ----
     const id = await p.evaluate(() => (PROJECTS.find((x) => x.name === 'Given Done Project') || {}).id);
-    let readsStubbed = 0;
     await p.route('**/api/projects', async (route) => {
       if (route.request().method() !== 'GET') return route.continue();
       const res = await route.fetch();
       const body = await res.json();
-      for (const pr of body.projects || []) if (pr.id === id) { pr.coordinators = WARN; readsStubbed += 1; }
+      for (const pr of body.projects || []) if (pr.id === id) pr.coordinators = WARN;
       return route.fulfill({ response: res, json: body });
     });
     await p.route('**/api/project/*/agent/*', (route) => route.fulfill({ status: 200, contentType: 'application/json',
@@ -178,9 +177,16 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
     const added = await p.evaluate(() => addMemberToProject('pm-y', document.getElementById('pj-one-msg')));
     await p.evaluate(() => loadProjects());
     await p.waitForTimeout(300);
-    const shown = await p.evaluate(() => ({ box: !!document.getElementById('pj-one-notice'), page: document.body.innerText || '' }));
-    ok('coordinators: CONTROL the add went through and the read carrying the old warning reached the page', added === true && readsStubbed > 0 && shown.box, JSON.stringify({ added, readsStubbed, box: shown.box }));
-    ok('coordinators: the person sees no notice about them', !/coordinating role|coordinators on this project/i.test(shown.page), shown.page.slice(0, 300));
+    const shown = await p.evaluate((pid) => {
+      const text = (elId) => { const el = document.getElementById(elId); return el ? (el.textContent || '') : null; };
+      const held = PROJECTS.find((x) => x.id === pid) || {};
+      return { held: held.coordinators || null, open: PJ_CURRENT === pid, page: document.body.innerText || '', one: text('pj-one-notice'), rail: text('alist-pj-notice') };
+    }, id);
+    ok('coordinators: CONTROL the add went through and the open project, as the page holds it, carries the old sentence', added === true && shown.open && shown.held === WARN && shown.one !== null,
+      JSON.stringify({ added, open: shown.open, held: shown.held, one: shown.one !== null }));
+    const said = /coordinating role|coordinators on this project/i;
+    ok('coordinators: the person sees no notice about them', !said.test(shown.page), shown.page.slice(0, 300));
+    ok('coordinators: neither notice box holds one, shown or hidden', !said.test(shown.one || '') && !said.test(shown.rail || ''), JSON.stringify({ one: shown.one, rail: shown.rail }));
     /* #5688: unroute() does not wait for a handler already running, so a poll's route.fetch still in flight at
        b.close() threw "Request context disposed" AFTER every assertion passed (CI, twice). Wait for in-flight handlers
        to finish while the page is still open, then drop the stubs. */
