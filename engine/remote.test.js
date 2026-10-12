@@ -4988,6 +4988,9 @@ test('#5995: a typed " (Kosmos app)" ending is not doubled, and one derivation s
       const c = remote.computerNameChoice(odd);
       assert.ok(c.next.length > 0 && /^[^\n\r]{1,60}$/.test(c.label) && c.label === c.next + ' (Kosmos app)', 'a typed name was replaced or left unsendable: ' + JSON.stringify(c));
     }
+    // The computer's own name typed with the ending the account shows after it is still the computer's own name:
+    // nothing is kept, so the computer goes on being followed.
+    assert.deepEqual(remote.computerNameChoice(own + ' (Kosmos app)'), { ok: true, next: null, label: own + ' (Kosmos app)', box: own });
     // Typing the computer's own name is "untouched" as it stands, before anything is taken off it.
     assert.deepEqual(remote.computerNameChoice(own), { ok: true, next: null, label: own + ' (Kosmos app)', box: own });
     assert.deepEqual(remote.computerNameChoice('(Kosmos app)'), { ok: true, next: '', label: 'This computer (Kosmos app)', box: '' });

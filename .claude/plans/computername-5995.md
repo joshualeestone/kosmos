@@ -262,3 +262,23 @@ Not taken (third time): the plan's file name and the commit subjects (reasons in
   notes that `setComputerName` and `canKeepComputerName` are wrappers the tests use (true: each is one line over
   the function the server calls).
 The loop ends here: eight rounds on the name-rides-the-start design (5 to 12), models alternating.
+
+## After convergence: mutants at 2d417473b, and one test they asked for
+31 mutants in a throwaway worktree at 2d417473b; BASE green for each of the three test groups first. 29 red by name.
+Two read green, and both are the same thing: the two places that say "this is the computer's own name, keep
+nothing" each cover for the other.
+- The second place (`kept === own`, after the ending and hyphens are taken off) had no test of its own. Added one
+  (the own name typed with " (Kosmos app)" after it): that mutant is red now, and removing both places reds five.
+- The first place (`asTyped === own`, before anything is taken off) differs from the second only on a computer
+  whose OWN name starts with a hyphen or holds a direction mark. A test host's name is what it is, so no test here
+  can make that case: **removing the first place alone is invisible to this suite.** Stated, not closed.
+The red ones: the chosen name ignored by the later paths; the quiet approval naming the computer itself; the
+choice's label differing from what keeping it sends; direction controls kept; every invisible character stripped
+(round 10's version); a name that draws nothing kept; a leading hyphen kept; a glued ending stripped; an
+unreadable file repaired for a name; an untouched box writing; a cleared choice shown as text; Forget dropping
+the name; the start sent without the typed name; the name kept before the start; never kept after it; no
+question before the start; the gap answered as an error; a cleared box told to show a name; another website
+reading the name; and on the page: the start retrying a failed read, no give-up on the read, the box shown though
+the read failed, the start not waiting for the read, not sending the name, the box not updated to the kept name,
+nothing said when the name was not kept.
+The one line added to `engine/remote.test.js` after review 12 is the only change no reviewer has seen.
