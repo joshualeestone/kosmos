@@ -209,6 +209,7 @@ const loadAsk = new Function('document', 'fetch', `
   function pjSentence(b) { return typeof b === 'string' && b ? b : ''; }
   ${grabLine('function museMetaOption(')}
   let MUSE_ASK_GEN = 0;
+  let MUSE_CODE_HERE = null;   // #6004: declared at the page's top level
   ${grab('async function museAsk(')}
   return { museAsk };
 `);

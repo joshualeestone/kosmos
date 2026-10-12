@@ -29,6 +29,12 @@ a sign-in refused because Muse Code went missing returns to the Install step. No
   looks and runnable).
 - Windows: not offered (the Muse runner is Mac only).
 
+## Decided, same as the Antigravity install it mirrors (cards if they bite)
+- The hard cap answers the press but does not kill a still-running installer, so a later press could start a second
+  one. Antigravity's install has the same shape.
+- The installer gets an allow-listed environment, so a proxy or custom CA (HTTPS_PROXY, SSL_CERT_FILE) is not passed
+  to it; curl itself inherits the board's. Antigravity's install has the same limit.
+
 ## Weakest premise
 That Meta's installer keeps honouring MUSE_NO_MODIFY_PATH and MUSE_INSTALL_DIR (read in the 10-12 script; a test
 pins that Kosmos passes them, not that Meta honours them). Measured: the real installer ran on Mortals 10-12 and put

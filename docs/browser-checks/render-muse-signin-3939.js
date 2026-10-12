@@ -224,8 +224,9 @@ const chk = (ok, label, extra) => {
   await settle();
   chk(/not on this computer/.test((await G('acct-muse-say')).text), 'a refused start is said in words', (await G('acct-muse-say')).text);
   // #6004: refused because Muse Code went missing: the step goes back to Install, never a sign-in loop.
-  chk(await q(() => document.getElementById('acct-muse-go').textContent === 'Install Muse Code' && MUSE_CODE_HERE === false),
-    '#6004: a sign-in refused for missing Muse Code returns the step to Install Muse Code');
+  chk(await q(() => document.getElementById('acct-muse-go').textContent === 'Install Muse Code' && MUSE_CODE_HERE === false
+    && /download from Meta/.test(document.getElementById('acct-muse-say').textContent)),
+    '#6004: a sign-in refused for missing Muse Code returns the step to Install Muse Code, saying it is a download (not "go to Settings")');
   await q(() => { window.__startAnswer = null; MUSE_CODE_HERE = true; ACCT_MUSE.reset(); });   // Muse Code is back for the arms below
 
   // Stop, and closing the dialog, each stop the engine's sign-in by id.
