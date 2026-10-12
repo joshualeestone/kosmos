@@ -56,3 +56,10 @@ Mutants after review 1 (20:17 CDT from `date`, all discover tests, 207): B1 no o
 2. ACCEPTED, comment corrected: only the FOLDER budget is separate; the loose-file reads and the importable cap stay
    shared, so many agent files elsewhere can still fill them first. macOS has the same shape at the hatch merge. The
    comment that read as if starvation were solved now says so.
+
+## Review 3 (opus, blind, on 14b3e342): no must-fix; it compared the walk loop with main line by line. Two nits, both fixed
+1. FIXED: off macOS Documents (deep) was walked before Downloads and Desktop on the one own budget, so a big Documents
+   could starve the two drop folders: review 1's starvation one level down. Off macOS the drop folders now go first
+   (cheap, shallow); macOS keeps the hatch's order. Test with a control for the macOS order.
+2. FIXED: with the folder budget and the candidate cap both full, the new skip said dirs where main said count. The
+   skip now checks the candidate cap first, as the old loop did. Test.

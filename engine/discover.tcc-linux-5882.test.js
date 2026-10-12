@@ -93,3 +93,24 @@ test('#5882 review 2: a missing root after the budget is spent exactly is not a 
   const c = discover.scan({ roots: [{ dir: only, maxDepth: 0 }, { dir: other, maxDepth: 0 }], maxDirs: 1 });
   assert.equal(c.bounded.dirs, true, 'CONTROL: a real root left unread is said');
 });
+
+test('#5882 review 3: off macOS the drop folders come before Documents, so a deep Documents cannot spend their budget', () => {
+  const roots = discover.defaultScanRoots({ importScan: true, platform: 'linux' }).filter((r) => r.ownBudget);
+  assert.deepEqual(roots.map((r) => path.basename(r.dir)), ['Downloads', 'Desktop', 'Documents']);
+  const mac = discover.defaultScanRoots({ importScan: true, platform: 'darwin' }).filter((r) => r.tcc);
+  assert.deepEqual(mac.map((r) => path.basename(r.dir)), ['Documents', 'Downloads', 'Desktop'], 'CONTROL: macOS order unchanged');
+  // Documents (20+ folders from an earlier test) on an own budget of 3: the Downloads file is still read.
+  const r = discover.scan({ importScan: true, platform: 'linux', tccScan: hatch(), maxDirs: 3 });
+  const files = ((r && r.importable) || []).map((x) => String(x.file || x.path || x.dir || ''));
+  assert.ok(files.some((f) => f.includes(path.join('Downloads', 'probe.md'))), JSON.stringify(files));
+});
+
+test('#5882 review 3: with the folder budget and the candidate cap both full, the flags read as before (count, not dirs)', () => {
+  const a = path.join(SB, 'cap-a');
+  fs.mkdirSync(a, { recursive: true });
+  fs.writeFileSync(path.join(a, 'CLAUDE.md'), AGENT);
+  const b = path.join(SB, 'cap-b');
+  fs.mkdirSync(b, { recursive: true });
+  const r = discover.scan({ roots: [{ dir: a, maxDepth: 0 }, { dir: b, maxDepth: 0 }], maxDirs: 1, maxCandidates: 1 });
+  assert.deepEqual([r.bounded.count, r.bounded.dirs], [true, false], JSON.stringify(r.bounded));
+});
