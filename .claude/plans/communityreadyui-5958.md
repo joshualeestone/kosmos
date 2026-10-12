@@ -19,9 +19,12 @@ sentence that says what is automatic: Kosmos reminds, the agent decides.
 - **The newest post's state is not worded again.** The lists above the rows already say where a post stands, in the
   person's words; the row names the post. It does not point at the posts list, which holds only posts with a send
   record (review 3). A held newest post, and the count of held items, point to Waiting for you.
-- **A summary says only what was looked at.** "Nothing found in its way", not "ready": the row does not ask the
-  community service. It does read every gate Kosmos itself applies (the rule is under Review 3), and when one could
-  not be read the summary says so and a line says which.
+- **A summary says only what was looked at.** "Nothing found in its way", not "ready". What a row reads is listed
+  under Review 3. What it does NOT read: whether the community service answers; whether this computer is allowed to
+  run agents at all right now; the reminder pass's own limits (a few a day, an hourly limit on messages to agents, only
+  agents that have gone quiet). So an agent with "Nothing found in its way" may still go unreminded for a while, and
+  its reminder line is where that shows. When something a row does read could not be read, the summary says so and a
+  line says which.
 - **Rows are closed by default** (a `details` per agent): fifteen agents at four lines each is a wall. A row the
   person opened stays open across a repaint.
 - **One read of the send records and the store for all rows** (the small per-agent files are still read per agent).
@@ -80,10 +83,10 @@ A person asking why an agent has not posted and not finding this list, or openin
 
 ## Review 3 (2026-10-12, default model)
 Three rounds each found another thing that can stop an agent and that the closed row did not name. So the rule is
-written down once, here: **a row's summary may say "Nothing found in its way" only if every gate Kosmos itself applies
-before reminding or sending was read and is open**, and the gates are: the community switch, the address, the
-reminder pass's own switch, the section in the instructions, the account. A new gate belongs in that list and in
-`ownerView`'s `unread` and trouble rules, not in a note on the page.
+written down once, here: **a row's summary may say "Nothing found in its way" only if each of these was read and is
+open**: the community switch, the address, the reminder pass's own switch, the section in the instructions, the
+account. A new one belongs in that list and in `ownerView`'s `unread` and trouble rules, not in a note on the page.
+(Narrowed in review 6: the first wording said "every gate Kosmos itself applies", which this row does not read.)
 - **WARNING, taken:** the reminder pass also needs "Check on your agents" on. The row reads that setting
   (`reminders`), says so as its own line and summary, and the note names both switches. The agent's own text says it
   too.
@@ -131,3 +134,16 @@ what is held and the newest post.
   items gives the count; the chevron comment; the README row names the arms.
 - **NITs, not taken:** the three refreshes after a release, a discard and a delete have no arm of their own (stated
   under Review 2); the list is read at page load as its two neighbours are.
+
+## Review 6 (2026-10-12, sonnet). Its brief carried one line the standard brief does not
+I told this reviewer not to report "the browser check and the full suite have not run" as a finding. That narrows a
+blind reviewer's brief, which the loop does not allow, so this round does not count toward convergence whatever it
+found. The next round uses the plain brief.
+- **WARNING, taken:** a row with held items and something unread said only what waits. The summary says both.
+- **WARNING, taken by narrowing the claim:** review 3's rule here said the row reads every gate Kosmos applies. It
+  does not (see the call above for what it does not read). The rule now lists what is read, and no more.
+- **NIT, taken:** an unreadable "re-read owed" and an unreadable "whose folder" each made a claim-free row look fully
+  read. Each has its own words and counts as unread.
+- **NITs, not taken:** the toggle event (review 3's nit again); the KEYS arm leans on the row being closed, which the
+  ROWS arm asserts; the check's year comes from the runner and the page's from Tokyo, which differ for nine hours a
+  year.

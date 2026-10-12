@@ -280,10 +280,12 @@ function ownerView(row) {
   if (row.reminders === 'unreadable') lines.push({ text: 'Kosmos could not read the “Check on your agents” setting just now, so it cannot say whether this agent is being reminded.' });
   if (row.block === 'absent') {
     lines.push({ text: 'No community section in its instructions.' + (row.connected === true ? ' It works in a folder of your own, and Kosmos does not add the section to instructions there.'
-      : row.connected === false ? ' For an agent Kosmos runs as its own, it is added when the agent next starts or when Kosmos itself next starts, while the community is on.' : '') });
+      : row.connected === false ? ' For an agent Kosmos runs as its own, it is added when the agent next starts or when Kosmos itself next starts, while the community is on.'
+      : ' Kosmos could not read whose folder this agent works in, so it cannot say whether the section will be added.') });
   } else {
     lines.push({ text: (own(OWNER_BLOCK, row.block) ? OWNER_BLOCK[row.block] : OWNER_BLOCK.unreadable)
-      + (row.block === 'present' && row.rereadOwed === true ? ' It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again.' : '') });
+      + (row.block === 'present' && row.rereadOwed === true ? ' It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again.'
+        : row.block === 'present' && row.rereadOwed !== false ? ' Kosmos could not read whether the agent has been asked to read a newer version of it.' : '') });
   }
   lines.push({ text: own(OWNER_ACCOUNT, row.account) ? OWNER_ACCOUNT[row.account] : OWNER_ACCOUNT.unreadable });
   if (row.reminder === 'unreadable') lines.push({ text: 'Kosmos cannot read its record of reminders just now.' });
@@ -297,8 +299,9 @@ function ownerView(row) {
   else lines.push({ text: 'Its newest post is “' + (String(row.lastPost.title || '').replace(/\s+/g, ' ').trim() || 'Untitled post') + '”.' });
   if (row.held > 0) lines.push({ text: row.held + (row.held === 1 ? ' item of its is' : ' items of its are') + ' waiting for you, under Waiting for you.' });
   else if (!Number.isInteger(row.held) && row.lastPost !== 'unreadable') lines.push({ text: 'Kosmos could not read whether anything of its is waiting for you just now.' });
-  /* The summary is the closed row, so it may only say "nothing found" when everything was read. */
-  const unread = row.reminders === 'unreadable' || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
+  /* The summary is the closed row, so it may only say "nothing found" when everything this row reads was read. */
+  const unread = row.reminders === 'unreadable' || (row.block === 'present' && row.rereadOwed !== true && row.rereadOwed !== false)
+    || (row.block === 'absent' && row.connected !== true && row.connected !== false) || row.block === 'unreadable' || row.account === 'unreadable' || row.reminder === 'unreadable' || row.lastPost === 'unreadable' || !Number.isInteger(row.held)
     || !own(OWNER_BLOCK, row.block) && row.block !== 'absent' || !own(OWNER_ACCOUNT, row.account);
   /* A section missing while the community is off or unread is the switch's doing (it is taken out at a restart then),
      so the switch is what the closed row names. */
@@ -306,7 +309,10 @@ function ownerView(row) {
   const main = (switchFirst ? board.summary : null) || ownerTrouble(row) || (board && board.summary);
   /* What waits for the person is theirs to act on whatever else is true, so the closed row always says it. */
   const waiting = row.held > 0 ? row.held + ' waiting for you' : null;
-  const summary = main ? main + (waiting ? '. ' + waiting.charAt(0).toUpperCase() + waiting.slice(1) : '') : waiting ? waiting.charAt(0).toUpperCase() + waiting.slice(1) : (unread ? 'Kosmos could not check everything just now' : 'Nothing found in its way');
+  /* Each part that applies is said: what is in the way (or that not everything was read), then what waits. */
+  const first = main || (unread ? 'Kosmos could not check everything just now' : null);
+  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+  const summary = first ? first + (waiting ? '. ' + cap(waiting) : '') : waiting ? cap(waiting) : 'Nothing found in its way';
   return { summary, lines };
 }
 

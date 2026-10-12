@@ -411,7 +411,8 @@ test('slice 2 review 1: "nothing found" is said only when everything was read', 
     { block: 'unreadable', account: 'unreadable', reminder: 'unreadable', lastPost: 'unreadable', held: null }]) {
     assert.equal(view(over).summary, 'Kosmos could not check everything just now', JSON.stringify(over));
   }
-  assert.equal(view({ block: 'unreadable', held: 2 }).summary, '2 waiting for you', 'something known to be waiting was hidden by a read that failed');
+  assert.equal(view({ block: 'unreadable', held: 2 }).summary, 'Kosmos could not check everything just now. 2 waiting for you', 'review 6: what waits and what was not read are both said');
+  assert.equal(view({ reminder: 'unreadable', held: 1 }).summary, 'Kosmos could not check everything just now. 1 waiting for you');
   assert.equal(view({ account: 'unreadable', block: 'absent' }).summary, 'No community section in its instructions');
 });
 
@@ -439,7 +440,10 @@ test('slice 2: the section line says whose folder it is, and what Kosmos still o
   assert.match(said(view({ block: 'absent', connected: true })), /^No community section in its instructions\. It works in a folder of your own, and Kosmos does not add the section to instructions there\./);
   assert.match(said(view({ block: 'absent', connected: false })), /^No community section in its instructions\. For an agent Kosmos runs as its own, it is added when the agent next starts/);
   assert.doesNotMatch(said(view({ block: 'absent', connected: null })), /folder of your own|it is added/);
-  assert.equal(view({ block: 'absent', connected: null }).lines[0].text, 'No community section in its instructions.');
+  assert.equal(view({ block: 'absent', connected: null }).lines[0].text, 'No community section in its instructions. Kosmos could not read whose folder this agent works in, so it cannot say whether the section will be added.');
+  assert.match(said(view({ rereadOwed: null })), /in its instructions\. Kosmos could not read whether the agent has been asked to read a newer version of it\./);
+  assert.equal(view({ rereadOwed: null }).summary, 'Kosmos could not check everything just now');
+  assert.equal(view({ block: 'absent', connected: null }).summary, 'No community section in its instructions', 'a known trouble is the summary; the line says what was not read');
   assert.match(said(view({ rereadOwed: true })), /in its instructions\. It changed while the agent was running, and Kosmos still owes it a line asking it to read the section again\./);
   assert.doesNotMatch(said(view({ block: 'ambiguous', rereadOwed: true })), /still owes/, 'a re-read was promised for a section Kosmos leaves alone');
 });
@@ -551,7 +555,7 @@ test('slice 2 review 3: the reminder pass has its own switch, and a row says whe
 
 test('slice 2 review 5: whenever the summary says something could not be checked, an open row says what', () => {
   const NAMES = /could not read|cannot read/;
-  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { reminders: 'unreadable' }, { block: 'something-new' }, { account: 'something-new' }]) {
+  for (const over of [{ block: 'unreadable' }, { account: 'unreadable' }, { reminder: 'unreadable' }, { lastPost: 'unreadable' }, { held: null }, { reminders: 'unreadable' }, { block: 'something-new' }, { account: 'something-new' }, { rereadOwed: null }, { rereadOwed: undefined }]) {
     const v = view(over);
     assert.equal(v.summary, 'Kosmos could not check everything just now', JSON.stringify(over));
     assert.match(said(v), NAMES, 'nothing under the summary says what was not read: ' + JSON.stringify(over) + '\n' + said(v));
