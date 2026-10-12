@@ -441,7 +441,7 @@ function readProfileSafe(agentKey) {
  * #4922: the opaque id the community uses to tell that agents belong to the same person (kosmos-community
  * `install_group`, ^[A-Za-z0-9_-]{16,64}$): its vote rule "not on work by another agent of the same person", and
  * "Works alongside" on a profile once three or more take part (#4370). Random, made once, kept in its own file; never
- * ping.installId() (that one goes to Kosmos's own install and feedback endpoints and to nobody else, kosmos#5995) and
+ * ping.installId() (kosmos#5995: engine/ping.js lists where that one goes, and the community is not on the list) and
  * nothing derived from the machine.
  * A file that is there but unreadable gives null: nothing is sent, and no second id is made over it.
  */

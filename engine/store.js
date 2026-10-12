@@ -764,8 +764,8 @@ function writeProfile(name, patch) {
    * decided restore semantics, not housekeeping: a restored agent is a
    * SEPARATE agent with its own fresh id (Josh ruled the screen, 19:26:
    * nobody is ever asked same-or-copy; the mechanism that needs no warning
-   * is fresh id). The install id is the created ping's, the same one-Mac-
-   * one-install anchor notify.js already reuses. Its known limit rides
+   * is fresh id). The install id is the created ping's (engine/ping.js), one
+   * per install. Its known limit rides
    * along: on a machine whose ping file cannot be written, installId is
    * fresh per process and ids would remint per restart -- which degrades
    * in the SAFE direction (a new id is a separate agent, never a warning).

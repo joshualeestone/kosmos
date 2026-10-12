@@ -18,8 +18,7 @@
  * build its payload. So "this file sends nothing" is still true; "no create-agent
  * telemetry exists anywhere" is NOT -- see createdbeacon.js for the restored send.
  *
- * What stays is the one piece other features need and that never leaves the
- * machine on its own:
+ * What this file keeps:
  *
  *   installId   a random per-install id, made once and kept in a local file
  *   underTest   whether we are inside node's test runner
@@ -27,14 +26,13 @@
  * ⚠️ `installId` IS RANDOM, never derived from anything about the machine. A hash
  * of a hostname or a MAC address would be a fingerprint that identifies the
  * computer across reinstalls and across products. Random means it identifies an
- * INSTALL and nothing else. It is stored locally. It stays on the Mac EXCEPT for
- * the daily product-feedback report, which is DEFAULT-ON (opt-out, #2013/#2957) and
- * sends installId to installkosmos.com until the person opts out:
- *   engine/feedback.js, engine/feedbacksend.js   the SendFeedback path -- DEFAULT-ON / opt-out
- *   engine/store.js                              local pointer de-duplication -- never leaves the Mac
- * So installId leaves the Mac BY DEFAULT via the feedback report; opting out in
- * Settings > Automation stops it. The store use never leaves the Mac. (This block
- * used to call the feedback path "opt-in", which was wrong: it is default-on. #2957.)
+ * INSTALL and nothing else.
+ *
+ * Where it goes (kosmos#5995; engine/installid-senders-5995.test.js holds this list):
+ *   engine/createdbeacon.js   sent to the install endpoint on a board start and when an agent is made
+ *   engine/feedbacksend.js    sent with the daily feedback report, DEFAULT-ON, off in Settings > Automation (#2013/#2957)
+ *   engine/feedback.js        written into the report file on this computer
+ *   engine/store.js           kept in each agent's profile as `idInstall`; the board serves the profile to its own pages
  */
 
 const fs = require('node:fs');
