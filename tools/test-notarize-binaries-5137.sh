@@ -173,6 +173,8 @@ GUARD_SRC="$(sed -n "${guard},\$p" "$R" | sed '/^done$/q')"
 case "$GUARD_SRC" in *done) ok "the guard loop was extracted whole, through its done" ;; *) bad "the guard loop has no done line to extract through" ;; esac
 out="$(KOSMOS_NOTARIZE=0 bash -c "$GUARD_SRC" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in *"KOSMOS_NOTARIZE is set"*) true ;; *) false ;; esac && ok "the release.sh guard really refuses an exported KOSMOS_NOTARIZE" || bad "guard did not refuse (rc=$rc): $out"
+out="$(env -u KOSMOS_NOTARIZE -u KOSMOS_NOTARY_CODESIGN_CMD -u KOSMOS_NOTARY_LIPO_CMD -u KOSMOS_NOTARY_RETRY_DELAYS KOSMOS_NOTARYTOOL_CMD= bash -c "$GUARD_SRC" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"KOSMOS_NOTARYTOOL_CMD is set"*) true ;; *) false ;; esac && ok "the guard refuses a seam exported EMPTY" || bad "an empty seam passed the guard (rc=$rc): $out"
 out="$(env -u KOSMOS_NOTARIZE -u KOSMOS_NOTARYTOOL_CMD -u KOSMOS_NOTARY_CODESIGN_CMD -u KOSMOS_NOTARY_LIPO_CMD -u KOSMOS_NOTARY_RETRY_DELAYS bash -c "$GUARD_SRC" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "the guard passes a clean environment (control)" || bad "guard refused a clean env (rc=$rc): $out"
 
@@ -232,6 +234,6 @@ pack="$(grep -n '^echo "==> packing"' "$B" | head -1 | cut -d: -f1)"
   || bad "order wrong: notarise=$call last-sign=$last_sign last-selftest=$last_selftest pack=$pack"
 
 echo "test-notarize-binaries-5137: $passes passed, $fails failed"
-EXPECTED=50   # the number of ok lines above; a skipped arm must not read as green
+EXPECTED=51   # the number of ok lines above; a skipped arm must not read as green
 [ "$passes" = "$EXPECTED" ] || echo "test-notarize-binaries-5137: $passes passes, expected $EXPECTED (an arm was skipped or added without updating EXPECTED)"
 [ "$fails" = 0 ] && [ "$passes" = "$EXPECTED" ]

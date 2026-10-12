@@ -3,9 +3,10 @@
 Card: joshualeestone/kosmos#5137 (the app the .pkg installs is signed but not notarized).
 
 ## Scope (this PR)
-- tools/lib/notarize-binaries.sh: zip the signed kosmos-app and kosmos-tunnel, `notarytool submit --wait`,
-  require status Accepted read from its own key, then require each binary's own cdhash in Apple's ticket log.
-- tools/build-kosmos-bundle.sh step: notarise both after the last sign and self-test, before packing; assert
+- tools/lib/notarize-binaries.sh: zip the signed kosmos-app and kosmos-tunnel, `notarytool submit` (no --wait, so
+  the id prints at once), then `notarytool wait <id>` (a second wait if the first returns no final status); require
+  status Accepted read from its own key, then every arch slice's cdhash as a cdhash value in Apple's ticketContents.
+- tools/build-kosmos-bundle.sh step: notarise both after the last sign, self-test and local gate, just before packing; assert
   the shas taken after signing still hold. KOSMOS_NOTARIZE=0 skips loudly for local test builds.
 - cut-sign-preflight wording: the notary key is now needed on every cut (it was already checked on every cut).
 - release.sh step 1c: refuses a cut with KOSMOS_NOTARIZE, a notarize seam, or KOSMOS_NOTARY_RETRY_DELAYS exported, then
