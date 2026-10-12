@@ -49,3 +49,9 @@ sets it, which it does not.
 - **NITs, taken (wording):** the message says the contention RERUN runs the real suite (a cut reruns only on a
   contention red); the comment no longer names a speculative source for the leftover export; the lib's seam list says
   release.sh refuses it.
+
+## After main moved (2026-10-12 09:58)
+Renet's rerunbudget-5907 merged, so KOSMOS_SUITE_RERUN_MAX is on main now. Merged main in; the one conflict was the
+seam list in tools/lib/cut-rerun-guard.sh (both sides edited the same comment lines), resolved to main's wording plus
+this branch's refusal note. The release.sh comment no longer calls the setting unmerged. Guard test: ALL PASS on the
+merged tree.

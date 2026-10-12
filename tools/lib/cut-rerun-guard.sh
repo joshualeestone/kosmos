@@ -67,9 +67,10 @@ kosmos_failing_test_files() {
 # REDS, never false greens, so a single GREEN re-run proves the red was starvation.
 # Re-running through run-tests.sh is safe from inside the cut: its #1962 machine-claim
 # consult is cookie-excluded, so the cut's OWN `yarn test` self-excludes and runs
-# rather than refusing (run-tests.sh:54-62). Up to `max` attempts with a short pause
-# between them (external contention clears with TIME); dismiss ONLY on a green, abort
-# on a persistent red. Returns 0 (contention, dismiss) or 1 (real red, abort).
+# rather than refusing (run-tests.sh:54-62). Up to `max` attempts (default 1; its
+# caller passes KOSMOS_SUITE_RERUN_MAX), pausing briefly between attempts, which only
+# happens when the budget is above 1; dismiss ONLY on a green, abort on a persistent
+# red. Returns 0 (contention, dismiss) or 1 (real red, abort).
 #
 # ISOLATION SCOPE, and how it differs from the file-by-file path: this re-runs the
 # WHOLE suite with node's internal file-parallelism INTACT, so it isolates only
@@ -79,19 +80,27 @@ kosmos_failing_test_files() {
 # (which DOES remove cross-file concurrency) owns the fail>0 case. Node self-
 # contention on the rerun would red -> abort, the SAFE direction.
 #
-# COST: `max` shares the caller's budget with the file-by-file path, but each attempt
-# here is a full ~2-min `yarn test` (not a single file), so a genuinely-red fail-0
-# burns ~max x 2 min before aborting where the pre-#2006 code aborted at once. Safe-
-# direction and bounded; if the file path is ever given a higher `max`, split them.
+# COST, and #5907's split: each attempt here is a full `yarn test` (30 to 36 min by
+# 10-12, not the ~2 min this was written for), run while the cut holds the box. So
+# this path no longer shares the file-by-file `max`; it has its own budget,
+# KOSMOS_SUITE_RERUN_MAX, default 1. The measurement and its limits are in
+# .claude/plans/rerunbudget-5907.md. KOSMOS_SUITE_RERUN_MAX=3 restores the old budget.
 #
-# SEAMS (so the test proves both verdicts without a real 2-minute suite):
+# SEAMS (so the test proves both verdicts without running a real suite):
 #   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`); tests only: release.sh refuses a cut with it set (#5932)
 #   KOSMOS_SUITE_RERUN_SLEEP seconds to pause between attempts (default 5; 0 in tests)
+#   KOSMOS_SUITE_RERUN_MAX   attempts for this path (default 1)
 # Written errexit-safe (release.sh sources this under set -euo pipefail): the rerun
 # runs in an `if ( ... )` subshell so its non-zero does not abort, and the
 # inter-attempt pause is guarded by an `if` (a bare `&&` list could trip errexit).
 kosmos_whole_suite_rerun_verdict() {
-  local repo="$1" max="${2:-3}" attempt rc
+  local repo="$1" max="${2:-1}" attempt rc
+  # #5907: a budget other than 1 to 5 runs once and says so, so a typo is never logged as "red across all N attempts"
+  # with no suite run. Each attempt is a full suite held on the box, so more than 5 is treated as a mistake.
+  case "$max" in
+    [1-5]) ;;
+    *) echo "isolation-rerun: whole-suite budget '$max' is not a whole number from 1 to 5; re-running the whole suite once."; max=1 ;;
+  esac
   local cmd="${KOSMOS_SUITE_RERUN_CMD:-yarn test}"
   local sleep_s="${KOSMOS_SUITE_RERUN_SLEEP:-5}"
   echo "isolation-rerun: node reported 0 failing tests, so the red is not an isolable node test file (a node process-error with no failing test, the shell stage, or the browser-check gate). Re-running the WHOLE 'yarn test' gate alone reproduces a real red in any of those stages; a tally of 0 is not proof node passed, so guessing the stage is unsafe."
@@ -109,6 +118,10 @@ kosmos_whole_suite_rerun_verdict() {
     if [ "$attempt" -le "$max" ] && [ "$sleep_s" -gt 0 ]; then sleep "$sleep_s"; fi
   done
   echo "  whole suite: red in isolation across all $max attempts -> a real failure, not contention. The cut aborts."
+  # #5907: the budget is 1 by default, so say where the override is, in the log a person reads (not when it is already 3+).
+  if [ "$max" -lt 3 ]; then
+    echo "  (whole-suite attempts: $max. If you believe this red was contention, re-cut with KOSMOS_SUITE_RERUN_MAX=3 set to allow up to 3.)"
+  fi
   return 1
 }
 
@@ -121,7 +134,9 @@ kosmos_whole_suite_rerun_verdict() {
 # Two red shapes reach here: a NODE test-file failure (fail_count > 0), handled by
 # the file-by-file rerun below; and a non-isolable-node-file red (fail_count == 0),
 # handled by re-running the whole gate (#2006 post-node extension,
-# kosmos_whole_suite_rerun_verdict). A red with no readable node tally at all (a
+# kosmos_whole_suite_rerun_verdict). The `max` argument (default 3) is the
+# file-by-file budget only; the whole-gate rerun reads KOSMOS_SUITE_RERUN_MAX
+# (default 1) instead (#5907). A red with no readable node tally at all (a
 # killed suite, a coverage mismatch that fired before the node suite) still aborts:
 # it cannot be proven a dismissable stage. Narrates every rerun and the reason to
 # stdout, so the cut's log shows it re-ran and why (the card's acceptance).
@@ -175,7 +190,8 @@ kosmos_isolation_rerun_verdict() {
     # coverage mismatch has no tally and aborted above). A tally of 0 is not proof
     # node passed, so re-run the whole `yarn test` gate the cut ran: a green
     # reproduces nothing, proving the red was contention in whatever stage.
-    if kosmos_whole_suite_rerun_verdict "$repo" "$max"; then return 0; else return 1; fi
+    # #5907: its own budget, not the file-by-file "$max" (see COST above); the callee checks it.
+    if kosmos_whole_suite_rerun_verdict "$repo" "${KOSMOS_SUITE_RERUN_MAX:-1}"; then return 0; else return 1; fi
   fi
 
   files=()

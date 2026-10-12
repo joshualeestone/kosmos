@@ -164,6 +164,27 @@ release_bundle_matches_tree "$T/both.tgz" "$BUILD" "$_tsha3" "$_nasha3" >/dev/nu
 release_bundle_matches_tree "$T/both.tgz" "$BUILD" "$_tsha3" "deadbeef" >/dev/null && bad "a matching connector hid a wrong native app checksum" || ok "a matching connector does not hide a wrong native app checksum"
 release_bundle_matches_tree "$T/both.tgz" "$BUILD" "deadbeef" "$_nasha3" >/dev/null && bad "a matching native app hid a wrong connector checksum" || ok "a matching native app does not hide a wrong connector checksum"
 rm -f "$T/bundle/app/bin/kosmos-tunnel" "$T/bundle/app/bin/kosmos-app"
+# #5896 slice 2: the sealed app bundle. Its files are never sought in the tree; its signature is checked instead.
+# Ad-hoc signed here (no keychain is involved), with a tiny script as its executable.
+mkdir -p "$T/bundle/app/Kosmos.app/Contents/MacOS"
+printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.chaoskosmos.kosmos</string><key>CFBundleExecutable</key><string>Kosmos</string><key>CFBundleShortVersionString</key><string>1.0.0</string></dict></plist>\n' > "$T/bundle/app/Kosmos.app/Contents/Info.plist"
+printf '#!/bin/sh\n' > "$T/bundle/app/Kosmos.app/Contents/MacOS/Kosmos"; chmod 755 "$T/bundle/app/Kosmos.app/Contents/MacOS/Kosmos"
+codesign --force -s - "$T/bundle/app/Kosmos.app" >/dev/null 2>&1 || bad "could not ad-hoc sign the sealed-app fixture"
+bundle sealed.tgz
+release_bundle_matches_tree "$T/sealed.tgz" "$BUILD" "" "" sealed >/dev/null && ok "#5896: a sealed app that verifies passes, and its files are not sought in the tree" || bad "#5896: a verifying sealed app was rejected"
+release_bundle_matches_tree "$T/sealed.tgz" "$BUILD" "" "" sealed "anchor apple generic" >/dev/null && bad "#5896: an ad-hoc sealed app passed a requirement for an Apple-anchored signature" || ok "#5896: the requirement a real cut passes (an Apple-anchored, team-signed app) refuses an ad-hoc one"
+printf 'changed after signing\n' >> "$T/bundle/app/Kosmos.app/Contents/Info.plist"; bundle sealedbad.tgz
+out="$(release_bundle_matches_tree "$T/sealedbad.tgz" "$BUILD" "" "" sealed)" && bad "#5896: a sealed app changed after signing was called matching" || { case "$out" in *"signature does not verify"*) ok "#5896: a sealed app changed after signing is caught by its signature" ;; *) bad "#5896: a tampered sealed app failed for another reason: $out" ;; esac; }
+/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 0.9.0' "$T/bundle/app/Kosmos.app/Contents/Info.plist" >/dev/null 2>&1
+codesign --force -s - "$T/bundle/app/Kosmos.app" >/dev/null 2>&1; bundle sealedold.tgz
+out="$(release_bundle_matches_tree "$T/sealedold.tgz" "$BUILD" "" "" sealed)" && bad "#5896: a sealed app from another version was called matching" || { case "$out" in *"not this release"*) ok "#5896: a validly signed sealed app from another version is caught" ;; *) bad "#5896: an other-version sealed app failed for another reason: $out" ;; esac; }
+/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.0.0' "$T/bundle/app/Kosmos.app/Contents/Info.plist" >/dev/null 2>&1
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.example.other' "$T/bundle/app/Kosmos.app/Contents/Info.plist" >/dev/null 2>&1
+codesign --force -s - "$T/bundle/app/Kosmos.app" >/dev/null 2>&1; bundle sealedother.tgz
+out="$(release_bundle_matches_tree "$T/sealedother.tgz" "$BUILD" "" "" sealed)" && bad "#5896: a sealed app signed as another identifier was called matching" || { case "$out" in *"signature does not verify"*) ok "#5896: a sealed app signed as another identifier is caught" ;; *) bad "#5896: an other-identifier sealed app failed for another reason: $out" ;; esac; }
+rm -rf "$T/bundle/app/Kosmos.app"; bundle nosealed.tgz
+out="$(release_bundle_matches_tree "$T/nosealed.tgz" "$BUILD" "" "" sealed)" && bad "#5896: a bundle without the sealed app passed when one was expected" || { case "$out" in *"no sealed app"*) ok "#5896: a missing sealed app is caught when one is expected" ;; *) bad "#5896: a missing sealed app failed for another reason: $out" ;; esac; }
+release_bundle_matches_tree "$T/nosealed.tgz" "$BUILD" "" "" >/dev/null && ok "#5896: CONTROL: no sealed app and no expectation passes" || bad "#5896: no-sealed-app-no-expectation was wrongly failed"
 
 # The derivation refuses rather than shrinking (#609 review): without node the
 # require walk (the only source for modules outside engine/) would go silent

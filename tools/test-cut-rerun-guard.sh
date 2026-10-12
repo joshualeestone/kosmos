@@ -72,10 +72,11 @@ printf '%s\n' "$out" | grep -q "real failure" && ok "narration names it a real f
 # and no 'test at' line), so the guard re-runs the WHOLE `yarn test` gate alone and
 # dismisses ONLY on a green -- reproducing a real red in any stage (node, shell, or
 # the browser-check gate). All of these drive the KOSMOS_SUITE_RERUN_CMD seam so the
-# assertion never runs a real 2-minute suite, and set SLEEP=0 so retries do not pause.
+# assertion never runs a real suite, and set SLEEP=0 so retries do not pause.
 # A stray 'test at' line is present to prove this branch never reads the node file
 # list. ---
 export KOSMOS_SUITE_RERUN_SLEEP=0
+unset KOSMOS_SUITE_RERUN_MAX   # #5907: the arms below set it themselves; an inherited one would change their counts
 log_shellred="$WORK/log-shellred"
 { tally 100 100 0; echo "test at pass.test.js:2:1"; echo "some later stage then failed"; } > "$log_shellred"
 
@@ -104,11 +105,32 @@ n=\$(wc -l < "$cnt" 2>/dev/null | tr -d ' '); echo x >> "$cnt"
 [ "\$n" -ge 1 ] && exit 0 || exit 1
 EOF
 chmod +x "$flip"
-if out="$(KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 3)"; then rc=0; else rc=$?; fi
+if out="$(KOSMOS_SUITE_RERUN_MAX=3 KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 3)"; then rc=0; else rc=$?; fi
 [ "$rc" -eq 0 ] && ok "fail-0 + gate red on attempt 1, green on attempt 2 -> verdict 0 (transient contention dismissed)" \
   || bad "fail-0 gate-transient case: rc=$rc, expected 0"
 printf '%s\n' "$out" | grep -q "attempt 2/3 -> contention" && ok "narration shows it dismissed on the 2nd attempt" \
   || bad "narration missing the attempt-2 dismissal"
+# #5907: the whole-suite path has its own budget, default 1, whatever the caller's max (release.sh passes none, so 3).
+: > "$cnt"
+if out="$(env -u KOSMOS_SUITE_RERUN_MAX KOSMOS_SUITE_RERUN_CMD="sh $flip" bash -c '. "$1/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$2" "$3"' _ "$REPO" "$log_shellred" "$WORK")"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 1 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 1 ] && printf '%s\n' "$out" | grep -q "re-cut with KOSMOS_SUITE_RERUN_MAX=3 set to allow up to 3" && ok "by default the whole suite is re-run ONCE, whatever the file-by-file max (one red attempt, then abort, naming the override)" \
+  || bad "default whole-suite budget: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
+for badmax in 0 abc 007 6 1000 99999999999999999999; do
+  : > "$cnt"
+  if out="$(KOSMOS_SUITE_RERUN_MAX="$badmax" KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 3)"; then rc=0; else rc=$?; fi
+  { [ "$rc" -eq 1 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 1 ] && printf '%s\n' "$out" | grep -q "budget '$badmax' is not a whole number from 1 to 5"; } \
+    && ok "KOSMOS_SUITE_RERUN_MAX=$badmax runs the suite once and says so (never 'across all 0 attempts')" \
+    || bad "bad budget $badmax: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
+done
+: > "$cnt"
+if out="$(KOSMOS_SUITE_RERUN_MAX=5 KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+{ [ "$rc" -eq 0 ] && [ "$(wc -l < "$cnt" | tr -d ' ')" = 2 ] && ! printf '%s\n' "$out" | grep -q "not a whole number"; } \
+  && ok "KOSMOS_SUITE_RERUN_MAX=5 is accepted (the top of the range): a second attempt runs and dismisses" \
+  || bad "budget 5: rc=$rc runs=$(wc -l < "$cnt" | tr -d ' ') out=$out"
+if out="$(KOSMOS_SUITE_RERUN_MAX=3 KOSMOS_SUITE_RERUN_CMD=false kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+{ [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q "across all 3 attempts" && ! printf '%s\n' "$out" | grep -q "re-cut with KOSMOS_SUITE_RERUN_MAX=3 set"; } \
+  && ok "an abort at a budget of 3 or more does not tell the person to set 3" \
+  || bad "budget 3 abort: rc=$rc out=$out"
 
 # The rerun runs IN $repo: a command that greps a repo-local file must see it. Prove cd works.
 echo "sentinel" > "$WORK/repo-marker"
@@ -131,8 +153,8 @@ fi
 # under active set -e -- the exact lines the dismiss-on-attempt-1 case never reaches.
 # A bare `&&` list or a `((...))` that returned non-zero here would abort before the
 # verdict; the correct behavior is a clean return 1 (the loop exhausts and aborts).
-eset4_out="$(bash -c 'set -euo pipefail; export KOSMOS_SUITE_RERUN_SLEEP=0 KOSMOS_SUITE_RERUN_CMD=false; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 2' 2>&1)"; eset4_rc=$?
-if [ "$eset4_rc" -eq 1 ] && printf '%s\n' "$eset4_out" | grep -q "across all 2 attempts"; then
+eset4_out="$(bash -c 'set -euo pipefail; export KOSMOS_SUITE_RERUN_SLEEP=0 KOSMOS_SUITE_RERUN_CMD=false KOSMOS_SUITE_RERUN_MAX=2; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 2' 2>&1)"; eset4_rc=$?
+if [ "$eset4_rc" -eq 1 ] && printf '%s\n' "$eset4_out" | grep -q "across all 2 attempts" && printf '%s\n' "$eset4_out" | grep -q "re-cut with KOSMOS_SUITE_RERUN_MAX=3 set"; then
   ok "as a DIRECT caller under set -euo pipefail, the multi-attempt abort path exercises the increment + sleep-guard and returns 1 cleanly (errexit-safe)"
 else
   bad "errexit-safety (multi-attempt abort path): rc=$eset4_rc out=[$eset4_out]"

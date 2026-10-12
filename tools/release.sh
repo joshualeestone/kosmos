@@ -729,7 +729,7 @@ done
 # green from it dismisses a fail-0 red and the cut goes on, so a leftover export (`=true`, say) would ship a real
 # shell-stage or browser-check-gate failure. Refused like the notarise seams, an empty
 # value included. KOSMOS_SUITE_RERUN_SLEEP stays allowed (it only paces the reruns), and so does KOSMOS_SUITE_RERUN_MAX,
-# the operator setting #5907's rerunbudget-5907 branch adds (not read on main yet).
+# #5907's operator setting for how many attempts that rerun gets.
 if [ -n "${KOSMOS_SUITE_RERUN_CMD+x}" ]; then
   echo "KOSMOS_SUITE_RERUN_CMD is set in this shell (even an empty value counts). A cut's contention rerun always runs the real suite (#5932): unset it and run again."; exit 1
 fi
@@ -1264,7 +1264,7 @@ echo "   native app: kosmos-app $NATIVE_APP_SHA"
 # the built ones, so a file the build forgot (#731: the codex bridge, absent
 # from every served bundle for ten versions) stops the cut with nothing
 # published, instead of being caught after step 8 has deployed it.
-_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" || _cmp_rc=$?
+_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" sealed "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[subject.OU] = \"${KOSMOS_SIGN_TEAM_ID:?signing-identity.sh was not sourced}\"" || _cmp_rc=$?   # sealed: #5896; a cut is Developer ID signed by construction (step 1c's preflight)
 if [ "$_cmp_rc" -eq 0 ]; then
   echo "   the built bundle carries everything the tree and the app need, and every file in it is the tree's"
 else
@@ -1741,7 +1741,7 @@ for i in 1 2 3 4 5 6; do
     echo "   (attempt $i: $_bundle_cause; waiting)"; sleep 10; continue
   fi
   # `|| _m=$?` keeps this set -e safe AND captures the code the combined `&&` threw away.
-  _m=0; release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" || _m=$?
+  _m=0; release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" sealed "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[subject.OU] = \"${KOSMOS_SIGN_TEAM_ID:?signing-identity.sh was not sourced}\"" || _m=$?   # #5896, as at step 4b
   if [ "$_m" = 0 ]; then _bundle_ok=1; break; fi
   if [ "$_m" = 2 ]; then _bundle_cause="the served tarball is unreadable, malformed, or missing an app/ or bin/ member (see the reason above) - NOT a per-file content mismatch"
   else _bundle_cause="the served bundle's contents differ from the frozen tree (see the per-file diffs above)"; fi
