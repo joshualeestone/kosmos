@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_HOME = mk('home');
 delete process.env.AGENT_WORKFORCE_GROK_HOME;
 const store = require('./store');
 const tick = require('./backuptick');
+const snap = require('./backupsnapshot');
 
 test.after(() => fs.rmSync(BASE, { recursive: true, force: true }));
 
@@ -113,6 +114,7 @@ test('#5883: a Codex agent on a named account is backed up from THAT account\'s 
 test('#5883: a Gemini agent\'s sessions are read from its account storage home (create.geminiStorageHome)', () => {
   const create = require('./create');
   const acct = mk('home', '.gemini-two');
+  mk('workers', 'cody');   // the control agent, made here so this test runs alone (review 1)
   const seen = {};
   const sessionsFor = (dir, opts) => { seen[opts.id] = opts; return []; };
   mk('workers', 'gemma');
@@ -122,4 +124,29 @@ test('#5883: a Gemini agent\'s sessions are read from its account storage home (
   // CONTROL: an agent with no job keeps the default home, so the line above is the job's doing.
   assert.ok(seen.cody, 'CONTROL: the agent with no job was asked too');
   assert.notEqual(seen.cody.geminiHome, seen.gemma.geminiHome);
+});
+
+function rollout(home, agentDir, name) {
+  const day = path.join(home, 'sessions', '2026', '10', '12');
+  fs.mkdirSync(day, { recursive: true });
+  fs.writeFileSync(path.join(day, name), JSON.stringify({ type: 'session_meta', payload: { cwd: agentDir } }) + '\n');
+}
+
+test('#5883 review 1: a backup reads EVERY home an agent\'s Codex sessions can be in: account, runtime, and the default', () => {
+  const create = require('./create');
+  const agentDir = mk('workers', 'rhea');
+  const acct = mk('home', '.codex-acct3');
+  rollout(acct, agentDir, 'rollout-acct.jsonl');
+  rollout(require('./codexruntime').forAgent('rhea'), agentDir, 'rollout-runtime.jsonl');
+  rollout(create.defaultAgentCodexHome(), agentDir, 'rollout-before.jsonl');   // kept before the account move
+  const readJob = (n) => (n === 'rhea' ? { runner: 'codex', configDir: acct } : null);
+  const { roots } = tick.rootsFor(tick.inputsHere({ readJob }));
+  const mine = roots.filter((r) => r.name.startsWith('sessions/rhea/'));
+  assert.deepEqual(mine.map((r) => r.name).sort(), ['sessions/rhea/codex', 'sessions/rhea/codex-default', 'sessions/rhea/codex-runtime']);
+  for (const r of mine) assert.equal(r.only.length, 1, r.name);
+  for (const r of mine) assert.equal(snap.rootNameProblem(r.name), null, r.name);
+  // On the DEFAULT account there is no separate default root: the account home IS the default (one folder, one root).
+  const d = tick.rootsFor(tick.inputsHere({ readJob: (n) => (n === 'rhea' ? { runner: 'codex', configDir: null } : null) })).roots
+    .filter((r) => r.name.startsWith('sessions/rhea/')).map((r) => r.name).sort();
+  assert.deepEqual(d, ['sessions/rhea/codex', 'sessions/rhea/codex-runtime']);
 });
