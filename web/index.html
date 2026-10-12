@@ -53099,8 +53099,8 @@ function createPickGone(known) {
       ? (!MUSE_CREATE || !MUSE_CREATE.on
         ? 'Meta Muse is not available on this computer, so this is back on ' + back + '.'
         : !MUSE_CREATE.installed
-        // #3939: Settings cannot install Muse Code, so the sentence says what can.
-        ? 'Muse Code is not on this computer, so this is back on ' + back + '. Install Muse Code from Meta, then try again.'
+        // #6004: Settings installs Muse Code, so the sentence points there.
+        ? 'Muse Code is not on this computer, so this is back on ' + back + '. Install it in Settings, AI Models: Add a provider, then Meta.'
         : 'Meta Muse is not signed in on this computer, so this is back on ' + back + '. Sign in to it in Settings, AI Models: Add a provider, then Meta.')
       : known
       ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'

@@ -163,7 +163,7 @@ test('#3939 3c-3b: the "back on Claude" sentence names the real reason', () => {
   assert.equal(off.prov, 'anthropic');
   assert.match(off.why, /^Meta Muse is not available on this computer, so this is back on Claude\.$/);
   const notSetUp = goneSays({ on: true, installed: false, ready: false });
-  assert.match(notSetUp.why, /^Muse Code is not on this computer, .*Install Muse Code from Meta, then try again\.$/);   // #3939: says what can fix it
+  assert.match(notSetUp.why, /^Muse Code is not on this computer, .*Install it in Settings, AI Models: Add a provider, then Meta\.$/);   // #6004: Settings installs it
   const signedOut = goneSays({ on: true, installed: true, ready: false });
   assert.match(signedOut.why, /^Meta Muse is not signed in on this computer, .*Sign in to it in Settings, AI Models: Add a provider, then Meta\.$/);
 });
