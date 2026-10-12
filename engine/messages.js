@@ -1547,8 +1547,10 @@ async function tellTaskLineDropped(entry, roster) {
   // An empty `from` is the person only when the route marked it so (#5842); otherwise an agent it could not name.
   let told = entry.person === true ? 'nobody (the person sent it)' : 'nobody (no sender named)';
   if (entry.from) {
-    const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it'
-      + ' for a day while ' + entry.to + ' was out of usage and could not type it. Send it again if it still matters.';
+    // The task page's words (engine/taskactphrase.js): a line kept behind earlier messages names no usage limit.
+    const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it '
+      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + ' was out of usage')
+      + ' and could not send it within a day. Send it again if it still matters.';
     try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');
   }
